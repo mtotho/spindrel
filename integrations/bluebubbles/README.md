@@ -20,8 +20,8 @@ Add to your `.env` file or set via the Integration Settings UI:
 | `BLUEBUBBLES_PASSWORD` | Yes | BlueBubbles server password |
 | `AGENT_API_KEY` | Yes | API key for the agent server |
 | `AGENT_BASE_URL` | No | Agent server URL (default: `http://localhost:8000`) |
-| `BB_DEFAULT_BOT` | No | Default bot ID for all chats (default: `default`) |
-| `BB_WAKE_WORDS` | No | Comma-separated wake words (default: bot name). See [Wake Words](#wake-words). |
+| `BB_DEFAULT_BOT` | No | Default bot ID for Socket.IO client (default: `default`). Not used by webhook. |
+| `BB_WAKE_WORDS` | No | Extra wake words (comma-separated), added on top of automatic bot name/id. See [Wake Words](#wake-words). |
 | `BB_WEBHOOK_TOKEN` | No | Shared secret for webhook auth. If set, BB must send `?token=` in the webhook URL. |
 
 Example `.env`:
@@ -126,10 +126,12 @@ Message arrives
 
 Since iMessage has no native @-mention system, wake words act as the mention trigger. When `require_mention` is enabled on a channel, the bot only responds if a wake word appears anywhere in the message text.
 
-**Configuration**: Set `BB_WAKE_WORDS` as a comma-separated list. If not set, the bot name (`BB_DEFAULT_BOT`) is used as the default wake word.
+**Automatic wake words**: The bot's **name** and **ID** (from the channel binding) are automatically used as wake words. If a channel uses a bot named "Atlas" with id "atlas", both "atlas" and "Atlas" will trigger it — no configuration needed.
+
+**Custom wake words**: Set `BB_WAKE_WORDS` to add extra wake words on top of the automatic ones. These apply globally to all BB channels.
 
 ```env
-BB_WAKE_WORDS=atlas, hey bot, yo assistant
+BB_WAKE_WORDS=hey bot, yo assistant
 ```
 
 **Matching rules**:
@@ -138,13 +140,13 @@ BB_WAKE_WORDS=atlas, hey bot, yo assistant
 - Any wake word: only one needs to match
 - The full message (including the wake word) is sent to the agent — nothing is stripped
 
-**Examples** with `BB_WAKE_WORDS=atlas, hey bot`:
+**Examples** with bot name "Atlas" and `BB_WAKE_WORDS=hey bot`:
 
 | Message | Matches? | Why |
 |---------|----------|-----|
-| "atlas what's the weather" | Yes | "atlas" found |
-| "Hey Bot, help me" | Yes | "hey bot" found (case-insensitive) |
-| "can you help me atlas" | Yes | "atlas" found at end |
+| "atlas what's the weather" | Yes | bot id/name "atlas" found |
+| "Hey Bot, help me" | Yes | custom "hey bot" found (case-insensitive) |
+| "can you help me Atlas" | Yes | bot name found at end |
 | "what's for dinner" | No | no wake words present |
 | "hey everyone" | No | "hey" alone doesn't match "hey bot" |
 

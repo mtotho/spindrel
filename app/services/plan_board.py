@@ -27,7 +27,7 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
-VALID_STATUSES = {"draft", "approved", "executing", "complete", "abandoned"}
+VALID_STATUSES = {"draft", "approved", "executing", "awaiting_approval", "complete", "abandoned"}
 STEP_MARKERS = {"[ ]": "pending", "[x]": "done", "[~]": "in_progress", "[-]": "skipped", "[!]": "failed"}
 STEP_MARKERS_REV = {"pending": "[ ]", "done": "[x]", "in_progress": "[~]", "skipped": "[-]", "failed": "[!]"}
 

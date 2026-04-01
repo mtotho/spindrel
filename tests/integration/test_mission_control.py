@@ -1,13 +1,59 @@
 """Integration tests for Mission Control API router."""
 import uuid
 from datetime import date, datetime, timezone
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from tests.integration.conftest import AUTH_HEADERS
 
 pytestmark = pytest.mark.asyncio
+
+
+# ---------------------------------------------------------------------------
+# Shared MC DB fixture for integration tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def _mc_db(tmp_path):
+    """Set up a temporary MC SQLite DB and mock _resolve_bot for each test."""
+    db_path = str(tmp_path / "mc_test.db")
+
+    with (
+        patch("integrations.mission_control.db.engine._get_db_path", return_value=db_path),
+        patch("integrations.mission_control.services._resolve_bot", new_callable=AsyncMock),
+        patch("app.services.channel_workspace.ensure_channel_workspace"),
+        patch("app.services.channel_workspace.write_workspace_file"),
+        patch("app.services.channel_workspace.read_workspace_file", return_value=None),
+    ):
+        # Reset MC engine state
+        import integrations.mission_control.db.engine as eng_mod
+        eng_mod._engine = None
+        eng_mod._session_factory = None
+
+        # Clear migration caches
+        from integrations.mission_control import services
+        services._kanban_migrated.clear()
+        services._timeline_migrated.clear()
+        services._plans_migrated.clear()
+
+        yield
+
+        # Cleanup
+        import asyncio
+        from integrations.mission_control.db.engine import close_mc_engine
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(close_mc_engine())
+            else:
+                loop.run_until_complete(close_mc_engine())
+        except Exception:
+            pass
+
+        services._kanban_migrated.clear()
+        services._timeline_migrated.clear()
+        services._plans_migrated.clear()
 
 
 class TestMCOverview:
@@ -48,8 +94,8 @@ class TestMCKanban:
         body = resp.json()
         assert body["columns"] == []
 
-    async def test_kanban_with_tasks(self, client, db_session):
-        """Channels with tasks.md show up in aggregated kanban."""
+    async def test_kanban_with_tasks(self, client, db_session, _mc_db):
+        """Channels with cards in MC DB show up in aggregated kanban."""
         from app.db.models import Channel
 
         ch = Channel(
@@ -63,23 +109,11 @@ class TestMCKanban:
         db_session.add(ch)
         await db_session.commit()
 
-        # Mock workspace file reading to return a tasks.md
-        tasks_content = (
-            "# Tasks\n\n"
-            "## Backlog\n\n"
-            "### Test task\n"
-            "- **id**: mc-aaa111\n"
-            "- **priority**: high\n"
-            "\n"
-            "## Done\n\n"
-        )
+        # Seed a card directly into MC DB
+        from integrations.mission_control.services import create_card
+        await create_card(str(ch.id), "Test task", column="Backlog", priority="high")
 
-        # Patch at the source module — router does lazy import inside function
-        with patch(
-            "app.services.channel_workspace.read_workspace_file",
-            return_value=tasks_content,
-        ):
-            resp = await client.get("/integrations/mission_control/kanban", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/kanban", headers=AUTH_HEADERS)
 
         assert resp.status_code == 200
         body = resp.json()
@@ -90,7 +124,7 @@ class TestMCKanban:
         assert backlog["cards"][0]["title"] == "Test task"
         assert backlog["cards"][0]["channel_name"] == "kanban-test"
 
-    async def test_kanban_create(self, client, db_session):
+    async def test_kanban_create(self, client, db_session, _mc_db):
         from app.db.models import Channel
 
         ch = Channel(
@@ -104,20 +138,15 @@ class TestMCKanban:
         db_session.add(ch)
         await db_session.commit()
 
-        with (
-            patch("app.services.channel_workspace.read_workspace_file", return_value=None),
-            patch("app.services.channel_workspace.write_workspace_file") as mock_write,
-            patch("app.services.channel_workspace.ensure_channel_workspace"),
-        ):
-            resp = await client.post(
-                "/integrations/mission_control/kanban/create",
-                json={
-                    "channel_id": str(ch.id),
-                    "title": "New task",
-                    "priority": "high",
-                },
-                headers=AUTH_HEADERS,
-            )
+        resp = await client.post(
+            "/integrations/mission_control/kanban/create",
+            json={
+                "channel_id": str(ch.id),
+                "title": "New task",
+                "priority": "high",
+            },
+            headers=AUTH_HEADERS,
+        )
 
         assert resp.status_code == 200
         body = resp.json()
@@ -126,10 +155,8 @@ class TestMCKanban:
         assert body["card"]["meta"]["priority"] == "high"
         assert body["card"]["meta"]["id"].startswith("mc-")
         assert body["column"] == "Backlog"
-        # Verify write was called
-        assert mock_write.called
 
-    async def test_kanban_move(self, client, db_session):
+    async def test_kanban_move(self, client, db_session, _mc_db):
         from app.db.models import Channel
 
         ch = Channel(
@@ -143,41 +170,29 @@ class TestMCKanban:
         db_session.add(ch)
         await db_session.commit()
 
-        tasks_content = (
-            "# Tasks\n\n"
-            "## Backlog\n\n"
-            "### Move me\n"
-            "- **id**: mc-mov001\n"
-            "- **priority**: medium\n"
-            "\n"
-            "## In Progress\n\n"
-            "## Done\n\n"
-        )
+        # Create a card first
+        from integrations.mission_control.services import create_card
+        result = await create_card(str(ch.id), "Move me", column="Backlog", priority="medium")
+        card_id = result["card_id"]
 
-        with (
-            patch("app.services.channel_workspace.read_workspace_file", return_value=tasks_content),
-            patch("app.services.channel_workspace.write_workspace_file") as mock_write,
-            patch("app.services.channel_workspace.ensure_channel_workspace"),
-        ):
-            resp = await client.post(
-                "/integrations/mission_control/kanban/move",
-                json={
-                    "card_id": "mc-mov001",
-                    "from_column": "Backlog",
-                    "to_column": "In Progress",
-                    "channel_id": str(ch.id),
-                },
-                headers=AUTH_HEADERS,
-            )
+        resp = await client.post(
+            "/integrations/mission_control/kanban/move",
+            json={
+                "card_id": card_id,
+                "from_column": "Backlog",
+                "to_column": "In Progress",
+                "channel_id": str(ch.id),
+            },
+            headers=AUTH_HEADERS,
+        )
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is True
         assert body["card"]["title"] == "Move me"
         assert body["card"]["meta"].get("started")  # transition metadata
-        assert mock_write.called
 
-    async def test_kanban_move_not_found(self, client, db_session):
+    async def test_kanban_move_not_found(self, client, db_session, _mc_db):
         from app.db.models import Channel
 
         ch = Channel(
@@ -191,23 +206,20 @@ class TestMCKanban:
         db_session.add(ch)
         await db_session.commit()
 
-        tasks_content = "# Tasks\n\n## Backlog\n\n## Done\n\n"
-
-        with patch("app.services.channel_workspace.read_workspace_file", return_value=tasks_content):
-            resp = await client.post(
-                "/integrations/mission_control/kanban/move",
-                json={
-                    "card_id": "mc-nonexistent",
-                    "from_column": "Backlog",
-                    "to_column": "Done",
-                    "channel_id": str(ch.id),
-                },
-                headers=AUTH_HEADERS,
-            )
+        resp = await client.post(
+            "/integrations/mission_control/kanban/move",
+            json={
+                "card_id": "mc-nonexistent",
+                "from_column": "Backlog",
+                "to_column": "Done",
+                "channel_id": str(ch.id),
+            },
+            headers=AUTH_HEADERS,
+        )
 
         assert resp.status_code == 404
 
-    async def test_kanban_move_wrong_from_column(self, client, db_session):
+    async def test_kanban_move_wrong_from_column(self, client, db_session, _mc_db):
         """Moving a card with wrong from_column returns 409."""
         from app.db.models import Channel
 
@@ -222,26 +234,20 @@ class TestMCKanban:
         db_session.add(ch)
         await db_session.commit()
 
-        tasks_content = (
-            "# Tasks\n\n"
-            "## Backlog\n\n"
-            "### Card\n"
-            "- **id**: mc-abc123\n\n"
-            "## In Progress\n\n"
-            "## Done\n\n"
-        )
+        # Create a card in Backlog
+        from integrations.mission_control.services import create_card
+        result = await create_card(str(ch.id), "Card", column="Backlog")
 
-        with patch("app.services.channel_workspace.read_workspace_file", return_value=tasks_content):
-            resp = await client.post(
-                "/integrations/mission_control/kanban/move",
-                json={
-                    "card_id": "mc-abc123",
-                    "from_column": "In Progress",  # card is actually in Backlog
-                    "to_column": "Done",
-                    "channel_id": str(ch.id),
-                },
-                headers=AUTH_HEADERS,
-            )
+        resp = await client.post(
+            "/integrations/mission_control/kanban/move",
+            json={
+                "card_id": result["card_id"],
+                "from_column": "In Progress",  # card is actually in Backlog
+                "to_column": "Done",
+                "channel_id": str(ch.id),
+            },
+            headers=AUTH_HEADERS,
+        )
 
         assert resp.status_code == 409
 
@@ -253,7 +259,7 @@ class TestMCTimeline:
         body = resp.json()
         assert body["events"] == []
 
-    async def test_timeline_with_events(self, client, db_session):
+    async def test_timeline_with_events(self, client, db_session, _mc_db):
         from app.db.models import Channel
 
         ch = Channel(
@@ -267,30 +273,20 @@ class TestMCTimeline:
         db_session.add(ch)
         await db_session.commit()
 
-        from datetime import date
-        today = date.today().isoformat()
-        timeline_content = (
-            f"## {today}\n\n"
-            "- 14:30 — Card mc-abc123 moved to **Done** (was: Review)\n"
-            "- 10:00 — Sprint 5 kicked off\n"
-        )
+        # Seed events directly into MC DB
+        from integrations.mission_control.services import append_timeline
+        await append_timeline(str(ch.id), "Sprint 5 kicked off")
+        await append_timeline(str(ch.id), "Card mc-abc123 moved to **Done** (was: Review)")
 
-        with patch(
-            "app.services.channel_workspace.read_workspace_file",
-            return_value=timeline_content,
-        ):
-            resp = await client.get(
-                "/integrations/mission_control/timeline?days=7",
-                headers=AUTH_HEADERS,
-            )
+        resp = await client.get(
+            "/integrations/mission_control/timeline?days=7",
+            headers=AUTH_HEADERS,
+        )
 
         assert resp.status_code == 200
         body = resp.json()
         assert len(body["events"]) == 2
-        assert body["events"][0]["time"] == "14:30"
-        assert "mc-abc123" in body["events"][0]["event"]
         assert body["events"][0]["channel_name"] == "timeline-test"
-        assert body["events"][1]["time"] == "10:00"
 
 
 class TestMCJournal:
@@ -367,10 +363,11 @@ class TestMCPrefs:
 
 
 class TestMCPlanApprove:
-    """Tests for plan approval with execution_config and callback_config."""
+    """Tests for plan approval with the plan execution engine."""
 
-    def _make_channel(self, db_session):
+    async def test_approve_starts_execution_engine(self, client, db_session, _mc_db):
         from app.db.models import Channel
+
         ch = Channel(
             id=uuid.uuid4(),
             name="plan-test",
@@ -380,35 +377,21 @@ class TestMCPlanApprove:
             updated_at=datetime.now(timezone.utc),
         )
         db_session.add(ch)
-        return ch
-
-    def _draft_plan_md(self, plan_id="plan-abc123", title="Test Plan", num_steps=3):
-        steps = "\n".join(f"{i+1}. [ ] Step {i+1}" for i in range(num_steps))
-        return (
-            f"# Plans\n\n"
-            f"## {title} [draft]\n"
-            f"- **id**: {plan_id}\n"
-            f"- **created**: {date.today().isoformat()}\n\n"
-            f"### Steps\n{steps}\n"
-        )
-
-    async def test_approve_creates_task_with_execution_config(self, client, db_session):
-        ch = self._make_channel(db_session)
         await db_session.commit()
 
-        plans_md = self._draft_plan_md()
-        written_content = {}
+        # Create a draft plan via MC DB
+        from integrations.mission_control.tools.plans import draft_plan
+        import re
+        result_text = await draft_plan(str(ch.id), "Test Plan", ["Step 1", "Step 2", "Step 3"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
 
-        def mock_write(channel_id, bot, path, content):
-            written_content[path] = content
-
-        with (
-            patch("app.services.channel_workspace.read_workspace_file", return_value=plans_md),
-            patch("app.services.channel_workspace.write_workspace_file", side_effect=mock_write),
-            patch("app.services.channel_workspace.ensure_channel_workspace"),
+        # Mock advance_plan to avoid core DB access (imported lazily inside function)
+        with patch(
+            "integrations.mission_control.plan_executor.advance_plan",
+            new_callable=AsyncMock,
         ):
             resp = await client.post(
-                f"/integrations/mission_control/channels/{ch.id}/plans/plan-abc123/approve",
+                f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/approve",
                 headers=AUTH_HEADERS,
             )
 
@@ -416,76 +399,55 @@ class TestMCPlanApprove:
         body = resp.json()
         assert body["ok"] is True
         assert body["status"] == "approved"
-        assert body["task_created"] is True
+        assert body["execution_started"] is True
 
-        # Verify a Task was created with execution_config and callback_config
-        from app.db.models import Task as TaskModel
+        # Verify plan status changed to approved in MC DB
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
         from sqlalchemy import select
-        result = await db_session.execute(
-            select(TaskModel).where(TaskModel.channel_id == ch.id)
-        )
-        task = result.scalar_one()
-        assert task.execution_config is not None
-        assert "system_preamble" in task.execution_config
-        assert "plan-abc123" in task.execution_config["system_preamble"]
-        assert "ONE step at a time" in task.execution_config["system_preamble"]
-        assert "schedule_task()" in task.execution_config["system_preamble"]
-        assert task.callback_config is not None
-        assert task.callback_config.get("trigger_rag_loop") is True
 
-    async def test_approve_prompt_includes_step_summary(self, client, db_session):
-        ch = self._make_channel(db_session)
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            assert db_plan.status == "approved"
+
+    async def test_approve_rejects_non_draft(self, client, db_session, _mc_db):
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="plan-test",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
         await db_session.commit()
 
-        plans_md = self._draft_plan_md(num_steps=2)
+        # Create and then reject a plan
+        from integrations.mission_control.tools.plans import draft_plan
+        from integrations.mission_control.services import reject_plan
+        import re
+        result_text = await draft_plan(str(ch.id), "Reject me", ["Step 1"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await reject_plan(str(ch.id), plan_id)
 
-        with (
-            patch("app.services.channel_workspace.read_workspace_file", return_value=plans_md),
-            patch("app.services.channel_workspace.write_workspace_file"),
-            patch("app.services.channel_workspace.ensure_channel_workspace"),
-        ):
-            resp = await client.post(
-                f"/integrations/mission_control/channels/{ch.id}/plans/plan-abc123/approve",
-                headers=AUTH_HEADERS,
-            )
-
-        assert resp.status_code == 200
-
-        from app.db.models import Task as TaskModel
-        from sqlalchemy import select
-        result = await db_session.execute(
-            select(TaskModel).where(TaskModel.channel_id == ch.id)
+        resp = await client.post(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/approve",
+            headers=AUTH_HEADERS,
         )
-        task = result.scalar_one()
-        assert "Step 1" in task.prompt
-        assert "Step 2" in task.prompt
-        assert "Next step: #1" in task.prompt
-
-    async def test_approve_rejects_non_draft(self, client, db_session):
-        ch = self._make_channel(db_session)
-        await db_session.commit()
-
-        executing_plan = (
-            "# Plans\n\n"
-            "## Running Plan [executing]\n"
-            "- **id**: plan-run001\n\n"
-            "### Steps\n1. [~] In progress step\n"
-        )
-
-        with patch("app.services.channel_workspace.read_workspace_file", return_value=executing_plan):
-            resp = await client.post(
-                f"/integrations/mission_control/channels/{ch.id}/plans/plan-run001/approve",
-                headers=AUTH_HEADERS,
-            )
 
         assert resp.status_code == 409
 
 
 class TestMCPlanResume:
-    """Tests for plan resume with step-aware prompts."""
+    """Tests for plan resume with the plan execution engine."""
 
-    def _make_channel(self, db_session):
+    async def test_resume_restarts_execution(self, client, db_session, _mc_db):
         from app.db.models import Channel
+
         ch = Channel(
             id=uuid.uuid4(),
             name="resume-test",
@@ -495,68 +457,70 @@ class TestMCPlanResume:
             updated_at=datetime.now(timezone.utc),
         )
         db_session.add(ch)
-        return ch
-
-    async def test_resume_creates_task_with_step_context(self, client, db_session):
-        ch = self._make_channel(db_session)
         await db_session.commit()
 
-        executing_plan = (
-            "# Plans\n\n"
-            "## Multi-Step Plan [executing]\n"
-            "- **id**: plan-res001\n\n"
-            "### Steps\n"
-            "1. [x] First step\n"
-            "2. [x] Second step\n"
-            "3. [ ] Third step\n"
-            "4. [ ] Fourth step\n"
+        # Create a plan and set to executing status
+        from integrations.mission_control.tools.plans import draft_plan
+        from integrations.mission_control.services import approve_plan
+        import re
+        result_text = await draft_plan(
+            str(ch.id), "Multi-Step Plan",
+            ["First step", "Second step", "Third step", "Fourth step"],
         )
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await approve_plan(str(ch.id), plan_id)
 
-        with (
-            patch("app.services.channel_workspace.read_workspace_file", return_value=executing_plan),
-            patch("app.services.channel_workspace.ensure_channel_workspace"),
+        # Mark some steps as done to simulate partial execution
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            db_plan.steps[0].status = "done"
+            db_plan.steps[1].status = "done"
+            db_plan.status = "executing"
+            await session.commit()
+
+        with patch(
+            "integrations.mission_control.plan_executor.advance_plan",
+            new_callable=AsyncMock,
         ):
             resp = await client.post(
-                f"/integrations/mission_control/channels/{ch.id}/plans/plan-res001/resume",
+                f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/resume",
                 headers=AUTH_HEADERS,
             )
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["ok"] is True
-        assert body["task_created"] is True
+        assert body["execution_started"] is True
 
-        from app.db.models import Task as TaskModel
-        from sqlalchemy import select
-        result = await db_session.execute(
-            select(TaskModel).where(TaskModel.channel_id == ch.id)
+    async def test_resume_rejects_non_executing(self, client, db_session, _mc_db):
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="resume-reject",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
-        task = result.scalar_one()
-        # Prompt should include step summary with next step info
-        assert "plan-res001" in task.prompt
-        assert "Next step: #3" in task.prompt
-        assert "Third step" in task.prompt
-        # Should have execution_config and callback_config
-        assert task.execution_config is not None
-        assert "system_preamble" in task.execution_config
-        assert task.callback_config is not None
-        assert task.callback_config.get("trigger_rag_loop") is True
-
-    async def test_resume_rejects_non_executing(self, client, db_session):
-        ch = self._make_channel(db_session)
+        db_session.add(ch)
         await db_session.commit()
 
-        draft_plan = (
-            "# Plans\n\n"
-            "## Draft Plan [draft]\n"
-            "- **id**: plan-drf001\n\n"
-            "### Steps\n1. [ ] Do something\n"
-        )
+        from integrations.mission_control.tools.plans import draft_plan
+        import re
+        result_text = await draft_plan(str(ch.id), "Draft Plan", ["Do something"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
 
-        with patch("app.services.channel_workspace.read_workspace_file", return_value=draft_plan):
-            resp = await client.post(
-                f"/integrations/mission_control/channels/{ch.id}/plans/plan-drf001/resume",
-                headers=AUTH_HEADERS,
-            )
+        resp = await client.post(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/resume",
+            headers=AUTH_HEADERS,
+        )
 
         assert resp.status_code == 409

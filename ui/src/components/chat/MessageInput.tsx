@@ -191,12 +191,20 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const [filtered, setFiltered] = useState<CompletionItem[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  const autoResize = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 280) + "px";
-  }, []);
+  // Shared text style — used by sizer, decoration, and textarea to guarantee alignment
+  const inputPad = isMobile ? "8px 12px" : "10px 16px";
+  const sharedTextStyle: React.CSSProperties = {
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    fontSize: 15,
+    lineHeight: "1.5",
+    padding: inputPad,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    overflowWrap: "break-word",
+    border: "none",
+    margin: 0,
+    boxSizing: "border-box",
+  };
 
   // Decorated HTML for the overlay layer
   const decoratedHtml = useMemo(
@@ -211,11 +219,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     if (ta && dec) dec.scrollTop = ta.scrollTop;
   }, []);
 
-  // Auto-resize textarea when draft text is restored on mount/channel switch
-  useEffect(() => {
-    if (text && Platform.OS === "web") requestAnimationFrame(autoResize);
-  }, [channelId]);
-
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if ((!trimmed && pendingFiles.length === 0) || disabled) return;
@@ -223,11 +226,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     if (channelId) clearDraft(channelId);
     else { setLocalText(""); setLocalFiles([]); }
     if (Platform.OS === "web") {
-      const ta = textareaRef.current;
-      if (ta) {
-        ta.style.height = "auto";
-        ta.focus();
-      }
+      textareaRef.current?.focus();
     } else {
       inputRef.current?.focus();
     }
@@ -243,7 +242,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
         else { setLocalText(""); setLocalFiles([]); }
         if (Platform.OS === "web") {
           const ta = textareaRef.current;
-          if (ta) { ta.style.height = "auto"; ta.focus(); }
+          if (ta) ta.focus();
         }
       }
     } else {
@@ -294,7 +293,6 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const handleWebInput = useCallback(
     (newText: string) => {
       setText(newText);
-      requestAnimationFrame(autoResize);
       const ta = textareaRef.current;
       if (!ta || !completions) return;
       const pos = ta.selectionStart;
@@ -361,10 +359,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
       if (ta) {
         ta.selectionStart = cursorStart;
         ta.selectionEnd = cursorEnd ?? cursorStart;
-        autoResize();
       }
     });
-  }, [setText, autoResize]);
+  }, [setText]);
 
   const handleWebKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -641,25 +638,34 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   position: "relative",
                   flex: 1,
                   minWidth: 0,
+                  minHeight: isMobile ? 36 : 44,
+                  maxHeight: 280,
                   background: t.surfaceRaised,
                   borderRadius: 10,
                   border: `1px solid ${t.overlayLight}`,
+                  overflow: "hidden",
                 }}
               >
-                {/* Decoration layer — rendered markdown behind the textarea */}
+                {/* Sizer — invisible, drives the wrapper's height */}
+                <div
+                  aria-hidden="true"
+                  style={{
+                    ...sharedTextStyle,
+                    visibility: "hidden",
+                    minHeight: isMobile ? 36 : 44,
+                  }}
+                >
+                  {text ? text + "\n" : "\u00A0"}
+                </div>
+                {/* Decoration layer — rendered markdown */}
                 <div
                   ref={decorationRef}
                   aria-hidden="true"
                   style={{
+                    ...sharedTextStyle,
                     position: "absolute",
                     inset: 0,
                     pointerEvents: "none",
-                    fontFamily: "inherit",
-                    fontSize: 15,
-                    lineHeight: "1.5",
-                    padding: isMobile ? "8px 12px" : "10px 16px",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
                     overflow: "hidden",
                     color: t.text,
                   }}
@@ -678,22 +684,17 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   autoFocus={!isMobile}
                   rows={1}
                   style={{
-                    position: "relative",
+                    ...sharedTextStyle,
+                    position: "absolute",
+                    inset: 0,
                     width: "100%",
-                    fontFamily: "inherit",
-                    fontSize: 15,
-                    lineHeight: "1.5",
-                    padding: isMobile ? "8px 12px" : "10px 16px",
-                    border: "none",
-                    borderRadius: 10,
+                    height: "100%",
                     background: "transparent",
                     color: "transparent",
                     caretColor: t.text,
                     WebkitTextFillColor: "transparent",
                     resize: "none",
                     outline: "none",
-                    minHeight: isMobile ? 36 : 44,
-                    maxHeight: 280,
                     overflow: "auto",
                     scrollbarWidth: "none",
                   }}

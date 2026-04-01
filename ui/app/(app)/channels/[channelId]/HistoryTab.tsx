@@ -16,9 +16,10 @@ import { BackfillButton } from "./history/BackfillSection";
 import { SectionsViewer } from "./history/SectionsViewer";
 import { SectionIndexSettings } from "./history/SectionIndexSettings";
 import { CompactionActivity } from "./history/CompactionActivity";
+import { SectionSearch } from "./history/SectionSearch";
 
 // Re-export sub-components for convenience
-export { HistoryModeSection, BackfillButton, SectionsViewer, SectionIndexSettings, CompactionActivity };
+export { HistoryModeSection, BackfillButton, SectionsViewer, SectionIndexSettings, CompactionActivity, SectionSearch };
 
 // ---------------------------------------------------------------------------
 // History Tab — orchestrator
@@ -179,7 +180,11 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           <BackfillButton channelId={channelId} historyMode={effectiveMode} />
         </Section>
 
-        <Section title="Archived Sections" description="Browse and manage archived conversation sections.">
+        <Section title="Section Search" description="Search archived sections by topic, content, or semantic similarity.">
+          <SectionSearch channelId={channelId} />
+        </Section>
+
+        <Section title="Archived Sections" description="Browse and manage archived conversation sections. Transcripts are stored in the database; file writing is optional (see global settings).">
           <SectionsViewer channelId={channelId} />
         </Section>
         </>

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -34,7 +33,7 @@ async def plans(
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
-    """Aggregated plans: reads plans.md from all tracked channels."""
+    """Aggregated plans from MC SQLite DB for all tracked channels."""
     import asyncio
 
     user = get_user(auth)
@@ -73,7 +72,7 @@ async def approve_plan_endpoint(
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
-    """Approve a draft plan — transitions to approved and triggers bot execution."""
+    """Approve a draft plan — transitions to approved and starts plan execution engine."""
     user = get_user(auth)
     channel = await db.get(Channel, channel_id)
     if not channel:
@@ -90,61 +89,31 @@ async def approve_plan_endpoint(
             raise HTTPException(404, msg)
         raise HTTPException(409, msg)
 
-    plan = result["plan"]
-
-    # Create execution task with plan-aware context
-    task_created = False
+    # Kick off plan execution engine
+    execution_started = False
     try:
-        from app.db.models import Task as TaskModel
-        from app.services.channels import ensure_active_session
-        from app.services.sessions import store_passive_message
+        from integrations.mission_control.plan_executor import advance_plan as _advance
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
 
-        session_id = await ensure_active_session(db, channel)
-        await db.commit()
-
-        step_summary = plan_step_summary(plan)
-        prompt = (
-            f"Plan '{plan['title']}' ({plan_id}) has been approved. "
-            f"Execute the next pending step.\n\n"
-            f"Current step status:\n{step_summary}"
-        )
-        await store_passive_message(db, session_id, prompt, {"source": "mission_control"})
-        await db.commit()
-
-        task = TaskModel(
-            bot_id=channel.bot_id,
-            client_id=channel.client_id,
-            session_id=session_id,
-            channel_id=channel.id,
-            prompt=prompt,
-            status="pending",
-            task_type="api",
-            dispatch_type=channel.integration or "none",
-            dispatch_config=channel.dispatch_config or {},
-            execution_config={
-                "system_preamble": (
-                    f"You are executing approved plan '{plan['title']}' ({plan_id}). "
-                    "Work through ONE step at a time. For each step: "
-                    "1) call update_plan_step to mark it in_progress, "
-                    "2) do the work, "
-                    "3) call update_plan_step to mark it done (or failed if it cannot be completed). "
-                    "Write intermediate results to workspace files. "
-                    "After completing a step, if more steps remain, call schedule_task() "
-                    "to continue with the next step — use this exact prompt pattern: "
-                    f"\"Continue executing plan '{plan['title']}' ({plan_id}). "
-                    f"Pick up from the next pending step.\""
-                ),
-            },
-            callback_config={"trigger_rag_loop": True},
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(task)
-        await db.commit()
-        task_created = True
+        async with await mc_session() as session:
+            db_result = await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )
+            db_plan = db_result.scalar_one_or_none()
+            if db_plan:
+                await _advance(db_plan.id)
+                execution_started = True
     except Exception:
-        logger.warning("Failed to send approval message to channel %s", channel.id, exc_info=True)
+        logger.warning("Failed to start plan execution for %s", plan_id, exc_info=True)
 
-    return {"ok": True, "plan_id": plan_id, "status": "approved", "task_created": task_created}
+    return {
+        "ok": True,
+        "plan_id": plan_id,
+        "status": "approved",
+        "execution_started": execution_started,
+    }
 
 
 @router.post("/channels/{channel_id}/plans/{plan_id}/reject")
@@ -181,7 +150,7 @@ async def resume_plan_endpoint(
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
-    """Resume a stalled executing plan."""
+    """Resume a stalled executing or awaiting_approval plan."""
     user = get_user(auth)
     channel = await db.get(Channel, channel_id)
     if not channel:
@@ -198,55 +167,92 @@ async def resume_plan_endpoint(
             raise HTTPException(404, msg)
         raise HTTPException(409, msg)
 
-    plan = result["plan"]
-
-    task_created = False
+    # Re-engage the plan executor
+    execution_started = False
     try:
-        from app.db.models import Task as TaskModel
-        from app.services.channels import ensure_active_session
-        from app.services.sessions import store_passive_message
+        from integrations.mission_control.plan_executor import advance_plan as _advance
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
 
-        session_id = await ensure_active_session(db, channel)
-        await db.commit()
-
-        step_summary = plan_step_summary(plan)
-        prompt = (
-            f"Continue executing plan '{plan['title']}' ({plan_id}). "
-            f"Pick up from the next pending step.\n\n"
-            f"Current step status:\n{step_summary}"
-        )
-        await store_passive_message(db, session_id, prompt, {"source": "mission_control"})
-        await db.commit()
-
-        task = TaskModel(
-            bot_id=channel.bot_id,
-            client_id=channel.client_id,
-            session_id=session_id,
-            channel_id=channel.id,
-            prompt=prompt,
-            status="pending",
-            task_type="api",
-            dispatch_type=channel.integration or "none",
-            dispatch_config=channel.dispatch_config or {},
-            execution_config={
-                "system_preamble": (
-                    f"You are resuming execution of plan '{plan['title']}' ({plan_id}). "
-                    "Work through ONE step at a time. For each step: "
-                    "1) call update_plan_step to mark it in_progress, "
-                    "2) do the work, "
-                    "3) call update_plan_step to mark it done (or failed if it cannot be completed). "
-                    "Write intermediate results to workspace files. "
-                    "After completing a step, if more steps remain, call schedule_task() "
-                    "to continue with the next step."
-                ),
-            },
-            callback_config={"trigger_rag_loop": True},
-            created_at=datetime.now(timezone.utc),
-        )
-        db.add(task)
-        await db.commit()
-        task_created = True
+        async with await mc_session() as session:
+            db_result = await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )
+            db_plan = db_result.scalar_one_or_none()
+            if db_plan:
+                await _advance(db_plan.id)
+                execution_started = True
     except Exception:
-        logger.warning("Failed to send resume message to channel %s", channel.id, exc_info=True)
+        logger.warning("Failed to resume plan execution for %s", plan_id, exc_info=True)
 
-    return {"ok": True, "plan_id": plan_id, "status": "executing", "task_created": task_created}
+    return {
+        "ok": True,
+        "plan_id": plan_id,
+        "status": "executing",
+        "execution_started": execution_started,
+    }
+
+
+@router.post("/channels/{channel_id}/plans/{plan_id}/steps/{position}/approve")
+async def approve_step_endpoint(
+    channel_id: uuid.UUID,
+    plan_id: str,
+    position: int,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Approve a gated step in an awaiting_approval plan, then advance."""
+    user = get_user(auth)
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel not found")
+    require_channel_access(channel, user)
+
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan, McPlanStep
+    from integrations.mission_control.plan_executor import advance_plan as _advance
+    from integrations.mission_control.services import _render_plans_md, append_timeline
+    from sqlalchemy import select
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlan).where(McPlan.plan_id == plan_id)
+        )
+        db_plan = result.scalar_one_or_none()
+        if not db_plan:
+            raise HTTPException(404, f"Plan '{plan_id}' not found")
+        if db_plan.status != "awaiting_approval":
+            raise HTTPException(
+                409,
+                f"Plan is [{db_plan.status}], expected [awaiting_approval]",
+            )
+
+        await session.refresh(db_plan, ["steps"])
+        step = next((s for s in db_plan.steps if s.position == position), None)
+        if not step:
+            raise HTTPException(404, f"Step {position} not found in plan '{plan_id}'")
+        if not step.requires_approval:
+            raise HTTPException(409, f"Step {position} does not require approval")
+
+        # Clear the approval gate and set plan back to executing
+        step.requires_approval = False
+        db_plan.status = "executing"
+        plan_db_id = db_plan.id
+        step_content = step.content
+        await session.commit()
+
+    await _render_plans_md(str(channel_id))
+
+    try:
+        await append_timeline(
+            str(channel_id),
+            f"Plan step {position} approved: **{step_content}** ({plan_id})",
+        )
+    except Exception:
+        pass
+
+    # Advance the plan (will pick up this step as next pending)
+    await _advance(plan_db_id)
+
+    return {"ok": True, "plan_id": plan_id, "step": position, "status": "approved"}

@@ -18,6 +18,26 @@ SETUP = {
         "client_id_placeholder": "github:owner/repo",
         "client_id_description": "GitHub owner/repo (e.g. octocat/hello-world)",
         "display_name_placeholder": "octocat/hello-world",
+        "config_fields": [
+            {
+                "key": "event_filter",
+                "type": "multiselect",
+                "label": "Event Filter",
+                "description": "Which GitHub events to process (empty = all)",
+                "options": [
+                    {"value": "pull_request", "label": "Pull requests"},
+                    {"value": "push", "label": "Pushes"},
+                    {"value": "issues", "label": "Issues"},
+                    {"value": "issue_comment", "label": "Issue/PR comments"},
+                    {"value": "pull_request_review", "label": "PR reviews"},
+                    {"value": "pull_request_review_comment", "label": "PR review comments"},
+                    {"value": "release", "label": "Releases"},
+                    {"value": "discussion", "label": "Discussions"},
+                    {"value": "discussion_comment", "label": "Discussion comments"},
+                ],
+            },
+        ],
+        # Kept for backward compat during transition — UI reads config_fields first
         "event_types": [
             {"value": "pull_request", "label": "Pull requests"},
             {"value": "push", "label": "Pushes"},

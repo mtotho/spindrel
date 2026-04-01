@@ -10,6 +10,7 @@ import {
   useMCPlanApprove,
   useMCPlanReject,
   useMCPlanResume,
+  useMCPlanStepApprove,
   type MCPlan,
 } from "@/src/api/hooks/useMissionControl";
 import { MCEmptyState } from "@/src/components/mission-control/MCEmptyState";
@@ -26,6 +27,8 @@ import {
   Play,
   X,
   StepForward,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -35,11 +38,12 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string }
   draft: { bg: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.4)", text: "#f59e0b" },
   approved: { bg: "rgba(59,130,246,0.1)", border: "rgba(59,130,246,0.4)", text: "#3b82f6" },
   executing: { bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.4)", text: "#22c55e" },
+  awaiting_approval: { bg: "rgba(168,85,247,0.1)", border: "rgba(168,85,247,0.4)", text: "#a855f7" },
   complete: { bg: "rgba(107,114,128,0.08)", border: "rgba(107,114,128,0.2)", text: "#6b7280" },
   abandoned: { bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.2)", text: "#ef4444" },
 };
 
-const STATUS_FILTERS = ["all", "draft", "executing", "approved", "complete", "abandoned"] as const;
+const STATUS_FILTERS = ["all", "draft", "executing", "awaiting_approval", "approved", "complete", "abandoned"] as const;
 
 // ---------------------------------------------------------------------------
 // Step icon
@@ -98,8 +102,13 @@ function ProgressBar({ steps }: { steps: MCPlan["steps"] }) {
 // ---------------------------------------------------------------------------
 // Status badge
 // ---------------------------------------------------------------------------
+const STATUS_LABELS: Record<string, string> = {
+  awaiting_approval: "Awaiting Approval",
+};
+
 function StatusBadge({ status }: { status: string }) {
   const colors = STATUS_COLORS[status] || STATUS_COLORS.draft;
+  const label = STATUS_LABELS[status] || status;
   return (
     <View
       style={{
@@ -112,7 +121,7 @@ function StatusBadge({ status }: { status: string }) {
       }}
     >
       <Text style={{ fontSize: 10, fontWeight: "700", color: colors.text, textTransform: "uppercase" }}>
-        {status}
+        {label}
       </Text>
     </View>
   );
@@ -124,12 +133,15 @@ function StatusBadge({ status }: { status: string }) {
 function PlanCard({ plan }: { plan: MCPlan }) {
   const t = useThemeTokens();
   const cc = channelColor(plan.channel_id);
-  const [expanded, setExpanded] = useState(plan.status === "draft" || plan.status === "executing");
+  const [expanded, setExpanded] = useState(
+    plan.status === "draft" || plan.status === "executing" || plan.status === "awaiting_approval"
+  );
   const [confirmReject, setConfirmReject] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const approve = useMCPlanApprove();
   const reject = useMCPlanReject();
   const resume = useMCPlanResume();
+  const stepApprove = useMCPlanStepApprove();
 
   const handleApprove = useCallback(() => {
     setError(null);
@@ -214,37 +226,91 @@ function PlanCard({ plan }: { plan: MCPlan }) {
             const nextIdx = plan.steps.findIndex(
               (s) => s.status === "pending" || s.status === "in_progress"
             );
+            const isAwaitingApproval = plan.status === "awaiting_approval";
             return (
               <View style={{ gap: 4 }}>
                 {plan.steps.map((step, i) => {
-                  const isNext = plan.status === "executing" && i === nextIdx;
+                  const isNext = (plan.status === "executing" || isAwaitingApproval) && i === nextIdx;
                   const isTerminal = step.status === "done" || step.status === "skipped" || step.status === "failed";
+                  const isGated = step.requires_approval && !isTerminal;
+                  const needsStepApproval = isAwaitingApproval && isNext && isGated;
                   return (
-                    <View
-                      key={step.position}
-                      className="flex-row items-start gap-2"
-                      style={{
-                        paddingVertical: 2,
-                        paddingHorizontal: isNext ? 4 : 0,
-                        backgroundColor: isNext ? "rgba(59,130,246,0.06)" : "transparent",
-                        borderRadius: isNext ? 6 : 0,
-                      }}
-                    >
-                      <View style={{ marginTop: 1 }}>
-                        <StepIcon status={step.status} />
-                      </View>
-                      <Text
+                    <View key={step.position} style={{ gap: 2 }}>
+                      <View
+                        className="flex-row items-start gap-2"
                         style={{
-                          fontSize: 13,
-                          color: step.status === "failed" ? "#ef4444" : isTerminal ? t.textDim : t.text,
-                          flex: 1,
-                          lineHeight: 18,
-                          fontWeight: isNext ? "600" : "400",
-                          textDecorationLine: step.status === "skipped" ? "line-through" : "none",
+                          paddingVertical: 2,
+                          paddingHorizontal: isNext ? 4 : 0,
+                          backgroundColor: needsStepApproval
+                            ? "rgba(168,85,247,0.06)"
+                            : isNext
+                              ? "rgba(59,130,246,0.06)"
+                              : "transparent",
+                          borderRadius: isNext ? 6 : 0,
                         }}
                       >
-                        {step.position}. {step.content}
-                      </Text>
+                        <View style={{ marginTop: 1 }}>
+                          <StepIcon status={step.status} />
+                        </View>
+                        <Text
+                          style={{
+                            fontSize: 13,
+                            color: step.status === "failed" ? "#ef4444" : isTerminal ? t.textDim : t.text,
+                            flex: 1,
+                            lineHeight: 18,
+                            fontWeight: isNext ? "600" : "400",
+                            textDecorationLine: step.status === "skipped" ? "line-through" : "none",
+                          }}
+                        >
+                          {step.position}. {step.content}
+                        </Text>
+                        {isGated && (
+                          <View style={{ marginTop: 1 }}>
+                            <ShieldAlert size={13} color="#a855f7" />
+                          </View>
+                        )}
+                      </View>
+                      {/* Step approve button for gated steps awaiting approval */}
+                      {needsStepApproval && (
+                        <View className="flex-row items-center gap-2" style={{ paddingLeft: 22 }}>
+                          <Pressable
+                            onPress={() => {
+                              setError(null);
+                              stepApprove.mutate(
+                                { channelId: plan.channel_id, planId: plan.id, position: step.position },
+                                { onError: (e: Error) => setError(`Step approve failed: ${e.message}`) },
+                              );
+                            }}
+                            disabled={stepApprove.isPending}
+                            className="flex-row items-center gap-1.5 rounded-lg px-3 py-1"
+                            style={{
+                              backgroundColor: "rgba(168,85,247,0.12)",
+                              borderWidth: 1,
+                              borderColor: "rgba(168,85,247,0.35)",
+                              opacity: stepApprove.isPending ? 0.5 : 1,
+                            }}
+                          >
+                            <ShieldCheck size={11} color="#a855f7" />
+                            <Text style={{ fontSize: 11, fontWeight: "600", color: "#a855f7" }}>
+                              Approve Step
+                            </Text>
+                          </Pressable>
+                          <Text style={{ fontSize: 10, color: t.textDim }}>
+                            Requires human approval to continue
+                          </Text>
+                        </View>
+                      )}
+                      {/* Result summary for failed steps */}
+                      {step.status === "failed" && step.result_summary && (
+                        <View
+                          className="rounded-md px-2 py-1"
+                          style={{ marginLeft: 22, backgroundColor: "rgba(239,68,68,0.06)" }}
+                        >
+                          <Text style={{ fontSize: 11, color: "#ef4444", lineHeight: 15 }} numberOfLines={3}>
+                            {step.result_summary}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   );
                 })}
@@ -326,28 +392,33 @@ function PlanCard({ plan }: { plan: MCPlan }) {
                 )}
               </>
             )}
-            {plan.status === "executing" && (() => {
+            {(plan.status === "executing" || plan.status === "awaiting_approval") && (() => {
               const nextStep = plan.steps.find(
                 (s) => s.status === "pending" || s.status === "in_progress"
               );
-              return (
-                <Pressable
-                  onPress={handleResume}
-                  disabled={resume.isPending || !nextStep}
-                  className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
-                  style={{
-                    backgroundColor: "rgba(59,130,246,0.12)",
-                    borderWidth: 1,
-                    borderColor: "rgba(59,130,246,0.35)",
-                    opacity: resume.isPending || !nextStep ? 0.5 : 1,
-                  }}
-                >
-                  <StepForward size={12} color="#3b82f6" />
-                  <Text style={{ fontSize: 12, fontWeight: "600", color: "#3b82f6" }}>
-                    {nextStep ? `Next Step (#${nextStep.position})` : "All steps done"}
-                  </Text>
-                </Pressable>
-              );
+              // For awaiting_approval, the step-level approve button handles it.
+              // Show a resume button only for executing plans.
+              if (plan.status === "executing") {
+                return (
+                  <Pressable
+                    onPress={handleResume}
+                    disabled={resume.isPending || !nextStep}
+                    className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
+                    style={{
+                      backgroundColor: "rgba(59,130,246,0.12)",
+                      borderWidth: 1,
+                      borderColor: "rgba(59,130,246,0.35)",
+                      opacity: resume.isPending || !nextStep ? 0.5 : 1,
+                    }}
+                  >
+                    <StepForward size={12} color="#3b82f6" />
+                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#3b82f6" }}>
+                      {nextStep ? `Resume (#${nextStep.position})` : "All steps done"}
+                    </Text>
+                  </Pressable>
+                );
+              }
+              return null;
             })()}
           </View>
         </View>
@@ -419,7 +490,7 @@ export default function MCPlans() {
               }`}
               style={{ textTransform: "capitalize" }}
             >
-              {s}
+              {STATUS_LABELS[s] || s}
             </Text>
           </Pressable>
         ))}

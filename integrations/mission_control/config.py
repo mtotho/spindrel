@@ -31,6 +31,13 @@ class _Settings:
         return _get("WORKSPACE_ROOT", os.path.expanduser("~/.agent-workspaces"))
 
     @property
+    def MISSION_CONTROL_DB_PATH(self) -> str:
+        return _get(
+            "MISSION_CONTROL_DB_PATH",
+            os.path.join(self.WORKSPACE_ROOT, "mission_control", "mc.db"),
+        )
+
+    @property
     def AGENT_SERVER_URL(self) -> str:
         return _get("AGENT_SERVER_URL", "http://host.docker.internal:8000")
 

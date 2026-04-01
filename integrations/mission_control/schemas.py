@@ -115,6 +115,9 @@ class MCPlanStep(BaseModel):
     position: int
     status: str
     content: str
+    requires_approval: bool = False
+    task_id: Optional[str] = None
+    result_summary: Optional[str] = None
 
 
 class MCPlan(BaseModel):

@@ -20,6 +20,24 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Generic task completion hook
+# ---------------------------------------------------------------------------
+
+async def _fire_task_complete(task: Task, status: str) -> None:
+    """Fire the generic after_task_complete hook. Any integration can listen."""
+    try:
+        from app.agent.hooks import HookContext, fire_hook
+        ctx = HookContext(
+            bot_id=task.bot_id,
+            channel_id=task.channel_id,
+            extra={"task_id": str(task.id), "task_type": task.task_type, "status": status},
+        )
+        await fire_hook("after_task_complete", ctx, task=task, status=status)
+    except Exception:
+        logger.debug("after_task_complete hook error", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Timeout resolution
 # ---------------------------------------------------------------------------
 
@@ -302,6 +320,8 @@ async def run_harness_task(task: Task) -> None:
                     t.execution_config = merged_ecfg
                 await db.commit()
 
+        await _fire_task_complete(task, "complete")
+
         _h_err: str | None = None
         if result.exit_code != 0:
             _h_err = ((result.stderr or "").strip()[:500] or f"non-zero exit {result.exit_code}")
@@ -391,6 +411,7 @@ async def run_harness_task(task: Task) -> None:
                 t.error = f"Timed out after {_harness_timeout}s"
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+        await _fire_task_complete(task, "failed")
         # Dispatch timeout error to integration
         try:
             _err_text = f"[Error: Harness task timed out after {_harness_timeout}s]"
@@ -440,6 +461,7 @@ async def run_harness_task(task: Task) -> None:
                     t.error = str(exc)[:4000]
                     t.completed_at = datetime.now(timezone.utc)
                     await db.commit()
+            await _fire_task_complete(task, "failed")
 
         try:
             from app.agent.recording import schedule_harness_completion_record
@@ -546,6 +568,8 @@ async def run_exec_task(task: Task) -> None:
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
 
+        await _fire_task_complete(task, "complete")
+
         _err: str | None = None
         if result.exit_code != 0:
             _err = ((result.stderr or "").strip()[:500] or f"non-zero exit {result.exit_code}")
@@ -613,6 +637,7 @@ async def run_exec_task(task: Task) -> None:
                 t.error = f"Timed out after {_exec_timeout}s"
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+        await _fire_task_complete(task, "failed")
         try:
             _err_text = f"[Error: Exec task timed out after {_exec_timeout}s]"
             output_task = Task(
@@ -633,6 +658,7 @@ async def run_exec_task(task: Task) -> None:
                 t.error = str(exc)[:4000]
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+        await _fire_task_complete(task, "failed")
         try:
             from app.agent.recording import schedule_exec_completion_record
 
@@ -922,6 +948,8 @@ async def run_task(task: Task) -> None:
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
 
+        await _fire_task_complete(task, "complete")
+
         # Dispatch result (including any generated images)
         # Prepend a visual indicator for Slack / other text-based dispatchers
         _dispatch_text = result_text
@@ -1015,6 +1043,7 @@ async def run_task(task: Task) -> None:
                 t.error = f"Timed out after {_task_timeout}s"
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+        await _fire_task_complete(task, "failed")
         _err_text = f"[Error: Task timed out after {_task_timeout}s]"
         try:
             dispatcher = dispatchers.get(task.dispatch_type)
@@ -1045,6 +1074,7 @@ async def run_task(task: Task) -> None:
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
                 logger.error("Task %s failed after %d rate limit retries", task.id, t.retry_count)
+                await _fire_task_complete(task, "failed")
                 # Dispatch error to integration so the user sees it
                 _err_text = f"[Error: API rate limit exceeded after {t.retry_count} retries]"
                 try:
@@ -1062,6 +1092,7 @@ async def run_task(task: Task) -> None:
                 t.error = str(exc)[:4000]
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+        await _fire_task_complete(task, "failed")
         # Dispatch error to integration so the user sees it
         _err_text = f"[Error: {type(exc).__name__}: {str(exc)[:500]}]"
         try:

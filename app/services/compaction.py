@@ -563,11 +563,13 @@ async def _generate_section(
             section_count = count_result.scalar() or 0
 
             if section_count > 0:
+                from sqlalchemy.orm import defer as _defer_col
                 prev_result = await db.execute(
                     select(ConversationSection)
                     .where(ConversationSection.channel_id == channel_id)
                     .order_by(ConversationSection.sequence.desc())
                     .limit(1)
+                    .options(_defer_col(ConversationSection.transcript), _defer_col(ConversationSection.embedding))
                 )
                 prev_section = prev_result.scalar_one_or_none()
                 if prev_section:
@@ -700,11 +702,13 @@ async def _regenerate_executive_summary(
     provider_id: str | None = None,
 ) -> str:
     """Query all sections for a channel and produce a compact executive summary."""
+    from sqlalchemy.orm import defer
     async with async_session() as db:
         result = await db.execute(
             select(ConversationSection)
             .where(ConversationSection.channel_id == channel_id)
             .order_by(ConversationSection.sequence)
+            .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
         )
         sections = result.scalars().all()
 
@@ -961,13 +965,15 @@ async def run_compaction_stream(
                 if row:
                     period_start, period_end = row[0], row[1]
 
-            # Embed for structured mode only (file mode uses keyword search via tool)
+            # Always embed section (title+summary) for semantic search
             sec_embedding = None
-            if history_mode == "structured":
+            try:
                 from app.agent.embeddings import embed_text
                 sec_embedding = await embed_text(f"{sec_title}\n{sec_summary}")
+            except Exception:
+                logger.warning("Failed to embed section for session %s", session_id, exc_info=True)
 
-            # Write transcript to filesystem
+            # Write transcript to filesystem (optional) and DB (always)
             transcript_path = None
             history_dir = _get_history_dir(bot, channel)
             ws_root = _get_channel_ws_root(bot) if channel else _get_workspace_root(bot)
@@ -984,7 +990,7 @@ async def run_compaction_stream(
                 else:
                     max_seq = 0
 
-            if history_dir and ws_root:
+            if settings.HISTORY_WRITE_FILES and history_dir and ws_root:
                 try:
                     transcript_path = _write_section_file(
                         history_dir, max_seq + 1, sec_title, sec_summary,
@@ -993,8 +999,6 @@ async def run_compaction_stream(
                     )
                 except Exception:
                     logger.warning("Failed to write section file for session %s", session_id, exc_info=True)
-            elif not history_dir:
-                logger.warning("No workspace configured for bot %s — section file not written", bot.id)
 
             async with async_session() as db:
                 section = ConversationSection(
@@ -1003,6 +1007,7 @@ async def run_compaction_stream(
                     sequence=max_seq + 1,
                     title=sec_title,
                     summary=sec_summary,
+                    transcript=sec_transcript,
                     transcript_path=transcript_path,
                     message_count=msg_count,
                     chunk_size=msg_count,
@@ -1013,6 +1018,15 @@ async def run_compaction_stream(
                 )
                 db.add(section)
                 await db.commit()
+
+            # Prune old sections per retention policy
+            if channel_id:
+                try:
+                    pruned = await prune_sections(channel_id)
+                    if pruned:
+                        logger.info("Pruned %d old sections from channel %s", pruned, channel_id)
+                except Exception:
+                    logger.warning("Section retention pruning failed for channel %s", channel_id, exc_info=True)
 
             # Append new section summary to existing executive summary
             if existing_summary and channel_id:
@@ -1284,10 +1298,13 @@ async def run_compaction_forced(
         if row:
             period_start, period_end = row[0], row[1]
 
+        # Always embed section for semantic search
         sec_embedding = None
-        if history_mode == "structured":
+        try:
             from app.agent.embeddings import embed_text
             sec_embedding = await embed_text(f"{sec_title}\n{sec_summary}")
+        except Exception:
+            logger.warning("Failed to embed section for session %s", session_id, exc_info=True)
 
         channel_id = session.channel_id
         if channel_id:
@@ -1299,11 +1316,11 @@ async def run_compaction_forced(
         else:
             max_seq = 0
 
-        # Write transcript to filesystem
+        # Write transcript to filesystem (optional) and DB (always)
         transcript_path = None
         history_dir = _get_history_dir(bot, channel)
         ws_root = _get_channel_ws_root(bot) if channel else _get_workspace_root(bot)
-        if history_dir and ws_root:
+        if settings.HISTORY_WRITE_FILES and history_dir and ws_root:
             try:
                 transcript_path = _write_section_file(
                     history_dir, max_seq + 1, sec_title, sec_summary,
@@ -1312,8 +1329,6 @@ async def run_compaction_forced(
                 )
             except Exception:
                 logger.warning("Failed to write section file for session %s", session_id, exc_info=True)
-        elif not history_dir:
-            logger.warning("No workspace configured for bot %s — section file not written", bot.id)
 
         section = ConversationSection(
             channel_id=channel_id,
@@ -1321,6 +1336,7 @@ async def run_compaction_forced(
             sequence=max_seq + 1,
             title=sec_title,
             summary=sec_summary,
+            transcript=sec_transcript,
             transcript_path=transcript_path,
             message_count=msg_count,
             chunk_size=msg_count,
@@ -1331,6 +1347,15 @@ async def run_compaction_forced(
         )
         db.add(section)
         await db.flush()
+
+        # Prune old sections per retention policy (same session — caller commits)
+        if channel_id:
+            try:
+                pruned = await prune_sections(channel_id, db=db)
+                if pruned:
+                    logger.info("Pruned %d old sections from channel %s", pruned, channel_id)
+            except Exception:
+                logger.warning("Section retention pruning failed for channel %s", channel_id, exc_info=True)
 
         if existing_summary and channel_id:
             exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
@@ -1665,16 +1690,19 @@ async def backfill_sections(
         ts_end_idx = ua_before + msg_count - 1
         period_end = active_timestamps[ts_end_idx] if 0 <= ts_end_idx < len(active_timestamps) else None
 
+        # Always embed section for semantic search
         embedding = None
-        if effective_mode == "structured":
+        try:
             from app.agent.embeddings import embed_text
             embedding = await embed_text(f"{title}\n{summary}")
+        except Exception:
+            logger.warning("Failed to embed section for backfill chunk %d", seq, exc_info=True)
 
-        # Write transcript to filesystem
+        # Write transcript to filesystem (optional) and DB (always)
         transcript_path = None
         history_dir = _get_history_dir(bot, channel)
         ws_root = _get_channel_ws_root(bot) if channel else _get_workspace_root(bot)
-        if history_dir and ws_root:
+        if settings.HISTORY_WRITE_FILES and history_dir and ws_root:
             try:
                 transcript_path = _write_section_file(
                     history_dir, seq, title, summary, transcript,
@@ -1683,8 +1711,6 @@ async def backfill_sections(
                 )
             except Exception:
                 logger.warning("Failed to write section file for backfill chunk %d", seq, exc_info=True)
-        elif not history_dir:
-            logger.warning("No workspace configured for bot %s — section file not written", bot.id)
 
         async with async_session() as db:
             section = ConversationSection(
@@ -1693,6 +1719,7 @@ async def backfill_sections(
                 sequence=seq,
                 title=title,
                 summary=summary,
+                transcript=transcript,
                 transcript_path=transcript_path,
                 message_count=msg_count,
                 chunk_size=chunk_size,
@@ -1828,8 +1855,7 @@ def format_section_index(sections: list, verbosity: str = "standard", total_sect
     header = (
         "Archived conversation history — use read_conversation_history with:\n"
         "  - A section number (e.g. '3') to read a full transcript\n"
-        "  - 'search:<query>' to find sections by topic\n"
-        "  - 'messages:<query>' to grep raw messages across ALL history (exact strings, errors, ports, paths)\n"
+        "  - 'search:<query>' to find sections by topic, content, or semantic similarity\n"
         "  - 'tool:<id>' to retrieve full output of a summarized tool call"
     )
     if total_sections and total_sections > len(sections):
@@ -1867,3 +1893,94 @@ def format_section_index(sections: list, verbosity: str = "standard", total_sect
         lines.append(f"  {s.summary}")
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+# ---------------------------------------------------------------------------
+# Section retention pruning
+# ---------------------------------------------------------------------------
+
+
+def _delete_section_file(sec: ConversationSection, bot: BotConfig | None = None) -> None:
+    """Best-effort delete the transcript file for a section."""
+    if not sec.transcript_path:
+        return
+    try:
+        # transcript_path is relative to workspace root
+        ws_root = _get_workspace_root(bot) if bot else None
+        if ws_root:
+            full_path = os.path.join(ws_root, sec.transcript_path)
+        else:
+            full_path = sec.transcript_path
+        if os.path.isfile(full_path):
+            os.remove(full_path)
+    except Exception:
+        logger.debug("Could not delete section file %s", sec.transcript_path, exc_info=True)
+
+
+async def prune_sections(channel_id: uuid.UUID, db: AsyncSession | None = None) -> int:
+    """Delete old sections per the global retention policy.
+
+    When *db* is provided the caller owns the transaction (no commit here).
+    When *db* is None a fresh session is opened and committed.
+
+    Returns the number of sections deleted.
+    """
+    mode = settings.SECTION_RETENTION_MODE
+    if mode == "forever":
+        return 0
+
+    value = settings.SECTION_RETENTION_VALUE
+
+    owns_session = db is None
+    if owns_session:
+        _ctx = async_session()
+        db = await _ctx.__aenter__()
+
+    try:
+        from sqlalchemy.orm import defer as _prune_defer
+        _prune_opts = [_prune_defer(ConversationSection.transcript), _prune_defer(ConversationSection.embedding)]
+
+        if mode == "count":
+            # Keep the N most recent sections by sequence
+            keep_q = (
+                select(ConversationSection.id)
+                .where(ConversationSection.channel_id == channel_id)
+                .order_by(ConversationSection.sequence.desc())
+                .limit(value)
+            )
+            keep_ids = set((await db.execute(keep_q)).scalars().all())
+            all_q = (
+                select(ConversationSection)
+                .where(ConversationSection.channel_id == channel_id)
+                .options(*_prune_opts)
+            )
+            all_sections = (await db.execute(all_q)).scalars().all()
+            to_delete = [s for s in all_sections if s.id not in keep_ids]
+        elif mode == "days":
+            from datetime import timedelta, timezone
+            cutoff = datetime.now(timezone.utc) - timedelta(days=value)
+            old_q = (
+                select(ConversationSection)
+                .where(
+                    ConversationSection.channel_id == channel_id,
+                    ConversationSection.created_at < cutoff,
+                )
+                .options(*_prune_opts)
+            )
+            to_delete = list((await db.execute(old_q)).scalars().all())
+        else:
+            return 0
+
+        if not to_delete:
+            return 0
+
+        for sec in to_delete:
+            _delete_section_file(sec)
+            await db.delete(sec)
+
+        if owns_session:
+            await db.commit()
+        return len(to_delete)
+    finally:
+        if owns_session:
+            await _ctx.__aexit__(None, None, None)

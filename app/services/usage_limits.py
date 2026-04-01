@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, func
 
@@ -50,12 +51,14 @@ def start_refresh_task() -> None:
 
 
 def _period_start(period: str) -> datetime:
-    """Return UTC start of the current period."""
-    now = datetime.now(timezone.utc)
+    """Return start of the current period in the user's configured timezone (as UTC)."""
+    from app.config import settings
+    local_tz = ZoneInfo(settings.TIMEZONE)
+    now_local = datetime.now(timezone.utc).astimezone(local_tz)
     if period == "daily":
-        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     elif period == "monthly":
-        return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     raise ValueError(f"Unknown period: {period}")
 
 

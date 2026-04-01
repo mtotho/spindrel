@@ -11,9 +11,10 @@ import {
   useActivateIntegration,
   useDeactivateIntegration,
   type AvailableIntegration,
+  type ConfigField,
 } from "@/src/api/hooks/useChannels";
 import {
-  Section, FormRow, TextInput, SelectInput, EmptyState,
+  Section, FormRow, TextInput, SelectInput, Toggle, EmptyState,
 } from "@/src/components/shared/FormControls";
 import { ActionButton, StatusBadge, InfoBanner } from "@/src/components/shared/SettingsControls";
 import type { ActivatableIntegration, ActivationResult } from "@/src/types/api";
@@ -70,15 +71,15 @@ function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
 }
 
 // ---------------------------------------------------------------------------
-// Event filter multi-select
+// Generic multi-select picker (checkbox list)
 // ---------------------------------------------------------------------------
 
-function EventFilterPicker({
-  eventTypes,
+function MultiSelectPicker({
+  options,
   selected,
   onChange,
 }: {
-  eventTypes: { value: string; label: string }[];
+  options: { value: string; label: string }[];
   selected: string[];
   onChange: (values: string[]) => void;
 }) {
@@ -94,12 +95,12 @@ function EventFilterPicker({
 
   return (
     <View className="gap-1.5">
-      {eventTypes.map((et) => {
-        const isChecked = selected.includes(et.value);
+      {options.map((opt) => {
+        const isChecked = selected.includes(opt.value);
         return (
           <Pressable
-            key={et.value}
-            onPress={() => toggle(et.value)}
+            key={opt.value}
+            onPress={() => toggle(opt.value)}
             className="flex-row items-center gap-2"
           >
             <View
@@ -116,11 +117,86 @@ function EventFilterPicker({
             >
               {isChecked && <Check size={11} color="#fff" strokeWidth={3} />}
             </View>
-            <Text className="text-text text-sm">{et.label}</Text>
+            <Text className="text-text text-sm">{opt.label}</Text>
           </Pressable>
         );
       })}
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Generic config field renderer
+// ---------------------------------------------------------------------------
+
+function BindingConfigFields({
+  fields,
+  values,
+  onChange,
+}: {
+  fields: ConfigField[];
+  values: Record<string, any>;
+  onChange: (key: string, value: any) => void;
+}) {
+  return (
+    <>
+      {fields.map((field) => {
+        const val = values[field.key] ?? field.default;
+        switch (field.type) {
+          case "string":
+            return (
+              <FormRow key={field.key} label={field.label} description={field.description}>
+                <TextInput
+                  value={val ?? ""}
+                  onChangeText={(v: string) => onChange(field.key, v)}
+                />
+              </FormRow>
+            );
+          case "boolean":
+            return (
+              <Toggle
+                key={field.key}
+                label={field.label}
+                description={field.description}
+                value={val ?? false}
+                onChange={(v: boolean) => onChange(field.key, v)}
+              />
+            );
+          case "number":
+            return (
+              <FormRow key={field.key} label={field.label} description={field.description}>
+                <TextInput
+                  value={val != null ? String(val) : ""}
+                  onChangeText={(v: string) => onChange(field.key, v === "" ? undefined : Number(v))}
+                  type="number"
+                />
+              </FormRow>
+            );
+          case "select":
+            return (
+              <FormRow key={field.key} label={field.label} description={field.description}>
+                <SelectInput
+                  value={val ?? ""}
+                  onChange={(v: string) => onChange(field.key, v)}
+                  options={field.options ?? []}
+                />
+              </FormRow>
+            );
+          case "multiselect":
+            return (
+              <FormRow key={field.key} label={field.label} description={field.description}>
+                <MultiSelectPicker
+                  options={field.options ?? []}
+                  selected={Array.isArray(val) ? val : []}
+                  onChange={(v: string[]) => onChange(field.key, v)}
+                />
+              </FormRow>
+            );
+          default:
+            return null;
+        }
+      })}
+    </>
   );
 }
 
@@ -291,12 +367,43 @@ function ActivationsSection({
 // Binding form (shared between Add and Edit)
 // ---------------------------------------------------------------------------
 
+/** Build initial config values from config_fields defaults, overlaid with existing dispatch_config. */
+function initConfigValues(
+  fields: ConfigField[] | undefined,
+  dispatchConfig: Record<string, any> | undefined,
+): Record<string, any> {
+  const values: Record<string, any> = {};
+  if (!fields) return values;
+  for (const f of fields) {
+    values[f.key] = dispatchConfig?.[f.key] ?? f.default;
+  }
+  return values;
+}
+
+/** Collect non-default, non-empty config values for submission. */
+function collectConfigValues(
+  fields: ConfigField[] | undefined,
+  values: Record<string, any>,
+): Record<string, any> {
+  const result: Record<string, any> = {};
+  if (!fields) return result;
+  for (const f of fields) {
+    const v = values[f.key];
+    if (v === undefined || v === null) continue;
+    // Skip empty arrays and empty strings that match defaults
+    if (Array.isArray(v) && v.length === 0) continue;
+    if (v === f.default) continue;
+    result[f.key] = v;
+  }
+  return result;
+}
+
 function BindingForm({
   availableIntegrations,
   initialType,
   initialClientId,
   initialDisplayName,
-  initialEventFilter,
+  initialDispatchConfig,
   onSubmit,
   onCancel,
   isPending,
@@ -309,8 +416,8 @@ function BindingForm({
   initialType: string;
   initialClientId: string;
   initialDisplayName: string;
-  initialEventFilter?: string[];
-  onSubmit: (type: string, clientId: string, displayName: string, eventFilter: string[]) => void;
+  initialDispatchConfig?: Record<string, any>;
+  onSubmit: (type: string, clientId: string, displayName: string, dispatchConfig: Record<string, any>) => void;
   onCancel: () => void;
   isPending: boolean;
   isError: boolean;
@@ -318,24 +425,29 @@ function BindingForm({
   submitLabel: string;
   lockType?: boolean;
 }) {
-  const t = useThemeTokens();
+  const selected = availableIntegrations.find((i) => i.type === initialType);
   const [type, setType] = useState(initialType);
   const [clientId, setClientId] = useState(initialClientId);
   const [displayName, setDisplayName] = useState(initialDisplayName);
-  const [eventFilter, setEventFilter] = useState<string[]>(initialEventFilter ?? []);
+  const [configValues, setConfigValues] = useState<Record<string, any>>(() =>
+    initConfigValues(selected?.binding?.config_fields, initialDispatchConfig),
+  );
 
-  const selected = availableIntegrations.find((i) => i.type === type);
-  const binding = selected?.binding;
-  const eventTypes = binding?.event_types;
+  const currentSelected = availableIntegrations.find((i) => i.type === type);
+  const binding = currentSelected?.binding;
+  const configFields = binding?.config_fields;
 
   const handleTypeChange = (newType: string) => {
     setType(newType);
-    setEventFilter([]);
-    // Auto-set prefix when switching types
     const newBinding = availableIntegrations.find((i) => i.type === newType)?.binding;
+    setConfigValues(initConfigValues(newBinding?.config_fields, undefined));
     if (newBinding?.client_id_prefix && !clientId) {
       setClientId(newBinding.client_id_prefix);
     }
+  };
+
+  const handleConfigChange = (key: string, value: any) => {
+    setConfigValues((prev) => ({ ...prev, [key]: value }));
   };
 
   return (
@@ -368,22 +480,17 @@ function BindingForm({
           placeholder={binding?.display_name_placeholder ?? ""}
         />
       </FormRow>
-      {eventTypes && eventTypes.length > 0 && (
-        <FormRow
-          label="Event Filter"
-          description="Select which events this binding receives. Empty = all events."
-        >
-          <EventFilterPicker
-            eventTypes={eventTypes}
-            selected={eventFilter}
-            onChange={setEventFilter}
-          />
-        </FormRow>
+      {configFields && configFields.length > 0 && (
+        <BindingConfigFields
+          fields={configFields}
+          values={configValues}
+          onChange={handleConfigChange}
+        />
       )}
       <View className="flex-row gap-2">
         <ActionButton
           label={isPending ? "Saving..." : submitLabel}
-          onPress={() => onSubmit(type, clientId.trim(), displayName.trim(), eventFilter)}
+          onPress={() => onSubmit(type, clientId.trim(), displayName.trim(), collectConfigValues(configFields, configValues))}
           disabled={!type || !clientId.trim() || isPending}
           size="small"
         />
@@ -401,6 +508,45 @@ function BindingForm({
       )}
     </View>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Config summary for binding display
+// ---------------------------------------------------------------------------
+
+function configSummaryText(
+  dc: Record<string, any>,
+  integration: AvailableIntegration | undefined,
+): string | null {
+  const fields = integration?.binding?.config_fields;
+  if (!fields || fields.length === 0) {
+    // Fallback: show raw dispatch_config keys (minus internal ones like type/chat_guid/server_url/password)
+    const userKeys = Object.keys(dc).filter(
+      (k) => !["type", "chat_guid", "server_url", "password"].includes(k),
+    );
+    if (userKeys.length === 0) return null;
+    return userKeys
+      .map((k) => {
+        const v = dc[k];
+        if (Array.isArray(v)) return `${k}: ${v.join(", ")}`;
+        return `${k}: ${v}`;
+      })
+      .join(" · ");
+  }
+  const parts: string[] = [];
+  for (const f of fields) {
+    const v = dc[f.key];
+    if (v === undefined || v === null) continue;
+    if (v === f.default) continue;
+    if (Array.isArray(v)) {
+      if (v.length > 0) parts.push(`${f.label}: ${v.join(", ")}`);
+    } else if (typeof v === "boolean") {
+      parts.push(`${f.label}: ${v ? "on" : "off"}`);
+    } else if (v !== "") {
+      parts.push(`${f.label}: ${v}`);
+    }
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,11 +570,7 @@ export function IntegrationsTab({
 
   const available = availableIntegrations ?? [];
 
-  const handleAdd = async (type: string, clientId: string, displayName: string, eventFilter: string[]) => {
-    const dispatchConfig: Record<string, any> = {};
-    if (eventFilter.length > 0) {
-      dispatchConfig.event_filter = eventFilter;
-    }
+  const handleAdd = async (type: string, clientId: string, displayName: string, dispatchConfig: Record<string, any>) => {
     await bindMutation.mutateAsync({
       integration_type: type,
       client_id: clientId,
@@ -438,11 +580,7 @@ export function IntegrationsTab({
     setShowAdd(false);
   };
 
-  const handleEdit = async (bindingId: string, type: string, clientId: string, displayName: string, eventFilter: string[]) => {
-    const dispatchConfig: Record<string, any> = {};
-    if (eventFilter.length > 0) {
-      dispatchConfig.event_filter = eventFilter;
-    }
+  const handleEdit = async (bindingId: string, type: string, clientId: string, displayName: string, dispatchConfig: Record<string, any>) => {
     // Unbind old, bind new
     await unbindMutation.mutateAsync(bindingId);
     await bindMutation.mutateAsync({
@@ -470,7 +608,8 @@ export function IntegrationsTab({
         ) : (
           <View className="gap-2">
             {bindings.map((b) => {
-              const eventFilter: string[] = b.dispatch_config?.event_filter ?? [];
+              const dc = b.dispatch_config ?? {};
+              const configSummary = configSummaryText(dc, available.find((a) => a.type === b.integration_type));
               return editingId === b.id ? (
                 <View
                   key={b.id}
@@ -481,9 +620,9 @@ export function IntegrationsTab({
                     initialType={b.integration_type}
                     initialClientId={b.client_id}
                     initialDisplayName={b.display_name ?? ""}
-                    initialEventFilter={eventFilter}
-                    onSubmit={(type, clientId, displayName, ef) =>
-                      handleEdit(b.id, type, clientId, displayName, ef)
+                    initialDispatchConfig={dc}
+                    onSubmit={(type, clientId, displayName, dispatchConfig) =>
+                      handleEdit(b.id, type, clientId, displayName, dispatchConfig)
                     }
                     onCancel={() => setEditingId(null)}
                     isPending={bindMutation.isPending || unbindMutation.isPending}
@@ -516,9 +655,9 @@ export function IntegrationsTab({
                         {b.display_name}
                       </div>
                     )}
-                    {eventFilter.length > 0 && (
+                    {configSummary && (
                       <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
-                        Events: {eventFilter.join(", ")}
+                        {configSummary}
                       </div>
                     )}
                   </div>

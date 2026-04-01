@@ -26,10 +26,10 @@ SETUP = {
         "client_id_placeholder": "frigate:events",
         "client_id_description": "Frigate event stream (typically frigate:events)",
         "display_name_placeholder": "Frigate Events",
-        "filter_schema": {
-            "cameras": {"type": "string", "description": "Comma-separated camera filter (e.g. front_door,driveway)"},
-            "labels": {"type": "string", "description": "Comma-separated label filter (e.g. person,car)"},
-            "min_score": {"type": "number", "description": "Minimum detection score (0-1)"},
-        },
+        "config_fields": [
+            {"key": "cameras", "type": "string", "label": "Cameras", "description": "Comma-separated camera names (empty = all)", "default": ""},
+            {"key": "labels", "type": "string", "label": "Labels", "description": "Comma-separated object labels (empty = all)", "default": ""},
+            {"key": "min_score", "type": "number", "label": "Min Score", "description": "Minimum detection score (0-1)", "default": 0.5},
+        ],
     },
 }

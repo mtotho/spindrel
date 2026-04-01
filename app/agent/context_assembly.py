@@ -1056,20 +1056,8 @@ async def assemble_context(
                 if _sec_rows:
                     _sec_texts = []
                     for _sr in _sec_rows:
-                        if _sr.transcript_path:
-                            import os as _sec_os
-                            try:
-                                if _sr.transcript_path.startswith("channels/"):
-                                    from app.services.channel_workspace import _get_ws_root as _cws_root
-                                    _ws_root = _cws_root(bot)
-                                else:
-                                    from app.services.workspace import workspace_service as _ws_svc
-                                    _ws_root = _ws_svc.get_workspace_root(bot.id, bot)
-                                _fpath = _sec_os.path.join(_ws_root, _sr.transcript_path)
-                                with open(_fpath) as _f:
-                                    _sec_texts.append(_f.read())
-                            except Exception:
-                                _sec_texts.append(f"## {_sr.title}\n{_sr.summary}")
+                        if _sr.transcript:
+                            _sec_texts.append(_sr.transcript)
                         else:
                             _sec_texts.append(f"## {_sr.title}\n{_sr.summary}")
                     _sec_chars = sum(len(t) for t in _sec_texts)
@@ -1095,12 +1083,14 @@ async def assemble_context(
                     _si_verbosity = getattr(_sec_ch, "section_index_verbosity", None) or settings.SECTION_INDEX_VERBOSITY
                     from app.db.models import ConversationSection as _SISection
                     from sqlalchemy import select as _si_select
+                    from sqlalchemy.orm import defer as _si_defer
                     async with _sec_async_session() as _si_db:
                         _si_rows = (await _si_db.execute(
                             _si_select(_SISection)
                             .where(_SISection.channel_id == channel_id)
                             .order_by(_SISection.sequence.desc())
                             .limit(_si_count)
+                            .options(_si_defer(_SISection.transcript), _si_defer(_SISection.embedding))
                         )).scalars().all()
                         from sqlalchemy import func as _si_func
                         _si_total = (await _si_db.execute(

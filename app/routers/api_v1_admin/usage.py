@@ -9,6 +9,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -19,6 +20,7 @@ from app.db.models import (
     Channel, ChannelHeartbeat, HeartbeatRun,
     ProviderConfig, ProviderModel, Session, Task, TraceEvent,
 )
+from app.config import settings
 from app.dependencies import get_db, require_scopes
 
 from ._helpers import _parse_time
@@ -889,12 +891,15 @@ def _compute_cost_for_events(
 )
 async def usage_forecast(db: AsyncSession = Depends(get_db)):
     """Cost forecast: projected daily/monthly spend from heartbeats, recurring tasks, and current trajectory."""
-    now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    seven_days_ago = now - timedelta(days=7)
-    hours_elapsed = (now - today_start).total_seconds() / 3600
-    days_elapsed = (now - month_start).total_seconds() / 86400
+    now_utc = datetime.now(timezone.utc)
+    # Compute "today" and "this month" boundaries in the user's configured timezone
+    local_tz = ZoneInfo(settings.TIMEZONE)
+    now_local = now_utc.astimezone(local_tz)
+    today_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    month_start = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    seven_days_ago = now_utc - timedelta(days=7)
+    hours_elapsed = (now_utc - today_start).total_seconds() / 3600
+    days_elapsed = (now_utc - month_start).total_seconds() / 86400
 
     pricing = await _load_pricing_map(db)
     ptype_map = _get_provider_type_map()
@@ -1120,6 +1125,6 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
         projected_monthly=round(projected_monthly, 4),
         components=components,
         limits=limit_forecasts,
-        computed_at=now.isoformat(),
+        computed_at=now_utc.isoformat(),
         hours_elapsed_today=round(hours_elapsed, 2),
     )

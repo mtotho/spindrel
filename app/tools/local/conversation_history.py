@@ -1,4 +1,5 @@
 """Tool for navigating archived conversation history sections (file mode)."""
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -6,20 +7,20 @@ from sqlalchemy import select, update
 
 from app.agent.context import current_bot_id, current_channel_id
 from app.db.engine import async_session
-from app.db.models import Channel, ConversationSection, Message, Session, ToolCall
+from app.db.models import Channel, ConversationSection, ToolCall
 from app.tools.registry import register
+
+logger = logging.getLogger(__name__)
 
 _SCHEMA = {
     "type": "function",
     "function": {
         "name": "read_conversation_history",
         "description": (
-            "Read archived conversation history. Pass section='index' to see a table of contents "
-            "of all archived sections, a section number (e.g. '12') to read by sequence, "
-            "a section UUID to read the full transcript, 'search:query' to search section "
-            "titles/summaries/tags, 'messages:query' to grep raw messages across all history "
-            "(e.g. 'messages:error 5432'), or 'tool:<id>' to retrieve full output of a "
-            "summarized tool call."
+            "Read archived conversation history. Pass section='index' for a table of contents, "
+            "a section number (e.g. '12') to read the full transcript, "
+            "'search:<query>' to find sections by topic, content, or semantic similarity, "
+            "or 'tool:<id>' to retrieve full output of a summarized tool call."
         ),
         "parameters": {
             "type": "object",
@@ -28,8 +29,7 @@ _SCHEMA = {
                     "type": "string",
                     "description": (
                         "'index' to list all sections, a section number (e.g. '12'), "
-                        "a section UUID, 'search:<query>' to find sections by topic, "
-                        "'messages:<query>' to search raw message content across all history, "
+                        "'search:<query>' to find sections by topic/content/similarity, "
                         "or 'tool:<id>' to retrieve full tool call output."
                     ),
                 },
@@ -45,13 +45,12 @@ _SCHEMA = {
 
 
 def _read_section_transcript(sec: ConversationSection, owner_bot_id: str | None = None) -> str:
-    """Read the transcript for a section from filesystem or return summary fallback.
+    """Read the transcript from DB column, filesystem fallback, or summary fallback."""
+    # Prefer DB column (new sections always have this)
+    if sec.transcript:
+        return sec.transcript
 
-    Supports both old format (.history/ch_slug/001.md relative to bot ws_root)
-    and new format (channels/{id}/.history/001.md relative to channel ws root).
-    When owner_bot_id is set, resolves paths against that bot's workspace instead
-    of the caller's.
-    """
+    # Fallback: read from file (pre-migration sections)
     if sec.transcript_path:
         import os
         from app.agent.context import current_bot_id
@@ -62,11 +61,9 @@ def _read_section_transcript(sec: ConversationSection, owner_bot_id: str | None 
             bot = get_bot(resolve_bot_id)
 
             if sec.transcript_path.startswith("channels/"):
-                # New format: relative to channel-workspace root
                 from app.services.channel_workspace import _get_ws_root
                 ws_root = _get_ws_root(bot)
             else:
-                # Old format: relative to bot workspace root
                 from app.services.workspace import workspace_service
                 ws_root = workspace_service.get_workspace_root(bot.id, bot)
 
@@ -78,7 +75,7 @@ def _read_section_transcript(sec: ConversationSection, owner_bot_id: str | None 
         except Exception:
             return f"Error reading transcript file: {sec.transcript_path}"
 
-    # Fallback: no transcript file available
+    # Fallback: no transcript available at all
     period = ""
     if sec.period_start:
         period += f"From: {sec.period_start.strftime('%Y-%m-%d %H:%M')}"
@@ -91,8 +88,22 @@ def _read_section_transcript(sec: ConversationSection, owner_bot_id: str | None 
         f"Messages: {sec.message_count}\n\n"
         f"Summary: {sec.summary}\n\n"
         f"---\n\n"
-        f"Transcript file not available for this section."
+        f"Transcript not available for this section."
     )
+
+
+async def _backfill_transcript(sec_id: uuid.UUID, transcript_text: str) -> None:
+    """Lazily backfill the DB transcript column from a file-read."""
+    try:
+        async with async_session() as db:
+            await db.execute(
+                update(ConversationSection)
+                .where(ConversationSection.id == sec_id)
+                .values(transcript=transcript_text)
+            )
+            await db.commit()
+    except Exception:
+        logger.debug("Failed to backfill transcript for section %s", sec_id, exc_info=True)
 
 
 async def _track_view(section_id: uuid.UUID) -> None:
@@ -107,6 +118,101 @@ async def _track_view(section_id: uuid.UUID) -> None:
             )
         )
         await db.commit()
+
+
+async def search_sections(channel_id: uuid.UUID, query: str) -> list[dict]:
+    """Smart search: keyword + transcript grep + semantic. Returns deduplicated results.
+
+    Each result dict has: section (ConversationSection), source (str), snippet (str|None).
+    """
+    from sqlalchemy import or_, cast, String, func as sa_func
+
+    seen_ids: set[uuid.UUID] = set()
+    results: list[dict] = []
+
+    # Escape LIKE wildcards in the query
+    escaped_query = query.replace("%", r"\%").replace("_", r"\_")
+
+    # 1. Metadata keyword match (title, summary, tags)
+    keywords = query.split()
+    filters = []
+    for kw in keywords:
+        escaped_kw = kw.replace("%", r"\%").replace("_", r"\_")
+        pattern = f"%{escaped_kw}%"
+        filters.append(or_(
+            ConversationSection.title.ilike(pattern),
+            ConversationSection.summary.ilike(pattern),
+            cast(ConversationSection.tags, String).ilike(pattern),
+        ))
+
+    async with async_session() as db:
+        # --- Phase 1: metadata keyword ---
+        meta_result = await db.execute(
+            select(ConversationSection)
+            .where(ConversationSection.channel_id == channel_id, *filters)
+            .order_by(ConversationSection.sequence.desc())
+            .limit(10)
+        )
+        for s in meta_result.scalars().all():
+            if s.id not in seen_ids:
+                seen_ids.add(s.id)
+                results.append({"section": s, "source": "metadata", "snippet": None})
+
+        # --- Phase 2: transcript text grep ---
+        if len(results) < 10:
+            grep_result = await db.execute(
+                select(ConversationSection)
+                .where(
+                    ConversationSection.channel_id == channel_id,
+                    ConversationSection.transcript.ilike(f"%{escaped_query}%"),
+                )
+                .order_by(ConversationSection.sequence.desc())
+                .limit(10)
+            )
+            for s in grep_result.scalars().all():
+                if s.id not in seen_ids:
+                    seen_ids.add(s.id)
+                    snippet = _extract_snippet(s.transcript, query) if s.transcript else None
+                    results.append({"section": s, "source": "content", "snippet": snippet})
+
+        # --- Phase 3: semantic ranking ---
+        if len(results) < 10:
+            try:
+                from app.agent.embeddings import embed_text
+                query_vec = await embed_text(query)
+                sem_result = await db.execute(
+                    select(ConversationSection)
+                    .where(
+                        ConversationSection.channel_id == channel_id,
+                        ConversationSection.embedding.is_not(None),
+                    )
+                    .order_by(ConversationSection.embedding.cosine_distance(query_vec))
+                    .limit(5)
+                )
+                for s in sem_result.scalars().all():
+                    if s.id not in seen_ids:
+                        seen_ids.add(s.id)
+                        results.append({"section": s, "source": "semantic", "snippet": None})
+            except Exception:
+                logger.debug("Semantic search failed for query: %s", query, exc_info=True)
+
+    return results[:10]
+
+
+def _extract_snippet(text: str, query: str, context_chars: int = 100) -> str | None:
+    """Extract a snippet around the first occurrence of query in text."""
+    lower_text = text.lower()
+    idx = lower_text.find(query.lower())
+    if idx < 0:
+        return None
+    start = max(0, idx - context_chars)
+    end = min(len(text), idx + len(query) + context_chars)
+    snippet = text[start:end].strip()
+    if start > 0:
+        snippet = "..." + snippet
+    if end < len(text):
+        snippet = snippet + "..."
+    return snippet
 
 
 @register(_SCHEMA)
@@ -133,11 +239,13 @@ async def read_conversation_history(section: str, channel_id: uuid.UUID | None =
         return "No channel context available. This tool requires a channel-based conversation."
 
     if section == "index":
+        from sqlalchemy.orm import defer
         async with async_session() as db:
             result = await db.execute(
                 select(ConversationSection)
                 .where(ConversationSection.channel_id == channel_id)
                 .order_by(ConversationSection.sequence)
+                .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
             )
             sections = result.scalars().all()
 
@@ -149,85 +257,42 @@ async def read_conversation_history(section: str, channel_id: uuid.UUID | None =
             date_str = s.period_start.strftime("%Y-%m-%d %H:%M") if s.period_start else "unknown"
             tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
             lines.append(
-                f"- [{s.id}] Section {s.sequence}: {s.title} "
+                f"- Section #{s.sequence}: {s.title} "
                 f"({s.message_count} msgs, {date_str}){tag_str}\n"
                 f"  {s.summary}"
             )
         return "\n".join(lines)
 
-    # Keyword search across archived sections
+    # Smart search: keyword + transcript grep + semantic
     if section.lower().startswith("search:"):
         query = section[7:].strip()
         if not query:
             return "Please provide a search query, e.g. 'search:database migration'."
 
-        # Build ILIKE filter: every word must appear in title, summary, or tags
-        from sqlalchemy import or_, cast, String
-        keywords = query.split()
-        filters = []
-        for kw in keywords:
-            pattern = f"%{kw}%"
-            filters.append(or_(
-                ConversationSection.title.ilike(pattern),
-                ConversationSection.summary.ilike(pattern),
-                cast(ConversationSection.tags, String).ilike(pattern),
-            ))
+        results = await search_sections(channel_id, query)
 
-        async with async_session() as db:
-            result = await db.execute(
-                select(ConversationSection)
-                .where(
-                    ConversationSection.channel_id == channel_id,
-                    *filters,
-                )
-                .order_by(ConversationSection.sequence.desc())
-                .limit(10)
-            )
-            matches = result.scalars().all()
-
-        if not matches:
+        if not results:
             return f"No sections found matching '{query}'."
 
         lines = [f"Sections matching '{query}':\n"]
-        for s in matches:
+        for r in results:
+            s = r["section"]
+            source = r["source"]
             date_str = s.period_start.strftime("%Y-%m-%d %H:%M") if s.period_start else "unknown"
             tag_str = f" [{', '.join(s.tags)}]" if s.tags else ""
+            source_tag = ""
+            if source == "content":
+                source_tag = " [content match]"
+            elif source == "semantic":
+                source_tag = " [semantic match]"
             lines.append(
                 f"- Section #{s.sequence}: {s.title} "
-                f"({s.message_count} msgs, {date_str}){tag_str}\n"
+                f"({s.message_count} msgs, {date_str}){tag_str}{source_tag}\n"
                 f"  {s.summary}"
             )
+            if r.get("snippet"):
+                lines.append(f"  > {r['snippet']}")
         lines.append("\nUse read_conversation_history with a section number to read the full transcript.")
-        return "\n".join(lines)
-
-    # Raw message search across all sessions for this channel
-    if section.lower().startswith("messages:"):
-        query = section[len("messages:"):].strip()
-        if not query:
-            return "Please provide a search query, e.g. 'messages:connection refused'."
-
-        async with async_session() as db:
-            result = await db.execute(
-                select(Message)
-                .join(Session, Message.session_id == Session.id)
-                .where(Session.channel_id == channel_id)
-                .where(Message.content.ilike(f"%{query}%"))
-                .where(Message.role.in_(["user", "assistant"]))
-                .order_by(Message.created_at.desc())
-                .limit(10)
-            )
-            matches = result.scalars().all()
-
-        if not matches:
-            return f"No messages found matching '{query}'."
-
-        lines = [f"Messages matching '{query}' (newest first):\n"]
-        for m in matches:
-            ts = m.created_at.strftime("%Y-%m-%d %H:%M") if m.created_at else "?"
-            content = m.content or ""
-            if len(content) > 300:
-                content = content[:300] + "..."
-            lines.append(f"[{ts}] {m.role}: {content}")
         return "\n".join(lines)
 
     # Retrieve full tool call output by ID
@@ -263,23 +328,26 @@ async def read_conversation_history(section: str, channel_id: uuid.UUID | None =
                 select(ConversationSection)
                 .where(ConversationSection.channel_id == channel_id, ConversationSection.sequence == seq_num)
             )
-            sec = result.scalar_one_or_none()
-        if not sec:
+            sec_obj = result.scalar_one_or_none()
+        if not sec_obj:
             return f"Section #{seq_num} not found."
-        await _track_view(sec.id)
-        return _read_section_transcript(sec, owner_bot_id=owner_bot_id)
+        await _track_view(sec_obj.id)
+        transcript_text = _read_section_transcript(sec_obj, owner_bot_id=owner_bot_id)
 
-    # Try to parse as UUID
-    try:
-        section_id = uuid.UUID(section)
-    except ValueError:
-        return f"Invalid section ID: '{section}'. Pass 'index', a section number, or a valid UUID."
+        # Lazy backfill: if we read from file but DB column is empty, populate it
+        if (
+            not sec_obj.transcript
+            and sec_obj.transcript_path
+            and transcript_text
+            and "Transcript file not found" not in transcript_text
+            and "Transcript not available" not in transcript_text
+            and "Error reading transcript file" not in transcript_text
+        ):
+            await _backfill_transcript(sec_obj.id, transcript_text)
 
-    async with async_session() as db:
-        sec = await db.get(ConversationSection, section_id)
+        return transcript_text
 
-    if not sec or sec.channel_id != channel_id:
-        return f"Section not found: {section}"
-
-    await _track_view(sec.id)
-    return _read_section_transcript(sec, owner_bot_id=owner_bot_id)
+    return (
+        f"Invalid section: '{section}'. Pass 'index', a section number (e.g. '12'), "
+        "'search:<query>', or 'tool:<id>'."
+    )

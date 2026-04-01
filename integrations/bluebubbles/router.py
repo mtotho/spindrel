@@ -58,11 +58,33 @@ def _get_default_bot() -> str:
 
 
 def _parse_wake_words(raw: str, default_bot: str) -> list[str]:
-    """Parse comma-separated wake words, falling back to bot name."""
+    """Parse comma-separated wake words, falling back to bot name.
+
+    Used by the /config endpoint (bb_client.py backward compat).
+    """
     words = [w.strip().lower() for w in raw.split(",") if w.strip()]
     if not words:
         words = [default_bot.lower()]
     return words
+
+
+def _parse_extra_wake_words(raw: str) -> list[str]:
+    """Parse BB_WAKE_WORDS into a list. Returns empty list if unset."""
+    return [w.strip().lower() for w in raw.split(",") if w.strip()]
+
+
+def _bot_wake_words(bot_id: str) -> list[str]:
+    """Return wake words derived from a bot's id and name."""
+    try:
+        from app.agent.bots import get_bot
+        bot = get_bot(bot_id)
+        words = {bot.id.lower()}
+        if bot.name:
+            words.add(bot.name.lower())
+        return list(words)
+    except Exception:
+        # Bot not loaded yet or unknown — fall back to id
+        return [bot_id.lower()]
 
 
 @router.get("/config")
@@ -301,12 +323,13 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     handle = data.get("handle") or {}
     sender = handle.get("address", "unknown") if not is_from_me else "me"
 
-    # Read BB credentials + wake words
+    # Read BB credentials
     from integrations.bluebubbles.config import settings as bb_settings
     server_url = bb_settings.BLUEBUBBLES_SERVER_URL
     password = bb_settings.BLUEBUBBLES_PASSWORD
-    default_bot = bb_settings.BB_DEFAULT_BOT
-    wake_words = _parse_wake_words(bb_settings.BB_WAKE_WORDS, default_bot)
+
+    # Extra custom wake words (additive, on top of per-channel bot name/id)
+    extra_wake_words = _parse_extra_wake_words(bb_settings.BB_WAKE_WORDS)
 
     dispatch_config = {
         "type": "bluebubbles",
@@ -319,6 +342,11 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     for channel, binding in pairs:
         session_id = await ensure_active_session(db, channel)
 
+        # Per-binding config from dispatch_config
+        dc = binding.dispatch_config or {}
+        use_bot_wake = dc.get("use_bot_wake_word", True)
+        per_binding_words = _parse_extra_wake_words(dc.get("extra_wake_words", ""))
+
         if is_from_me:
             # Human texting from their own phone — always active
             run_agent = True
@@ -328,7 +356,10 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
             run_agent = True
             content = text
         else:
-            # Check wake word
+            # Build per-channel wake words: binding-specific + global extras
+            wake_words = per_binding_words + extra_wake_words
+            if use_bot_wake:
+                wake_words = _bot_wake_words(channel.bot_id) + wake_words
             text_lower = text.lower()
             mentioned = any(w in text_lower for w in wake_words) if wake_words else False
             if mentioned:

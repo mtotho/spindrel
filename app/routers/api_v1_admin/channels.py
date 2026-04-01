@@ -1445,6 +1445,64 @@ async def admin_repair_section_periods(
     return {"repaired": repaired}
 
 
+@router.post("/channels/{channel_id}/backfill-transcripts")
+async def admin_backfill_section_transcripts(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Populate transcript DB column from existing files for sections that have files but no DB transcript."""
+    import os
+    from app.db.models import ConversationSection
+    from app.services.compaction import _get_workspace_root
+    from app.services.channel_workspace import _get_ws_root
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    ws_root = None
+    channel_ws_root = None
+    try:
+        bot = get_bot(channel.bot_id)
+        ws_root = _get_workspace_root(bot)
+        channel_ws_root = _get_ws_root(bot)
+    except Exception:
+        pass
+
+    rows = (await db.execute(
+        select(ConversationSection)
+        .where(
+            ConversationSection.channel_id == channel_id,
+            ConversationSection.transcript.is_(None),
+            ConversationSection.transcript_path.is_not(None),
+        )
+    )).scalars().all()
+
+    populated = 0
+    errors = 0
+    for sec in rows:
+        try:
+            if sec.transcript_path.startswith("channels/") and channel_ws_root:
+                filepath = os.path.join(channel_ws_root, sec.transcript_path)
+            elif ws_root:
+                filepath = os.path.join(ws_root, sec.transcript_path)
+            else:
+                continue
+            if not os.path.isfile(filepath):
+                continue
+            with open(filepath) as f:
+                sec.transcript = f.read()
+            populated += 1
+        except Exception:
+            errors += 1
+
+    if populated:
+        await db.commit()
+
+    return {"populated": populated, "errors": errors, "total_missing": len(rows)}
+
+
 # ---------------------------------------------------------------------------
 # Conversation sections list
 # ---------------------------------------------------------------------------
@@ -1458,6 +1516,7 @@ async def admin_channel_sections(
     """List all conversation sections for a channel, ordered by sequence."""
     import math
     import os
+    from sqlalchemy.orm import defer
     from app.db.models import ConversationSection
     from app.services.compaction import count_eligible_messages, _get_workspace_root
 
@@ -1466,6 +1525,7 @@ async def admin_channel_sections(
             select(ConversationSection)
             .where(ConversationSection.channel_id == channel_id)
             .order_by(ConversationSection.sequence)
+            .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
         )
     ).scalars().all()
 
@@ -1521,6 +1581,7 @@ async def admin_channel_sections(
             "last_viewed_at": s.last_viewed_at.isoformat() if s.last_viewed_at else None,
             "tags": s.tags or [],
             "file_exists": fe,
+            "has_transcript": s.transcript is not None,
         })
 
     # Coverage stats
@@ -1542,6 +1603,37 @@ async def admin_channel_sections(
             "files_none": files_none,
             "periods_missing": periods_missing,
         },
+    }
+
+
+@router.get("/channels/{channel_id}/sections/search")
+async def admin_channel_section_search(
+    channel_id: uuid.UUID,
+    q: str = Query(..., min_length=1),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Search conversation sections by topic, content, or semantic similarity."""
+    from app.tools.local.conversation_history import search_sections
+
+    results = await search_sections(channel_id, q)
+    return {
+        "results": [
+            {
+                "section": {
+                    "id": str(r["section"].id),
+                    "sequence": r["section"].sequence,
+                    "title": r["section"].title,
+                    "summary": r["section"].summary,
+                    "message_count": r["section"].message_count,
+                    "period_start": r["section"].period_start.isoformat() if r["section"].period_start else None,
+                    "tags": r["section"].tags or [],
+                },
+                "source": r["source"],
+                "snippet": r.get("snippet"),
+            }
+            for r in results
+        ],
     }
 
 

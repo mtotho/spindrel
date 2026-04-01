@@ -37,6 +37,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "AGENT_TRACE": {"group": "General", "label": "Agent Trace", "description": "Enable one-line trace per tool/response", "type": "bool"},
     # --- Agent ---
     "AGENT_MAX_ITERATIONS": {"group": "Agent", "label": "Max Iterations", "description": "Maximum agent loop iterations per request", "type": "int", "min": 1, "max": 100},
+    "TOOL_LOOP_DETECTION_ENABLED": {"group": "Agent", "label": "Tool Loop Detection", "description": "Detect and break repeating tool call cycles within a single agent run", "type": "bool"},
     "LLM_FALLBACK_MODEL": {"group": "Agent", "label": "Fallback Model", "description": "Model to try after all retries exhaust (empty = none)", "type": "string", "widget": "model"},
     "LLM_MAX_RETRIES": {"group": "Agent", "label": "LLM Max Retries", "description": "Retry attempts for transient errors (5xx, connection)", "type": "int", "min": 0, "max": 10},
     "LLM_RETRY_INITIAL_WAIT": {"group": "Agent", "label": "LLM Retry Initial Wait", "description": "Seconds before first retry (doubles each attempt)", "type": "float", "min": 0.5, "max": 60},
@@ -55,6 +56,9 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "PREVIOUS_SUMMARY_INJECT_CHARS": {"group": "Chat History", "label": "Previous Summary Max Chars", "description": "Max characters of existing summary injected into heartbeat/memory-flush context. Truncates at sentence boundary.", "type": "int", "min": 0, "max": 5000},
     "SECTION_INDEX_COUNT": {"group": "Chat History", "label": "Section Index Count", "description": "Number of recent sections shown in the index (file mode)", "type": "int", "min": 0, "max": 100},
     "SECTION_INDEX_VERBOSITY": {"group": "Chat History", "label": "Section Index Verbosity", "description": "Detail level for section index entries", "type": "string", "options": ["compact", "standard", "detailed"]},
+    "HISTORY_WRITE_FILES": {"group": "Chat History", "label": "Write Transcript Files", "description": "Also write transcripts to .history/ files on disk. Transcripts are always stored in the database.", "type": "bool"},
+    "SECTION_RETENTION_MODE": {"group": "Chat History", "label": "Section Retention", "description": "How long to keep archived sections", "type": "string", "options": ["forever", "count", "days"]},
+    "SECTION_RETENTION_VALUE": {"group": "Chat History", "label": "Retention Value", "description": "Sections to keep (count mode) or days to retain (days mode)", "type": "int", "min": 1, "max": 10000},
     # --- Context Pruning ---
     "CONTEXT_PRUNING_ENABLED": {"group": "Chat History", "label": "Context Pruning", "description": "Trim old tool results from context at assembly time", "type": "bool"},
     "CONTEXT_PRUNING_KEEP_TURNS": {"group": "Chat History", "label": "Pruning Keep Turns", "description": "Recent turns whose tool results are kept intact", "type": "int", "min": 0, "max": 50},
@@ -93,6 +97,8 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "WHISPER_COMPUTE_TYPE": {"group": "Speech-to-Text", "label": "Compute Type", "description": "Compute precision", "type": "string", "options": ["auto", "int8", "float16", "float32"]},
     "WHISPER_BEAM_SIZE": {"group": "Speech-to-Text", "label": "Beam Size", "description": "Beam search width", "type": "int", "min": 1, "max": 10},
     "WHISPER_LANGUAGE": {"group": "Speech-to-Text", "label": "Language", "description": "Transcription language code", "type": "string"},
+    # --- Web Search ---
+    "WEB_SEARCH_MODE": {"group": "Web Search", "label": "Search Backend", "description": "How the built-in web_search tool works. SearXNG: self-hosted, private, requires SearXNG + Playwright containers. DDGs: lightweight, uses DuckDuckGo and other public search engines, no extra containers. None: disables web_search — bring your own search tool in tools/.", "type": "string", "options": ["searxng", "ddgs", "none"]},
     # --- Security ---
     "SECRET_REDACTION_ENABLED": {"group": "Security", "label": "Secret Redaction", "description": "Redact known secrets from tool results and LLM output", "type": "bool"},
     # --- Tool Policies ---
@@ -123,7 +129,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 
 # Group ordering for consistent display
 GROUP_ORDER = [
-    "System", "General", "Security", "Agent", "Chat History",
+    "System", "General", "Security", "Web Search", "Agent", "Chat History",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization", "Model Elevation",
     "Tool Policies", "Speech-to-Text", "Heartbeat", "Attachments", "Image Generation", "Prompt Generation",
 ]

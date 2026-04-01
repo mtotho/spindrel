@@ -1,7 +1,11 @@
-"""Mission Control service layer — shared operations for tools + API router.
+"""Mission Control service layer — DB-backed with write-through markdown rendering.
 
-Both the MC bot tools and the MC API router delegate here for the
-read-parse-mutate-serialize-write cycle on workspace markdown files.
+Source of truth: MC-owned SQLite at {WORKSPACE_ROOT}/mission_control/mc.db.
+After every mutation, markdown is rendered to workspace files so context injection
+(active .md files auto-injected) continues working unchanged.
+
+Lazy migration: on first DB access per channel, if DB is empty but markdown exists,
+import from markdown → DB.
 """
 from __future__ import annotations
 
@@ -9,6 +13,8 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime, timezone
+
+from sqlalchemy import func, select
 
 logger = logging.getLogger(__name__)
 
@@ -46,28 +52,15 @@ def _get_bot(bot_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Workspace I/O helpers
+# Markdown rendering (write-through to workspace files)
 # ---------------------------------------------------------------------------
 
-async def _read_tasks_md(channel_id: str) -> tuple[str, list[dict]]:
-    """Read and parse tasks.md for a channel. Creates default if missing."""
-    from app.services.channel_workspace import read_workspace_file
-    from app.services.task_board import parse_tasks_md, serialize_tasks_md, default_columns
-
-    bot = await _resolve_bot(channel_id)
-    content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "tasks.md")
-    if content:
-        return content, parse_tasks_md(content)
-
-    columns = default_columns()
-    return serialize_tasks_md(columns), columns
-
-
-async def _write_tasks_md(channel_id: str, columns: list[dict]) -> str:
-    """Serialize and write tasks.md for a channel."""
+async def _render_tasks_md(channel_id: str) -> str:
+    """Query DB → serialize → write tasks.md to workspace."""
     from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
     from app.services.task_board import serialize_tasks_md
 
+    columns = await _get_kanban_columns_as_dicts(channel_id)
     bot = await _resolve_bot(channel_id)
     await asyncio.to_thread(ensure_channel_workspace, channel_id, bot)
     content = serialize_tasks_md(columns)
@@ -75,23 +68,45 @@ async def _write_tasks_md(channel_id: str, columns: list[dict]) -> str:
     return content
 
 
-async def _read_plans_md(channel_id: str) -> tuple[str, list[dict]]:
-    """Read and parse plans.md for a channel."""
-    from app.services.channel_workspace import read_workspace_file
-    from app.services.plan_board import parse_plans_md
+async def _render_timeline_md(channel_id: str) -> str:
+    """Query DB → serialize → write timeline.md to workspace."""
+    from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McTimelineEvent
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McTimelineEvent)
+            .where(McTimelineEvent.channel_id == channel_id)
+            .order_by(McTimelineEvent.event_date.desc(), McTimelineEvent.event_time.desc())
+        )
+        events = list(result.scalars().all())
+
+    # Group by date, newest first
+    by_date: dict[str, list[str]] = {}
+    for ev in events:
+        by_date.setdefault(ev.event_date, []).append(f"- {ev.event_time} \u2014 {ev.event}")
+
+    lines: list[str] = []
+    for d in sorted(by_date.keys(), reverse=True):
+        lines.append(f"## {d}")
+        lines.extend(by_date[d])
+        lines.append("")
+
+    content = "\n".join(lines).rstrip() + "\n" if lines else ""
 
     bot = await _resolve_bot(channel_id)
-    content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "plans.md")
-    if content:
-        return content, parse_plans_md(content)
-    return "", []
+    await asyncio.to_thread(ensure_channel_workspace, channel_id, bot)
+    await asyncio.to_thread(write_workspace_file, channel_id, bot, "timeline.md", content)
+    return content
 
 
-async def _write_plans_md(channel_id: str, plans: list[dict]) -> str:
-    """Serialize and write plans.md for a channel."""
+async def _render_plans_md(channel_id: str) -> str:
+    """Query DB → serialize → write plans.md to workspace."""
     from app.services.channel_workspace import ensure_channel_workspace, write_workspace_file
     from app.services.plan_board import serialize_plans_md
 
+    plans = await _get_plans_as_dicts(channel_id)
     bot = await _resolve_bot(channel_id)
     await asyncio.to_thread(ensure_channel_workspace, channel_id, bot)
     content = serialize_plans_md(plans)
@@ -100,38 +115,325 @@ async def _write_plans_md(channel_id: str, plans: list[dict]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Timeline
+# DB → dict conversion helpers (legacy format for backward compat)
+# ---------------------------------------------------------------------------
+
+async def _get_kanban_columns_as_dicts(channel_id: str) -> list[dict]:
+    """Query MC SQLite, return [{"name": ..., "cards": [...]}] in legacy format."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanCard, McKanbanColumn
+
+    await _ensure_kanban_migrated(channel_id)
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McKanbanColumn)
+            .where(McKanbanColumn.channel_id == channel_id)
+            .order_by(McKanbanColumn.position)
+        )
+        db_cols = list(result.scalars().all())
+
+        columns: list[dict] = []
+        for db_col in db_cols:
+            cards_result = await session.execute(
+                select(McKanbanCard)
+                .where(McKanbanCard.column_id == db_col.id)
+                .order_by(McKanbanCard.position)
+            )
+            db_cards = list(cards_result.scalars().all())
+
+            cards = []
+            for c in db_cards:
+                meta: dict[str, str] = {"id": c.card_id}
+                if c.assigned:
+                    meta["assigned"] = c.assigned
+                meta["priority"] = c.priority
+                if c.created_date:
+                    meta["created"] = c.created_date
+                if c.tags:
+                    meta["tags"] = c.tags
+                if c.due_date:
+                    meta["due"] = c.due_date
+                if c.started_date:
+                    meta["started"] = c.started_date
+                if c.completed_date:
+                    meta["completed"] = c.completed_date
+                cards.append({
+                    "title": c.title,
+                    "meta": meta,
+                    "description": c.description or "",
+                })
+            columns.append({"name": db_col.name, "cards": cards})
+
+    return columns
+
+
+async def _get_plans_as_dicts(channel_id: str) -> list[dict]:
+    """Query MC SQLite, return plans in legacy dict format."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan
+
+    await _ensure_plans_migrated(channel_id)
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlan)
+            .where(McPlan.channel_id == channel_id)
+            .order_by(McPlan.created_at)
+        )
+        db_plans = list(result.scalars().all())
+
+        plans: list[dict] = []
+        for p in db_plans:
+            # Eagerly load steps (already ordered by position via relationship)
+            await session.refresh(p, ["steps"])
+            meta: dict[str, str] = {"id": p.plan_id}
+            if p.created_date:
+                meta["created"] = p.created_date
+            if p.approved_date:
+                meta["approved"] = p.approved_date
+            steps = []
+            for s in p.steps:
+                step_dict: dict = {
+                    "position": s.position,
+                    "status": s.status,
+                    "content": s.content,
+                }
+                if s.requires_approval:
+                    step_dict["requires_approval"] = True
+                if s.task_id:
+                    step_dict["task_id"] = s.task_id
+                if s.result_summary:
+                    step_dict["result_summary"] = s.result_summary
+                steps.append(step_dict)
+            plans.append({
+                "title": p.title,
+                "status": p.status,
+                "meta": meta,
+                "steps": steps,
+                "notes": p.notes or "",
+            })
+
+    return plans
+
+
+# ---------------------------------------------------------------------------
+# Lazy migration — import markdown into DB on first access
+# ---------------------------------------------------------------------------
+
+# Track which channels have been checked to avoid re-checking every call
+_kanban_migrated: set[str] = set()
+_timeline_migrated: set[str] = set()
+_plans_migrated: set[str] = set()
+
+
+async def _ensure_kanban_migrated(channel_id: str) -> None:
+    """If DB has no kanban data for this channel but markdown exists, import it."""
+    if channel_id in _kanban_migrated:
+        return
+
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanColumn
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(func.count()).select_from(McKanbanColumn)
+            .where(McKanbanColumn.channel_id == channel_id)
+        )
+        count = result.scalar() or 0
+
+    if count > 0:
+        _kanban_migrated.add(channel_id)
+        return
+
+    # Try to import from markdown
+    from app.services.channel_workspace import read_workspace_file
+    from app.services.task_board import default_columns, parse_tasks_md
+
+    try:
+        bot = await _resolve_bot(channel_id)
+        content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "tasks.md")
+        if content:
+            columns = parse_tasks_md(content)
+        else:
+            columns = default_columns()
+    except Exception:
+        columns = default_columns()
+
+    await _import_kanban_columns(channel_id, columns)
+    _kanban_migrated.add(channel_id)
+
+
+async def _import_kanban_columns(channel_id: str, columns: list[dict]) -> None:
+    """Import parsed kanban columns into DB."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanCard, McKanbanColumn
+
+    async with await mc_session() as session:
+        for col_pos, col in enumerate(columns):
+            db_col = McKanbanColumn(
+                channel_id=channel_id,
+                name=col["name"],
+                position=col_pos,
+            )
+            session.add(db_col)
+            await session.flush()  # get db_col.id
+
+            for card_pos, card in enumerate(col.get("cards", [])):
+                meta = card.get("meta", {})
+                db_card = McKanbanCard(
+                    channel_id=channel_id,
+                    column_id=db_col.id,
+                    card_id=meta.get("id", f"mc-{__import__('uuid').uuid4().hex[:6]}"),
+                    title=card["title"],
+                    description=card.get("description", ""),
+                    priority=meta.get("priority", "medium"),
+                    assigned=meta.get("assigned", ""),
+                    tags=meta.get("tags", ""),
+                    due_date=meta.get("due", ""),
+                    position=card_pos,
+                    created_date=meta.get("created", ""),
+                    started_date=meta.get("started", ""),
+                    completed_date=meta.get("completed", ""),
+                )
+                session.add(db_card)
+
+        await session.commit()
+
+
+async def _ensure_timeline_migrated(channel_id: str) -> None:
+    """If DB has no timeline data for this channel but markdown exists, import it."""
+    if channel_id in _timeline_migrated:
+        return
+
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McTimelineEvent
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(func.count()).select_from(McTimelineEvent)
+            .where(McTimelineEvent.channel_id == channel_id)
+        )
+        count = result.scalar() or 0
+
+    if count > 0:
+        _timeline_migrated.add(channel_id)
+        return
+
+    # Try to import from markdown
+    from app.services.channel_workspace import read_workspace_file
+
+    try:
+        bot = await _resolve_bot(channel_id)
+        content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "timeline.md")
+        if content:
+            events = parse_timeline_md(content)
+            async with await mc_session() as session:
+                for ev in events:
+                    session.add(McTimelineEvent(
+                        channel_id=channel_id,
+                        event_date=ev["date"],
+                        event_time=ev["time"],
+                        event=ev["event"],
+                    ))
+                await session.commit()
+    except Exception:
+        logger.debug("No timeline to migrate for channel %s", channel_id, exc_info=True)
+
+    _timeline_migrated.add(channel_id)
+
+
+async def _ensure_plans_migrated(channel_id: str) -> None:
+    """If DB has no plan data for this channel but markdown exists, import it."""
+    if channel_id in _plans_migrated:
+        return
+
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(func.count()).select_from(McPlan)
+            .where(McPlan.channel_id == channel_id)
+        )
+        count = result.scalar() or 0
+
+    if count > 0:
+        _plans_migrated.add(channel_id)
+        return
+
+    # Try to import from markdown
+    from app.services.channel_workspace import read_workspace_file
+    from app.services.plan_board import parse_plans_md
+
+    try:
+        bot = await _resolve_bot(channel_id)
+        content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "plans.md")
+        if content:
+            plans = parse_plans_md(content)
+            await _import_plans(channel_id, plans)
+    except Exception:
+        logger.debug("No plans to migrate for channel %s", channel_id, exc_info=True)
+
+    _plans_migrated.add(channel_id)
+
+
+async def _import_plans(channel_id: str, plans: list[dict]) -> None:
+    """Import parsed plans into DB."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan, McPlanStep
+
+    async with await mc_session() as session:
+        for p in plans:
+            meta = p.get("meta", {})
+            db_plan = McPlan(
+                channel_id=channel_id,
+                plan_id=meta.get("id", f"plan-{__import__('uuid').uuid4().hex[:6]}"),
+                title=p["title"],
+                status=p.get("status", "draft"),
+                notes=p.get("notes", ""),
+                created_date=meta.get("created", ""),
+                approved_date=meta.get("approved", ""),
+            )
+            session.add(db_plan)
+            await session.flush()
+
+            for step in p.get("steps", []):
+                session.add(McPlanStep(
+                    plan_id=db_plan.id,
+                    position=step["position"],
+                    content=step["content"],
+                    status=step.get("status", "pending"),
+                ))
+
+        await session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Timeline operations
 # ---------------------------------------------------------------------------
 
 async def append_timeline(channel_id: str, event: str) -> None:
-    """Append an event line to the channel's timeline.md.
+    """Append an event to timeline — writes to DB then renders markdown."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McTimelineEvent
 
-    Format: entries grouped under ``## YYYY-MM-DD`` date headers,
-    newest day first, newest event at the top of its day section.
-    """
-    from app.services.channel_workspace import (
-        ensure_channel_workspace,
-        read_workspace_file,
-        write_workspace_file,
-    )
-
-    bot = await _resolve_bot(channel_id)
-    await asyncio.to_thread(ensure_channel_workspace, channel_id, bot)
+    await _ensure_timeline_migrated(channel_id)
 
     now = datetime.now(timezone.utc).astimezone()
-    today_header = f"## {now.strftime('%Y-%m-%d')}"
-    time_str = now.strftime("%H:%M")
-    entry_line = f"- {time_str} — {event}"
+    event_date = now.strftime("%Y-%m-%d")
+    event_time = now.strftime("%H:%M")
 
-    content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "timeline.md") or ""
+    async with await mc_session() as session:
+        session.add(McTimelineEvent(
+            channel_id=channel_id,
+            event_date=event_date,
+            event_time=event_time,
+            event=event,
+        ))
+        await session.commit()
 
-    if today_header in content:
-        content = content.replace(today_header, f"{today_header}\n{entry_line}", 1)
-    else:
-        new_section = f"{today_header}\n{entry_line}\n"
-        content = f"{new_section}\n{content}" if content.strip() else new_section
-
-    await asyncio.to_thread(write_workspace_file, channel_id, bot, "timeline.md", content)
+    await _render_timeline_md(channel_id)
 
 
 def parse_timeline_md(content: str) -> list[dict]:
@@ -143,7 +445,7 @@ def parse_timeline_md(content: str) -> list[dict]:
     events: list[dict] = []
     current_date: str | None = None
     date_re = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})")
-    entry_re = re.compile(r"^-\s+(\d{1,2}:\d{2})\s*[—–-]\s*(.+)")
+    entry_re = re.compile(r"^-\s+(\d{1,2}:\d{2})\s*[\u2014\u2013-]\s*(.+)")
 
     for line in content.splitlines():
         line = line.strip()
@@ -159,6 +461,25 @@ def parse_timeline_md(content: str) -> list[dict]:
                 "event": em.group(2).strip(),
             })
     return events
+
+
+async def get_timeline_events(channel_id: str) -> list[dict]:
+    """Get timeline events from DB as dicts. Used by helpers/routers."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McTimelineEvent
+
+    await _ensure_timeline_migrated(channel_id)
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McTimelineEvent)
+            .where(McTimelineEvent.channel_id == channel_id)
+            .order_by(McTimelineEvent.event_date.desc(), McTimelineEvent.event_time.desc())
+        )
+        return [
+            {"date": ev.event_date, "time": ev.event_time, "event": ev.event}
+            for ev in result.scalars().all()
+        ]
 
 
 # ---------------------------------------------------------------------------
@@ -177,49 +498,110 @@ async def create_card(
 ) -> dict:
     """Create a new task card. Returns {"card": dict, "column": str, "card_id": str}."""
     from app.services.task_board import generate_card_id
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanCard, McKanbanColumn
 
-    _raw, columns = await _read_tasks_md(channel_id)
-
-    target_col = None
-    for col in columns:
-        if col["name"].lower() == column.lower():
-            target_col = col
-            break
-
-    if target_col is None:
-        target_col = {"name": column, "cards": []}
-        done_idx = next((i for i, c in enumerate(columns) if c["name"].lower() == "done"), None)
-        if done_idx is not None:
-            columns.insert(done_idx, target_col)
-        else:
-            columns.append(target_col)
+    await _ensure_kanban_migrated(channel_id)
 
     card_id = generate_card_id()
+    today = date.today().isoformat()
+
+    async with await mc_session() as session:
+        # Find or create target column
+        result = await session.execute(
+            select(McKanbanColumn)
+            .where(McKanbanColumn.channel_id == channel_id)
+            .where(func.lower(McKanbanColumn.name) == column.lower())
+            .limit(1)
+        )
+        db_col = result.scalar_one_or_none()
+
+        if db_col is None:
+            # Auto-create column; insert before "Done" if it exists
+            max_pos_result = await session.execute(
+                select(func.max(McKanbanColumn.position))
+                .where(McKanbanColumn.channel_id == channel_id)
+            )
+            max_pos = max_pos_result.scalar() or 0
+
+            # Check if a "Done" column exists to insert before it
+            done_result = await session.execute(
+                select(McKanbanColumn)
+                .where(McKanbanColumn.channel_id == channel_id)
+                .where(func.lower(McKanbanColumn.name) == "done")
+            )
+            done_col = done_result.scalar_one_or_none()
+            if done_col:
+                new_pos = done_col.position
+                # Shift Done and everything after it
+                await session.execute(
+                    McKanbanColumn.__table__.update()
+                    .where(McKanbanColumn.channel_id == channel_id)
+                    .where(McKanbanColumn.position >= new_pos)
+                    .values(position=McKanbanColumn.position + 1)
+                )
+            else:
+                new_pos = max_pos + 1
+
+            db_col = McKanbanColumn(
+                channel_id=channel_id,
+                name=column,
+                position=new_pos,
+            )
+            session.add(db_col)
+            await session.flush()
+
+        # Count existing cards for position
+        count_result = await session.execute(
+            select(func.count()).select_from(McKanbanCard)
+            .where(McKanbanCard.column_id == db_col.id)
+        )
+        next_pos = count_result.scalar() or 0
+
+        db_card = McKanbanCard(
+            channel_id=channel_id,
+            column_id=db_col.id,
+            card_id=card_id,
+            title=title,
+            description=description,
+            priority=priority,
+            assigned=assigned,
+            tags=tags,
+            due_date=due,
+            position=next_pos,
+            created_date=today,
+        )
+        session.add(db_card)
+        await session.commit()
+
+        actual_col_name = db_col.name
+
+    # Render markdown
+    await _render_tasks_md(channel_id)
+
+    # Build legacy return dict
     meta: dict[str, str] = {"id": card_id}
     if assigned:
         meta["assigned"] = assigned
     meta["priority"] = priority
-    meta["created"] = date.today().isoformat()
+    meta["created"] = today
     if tags:
         meta["tags"] = tags
     if due:
         meta["due"] = due
 
     card = {"title": title, "meta": meta, "description": description}
-    target_col["cards"].append(card)
-
-    await _write_tasks_md(channel_id, columns)
 
     # Auto-log to timeline
     try:
         await append_timeline(
             channel_id,
-            f"New card created: {card_id} \"{title}\" in **{target_col['name']}**",
+            f"New card created: {card_id} \"{title}\" in **{actual_col_name}**",
         )
     except Exception:
         logger.debug("Failed to log timeline event for create_card", exc_info=True)
 
-    return {"card": card, "column": target_col["name"], "card_id": card_id}
+    return {"card": card, "column": actual_col_name, "card_id": card_id}
 
 
 async def move_card(
@@ -233,56 +615,107 @@ async def move_card(
     If from_column is provided, validates the card is in that column (raises ValueError on mismatch).
     If card not found, raises ValueError.
     """
-    _raw, columns = await _read_tasks_md(channel_id)
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanCard, McKanbanColumn
 
-    found_card = None
-    source_col_name = None
-    for col in columns:
-        for i, card in enumerate(col["cards"]):
-            if card["meta"].get("id") == card_id:
-                if from_column and col["name"].lower() != from_column.lower():
-                    raise ValueError(
-                        f"Card {card_id} is in '{col['name']}', not '{from_column}'"
-                    )
-                found_card = col["cards"].pop(i)
-                source_col_name = col["name"]
-                break
-        if found_card:
-            break
+    await _ensure_kanban_migrated(channel_id)
 
-    if not found_card:
-        raise ValueError(f"Card {card_id} not found")
+    async with await mc_session() as session:
+        # Find the card
+        result = await session.execute(
+            select(McKanbanCard).where(McKanbanCard.card_id == card_id)
+        )
+        db_card = result.scalar_one_or_none()
+        if not db_card:
+            raise ValueError(f"Card {card_id} not found")
 
-    target_col = None
-    for col in columns:
-        if col["name"].lower() == to_column.lower():
-            target_col = col
-            break
+        # Get source column
+        source_col = await session.get(McKanbanColumn, db_card.column_id)
+        source_col_name = source_col.name if source_col else "Unknown"
 
-    if target_col is None:
-        target_col = {"name": to_column, "cards": []}
-        columns.append(target_col)
+        if from_column and source_col_name.lower() != from_column.lower():
+            raise ValueError(
+                f"Card {card_id} is in '{source_col_name}', not '{from_column}'"
+            )
 
-    # Add transition metadata
-    today = date.today().isoformat()
-    if to_column.lower() == "in progress":
-        found_card["meta"]["started"] = today
-    elif to_column.lower() == "done":
-        found_card["meta"]["completed"] = today
+        # Find or create target column
+        target_result = await session.execute(
+            select(McKanbanColumn)
+            .where(McKanbanColumn.channel_id == channel_id)
+            .where(func.lower(McKanbanColumn.name) == to_column.lower())
+            .limit(1)
+        )
+        target_col = target_result.scalar_one_or_none()
 
-    target_col["cards"].append(found_card)
-    await _write_tasks_md(channel_id, columns)
+        if target_col is None:
+            max_pos_result = await session.execute(
+                select(func.max(McKanbanColumn.position))
+                .where(McKanbanColumn.channel_id == channel_id)
+            )
+            target_col = McKanbanColumn(
+                channel_id=channel_id,
+                name=to_column,
+                position=(max_pos_result.scalar() or 0) + 1,
+            )
+            session.add(target_col)
+            await session.flush()
+
+        # Move card
+        db_card.column_id = target_col.id
+
+        # Count cards in target for position
+        count_result = await session.execute(
+            select(func.count()).select_from(McKanbanCard)
+            .where(McKanbanCard.column_id == target_col.id)
+            .where(McKanbanCard.id != db_card.id)
+        )
+        db_card.position = count_result.scalar() or 0
+
+        # Add transition metadata
+        today = date.today().isoformat()
+        if to_column.lower() == "in progress":
+            db_card.started_date = today
+        elif to_column.lower() == "done":
+            db_card.completed_date = today
+
+        await session.commit()
+
+        # Build legacy return dict
+        meta: dict[str, str] = {"id": db_card.card_id}
+        if db_card.assigned:
+            meta["assigned"] = db_card.assigned
+        meta["priority"] = db_card.priority
+        if db_card.created_date:
+            meta["created"] = db_card.created_date
+        if db_card.tags:
+            meta["tags"] = db_card.tags
+        if db_card.due_date:
+            meta["due"] = db_card.due_date
+        if db_card.started_date:
+            meta["started"] = db_card.started_date
+        if db_card.completed_date:
+            meta["completed"] = db_card.completed_date
+
+        card_dict = {
+            "title": db_card.title,
+            "meta": meta,
+            "description": db_card.description or "",
+        }
+        actual_target_name = target_col.name
+
+    # Render markdown
+    await _render_tasks_md(channel_id)
 
     # Auto-log to timeline
     try:
         await append_timeline(
             channel_id,
-            f"Card {card_id} moved to **{target_col['name']}** (was: {source_col_name}) — \"{found_card['title']}\"",
+            f"Card {card_id} moved to **{actual_target_name}** (was: {source_col_name}) \u2014 \"{card_dict['title']}\"",
         )
     except Exception:
         logger.debug("Failed to log timeline event for move_card", exc_info=True)
 
-    return {"card": found_card, "from_column": source_col_name, "to_column": target_col["name"]}
+    return {"card": card_dict, "from_column": source_col_name, "to_column": actual_target_name}
 
 
 async def update_card(
@@ -299,61 +732,76 @@ async def update_card(
 
     Raises ValueError if card not found.
     """
-    _raw, columns = await _read_tasks_md(channel_id)
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanCard
 
-    found_card = None
-    for col in columns:
-        for card in col["cards"]:
-            if card["meta"].get("id") == card_id:
-                found_card = card
-                break
-        if found_card:
-            break
+    await _ensure_kanban_migrated(channel_id)
 
-    if not found_card:
-        raise ValueError(f"Card {card_id} not found")
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McKanbanCard).where(McKanbanCard.card_id == card_id)
+        )
+        db_card = result.scalar_one_or_none()
+        if not db_card:
+            raise ValueError(f"Card {card_id} not found")
 
-    changes: list[str] = []
-    if title is not None and title != found_card["title"]:
-        found_card["title"] = title
-        changes.append("title")
-    if description is not None and description != found_card.get("description", ""):
-        found_card["description"] = description
-        changes.append("description")
-    if priority is not None and priority != found_card["meta"].get("priority", ""):
-        found_card["meta"]["priority"] = priority
-        changes.append("priority")
-    if assigned is not None:
-        if assigned:
-            found_card["meta"]["assigned"] = assigned
-        else:
-            found_card["meta"].pop("assigned", None)
-        changes.append("assigned")
-    if due is not None:
-        if due:
-            found_card["meta"]["due"] = due
-        else:
-            found_card["meta"].pop("due", None)
-        changes.append("due")
-    if tags is not None:
-        if tags:
-            found_card["meta"]["tags"] = tags
-        else:
-            found_card["meta"].pop("tags", None)
-        changes.append("tags")
+        changes: list[str] = []
+        if title is not None and title != db_card.title:
+            db_card.title = title
+            changes.append("title")
+        if description is not None and description != (db_card.description or ""):
+            db_card.description = description
+            changes.append("description")
+        if priority is not None and priority != db_card.priority:
+            db_card.priority = priority
+            changes.append("priority")
+        if assigned is not None:
+            db_card.assigned = assigned
+            changes.append("assigned")
+        if due is not None:
+            db_card.due_date = due
+            changes.append("due")
+        if tags is not None:
+            db_card.tags = tags
+            changes.append("tags")
+
+        if changes:
+            await session.commit()
+
+        # Build legacy return dict
+        meta: dict[str, str] = {"id": db_card.card_id}
+        if db_card.assigned:
+            meta["assigned"] = db_card.assigned
+        meta["priority"] = db_card.priority
+        if db_card.created_date:
+            meta["created"] = db_card.created_date
+        if db_card.tags:
+            meta["tags"] = db_card.tags
+        if db_card.due_date:
+            meta["due"] = db_card.due_date
+        if db_card.started_date:
+            meta["started"] = db_card.started_date
+        if db_card.completed_date:
+            meta["completed"] = db_card.completed_date
+
+        card_dict = {
+            "title": db_card.title,
+            "meta": meta,
+            "description": db_card.description or "",
+        }
 
     if changes:
-        await _write_tasks_md(channel_id, columns)
+        await _render_tasks_md(channel_id)
         try:
             change_str = ", ".join(changes)
             await append_timeline(
                 channel_id,
-                f"Card {card_id} updated ({change_str}) — \"{found_card['title']}\"",
+                f"Card {card_id} updated ({change_str}) \u2014 \"{card_dict['title']}\"",
             )
         except Exception:
             logger.debug("Failed to log timeline event for update_card", exc_info=True)
 
-    return {"card": found_card, "changes": changes}
+    return {"card": card_dict, "changes": changes}
 
 
 # ---------------------------------------------------------------------------
@@ -361,86 +809,202 @@ async def update_card(
 # ---------------------------------------------------------------------------
 
 async def approve_plan(channel_id: str, plan_id: str) -> dict:
-    """Approve a draft plan → approved. Returns {"plan": dict, "plans_list": list}.
+    """Approve a draft plan -> approved. Returns {"plan": dict, "plans_list": list}.
 
     Raises ValueError if plan not found or not in draft status.
     """
-    _raw, plans_list = await _read_plans_md(channel_id)
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan
 
-    plan = None
-    for p in plans_list:
-        if p["meta"].get("id") == plan_id:
-            plan = p
-            break
+    await _ensure_plans_migrated(channel_id)
 
-    if not plan:
-        raise ValueError(f"Plan '{plan_id}' not found")
-    if plan["status"] != "draft":
-        raise ValueError(f"Plan is [{plan['status']}], expected [draft]")
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlan).where(McPlan.plan_id == plan_id)
+        )
+        db_plan = result.scalar_one_or_none()
 
-    plan["status"] = "approved"
-    plan["meta"]["approved"] = date.today().isoformat()
+        if not db_plan:
+            raise ValueError(f"Plan '{plan_id}' not found")
+        if db_plan.status != "draft":
+            raise ValueError(f"Plan is [{db_plan.status}], expected [draft]")
 
-    await _write_plans_md(channel_id, plans_list)
+        db_plan.status = "approved"
+        db_plan.approved_date = date.today().isoformat()
+        await session.commit()
+
+    plans_list = await _get_plans_as_dicts(channel_id)
+    plan_dict = next((p for p in plans_list if p["meta"].get("id") == plan_id), None)
+
+    await _render_plans_md(channel_id)
 
     try:
-        await append_timeline(channel_id, f"Plan approved: **{plan['title']}** ({plan_id})")
+        await append_timeline(channel_id, f"Plan approved: **{db_plan.title}** ({plan_id})")
     except Exception:
         logger.debug("Failed to log timeline for plan approval", exc_info=True)
 
-    return {"plan": plan, "plans_list": plans_list}
+    return {"plan": plan_dict or {}, "plans_list": plans_list}
 
 
 async def reject_plan(channel_id: str, plan_id: str) -> dict:
-    """Reject a plan → abandoned. Returns {"plan": dict}.
+    """Reject a plan -> abandoned. Returns {"plan": dict}.
 
     Raises ValueError if plan not found or not in draft/approved status.
     """
-    _raw, plans_list = await _read_plans_md(channel_id)
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan
 
-    plan = None
-    for p in plans_list:
-        if p["meta"].get("id") == plan_id:
-            plan = p
-            break
+    await _ensure_plans_migrated(channel_id)
 
-    if not plan:
-        raise ValueError(f"Plan '{plan_id}' not found")
-    if plan["status"] not in ("draft", "approved"):
-        raise ValueError(f"Plan is [{plan['status']}], expected [draft] or [approved]")
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlan).where(McPlan.plan_id == plan_id)
+        )
+        db_plan = result.scalar_one_or_none()
 
-    plan["status"] = "abandoned"
-    await _write_plans_md(channel_id, plans_list)
+        if not db_plan:
+            raise ValueError(f"Plan '{plan_id}' not found")
+        if db_plan.status not in ("draft", "approved"):
+            raise ValueError(f"Plan is [{db_plan.status}], expected [draft] or [approved]")
+
+        db_plan.status = "abandoned"
+        await session.commit()
+        title = db_plan.title
+
+    plans_list = await _get_plans_as_dicts(channel_id)
+    plan_dict = next((p for p in plans_list if p["meta"].get("id") == plan_id), None)
+
+    await _render_plans_md(channel_id)
 
     try:
-        await append_timeline(channel_id, f"Plan rejected: **{plan['title']}** ({plan_id})")
+        await append_timeline(channel_id, f"Plan rejected: **{title}** ({plan_id})")
     except Exception:
         logger.debug("Failed to log timeline for plan rejection", exc_info=True)
 
-    return {"plan": plan}
+    return {"plan": plan_dict or {}}
 
 
 async def resume_plan(channel_id: str, plan_id: str) -> dict:
-    """Resume an executing plan. Returns {"plan": dict}.
+    """Resume an executing or awaiting_approval plan. Returns {"plan": dict}.
 
-    Raises ValueError if plan not found or not in executing status.
+    Raises ValueError if plan not found or not in executing/awaiting_approval status.
     """
-    _raw, plans_list = await _read_plans_md(channel_id)
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan
 
-    plan = None
-    for p in plans_list:
-        if p["meta"].get("id") == plan_id:
-            plan = p
-            break
+    await _ensure_plans_migrated(channel_id)
 
-    if not plan:
-        raise ValueError(f"Plan '{plan_id}' not found")
-    if plan["status"] != "executing":
-        raise ValueError(f"Plan is [{plan['status']}], expected [executing]")
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlan).where(McPlan.plan_id == plan_id)
+        )
+        db_plan = result.scalar_one_or_none()
+
+        if not db_plan:
+            raise ValueError(f"Plan '{plan_id}' not found")
+        if db_plan.status not in ("executing", "awaiting_approval"):
+            raise ValueError(f"Plan is [{db_plan.status}], expected [executing] or [awaiting_approval]")
+
+        # If awaiting_approval, transition back to executing
+        if db_plan.status == "awaiting_approval":
+            db_plan.status = "executing"
+            await session.commit()
+
+        title = db_plan.title
+
+    plans_list = await _get_plans_as_dicts(channel_id)
+    plan_dict = next((p for p in plans_list if p["meta"].get("id") == plan_id), None)
+
+    await _render_plans_md(channel_id)
 
     try:
-        await append_timeline(channel_id, f"Plan resumed: **{plan['title']}** ({plan_id})")
+        await append_timeline(channel_id, f"Plan resumed: **{title}** ({plan_id})")
     except Exception:
         logger.debug("Failed to log timeline for plan resume", exc_info=True)
 
-    return {"plan": plan}
+    return {"plan": plan_dict or {}}
+
+
+# ---------------------------------------------------------------------------
+# Legacy helpers — kept for backward compat (used by tools/plans.py)
+# ---------------------------------------------------------------------------
+
+async def _read_plans_md(channel_id: str) -> tuple[str, list[dict]]:
+    """Read plans from DB and return in legacy format (content, plans_list)."""
+    plans = await _get_plans_as_dicts(channel_id)
+    from app.services.plan_board import serialize_plans_md
+    content = serialize_plans_md(plans) if plans else ""
+    return content, plans
+
+
+async def _write_plans_md(channel_id: str, plans: list[dict]) -> str:
+    """Write plans to DB from dict format, then render markdown.
+
+    This is a compatibility shim for tools/plans.py which still manipulates dicts.
+    It syncs the dict state into the DB.
+    """
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan, McPlanStep
+
+    await _ensure_plans_migrated(channel_id)
+
+    async with await mc_session() as session:
+        for p in plans:
+            meta = p.get("meta", {})
+            pid = meta.get("id", "")
+            if not pid:
+                continue
+
+            result = await session.execute(
+                select(McPlan).where(McPlan.plan_id == pid)
+            )
+            db_plan = result.scalar_one_or_none()
+
+            if db_plan:
+                # Update existing
+                db_plan.title = p["title"]
+                db_plan.status = p["status"]
+                db_plan.notes = p.get("notes", "")
+                if meta.get("approved"):
+                    db_plan.approved_date = meta["approved"]
+
+                # Sync steps
+                await session.refresh(db_plan, ["steps"])
+                existing_steps = {s.position: s for s in db_plan.steps}
+                for step_dict in p.get("steps", []):
+                    pos = step_dict["position"]
+                    if pos in existing_steps:
+                        existing_steps[pos].status = step_dict["status"]
+                        existing_steps[pos].content = step_dict["content"]
+                    else:
+                        session.add(McPlanStep(
+                            plan_id=db_plan.id,
+                            position=pos,
+                            content=step_dict["content"],
+                            status=step_dict.get("status", "pending"),
+                        ))
+            else:
+                # Insert new plan
+                db_plan = McPlan(
+                    channel_id=channel_id,
+                    plan_id=pid,
+                    title=p["title"],
+                    status=p.get("status", "draft"),
+                    notes=p.get("notes", ""),
+                    created_date=meta.get("created", ""),
+                    approved_date=meta.get("approved", ""),
+                )
+                session.add(db_plan)
+                await session.flush()
+
+                for step_dict in p.get("steps", []):
+                    session.add(McPlanStep(
+                        plan_id=db_plan.id,
+                        position=step_dict["position"],
+                        content=step_dict["content"],
+                        status=step_dict.get("status", "pending"),
+                    ))
+
+        await session.commit()
+
+    return await _render_plans_md(channel_id)
