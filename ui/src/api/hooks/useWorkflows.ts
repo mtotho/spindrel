@@ -147,3 +147,25 @@ export function useRetryWorkflowStep() {
     },
   });
 }
+
+// --- Workflow Export ---
+
+export function useExportWorkflow(workflowId: string) {
+  return useMutation({
+    mutationFn: async (): Promise<string> => {
+      // Use raw fetch since apiFetch always parses JSON, but export returns YAML text
+      const { useAuthStore, getAuthToken } = await import("../../stores/auth");
+      const { serverUrl } = useAuthStore.getState();
+      if (!serverUrl) throw new Error("Server not configured");
+      const token = getAuthToken();
+      const resp = await fetch(`${serverUrl}/api/v1/admin/workflows/${workflowId}/export`, {
+        method: "POST",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!resp.ok) throw new Error(`Export failed: ${resp.status}`);
+      return resp.text();
+    },
+  });
+}

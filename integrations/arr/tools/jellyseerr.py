@@ -2,6 +2,7 @@
 
 import json
 import logging
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -65,7 +66,8 @@ async def _post(path: str, payload: dict | None = None, timeout: float = 15.0):
     "function": {
         "name": "jellyseerr_requests",
         "description": (
-            "List media requests in Jellyseerr. "
+            "List media requests in Jellyseerr (newest first). "
+            "Supports paging via skip/limit. "
             "Filters: all, pending, approved, processing, available, unavailable, failed."
         ),
         "parameters": {
@@ -78,21 +80,34 @@ async def _post(path: str, payload: dict | None = None, timeout: float = 15.0):
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Max results (default 20).",
+                    "description": "Max results per page (default 20).",
+                },
+                "skip": {
+                    "type": "integer",
+                    "description": "Number of results to skip for paging (default 0).",
+                },
+                "sort": {
+                    "type": "string",
+                    "enum": ["added", "modified"],
+                    "description": "Sort order: 'added' (newest first, default) or 'modified' (recently updated first).",
                 },
             },
         },
     },
 })
-async def jellyseerr_requests(filter: str = "all", limit: int = 20) -> str:
+async def jellyseerr_requests(filter: str = "all", limit: int = 20, skip: int = 0, sort: str = "added") -> str:
     if not settings.JELLYSEERR_URL:
         return error("JELLYSEERR_URL is not configured")
     try:
-        params: dict = {"take": limit}
+        params: dict = {"take": limit, "skip": skip}
+        if sort == "modified":
+            params["sort"] = "modified"
         if filter != "all":
             params["filter"] = filter
         data = await _get("/api/v1/request", params=params)
         results_data = data.get("results", [])
+        page_info = data.get("pageInfo", {})
+        total = page_info.get("results", len(results_data))
         requests_list = []
         for req in results_data:
             media = req.get("media", {})
@@ -116,7 +131,8 @@ async def jellyseerr_requests(filter: str = "all", limit: int = 20) -> str:
             requests_list.append(entry)
 
         return json.dumps({
-            "total": data.get("pageInfo", {}).get("results", len(requests_list)),
+            "total": total,
+            "page": {"skip": skip, "limit": limit, "returned": len(requests_list), "has_more": skip + len(requests_list) < total},
             "requests": requests_list,
         })
     except httpx.HTTPStatusError as e:
@@ -139,7 +155,8 @@ def _request_status(code: int) -> str:
         "name": "jellyseerr_search",
         "description": (
             "Search TMDB via Jellyseerr for movies and TV shows. "
-            "Returns results with TMDB IDs that can be used to create requests."
+            "Returns results with TMDB IDs that can be used to create requests. "
+            "Supports paging via page parameter (20 results per page)."
         ),
         "parameters": {
             "type": "object",
@@ -148,18 +165,28 @@ def _request_status(code: int) -> str:
                     "type": "string",
                     "description": "Search term.",
                 },
+                "page": {
+                    "type": "integer",
+                    "description": "Page number (default 1, 20 results per page).",
+                },
             },
             "required": ["query"],
         },
     },
 })
-async def jellyseerr_search(query: str) -> str:
+async def jellyseerr_search(query: str, page: int = 1) -> str:
     if not settings.JELLYSEERR_URL:
         return error("JELLYSEERR_URL is not configured")
     try:
-        data = await _get("/api/v1/search", params={"query": query, "page": 1})
+        # Manually encode query string — some Seerr versions reject unencoded
+        # reserved characters even though httpx encodes params correctly.
+        qs = urlencode({"query": query, "page": page}, quote_via=quote)
+        data = await _get(f"/api/v1/search?{qs}")
+        page_info = data.get("pageInfo", {})
+        total_results = page_info.get("results", 0)
+        total_pages = page_info.get("pages", 1)
         results = []
-        for item in data.get("results", [])[:20]:
+        for item in data.get("results", []):
             media_type = item.get("mediaType", "unknown")
             entry: dict = {
                 "media_type": media_type,
@@ -181,7 +208,11 @@ async def jellyseerr_search(query: str) -> str:
 
             results.append(entry)
 
-        return json.dumps({"count": len(results), "results": results})
+        return json.dumps({
+            "count": len(results),
+            "page": {"current": page, "total_pages": total_pages, "total_results": total_results},
+            "results": results,
+        })
     except httpx.HTTPStatusError as e:
         body = e.response.text[:200] if e.response.text else ""
         return error(f"Jellyseerr API error: HTTP {e.response.status_code}: {body}")

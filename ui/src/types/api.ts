@@ -129,6 +129,9 @@ export interface WorkflowStep {
   carapaces?: string[];
   model?: string | null;
   timeout?: number | null;
+  inject_prior_results?: boolean;
+  prior_result_max_chars?: number | null;
+  result_max_chars?: number | null;
 }
 
 export interface WorkflowRun {

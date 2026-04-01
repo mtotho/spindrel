@@ -55,8 +55,8 @@ steps:
       from what the user said. Use partial matches and check results carefully.
 
       **Step 1 — Is it tracked?**
-      - TV: `sonarr_series(action="list")` and search for "{{title}}" (try partial match)
-      - Movie: `radarr_movies(action="list")` and search for "{{title}}" (try partial match)
+      - TV: `sonarr_series()` and search for "{{title}}" in the results (try partial match)
+      - Movie: `radarr_movies()` and search for "{{title}}" in the results (try partial match)
       - If media_type is "auto", check both.
       - Note the series_id/movie_id and the canonical title for later steps.
 
@@ -86,10 +86,10 @@ steps:
       the user's original text if you already have the correct series_id or movie_id.
 
       **NOT_TRACKED** — Add it and trigger a search:
-      - TV: `sonarr_series(action="search", query="{{title}}")` to find TVDB ID, then note
+      - TV: `sonarr_series(search="{{title}}")` to find TVDB ID, then note
         the series needs to be added (report this — adding requires API not yet in tools).
         Try: `sonarr_command(action="SeriesSearch")` if it's partially tracked.
-      - Movie: `radarr_movies(action="search", query="{{title}}")` to find TMDB match.
+      - Movie: `radarr_movies(search="{{title}}")` to find TMDB match.
       - Also check Jellyseerr: `jellyseerr_search(query="{{title}}")` — request it if found.
       - When searching, try the simplest form of the title first. If ambiguous, add year.
 

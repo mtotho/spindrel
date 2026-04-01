@@ -6,15 +6,16 @@ import {
   useCreateWorkflow,
   useUpdateWorkflow,
   useDeleteWorkflow,
+  useExportWorkflow,
 } from "@/src/api/hooks/useWorkflows";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
-import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
-import {
-  Save, Trash2, ArrowLeft, Info,
-} from "lucide-react";
+import { useThemeTokens } from "@/src/theme/tokens";
+import { Save, Trash2, ArrowLeft, Info, Download, Copy, X as XIcon } from "lucide-react";
 import { Section, FormRow, SelectInput, TabBar } from "@/src/components/shared/FormControls";
-import type { Workflow } from "@/src/types/api";
+import type { Workflow, WorkflowStep } from "@/src/types/api";
 import WorkflowRunsTab from "./WorkflowRunsTab";
+import { WorkflowStepEditor } from "./WorkflowStepEditor";
+import { DefaultsEditor, ParamsEditor, TriggersEditor } from "./WorkflowFormParts";
 
 // ---------------------------------------------------------------------------
 // Page
@@ -30,6 +31,7 @@ export default function WorkflowDetailPage() {
   const createMut = useCreateWorkflow();
   const updateMut = useUpdateWorkflow(workflowId || "");
   const deleteMut = useDeleteWorkflow();
+  const exportMut = useExportWorkflow(workflowId || "");
 
   const [activeTab, setActiveTab] = useState<string>("definition");
   const [draft, setDraft] = useState<Partial<Workflow>>({
@@ -39,12 +41,7 @@ export default function WorkflowDetailPage() {
     session_mode: "isolated",
   });
   const [dirty, setDirty] = useState(false);
-
-  // JSON text editors for complex fields
-  const [stepsText, setStepsText] = useState("[]");
-  const [paramsText, setParamsText] = useState("{}");
-  const [defaultsText, setDefaultsText] = useState("{}");
-  const [triggersText, setTriggersText] = useState("{}");
+  const [showExport, setShowExport] = useState(false);
 
   const isFileBased = existing?.source_type === "file" || existing?.source_type === "integration";
 
@@ -62,10 +59,6 @@ export default function WorkflowDetailPage() {
         tags: existing.tags || [],
         session_mode: existing.session_mode || "isolated",
       });
-      setStepsText(JSON.stringify(existing.steps || [], null, 2));
-      setParamsText(JSON.stringify(existing.params || {}, null, 2));
-      setDefaultsText(JSON.stringify(existing.defaults || {}, null, 2));
-      setTriggersText(JSON.stringify(existing.triggers || {}, null, 2));
     }
   }, [existing, isNew]);
 
@@ -75,29 +68,17 @@ export default function WorkflowDetailPage() {
   }, []);
 
   const handleSave = async () => {
-    // Parse JSON fields
-    let steps, params, defaults, triggers;
-    try {
-      steps = JSON.parse(stepsText);
-      params = JSON.parse(paramsText);
-      defaults = JSON.parse(defaultsText);
-      triggers = JSON.parse(triggersText);
-    } catch {
-      alert("Invalid JSON in one of the fields. Please fix before saving.");
-      return;
-    }
-
     try {
       if (isNew) {
         await createMut.mutateAsync({
           id: draft.id || "",
           name: draft.name || "",
           description: draft.description || undefined,
-          steps,
-          params,
-          defaults,
+          steps: draft.steps || [],
+          params: draft.params || {},
+          defaults: draft.defaults || {},
           secrets: draft.secrets || [],
-          triggers,
+          triggers: draft.triggers || {},
           tags: draft.tags || [],
           session_mode: draft.session_mode || "isolated",
         } as Workflow);
@@ -106,11 +87,11 @@ export default function WorkflowDetailPage() {
         await updateMut.mutateAsync({
           name: draft.name,
           description: draft.description || undefined,
-          steps,
-          params,
-          defaults,
+          steps: draft.steps,
+          params: draft.params,
+          defaults: draft.defaults,
           secrets: draft.secrets,
-          triggers,
+          triggers: draft.triggers,
           tags: draft.tags,
           session_mode: draft.session_mode,
         });
@@ -135,6 +116,15 @@ export default function WorkflowDetailPage() {
     }
   };
 
+  const handleExport = async () => {
+    try {
+      const yaml = await exportMut.mutateAsync();
+      setShowExport(true);
+    } catch {
+      // handled
+    }
+  };
+
   if (isLoading && !isNew) {
     return (
       <View className="flex-1 items-center justify-center">
@@ -147,6 +137,14 @@ export default function WorkflowDetailPage() {
     { key: "definition", label: "Definition" },
     ...(isNew ? [] : [{ key: "runs", label: "Runs" }]),
   ];
+
+  const inputStyle: React.CSSProperties = {
+    background: t.inputBg, border: `1px solid ${t.inputBorder}`,
+    borderRadius: 8, padding: "8px 12px", color: t.inputText,
+    fontSize: 14, width: "100%", outline: "none",
+    opacity: isFileBased ? 0.6 : 1,
+    cursor: isFileBased ? "not-allowed" : undefined,
+  };
 
   return (
     <div style={{ overflow: "auto", flex: 1 }}>
@@ -165,6 +163,20 @@ export default function WorkflowDetailPage() {
             <Text style={{ color: t.textMuted, fontSize: 13 }}>Back</Text>
           </Pressable>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {/* Export YAML */}
+            {!isNew && (
+              <Pressable
+                onPress={handleExport}
+                style={{
+                  flexDirection: "row", alignItems: "center", gap: 4,
+                  paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
+                  backgroundColor: t.surfaceRaised, borderWidth: 1, borderColor: t.surfaceBorder,
+                }}
+              >
+                <Download size={14} color={t.textMuted} />
+                <Text style={{ color: t.textMuted, fontSize: 12 }}>Export</Text>
+              </Pressable>
+            )}
             {!isNew && !isFileBased && (
               <Pressable
                 onPress={handleDelete}
@@ -232,237 +244,141 @@ export default function WorkflowDetailPage() {
         )}
 
         {activeTab === "definition" && (
-          <DefinitionTab
-            t={t}
-            draft={draft}
-            update={update}
-            isNew={isNew}
-            isFileBased={!!isFileBased}
-            stepsText={stepsText}
-            setStepsText={(v) => { setStepsText(v); setDirty(true); }}
-            paramsText={paramsText}
-            setParamsText={(v) => { setParamsText(v); setDirty(true); }}
-            defaultsText={defaultsText}
-            setDefaultsText={(v) => { setDefaultsText(v); setDirty(true); }}
-            triggersText={triggersText}
-            setTriggersText={(v) => { setTriggersText(v); setDirty(true); }}
-          />
+          <View style={{ gap: 20 }}>
+            {/* Identity */}
+            <Section title="Identity">
+              {isNew && (
+                <FormRow label="ID" description="Unique slug identifier (lowercase, hyphens)">
+                  <input
+                    value={draft.id || ""}
+                    onChange={(e) => update({ id: e.target.value })}
+                    placeholder="my-workflow"
+                    style={inputStyle}
+                    disabled={isFileBased}
+                  />
+                </FormRow>
+              )}
+              <FormRow label="Name">
+                <input
+                  value={draft.name || ""}
+                  onChange={(e) => update({ name: e.target.value })}
+                  placeholder="My Workflow"
+                  style={inputStyle}
+                  disabled={isFileBased}
+                />
+              </FormRow>
+              <FormRow label="Description">
+                <input
+                  value={draft.description || ""}
+                  onChange={(e) => update({ description: e.target.value })}
+                  placeholder="What this workflow does..."
+                  style={inputStyle}
+                  disabled={isFileBased}
+                />
+              </FormRow>
+              <FormRow label="Tags" description="Comma-separated labels">
+                <input
+                  value={(draft.tags || []).join(", ")}
+                  onChange={(e) => update({ tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                  placeholder="ops, monitoring"
+                  style={inputStyle}
+                  disabled={isFileBased}
+                />
+              </FormRow>
+            </Section>
+
+            {/* Execution */}
+            <Section title="Execution">
+              <FormRow label="Session Mode" description="How step conversations relate to each other">
+                <SelectInput
+                  value={draft.session_mode || "isolated"}
+                  onChange={(v) => update({ session_mode: v })}
+                  options={[
+                    { label: "Isolated — each step gets fresh session", value: "isolated" },
+                    { label: "Shared — all steps share one conversation", value: "shared" },
+                  ]}
+                  style={isFileBased ? { opacity: 0.6, pointerEvents: "none" as const } : undefined}
+                />
+              </FormRow>
+              <FormRow label="Secrets" description="Comma-separated secret names available to steps">
+                <input
+                  value={(draft.secrets || []).join(", ")}
+                  onChange={(e) => update({ secrets: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                  placeholder="API_KEY, DB_PASSWORD"
+                  style={inputStyle}
+                  disabled={isFileBased}
+                />
+              </FormRow>
+            </Section>
+
+            {/* Parameters */}
+            <Section title="Parameters" description="Input parameters for workflow triggers">
+              <ParamsEditor
+                value={draft.params || {}}
+                onChange={(v) => update({ params: v })}
+                disabled={isFileBased}
+              />
+            </Section>
+
+            {/* Defaults */}
+            <Section title="Defaults" description="Default execution config for all steps">
+              <DefaultsEditor
+                value={draft.defaults || {}}
+                onChange={(v) => update({ defaults: v })}
+                disabled={isFileBased}
+              />
+            </Section>
+
+            {/* Triggers */}
+            <Section title="Triggers" description="How this workflow can be invoked">
+              <TriggersEditor
+                value={(draft.triggers || {}) as Record<string, boolean>}
+                onChange={(v) => update({ triggers: v })}
+                disabled={isFileBased}
+              />
+            </Section>
+
+            {/* Steps */}
+            <Section title="Steps" description="Workflow step definitions">
+              {isFileBased ? (
+                <StepPreview steps={draft.steps || []} t={t} />
+              ) : (
+                <WorkflowStepEditor
+                  steps={draft.steps || []}
+                  onChange={(v) => update({ steps: v })}
+                  disabled={isFileBased}
+                />
+              )}
+            </Section>
+          </View>
         )}
 
         {activeTab === "runs" && workflowId && !isNew && (
           <WorkflowRunsTab workflowId={workflowId} />
         )}
       </div>
-    </div>
-  );
-}
 
-// ---------------------------------------------------------------------------
-// Definition form
-// ---------------------------------------------------------------------------
-
-function DefinitionTab({
-  t, draft, update, isNew, isFileBased,
-  stepsText, setStepsText,
-  paramsText, setParamsText,
-  defaultsText, setDefaultsText,
-  triggersText, setTriggersText,
-}: {
-  t: ThemeTokens;
-  draft: Partial<Workflow>;
-  update: (patch: Partial<Workflow>) => void;
-  isNew: boolean;
-  isFileBased: boolean;
-  stepsText: string;
-  setStepsText: (v: string) => void;
-  paramsText: string;
-  setParamsText: (v: string) => void;
-  defaultsText: string;
-  setDefaultsText: (v: string) => void;
-  triggersText: string;
-  setTriggersText: (v: string) => void;
-}) {
-  const disabled = isFileBased;
-  const inputStyle: React.CSSProperties = {
-    background: t.inputBg, border: `1px solid ${t.inputBorder}`,
-    borderRadius: 8, padding: "8px 12px", color: t.inputText,
-    fontSize: 14, width: "100%", outline: "none",
-    opacity: disabled ? 0.6 : 1,
-    cursor: disabled ? "not-allowed" : undefined,
-  };
-  const textareaStyle: React.CSSProperties = {
-    ...inputStyle, fontFamily: "monospace", fontSize: 12,
-    minHeight: 120, resize: "vertical" as const,
-  };
-
-  return (
-    <View style={{ gap: 20 }}>
-      {/* Identity */}
-      <Section title="Identity">
-        {isNew && (
-          <FormRow label="ID" description="Unique slug identifier (lowercase, hyphens)">
-            <input
-              value={draft.id || ""}
-              onChange={(e) => update({ id: e.target.value })}
-              placeholder="my-workflow"
-              style={inputStyle}
-              disabled={disabled}
-            />
-          </FormRow>
-        )}
-        <FormRow label="Name">
-          <input
-            value={draft.name || ""}
-            onChange={(e) => update({ name: e.target.value })}
-            placeholder="My Workflow"
-            style={inputStyle}
-            disabled={disabled}
-          />
-        </FormRow>
-        <FormRow label="Description">
-          <input
-            value={draft.description || ""}
-            onChange={(e) => update({ description: e.target.value })}
-            placeholder="What this workflow does..."
-            style={inputStyle}
-            disabled={disabled}
-          />
-        </FormRow>
-        <FormRow label="Tags" description="Comma-separated labels">
-          <input
-            value={(draft.tags || []).join(", ")}
-            onChange={(e) => update({ tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-            placeholder="ops, monitoring"
-            style={inputStyle}
-            disabled={disabled}
-          />
-        </FormRow>
-      </Section>
-
-      {/* Execution */}
-      <Section title="Execution">
-        <FormRow label="Session Mode" description="How step conversations relate to each other">
-          <SelectInput
-            value={draft.session_mode || "isolated"}
-            onChange={(v) => update({ session_mode: v })}
-            options={[
-              { label: "Isolated — each step gets fresh session", value: "isolated" },
-              { label: "Shared — all steps share one conversation", value: "shared" },
-            ]}
-            style={disabled ? { opacity: 0.6, pointerEvents: "none" as const } : undefined}
-          />
-        </FormRow>
-        <FormRow label="Secrets" description="Comma-separated secret names available to steps">
-          <input
-            value={(draft.secrets || []).join(", ")}
-            onChange={(e) => update({ secrets: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-            placeholder="API_KEY, DB_PASSWORD"
-            style={inputStyle}
-            disabled={disabled}
-          />
-        </FormRow>
-      </Section>
-
-      {/* Parameters (JSON) */}
-      <Section title="Parameters" description="Parameter definitions (JSON)">
-        <JsonEditor
-          value={paramsText}
-          onChange={setParamsText}
-          style={textareaStyle}
-          disabled={disabled}
-          placeholder='{"topic": {"type": "string", "required": true, "description": "..."}}'
+      {/* Export YAML modal */}
+      {showExport && exportMut.data && (
+        <ExportModal
+          yaml={exportMut.data}
+          onClose={() => setShowExport(false)}
+          t={t}
         />
-      </Section>
-
-      {/* Defaults (JSON) */}
-      <Section title="Defaults" description="Default execution config: model, bot_id, timeout, carapaces, tools">
-        <JsonEditor
-          value={defaultsText}
-          onChange={setDefaultsText}
-          style={textareaStyle}
-          disabled={disabled}
-          placeholder='{"bot_id": "my-bot", "model": "gemini/gemini-2.5-flash", "timeout": 120}'
-        />
-      </Section>
-
-      {/* Triggers */}
-      <Section title="Triggers" description="How this workflow can be invoked">
-        <JsonEditor
-          value={triggersText}
-          onChange={setTriggersText}
-          style={{ ...textareaStyle, minHeight: 60 }}
-          disabled={disabled}
-          placeholder='{"tool": true, "api": true, "heartbeat": false}'
-        />
-      </Section>
-
-      {/* Steps (JSON) */}
-      <Section title="Steps" description="Step definitions (JSON array)">
-        <JsonEditor
-          value={stepsText}
-          onChange={setStepsText}
-          style={{ ...textareaStyle, minHeight: 200 }}
-          disabled={disabled}
-          placeholder='[{"id": "step1", "prompt": "Do the thing with {{param}}."}]'
-        />
-        {/* Step preview */}
-        <StepPreview stepsText={stepsText} t={t} />
-      </Section>
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// JSON editor with validation
-// ---------------------------------------------------------------------------
-
-function JsonEditor({
-  value, onChange, style, disabled, placeholder,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  style: React.CSSProperties;
-  disabled: boolean;
-  placeholder?: string;
-}) {
-  const t = useThemeTokens();
-  let isValid = true;
-  try { JSON.parse(value); } catch { isValid = false; }
-
-  return (
-    <div>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          ...style,
-          borderColor: isValid ? t.inputBorder : t.danger,
-        }}
-        disabled={disabled}
-        placeholder={placeholder}
-        spellCheck={false}
-      />
-      {!isValid && value.trim() && (
-        <div style={{ color: t.danger, fontSize: 11, marginTop: 2 }}>Invalid JSON</div>
       )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Step preview cards
+// Step preview (read-only, for file-based workflows)
 // ---------------------------------------------------------------------------
 
-function StepPreview({ stepsText, t }: { stepsText: string; t: ThemeTokens }) {
-  let steps: any[];
-  try { steps = JSON.parse(stepsText); } catch { return null; }
-  if (!Array.isArray(steps) || steps.length === 0) return null;
+function StepPreview({ steps, t }: { steps: WorkflowStep[]; t: ReturnType<typeof useThemeTokens> }) {
+  if (steps.length === 0) return null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
-      <div style={{ fontSize: 11, color: t.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
-        Step Preview
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {steps.map((step, i) => (
         <div
           key={step.id || i}
@@ -489,25 +405,25 @@ function StepPreview({ stepsText, t }: { stepsText: string; t: ThemeTokens }) {
                 <span style={{
                   fontSize: 10, padding: "1px 5px", borderRadius: 3,
                   background: t.warningSubtle, border: `1px solid ${t.warningBorder}`, color: t.warning,
-                }}>
-                  approval
-                </span>
+                }}>approval</span>
               )}
               {step.on_failure && step.on_failure !== "abort" && (
                 <span style={{
                   fontSize: 10, padding: "1px 5px", borderRadius: 3,
                   background: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`, color: t.textDim,
-                }}>
-                  on_failure: {step.on_failure}
-                </span>
+                }}>on_failure: {step.on_failure}</span>
               )}
               {step.when && (
                 <span style={{
                   fontSize: 10, padding: "1px 5px", borderRadius: 3,
                   background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`, color: t.purple,
-                }}>
-                  conditional
-                </span>
+                }}>conditional</span>
+              )}
+              {step.carapaces && step.carapaces.length > 0 && (
+                <span style={{
+                  fontSize: 10, padding: "1px 5px", borderRadius: 3,
+                  background: t.accentSubtle, border: `1px solid ${t.accentBorder}`, color: t.accent,
+                }}>carapaces: {step.carapaces.join(", ")}</span>
               )}
             </div>
             <div style={{
@@ -516,23 +432,19 @@ function StepPreview({ stepsText, t }: { stepsText: string; t: ThemeTokens }) {
             }}>
               {(step.prompt || "").slice(0, 120)}
             </div>
-            {(step.tools || step.secrets || step.model) && (
+            {(step.tools || step.model) && (
               <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-                {step.tools?.map((tool: string) => (
+                {step.tools?.map((tool) => (
                   <span key={tool} style={{
                     fontSize: 10, padding: "1px 4px", borderRadius: 3,
                     background: t.surfaceOverlay, color: t.textDim,
-                  }}>
-                    {tool}
-                  </span>
+                  }}>{tool}</span>
                 ))}
                 {step.model && (
                   <span style={{
                     fontSize: 10, padding: "1px 4px", borderRadius: 3,
                     background: t.surfaceOverlay, color: t.textDim,
-                  }}>
-                    model: {step.model}
-                  </span>
+                  }}>model: {step.model}</span>
                 )}
               </div>
             )}
@@ -540,5 +452,77 @@ function StepPreview({ stepsText, t }: { stepsText: string; t: ThemeTokens }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Export YAML modal
+// ---------------------------------------------------------------------------
+
+function ExportModal({ yaml, onClose, t }: {
+  yaml: string;
+  onClose: () => void;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(yaml);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <>
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+          zIndex: 10000,
+        }}
+      />
+      <div style={{
+        position: "fixed", top: "50%", left: "50%",
+        transform: "translate(-50%, -50%)",
+        width: "min(90vw, 600px)", maxHeight: "80vh",
+        background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: 12, zIndex: 10001,
+        display: "flex", flexDirection: "column",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 16px", borderBottom: `1px solid ${t.surfaceBorder}`,
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>Export YAML</span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <Pressable
+              onPress={handleCopy}
+              style={{
+                flexDirection: "row", alignItems: "center", gap: 4,
+                paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6,
+                backgroundColor: t.accentSubtle, borderWidth: 1, borderColor: t.accentBorder,
+              }}
+            >
+              <Copy size={12} color={t.accent} />
+              <Text style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>
+                {copied ? "Copied!" : "Copy"}
+              </Text>
+            </Pressable>
+            <Pressable onPress={onClose}>
+              <XIcon size={18} color={t.textMuted} />
+            </Pressable>
+          </div>
+        </div>
+        <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
+          <pre style={{
+            margin: 0, fontSize: 12, fontFamily: "monospace",
+            color: t.text, whiteSpace: "pre-wrap", wordBreak: "break-word",
+          }}>
+            {yaml}
+          </pre>
+        </div>
+      </div>
+    </>
   );
 }

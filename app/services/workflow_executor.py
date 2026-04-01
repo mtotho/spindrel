@@ -407,8 +407,29 @@ async def _create_step_task(
         f"[WORKFLOW STEP — {workflow.name}]",
         f"Workflow: {workflow.id} | Run: {run.id} | Step: {step_def.get('id', step_index)}",
         "Execute the instructions below. Return your result as a clear summary.",
-        "---",
     ]
+
+    # Prior result injection (skip for shared sessions where full context is already available)
+    inject = step_def.get("inject_prior_results", defaults.get("inject_prior_results", False))
+    if inject and getattr(workflow, "session_mode", "isolated") == "shared":
+        inject = False
+    if inject and step_index > 0:
+        max_chars = step_def.get("prior_result_max_chars", defaults.get("prior_result_max_chars", 500))
+        prior_lines = []
+        steps = workflow.steps
+        for i, st in enumerate(run.step_states):
+            if i >= step_index and st.get("status") in ("done", "failed"):
+                break
+            if i < step_index and st.get("status") in ("done", "failed"):
+                sid = steps[i].get("id", f"step_{i}") if i < len(steps) else f"step_{i}"
+                text = (st.get("result") or st.get("error") or "")[:max_chars]
+                prior_lines.append(f"- {sid} ({st['status']}): {text}")
+        if prior_lines:
+            preamble_lines.append("")
+            preamble_lines.append("Previous step results:")
+            preamble_lines.extend(prior_lines)
+
+    preamble_lines.append("---")
     ecfg["system_preamble"] = "\n".join(preamble_lines)
 
     # Tools
@@ -498,10 +519,18 @@ async def on_step_task_completed(
 
         state = step_states[step_index]
 
+        # Idempotency guard: if step is already terminal, skip processing
+        if state["status"] in ("done", "failed", "skipped"):
+            logger.debug("Step %d of run %s already terminal (%s), skipping", step_index, run_id, state["status"])
+            return
+
         # Map task status to step status
+        defaults = workflow.defaults or {}
+        step_def = workflow.steps[step_index] if step_index < len(workflow.steps) else {}
         if status == "complete":
             state["status"] = "done"
-            state["result"] = (task.result or "")[:2000]
+            max_chars = step_def.get("result_max_chars", defaults.get("result_max_chars", 2000))
+            state["result"] = (task.result or "")[:max_chars]
         else:
             state["status"] = "failed"
             state["error"] = task.error or f"Task {status}"
@@ -517,7 +546,6 @@ async def on_step_task_completed(
             state["correlation_id"] = str(fresh_task.correlation_id)
 
         # Handle on_failure policy
-        step_def = workflow.steps[step_index] if step_index < len(workflow.steps) else {}
         on_failure = step_def.get("on_failure", "abort")
 
         if state["status"] == "failed":

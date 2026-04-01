@@ -11,20 +11,20 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 
 ### Sonarr (TV Shows)
 - `sonarr_calendar` — upcoming episodes for next N days, with download status
-- `sonarr_series` — list monitored series or search TVDB for new ones
-- `sonarr_wanted` — missing episodes that need downloading
+- `sonarr_series` — list monitored series (newest first, limit 50) or search TVDB; use `limit=0` for all
+- `sonarr_wanted` — missing episodes (paged, newest airdate first)
 - `sonarr_queue` — items currently being downloaded
 - `sonarr_command` — trigger searches: SeriesSearch, EpisodeSearch, MissingEpisodeSearch
 - `sonarr_releases` — browse available releases for a series/episode, or grab a specific release
 
 ### Radarr (Movies)
-- `radarr_movies` — list library or search TMDB; filter by "missing"/"wanted"
+- `radarr_movies` — list library (newest first, limit 50) or search TMDB; filter by "missing"/"wanted"; use `limit=0` for all
 - `radarr_command` — trigger searches: MoviesSearch, MissingMoviesSearch
 - `radarr_queue` — items currently being downloaded
 - `radarr_releases` — browse available releases for a movie, or grab a specific release
 
 ### qBittorrent (Downloads)
-- `qbit_torrents` — list torrents with speeds; filters: downloading, seeding, completed, paused, active, stalled
+- `qbit_torrents` — list torrents with speeds (newest first); filters: downloading, seeding, completed, paused, active, stalled
 - `qbit_manage` — pause/resume/delete/delete_with_files torrents by hash
 
 ### Jellyfin (Streaming)
@@ -33,12 +33,19 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 - `jellyfin_users` — list/create/delete Jellyfin users
 
 ### Jellyseerr (Requests)
-- `jellyseerr_requests` — list media requests; filter: pending, approved, declined, processing, available
-- `jellyseerr_search` — search TMDB for movies/shows (returns IDs for requesting)
+- `jellyseerr_requests` — list media requests (newest first, paged via skip/limit); filter: pending, approved, processing, available, unavailable, failed
+- `jellyseerr_search` — search TMDB for movies/shows (paged, 20/page); returns IDs for requesting
 - `jellyseerr_manage` — approve/decline existing requests, or create new requests by TMDB ID
 
 ### Bazarr (Subtitles)
 - `bazarr_subtitles` — view wanted subtitles, trigger subtitle search, check system status
+
+## Pagination
+All listing tools return a `page` object with paging metadata. Check `has_more` / `total_pages` before fetching additional pages.
+- `jellyseerr_requests(skip=20, limit=20)` — page 2 of requests
+- `jellyseerr_search(query="...", page=2)` — page 2 of search results
+- `sonarr_series(limit=100)` — more series; `limit=0` for all
+- `radarr_movies(limit=100)` — more movies; `limit=0` for all
 
 ## Key Workflows
 
@@ -53,9 +60,10 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 3. `jellyfin_now_playing` — see what others are watching
 
 ### Handle media requests
-1. `jellyseerr_requests(filter="pending")` — see pending requests
-2. `jellyseerr_manage(action="approve", request_id=123)` — approve a request
-3. Monitor: `sonarr_queue` or `radarr_movies(filter="wanted")` — track fulfillment
+1. `jellyseerr_requests(filter="pending")` — see pending requests (newest first)
+2. `jellyseerr_requests(filter="pending", skip=20)` — page 2 if has_more=true
+3. `jellyseerr_manage(action="approve", request_id=123)` — approve a request
+4. Monitor: `sonarr_queue` or `radarr_movies(filter="wanted")` — track fulfillment
 
 ### Request new media
 1. `jellyseerr_search(query="The Bear")` — find TMDB ID

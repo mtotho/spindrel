@@ -115,8 +115,8 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
     "function": {
         "name": "sonarr_series",
         "description": (
-            "List monitored series in Sonarr or search TVDB for new series to add. "
-            "Without search: returns all monitored series with episode counts. "
+            "List monitored series in Sonarr (newest first) or search TVDB for new series to add. "
+            "Without search: returns library series sorted by recently added. "
             "With search: searches TVDB for matching series."
         ),
         "parameters": {
@@ -126,11 +126,15 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
                     "type": "string",
                     "description": "Search term to look up on TVDB. Omit to list monitored series.",
                 },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results for library listing (default 50). Use 0 for all.",
+                },
             },
         },
     },
 })
-async def sonarr_series(search: str | None = None) -> str:
+async def sonarr_series(search: str | None = None, limit: int = 50) -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
     try:
@@ -149,6 +153,11 @@ async def sonarr_series(search: str | None = None) -> str:
             return json.dumps({"count": len(results), "results": results})
         else:
             data = await _get("/api/v3/series")
+            # Sort by added date, newest first
+            data.sort(key=lambda s: s.get("added", ""), reverse=True)
+            total = len(data)
+            if limit > 0:
+                data = data[:limit]
             series = []
             for s in data:
                 stats = s.get("statistics", {})
@@ -157,12 +166,16 @@ async def sonarr_series(search: str | None = None) -> str:
                     "title": sanitize(s.get("title", "")),
                     "year": s.get("year"),
                     "status": s.get("status"),
+                    "added": (s.get("added") or "")[:10],
                     "season_count": stats.get("seasonCount", 0),
                     "episode_count": stats.get("episodeCount", 0),
                     "episode_file_count": stats.get("episodeFileCount", 0),
                     "monitored": s.get("monitored", False),
                 })
-            return json.dumps({"count": len(series), "series": series})
+            result: dict = {"count": len(series), "total_in_library": total, "series": series}
+            if limit > 0 and total > limit:
+                result["page"] = {"limit": limit, "returned": len(series), "has_more": True}
+            return json.dumps(result)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -212,8 +225,10 @@ async def sonarr_wanted(limit: int = 20) -> str:
                 "title": sanitize(ep.get("title", "")),
                 "air_date": ep.get("airDateUtc", "")[:10],
             })
+        total_records = data.get("totalRecords", 0)
         return json.dumps({
-            "total_records": data.get("totalRecords", 0),
+            "total_records": total_records,
+            "page": {"limit": limit, "returned": len(episodes), "has_more": len(episodes) < total_records},
             "episodes": episodes,
         })
     except httpx.HTTPStatusError as e:
