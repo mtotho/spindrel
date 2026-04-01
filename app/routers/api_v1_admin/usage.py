@@ -981,30 +981,61 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
     )).scalars().all()
 
     if recurring_tasks:
-        # Estimate cost per recurring task using the average cost per LLM call
-        # for each task's bot model from recent 7-day usage data. This avoids
-        # fragile trace-event-to-run matching (sessions are shared across runs).
+        # Estimate cost per recurring task using correlation_id-based cost
+        # attribution from recent spawned runs. Falls back to model-based
+        # estimate for tasks without correlation data (pre-migration runs).
         from app.agent.bots import get_bot_config
         from collections import defaultdict
 
-        # Build avg cost-per-call by model from recent events
-        recent_events, _ = await _fetch_token_usage_events(db, after=seven_days_ago)
-        model_cost_sum: dict[str, float] = defaultdict(float)
-        model_call_count: dict[str, int] = defaultdict(int)
-        for ev in recent_events:
-            d = ev.data or {}
-            ev_model = d.get("model")
-            if not ev_model:
-                continue
-            cost = _resolve_event_cost(d, pricing, ptype_map)
-            if cost is not None:
-                model_cost_sum[ev_model] += cost
-                model_call_count[ev_model] += 1
+        template_ids = [t.id for t in recurring_tasks]
 
-        model_avg_cost: dict[str, float] = {
-            m: model_cost_sum[m] / model_call_count[m]
-            for m in model_cost_sum if model_call_count[m] > 0
-        }
+        # --- Phase 1: correlation_id-based cost (precise) ---
+        recent_runs = (await db.execute(
+            select(Task).where(
+                Task.parent_task_id.in_(template_ids),
+                Task.correlation_id.isnot(None),
+                Task.completed_at >= seven_days_ago,
+            )
+        )).scalars().all()
+
+        # Map correlation_id → parent_task_id
+        corr_parent: dict[str, str] = {}
+        task_corr_ids = []
+        for run in recent_runs:
+            if run.correlation_id and run.parent_task_id:
+                cid = str(run.correlation_id)
+                corr_parent[cid] = str(run.parent_task_id)
+                task_corr_ids.append(run.correlation_id)
+
+        # Batch fetch trace events by correlation_id
+        template_run_costs: dict[str, list[float]] = defaultdict(list)
+        if task_corr_ids:
+            task_events = (await db.execute(
+                select(TraceEvent).where(
+                    TraceEvent.event_type == "token_usage",
+                    TraceEvent.correlation_id.in_(task_corr_ids),
+                )
+            )).scalars().all()
+
+            corr_costs: dict[str, float] = defaultdict(float)
+            for ev in task_events:
+                cid = str(ev.correlation_id) if ev.correlation_id else None
+                if not cid:
+                    continue
+                d = ev.data or {}
+                cost = _resolve_event_cost(d, pricing, ptype_map)
+                if cost is not None:
+                    corr_costs[cid] += cost
+
+            for cid, run_cost in corr_costs.items():
+                parent_id = corr_parent.get(cid)
+                if parent_id:
+                    template_run_costs[parent_id].append(run_cost)
+
+        # --- Phase 2: model-based fallback for tasks without correlation data ---
+        # Build avg cost-per-call by model from recent 7-day usage (lazy, only if needed)
+        model_avg_cost: dict[str, float] | None = None
+        templates_with_data = set(template_run_costs.keys())
 
         task_daily = 0.0
         for task in recurring_tasks:
@@ -1012,14 +1043,39 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
             if runs_per_day <= 0:
                 continue
 
-            bot = get_bot_config(task.bot_id)
-            model = bot.model if bot else None
+            tid = str(task.id)
+            if tid in templates_with_data:
+                # Use actual correlation-based cost average
+                costs = template_run_costs[tid]
+                avg_cost = sum(costs) / len(costs) if costs else 0.0
+            else:
+                # Fallback: estimate from model's avg cost per call
+                bot = get_bot_config(task.bot_id)
+                model = bot.model if bot else None
 
-            # Plan-billed models cost $0 per call
-            if model and _is_plan_billed(None, model):
-                continue
+                if model and _is_plan_billed(None, model):
+                    continue
 
-            avg_cost = model_avg_cost.get(model, 0.0) if model else 0.0
+                # Lazy-load model averages on first fallback
+                if model_avg_cost is None:
+                    recent_events, _ = await _fetch_token_usage_events(db, after=seven_days_ago)
+                    _mcs: dict[str, float] = defaultdict(float)
+                    _mcc: dict[str, int] = defaultdict(int)
+                    for ev in recent_events:
+                        d = ev.data or {}
+                        ev_model = d.get("model")
+                        if not ev_model:
+                            continue
+                        c = _resolve_event_cost(d, pricing, ptype_map)
+                        if c is not None:
+                            _mcs[ev_model] += c
+                            _mcc[ev_model] += 1
+                    model_avg_cost = {
+                        m: _mcs[m] / _mcc[m] for m in _mcs if _mcc[m] > 0
+                    }
+
+                avg_cost = model_avg_cost.get(model, 0.0) if model else 0.0
+
             task_daily += runs_per_day * avg_cost
 
         components.append(ForecastComponent(

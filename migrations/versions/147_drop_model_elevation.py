@@ -3,15 +3,15 @@
 Model elevation is removed — smart model routing belongs in the
 workflow system, not the inner tool loop.
 
-Revision ID: 147
-Revises: 146
+Revision ID: 147b
+Revises: 147
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "147"
-down_revision = "146"
+revision = "147b"
+down_revision = "147"
 
 
 def upgrade() -> None:

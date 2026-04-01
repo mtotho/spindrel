@@ -1064,6 +1064,7 @@ class Task(Base):
         nullable=True,
     )
     max_run_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     __table_args__ = (
         Index("ix_tasks_status_run_at", "status", "run_at"),
