@@ -20,34 +20,38 @@ DEFAULT_MEMORY_SCHEME_PROMPT = """\
 ## Memory
 
 Your persistent memory lives in `{memory_rel}/` relative to your workspace directory.
-MEMORY.md and recent daily logs are already in your context — do not re-read them.
+`{memory_rel}/MEMORY.md` and recent daily logs are already in your context — do not re-read them.
+
+**IMPORTANT — File Paths**: All memory file paths are relative to your workspace root.
+Always use the `{memory_rel}/` prefix when writing: `{memory_rel}/MEMORY.md`,
+`{memory_rel}/logs/YYYY-MM-DD.md`, `{memory_rel}/reference/name.md`.
 
 The memory hierarchy from most stable to most ephemeral:
 
 ### Context Budget
-Everything in MEMORY.md, today's log, and yesterday's log costs tokens every turn.
+Everything in `{memory_rel}/MEMORY.md`, today's log, and yesterday's log costs tokens every turn.
 Think in temperature tiers:
-- **Hot** (auto-injected): MEMORY.md, recent logs, active channel workspace files. Keep lean.
-- **Warm** (fetch on demand): reference/ files. You see the listing; fetch contents when needed.
+- **Hot** (auto-injected): `{memory_rel}/MEMORY.md`, recent logs, active channel workspace files. Keep lean.
+- **Warm** (fetch on demand): `{memory_rel}/reference/` files. You see the listing; fetch contents when needed.
 - **Cold** (search only): old logs, archived workspace files. Use search_memory or search tools.
 
-When something is no longer actively needed, move it down a tier. When MEMORY.md grows
-past ~100 lines, move detailed sections to reference/ files and leave one-line pointers.
+When something is no longer actively needed, move it down a tier. When `{memory_rel}/MEMORY.md` grows
+past ~100 lines, move detailed sections to `{memory_rel}/reference/` files and leave one-line pointers.
 
-### MEMORY.md — Curated Knowledge Base
+### {memory_rel}/MEMORY.md — Curated Knowledge Base
 The single most important file. Stable facts: user preferences, key decisions,
 system configs, learned patterns, recurring mistakes.
 Keep under ~100 lines. Format: `## Sections` with `_Updated: YYYY-MM-DD_` headers.
 
 **MEMORY.md Curation Protocol:**
-- NEVER append session entries, progress notes, or "what happened today" to MEMORY.md
-- NEVER clear and rewrite MEMORY.md — edit individual sections in place
-- NEVER let MEMORY.md grow beyond ~100 lines — remove outdated info to make room
-- Only write to MEMORY.md when you have a stable fact confirmed across sessions
+- NEVER append session entries, progress notes, or "what happened today" to `{memory_rel}/MEMORY.md`
+- NEVER clear and rewrite `{memory_rel}/MEMORY.md` — edit individual sections in place
+- NEVER let `{memory_rel}/MEMORY.md` grow beyond ~100 lines — remove outdated info to make room
+- Only write to `{memory_rel}/MEMORY.md` when you have a stable fact confirmed across sessions
 - Each write should edit an existing section or add a new permanent section
 - Deduplicate: before adding, check if the fact is already captured
 
-### reference/ — Your Personal Skill Library
+### {memory_rel}/reference/ — Your Personal Skill Library
 Structured knowledge documents — domain guides, solution patterns, runbooks, and
 anything you've learned that's worth keeping. The directory listing is in your
 context (you can see what files exist), but contents are NOT auto-injected.
@@ -61,7 +65,7 @@ pattern, a domain fact), write it to a reference file immediately. When you wish
 had knowledge you don't — research it, then write the reference file. Don't let
 insights evaporate between sessions.
 
-### logs/YYYY-MM-DD.md — Daily Logs (Ephemeral)
+### {memory_rel}/logs/YYYY-MM-DD.md — Daily Logs (Ephemeral)
 Session notes, events, decisions, task progress. Today's and yesterday's logs
 are in your context. Older logs are searchable only.
 
@@ -75,22 +79,22 @@ are in your context. Older logs are searchable only.
 ### Tools
 - search_memory(query) — hybrid semantic+keyword search across all memory files
 - get_memory_file(name) — read a specific memory file
-- Writing: use the `file` tool (write, append, edit operations) to write/edit memory files
+- Writing: use the `file` tool (write, append, edit operations) with paths like `{memory_rel}/MEMORY.md`
 
 ### Promotion Rules
 - Before answering about past work or context: search_memory first.
-- When corrected on a mistake or preference: add it as a rule to MEMORY.md immediately.
-- After establishing or agreeing on a file format, schema, convention, or workflow: write it to MEMORY.md or the appropriate reference file immediately — do not wait for a future session to confirm it.
-- When a fact is confirmed across multiple sessions: promote it from daily log to MEMORY.md (edit in place, do not append).
-- When you solve a recurring problem or learn a reusable pattern: write it to reference/ immediately — future sessions start smarter.
-- When MEMORY.md is getting crowded: move detailed knowledge to reference/ files, keep only pointers in MEMORY.md."""
+- When corrected on a mistake or preference: add it as a rule to `{memory_rel}/MEMORY.md` immediately.
+- After establishing or agreeing on a file format, schema, convention, or workflow: write it to `{memory_rel}/MEMORY.md` or the appropriate reference file immediately — do not wait for a future session to confirm it.
+- When a fact is confirmed across multiple sessions: promote it from daily log to `{memory_rel}/MEMORY.md` (edit in place, do not append).
+- When you solve a recurring problem or learn a reusable pattern: write it to `{memory_rel}/reference/` immediately — future sessions start smarter.
+- When `{memory_rel}/MEMORY.md` is getting crowded: move detailed knowledge to `{memory_rel}/reference/` files, keep only pointers in `{memory_rel}/MEMORY.md`."""
 
 DEFAULT_CHANNEL_WORKSPACE_PROMPT = """\
 Channel workspace — absolute path: {workspace_path}
 IMPORTANT: Always use the exact path above for file operations. The channel ID is {channel_id} (a UUID, NOT the channel name).
 Use the `file` tool for reading, writing, editing, and listing workspace files (preferred over exec_command).
 Use search_channel_archive to search archived files, search_channel_workspace for broader search.
-Keep active files minimal — archive resolved items. Write durable learnings to memory.md, not workspace.
+Keep active files minimal — archive resolved items. Write durable learnings to memory/ files, not workspace.
 The data/ subfolder holds binary files (PDFs, images, etc.) — not auto-injected into context.
 When receiving data files, save to data/ and create/update a workspace .md file with descriptions and metadata.
 Cross-channel: if the user references another project/channel, use list_workspace_channels to find it, \
@@ -100,11 +104,12 @@ For task tracking, use the create_task_card and move_task_card tools to manage k
 
 
 DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT = """\
-Before this conversation is compacted, save important context to your memory files:
-- Append key decisions and events to today's daily log
-- Promote any new stable facts to MEMORY.md (edit existing sections in place, do not append session entries)
+Before this conversation is compacted, save important context to your memory files.
+All paths are relative to your workspace root — use the memory/ prefix:
+- Append key decisions and events to today's daily log (memory/logs/YYYY-MM-DD.md)
+- Promote any new stable facts to memory/MEMORY.md (edit existing sections in place, do not append session entries)
 - Write anything you'll need to remember in future sessions
-Use the `file` tool (append, write, edit) to write to the appropriate files."""
+Use the `file` tool (append, write, edit) to write to the appropriate files under memory/."""
 
 
 # ---------------------------------------------------------------------------

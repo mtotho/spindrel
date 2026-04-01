@@ -31,7 +31,7 @@ _RAG_PREFIXES: list[tuple[str, str]] = [
     ("Workspace pinned skills:\n\n", "ws_skill_pinned"),
     ("Relevant workspace skills:\n\n", "ws_skill_rag"),
     ("Relevant conversation history sections:\n\n", "conversation_sections"),
-    ("Your persistent memory (MEMORY.md", "memory_bootstrap"),
+    ("Your persistent memory (memory/MEMORY.md", "memory_bootstrap"),
     ("Today's daily log (memory/logs/", "memory_today_log"),
     ("Yesterday's daily log (memory/logs/", "memory_yesterday_log"),
 ]
@@ -40,7 +40,7 @@ _RAG_PREFIXES: list[tuple[str, str]] = [
 _EXCLUDED_PREFIXES: list[str] = [
     "Tagged skill context",
     "Tagged knowledge",
-    "Your persistent memory (MEMORY.md",
+    "Your persistent memory (memory/MEMORY.md",
     "Today's daily log (memory/logs/",
     "Yesterday's daily log (memory/logs/",
     "Reference documents in memory/reference/",

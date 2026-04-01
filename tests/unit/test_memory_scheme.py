@@ -263,6 +263,26 @@ class TestEffectiveSystemPrompt:
         assert "search_memory" in prompt
         assert "get_memory_file" in prompt
 
+    def test_memory_scheme_prompt_uses_prefixed_paths(self):
+        """Ensure the prompt tells bots to use memory/ prefix when writing files."""
+        from app.services.sessions import _effective_system_prompt
+        bot = _bot(memory_scheme="workspace-files")
+        prompt = _effective_system_prompt(bot)
+        # The prompt must use memory/MEMORY.md (not bare MEMORY.md) so the
+        # file tool resolves to the correct directory.
+        assert "memory/MEMORY.md" in prompt
+        assert "memory/logs/" in prompt
+        assert "memory/reference/" in prompt
+        # Verify no bare "MEMORY.md" without the memory/ prefix.
+        # Split on "memory/MEMORY.md" and check remaining fragments.
+        fragments = prompt.split("memory/MEMORY.md")
+        for frag in fragments:
+            # Each fragment should NOT end with a bare reference to MEMORY.md
+            # (i.e. "MEMORY.md" should only appear as part of "memory/MEMORY.md")
+            assert not frag.rstrip().endswith("MEMORY.md"), (
+                "Found bare 'MEMORY.md' reference without memory/ prefix in prompt"
+            )
+
     def test_no_memory_scheme_prompt_without_scheme(self):
         from app.services.sessions import _effective_system_prompt
         bot = _bot(memory_scheme=None)
@@ -289,8 +309,18 @@ class TestCompactionFlushOverride:
     def test_memory_scheme_flush_prompt(self):
         from app.config import DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
         assert "daily log" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
-        assert "MEMORY.md" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+        assert "memory/MEMORY.md" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+        assert "memory/logs/" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
         assert "file" in DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+
+    def test_flush_prompt_no_bare_memory_md(self):
+        """Flush prompt must not reference bare 'MEMORY.md' without memory/ prefix."""
+        from app.config import DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+        # Remove all correctly-prefixed references, then check for leftover bare ones
+        stripped = DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT.replace("memory/MEMORY.md", "")
+        assert "MEMORY.md" not in stripped, (
+            "Flush prompt contains bare 'MEMORY.md' without memory/ prefix"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -308,5 +338,86 @@ class TestRerankingPrefixes:
         assert "memory_yesterday_log" in prefix_labels
 
         # And excluded from reranking
-        assert any("MEMORY.md" in p for p in _EXCLUDED_PREFIXES)
+        assert any("memory/MEMORY.md" in p for p in _EXCLUDED_PREFIXES)
         assert any("daily log" in p.lower() for p in _EXCLUDED_PREFIXES)
+
+    def test_reranking_prefixes_match_injection_headers(self):
+        """RAG and excluded prefixes must match what context_assembly actually produces.
+
+        The injection headers use get_memory_rel_path() which returns "memory".
+        Reranking prefixes must start-match these headers or reranking breaks.
+        """
+        from app.services.reranking import _RAG_PREFIXES, _EXCLUDED_PREFIXES
+        from app.services.memory_scheme import get_memory_rel_path
+
+        bot = _bot(memory_scheme="workspace-files")
+        mem_rel = get_memory_rel_path(bot)  # "memory"
+
+        # Build the headers context_assembly would produce
+        bootstrap_header = f"Your persistent memory ({mem_rel}/MEMORY.md"
+        today_header = f"Today's daily log ({mem_rel}/logs/"
+        yesterday_header = f"Yesterday's daily log ({mem_rel}/logs/"
+        reference_header = f"Reference documents in {mem_rel}/reference/"
+
+        # Check RAG prefixes match
+        rag_dict = dict(_RAG_PREFIXES)
+        assert rag_dict.get(bootstrap_header) == "memory_bootstrap", (
+            f"RAG prefix for memory_bootstrap doesn't match injection header: {bootstrap_header!r}"
+        )
+        assert rag_dict.get(today_header) == "memory_today_log", (
+            f"RAG prefix for memory_today_log doesn't match injection header: {today_header!r}"
+        )
+        assert rag_dict.get(yesterday_header) == "memory_yesterday_log", (
+            f"RAG prefix for memory_yesterday_log doesn't match injection header: {yesterday_header!r}"
+        )
+
+        # Check excluded prefixes match
+        assert any(bootstrap_header.startswith(ep) for ep in _EXCLUDED_PREFIXES), (
+            f"Bootstrap header not excluded from reranking: {bootstrap_header!r}"
+        )
+        assert any(today_header.startswith(ep) for ep in _EXCLUDED_PREFIXES), (
+            f"Today log header not excluded from reranking: {today_header!r}"
+        )
+        assert any(yesterday_header.startswith(ep) for ep in _EXCLUDED_PREFIXES), (
+            f"Yesterday log header not excluded from reranking: {yesterday_header!r}"
+        )
+        assert any(reference_header.startswith(ep) for ep in _EXCLUDED_PREFIXES), (
+            f"Reference header not excluded from reranking: {reference_header!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Custom prompt override
+# ---------------------------------------------------------------------------
+
+class TestCustomPromptOverride:
+    def test_custom_memory_scheme_prompt_gets_formatted(self):
+        """A user-provided MEMORY_SCHEME_PROMPT still gets {memory_rel} substituted."""
+        from app.services.sessions import _effective_system_prompt
+        from app.config import settings
+
+        custom = "Write files to {memory_rel}/MEMORY.md, not bare MEMORY.md."
+        bot = _bot(memory_scheme="workspace-files")
+        orig = settings.MEMORY_SCHEME_PROMPT
+        try:
+            settings.MEMORY_SCHEME_PROMPT = custom
+            prompt = _effective_system_prompt(bot)
+        finally:
+            settings.MEMORY_SCHEME_PROMPT = orig
+        assert "memory/MEMORY.md" in prompt
+        assert "{memory_rel}" not in prompt  # placeholder must be resolved
+
+    def test_empty_override_falls_back_to_default(self):
+        """Empty MEMORY_SCHEME_PROMPT setting uses the built-in default."""
+        from app.services.sessions import _effective_system_prompt
+        from app.config import settings
+
+        bot = _bot(memory_scheme="workspace-files")
+        orig = settings.MEMORY_SCHEME_PROMPT
+        try:
+            settings.MEMORY_SCHEME_PROMPT = ""
+            prompt = _effective_system_prompt(bot)
+        finally:
+            settings.MEMORY_SCHEME_PROMPT = orig
+        assert "memory/MEMORY.md" in prompt
+        assert "## Memory" in prompt

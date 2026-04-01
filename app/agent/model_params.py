@@ -28,6 +28,7 @@ MODEL_PARAM_SUPPORT: dict[str, set[str]] = {
     "mistral": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
     "deepseek": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort"},
     "groq": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
+    "ollama": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
     "_default": {"temperature", "max_tokens"},
 }
 

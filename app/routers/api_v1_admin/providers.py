@@ -11,10 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bot as BotRow, ProviderConfig as ProviderConfigRow, ProviderModel
 from app.dependencies import get_db, verify_auth_or_user
+from app.services.provider_drivers import PROVIDER_TYPES, get_driver
 
 router = APIRouter()
-
-PROVIDER_TYPES = ["litellm", "openai", "openai-compatible", "anthropic", "anthropic-compatible"]
 
 
 # ---------------------------------------------------------------------------
@@ -391,53 +390,13 @@ async def _test_provider_connection(
     ptype: str, api_key: str | None, base_url: str | None,
 ) -> ProviderTestResult:
     """Test a provider connection given raw params (works for saved and unsaved configs)."""
-    from openai import AsyncOpenAI
-
-    if ptype == "anthropic":
-        return ProviderTestResult(ok=True, message="Credentials OK")
-
-    # Anthropic-compatible: /models often not implemented, so test with a
-    # minimal messages POST that will return an auth or validation error (not a
-    # connection error) if the endpoint is reachable.
-    if ptype == "anthropic-compatible":
-        import httpx
-        url = (base_url or "https://api.anthropic.com/v1").rstrip("/")
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as hc:
-                resp = await hc.post(
-                    f"{url}/messages",
-                    headers={
-                        "x-api-key": api_key or "",
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={"model": "test", "max_tokens": 1, "messages": []},
-                )
-                # Any response (even 400/401) means the endpoint is reachable
-                if resp.status_code == 401:
-                    return ProviderTestResult(ok=False, message="Authentication failed (401)")
-                return ProviderTestResult(ok=True, message=f"Connected (HTTP {resp.status_code})")
-        except Exception as exc:
-            return ProviderTestResult(ok=False, message=str(exc)[:200])
-
-    # litellm / openai / openai-compatible: test via models.list()
     try:
-        kw: dict = {"api_key": api_key or "dummy", "timeout": 15.0, "max_retries": 0}
-        if ptype == "litellm":
-            from app.config import settings as _s
-            kw["base_url"] = base_url or _s.LITELLM_BASE_URL
-        elif ptype in ("openai", "openai-compatible"):
-            if base_url:
-                kw["base_url"] = base_url
-        else:
-            return ProviderTestResult(ok=False, message=f"Unknown provider type: {ptype}")
+        driver = get_driver(ptype)
+    except ValueError:
+        return ProviderTestResult(ok=False, message=f"Unknown provider type: {ptype}")
 
-        client = AsyncOpenAI(**kw)
-        models = await client.models.list()
-        count = len(models.data)
-        return ProviderTestResult(ok=True, message=f"Connected ({count} models)")
-    except Exception as exc:
-        return ProviderTestResult(ok=False, message=str(exc)[:200])
+    ok, message = await driver.test_connection(api_key, base_url)
+    return ProviderTestResult(ok=ok, message=message)
 
 
 @router.post("/providers/test-inline", response_model=ProviderTestResult)
@@ -468,3 +427,233 @@ async def admin_test_provider(
     return await _test_provider_connection(
         provider.provider_type, provider.api_key, provider.base_url,
     )
+
+
+# ---------------------------------------------------------------------------
+# Capabilities
+# ---------------------------------------------------------------------------
+
+
+@router.get("/provider-types/{provider_type}/capabilities")
+async def admin_provider_type_capabilities(
+    provider_type: str,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Return capabilities for a provider type (works for unsaved/new providers)."""
+    from dataclasses import asdict
+
+    try:
+        driver = get_driver(provider_type)
+    except ValueError:
+        raise HTTPException(status_code=404, detail=f"Unknown provider type: {provider_type}")
+    return asdict(driver.capabilities())
+
+
+@router.get("/providers/{provider_id}/capabilities")
+async def admin_provider_capabilities(
+    provider_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Return capabilities for a saved provider."""
+    from dataclasses import asdict
+
+    row = await db.get(ProviderConfigRow, provider_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    driver = get_driver(row.provider_type)
+    return asdict(driver.capabilities())
+
+
+# ---------------------------------------------------------------------------
+# Model sync (generic — any provider with list_models capability)
+# ---------------------------------------------------------------------------
+
+
+class SyncModelsResult(BaseModel):
+    created: int = 0
+    updated: int = 0
+    total: int = 0
+
+
+@router.post("/providers/{provider_id}/sync-models", response_model=SyncModelsResult)
+async def admin_sync_provider_models(
+    provider_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Sync models from provider API into provider_models table."""
+    from app.services.providers import get_provider, load_providers as _reload
+
+    provider = get_provider(provider_id)
+    if not provider:
+        await _reload()
+        provider = get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found in registry")
+
+    driver = get_driver(provider.provider_type)
+    caps = driver.capabilities()
+    if not caps.list_models:
+        raise HTTPException(status_code=400, detail="Provider does not support model listing")
+
+    enriched = await driver.list_models_enriched(provider)
+    if not enriched:
+        return SyncModelsResult(total=0)
+
+    # Get existing DB models for this provider
+    existing = (await db.execute(
+        select(ProviderModel).where(ProviderModel.provider_id == provider_id)
+    )).scalars().all()
+    existing_map = {m.model_id: m for m in existing}
+
+    created = 0
+    updated = 0
+    for m in enriched:
+        mid = m["id"]
+        if mid in existing_map:
+            # Update display name if not manually set
+            row = existing_map[mid]
+            changed = False
+            if m.get("display") and not row.display_name:
+                row.display_name = m["display"]
+                changed = True
+            if changed:
+                updated += 1
+        else:
+            row = ProviderModel(
+                provider_id=provider_id,
+                model_id=mid,
+                display_name=m.get("display"),
+            )
+            db.add(row)
+            created += 1
+
+    if created or updated:
+        await db.commit()
+
+    await _reload()
+    return SyncModelsResult(created=created, updated=updated, total=len(enriched))
+
+
+# ---------------------------------------------------------------------------
+# Capability-gated endpoints (Ollama model management, etc.)
+# ---------------------------------------------------------------------------
+
+
+class PullModelIn(BaseModel):
+    model_name: str
+
+
+@router.post("/providers/{provider_id}/pull-model")
+async def admin_pull_model(
+    provider_id: str,
+    body: PullModelIn,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Pull/download a model from the provider. Streams progress as SSE."""
+    from starlette.responses import StreamingResponse
+
+    from app.services.providers import get_provider, load_providers as _reload
+
+    provider = get_provider(provider_id)
+    if not provider:
+        await _reload()
+        provider = get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found in registry")
+
+    driver = get_driver(provider.provider_type)
+    if not driver.capabilities().pull_model:
+        raise HTTPException(status_code=400, detail="Provider does not support model pulling")
+
+    import json
+
+    async def event_stream():
+        try:
+            async for chunk in driver.pull_model(provider, body.model_name):
+                yield f"data: {json.dumps(chunk)}\n\n"
+            yield f"data: {json.dumps({'status': 'success'})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'status': 'error', 'error': str(exc)[:200]})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.delete("/providers/{provider_id}/remote-models/{model_name:path}")
+async def admin_delete_remote_model(
+    provider_id: str,
+    model_name: str,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Delete a model from the provider (e.g. remove from Ollama)."""
+    from app.services.providers import get_provider, load_providers as _reload
+
+    provider = get_provider(provider_id)
+    if not provider:
+        await _reload()
+        provider = get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found in registry")
+
+    driver = get_driver(provider.provider_type)
+    if not driver.capabilities().delete_model:
+        raise HTTPException(status_code=400, detail="Provider does not support model deletion")
+
+    try:
+        await driver.delete_model(provider, model_name)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)[:200])
+
+    return {"ok": True, "message": f"Deleted {model_name}"}
+
+
+@router.get("/providers/{provider_id}/remote-models/{model_name:path}/info")
+async def admin_remote_model_info(
+    provider_id: str,
+    model_name: str,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Get detailed info/manifest for a model from the provider."""
+    from app.services.providers import get_provider, load_providers as _reload
+
+    provider = get_provider(provider_id)
+    if not provider:
+        await _reload()
+        provider = get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found in registry")
+
+    driver = get_driver(provider.provider_type)
+    if not driver.capabilities().model_info:
+        raise HTTPException(status_code=400, detail="Provider does not support model info")
+
+    try:
+        return await driver.get_model_info(provider, model_name)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)[:200])
+
+
+@router.get("/providers/{provider_id}/running-models")
+async def admin_running_models(
+    provider_id: str,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Get currently loaded/running models from the provider."""
+    from app.services.providers import get_provider, load_providers as _reload
+
+    provider = get_provider(provider_id)
+    if not provider:
+        await _reload()
+        provider = get_provider(provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found in registry")
+
+    driver = get_driver(provider.provider_type)
+    if not driver.capabilities().running_models:
+        raise HTTPException(status_code=400, detail="Provider does not support running models query")
+
+    try:
+        return await driver.get_running_models(provider)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)[:200])

@@ -12,6 +12,7 @@ skills:
     mode: on_demand
 
 local_tools:
+  - manage_workflow
   - sonarr_calendar
   - sonarr_series
   - sonarr_wanted
@@ -59,6 +60,8 @@ system_prompt_fragment: |
   - **"Is X available?"** → `jellyfin_library(search)` → if not: check Sonarr/Radarr → offer to request via Jellyseerr
   - **Request media** → `jellyseerr_search` → `jellyseerr_manage(action="request")`
   - **Fix stuck download** → check queues → `qbit_torrents(filter="stalled")` → delete bad → `*_releases(action="search")` → evaluate → grab best
+  - **"Why isn't X on Jellyfin?"** → `manage_workflow(action="trigger", id="media-troubleshoot", params='{"title": "...", "media_type": "tv"}')`
+    Automated diagnostic chain: checks Jellyfin → Sonarr/Radarr → qBit → diagnoses → fixes → reports back.
 
   ### Deep Knowledge
   | When you need... | Fetch this skill |
@@ -66,7 +69,12 @@ system_prompt_fragment: |
   | Full tool reference, parameters, ID lookups, all workflows | `get_skill('integrations/arr/media_management')` |
   | Heartbeat monitoring, stuck download detection, torrent selection, workspace tracking | `get_skill('integrations/arr/download-monitoring')` |
 
+  ### Title Matching
+  Titles differ across platforms — "Paradise" might be "Paradise (2025)" in Sonarr, just "Paradise"
+  in Jellyfin. Always search with the shortest unambiguous form first, then refine if multiple matches.
+
   ### Key Rules
   - Always check Jellyfin FIRST for availability before searching Sonarr/Radarr
   - When selecting releases: prefer high seeders (>10), reasonable size, matching quality profile, not rejected
   - When requesting: confirm with the user before creating Jellyseerr requests
+  - When searching by title: try the simplest form first, then add year/qualifier if ambiguous

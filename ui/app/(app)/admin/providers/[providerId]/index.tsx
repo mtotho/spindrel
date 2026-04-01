@@ -7,10 +7,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useProvider, useCreateProvider, useUpdateProvider, useDeleteProvider, useTestProvider, useTestProviderInline,
   useProviderModels, useAddProviderModel, useDeleteProviderModel,
+  useProviderTypeCapabilities, useDeleteRemoteModel,
   type ProviderModelItem,
 } from "@/src/api/hooks/useProviders";
 import { FormRow, TextInput, SelectInput, Toggle, Section, Row, Col } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { ProviderCapabilitySections } from "./ProviderCapabilitySections";
 
 const PROVIDER_TYPE_OPTIONS = [
   { label: "LiteLLM", value: "litellm" },
@@ -18,6 +20,7 @@ const PROVIDER_TYPE_OPTIONS = [
   { label: "OpenAI Compatible", value: "openai-compatible" },
   { label: "Anthropic", value: "anthropic" },
   { label: "Anthropic Compatible", value: "anthropic-compatible" },
+  { label: "Ollama", value: "ollama" },
 ];
 
 function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
@@ -86,6 +89,7 @@ export default function ProviderDetailScreen() {
   const { data: providerModels, isLoading: modelsLoading } = useProviderModels(isNew ? undefined : providerId);
   const addModelMut = useAddProviderModel(providerId);
   const deleteModelMut = useDeleteProviderModel(providerId);
+  const deleteRemoteMut = useDeleteRemoteModel(isNew ? undefined : providerId);
   const [newModelId, setNewModelId] = useState("");
   const [newModelDisplay, setNewModelDisplay] = useState("");
   const [newModelMaxTokens, setNewModelMaxTokens] = useState("");
@@ -165,10 +169,11 @@ export default function ProviderDetailScreen() {
   const canSave = isNew ? (id.trim() && displayName.trim()) : displayName.trim();
   const mutError = createMut.error || updateMut.error || deleteMut.error;
 
-  // Fields visible per provider type
-  const showApiKey = true;
-  const showBaseUrl = ["litellm", "openai", "openai-compatible", "anthropic-compatible"].includes(providerType);
-  const showManagementKey = providerType === "litellm";
+  // Capabilities-driven field visibility
+  const { data: caps } = useProviderTypeCapabilities(providerType);
+  const showApiKey = caps?.requires_api_key ?? true;
+  const showBaseUrl = caps?.requires_base_url ?? providerType !== "anthropic";
+  const showManagementKey = caps?.management_key ?? false;
 
   if (!isNew && isLoading) {
     return (
@@ -297,9 +302,11 @@ export default function ProviderDetailScreen() {
                 providerType === "litellm" ? "URL of your LiteLLM proxy" :
                 providerType === "openai-compatible" ? "Base URL of the OpenAI-compatible API (required)" :
                 providerType === "anthropic-compatible" ? "Base URL of the Anthropic-compatible API (required)" :
+                providerType === "ollama" ? "Ollama server URL (chat uses /v1, native APIs use /api)" :
                 "Optional, uses default if blank"
               }>
                 <TextInput value={baseUrl} onChangeText={setBaseUrl} placeholder={
+                  providerType === "ollama" ? "http://localhost:11434" :
                   providerType === "openai-compatible" ? "https://api.minimax.chat/v1" :
                   providerType === "anthropic-compatible" ? "https://api.minimax.chat/v1" :
                   "https://litellm.example.com"
@@ -410,6 +417,23 @@ export default function ProviderDetailScreen() {
                           borderRadius: 4,
                         }}>no-tools</span>
                       )}
+                      {caps?.delete_model && (
+                        <button
+                          onClick={() => {
+                            if (confirm(`Remove ${m.model_id} from provider?`))
+                              deleteRemoteMut.mutate(m.model_id);
+                          }}
+                          disabled={deleteRemoteMut.isPending}
+                          style={{
+                            background: "none", border: "none", cursor: "pointer",
+                            padding: "2px 4px", color: t.danger, flexShrink: 0,
+                            fontSize: 10, fontWeight: 600,
+                          }}
+                          title="Remove from provider"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      )}
                       <button
                         onClick={() => deleteModelMut.mutate(m.id)}
                         disabled={deleteModelMut.isPending}
@@ -417,7 +441,7 @@ export default function ProviderDetailScreen() {
                           background: "none", border: "none", cursor: "pointer",
                           padding: 2, color: t.textDim, flexShrink: 0,
                         }}
-                        title="Remove model"
+                        title="Remove from DB"
                       >
                         <X size={13} />
                       </button>
@@ -563,6 +587,13 @@ export default function ProviderDetailScreen() {
                 </button>
               </div>
             </Section>
+          )}
+
+          {!isNew && caps && (
+            <ProviderCapabilitySections
+              providerId={providerId}
+              capabilities={caps}
+            />
           )}
 
           {!isNew && provider && (

@@ -26,10 +26,15 @@ async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
     if url_err:
         raise ValueError(url_err)
     url = f"{_base_url()}{path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Jellyseerr request timed out after {timeout}s: {path}"
+        )
 
 
 async def _post(path: str, payload: dict | None = None, timeout: float = 15.0):
@@ -37,12 +42,17 @@ async def _post(path: str, payload: dict | None = None, timeout: float = 15.0):
     if url_err:
         raise ValueError(url_err)
     url = f"{_base_url()}{path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, headers=_headers(), json=payload or {}, timeout=timeout)
-        resp.raise_for_status()
-        if resp.content:
-            return resp.json()
-        return {}
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, headers=_headers(), json=payload or {}, timeout=timeout)
+            resp.raise_for_status()
+            if resp.content:
+                return resp.json()
+            return {}
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Jellyseerr request timed out after {timeout}s: {path}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -56,14 +66,14 @@ async def _post(path: str, payload: dict | None = None, timeout: float = 15.0):
         "name": "jellyseerr_requests",
         "description": (
             "List media requests in Jellyseerr. "
-            "Filters: all, pending, approved, declined, processing, available."
+            "Filters: all, pending, approved, processing, available, unavailable, failed."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "filter": {
                     "type": "string",
-                    "enum": ["all", "pending", "approved", "declined", "processing", "available"],
+                    "enum": ["all", "pending", "approved", "processing", "available", "unavailable", "failed"],
                     "description": "Filter by request status (default 'all').",
                 },
                 "limit": {
@@ -78,7 +88,7 @@ async def jellyseerr_requests(filter: str = "all", limit: int = 20) -> str:
     if not settings.JELLYSEERR_URL:
         return error("JELLYSEERR_URL is not configured")
     try:
-        params: dict = {"take": limit, "sort": "added", "sortDirection": "desc"}
+        params: dict = {"take": limit}
         if filter != "all":
             params["filter"] = filter
         data = await _get("/api/v1/request", params=params)
@@ -110,7 +120,8 @@ async def jellyseerr_requests(filter: str = "all", limit: int = 20) -> str:
             "requests": requests_list,
         })
     except httpx.HTTPStatusError as e:
-        return error(f"Jellyseerr API error: HTTP {e.response.status_code}")
+        body = e.response.text[:200] if e.response.text else ""
+        return error(f"Jellyseerr API error: HTTP {e.response.status_code}: {body}")
     except httpx.ConnectError:
         return error(f"Cannot connect to Jellyseerr at {_base_url()}")
     except Exception as e:
@@ -172,7 +183,8 @@ async def jellyseerr_search(query: str) -> str:
 
         return json.dumps({"count": len(results), "results": results})
     except httpx.HTTPStatusError as e:
-        return error(f"Jellyseerr API error: HTTP {e.response.status_code}")
+        body = e.response.text[:200] if e.response.text else ""
+        return error(f"Jellyseerr API error: HTTP {e.response.status_code}: {body}")
     except httpx.ConnectError:
         return error(f"Cannot connect to Jellyseerr at {_base_url()}")
     except Exception as e:
@@ -265,7 +277,8 @@ async def jellyseerr_manage(
 
         return error(f"Unknown action: {action}")
     except httpx.HTTPStatusError as e:
-        return error(f"Jellyseerr API error: HTTP {e.response.status_code}")
+        body = e.response.text[:200] if e.response.text else ""
+        return error(f"Jellyseerr API error: HTTP {e.response.status_code}: {body}")
     except httpx.ConnectError:
         return error(f"Cannot connect to Jellyseerr at {_base_url()}")
     except Exception as e:

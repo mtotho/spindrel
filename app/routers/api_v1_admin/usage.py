@@ -984,7 +984,7 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
         # Estimate cost per recurring task using correlation_id-based cost
         # attribution from recent spawned runs. Falls back to model-based
         # estimate for tasks without correlation data (pre-migration runs).
-        from app.agent.bots import get_bot_config
+        from app.agent.bots import _registry as _bot_registry
         from collections import defaultdict
 
         template_ids = [t.id for t in recurring_tasks]
@@ -1050,7 +1050,7 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
                 avg_cost = sum(costs) / len(costs) if costs else 0.0
             else:
                 # Fallback: estimate from model's avg cost per call
-                bot = get_bot_config(task.bot_id)
+                bot = _bot_registry.get(task.bot_id)
                 model = bot.model if bot else None
 
                 if model and _is_plan_billed(None, model):
