@@ -867,6 +867,50 @@ def _recurrence_runs_per_day(recurrence: str) -> float:
     return 86400 / interval_secs
 
 
+def _group_costs_by_template(
+    corr_parent: dict[str, str],
+    corr_costs: dict[str, float],
+) -> dict[str, list[float]]:
+    """Group per-correlation-id costs by their parent template task id.
+
+    Args:
+        corr_parent: mapping from correlation_id → parent_task_id (template)
+        corr_costs: mapping from correlation_id → total cost for that run
+
+    Returns:
+        dict mapping template_id → list of per-run costs
+    """
+    from collections import defaultdict
+    result: dict[str, list[float]] = defaultdict(list)
+    for cid, run_cost in corr_costs.items():
+        parent_id = corr_parent.get(cid)
+        if parent_id:
+            result[parent_id].append(run_cost)
+    return dict(result)
+
+
+def _compute_recurring_task_daily(
+    tasks: list,
+    template_run_costs: dict[str, list[float]],
+) -> float:
+    """Compute total daily cost from recurring tasks and their per-template costs.
+
+    Args:
+        tasks: list of recurring Task objects (with .id, .recurrence)
+        template_run_costs: mapping from template_id → list of per-run costs
+
+    Returns:
+        total daily cost
+    """
+    total = 0.0
+    for task in tasks:
+        runs_per_day = _recurrence_runs_per_day(task.recurrence or "")
+        costs = template_run_costs.get(str(task.id), [])
+        avg_cost = sum(costs) / len(costs) if costs else 0.0
+        total += runs_per_day * avg_cost
+    return total
+
+
 def _compute_cost_for_events(
     events: list[TraceEvent],
     pricing: dict,
@@ -981,55 +1025,52 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
     )).scalars().all()
 
     if recurring_tasks:
-        # Estimate avg cost per task run from recent completed task runs
-        # Scope to task-related correlation_ids (not all events for the bot)
-        recent_completed_tasks = (await db.execute(
+        # Estimate avg cost per task from recent spawned runs.
+        # Group by parent_task_id (the schedule template) so each task gets
+        # its own cost average rather than sharing a per-bot average.
+        # Use correlation_id (unique per run) instead of session_id, which can
+        # be shared across runs or swapped during stale-session recovery.
+        from collections import defaultdict
+
+        template_ids = [t.id for t in recurring_tasks]
+        recent_runs = (await db.execute(
             select(Task).where(
-                Task.status.in_(["completed", "active"]),
-                Task.recurrence.isnot(None),
-                Task.session_id.isnot(None),
+                Task.parent_task_id.in_(template_ids),
+                Task.correlation_id.isnot(None),
                 Task.completed_at >= seven_days_ago,
             )
         )).scalars().all()
 
-        task_session_ids = [t.session_id for t in recent_completed_tasks if t.session_id]
+        # Map correlation_id → parent_task_id for cost attribution
+        corr_parent: dict[str, str] = {}
+        task_correlation_ids = []
+        for run in recent_runs:
+            if run.correlation_id and run.parent_task_id:
+                cid = str(run.correlation_id)
+                corr_parent[cid] = str(run.parent_task_id)
+                task_correlation_ids.append(run.correlation_id)
 
-        # Group costs by bot_id from task-scoped events only
-        bot_run_costs: dict[str, list[float]] = {}  # bot_id -> [cost_per_run, ...]
-        if task_session_ids:
+        # Sum cost per correlation_id, then attribute to parent template
+        corr_costs: dict[str, float] = defaultdict(float)
+        if task_correlation_ids:
             task_events = (await db.execute(
                 select(TraceEvent).where(
                     TraceEvent.event_type == "token_usage",
-                    TraceEvent.session_id.in_(task_session_ids),
+                    TraceEvent.correlation_id.in_(task_correlation_ids),
                 )
             )).scalars().all()
 
-            # Group events by session_id, then sum per-run cost
-            from collections import defaultdict
-            session_costs: dict[str, float] = defaultdict(float)
-            session_bot: dict[str, str] = {}
             for ev in task_events:
-                sid = str(ev.session_id) if ev.session_id else None
-                if not sid:
+                cid = str(ev.correlation_id) if ev.correlation_id else None
+                if not cid:
                     continue
                 d = ev.data or {}
                 cost = _resolve_event_cost(d, pricing, ptype_map)
                 if cost is not None:
-                    session_costs[sid] += cost
-                if ev.bot_id:
-                    session_bot[sid] = ev.bot_id
+                    corr_costs[cid] += cost
 
-            for sid, run_cost in session_costs.items():
-                bid = session_bot.get(sid)
-                if bid:
-                    bot_run_costs.setdefault(bid, []).append(run_cost)
-
-        task_daily = 0.0
-        for task in recurring_tasks:
-            runs_per_day = _recurrence_runs_per_day(task.recurrence or "")
-            costs = bot_run_costs.get(task.bot_id, [])
-            avg_cost = sum(costs) / len(costs) if costs else 0.0
-            task_daily += runs_per_day * avg_cost
+        template_run_costs = _group_costs_by_template(corr_parent, corr_costs)
+        task_daily = _compute_recurring_task_daily(recurring_tasks, template_run_costs)
 
         components.append(ForecastComponent(
             source="recurring_tasks",
@@ -1070,15 +1111,18 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
             monthly_cost=round(traj_monthly, 4),
         ))
 
-    # Projected = max(trajectory, scheduled_total) to avoid double-counting
-    # Trajectory already includes scheduled costs that ran today; scheduled components
-    # are the theoretical daily cost from heartbeats + recurring tasks.
-    scheduled_daily = sum(c.daily_cost for c in components if c.source != "trajectory")
-    scheduled_monthly = sum(c.monthly_cost for c in components if c.source != "trajectory")
+    # Projected = max(trajectory, scheduled_variable) + fixed_plans
+    # Trajectory already includes variable scheduled costs (heartbeats + tasks) that
+    # ran today, so we take the higher of trajectory vs scheduled variable costs.
+    # Fixed plan costs are always added on top since they're unavoidable flat fees.
+    fixed_plan_daily = next((c.daily_cost for c in components if c.source == "fixed_plans"), 0.0)
+    fixed_plan_monthly = next((c.monthly_cost for c in components if c.source == "fixed_plans"), 0.0)
+    variable_scheduled_daily = sum(c.daily_cost for c in components if c.source not in ("trajectory", "fixed_plans"))
+    variable_scheduled_monthly = sum(c.monthly_cost for c in components if c.source not in ("trajectory", "fixed_plans"))
     trajectory_daily = next((c.daily_cost for c in components if c.source == "trajectory"), 0.0)
     trajectory_monthly = next((c.monthly_cost for c in components if c.source == "trajectory"), 0.0)
-    projected_daily = max(trajectory_daily, scheduled_daily)
-    projected_monthly = max(trajectory_monthly, scheduled_monthly)
+    projected_daily = max(trajectory_daily, variable_scheduled_daily) + fixed_plan_daily
+    projected_monthly = max(trajectory_monthly, variable_scheduled_monthly) + fixed_plan_monthly
 
     # --- Limit forecasts ---
     from app.services.usage_limits import _limits, _period_start
@@ -1099,11 +1143,11 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
         current = _compute_cost_for_events(limit_events, pricing)
         pct = (current / limit.limit_usd * 100) if limit.limit_usd > 0 else 0
 
-        # Project spend to end of period
+        # Project spend to end of period by extrapolating this scope's own pace
         if limit.period == "daily":
-            projected = projected_daily
+            projected = current / hours_elapsed * 24 if hours_elapsed >= 1.0 else current
         else:  # monthly
-            projected = projected_monthly
+            projected = current / days_elapsed * 30 if days_elapsed >= 1.0 else current
 
         proj_pct = (projected / limit.limit_usd * 100) if limit.limit_usd > 0 else 0
 

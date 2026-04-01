@@ -276,6 +276,13 @@ async def lifespan(app: FastAPI):
     from app.agent.carapaces import load_carapaces
     logger.info("Loading carapaces from DB...")
     await load_carapaces()
+    # Workflow YAML seeding is handled by sync_all_files() above; just load registry.
+    from app.services.workflows import load_workflows
+    logger.info("Loading workflows from DB...")
+    await load_workflows()
+    # Register workflow task completion hook
+    from app.services.workflow_hooks import register_workflow_hooks
+    register_workflow_hooks()
     logger.info("Starting file watcher...")
     asyncio.create_task(file_sync.watch_files())
 

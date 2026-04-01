@@ -350,10 +350,14 @@ class SandboxService:
                 _exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
         except Exception:
             pass
-        # Inject secret values as env vars
+        # Inject secret values as env vars (respecting scoped secrets from workflows)
         try:
             from app.services.secret_values import get_env_dict as _get_secret_env
-            for _sk, _sv in _get_secret_env().items():
+            from app.agent.context import current_allowed_secrets
+            _all_secrets = _get_secret_env()
+            _allowed = current_allowed_secrets.get(None)
+            _secrets_to_inject = {k: v for k, v in _all_secrets.items() if k in _allowed} if _allowed is not None else _all_secrets
+            for _sk, _sv in _secrets_to_inject.items():
                 _exec_args += ["-e", f"{_sk}={_sv}"]
         except Exception:
             pass
@@ -771,10 +775,14 @@ class SandboxService:
                     exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
             except Exception:
                 pass
-            # Inject secret values as env vars
+            # Inject secret values as env vars (respecting scoped secrets from workflows)
             try:
                 from app.services.secret_values import get_env_dict as _get_secret_env
-                for _sk, _sv in _get_secret_env().items():
+                from app.agent.context import current_allowed_secrets
+                _all_secrets = _get_secret_env()
+                _allowed = current_allowed_secrets.get(None)
+                _secrets_to_inject = {k: v for k, v in _all_secrets.items() if k in _allowed} if _allowed is not None else _all_secrets
+                for _sk, _sv in _secrets_to_inject.items():
                     exec_args += ["-e", f"{_sk}={_sv}"]
             except Exception:
                 pass

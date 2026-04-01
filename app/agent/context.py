@@ -45,6 +45,8 @@ current_provider_id_override: ContextVar[str | None] = ContextVar("current_provi
 # Set explicitly in run_stream; NOT managed by set_agent_context.
 current_injected_tools: ContextVar[list[dict] | None] = ContextVar("current_injected_tools", default=None)
 
+current_allowed_secrets: ContextVar[list[str] | None] = ContextVar("current_allowed_secrets", default=None)
+
 current_session_depth: ContextVar[int] = ContextVar("current_session_depth", default=0)
 current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root_session_id", default=None)
 current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])

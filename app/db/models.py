@@ -1333,3 +1333,49 @@ class MCPServer(Base):
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class Workflow(Base):
+    __tablename__ = "workflows"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    params: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    secrets: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    defaults: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    steps: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    triggers: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    tags: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
+    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    workflow_id: Mapped[str] = mapped_column(Text, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False)
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    params: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="running")
+    current_step_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    step_states: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    dispatch_type: Mapped[str] = mapped_column(Text, nullable=False, default="none")
+    dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    triggered_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_workflow_runs_status", "status"),
+        Index("ix_workflow_runs_workflow_id", "workflow_id"),
+    )

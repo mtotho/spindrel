@@ -811,6 +811,19 @@ async def run_task(task: Task) -> None:
 
         import uuid as _uuid
         correlation_id = _uuid.uuid4()
+        # Persist correlation_id on the task row so forecast/cost attribution can
+        # find trace events for this specific run (session_id can be shared or
+        # swapped during execution, but correlation_id is unique per run).
+        async with async_session() as _corr_db:
+            _t = await _corr_db.get(Task, task.id)
+            if _t:
+                _t.correlation_id = correlation_id
+                # Also store in execution_config for workflow step tracking
+                if task.callback_config and task.callback_config.get("workflow_run_id"):
+                    _ecfg = dict(_t.execution_config or {})
+                    _ecfg["_correlation_id"] = str(correlation_id)
+                    _t.execution_config = _ecfg
+                await _corr_db.commit()
         messages_start = len(messages)  # capture before run() appends new turn
 
         # Resolve latest content from linked template or workspace file (if any)
@@ -850,6 +863,12 @@ async def run_task(task: Task) -> None:
         _model_override = _ecfg_pre.get("model_override") or None
         _provider_id_override = _ecfg_pre.get("model_provider_id_override") or None
         _fallback_models = _ecfg_pre.get("fallback_models") or None
+
+        # Scoped secrets from workflow steps
+        _allowed_secrets = _ecfg_pre.get("allowed_secrets")
+        if _allowed_secrets is not None:
+            from app.agent.context import current_allowed_secrets
+            current_allowed_secrets.set(_allowed_secrets)
 
         # Webhook prompt injection: system_preamble, ephemeral skills, injected tools
         _system_preamble = _ecfg_pre.get("system_preamble") or None

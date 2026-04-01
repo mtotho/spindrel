@@ -9,45 +9,60 @@ hide:
 
 Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LLM provider.
 
+!!! warning "Early Access"
+    Spindrel is under active development and in daily use by the maintainer. Core features are stable, but APIs, configuration formats, and database schemas may change between releases. Bug reports, feature requests, and contributions are welcome.
+
 ---
 
 <div class="grid cards" markdown>
 
--   :material-robot-outline:{ .lg .middle } **Multi-Bot Agents**
+-   :material-swap-horizontal:{ .lg .middle } **Any LLM Provider**
 
     ---
 
-    Configure specialist bots with tools, skills, and delegation chains. Orchestrator bots coordinate work across specialists up to 3 levels deep.
-
--   :material-docker:{ .lg .middle } **Workspace Isolation**
-
-    ---
-
-    Docker-based environments with per-bot file access, skills injection, and workspace-scoped memory. Each bot gets its own persistent workspace.
-
--   :material-message-text-outline:{ .lg .middle } **Channels & Conversations**
-
-    ---
-
-    Persistent channels with streaming chat (SSE), context compaction, and file-based conversation history. Override model, tools, and skills per channel.
+    OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM — or any OpenAI-compatible endpoint. Mix providers across bots. Automatic retry with fallback models. Cost tracking via LiteLLM pricing data.
 
 -   :material-puzzle-outline:{ .lg .middle } **Composable Expertise (Carapaces)**
 
     ---
 
-    Reusable bundles of skills, tools, and behavior. A bot with `carapaces: [qa, code-review]` gets instant testing and review expertise. Carapaces compose via `includes`.
+    Snap-on skillsets that bundle tools, knowledge, and behavioral instructions. Give a bot `carapaces: [qa, code-review]` and it instantly knows how to test and review code. Carapaces compose via `includes` for layered expertise.
 
--   :material-heart-pulse:{ .lg .middle } **Heartbeats & Tasks**
+-   :material-file-document-outline:{ .lg .middle } **Workspace Memory + Channel Workspaces**
 
     ---
 
-    Periodic autonomous check-ins with quiet hours. Schedule one-off or recurring agent tasks. Bots can self-schedule via `schedule_task`.
+    Bots maintain `MEMORY.md`, daily logs, and reference docs — all on disk, all indexed for RAG. Per-channel file stores with 7 built-in schema templates keep project context structured and searchable.
+
+-   :material-heart-pulse:{ .lg .middle } **Heartbeats + Task Scheduling**
+
+    ---
+
+    Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks with cron-like flexibility. Bots can self-schedule via `schedule_task`. Results dispatch to Slack, webhooks, or the UI.
 
 -   :material-plug:{ .lg .middle } **Integration Framework**
 
     ---
 
-    Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Frigate, Mission Control, Arr (Sonarr/Radarr), Claude Code, Ingestion. Extend with your own via `INTEGRATION_DIRS`.
+    Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Frigate, Mission Control, Arr, Claude Code, Ingestion. Each provides routers, dispatchers, tools, and lifecycle hooks. Extend with your own via `INTEGRATION_DIRS`.
+
+-   :material-chart-line:{ .lg .middle } **Usage Tracking + Budgeting**
+
+    ---
+
+    Per-bot token usage and cost tracking. Budget limits with configurable enforcement. Usage forecasting and breakdown by model. Powered by LiteLLM pricing data when available.
+
+-   :material-magnify:{ .lg .middle } **Web Search**
+
+    ---
+
+    Built-in web search via SearXNG (self-hosted) or DuckDuckGo (zero-config). Switch backends at runtime from the admin UI. No external API keys required.
+
+-   :material-docker:{ .lg .middle } **Docker Sandboxes**
+
+    ---
+
+    Long-lived containers for isolated code execution. Per-bot sandbox profiles with configurable images, mount points, and resource limits. Scope modes: session, client, agent, or shared.
 
 </div>
 
@@ -59,90 +74,12 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 git clone https://github.com/mtotho/spindrel.git
 cd spindrel
 bash setup.sh          # interactive wizard: deployment, LLM provider, auth
-docker compose up -d   # or: bash scripts/dev-server.sh for local dev
+docker compose up -d
 ```
 
 The setup wizard configures `.env`, starts services, and creates a default bot. The Orchestrator bot guides you through the rest conversationally.
 
 [:octicons-arrow-right-24: Full setup guide](setup.md)
-
-## Architecture
-
-```
-┌──────────────┐  ┌──────────────┐
-│   Web UI     │  │  Integrations│
-│ (Expo/React) │  │ (Slack, GH,  │
-└──────┬───────┘  │  Frigate)    │
-       │          └──────┬───────┘
-       │    SSE / REST   │
-       └────────┬────────┘
-                │
-       ┌────────┴─────────────────────────────────┐
-       │            Agent Server (FastAPI)         │
-       ├──────────────────────────────────────────┤
-       │  Context Assembly                         │
-       │    skills, memory, workspace, carapaces,  │
-       │    tool RAG, conversation history         │
-       │  Agent Loop                               │
-       │    LLM ↔ tools until text response        │
-       │  Task Worker (5s poll)                    │
-       │  Heartbeat Worker (30s poll)              │
-       │  Dispatchers (Slack, GH, webhook)         │
-       └───┬──────────┬──────────┬────────────────┘
-           │          │          │
-    ┌──────┴───┐ ┌────┴────┐ ┌──┴───────┐
-    │ Postgres │ │   LLM   │ │   MCP    │
-    │(pgvector)│ │Providers│ │ Servers  │
-    └──────────┘ └─────────┘ └──────────┘
-```
-
-**Request flow:** `run_stream()` → `assemble_context()` → `run_agent_tool_loop()` → LLM ↔ tools → final response
-
-The agent loop is iterative — the LLM calls tools until it returns a text response. Events stream as JSON lines. LLM calls retry with exponential backoff and optional fallback models.
-
-## Bot Configuration
-
-Bots are YAML files in `bots/` (gitignored — you create your own). Seeded on first startup, then managed via the admin UI.
-
-```yaml
-id: assistant
-name: "Assistant"
-model: gemini/gemini-2.5-flash
-system_prompt: |
-  You are a helpful assistant.
-carapaces: [qa, code-review]           # composable expertise bundles
-memory_scheme: workspace-files          # file-based memory (MEMORY.md + logs)
-history_mode: file                      # file-based conversation history
-workspace:
-  enabled: true
-  type: docker
-skills:
-  - id: channel-workspace
-    mode: on_demand
-local_tools: [web_search, file, exec_command, schedule_task]
-pinned_tools: [exec_command]
-delegate_bots: [researcher]
-harness_access: [claude-code]
-context_compaction: true
-```
-
-## Multi-Provider LLM
-
-Connect any combination of providers simultaneously. Supports OpenAI-compatible endpoints (OpenAI, Gemini, Ollama, OpenRouter, vLLM, LiteLLM) and native Anthropic. Assign providers per bot or per channel.
-
-Automatic retry with exponential backoff and fallback models. When using a LiteLLM proxy, Spindrel pulls model pricing data for accurate cost tracking.
-
-## Tool System
-
-Three tool types, all passed to the LLM in OpenAI function format:
-
-| Type | Source | How |
-|------|--------|-----|
-| **Local** | `app/tools/local/`, `tools/` | Python functions with `@register` decorator |
-| **MCP** | `mcp.yaml` | Remote HTTP endpoints (Model Context Protocol) |
-| **Client** | Declared to LLM, executed client-side | Shell, TTS, file ops on remote devices |
-
-**Tool RAG** surfaces only relevant tools per request via embedding similarity. Pin critical tools to always include them.
 
 ## Guides
 
@@ -156,6 +93,14 @@ Three tool types, all passed to the LLM in OpenAI function format:
 
     Connect Spindrel to Slack via Socket Mode.
 
+-   [:fontawesome-brands-discord: **Discord Integration**](guides/discord.md)
+
+    Connect Spindrel to Discord.
+
+-   [:material-gmail: **Gmail Integration**](guides/gmail.md)
+
+    Gmail integration for email-driven workflows.
+
 -   [:material-directions-fork: **Delegation**](guides/delegation.md)
 
     Bot-to-bot delegation — immediate and deferred.
@@ -164,13 +109,21 @@ Three tool types, all passed to the LLM in OpenAI function format:
 
     External CLI tools (Claude Code, Cursor) as agent subprocesses.
 
+-   [:material-shield-lock-outline: **Secrets & Redaction**](guides/secrets.md)
+
+    Secret vault, automatic redaction, and user input detection.
+
+-   [:material-file-import-outline: **Content Ingestion**](guides/ingestion.md)
+
+    Document ingestion pipeline for PDFs, web pages, and more.
+
 -   [:material-puzzle-edit-outline: **Creating Integrations**](integrations/index.md)
 
     Build custom integrations with routers, dispatchers, and hooks.
 
--   [:material-shield-lock-outline: **Secrets & Redaction**](guides/secrets.md)
+-   [:material-cellphone-link: **Agent Client**](guides/clients.md)
 
-    Secret vault, automatic redaction, and user input detection.
+    Remote voice assistant + local tool executor.
 
 -   [:material-backup-restore: **Backup & Restore**](backup.md)
 
@@ -179,9 +132,5 @@ Three tool types, all passed to the LLM in OpenAI function format:
 -   [:material-docker: **Docker Deployment**](docker-deployment.md)
 
     Production setup with the sibling container pattern.
-
--   [:material-cellphone-link: **Agent Client**](guides/clients.md)
-
-    Remote voice assistant + local tool executor.
 
 </div>

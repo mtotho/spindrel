@@ -616,6 +616,99 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
         except Exception:
             logger.warning("file_sync: failed to reload carapaces", exc_info=True)
 
+    # --- Workflows ---
+    from app.services.workflows import collect_workflow_files
+    from app.db.models import Workflow as WorkflowRow
+    import yaml as _wf_yaml
+
+    workflow_files = collect_workflow_files()
+    seen_workflow_ids: set[str] = set()
+
+    for path, workflow_id, source_type in workflow_files:
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except Exception:
+            logger.exception("Cannot read workflow file %s", path)
+            counts["errors"].append(f"Cannot read {path}")
+            continue
+
+        content_hash = _sha256(raw)
+        data = _wf_yaml.safe_load(raw) or {}
+        wid = data.get("id", workflow_id)
+        seen_workflow_ids.add(wid)
+        source_path = str(path.resolve())
+
+        try:
+            async with async_session() as session:
+                existing = await session.get(WorkflowRow, wid)
+                if existing is None:
+                    row = WorkflowRow(
+                        id=wid,
+                        name=data.get("name", wid),
+                        description=data.get("description"),
+                        params=data.get("params", {}),
+                        secrets=data.get("secrets", []),
+                        defaults=data.get("defaults", {}),
+                        steps=data.get("steps", []),
+                        triggers=data.get("triggers", {}),
+                        tags=data.get("tags", []),
+                        source_path=source_path,
+                        source_type=source_type,
+                        content_hash=content_hash,
+                        updated_at=datetime.now(timezone.utc),
+                    )
+                    session.add(row)
+                    await session.commit()
+                    counts["added"] += 1
+                    logger.info("file_sync: added workflow '%s' from %s", wid, path)
+                elif existing.content_hash != content_hash:
+                    existing.name = data.get("name", wid)
+                    existing.description = data.get("description")
+                    existing.params = data.get("params", {})
+                    existing.secrets = data.get("secrets", [])
+                    existing.defaults = data.get("defaults", {})
+                    existing.steps = data.get("steps", [])
+                    existing.triggers = data.get("triggers", {})
+                    existing.tags = data.get("tags", [])
+                    existing.source_path = source_path
+                    existing.source_type = source_type
+                    existing.content_hash = content_hash
+                    existing.updated_at = datetime.now(timezone.utc)
+                    await session.commit()
+                    counts["updated"] += 1
+                    logger.info("file_sync: updated workflow '%s' from %s", wid, path)
+                else:
+                    counts["unchanged"] += 1
+                    if existing.source_type != source_type or existing.source_path != source_path:
+                        existing.source_type = source_type
+                        existing.source_path = source_path
+                        await session.commit()
+        except Exception:
+            logger.exception("file_sync: DB error syncing workflow '%s'", wid)
+            counts["errors"].append(f"DB error for workflow '{wid}'")
+
+    # Delete orphaned file/integration workflows
+    if workflow_files:
+        async with async_session() as session:
+            stmt = select(WorkflowRow).where(
+                WorkflowRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+            )
+            all_file_workflows = list((await session.execute(stmt)).scalars().all())
+            for row in all_file_workflows:
+                if row.id not in seen_workflow_ids:
+                    await session.delete(row)
+                    counts["deleted"] += 1
+                    logger.info("file_sync: deleted orphaned workflow '%s'", row.id)
+            await session.commit()
+
+    # Reload workflow registry after sync
+    if workflow_files or seen_workflow_ids:
+        try:
+            from app.services.workflows import reload_workflows
+            await reload_workflows()
+        except Exception:
+            logger.warning("file_sync: failed to reload workflows", exc_info=True)
+
     logger.info(
         "file_sync complete: +%d added, ~%d updated, =%d unchanged, -%d deleted, %d errors",
         counts["added"], counts["updated"], counts["unchanged"],
@@ -654,9 +747,21 @@ async def sync_changed_file(path: Path) -> None:
             rows4 = list((await session.execute(stmt4)).scalars().all())
             for row in rows4:
                 await session.delete(row)
-            if rows or rows2 or rows3 or rows4:
+            # Workflows
+            from app.db.models import Workflow as WorkflowRow
+            stmt5 = select(WorkflowRow).where(WorkflowRow.source_path == path_str)
+            rows5 = list((await session.execute(stmt5)).scalars().all())
+            for row in rows5:
+                await session.delete(row)
+            if rows or rows2 or rows3 or rows4 or rows5:
                 await session.commit()
                 logger.info("file_sync: removed DB rows for deleted file %s", path)
+            if rows5:
+                try:
+                    from app.services.workflows import reload_workflows
+                    await reload_workflows()
+                except Exception:
+                    pass
             if rows4:
                 try:
                     from app.agent.carapaces import reload_carapaces
@@ -849,6 +954,53 @@ async def sync_changed_file(path: Path) -> None:
             await reload_carapaces()
         except Exception:
             pass
+    elif kind == "workflow":
+        import yaml as _yaml
+        from app.db.models import Workflow as WorkflowRow
+        wid = skill_id_or_name
+        data = _yaml.safe_load(raw) or {}
+        wid = data.get("id", wid)
+        async with async_session() as session:
+            existing = await session.get(WorkflowRow, wid)
+            if existing is None:
+                row = WorkflowRow(
+                    id=wid,
+                    name=data.get("name", wid),
+                    description=data.get("description"),
+                    params=data.get("params", {}),
+                    secrets=data.get("secrets", []),
+                    defaults=data.get("defaults", {}),
+                    steps=data.get("steps", []),
+                    triggers=data.get("triggers", {}),
+                    tags=data.get("tags", []),
+                    source_path=path_str,
+                    source_type=source_type,
+                    content_hash=content_hash,
+                    updated_at=datetime.now(timezone.utc),
+                )
+                session.add(row)
+                await session.commit()
+                logger.info("file_sync(watch): added workflow '%s'", wid)
+            elif existing.content_hash != content_hash:
+                existing.name = data.get("name", wid)
+                existing.description = data.get("description")
+                existing.params = data.get("params", {})
+                existing.secrets = data.get("secrets", [])
+                existing.defaults = data.get("defaults", {})
+                existing.steps = data.get("steps", [])
+                existing.triggers = data.get("triggers", {})
+                existing.tags = data.get("tags", [])
+                existing.source_path = path_str
+                existing.source_type = source_type
+                existing.content_hash = content_hash
+                existing.updated_at = datetime.now(timezone.utc)
+                await session.commit()
+                logger.info("file_sync(watch): updated workflow '%s'", wid)
+        try:
+            from app.services.workflows import reload_workflows
+            await reload_workflows()
+        except Exception:
+            pass
 
 
 def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
@@ -925,6 +1077,14 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
         skill_id = f"integrations/{parts[1]}/carapaces/{parts[3]}/{Path(parts[5]).stem}"
         return ("skill", skill_id, None, SOURCE_INTEGRATION)
 
+    # workflows/*.yaml
+    if len(parts) == 2 and parts[0] == "workflows" and parts[1].endswith(".yaml"):
+        return ("workflow", Path(parts[1]).stem, None, SOURCE_FILE)
+
+    # integrations/{id}/workflows/*.yaml
+    if len(parts) == 4 and parts[0] == "integrations" and parts[2] == "workflows" and parts[3].endswith(".yaml"):
+        return ("workflow", Path(parts[3]).stem, None, SOURCE_INTEGRATION)
+
     return None
 
 
@@ -942,7 +1102,7 @@ async def watch_files() -> None:
     backoff = 1.0
     while True:
         watch_dirs: list[str] = []
-        for d in ["skills", "knowledge", "bots", "integrations", "packages", "prompts", "carapaces"]:
+        for d in ["skills", "knowledge", "bots", "integrations", "packages", "prompts", "carapaces", "workflows"]:
             p = Path(d)
             if p.exists():
                 watch_dirs.append(str(p))

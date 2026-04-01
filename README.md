@@ -1,6 +1,21 @@
 # Spindrel
 
-Self-hosted AI agent server with persistent channels, composable expertise (carapaces), workspace-driven memory, scheduled automation, and a pluggable integration framework. Built on FastAPI + PostgreSQL (pgvector).
+Self-hosted AI agent server with persistent channels, composable expertise, workspace-driven memory, scheduled automation, and a pluggable integration framework.
+
+> **Early Access** — Spindrel is under active development and in daily use by the maintainer. Core features are stable, but APIs, configuration formats, and database schemas may change between releases. Bug reports, feature requests, and contributions are welcome.
+
+## Why Spindrel
+
+- **Any LLM provider, mix and match** — OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM, or any OpenAI-compatible endpoint. Assign different providers per bot. Automatic retry with exponential backoff and fallback models.
+- **Composable expertise (carapaces)** — Snap-on skillsets that bundle tools, skills, and behavioral instructions. Give a bot `carapaces: [qa, code-review]` and it instantly knows how to test and review code. Carapaces compose via `includes`.
+- **Workspace-driven memory** — Bots maintain `MEMORY.md`, daily logs, and reference documents on disk — all indexed for RAG retrieval. No opaque vector-only memory.
+- **Channel workspaces** — Per-channel file stores with schema-guided organization. 7 built-in templates (Software Dev, Research, QA, PM Hub, etc.) or custom schemas. Active files auto-inject into context.
+- **Heartbeats + task scheduling** — Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks. Bots can self-schedule.
+- **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Frigate, Mission Control, Arr (Sonarr/Radarr), Claude Code, Ingestion. Extend with your own.
+- **Usage tracking + cost budgeting** — Per-bot token usage, cost tracking (with LiteLLM pricing data), and configurable budget limits.
+- **Smart orchestrator bot** — Ships with an orchestrator that guides you through setup conversationally.
+- **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
+- **Bot-to-bot delegation** — Orchestrator bots delegate to specialists, synchronously or as background tasks, up to 3 levels deep.
 
 ## Quick Start
 
@@ -26,62 +41,6 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
   6. Mission Control overview dashboard
   Screenshots should be dark theme, ~1200px wide, saved to docs/images/
 -->
-
-## Key Features
-
-### Channels & Conversations
-Persistent channels with streaming chat (SSE), context compaction, and conversation history. Each channel belongs to a bot and optionally a workspace. Model, tools, and skills can be overridden per-channel.
-
-### Carapaces (Composable Expertise)
-Reusable bundles of skills, tools, and behavioral instructions. A bot with `carapaces: [qa, code-review]` gets instant testing and review expertise. Carapaces compose via `includes` — the QA carapace includes code-review, inheriting its tools and adding its own.
-
-```yaml
-# carapaces/qa.yaml
-id: qa
-name: QA Expert
-skills: [{id: channel-workspace, mode: on_demand}]
-local_tools: [exec_command, file, web_search]
-pinned_tools: [exec_command]
-includes: [code-review]
-system_prompt_fragment: |
-  ## QA Expert Mode
-  Before writing tests, read the code under test...
-```
-
-### Workspace-Driven Memory
-File-based memory system (`memory_scheme: workspace-files`). Bots maintain a `MEMORY.md` knowledge base, daily logs, and reference documents — all on disk, all indexed for RAG.
-
-### Channel Workspaces
-Per-channel file stores with schema-guided organization. Active `.md` files are auto-injected into context. Choose from 7 built-in templates (Software Dev, Research, QA, Creative, PM Hub, etc.) or write custom schemas.
-
-### Heartbeats
-Periodic autonomous check-ins. Configure per-channel schedules, quiet hours, dispatch modes, and repetition detection. The bot can proactively monitor, report, and take action.
-
-### Task Scheduling
-Schedule one-off or recurring agent tasks. Bots can self-schedule via the `schedule_task` tool. Results dispatch to Slack, webhooks, or stay in the DB for polling.
-
-```
-"Remind me to check the deployment in 20 minutes"
-"Every hour, check if the office temperature is above 78°F"
-```
-
-### Bot-to-Bot Delegation
-Orchestrator bots delegate to specialist bots — synchronously or as background tasks. Chains up to 3 levels deep. Users can @-tag any bot for ephemeral delegation.
-
-### Integration Framework
-Pluggable integrations with auto-discovery. Each integration can provide routers, dispatchers, lifecycle hooks, background processes, tools, and skills.
-
-**Shipped integrations:** Slack, GitHub, Frigate (NVR), Mission Control, Arr (Sonarr/Radarr), Claude Code, Ingestion
-
-**External integrations:** Point `INTEGRATION_DIRS` to your own directories.
-
-### Tool System
-Three tool types: local Python functions, MCP protocol servers, and client-side actions. Tool RAG surfaces only relevant tools per request. Pin critical tools to always include them.
-
-### Multi-Provider LLM
-Connect any combination of LLM providers simultaneously. Supports OpenAI-compatible endpoints (OpenAI, Gemini, Ollama, OpenRouter, vLLM, LiteLLM, etc.) and native Anthropic. Assign providers per-bot. Automatic retry with exponential backoff and fallback models.
-
-When using a LiteLLM proxy, Spindrel can pull model pricing data for accurate cost tracking in the usage dashboard.
 
 ## Architecture
 
@@ -116,120 +75,28 @@ When using a LiteLLM proxy, Spindrel can pull model pricing data for accurate co
                   OpenRouter, etc.
 ```
 
-**Web UI** (`ui/`) — The primary interface. React Native/Expo app with chat, admin dashboard, workspace file browser, task management, and Mission Control.
-
-**Integrations** — Slack, GitHub, and Frigate connect via the integration framework. Each provides webhooks, dispatchers, and lifecycle hooks.
-
-**Agent Client** (`client/`) — Planned remote client for devices like a Raspberry Pi or a local workstation. Voice assistant (wake word, STT, TTS) + local tool executor (the server delegates shell commands and file operations to the client's machine). A legacy version exists and works for basic chat; a future rebuild will use the v1 API with full channel, workspace, and carapace support. See [docs/guides/clients.md](docs/guides/clients.md).
-
-**Request flow:** `run_stream()` → `assemble_context()` → `run_agent_tool_loop()` → LLM ↔ tools → final response
-
-## Bot Configuration
-
-Bots are YAML files in `bots/` (gitignored). Seeded on first startup, then managed via the admin UI.
-
-```yaml
-id: assistant
-name: "Assistant"
-model: gemini/gemini-2.5-flash
-system_prompt: |
-  You are a helpful assistant.
-carapaces: [qa, code-review]           # composable expertise bundles
-memory_scheme: workspace-files          # file-based memory (MEMORY.md + logs)
-history_mode: file                      # file-based conversation history
-workspace:
-  enabled: true
-  type: docker
-skills:
-  - id: channel-workspace
-    mode: on_demand
-local_tools: [web_search, file, exec_command, schedule_task]
-pinned_tools: [exec_command]
-delegate_bots: [researcher]
-harness_access: [claude-code]
-context_compaction: true
-```
-
-See [CLAUDE.md](CLAUDE.md) for the full field reference.
-
 ## Documentation
 
-| Doc | Description |
-|-----|-------------|
-| [Setup Guide](docs/setup.md) | Installation, providers, workspaces, integrations, troubleshooting |
-| [Slack Integration](docs/guides/slack.md) | Slack bot setup, slash commands, channel config |
-| [Delegation](docs/guides/delegation.md) | Bot-to-bot delegation (immediate + deferred) |
+| Guide | Description |
+|-------|-------------|
+| [Setup Guide](docs/setup.md) | Installation, providers, workspaces, integrations |
+| [Slack Integration](docs/guides/slack.md) | Slack bot setup and channel config |
+| [Discord Integration](docs/guides/discord.md) | Discord bot setup |
+| [Gmail Integration](docs/guides/gmail.md) | Gmail integration |
+| [Delegation](docs/guides/delegation.md) | Bot-to-bot delegation |
 | [Harnesses](docs/guides/harnesses.md) | External CLI tools (Claude Code, Cursor) |
-| [Integration Framework](docs/integrations/index.md) | Building custom integrations |
-| [Secrets & Redaction](docs/guides/secrets.md) | Secret vault, automatic redaction from tool results & LLM output |
+| [Secrets & Redaction](docs/guides/secrets.md) | Secret vault and automatic redaction |
+| [Content Ingestion](docs/guides/ingestion.md) | Document ingestion pipeline |
+| [Agent Client](docs/guides/clients.md) | Remote voice assistant + local tool executor |
+| [Creating Integrations](docs/integrations/index.md) | Build custom integrations |
 | [Backup & Restore](docs/backup.md) | Automated Postgres + config backups to S3 |
 | [Docker Deployment](docs/docker-deployment.md) | Production Docker setup |
-| [Agent Client](docs/guides/clients.md) | Remote voice assistant + local tool executor (Python CLI, Android) |
-
-## Directory Structure
-
-```
-app/                Core server code
-  agent/            Agent loop, context assembly, bots, carapaces, tasks, dispatchers
-  db/               SQLAlchemy models + engine
-  routers/          FastAPI endpoints
-  services/         Heartbeat, compaction, delegation, channels, sandboxes
-  tools/            Tool registry, MCP proxy, local tool implementations
-bots/               Bot YAML configs (gitignored — user-created)
-skills/             Skill markdown files (gitignored — user-created)
-carapaces/          Carapace YAML definitions (shipped examples)
-tools/              Drop-in Python tools (gitignored — user-created)
-integrations/       Integration packages (auto-discovered)
-  slack/            Slack Socket Mode bot
-  github/           GitHub webhook handler
-  frigate/          Frigate NVR integration
-  mission_control/  Dashboard + task board
-  arr/              Sonarr/Radarr media management
-  claude_code/      Claude Code CLI harness
-  ingestion/        Document ingestion pipeline
-  example/          Template for new integrations
-client/             Agent client (remote voice assistant + local tool executor)
-ui/                 React Native/Expo web UI
-migrations/         Alembic database migrations
-scripts/            Dev, deploy, and ops scripts
-docs/               Feature documentation
-PLANS/              Multi-session implementation plans
-```
-
-## API
-
-The server exposes REST + SSE endpoints. All require `Authorization: Bearer <API_KEY>` except `/health`.
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/health` | GET | Health check |
-| `/api/v1/chat/stream` | POST | Streaming chat (SSE) |
-| `/api/v1/chat` | POST | Non-streaming chat |
-| `/api/v1/channels` | GET | List channels |
-| `/api/v1/sessions` | GET | List sessions |
-| `/api/v1/tasks/{id}` | GET | Poll task status |
-| `/api/v1/admin/*` | Various | Admin endpoints (bots, channels, tasks, usage, etc.) |
-
-## Backup & Restore
-
-```bash
-./scripts/backup.sh              # dump DB + configs → S3
-./scripts/restore.sh             # pull latest from S3 and restore
-```
-
-See [docs/backup.md](docs/backup.md) for setup and cron scheduling.
 
 ## Development
 
 ```bash
-# Run tests (SQLite in-memory, no postgres needed)
-pytest tests/ integrations/ -v
-
-# Or via Docker
-docker build -f Dockerfile.test -t agent-server-test . && docker run --rm agent-server-test
-
-# UI typecheck (required after UI changes)
-cd ui && npx tsc --noEmit
+pytest tests/ integrations/ -v       # tests (SQLite in-memory, no postgres needed)
+cd ui && npx tsc --noEmit            # UI typecheck (required after UI changes)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for architecture details, key files, and development guidelines.
