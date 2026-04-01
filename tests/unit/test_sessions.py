@@ -98,22 +98,15 @@ class TestEffectiveSystemPrompt:
         assert _effective_system_prompt(bot) == "Hello bot"
 
     @patch("app.config.settings.GLOBAL_BASE_PROMPT", "")
-    def test_with_memory_prompt(self):
+    def test_memory_prompt_ignored_deprecated(self):
+        """DB memory prompt is deprecated and no longer injected."""
         from app.services.sessions import _effective_system_prompt
         mem = MemoryConfig(enabled=True, prompt="Remember things.")
         bot = _make_bot(system_prompt="Hello bot", memory=mem)
         result = _effective_system_prompt(bot)
         assert "Hello bot" in result
-        assert "Remember things." in result
-
-    @patch("app.config.settings.GLOBAL_BASE_PROMPT", "")
-    def test_memory_disabled_no_prompt(self):
-        from app.services.sessions import _effective_system_prompt
-        mem = MemoryConfig(enabled=False, prompt="Remember things.")
-        bot = _make_bot(system_prompt="Hello bot", memory=mem)
-        result = _effective_system_prompt(bot)
-        assert result == "Hello bot"
-        assert "Remember" not in result
+        # Memory prompt should NOT be injected (deprecated)
+        assert "Remember things." not in result
 
     def test_global_base_prompt_prepended(self):
         from app.services.sessions import _effective_system_prompt

@@ -212,19 +212,19 @@ SCOPE_GROUPS: dict[str, dict] = {
 # The API returns these alongside groups so the UI can offer one-click presets.
 SCOPE_PRESETS: dict[str, dict] = {
     "slack_integration": {
-        "name": "Slack Integration",
-        "description": "Full access for the Slack bot — chat, channels, sessions, model switching, approvals",
+        "name": "Messaging Integration",
+        "description": "Chat, channels, sessions, model switching — for Slack, Discord, BlueBubbles, etc.",
         "scopes": [
-            "admin",
             "chat", "bots:read",
             "channels:read", "channels:write",
+            "channels.config:read", "channels.config:write",
             "sessions:read", "sessions:write",
             "todos:read",
         ],
         "instructions": (
-            "Set this key as `AGENT_API_KEY` in your Slack integration environment.\n\n"
-            "The Slack bot needs `admin` scope for model switching (`/model set`), "
-            "channel settings, and tool approval handling.\n\n"
+            "Set this key as `AGENT_API_KEY` in your integration environment.\n\n"
+            "Covers chat, channel management, session control, model switching, "
+            "and tool approval handling.\n\n"
             "If running via docker compose, add to your `.env`:\n"
             "```\nAGENT_API_KEY=ask_your_key_here\n```"
         ),

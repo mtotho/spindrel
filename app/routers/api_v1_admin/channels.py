@@ -1723,8 +1723,7 @@ async def admin_channel_context_preview(
     if bot.system_prompt:
         blocks.append({"label": "Bot System Prompt", "role": "system", "content": bot.system_prompt.rstrip()})
 
-    if bot.memory.enabled and bot.memory.prompt:
-        blocks.append({"label": "Memory Guidelines", "role": "system", "content": bot.memory.prompt.strip()})
+    # Memory guidelines — deprecated (DB memory no longer in use)
 
     # --- Persona ---
     if bot.persona:
@@ -1779,11 +1778,7 @@ async def admin_channel_context_preview(
                 lines.append(f"  \u2022 {did}")
         blocks.append({"label": f"Delegation Index ({len(bot.delegate_bots)})", "role": "system", "content": "Available sub-agents (delegate via delegate_to_agent or @bot-id in your reply):\n" + "\n".join(lines)})
 
-    # --- Memory / Knowledge placeholders ---
-    if bot.memory.enabled:
-        blocks.append({"label": "Memory (RAG)", "role": "system", "content": "[Memory recall — varies by query similarity against stored memories]"})
-    if bot.knowledge.enabled:
-        blocks.append({"label": "Knowledge (RAG)", "role": "system", "content": "[Knowledge retrieval — varies by query similarity against saved docs]"})
+    # Memory / Knowledge placeholders — deprecated (DB memory/knowledge no longer in use)
 
     # --- Section index (file mode) ---
     hist_mode = _get_history_mode(bot, channel)

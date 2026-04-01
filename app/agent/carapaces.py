@@ -61,6 +61,7 @@ def _carapace_to_dict(row: CarapaceRow) -> dict:
         "includes": row.includes or [],
         "delegates": row.delegates or [],
         "tags": row.tags or [],
+        "requires": row.requires or {},
         "source_path": row.source_path,
         "source_type": row.source_type,
         "content_hash": row.content_hash,
@@ -288,6 +289,7 @@ async def seed_carapaces_from_yaml() -> None:
                     includes=data.get("includes", []),
                     delegates=data.get("delegates", []),
                     tags=data.get("tags", []),
+                    requires=data.get("requires", {}),
                     source_path=str(path.resolve()),
                     source_type=source_type,
                     content_hash=content_hash,
@@ -310,6 +312,7 @@ async def seed_carapaces_from_yaml() -> None:
                 existing.includes = data.get("includes", [])
                 existing.delegates = data.get("delegates", [])
                 existing.tags = data.get("tags", [])
+                existing.requires = data.get("requires", {})
                 existing.source_path = str(path.resolve())
                 existing.source_type = source_type
                 existing.content_hash = content_hash

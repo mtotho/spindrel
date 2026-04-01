@@ -8,6 +8,7 @@ import { useThemeTokens } from "../../theme/tokens";
 import { FileSearchBar, highlightMatches, computeMatchPositions } from "./FileSearchBar";
 import { MarkdownViewer } from "./MarkdownViewer";
 import { highlightMarkdownLine, isCodeFence } from "./MarkdownSyntax";
+import { writeToClipboard } from "../../utils/clipboard";
 
 interface FileViewerProps {
   workspaceId: string;
@@ -87,22 +88,7 @@ export function FileViewer({ workspaceId, filePath, pane, indexEntry }: FileView
 
   const handleCopy = async () => {
     const text = isEditing ? openFile?.editContent ?? "" : content;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        throw new Error("fallback");
-      }
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
+    await writeToClipboard(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };

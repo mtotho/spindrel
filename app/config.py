@@ -406,6 +406,11 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     CONTEXT_PRUNING_KEEP_TURNS: int = 3
     CONTEXT_PRUNING_MIN_LENGTH: int = 200
 
+    # Context budgeting (prevent exceeding model context window)
+    CONTEXT_BUDGET_ENABLED: bool = True
+    CONTEXT_BUDGET_RESERVE_RATIO: float = 0.15       # fraction of context window reserved for output + overhead
+    CONTEXT_BUDGET_DEFAULT_WINDOW: int = 128_000      # fallback context window when model info unavailable
+
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True
     TOOL_RESULT_SUMMARIZE_THRESHOLD: int = 3000       # chars; summarize if above this

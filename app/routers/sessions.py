@@ -239,13 +239,8 @@ async def delete_session(
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    # If bot (or global) is configured to wipe memory on session delete, delete memories first.
-    # Otherwise the FK uses ON DELETE SET NULL and memories are kept with session_id=NULL.
-    try:
-        bot = get_bot(session.bot_id)
-        wipe = bot.memory.wipe_on_session_delete
-    except HTTPException:
-        wipe = settings.WIPE_MEMORY_ON_SESSION_DELETE
+    # DB memory wipe on session delete — deprecated but kept for safety
+    wipe = settings.WIPE_MEMORY_ON_SESSION_DELETE
     if wipe:
         await db.execute(delete(Memory).where(Memory.session_id == session_id))
     await db.execute(delete(Session).where(Session.id == session_id))

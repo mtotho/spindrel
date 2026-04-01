@@ -7,6 +7,7 @@ import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import { formatToolArgs } from "./toolCallUtils";
 import { DelegationCard } from "./DelegationCard";
+import { writeToClipboard } from "../../utils/clipboard";
 import type { Message, AttachmentBrief, ToolCall } from "../../types/api";
 import { normalizeToolCall } from "../../types/api";
 
@@ -173,7 +174,7 @@ function MessageActions({
       <button
         onClick={(e) => {
           e.stopPropagation();
-          navigator.clipboard.writeText(text).then(() => {
+          writeToClipboard(text).then(() => {
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
           });

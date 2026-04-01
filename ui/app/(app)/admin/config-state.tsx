@@ -7,6 +7,7 @@ import { Copy, Check, ChevronDown, ChevronRight, Download, Upload, ShieldAlert }
 import { apiFetch } from "@/src/api/client";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { writeToClipboard } from "@/src/utils/clipboard";
 
 const SENSITIVE_KEY_PATTERN = /api[_-]?key|secret|token|password|credential|auth[_-]?header/i;
 
@@ -464,7 +465,7 @@ export default function ConfigStatePage() {
     try {
       const redacted = redactSecrets(data);
       const n = countRedacted(data, redacted);
-      await navigator.clipboard.writeText(JSON.stringify(redacted, null, 2));
+      await writeToClipboard(JSON.stringify(redacted, null, 2));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       if (n > 0) {

@@ -47,8 +47,10 @@ class TestResolveScopes:
 
     def test_slack_integration_preset_exists(self):
         scopes = resolve_scopes("slack_integration")
-        assert "admin" in scopes
+        assert "admin" not in scopes
         assert "chat" in scopes
+        assert "channels.config:read" in scopes
+        assert "channels.config:write" in scopes
 
 
 # ---------------------------------------------------------------------------

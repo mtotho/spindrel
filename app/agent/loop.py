@@ -921,10 +921,10 @@ async def run_stream(
         bot_id=bot.id,
         correlation_id=correlation_id,
         channel_id=channel_id,
-        memory_cross_channel=bot.memory.cross_channel if bot.memory.enabled else None,
-        memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
-        memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
-        memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,
+        memory_cross_channel=None,  # DB memory deprecated
+        memory_cross_client=None,
+        memory_cross_bot=None,
+        memory_similarity_threshold=None,
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
     )
@@ -932,6 +932,19 @@ async def run_stream(
     current_injected_tools.set(injected_tools)
     native_audio = audio_data is not None
     turn_start = len(messages)
+
+    # --- context budget ---
+    _budget = None
+    if settings.CONTEXT_BUDGET_ENABLED:
+        from app.agent.context_budget import ContextBudget, get_model_context_window
+        _effective_model = model_override or bot.model
+        _effective_provider = provider_id_override or bot.model_provider_id
+        _window = get_model_context_window(_effective_model, _effective_provider)
+        _reserve_ratio = settings.CONTEXT_BUDGET_RESERVE_RATIO
+        _budget = ContextBudget(
+            total_tokens=_window,
+            reserve_tokens=int(_window * _reserve_ratio),
+        )
 
     assembly_result = AssemblyResult()
     async for event in assemble_context(
@@ -948,8 +961,27 @@ async def run_stream(
         native_audio=native_audio,
         result=assembly_result,
         system_preamble=system_preamble,
+        budget=_budget,
     ):
         yield event
+
+    # --- post-assembly: account for tool schemas in budget ---
+    if _budget is not None and assembly_result.pre_selected_tools:
+        import json as _json
+        _tool_schema_chars = sum(len(_json.dumps(t)) for t in assembly_result.pre_selected_tools)
+        from app.agent.context_budget import estimate_tokens as _est
+        _budget.consume("tool_schemas", _est("x" * _tool_schema_chars))
+        logger.debug("Budget after assembly: %s", _budget.to_dict())
+
+    # Emit budget info event for downstream consumers (e.g. compaction trigger)
+    if _budget is not None:
+        yield {
+            "type": "context_budget",
+            "utilization": round(_budget.utilization, 3),
+            "total_tokens": _budget.total_tokens,
+            "consumed_tokens": _budget.consumed_tokens,
+            "remaining_tokens": _budget.remaining,
+        }
 
     # --- RAG re-ranking ---
     from app.services.reranking import rerank_rag_context

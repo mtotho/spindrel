@@ -21,6 +21,10 @@ _registry: dict[str, "BotConfig"] = {}
 
 @dataclass
 class MemoryConfig:
+    """DEPRECATED — DB memory is no longer in use. Use memory_scheme='workspace-files' instead.
+
+    Kept as a stub for backward compatibility; always defaults to disabled.
+    """
     enabled: bool = False
     cross_channel: bool = False
     cross_client: bool = False
@@ -31,6 +35,7 @@ class MemoryConfig:
 
 @dataclass
 class KnowledgeConfig:
+    """DEPRECATED — DB knowledge is no longer in use. Use skills/carapaces instead."""
     enabled: bool = False
 
 
@@ -259,20 +264,10 @@ def _normalize_skill_entry(entry) -> dict:
 
 def _bot_row_to_config(row: BotRow) -> BotConfig:
     """Convert a DB BotRow to a BotConfig dataclass."""
-    mem = row.memory_config or {}
-    memory_cfg = MemoryConfig(
-        enabled=mem.get("enabled", False),
-        cross_channel=mem.get("cross_channel", False),
-        cross_client=mem.get("cross_client", False),
-        cross_bot=mem.get("cross_bot", False),
-        prompt=mem.get("prompt"),
-        similarity_threshold=mem.get("similarity_threshold", settings.MEMORY_SIMILARITY_THRESHOLD),
-        wipe_on_session_delete=mem.get("wipe_on_session_delete", settings.WIPE_MEMORY_ON_SESSION_DELETE),
-    )
-    know = row.knowledge_config or {}
-    knowledge_cfg = KnowledgeConfig(
-        enabled=know.get("enabled", False),
-    )
+    # MemoryConfig and KnowledgeConfig are DEPRECATED — always use defaults.
+    # DB columns memory_config/knowledge_config are ignored.
+    memory_cfg = MemoryConfig()
+    knowledge_cfg = KnowledgeConfig()
     fs_raw = row.filesystem_indexes or []
     filesystem_indexes = [
         FilesystemIndexConfig(
@@ -467,8 +462,7 @@ def _parse_host_exec_yaml(he: dict) -> dict:
 
 def _yaml_data_to_row_dict(data: dict) -> dict:
     """Convert YAML bot data dict to a dict suitable for inserting into bots table."""
-    mem_data = data.get("memory", {})
-    know_data = data.get("knowledge", {})
+    # memory/knowledge keys in YAML are ignored (deprecated) but don't crash
     return {
         "id": data["id"],
         "name": data.get("name", data["id"]),
@@ -491,18 +485,8 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "memory_knowledge_compaction_prompt": data.get("memory_knowledge_compaction_prompt"),
         "compaction_prompt_template_id": data.get("compaction_prompt_template_id"),
         "audio_input": data.get("audio_input", "transcribe"),
-        "memory_config": {
-            "enabled": mem_data.get("enabled", False),
-            "cross_channel": mem_data.get("cross_channel", False),
-            "cross_client": mem_data.get("cross_client", False),
-            "cross_bot": mem_data.get("cross_bot", False),
-            "prompt": mem_data.get("prompt"),
-            "similarity_threshold": mem_data.get("similarity_threshold", settings.MEMORY_SIMILARITY_THRESHOLD),
-            "wipe_on_session_delete": mem_data.get("wipe_on_session_delete", settings.WIPE_MEMORY_ON_SESSION_DELETE),
-        },
-        "knowledge_config": {
-            "enabled": know_data.get("enabled", False),
-        },
+        "memory_config": {},  # DEPRECATED — ignored at load time
+        "knowledge_config": {},  # DEPRECATED — ignored at load time
         "filesystem_indexes": data.get("filesystem_indexes", []),
         "host_exec_config": _parse_host_exec_yaml(data.get("host_exec", {})),
         "filesystem_access": [

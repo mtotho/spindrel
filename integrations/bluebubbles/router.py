@@ -212,7 +212,7 @@ async def test_send(
     from integrations.bluebubbles.bb_api import send_text
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             result = await send_text(
                 client, server_url, password, chat_guid, text,
                 temp_guid=str(uuid.uuid4()),

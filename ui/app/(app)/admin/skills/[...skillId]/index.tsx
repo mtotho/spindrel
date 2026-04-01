@@ -3,7 +3,6 @@ import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-
 import { useLocalSearchParams } from "expo-router";
 import { ChevronLeft, Trash2, Info } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { useQueryClient } from "@tanstack/react-query";
 import { useSkill, useCreateSkill, useUpdateSkill, useDeleteSkill } from "@/src/api/hooks/useSkills";
 import { FormRow, TextInput, Section } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -31,7 +30,6 @@ export default function SkillDetailScreen() {
   const skillId = Array.isArray(params.skillId) ? params.skillId.join("/") : params.skillId;
   const isNew = skillId === "new";
   const goBack = useGoBack("/admin/skills");
-  const qc = useQueryClient();
   const { data: skill, isLoading } = useSkill(isNew ? undefined : skillId);
   const createMut = useCreateSkill();
   const updateMut = useUpdateSkill(skillId);
@@ -57,21 +55,18 @@ export default function SkillDetailScreen() {
     if (isNew) {
       if (!id.trim() || !name.trim()) return;
       await createMut.mutateAsync({ id: id.trim(), name: name.trim(), content });
-      qc.invalidateQueries({ queryKey: ["admin-skills"] });
       goBack();
     } else {
       if (!name.trim()) return;
       await updateMut.mutateAsync({ name: name.trim(), content });
-      qc.invalidateQueries({ queryKey: ["admin-skills"] });
     }
-  }, [isNew, id, name, content, createMut, updateMut, qc, goBack]);
+  }, [isNew, id, name, content, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!skillId || !confirm("Delete this skill?")) return;
     await deleteMut.mutateAsync(skillId);
-    qc.invalidateQueries({ queryKey: ["admin-skills"] });
     goBack();
-  }, [skillId, deleteMut, qc, goBack]);
+  }, [skillId, deleteMut, goBack]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
   const canSave = isNew ? (id.trim() && name.trim()) : name.trim();

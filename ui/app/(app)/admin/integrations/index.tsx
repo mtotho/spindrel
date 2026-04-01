@@ -4,6 +4,7 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { writeToClipboard } from "@/src/utils/clipboard";
 import {
   useIntegrations,
   useIntegrationSettings,
@@ -129,11 +130,9 @@ function WebhookRow({ webhook }: { webhook: IntegrationItem["webhook"] }) {
   const [copied, setCopied] = useState(false);
   if (!webhook) return null;
 
-  const handleCopy = (e: React.MouseEvent) => {
+  const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (Platform.OS === "web" && navigator?.clipboard) {
-      navigator.clipboard.writeText(webhook.url);
-    }
+    await writeToClipboard(webhook.url);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -623,9 +622,9 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
   const newKey = provisionMut.data?.key_value ?? null;
   const displayKey = revealedKey ?? newKey;
 
-  const handleCopyKey = () => {
-    if (displayKey && Platform.OS === "web" && navigator?.clipboard) {
-      navigator.clipboard.writeText(displayKey);
+  const handleCopyKey = async () => {
+    if (displayKey) {
+      await writeToClipboard(displayKey);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -986,7 +985,10 @@ export default function IntegrationsScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
-  const all = data?.integrations;
+  // Deduplicate by id (defensive — backend should already return unique entries)
+  const all = data?.integrations
+    ? [...new Map(data.integrations.map((i) => [i.id, i])).values()]
+    : undefined;
   const integrations = all?.filter((i) => i.source !== "package") ?? [];
   const packages = all?.filter((i) => i.source === "package") ?? [];
 

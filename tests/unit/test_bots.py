@@ -156,17 +156,19 @@ class TestBotRowToConfig:
         assert config.model == "gpt-4"
         assert config.system_prompt == "You are helpful."
 
-    def test_memory_config_parsed(self):
+    def test_memory_config_always_defaults(self):
+        """Memory config is deprecated — always returns defaults regardless of DB content."""
         row = _make_bot_row()
         config = _bot_row_to_config(row)
-        assert config.memory.enabled is True
-        assert config.memory.cross_channel is True
-        assert config.memory.prompt == "Remember things."
+        assert config.memory.enabled is False
+        assert config.memory.cross_channel is False
+        assert config.memory.prompt is None
 
-    def test_knowledge_config_parsed(self):
+    def test_knowledge_config_always_defaults(self):
+        """Knowledge config is deprecated — always returns defaults."""
         row = _make_bot_row()
         config = _bot_row_to_config(row)
-        assert config.knowledge.enabled is True
+        assert config.knowledge.enabled is False
 
     def test_skills_parsed(self):
         row = _make_bot_row()
@@ -211,6 +213,7 @@ class TestBotRowToConfig:
         assert config.harness_access == []
 
     def test_empty_memory_config(self):
+        """Even with empty memory_config in DB, deprecated defaults are used."""
         row = _make_bot_row(memory_config={})
         config = _bot_row_to_config(row)
         assert config.memory.enabled is False
@@ -257,3 +260,20 @@ class TestBotRowToConfig:
         assert config.shared_workspace_id is None
         assert config.shared_workspace_role is None
         assert config.shared_workspace_cwd is None
+
+
+class TestYamlDataToRowDict:
+    def test_yaml_with_memory_and_knowledge_loads_gracefully(self):
+        """Old YAML configs with memory/knowledge keys should load without error."""
+        from app.agent.bots import _yaml_data_to_row_dict
+        data = {
+            "id": "test_bot",
+            "model": "gpt-4",
+            "memory": {"enabled": True, "cross_channel": True, "prompt": "Remember things."},
+            "knowledge": {"enabled": True},
+        }
+        result = _yaml_data_to_row_dict(data)
+        assert result["id"] == "test_bot"
+        # memory_config and knowledge_config should be empty dicts (deprecated)
+        assert result["memory_config"] == {}
+        assert result["knowledge_config"] == {}
