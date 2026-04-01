@@ -108,12 +108,21 @@ async def send_file(
                 bot_id=bot_id,
             )
 
-        b64 = base64.b64encode(data).decode("ascii")
         size_kb = len(data) / 1024
+        msg = f"Sent {display_name} ({size_kb:.0f} KB)" + (f": {caption}" if caption else "")
+
+        # If the attachment is already orphaned in this channel, another tool
+        # (e.g. frigate_snapshot) created it in this same turn and already
+        # emitted a client_action for immediate display.  Returning a second
+        # client_action would cause Slack to upload the image twice.
+        if already_orphaned_here:
+            return json.dumps({"message": msg})
+
+        b64 = base64.b64encode(data).decode("ascii")
         is_image = mime.startswith("image/")
 
         return json.dumps({
-            "message": f"Sent {display_name} ({size_kb:.0f} KB)" + (f": {caption}" if caption else ""),
+            "message": msg,
             "client_action": {
                 "type": "upload_image" if is_image else "upload_file",
                 "data": b64,

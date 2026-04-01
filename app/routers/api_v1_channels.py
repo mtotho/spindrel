@@ -968,3 +968,166 @@ async def adopt_channel_integration(
     await db.commit()
     await db.refresh(binding)
     return IntegrationBindingOut.model_validate(binding)
+
+
+# ---------------------------------------------------------------------------
+# Integration activation
+# ---------------------------------------------------------------------------
+
+class ActivationOut(BaseModel):
+    integration_type: str
+    activated: bool
+    manifest: Optional[dict] = None
+    warnings: list[dict] = []
+
+
+class AvailableIntegrationOut(BaseModel):
+    integration_type: str
+    description: str
+    requires_workspace: bool
+    activated: bool
+
+
+@router.post("/{channel_id}/integrations/{integration_type}/activate", response_model=ActivationOut)
+async def activate_integration(
+    channel_id: uuid.UUID,
+    integration_type: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.integrations:write")),
+):
+    """Activate an integration on a channel. Creates/updates ChannelIntegration with activated=true."""
+    from integrations import get_activation_manifests
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    manifests = get_activation_manifests()
+    manifest = manifests.get(integration_type)
+    if not manifest:
+        raise HTTPException(status_code=404, detail=f"No activation manifest for '{integration_type}'")
+
+    if manifest.get("requires_workspace") and not channel.channel_workspace_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Integration '{integration_type}' requires workspace to be enabled on this channel",
+        )
+
+    # Find or create ChannelIntegration row
+    existing = (await db.execute(
+        select(ChannelIntegration).where(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.integration_type == integration_type,
+            ChannelIntegration.activated == True,  # noqa: E712
+        )
+    )).scalar_one_or_none()
+
+    if existing:
+        # Already activated
+        return ActivationOut(
+            integration_type=integration_type,
+            activated=True,
+            manifest=manifest,
+            warnings=[],
+        )
+
+    # Check for an existing non-activated row with matching type
+    inactive = (await db.execute(
+        select(ChannelIntegration).where(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.client_id == f"mc-activated:{channel_id}",
+        )
+    )).scalar_one_or_none()
+
+    if inactive:
+        inactive.activated = True
+        db.add(inactive)
+    else:
+        ci = ChannelIntegration(
+            channel_id=channel_id,
+            integration_type=integration_type,
+            client_id=f"mc-activated:{channel_id}",
+            activated=True,
+        )
+        db.add(ci)
+
+    await db.commit()
+
+    # Run feature validation
+    warnings: list[dict] = []
+    try:
+        from app.services.feature_validation import validate_activation
+        ws = await validate_activation(channel.bot_id, integration_type)
+        warnings = [w.to_dict() for w in ws]
+    except Exception:
+        pass
+
+    return ActivationOut(
+        integration_type=integration_type,
+        activated=True,
+        manifest=manifest,
+        warnings=warnings,
+    )
+
+
+@router.post("/{channel_id}/integrations/{integration_type}/deactivate")
+async def deactivate_integration(
+    channel_id: uuid.UUID,
+    integration_type: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.integrations:write")),
+):
+    """Deactivate an integration on a channel."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    result = await db.execute(
+        select(ChannelIntegration).where(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.integration_type == integration_type,
+            ChannelIntegration.activated == True,  # noqa: E712
+        )
+    )
+    rows = result.scalars().all()
+    for row in rows:
+        row.activated = False
+        db.add(row)
+
+    await db.commit()
+    return {"ok": True, "integration_type": integration_type, "activated": False}
+
+
+@router.get("/{channel_id}/integrations/available", response_model=list[AvailableIntegrationOut])
+async def list_available_integrations(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.integrations:read")),
+):
+    """List all integrations that declare activation blocks, with current status."""
+    from integrations import get_activation_manifests
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    manifests = get_activation_manifests()
+
+    # Get currently activated integration types for this channel
+    activated_result = await db.execute(
+        select(ChannelIntegration.integration_type).where(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.activated == True,  # noqa: E712
+        )
+    )
+    activated_types = {row for row in activated_result.scalars().all()}
+
+    return [
+        AvailableIntegrationOut(
+            integration_type=itype,
+            description=manifest.get("description", ""),
+            requires_workspace=manifest.get("requires_workspace", False),
+            activated=itype in activated_types,
+        )
+        for itype, manifest in manifests.items()
+    ]

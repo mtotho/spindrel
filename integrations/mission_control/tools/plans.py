@@ -1,4 +1,7 @@
-"""Mission Control plan tools — structured plan management via plans.md."""
+"""Mission Control plan tools — structured plan management via plans.md.
+
+Thin wrappers around integrations.mission_control.services.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -6,75 +9,13 @@ import logging
 from datetime import date
 
 from integrations import _register as reg
-from app.services.plan_board import (
-    generate_plan_id,
-    parse_plans_md,
-    serialize_plans_md,
-    VALID_STATUSES,
-    STEP_MARKERS_REV,
+from integrations.mission_control.services import (
+    _read_plans_md,
+    _write_plans_md,
+    append_timeline,
 )
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Workspace helpers (reuse pattern from mission_control.py)
-# ---------------------------------------------------------------------------
-
-async def _resolve_bot(channel_id: str):
-    """Resolve the bot config for a channel."""
-    import uuid as _uuid
-    from app.agent.bots import get_bot, list_bots
-    try:
-        from app.db.engine import async_session
-        from app.db.models import Channel
-        async with async_session() as db:
-            ch = await db.get(Channel, _uuid.UUID(channel_id))
-            if ch:
-                return get_bot(ch.bot_id)
-    except Exception:
-        logger.warning("Could not resolve bot for channel %s, falling back", channel_id, exc_info=True)
-    try:
-        return get_bot("default")
-    except Exception:
-        bots = list_bots()
-        if bots:
-            return bots[0]
-        raise ValueError("No bots configured")
-
-
-async def _read_plans_md(channel_id: str) -> tuple[str, list[dict]]:
-    """Read and parse plans.md for a channel."""
-    from app.services.channel_workspace import read_workspace_file
-
-    bot = await _resolve_bot(channel_id)
-    content = await asyncio.to_thread(read_workspace_file, channel_id, bot, "plans.md")
-    if content:
-        return content, parse_plans_md(content)
-    return "", []
-
-
-async def _write_plans_md(channel_id: str, plans: list[dict]) -> str:
-    """Serialize and write plans.md for a channel."""
-    from app.services.channel_workspace import (
-        ensure_channel_workspace,
-        write_workspace_file,
-    )
-
-    bot = await _resolve_bot(channel_id)
-    await asyncio.to_thread(ensure_channel_workspace, channel_id, bot)
-    content = serialize_plans_md(plans)
-    await asyncio.to_thread(write_workspace_file, channel_id, bot, "plans.md", content)
-    return content
-
-
-async def _append_timeline(channel_id: str, event: str) -> None:
-    """Append an event to timeline.md (delegates to MC tools helper)."""
-    try:
-        from integrations.mission_control.tools.mission_control import _append_timeline as _at
-        await _at(channel_id, event)
-    except Exception:
-        logger.debug("Failed to log timeline event for plans", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +54,8 @@ async def draft_plan(
     notes: str = "",
 ) -> str:
     """Create a draft plan in plans.md."""
+    from app.services.plan_board import generate_plan_id
+
     _raw, plans = await _read_plans_md(channel_id)
 
     plan_id = generate_plan_id()
@@ -134,7 +77,10 @@ async def draft_plan(
     plans.append(plan)
     await _write_plans_md(channel_id, plans)
 
-    await _append_timeline(channel_id, f"Plan drafted: **{title}** ({plan_id})")
+    try:
+        await append_timeline(channel_id, f"Plan drafted: **{title}** ({plan_id})")
+    except Exception:
+        logger.debug("Failed to log timeline event for draft_plan", exc_info=True)
 
     return (
         f"Created draft plan '{title}' (id: {plan_id}) with {len(steps)} steps. "
@@ -179,7 +125,6 @@ async def update_plan_step(
 
     _raw, plans = await _read_plans_md(channel_id)
 
-    # Find plan
     plan = None
     for p in plans:
         if p["meta"].get("id") == plan_id:
@@ -192,7 +137,6 @@ async def update_plan_step(
     if plan["status"] not in ("executing", "approved"):
         return f"Plan '{plan_id}' is [{plan['status']}] — can only update steps on executing/approved plans"
 
-    # Find step
     step = None
     for s in plan["steps"]:
         if s["position"] == step_number:
@@ -205,36 +149,33 @@ async def update_plan_step(
     old_status = step["status"]
     step["status"] = status
 
-    # Auto-transition plan to executing if it was approved
     if plan["status"] == "approved":
         plan["status"] = "executing"
 
-    # Check if all steps are done/skipped/failed → auto-complete
     all_terminal = all(s["status"] in ("done", "skipped", "failed") for s in plan["steps"])
     if all_terminal:
         plan["status"] = "complete"
 
     await _write_plans_md(channel_id, plans)
 
-    # Timeline logging
     if status == "done":
-        await _append_timeline(
+        await append_timeline(
             channel_id,
             f"Plan step {step_number} completed: **{step['content']}** ({plan_id})",
         )
     elif status == "in_progress":
-        await _append_timeline(
+        await append_timeline(
             channel_id,
             f"Plan step {step_number} started: **{step['content']}** ({plan_id})",
         )
     elif status == "failed":
-        await _append_timeline(
+        await append_timeline(
             channel_id,
             f"Plan step {step_number} failed: **{step['content']}** ({plan_id})",
         )
 
     if all_terminal:
-        await _append_timeline(channel_id, f"Plan completed: **{plan['title']}** ({plan_id})")
+        await append_timeline(channel_id, f"Plan completed: **{plan['title']}** ({plan_id})")
 
     result = f"Step {step_number} updated: {old_status} → {status}"
     if all_terminal:
@@ -282,7 +223,6 @@ async def update_plan_status(
     if not plan:
         return f"Plan '{plan_id}' not found in plans.md"
 
-    # Guard transitions
     allowed = {
         "complete": ("executing",),
         "abandoned": ("draft", "approved", "executing"),
@@ -297,7 +237,7 @@ async def update_plan_status(
     plan["status"] = status
     await _write_plans_md(channel_id, plans)
 
-    await _append_timeline(
+    await append_timeline(
         channel_id,
         f"Plan {status}: **{plan['title']}** ({plan_id}) — was [{old_status}]",
     )

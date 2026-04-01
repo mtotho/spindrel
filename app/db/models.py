@@ -233,6 +233,8 @@ class ChannelIntegration(Base):
     client_id: Mapped[str] = mapped_column(Text, nullable=False)
     dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    activated: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    activation_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))

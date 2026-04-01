@@ -64,7 +64,7 @@ function ParamRow({ name, param, required }: { name: string; param: any; require
   return (
     <div style={{
       display: "flex", gap: 8, padding: "6px 0",
-      borderBottom: `1px solid ${t.surfaceRaised}`,
+      borderBottom: `1px solid ${t.surfaceBorder}`,
       alignItems: "flex-start",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 140, flexShrink: 0 }}>

@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { Channel, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding } from "../../types/api";
+import type { Channel, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult } from "../../types/api";
 
 interface ChannelListResponse {
   channels: Channel[];
@@ -174,6 +174,51 @@ export function useAvailableIntegrations() {
   return useQuery({
     queryKey: ["available-integrations"],
     queryFn: () => apiFetch<AvailableIntegration[]>("/api/v1/admin/channels/integrations/available"),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Integration activation
+// ---------------------------------------------------------------------------
+
+export function useActivatableIntegrations(channelId: string | undefined) {
+  return useQuery({
+    queryKey: ["activatable-integrations", channelId],
+    queryFn: () =>
+      apiFetch<ActivatableIntegration[]>(
+        `/api/v1/channels/${channelId}/integrations/available`
+      ),
+    enabled: !!channelId,
+  });
+}
+
+export function useActivateIntegration(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (integrationType: string) =>
+      apiFetch<ActivationResult>(
+        `/api/v1/channels/${channelId}/integrations/${integrationType}/activate`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["activatable-integrations", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-integrations", channelId] });
+    },
+  });
+}
+
+export function useDeactivateIntegration(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (integrationType: string) =>
+      apiFetch(
+        `/api/v1/channels/${channelId}/integrations/${integrationType}/deactivate`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["activatable-integrations", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-integrations", channelId] });
+    },
   });
 }
 

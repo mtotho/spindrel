@@ -6,7 +6,6 @@ and provides a chat listing endpoint for the admin UI.
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 
 import httpx
@@ -37,15 +36,18 @@ _chat_bot_map: dict[str, str] = {}
 
 
 def _get_server_url() -> str:
-    return os.environ.get("BLUEBUBBLES_SERVER_URL", "")
+    from integrations.bluebubbles.config import settings
+    return settings.BLUEBUBBLES_SERVER_URL
 
 
 def _get_password() -> str:
-    return os.environ.get("BLUEBUBBLES_PASSWORD", "")
+    from integrations.bluebubbles.config import settings
+    return settings.BLUEBUBBLES_PASSWORD
 
 
 def _get_default_bot() -> str:
-    return os.environ.get("BB_DEFAULT_BOT", "default")
+    from integrations.bluebubbles.config import settings
+    return settings.BB_DEFAULT_BOT
 
 
 @router.get("/config")
@@ -114,10 +116,7 @@ async def get_status(_auth=Depends(verify_admin_auth)) -> dict:
 
 def _get_bb_credentials() -> tuple[str, str]:
     """Get BB server_url and password from DB cache or env."""
-    from app.services.integration_settings import get_value
-    server_url = get_value("bluebubbles", "BLUEBUBBLES_SERVER_URL")
-    password = get_value("bluebubbles", "BLUEBUBBLES_PASSWORD")
-    return server_url, password
+    return _get_server_url(), _get_password()
 
 
 @router.get("/diagnose")

@@ -164,6 +164,21 @@ export interface IntegrationBinding {
   updated_at: string;
 }
 
+// Integration activation
+export interface ActivatableIntegration {
+  integration_type: string;
+  description: string;
+  requires_workspace: boolean;
+  activated: boolean;
+}
+
+export interface ActivationResult {
+  integration_type: string;
+  activated: boolean;
+  manifest?: Record<string, any> | null;
+  warnings: Array<{ code: string; message: string }>;
+}
+
 // Channel types (matches server ChannelOut)
 export interface Channel {
   id: string;

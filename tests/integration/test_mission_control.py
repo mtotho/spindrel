@@ -12,7 +12,7 @@ pytestmark = pytest.mark.asyncio
 
 class TestMCOverview:
     async def test_overview_empty(self, client, db_session):
-        resp = await client.get("/api/v1/mission-control/overview", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/overview", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
         assert body["total_channels"] == 0
@@ -33,7 +33,7 @@ class TestMCOverview:
         db_session.add(ch)
         await db_session.commit()
 
-        resp = await client.get("/api/v1/mission-control/overview", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/overview", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
         assert body["total_channels"] == 1
@@ -43,7 +43,7 @@ class TestMCOverview:
 
 class TestMCKanban:
     async def test_kanban_empty(self, client, db_session):
-        resp = await client.get("/api/v1/mission-control/kanban", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/kanban", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
         assert body["columns"] == []
@@ -79,7 +79,7 @@ class TestMCKanban:
             "app.services.channel_workspace.read_workspace_file",
             return_value=tasks_content,
         ):
-            resp = await client.get("/api/v1/mission-control/kanban", headers=AUTH_HEADERS)
+            resp = await client.get("/integrations/mission_control/kanban", headers=AUTH_HEADERS)
 
         assert resp.status_code == 200
         body = resp.json()
@@ -110,7 +110,7 @@ class TestMCKanban:
             patch("app.services.channel_workspace.ensure_channel_workspace"),
         ):
             resp = await client.post(
-                "/api/v1/mission-control/kanban/create",
+                "/integrations/mission_control/kanban/create",
                 json={
                     "channel_id": str(ch.id),
                     "title": "New task",
@@ -159,7 +159,7 @@ class TestMCKanban:
             patch("app.services.channel_workspace.write_workspace_file") as mock_write,
         ):
             resp = await client.post(
-                "/api/v1/mission-control/kanban/move",
+                "/integrations/mission_control/kanban/move",
                 json={
                     "card_id": "mc-mov001",
                     "from_column": "Backlog",
@@ -194,7 +194,7 @@ class TestMCKanban:
 
         with patch("app.services.channel_workspace.read_workspace_file", return_value=tasks_content):
             resp = await client.post(
-                "/api/v1/mission-control/kanban/move",
+                "/integrations/mission_control/kanban/move",
                 json={
                     "card_id": "mc-nonexistent",
                     "from_column": "Backlog",
@@ -232,7 +232,7 @@ class TestMCKanban:
 
         with patch("app.services.channel_workspace.read_workspace_file", return_value=tasks_content):
             resp = await client.post(
-                "/api/v1/mission-control/kanban/move",
+                "/integrations/mission_control/kanban/move",
                 json={
                     "card_id": "mc-abc123",
                     "from_column": "In Progress",  # card is actually in Backlog
@@ -247,7 +247,7 @@ class TestMCKanban:
 
 class TestMCTimeline:
     async def test_timeline_empty(self, client, db_session):
-        resp = await client.get("/api/v1/mission-control/timeline?days=7", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/timeline?days=7", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
         assert body["events"] == []
@@ -279,7 +279,7 @@ class TestMCTimeline:
             return_value=timeline_content,
         ):
             resp = await client.get(
-                "/api/v1/mission-control/timeline?days=7",
+                "/integrations/mission_control/timeline?days=7",
                 headers=AUTH_HEADERS,
             )
 
@@ -294,7 +294,7 @@ class TestMCTimeline:
 
 class TestMCJournal:
     async def test_journal_empty(self, client, db_session):
-        resp = await client.get("/api/v1/mission-control/journal?days=7", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/journal?days=7", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
         assert body["entries"] == []
@@ -302,7 +302,7 @@ class TestMCJournal:
 
 class TestMCMemory:
     async def test_memory_empty(self, client, db_session):
-        resp = await client.get("/api/v1/mission-control/memory", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/memory", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
         assert body["sections"] == []
@@ -312,7 +312,7 @@ class TestMCChannelContext:
     async def test_context_not_found(self, client, db_session):
         fake_id = str(uuid.uuid4())
         resp = await client.get(
-            f"/api/v1/mission-control/channels/{fake_id}/context",
+            f"/integrations/mission_control/channels/{fake_id}/context",
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 404
@@ -333,7 +333,7 @@ class TestMCChannelContext:
 
         with patch("app.services.channel_workspace.list_workspace_files", return_value=[]):
             resp = await client.get(
-                f"/api/v1/mission-control/channels/{ch.id}/context",
+                f"/integrations/mission_control/channels/{ch.id}/context",
                 headers=AUTH_HEADERS,
             )
 
@@ -349,7 +349,7 @@ class TestMCChannelContext:
 
 class TestMCPrefs:
     async def test_get_prefs_default(self, client, db_session):
-        resp = await client.get("/api/v1/mission-control/prefs", headers=AUTH_HEADERS)
+        resp = await client.get("/integrations/mission_control/prefs", headers=AUTH_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
         # API key auth returns empty prefs (no user)
@@ -358,7 +358,7 @@ class TestMCPrefs:
     async def test_update_prefs_requires_user(self, client, db_session):
         """API key auth cannot save prefs (needs JWT user)."""
         resp = await client.put(
-            "/api/v1/mission-control/prefs",
+            "/integrations/mission_control/prefs",
             json={"tracked_channel_ids": ["abc"]},
             headers=AUTH_HEADERS,
         )
@@ -407,7 +407,7 @@ class TestMCPlanApprove:
             patch("app.services.channel_workspace.ensure_channel_workspace"),
         ):
             resp = await client.post(
-                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-abc123/approve",
+                f"/integrations/mission_control/channels/{ch.id}/plans/plan-abc123/approve",
                 headers=AUTH_HEADERS,
             )
 
@@ -444,7 +444,7 @@ class TestMCPlanApprove:
             patch("app.services.channel_workspace.ensure_channel_workspace"),
         ):
             resp = await client.post(
-                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-abc123/approve",
+                f"/integrations/mission_control/channels/{ch.id}/plans/plan-abc123/approve",
                 headers=AUTH_HEADERS,
             )
 
@@ -473,7 +473,7 @@ class TestMCPlanApprove:
 
         with patch("app.services.channel_workspace.read_workspace_file", return_value=executing_plan):
             resp = await client.post(
-                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-run001/approve",
+                f"/integrations/mission_control/channels/{ch.id}/plans/plan-run001/approve",
                 headers=AUTH_HEADERS,
             )
 
@@ -516,7 +516,7 @@ class TestMCPlanResume:
             patch("app.services.channel_workspace.ensure_channel_workspace"),
         ):
             resp = await client.post(
-                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-res001/resume",
+                f"/integrations/mission_control/channels/{ch.id}/plans/plan-res001/resume",
                 headers=AUTH_HEADERS,
             )
 
@@ -554,7 +554,7 @@ class TestMCPlanResume:
 
         with patch("app.services.channel_workspace.read_workspace_file", return_value=draft_plan):
             resp = await client.post(
-                f"/api/v1/mission-control/channels/{ch.id}/plans/plan-drf001/resume",
+                f"/integrations/mission_control/channels/{ch.id}/plans/plan-drf001/resume",
                 headers=AUTH_HEADERS,
             )
 

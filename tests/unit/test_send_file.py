@@ -88,6 +88,10 @@ class TestSendFileRepostSameChannel:
         # No duplicate created — the original orphan will be linked by persist_turn
         mock_create.assert_not_called()
 
+        # No client_action — the original tool already emitted one for display.
+        # Returning another would cause Slack to upload the image twice.
+        assert "client_action" not in data
+
     async def test_orphaned_different_channel_creates_new_attachment(self):
         """Orphaned attachment from a different channel must still create a copy."""
         att = _fake_attachment(channel_id=uuid.uuid4(), message_id=None)

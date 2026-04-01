@@ -80,16 +80,12 @@ function resolveIcon(name: string): React.ComponentType<{ size: number; color: s
 
 const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
-    title: "AGENTS",
+    title: "AGENTS & KNOWLEDGE",
     items: [
       { label: "Bots", href: "/admin/bots", icon: Bot },
       { label: "Carapaces", href: "/admin/carapaces", icon: Layers },
-    ],
-  },
-  {
-    title: "KNOWLEDGE",
-    items: [
       { label: "Skills", href: "/admin/skills", icon: BookOpen },
+      { label: "Tool Index", href: "/admin/tools", icon: Wrench },
       { label: "Templates", href: "/admin/prompt-templates", icon: FileText },
       { label: "Attachments", href: "/admin/attachments", icon: Paperclip },
     ],
@@ -115,7 +111,6 @@ const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Integrations", href: "/admin/integrations", icon: Plug },
       { label: "Providers", href: "/admin/providers", icon: Server },
       { label: "MCP Servers", href: "/admin/mcp-servers", icon: Cable },
-      { label: "Tool Index", href: "/admin/tools", icon: Wrench },
       { label: "Usage", href: "/admin/usage", icon: BarChart3 },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
