@@ -9,6 +9,7 @@ Revision ID: 140
 Revises: 139
 """
 
+import sqlalchemy as sa
 from alembic import op
 
 revision = "140"
@@ -16,10 +17,12 @@ down_revision = "139"
 
 
 def upgrade() -> None:
-    op.create_index("ix_messages_session_id", "messages", ["session_id"])
-    op.create_index("ix_documents_source", "documents", ["source"])
-    op.create_index("ix_tool_embeddings_server_name", "tool_embeddings", ["server_name"])
-    op.create_index("ix_tasks_status_run_at", "tasks", ["status", "run_at"])
+    # Use IF NOT EXISTS to handle indexes that may already exist (e.g. from
+    # SQLAlchemy's __table_args__ auto-creation or a partially-applied migration).
+    op.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_messages_session_id ON messages (session_id)"))
+    op.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_documents_source ON documents (source)"))
+    op.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_tool_embeddings_server_name ON tool_embeddings (server_name)"))
+    op.execute(sa.text("CREATE INDEX IF NOT EXISTS ix_tasks_status_run_at ON tasks (status, run_at)"))
 
 
 def downgrade() -> None:
