@@ -85,18 +85,16 @@ steps:
       Use the canonical title/IDs you found in previous steps — don't re-search with
       the user's original text if you already have the correct series_id or movie_id.
 
-      **NOT_TRACKED** — Add it and trigger a search:
-      - TV: `sonarr_series(search="{{title}}")` to find TVDB ID, then note
-        the series needs to be added (report this — adding requires API not yet in tools).
-        Try: `sonarr_command(action="SeriesSearch")` if it's partially tracked.
-      - Movie: `radarr_movies(search="{{title}}")` to find TMDB match.
-      - Also check Jellyseerr: `jellyseerr_search(query="{{title}}")` — request it if found.
-      - When searching, try the simplest form of the title first. If ambiguous, add year.
+      **NOT_TRACKED** — Search and request it:
+      - Search Jellyseerr: `jellyseerr_search(query="{{title}}")` — find the TMDB match.
+      - Check the `status` field — if already `pending`/`processing`, it's in the pipeline.
+      - If not requested: `jellyseerr_manage(action="request", media_id=TMDB_ID, media_type="movie"|"tv")`
+      - Also try direct lookup: `sonarr_series(search="{{title}}")` / `radarr_movies(search="{{title}}")`
 
       **STALLED** — Remove the bad torrent and search for alternatives:
       - `qbit_manage(hashes=[...], action="delete")` — remove stuck torrent
       - Browse releases: `sonarr_releases(action="search", series_id=X)` or `radarr_releases(action="search", movie_id=X)`
-      - Pick the best release: seeders >10, reasonable size, not rejected
+      - Pick the best release: 1080p preferred, seeders ≥10, reasonable size, not rejected
       - Grab it: `*_releases(action="grab", guid="...", indexer_id=N)`
 
       **NOT_GRABBED / QUEUED** — Force a search:
