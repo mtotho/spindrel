@@ -1347,6 +1347,7 @@ class Workflow(Base):
     steps: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     triggers: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     tags: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    session_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'isolated'"))
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)

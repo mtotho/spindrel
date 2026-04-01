@@ -257,3 +257,99 @@ async def test_list_workflow_runs(client, db_session, engine_session_factory):
     resp = await client.get("/api/v1/admin/workflows/test-wf/runs", headers=AUTH_HEADERS)
     assert resp.status_code == 200
     assert len(resp.json()) == 2
+
+
+# ---------------------------------------------------------------------------
+# Session Mode Tests
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_create_workflow_with_session_mode(client, db_session):
+    """Creating a workflow with session_mode should persist it."""
+    wf_data = _make_workflow()
+    wf_data["session_mode"] = "shared"
+    resp = await client.post("/api/v1/admin/workflows", json=wf_data, headers=AUTH_HEADERS)
+    assert resp.status_code == 201
+    assert resp.json()["session_mode"] == "shared"
+
+    # Verify via GET
+    get_resp = await client.get("/api/v1/admin/workflows/test-wf", headers=AUTH_HEADERS)
+    assert get_resp.json()["session_mode"] == "shared"
+
+
+@pytest.mark.asyncio
+async def test_default_session_mode_is_isolated(client, db_session):
+    """Creating a workflow without session_mode should default to isolated."""
+    resp = await client.post("/api/v1/admin/workflows", json=_make_workflow(), headers=AUTH_HEADERS)
+    assert resp.status_code == 201
+    assert resp.json()["session_mode"] == "isolated"
+
+
+@pytest.mark.asyncio
+async def test_trigger_shared_workflow_has_session_id(client, db_session, engine_session_factory):
+    """Triggering a shared-session workflow should set session_id on the run."""
+    await client.post("/api/v1/admin/workflows", json=_make_workflow(), headers=AUTH_HEADERS)
+
+    wf = Workflow(
+        id="test-wf", name="Test",
+        params={"name": {"type": "string", "required": True}},
+        steps=[{"id": "s1", "prompt": "Do."}, {"id": "s2", "prompt": "Report."}],
+        defaults={"bot_id": "test-bot"}, secrets=[],
+        session_mode="shared",
+    )
+    with (
+        patch("app.services.workflows._registry", {"test-wf": wf}),
+        patch("app.services.workflow_executor.async_session", engine_session_factory),
+        patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+    ):
+        resp = await client.post(
+            "/api/v1/admin/workflows/test-wf/run",
+            json={"params": {"name": "Test"}, "bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["session_id"] is not None, "Shared session mode should set session_id"
+
+
+@pytest.mark.asyncio
+async def test_trigger_isolated_workflow_has_no_session_id(client, db_session, engine_session_factory):
+    """Triggering an isolated-session workflow should leave session_id as None."""
+    await client.post("/api/v1/admin/workflows", json=_make_workflow(), headers=AUTH_HEADERS)
+
+    wf = Workflow(
+        id="test-wf", name="Test",
+        params={"name": {"type": "string", "required": True}},
+        steps=[{"id": "s1", "prompt": "Do."}],
+        defaults={"bot_id": "test-bot"}, secrets=[],
+        session_mode="isolated",
+    )
+    with (
+        patch("app.services.workflows._registry", {"test-wf": wf}),
+        patch("app.services.workflow_executor.async_session", engine_session_factory),
+        patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+    ):
+        resp = await client.post(
+            "/api/v1/admin/workflows/test-wf/run",
+            json={"params": {"name": "Test"}, "bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["session_id"] is None, "Isolated session mode should not set session_id"
+
+
+@pytest.mark.asyncio
+async def test_update_workflow_session_mode(client, db_session):
+    """Updating session_mode via PUT should persist."""
+    await client.post("/api/v1/admin/workflows", json=_make_workflow(), headers=AUTH_HEADERS)
+
+    resp = await client.put(
+        "/api/v1/admin/workflows/test-wf",
+        json={"session_mode": "shared"},
+        headers=AUTH_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["session_mode"] == "shared"

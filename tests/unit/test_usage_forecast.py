@@ -158,37 +158,37 @@ class TestPeriodStartTimezone:
 
 class TestGroupCostsByTemplate:
     """Test _group_costs_by_template — the production function that maps
-    correlation_id costs to parent template tasks."""
+    per-run costs to parent template tasks."""
 
     def test_groups_by_parent(self):
         from app.routers.api_v1_admin.usage import _group_costs_by_template
 
-        corr_parent = {
-            "corr-1": "template-A",
-            "corr-2": "template-A",
-            "corr-3": "template-B",
+        run_parent = {
+            "session-1": "template-A",
+            "session-2": "template-A",
+            "session-3": "template-B",
         }
-        corr_costs = {
-            "corr-1": 0.10,
-            "corr-2": 0.20,
-            "corr-3": 0.50,
+        run_costs = {
+            "session-1": 0.10,
+            "session-2": 0.20,
+            "session-3": 0.50,
         }
-        result = _group_costs_by_template(corr_parent, corr_costs)
+        result = _group_costs_by_template(run_parent, run_costs)
 
         assert set(result.keys()) == {"template-A", "template-B"}
         assert result["template-A"] == [0.10, 0.20]
         assert result["template-B"] == [0.50]
 
     def test_ignores_costs_without_parent(self):
-        """Correlation IDs not in corr_parent are silently dropped."""
+        """Session IDs not in run_parent are silently dropped."""
         from app.routers.api_v1_admin.usage import _group_costs_by_template
 
-        corr_parent = {"corr-1": "template-A"}
-        corr_costs = {
-            "corr-1": 0.10,
-            "corr-orphan": 0.99,  # no parent mapping
+        run_parent = {"session-1": "template-A"}
+        run_costs = {
+            "session-1": 0.10,
+            "session-orphan": 0.99,  # no parent mapping
         }
-        result = _group_costs_by_template(corr_parent, corr_costs)
+        result = _group_costs_by_template(run_parent, run_costs)
 
         assert list(result.keys()) == ["template-A"]
         assert result["template-A"] == [0.10]

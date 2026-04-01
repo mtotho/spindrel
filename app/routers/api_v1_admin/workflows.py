@@ -29,6 +29,7 @@ class WorkflowOut(BaseModel):
     steps: list[dict] = []
     triggers: dict = {}
     tags: list = []
+    session_mode: str = "isolated"
     source_type: str = "manual"
     source_path: str | None = None
     created_at: datetime | None = None
@@ -47,6 +48,7 @@ class WorkflowCreateIn(BaseModel):
     steps: list[dict] = []
     triggers: dict = {}
     tags: list = []
+    session_mode: str = "isolated"
 
 
 class WorkflowUpdateIn(BaseModel):
@@ -58,6 +60,7 @@ class WorkflowUpdateIn(BaseModel):
     steps: list[dict] | None = None
     triggers: dict | None = None
     tags: list | None = None
+    session_mode: str | None = None
 
 
 class WorkflowRunOut(BaseModel):
@@ -137,6 +140,7 @@ async def create_workflow(
         steps=body.steps,
         triggers=body.triggers,
         tags=body.tags,
+        session_mode=body.session_mode,
         source_type="manual",
         created_at=now,
         updated_at=now,
@@ -165,7 +169,7 @@ async def update_workflow(
 
     data = body.model_dump(exclude_none=True)
     for field in ("name", "description", "params", "secrets", "defaults",
-                   "steps", "triggers", "tags"):
+                   "steps", "triggers", "tags", "session_mode"):
         if field in data:
             setattr(row, field, data[field])
     row.updated_at = datetime.now(timezone.utc)
