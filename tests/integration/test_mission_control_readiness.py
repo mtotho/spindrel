@@ -85,7 +85,7 @@ class TestMCReadiness:
         await db_session.commit()
 
         with (
-            patch("integrations.mission_control.helpers.has_tasks_file", return_value=True),
+            patch("integrations.mission_control.router.has_tasks_file", return_value=True),
             patch("integrations.mission_control.router_memory.get_bot", return_value=mem_bot),
             patch("app.agent.bots.list_bots", return_value=[mem_bot]),
             patch("app.services.memory_scheme.get_memory_root", return_value="/tmp/test-mem"),
@@ -129,8 +129,8 @@ class TestMCReadiness:
         await db_session.commit()
 
         with (
-            patch("integrations.mission_control.helpers.has_tasks_file", return_value=True),
-            patch("integrations.mission_control.helpers.has_timeline_file", return_value=True),
+            patch("integrations.mission_control.router.has_tasks_file", return_value=True),
+            patch("integrations.mission_control.router.has_timeline_file", return_value=True),
             patch("integrations.mission_control.router_memory.get_bot", return_value=mem_bot),
             patch("app.agent.bots.list_bots", return_value=[mem_bot]),
             patch("app.services.memory_scheme.get_memory_root", return_value="/tmp/test-mem"),

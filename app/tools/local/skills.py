@@ -81,20 +81,19 @@ async def get_skill(skill_id: str) -> str:
 async def _check_extra_skill_access(bot, skill_id: str) -> bool:
     """Check if skill_id is allowed via workspace DB skills or channel skills_extra."""
     # Check workspace DB skills
-    if bot.shared_workspace_id:
-        try:
-            import uuid as _uuid
-            from app.db.models import SharedWorkspace
-            async with async_session() as db:
-                ws_row = await db.get(SharedWorkspace, _uuid.UUID(bot.shared_workspace_id))
-            if ws_row and ws_row.skills:
-                if any(
-                    (e["id"] if isinstance(e, dict) else e) == skill_id
-                    for e in ws_row.skills
-                ):
-                    return True
-        except Exception:
-            pass
+    try:
+        import uuid as _uuid
+        from app.db.models import SharedWorkspace
+        async with async_session() as db:
+            ws_row = await db.get(SharedWorkspace, _uuid.UUID(bot.shared_workspace_id))
+        if ws_row and ws_row.skills:
+            if any(
+                (e["id"] if isinstance(e, dict) else e) == skill_id
+                for e in ws_row.skills
+            ):
+                return True
+    except Exception:
+        pass
 
     # Check channel skills_extra
     try:

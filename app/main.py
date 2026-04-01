@@ -113,7 +113,7 @@ async def _index_filesystems_and_start_watchers() -> None:
             # Shared workspace bots without segments: skip Phase 2 entirely.
             # Only memory gets indexed (Phase 1).  Clean up any stale non-memory
             # chunks from previous blanket indexing runs.
-            if bot.shared_workspace_id and not _segments:
+            if not _segments:
                 from app.services.memory_scheme import get_memory_index_prefix
                 _mem_prefix = get_memory_index_prefix(bot)
                 for root in get_all_roots(bot, workspace_service):
@@ -222,6 +222,16 @@ async def lifespan(app: FastAPI):
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")
     await load_bots()
+
+    # Auto-create default workspace and enroll all bots
+    from app.services.workspace_bootstrap import ensure_default_workspace, ensure_all_bots_enrolled
+    async with async_session() as _ws_db:
+        default_ws = await ensure_default_workspace(_ws_db)
+        added = await ensure_all_bots_enrolled(_ws_db, default_ws.id)
+        if added:
+            logger.info("Auto-enrolled %d bot(s) into workspace", added)
+            await load_bots()  # Reload so shared_workspace_id is populated
+
     logger.info("Loading secret values from DB...")
     from app.services.secret_values import load_from_db as load_secret_values
     await load_secret_values()

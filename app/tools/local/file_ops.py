@@ -55,7 +55,7 @@ def _resolve_path(path: str, ws_root: str, bot=None) -> str:
 
     from app.services.workspace import workspace_service
 
-    # Determine shared workspace root (if applicable)
+    # Determine shared workspace root
     shared_root: str | None = None
     if bot and bot.shared_workspace_id:
         from app.services.shared_workspace import shared_workspace_service
@@ -65,14 +65,9 @@ def _resolve_path(path: str, ws_root: str, bot=None) -> str:
 
     # Translate container-style /workspace/... paths
     if path.startswith("/workspace/") or path == "/workspace":
-        if bot and (bot.workspace.type == "docker" or bot.shared_workspace_id):
-            path = workspace_service.translate_path(
-                bot.id, path, bot.workspace, bot=bot,
-            )
-        else:
-            # Host workspace — strip /workspace/ prefix and join with root
-            rel = path[len("/workspace/"):] if path.startswith("/workspace/") else ""
-            path = os.path.join(ws_root, rel)
+        path = workspace_service.translate_path(
+            bot.id, path, bot.workspace, bot=bot,
+        )
 
     # Relative paths: join with bot workspace root (bots/{bot_id}/ for shared,
     # or {base}/{bot_id}/ for standalone).  This means memory/MEMORY.md always

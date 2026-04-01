@@ -85,12 +85,14 @@ class TestResolvePath:
 
     def test_workspace_prefix_host(self, ws):
         bot = _mock_bot(str(ws), workspace_type="host")
-        result = _resolve_path("/workspace/hello.txt", str(ws), bot)
+        with patch("app.services.workspace.WorkspaceService.get_workspace_root", return_value=str(ws)):
+            result = _resolve_path("/workspace/hello.txt", str(ws), bot)
         assert result == str(ws / "hello.txt")
 
     def test_workspace_root_only(self, ws):
         bot = _mock_bot(str(ws), workspace_type="host")
-        result = _resolve_path("/workspace", str(ws), bot)
+        with patch("app.services.workspace.WorkspaceService.get_workspace_root", return_value=str(ws)):
+            result = _resolve_path("/workspace", str(ws), bot)
         assert os.path.realpath(str(ws)) == result
 
     def test_traversal_via_symlink(self, ws):
@@ -706,16 +708,20 @@ class TestCrossWorkspaceAccess:
         orch_bot = self._orch_bot()
         baking_bot = self._baking_bot(baking_root)
 
+        def _mock_ws_root(bot_id, bot=None):
+            return orch_root if bot_id == "orchestrator" else baking_root
+
         with patch("app.tools.local.file_ops._get_bot_and_workspace_root") as mock_get:
             mock_get.return_value = (orch_bot, "orchestrator", orch_root)
             with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
                 mock_resolve.return_value = baking_bot
                 with patch("app.services.channel_workspace._get_ws_root", return_value=baking_root):
+                    with patch("app.services.workspace.WorkspaceService.get_workspace_root", side_effect=_mock_ws_root):
 
-                    result = await file_tool(
-                        operation="read",
-                        path=f"/workspace/channels/{self.CHANNEL_ID}/recipe.md",
-                    )
+                        result = await file_tool(
+                            operation="read",
+                            path=f"/workspace/channels/{self.CHANNEL_ID}/recipe.md",
+                        )
 
         assert "Sourdough" in result
 
@@ -727,16 +733,20 @@ class TestCrossWorkspaceAccess:
         orch_bot = self._orch_bot()
         baking_bot = self._baking_bot(baking_root)
 
+        def _mock_ws_root(bot_id, bot=None):
+            return orch_root if bot_id == "orchestrator" else baking_root
+
         with patch("app.tools.local.file_ops._get_bot_and_workspace_root") as mock_get:
             mock_get.return_value = (orch_bot, "orchestrator", orch_root)
             with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
                 mock_resolve.return_value = baking_bot
                 with patch("app.services.channel_workspace._get_ws_root", return_value=baking_root):
+                    with patch("app.services.workspace.WorkspaceService.get_workspace_root", side_effect=_mock_ws_root):
 
-                    result = await file_tool(
-                        operation="list",
-                        path=f"/workspace/channels/{self.CHANNEL_ID}",
-                    )
+                        result = await file_tool(
+                            operation="list",
+                            path=f"/workspace/channels/{self.CHANNEL_ID}",
+                        )
 
         parsed = json.loads(result)
         assert "entries" in parsed
@@ -751,17 +761,21 @@ class TestCrossWorkspaceAccess:
         orch_bot = self._orch_bot()
         baking_bot = self._baking_bot(baking_root)
 
+        def _mock_ws_root(bot_id, bot=None):
+            return orch_root if bot_id == "orchestrator" else baking_root
+
         with patch("app.tools.local.file_ops._get_bot_and_workspace_root") as mock_get:
             mock_get.return_value = (orch_bot, "orchestrator", orch_root)
             with patch("app.tools.local.channel_workspace._resolve_channel_owner_bot") as mock_resolve:
                 mock_resolve.return_value = baking_bot
                 with patch("app.services.channel_workspace._get_ws_root", return_value=baking_root):
+                    with patch("app.services.workspace.WorkspaceService.get_workspace_root", side_effect=_mock_ws_root):
 
-                    result = await file_tool(
-                        operation="write",
-                        path=f"/workspace/channels/{self.CHANNEL_ID}/notes.md",
-                        content="# Notes\nNew note from orchestrator",
-                    )
+                        result = await file_tool(
+                            operation="write",
+                            path=f"/workspace/channels/{self.CHANNEL_ID}/notes.md",
+                            content="# Notes\nNew note from orchestrator",
+                        )
 
         parsed = json.loads(result)
         assert parsed["ok"] is True

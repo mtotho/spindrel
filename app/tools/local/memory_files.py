@@ -241,7 +241,7 @@ async def search_bot_memory(bot_id: str, query: str) -> str:
         return "search_bot_memory is not available (no workspace context)."
 
     # Gate: only orchestrators can search other bots' memory
-    if not (caller_bot.shared_workspace_id and caller_bot.shared_workspace_role == "orchestrator"):
+    if caller_bot.shared_workspace_role != "orchestrator":
         return "search_bot_memory is only available to orchestrator bots."
 
     target_bot_id = (bot_id or "").strip()

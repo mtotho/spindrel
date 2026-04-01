@@ -291,21 +291,20 @@ async def assemble_context(
                 ))
 
     # --- merge workspace DB skills into bot.skills ---
-    if bot.shared_workspace_id:
-        try:
-            from app.db.engine import async_session as _ws_session
-            from app.db.models import SharedWorkspace as _WsSW
-            from app.agent.bots import _parse_skill_entry
-            async with _ws_session() as _ws_db:
-                _ws_row = await _ws_db.get(_WsSW, uuid.UUID(bot.shared_workspace_id))
-            if _ws_row and _ws_row.skills:
-                _bot_skill_ids = {s.id for s in bot.skills}
-                _ws_skills = [_parse_skill_entry(e) for e in _ws_row.skills if
-                              (e["id"] if isinstance(e, dict) else e) not in _bot_skill_ids]
-                if _ws_skills:
-                    bot = _dc_replace(bot, skills=list(bot.skills) + _ws_skills)
-        except Exception:
-            logger.warning("Failed to load workspace DB skills for %s", bot.shared_workspace_id)
+    try:
+        from app.db.engine import async_session as _ws_session
+        from app.db.models import SharedWorkspace as _WsSW
+        from app.agent.bots import _parse_skill_entry
+        async with _ws_session() as _ws_db:
+            _ws_row = await _ws_db.get(_WsSW, uuid.UUID(bot.shared_workspace_id))
+        if _ws_row and _ws_row.skills:
+            _bot_skill_ids = {s.id for s in bot.skills}
+            _ws_skills = [_parse_skill_entry(e) for e in _ws_row.skills if
+                          (e["id"] if isinstance(e, dict) else e) not in _bot_skill_ids]
+            if _ws_skills:
+                bot = _dc_replace(bot, skills=list(bot.skills) + _ws_skills)
+    except Exception:
+        logger.warning("Failed to load workspace DB skills for %s", bot.shared_workspace_id)
 
     if _ch_row is not None:
         _eff = resolve_effective_tools(bot, _ch_row)
@@ -858,7 +857,7 @@ async def assemble_context(
                     ))
 
     # --- workspace skills ---
-    if bot.shared_workspace_id and channel_id is not None:
+    if channel_id is not None:
         from sqlalchemy import select as _ws_select
         from app.db.engine import async_session as _ws_async_session
         from app.db.models import Channel as _WsChannel, SharedWorkspace as _WsSharedWorkspace, SharedWorkspaceBot as _WsSWBot

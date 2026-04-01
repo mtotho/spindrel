@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { Link, usePathname } from "expo-router";
 import {
@@ -8,7 +7,6 @@ import {
   ClipboardList,
   Wrench,
   FileText,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Settings,
@@ -374,12 +372,8 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
-  const activeWorkspaceId = useUIStore((s) => s.activeWorkspaceId);
-  const setActiveWorkspace = useUIStore((s) => s.setActiveWorkspace);
   const user = useAuthStore((s) => s.user);
-  const { data: channels, isLoading: channelsLoading } = useChannels(
-    activeWorkspaceId ? { workspaceId: activeWorkspaceId } : undefined,
-  );
+  const { data: channels, isLoading: channelsLoading } = useChannels();
   const { data: bots } = useBots();
   const { data: workspaces, isLoading: workspacesLoading } = useWorkspaces();
   const { data: upcomingItems, isLoading: upcomingLoading } = useUpcomingActivity(3);
@@ -389,23 +383,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const { data: iconsData } = useIntegrationIcons();
   const integrationIcons = iconsData?.icons || {};
   const t = useThemeTokens();
-  // Auto-select first workspace, or clear stale selection
-  useEffect(() => {
-    if (!workspaces || workspacesLoading) return;
-    if (activeWorkspaceId) {
-      const exists = workspaces.some((w) => w.id === activeWorkspaceId);
-      if (!exists) {
-        setActiveWorkspace(workspaces.length > 0 ? workspaces[0].id : null);
-      }
-    } else if (workspaces.length > 0) {
-      setActiveWorkspace(workspaces[0].id);
-    }
-  }, [activeWorkspaceId, workspaces, workspacesLoading, setActiveWorkspace]);
-
-  const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
-
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
-  const wsMap = new Map(workspaces?.map((w) => [w.id, w]) ?? []);
   const isUnread = useChannelReadStore((s) => s.isUnread);
 
   // Orchestrator channel — always included by server regardless of workspace filter
@@ -483,8 +461,8 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
             </Pressable>
           </Link>
 
-          {/* Workspaces icon */}
-          <Link href={"/admin/workspaces" as any} asChild>
+          {/* Workspace icon */}
+          <Link href={workspaces?.[0] ? `/admin/workspaces/${workspaces[0].id}` as any : "/admin/workspaces" as any} asChild>
             <Pressable
               onPress={closeMobile}
               className={`items-center justify-center rounded-lg ${
@@ -688,18 +666,6 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                               const IIcon = resolveIcon(integrationIcons[binding.integration_type] || "Plug");
                               return <View key={binding.id} style={{ opacity: 0.6 }}><IIcon size={11} color={t.textDim} /></View>;
                             })}
-                            {!activeWorkspaceId && channel.resolved_workspace_id && (() => {
-                              const ws = wsMap.get(channel.resolved_workspace_id!);
-                              return ws ? (
-                                <Text
-                                  className="text-[9px] text-text-dim"
-                                  style={{ opacity: 0.5 }}
-                                  numberOfLines={1}
-                                >
-                                  · {ws.name}
-                                </Text>
-                              ) : null;
-                            })()}
                           </View>
                         )}
                         {channel.tags && channel.tags.length > 0 && (
@@ -738,24 +704,23 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                   </Link>
                 );
               })}
-              {regularChannels.length === 0 && activeWorkspaceId && (
-                <Text className="text-text-dim text-xs px-3 py-2">No channels in this workspace</Text>
+              {regularChannels.length === 0 && (
+                <Text className="text-text-dim text-xs px-3 py-2">No channels yet</Text>
               )}
             </>
           )}
         </View>
 
-        {/* Workspaces */}
+        {/* Workspace */}
         {workspaces && workspaces.length > 0 && (() => {
-          const activeWs = workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0];
-          const hasMultiple = workspaces.length > 1;
+          const ws = workspaces[0];
           return (
             <View className="px-2 py-1.5">
               <View className="flex-row items-center justify-between px-3 mb-1">
                 <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider py-1.5`}>
-                  WORKSPACES
+                  WORKSPACE
                 </Text>
-                <Link href={"/admin/workspaces" as any} asChild>
+                <Link href={`/admin/workspaces/${ws.id}` as any} asChild>
                   <Pressable
                     onPress={closeMobile}
                     className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
@@ -765,9 +730,8 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                   </Pressable>
                 </Link>
               </View>
-              {/* Active workspace button */}
               <View className="flex-row items-center rounded-lg border border-surface-border overflow-hidden" style={{ marginHorizontal: 4 }}>
-                <Link href={`/admin/workspaces/${activeWs.id}/files` as any} asChild>
+                <Link href={`/admin/workspaces/${ws.id}/files` as any} asChild>
                   <Pressable
                     onPress={closeMobile}
                     className="flex-1 flex-row items-center gap-2.5 px-3 hover:bg-surface-overlay active:bg-surface-overlay"
@@ -775,64 +739,18 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                   >
                     <View style={{
                       width: 8, height: 8, borderRadius: 4,
-                      backgroundColor: activeWs.status === "running" ? "#22c55e" : t.textDim,
+                      backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
                     }} />
                     <Text
                       style={mobile ? { fontSize: 15 } : undefined}
                       className={`flex-1 ${mobile ? "" : "text-sm"} text-accent font-medium`}
                       numberOfLines={1}
                     >
-                      {activeWs.name}
+                      {ws.name}
                     </Text>
                   </Pressable>
                 </Link>
-                {hasMultiple && (
-                  <Pressable
-                    onPress={() => setWsDropdownOpen(!wsDropdownOpen)}
-                    className="items-center justify-center hover:bg-surface-overlay active:bg-surface-overlay"
-                    style={{
-                      width: 32, alignSelf: "stretch",
-                      borderLeftWidth: 1, borderLeftColor: t.surfaceBorder,
-                    }}
-                  >
-                    <ChevronDown size={13} color={t.textDim} />
-                  </Pressable>
-                )}
               </View>
-              {/* Dropdown list */}
-              {wsDropdownOpen && hasMultiple && (
-                <View
-                  className="rounded-lg border border-surface-border mt-1 overflow-hidden"
-                  style={{ marginHorizontal: 4, backgroundColor: t.surface }}
-                >
-                  {workspaces.map((ws) => {
-                    const isCurrent = ws.id === activeWs.id;
-                    return (
-                      <Pressable
-                        key={ws.id}
-                        onPress={() => {
-                          setActiveWorkspace(ws.id);
-                          setWsDropdownOpen(false);
-                        }}
-                        className={`flex-row items-center gap-2.5 px-3 py-2 ${
-                          isCurrent ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
-                        }`}
-                      >
-                        <View style={{
-                          width: 7, height: 7, borderRadius: 4,
-                          backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
-                        }} />
-                        <Text
-                          className={`flex-1 text-sm ${isCurrent ? "text-accent font-medium" : "text-text-muted"}`}
-                          numberOfLines={1}
-                        >
-                          {ws.name}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              )}
             </View>
           );
         })()}

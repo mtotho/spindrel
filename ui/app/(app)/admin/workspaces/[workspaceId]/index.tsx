@@ -3,8 +3,7 @@ import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-
 import { useLocalSearchParams } from "expo-router";
 import {
   ChevronLeft, Trash2, Play, Square, RefreshCw, Download,
-  Plus, X, FolderOpen, ChevronRight, FileText, Folder, AlertCircle,
-  Edit3, Save, FolderPlus, FilePlus,
+  FileText, AlertCircle,
 } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,22 +11,20 @@ import {
   useWorkspace, useCreateWorkspace, useUpdateWorkspace, useDeleteWorkspace,
   useStartWorkspace, useStopWorkspace, useRecreateWorkspace,
   usePullWorkspaceImage, useWorkspaceStatus, useWorkspaceLogs,
-  useAddBotToWorkspace, useUpdateWorkspaceBot, useRemoveBotFromWorkspace,
-  useWorkspaceFiles, useReindexWorkspace,
-  useWorkspaceFileContent, useWriteWorkspaceFile, useMkdirWorkspace, useDeleteWorkspaceFile,
-  useEnableEditor, useDisableEditor, useEditorStatus,
 } from "@/src/api/hooks/useWorkspaces";
-import { useBots } from "@/src/api/hooks/useBots";
-import { apiFetch } from "@/src/api/client";
 import type { SharedWorkspace } from "@/src/types/api";
 import {
-  FormRow, TextInput, SelectInput, Toggle, Section, Row, Col,
+  FormRow, TextInput, Section, TabBar,
 } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { IndexingOverview } from "./IndexingOverview";
-import { WriteProtection } from "./WriteProtection";
-import { WorkspaceSkills } from "./WorkspaceSkills";
-import { CronJobs } from "./CronJobs";
+
+// Tab components
+import { DockerTab } from "./DockerTab";
+import { BotsTab } from "./BotsTab";
+import { SkillsTab } from "./SkillsTab";
+import { FilesTab } from "./FilesTab";
+import { IndexingTab } from "./IndexingTab";
+import { EditorTab } from "./EditorTab";
 
 // ---------------------------------------------------------------------------
 // Status badge
@@ -52,215 +49,6 @@ function StatusBadge({ status }: { status: string }) {
     }}>
       {status}
     </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Env var editor
-// ---------------------------------------------------------------------------
-function EnvEditor({ entries, onChange }: {
-  entries: { key: string; value: string }[];
-  onChange: (entries: { key: string; value: string }[]) => void;
-}) {
-  const t = useThemeTokens();
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {entries.map((entry, i) => (
-        <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input
-            value={entry.key}
-            onChange={(e) => {
-              const next = [...entries];
-              next[i] = { ...next[i], key: e.target.value };
-              onChange(next);
-            }}
-            placeholder="KEY"
-            style={{
-              flex: 1, background: t.inputBg,
-              border: `1px solid ${!entry.key ? t.dangerBorder : t.surfaceBorder}`,
-              borderRadius: 6,
-              padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
-              outline: "none",
-            }}
-          />
-          <span style={{ color: t.textDim }}>=</span>
-          <input
-            value={entry.value}
-            onChange={(e) => {
-              const next = [...entries];
-              next[i] = { ...next[i], value: e.target.value };
-              onChange(next);
-            }}
-            placeholder="value"
-            style={{
-              flex: 2, background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-              padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
-              outline: "none",
-            }}
-          />
-          <button
-            onClick={() => onChange(entries.filter((_, j) => j !== i))}
-            style={{
-              background: "none", border: "none", cursor: "pointer",
-              color: t.textDim, padding: 2, flexShrink: 0,
-            }}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      ))}
-      <button
-        onClick={() => onChange([...entries, { key: "", value: "" }])}
-        style={{
-          display: "flex", alignItems: "center", gap: 4,
-          padding: "4px 10px", fontSize: 11, fontWeight: 600,
-          border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-          background: "transparent", color: t.textMuted, cursor: "pointer",
-          alignSelf: "flex-start",
-        }}
-      >
-        <Plus size={12} /> Add Variable
-      </button>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Connected bots section
-// ---------------------------------------------------------------------------
-function ConnectedBots({ workspaceId, bots, isWide, writeProtectedPaths }: {
-  workspaceId: string;
-  bots: { bot_id: string; bot_name: string; role: string; cwd_override?: string | null; write_access?: string[] }[];
-  isWide: boolean;
-  writeProtectedPaths: string[];
-}) {
-  const t = useThemeTokens();
-  const { data: allBots } = useBots();
-  const addBot = useAddBotToWorkspace(workspaceId);
-  const updateBot = useUpdateWorkspaceBot(workspaceId);
-  const removeBot = useRemoveBotFromWorkspace(workspaceId);
-  const [addBotId, setAddBotId] = useState("");
-
-  const assignedIds = new Set(bots.map((b) => b.bot_id));
-  const availableBots = allBots?.filter((b) => !assignedIds.has(b.id)) ?? [];
-
-  const handleAdd = () => {
-    if (!addBotId) return;
-    addBot.mutate({ bot_id: addBotId, role: "member" });
-    setAddBotId("");
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {bots.length === 0 && (
-        <div style={{ color: t.textDim, fontSize: 12 }}>No bots connected.</div>
-      )}
-      {bots.map((b) => {
-        const botWriteAccess = b.write_access || [];
-        const toggleWriteAccess = (path: string) => {
-          const has = botWriteAccess.includes(path);
-          const next = has ? botWriteAccess.filter((p) => p !== path) : [...botWriteAccess, path];
-          updateBot.mutate({ bot_id: b.bot_id, write_access: next });
-        };
-        return (
-          <div key={b.bot_id} style={{
-            display: "flex", flexDirection: "column", gap: 6,
-            padding: "8px 12px", background: t.surface, borderRadius: 8,
-            border: `1px solid ${t.surfaceRaised}`,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{
-                fontSize: 13, fontWeight: 600, color: t.text, flex: 1,
-                minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}>
-                {b.bot_name || b.bot_id}
-              </span>
-              <select
-                value={b.role}
-                onChange={(e) => updateBot.mutate({ bot_id: b.bot_id, role: e.target.value })}
-                style={{
-                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-                  padding: "3px 8px", color: t.text, fontSize: 11, cursor: "pointer",
-                  outline: "none",
-                }}
-              >
-                <option value="member">Member</option>
-                <option value="orchestrator">Orchestrator</option>
-              </select>
-              <button
-                onClick={() => removeBot.mutate(b.bot_id)}
-                disabled={removeBot.isPending}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  color: t.textDim, padding: 2, flexShrink: 0,
-                }}
-              >
-                <X size={14} />
-              </button>
-            </div>
-            {writeProtectedPaths.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, paddingLeft: 2 }}>
-                {writeProtectedPaths.map((p) => {
-                  const allowed = botWriteAccess.includes(p);
-                  return (
-                    <button
-                      key={p}
-                      onClick={() => toggleWriteAccess(p)}
-                      style={{
-                        display: "inline-flex", alignItems: "center", gap: 3,
-                        padding: "2px 8px", fontSize: 10, fontFamily: "monospace",
-                        borderRadius: 4, cursor: "pointer",
-                        border: `1px solid ${allowed ? t.success : t.surfaceBorder}`,
-                        background: allowed ? t.successSubtle : "transparent",
-                        color: allowed ? t.success : t.textDim,
-                      }}
-                      title={allowed ? `Revoke write access to ${p}` : `Grant write access to ${p}`}
-                    >
-                      {allowed ? "W" : "—"} {p.replace("/workspace/", "")}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      {/* Add bot */}
-      {availableBots.length > 0 && (
-        <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4 }}>
-          <select
-            value={addBotId}
-            onChange={(e) => setAddBotId(e.target.value)}
-            style={{
-              flex: 1, background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-              padding: "5px 8px", color: t.text, fontSize: 12, cursor: "pointer",
-              outline: "none",
-            }}
-          >
-            <option value="">Select bot...</option>
-            {availableBots.map((b) => (
-              <option key={b.id} value={b.id}>{b.name} ({b.id})</option>
-            ))}
-          </select>
-          <button
-            onClick={handleAdd}
-            disabled={!addBotId || addBot.isPending}
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              padding: "5px 12px", fontSize: 12, fontWeight: 600,
-              border: "none", borderRadius: 6,
-              background: addBotId ? t.accent : t.surfaceBorder,
-              color: addBotId ? "#fff" : t.textDim,
-              cursor: addBotId ? "pointer" : "not-allowed",
-              flexShrink: 0,
-            }}
-          >
-            <Plus size={13} /> Add
-          </button>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -386,474 +174,23 @@ function ContainerControls({ workspaceId, status }: { workspaceId: string; statu
 }
 
 // ---------------------------------------------------------------------------
-// Editor section (code-server)
+// Tab definitions
 // ---------------------------------------------------------------------------
-function EditorSection({ workspace }: { workspace: SharedWorkspace }) {
-  const t = useThemeTokens();
-  const enableMut = useEnableEditor(workspace.id);
-  const disableMut = useDisableEditor(workspace.id);
-  const { data: editorStatus } = useEditorStatus(workspace.id);
-  const [opening, setOpening] = useState(false);
+const TABS = [
+  { key: "overview", label: "Overview" },
+  { key: "docker", label: "Docker" },
+  { key: "bots", label: "Bots" },
+  { key: "skills", label: "Skills" },
+  { key: "files", label: "Files" },
+  { key: "indexing", label: "Indexing" },
+  { key: "editor", label: "Editor" },
+];
 
-  const isRunning = workspace.status === "running";
-  const editorEnabled = editorStatus?.editor_enabled ?? workspace.editor_enabled;
-  const editorRunning = editorStatus?.editor_running ?? false;
-  const busy = enableMut.isPending || disableMut.isPending;
-
-  const handleToggle = () => {
-    if (editorEnabled) {
-      disableMut.mutate();
-    } else {
-      enableMut.mutate();
-    }
-  };
-
-  const handleOpen = async () => {
-    setOpening(true);
-    try {
-      // Always call enable — it's idempotent and ensures container + code-server are running
-      await enableMut.mutateAsync();
-      const { useAuthStore, getAuthToken } = await import("@/src/stores/auth");
-      const { serverUrl } = useAuthStore.getState();
-      const token = getAuthToken();
-      const url = `${serverUrl}/api/v1/workspaces/${workspace.id}/editor/?tkn=${encodeURIComponent(token || "")}`;
-      window.open(url, `editor-${workspace.id}`);
-    } catch (err) {
-      console.error("Failed to open editor:", err);
-    } finally {
-      setOpening(false);
-    }
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Toggle
-            value={editorEnabled}
-            onChange={handleToggle}
-            label={editorEnabled ? "Enabled" : "Disabled"}
-          />
-          {editorEnabled && (
-            <span style={{
-              fontSize: 11, padding: "2px 8px", borderRadius: 4,
-              background: editorRunning ? t.successSubtle : "rgba(100,100,100,0.15)",
-              color: editorRunning ? t.success : "#999",
-              fontWeight: 600,
-            }}>
-              {editorRunning ? "Running" : "Stopped"}
-            </span>
-          )}
-        </div>
-        {editorEnabled && isRunning && (
-          <button
-            onClick={handleOpen}
-            disabled={opening}
-            style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "6px 14px", fontSize: 12, fontWeight: 600,
-              border: `1px solid ${t.accent}`, borderRadius: 6,
-              background: `${t.accent}15`, color: t.accent,
-              cursor: opening ? "not-allowed" : "pointer",
-            }}
-          >
-            {opening ? "Opening..." : "Open Editor"}
-          </button>
-        )}
-      </div>
-      {editorEnabled && workspace.editor_port && (
-        <div style={{ fontSize: 11, color: t.textDim }}>
-          Port: {workspace.editor_port} (mapped to container:8443)
-        </div>
-      )}
-      {!isRunning && editorEnabled && (
-        <div style={{ fontSize: 11, color: t.warningMuted }}>
-          Start the workspace to use the editor.
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// File browser with view/edit/create/delete
-// ---------------------------------------------------------------------------
-function useFileBrowserParams() {
-  // Persist file browser path & file in URL search params so refresh keeps state.
-  const readParams = () => {
-    if (typeof window === "undefined") return { path: "/", file: null as string | null };
-    const sp = new URLSearchParams(window.location.search);
-    return { path: sp.get("fp") || "/", file: sp.get("ff") || null };
-  };
-  const [state, setState] = useState(readParams);
-
-  const update = useCallback((path: string, file: string | null) => {
-    setState({ path, file });
-    if (typeof window === "undefined") return;
-    const sp = new URLSearchParams(window.location.search);
-    if (path && path !== "/") sp.set("fp", path); else sp.delete("fp");
-    if (file) sp.set("ff", file); else sp.delete("ff");
-    const qs = sp.toString();
-    const url = window.location.pathname + (qs ? `?${qs}` : "");
-    window.history.replaceState(null, "", url);
-  }, []);
-
-  return { browserPath: state.path, browserFile: state.file, updateBrowserParams: update };
-}
-
-function FileBrowser({ workspaceId }: { workspaceId: string }) {
-  const t = useThemeTokens();
-  const { browserPath, browserFile, updateBrowserParams } = useFileBrowserParams();
-  const [path, setPathRaw] = useState(browserPath);
-  const [viewingFile, setViewingFileRaw] = useState<string | null>(browserFile);
-  const [editing, setEditing] = useState(false);
-  const [editContent, setEditContent] = useState("");
-  const [creating, setCreating] = useState<"file" | "folder" | null>(null);
-  const [newName, setNewName] = useState("");
-
-  const setPath = useCallback((p: string) => {
-    setPathRaw(p);
-    updateBrowserParams(p, null);
-  }, [updateBrowserParams]);
-  const setViewingFile = useCallback((f: string | null) => {
-    setViewingFileRaw(f);
-    updateBrowserParams(path, f);
-  }, [updateBrowserParams, path]);
-
-  const { data, isLoading, refetch } = useWorkspaceFiles(workspaceId, path);
-  const { data: fileData, isLoading: fileLoading, error: fileError } = useWorkspaceFileContent(
-    workspaceId, viewingFile
-  );
-  const writeMut = useWriteWorkspaceFile(workspaceId);
-  const mkdirMut = useMkdirWorkspace(workspaceId);
-  const deleteMut = useDeleteWorkspaceFile(workspaceId);
-
-  const navigateTo = (entryPath: string) => {
-    setViewingFileRaw(null);
-    setEditing(false);
-    setPathRaw(entryPath);
-    updateBrowserParams(entryPath, null);
-  };
-  const navigateUp = () => {
-    const parent = path.replace(/\/[^/]+\/?$/, "") || "/";
-    navigateTo(parent);
-  };
-
-  const handleSaveFile = () => {
-    if (!viewingFile) return;
-    writeMut.mutate({ path: viewingFile, content: editContent }, {
-      onSuccess: () => { setEditing(false); refetch(); },
-    });
-  };
-
-  const handleCreate = () => {
-    if (!newName.trim()) return;
-    const newPath = path === "/" ? newName.trim() : `${path.replace(/^\//, "")}/${newName.trim()}`;
-    if (creating === "folder") {
-      mkdirMut.mutate(newPath, { onSuccess: () => { setCreating(null); setNewName(""); refetch(); } });
-    } else {
-      writeMut.mutate({ path: newPath, content: "" }, {
-        onSuccess: () => { setCreating(null); setNewName(""); refetch(); },
-      });
-    }
-  };
-
-  const handleDelete = (entryPath: string, entryName: string, isDir: boolean) => {
-    if (!confirm(`Delete ${isDir ? "directory" : "file"} "${entryName}"?`)) return;
-    deleteMut.mutate(entryPath, {
-      onSuccess: () => {
-        if (viewingFile === entryPath) { setViewingFile(null); setEditing(false); }
-        refetch();
-      },
-    });
-  };
-
-  const formatSize = (size: number | null | undefined) => {
-    if (size == null) return "";
-    if (size > 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)}M`;
-    if (size > 1024) return `${(size / 1024).toFixed(1)}K`;
-    return `${size}B`;
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {/* Breadcrumb + toolbar */}
-      <div style={{ display: "flex", alignItems: "center", gap: 0, fontSize: 12, flexWrap: "wrap" }}>
-        <button
-          onClick={() => navigateTo("/")}
-          style={{
-            background: "none", border: "none", cursor: "pointer",
-            color: path === "/" ? t.text : t.accent, fontSize: 12, padding: 0,
-            fontFamily: "monospace",
-          }}
-        >
-          /workspace
-        </button>
-        {path !== "/" && (() => {
-          const segments = path.replace(/^\//, "").split("/").filter(Boolean);
-          return segments.map((seg, i) => {
-            const segPath = "/" + segments.slice(0, i + 1).join("/");
-            const isLast = i === segments.length - 1;
-            return (
-              <span key={segPath} style={{ display: "inline-flex", alignItems: "center" }}>
-                <span style={{ color: t.textDim, margin: "0 1px" }}>/</span>
-                <button
-                  onClick={() => navigateTo(segPath)}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer",
-                    color: isLast ? t.text : t.accent, fontSize: 12, padding: 0,
-                    fontFamily: "monospace",
-                  }}
-                >
-                  {seg}
-                </button>
-              </span>
-            );
-          });
-        })()}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={() => { setCreating("file"); setNewName(""); }}
-          style={{
-            display: "flex", alignItems: "center", gap: 3,
-            background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-            cursor: "pointer", color: t.textMuted, fontSize: 10, padding: "2px 8px",
-          }}
-        >
-          <FilePlus size={11} /> New File
-        </button>
-        <button
-          onClick={() => { setCreating("folder"); setNewName(""); }}
-          style={{
-            display: "flex", alignItems: "center", gap: 3,
-            background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-            cursor: "pointer", color: t.textMuted, fontSize: 10, padding: "2px 8px",
-          }}
-        >
-          <FolderPlus size={11} /> New Folder
-        </button>
-        <button
-          onClick={() => refetch()}
-          style={{
-            display: "flex", alignItems: "center", gap: 3,
-            background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-            cursor: "pointer", color: t.textMuted, fontSize: 10, padding: "2px 8px",
-          }}
-        >
-          <RefreshCw size={10} />
-        </button>
-      </div>
-
-      {/* Create inline form */}
-      {creating && (
-        <div style={{
-          display: "flex", gap: 6, alignItems: "center",
-          padding: "6px 10px", background: t.inputBg, borderRadius: 6, border: `1px solid ${t.surfaceBorder}`,
-        }}>
-          <span style={{ fontSize: 11, color: t.textMuted }}>
-            {creating === "folder" ? "Folder:" : "File:"}
-          </span>
-          <input
-            autoFocus
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(null); }}
-            placeholder={creating === "folder" ? "folder-name" : "filename.txt"}
-            style={{
-              flex: 1, background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-              padding: "3px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
-              outline: "none",
-            }}
-          />
-          <button
-            onClick={handleCreate}
-            disabled={!newName.trim() || mkdirMut.isPending || writeMut.isPending}
-            style={{
-              padding: "3px 10px", fontSize: 11, fontWeight: 600,
-              background: newName.trim() ? t.accent : t.surfaceBorder,
-              color: newName.trim() ? "#fff" : t.textDim,
-              border: "none", borderRadius: 4, cursor: newName.trim() ? "pointer" : "not-allowed",
-            }}
-          >
-            Create
-          </button>
-          <button
-            onClick={() => setCreating(null)}
-            style={{ background: "none", border: "none", cursor: "pointer", color: t.textDim, padding: 2 }}
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
-
-      {/* Entries */}
-      {isLoading ? (
-        <div style={{ color: t.textDim, fontSize: 12, padding: 12 }}>Loading...</div>
-      ) : (
-        <div style={{
-          background: t.surface, borderRadius: 8, border: `1px solid ${t.surfaceRaised}`,
-          overflow: "hidden",
-        }}>
-          {(!data?.entries || data.entries.length === 0) && (
-            <div style={{ color: t.textDim, fontSize: 12, padding: 12 }}>Empty directory</div>
-          )}
-          {data?.entries?.map((entry) => (
-            <div
-              key={entry.path}
-              style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "6px 12px",
-                background: viewingFile === entry.path ? t.accentSubtle : "transparent",
-                borderBottom: `1px solid ${t.inputBg}`,
-              }}
-            >
-              <button
-                onClick={() => {
-                  if (entry.is_dir) {
-                    navigateTo(entry.path);
-                  } else {
-                    setViewingFile(entry.path);
-                    setEditing(false);
-                  }
-                }}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8, flex: 1,
-                  background: "none", border: "none", cursor: "pointer",
-                  textAlign: "left", padding: 0,
-                }}
-              >
-                {entry.is_dir ? (
-                  <Folder size={13} color={t.accent} />
-                ) : (
-                  <FileText size={13} color={t.textDim} />
-                )}
-                <span style={{
-                  flex: 1, fontSize: 12, color: entry.is_dir ? t.text : t.textMuted,
-                  fontFamily: "monospace",
-                }}>
-                  {entry.name}
-                </span>
-                {!entry.is_dir && entry.size != null && (
-                  <span style={{ fontSize: 10, color: t.textDim }}>{formatSize(entry.size)}</span>
-                )}
-                {entry.is_dir && <ChevronRight size={12} color={t.textDim} />}
-              </button>
-              <button
-                onClick={() => handleDelete(entry.path, entry.name, entry.is_dir)}
-                disabled={deleteMut.isPending}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  color: t.surfaceBorder, padding: 2, flexShrink: 0,
-                }}
-                title="Delete"
-              >
-                <Trash2 size={12} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* File viewer/editor panel */}
-      {viewingFile && (
-        <div style={{
-          background: t.surface, borderRadius: 8, border: `1px solid ${t.surfaceRaised}`,
-          overflow: "hidden",
-        }}>
-          {/* File header */}
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "8px 12px", borderBottom: `1px solid ${t.surfaceRaised}`,
-            background: t.inputBg,
-          }}>
-            <FileText size={13} color={t.accent} />
-            <span style={{ flex: 1, fontSize: 12, color: t.text, fontFamily: "monospace" }}>
-              {viewingFile}
-            </span>
-            {fileData && !editing && (
-              <button
-                onClick={() => { setEditing(true); setEditContent(fileData.content); }}
-                style={{
-                  display: "flex", alignItems: "center", gap: 4,
-                  padding: "3px 10px", fontSize: 11, fontWeight: 600,
-                  background: "transparent", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                  color: t.textMuted, cursor: "pointer",
-                }}
-              >
-                <Edit3 size={11} /> Edit
-              </button>
-            )}
-            {editing && (
-              <>
-                <button
-                  onClick={handleSaveFile}
-                  disabled={writeMut.isPending}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "3px 10px", fontSize: 11, fontWeight: 600,
-                    background: t.accent, border: "none", borderRadius: 4,
-                    color: "#fff", cursor: "pointer",
-                  }}
-                >
-                  <Save size={11} /> {writeMut.isPending ? "Saving..." : "Save"}
-                </button>
-                <button
-                  onClick={() => setEditing(false)}
-                  style={{
-                    padding: "3px 10px", fontSize: 11,
-                    background: "transparent", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                    color: t.textMuted, cursor: "pointer",
-                  }}
-                >
-                  Cancel
-                </button>
-              </>
-            )}
-            <button
-              onClick={() => { setViewingFile(null); setEditing(false); }}
-              style={{ background: "none", border: "none", cursor: "pointer", color: t.textDim, padding: 2 }}
-            >
-              <X size={14} />
-            </button>
-          </div>
-
-          {/* File content */}
-          <div style={{ padding: 12, maxHeight: 400, overflowY: "auto" }}>
-            {fileLoading && (
-              <div style={{ color: t.textDim, fontSize: 12 }}>Loading file...</div>
-            )}
-            {fileError && (
-              <div style={{ color: t.danger, fontSize: 12 }}>
-                {(fileError as any)?.message || "Failed to load file"}
-              </div>
-            )}
-            {fileData && !editing && (
-              <pre style={{
-                color: t.text, fontSize: 12, fontFamily: "monospace",
-                whiteSpace: "pre-wrap", margin: 0, lineHeight: 1.5,
-                wordBreak: "break-all",
-              }}>
-                {fileData.content || <span style={{ color: t.textDim }}>(empty file)</span>}
-              </pre>
-            )}
-            {editing && (
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                style={{
-                  width: "100%", minHeight: 200, background: t.surface,
-                  border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-                  padding: 10, color: t.text, fontSize: 12, fontFamily: "monospace",
-                  lineHeight: 1.5, resize: "vertical", outline: "none",
-                }}
-              />
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+const NEW_TABS = [
+  { key: "overview", label: "Overview" },
+  { key: "docker", label: "Docker" },
+  { key: "skills", label: "Skills" },
+];
 
 // ---------------------------------------------------------------------------
 // Main page
@@ -872,10 +209,11 @@ export default function WorkspaceDetailScreen() {
   const createMut = useCreateWorkspace();
   const updateMut = useUpdateWorkspace(workspaceId!);
   const deleteMut = useDeleteWorkspace();
-  const reindexMut = useReindexWorkspace(workspaceId!);
 
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+
+  const [activeTab, setActiveTab] = useState("overview");
 
   // Form state
   const [name, setName] = useState("");
@@ -1028,6 +366,8 @@ export default function WorkspaceDetailScreen() {
     );
   }
 
+  const activeTabs = isNew ? NEW_TABS : TABS;
+
   return (
     <View className="flex-1 bg-surface">
       {/* Header */}
@@ -1099,8 +439,16 @@ export default function WorkspaceDetailScreen() {
         </button>
       </div>
 
+      {/* Tab bar */}
+      <div style={{
+        padding: isWide ? "8px 20px 0" : "6px 12px 0",
+        borderBottom: `1px solid ${t.surfaceBorder}`,
+      }}>
+        <TabBar tabs={activeTabs} active={activeTab} onChange={setActiveTab} />
+      </div>
+
       {/* Validation warnings bar */}
-      {hasWarnings && (
+      {hasWarnings && activeTab === "docker" && (
         <div style={{
           display: "flex", alignItems: "center", gap: 8,
           padding: "6px 20px", background: t.warningSubtle,
@@ -1130,410 +478,133 @@ export default function WorkspaceDetailScreen() {
         paddingHorizontal: isWide ? 24 : 12,
         maxWidth: 800,
       }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-          {/* Identity */}
-          <Section title="Identity">
-            <FormRow label="Name" description="Unique workspace name">
-              <TextInput value={name} onChangeText={setName} placeholder="e.g. my-workspace" />
-            </FormRow>
-            <FormRow label="Description">
-              <TextInput value={description} onChangeText={setDescription} placeholder="Optional description" />
-            </FormRow>
-          </Section>
+        {/* ---- Overview Tab ---- */}
+        {activeTab === "overview" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+            <Section title="Identity">
+              <FormRow label="Name" description="Unique workspace name">
+                <TextInput value={name} onChangeText={setName} placeholder="e.g. my-workspace" />
+              </FormRow>
+              <FormRow label="Description">
+                <TextInput value={description} onChangeText={setDescription} placeholder="Optional description" />
+              </FormRow>
+            </Section>
 
-          {/* Docker Config */}
-          <Section title="Docker Configuration">
-            <FormRow label="Image" description="Docker image for the workspace container">
-              <TextInput value={image} onChangeText={setImage} placeholder="agent-workspace:latest" />
-            </FormRow>
-            <Row>
-              <Col>
-                <FormRow label="Network">
-                  <SelectInput
-                    value={network}
-                    onChange={setNetwork}
-                    options={[
-                      { label: "None", value: "none" },
-                      { label: "Bridge", value: "bridge" },
-                      { label: "Host", value: "host" },
-                    ]}
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <FormRow label="Docker User" description="Run-as user inside container">
-                  <TextInput value={dockerUser} onChangeText={setDockerUser} placeholder="Default (root)" />
-                </FormRow>
-              </Col>
-            </Row>
-            <FormRow label="Startup Script" description="Script path executed on every container start/recreate. Leave empty to disable.">
-              <TextInput value={startupScript} onChangeText={setStartupScript} placeholder="/workspace/startup.sh" />
-            </FormRow>
-          </Section>
-
-          {/* Resources */}
-          <Section title="Resources">
-            <Row>
-              <Col>
-                <FormRow label="CPUs" description="CPU limit (e.g. 2.0)">
-                  <TextInput value={cpus} onChangeText={setCpus} placeholder="No limit" type="number" />
-                </FormRow>
-              </Col>
-              <Col>
-                <FormRow label="Memory Limit" description="e.g. 2g, 512m">
-                  <TextInput value={memoryLimit} onChangeText={setMemoryLimit} placeholder="No limit" />
-                </FormRow>
-              </Col>
-            </Row>
-            <Toggle
-              value={readOnlyRoot}
-              onChange={setReadOnlyRoot}
-              label="Read-only root filesystem"
-              description="/workspace is always writable. Other paths become read-only."
-            />
-          </Section>
-
-          {/* Environment */}
-          <Section title="Environment Variables" description="Injected into the container. AGENT_SERVER_URL and AGENT_SERVER_API_KEY are auto-injected.">
-            <EnvEditor entries={env} onChange={setEnv} />
-          </Section>
-
-          {/* Port Mappings */}
-          <Section title="Port Mappings" description="Map host ports to container ports">
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {ports.map((p, i) => (
-                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <input
-                    value={p.host}
-                    onChange={(e) => {
-                      const next = [...ports];
-                      next[i] = { ...next[i], host: e.target.value };
-                      setPorts(next);
-                    }}
-                    placeholder="Host port"
-                    style={{
-                      flex: 1, background: t.inputBg,
-                      border: `1px solid ${!p.host && p.container ? t.dangerBorder : t.surfaceBorder}`,
-                      borderRadius: 6,
-                      padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
-                      outline: "none",
-                    }}
-                  />
-                  <span style={{ color: t.textDim }}>:</span>
-                  <input
-                    value={p.container}
-                    onChange={(e) => {
-                      const next = [...ports];
-                      next[i] = { ...next[i], container: e.target.value };
-                      setPorts(next);
-                    }}
-                    placeholder="Container port"
-                    style={{
-                      flex: 1, background: t.inputBg,
-                      border: `1px solid ${p.host && !p.container ? t.dangerBorder : t.surfaceBorder}`,
-                      borderRadius: 6,
-                      padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
-                      outline: "none",
-                    }}
-                  />
-                  <button
-                    onClick={() => setPorts(ports.filter((_, j) => j !== i))}
-                    style={{
-                      background: "none", border: "none", cursor: "pointer",
-                      color: t.textDim, padding: 2, flexShrink: 0,
-                    }}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() => setPorts([...ports, { host: "", container: "" }])}
-                style={{
-                  display: "flex", alignItems: "center", gap: 4,
-                  padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                  border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-                  background: "transparent", color: t.textMuted, cursor: "pointer",
-                  alignSelf: "flex-start",
-                }}
-              >
-                <Plus size={12} /> Add Port
-              </button>
-            </div>
-          </Section>
-
-          {/* Volume Mounts */}
-          <Section title="Extra Mounts" description="/workspace is always mounted. Add additional host paths here.">
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {mounts.map((m, i) => (
-                <div key={i} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <input
-                    value={m.host_path}
-                    onChange={(e) => {
-                      const next = [...mounts];
-                      next[i] = { ...next[i], host_path: e.target.value };
-                      setMounts(next);
-                    }}
-                    placeholder="Host path"
-                    style={{
-                      flex: 2, background: t.inputBg,
-                      border: `1px solid ${!m.host_path && m.container_path ? t.dangerBorder : t.surfaceBorder}`,
-                      borderRadius: 6,
-                      padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
-                      outline: "none",
-                    }}
-                  />
-                  <span style={{ color: t.textDim }}>→</span>
-                  <input
-                    value={m.container_path}
-                    onChange={(e) => {
-                      const next = [...mounts];
-                      next[i] = { ...next[i], container_path: e.target.value };
-                      setMounts(next);
-                    }}
-                    placeholder="Container path"
-                    style={{
-                      flex: 2, background: t.inputBg,
-                      border: `1px solid ${m.host_path && !m.container_path ? t.dangerBorder : t.surfaceBorder}`,
-                      borderRadius: 6,
-                      padding: "5px 8px", color: t.text, fontSize: 12, fontFamily: "monospace",
-                      outline: "none",
-                    }}
-                  />
-                  <select
-                    value={m.mode}
-                    onChange={(e) => {
-                      const next = [...mounts];
-                      next[i] = { ...next[i], mode: e.target.value };
-                      setMounts(next);
-                    }}
-                    style={{
-                      background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-                      padding: "3px 6px", color: t.text, fontSize: 11, cursor: "pointer",
-                      outline: "none", flexShrink: 0,
-                    }}
-                  >
-                    <option value="rw">rw</option>
-                    <option value="ro">ro</option>
-                  </select>
-                  <button
-                    onClick={() => setMounts(mounts.filter((_, j) => j !== i))}
-                    style={{
-                      background: "none", border: "none", cursor: "pointer",
-                      color: t.textDim, padding: 2, flexShrink: 0,
-                    }}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
-              <button
-                onClick={() => setMounts([...mounts, { host_path: "", container_path: "", mode: "rw" }])}
-                style={{
-                  display: "flex", alignItems: "center", gap: 4,
-                  padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                  border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-                  background: "transparent", color: t.textMuted, cursor: "pointer",
-                  alignSelf: "flex-start",
-                }}
-              >
-                <Plus size={12} /> Add Mount
-              </button>
-            </div>
-          </Section>
-
-          {/* Workspace Skills */}
-          <Section title="Workspace Skills" description="Auto-discover skill .md files from workspace filesystem and inject into bot context.">
-            <FormRow label="Enable workspace skills injection">
-              <Toggle value={skillsEnabled} onChange={setSkillsEnabled} />
-            </FormRow>
-            <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>Directory conventions:</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span><code style={{ color: t.accent }}>common/skills/pinned/*.md</code> — injected into every request</span>
-                <span><code style={{ color: t.accent }}>common/skills/rag/*.md</code> — retrieved by similarity</span>
-                <span><code style={{ color: t.accent }}>common/skills/on-demand/*.md</code> — available via tool call</span>
-                <span><code style={{ color: t.accent }}>common/skills/*.md</code> — top-level defaults to pinned</span>
-                <span style={{ marginTop: 4 }}><code style={{ color: t.warningMuted }}>bots/&lt;bot-id&gt;/skills/...</code> — same structure, scoped to specific bot</span>
-              </div>
-            </div>
+            {/* Container controls (only for existing workspaces) */}
             {!isNew && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
-                <button
-                  onClick={async () => {
-                    try {
-                      const data = await apiFetch<{ embedded?: number; unchanged?: number; errors?: number }>(
-                        `/api/v1/workspaces/${workspaceId}/reindex-skills`,
-                        { method: "POST" },
-                      );
-                      alert(`Reindexed: ${data.embedded || 0} embedded, ${data.unchanged || 0} unchanged, ${data.errors || 0} errors`);
-                    } catch (e) {
-                      alert("Failed to reindex skills");
-                    }
-                  }}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "5px 12px", fontSize: 11, fontWeight: 600,
-                    border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-                    background: "transparent", color: t.textMuted, cursor: "pointer",
-                  }}
-                >
-                  <RefreshCw size={11} /> Reindex Skills
-                </button>
-              </div>
+              <Section title="Container Controls">
+                <ContainerControls workspaceId={workspaceId!} status={currentStatus} />
+              </Section>
             )}
-          </Section>
 
-          {/* DB Skills */}
-          <Section title="DB Skills" description="Assign global skills from the skills table to all bots in this workspace.">
-            <WorkspaceSkills skills={dbSkills} onChange={setDbSkills} />
-          </Section>
-
-          {/* Write Protection */}
-          <Section title="Write Protection" description="Prevent bots from writing to specific directories in the workspace.">
-            <WriteProtection paths={writeProtectedPaths} onChange={setWriteProtectedPaths} />
-          </Section>
-
-          {/* Workspace Base Prompt */}
-          <Section title="Workspace Base Prompt" description="Override the global base prompt with a workspace-level prompt file.">
-            <FormRow label="Enable workspace base prompt override">
-              <Toggle value={basePromptEnabled} onChange={setBasePromptEnabled} />
-            </FormRow>
-            <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>File conventions:</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span><code style={{ color: t.accent }}>common/prompts/base.md</code> — replaces global base prompt for all workspace bots</span>
-                <span><code style={{ color: t.warningMuted }}>bots/&lt;bot-id&gt;/prompts/base.md</code> — concatenated after common, resolved per bot at runtime</span>
-              </div>
-            </div>
-          </Section>
-
-          {/* Workspace Persona */}
-          <Section title="Workspace Persona" description="Override the DB persona with a workspace file. No toggle needed — file presence opts in.">
-            <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-              <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>File convention:</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <span><code style={{ color: t.warningMuted }}>bots/&lt;bot-id&gt;/persona.md</code> — overrides DB persona for that bot</span>
-              </div>
-            </div>
-          </Section>
-
-          {/* Code Editor */}
-          {!isNew && workspace && (
-            <Section title="Code Editor" description="Run VS Code (code-server) inside the workspace container. Enabling requires a container restart to map the editor port.">
-              <EditorSection workspace={workspace} />
-            </Section>
-          )}
-
-          {/* Container controls (only for existing workspaces) */}
-          {!isNew && (
-            <Section title="Container Controls">
-              <ContainerControls workspaceId={workspaceId!} status={currentStatus} />
-            </Section>
-          )}
-
-          {/* Cron Jobs (only for existing running workspaces) */}
-          {!isNew && workspace && (
-            <Section title="Cron Jobs" description="Cron jobs scheduled inside this workspace container.">
-              <CronJobs workspaceId={workspaceId!} status={currentStatus} />
-            </Section>
-          )}
-
-          {/* Connected bots (only for existing workspaces) */}
-          {!isNew && workspace && (
-            <Section
-              title="Connected Bots"
-              description="Bots that share this workspace. Orchestrators see all files; members are scoped to /workspace/bots/<bot_id>/."
-            >
-              <ConnectedBots
-                workspaceId={workspaceId!}
-                bots={workspace.bots}
-                isWide={isWide}
-                writeProtectedPaths={workspace.write_protected_paths || []}
-              />
-            </Section>
-          )}
-
-          {/* Indexing overview (all bots, only for existing workspaces) */}
-          {!isNew && workspace && (
-            <Section
-              title="Indexing Overview"
-              description="Resolved indexing configuration for each bot. Overridden values are highlighted."
-            >
-              <IndexingOverview workspaceId={workspaceId!} />
-            </Section>
-          )}
-
-          {/* File browser (only for running workspaces) */}
-          {!isNew && currentStatus === "running" && (
-            <Section
-              title="File Browser"
-              action={
-                <button
-                  onClick={() => reindexMut.mutate()}
-                  disabled={reindexMut.isPending}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                    border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-                    background: "transparent", color: t.textMuted, cursor: "pointer",
-                  }}
-                >
-                  <RefreshCw size={11} />
-                  {reindexMut.isPending ? "Reindexing..." : "Reindex"}
-                </button>
-              }
-            >
-              <FileBrowser workspaceId={workspaceId!} />
-            </Section>
-          )}
-
-          {/* Info (existing workspace) */}
-          {!isNew && workspace && (
-            <Section title="Info">
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: t.textDim }}>ID</span>
-                  <span style={{ color: t.text, fontFamily: "monospace" }}>{workspace.id}</span>
-                </div>
-                {workspace.container_id && (
+            {/* Info (existing workspace) */}
+            {!isNew && workspace && (
+              <Section title="Info">
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 11 }}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: t.textDim }}>Container</span>
-                    <span style={{ color: t.textMuted, fontFamily: "monospace" }}>
-                      {workspace.container_name || workspace.container_id.slice(0, 12)}
-                    </span>
+                    <span style={{ color: t.textDim }}>ID</span>
+                    <span style={{ color: t.text, fontFamily: "monospace" }}>{workspace.id}</span>
                   </div>
-                )}
-                {workspace.image_id && (
+                  {workspace.container_id && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: t.textDim }}>Container</span>
+                      <span style={{ color: t.textMuted, fontFamily: "monospace" }}>
+                        {workspace.container_name || workspace.container_id.slice(0, 12)}
+                      </span>
+                    </div>
+                  )}
+                  {workspace.image_id && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: t.textDim }}>Image ID</span>
+                      <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{workspace.image_id.slice(0, 16)}</span>
+                    </div>
+                  )}
+                  {workspace.last_started_at && (
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: t.textDim }}>Last Started</span>
+                      <span style={{ color: t.textMuted }}>
+                        {new Date(workspace.last_started_at).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: t.textDim }}>Image ID</span>
-                    <span style={{ color: t.textMuted, fontFamily: "monospace" }}>{workspace.image_id.slice(0, 16)}</span>
-                  </div>
-                )}
-                {workspace.last_started_at && (
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span style={{ color: t.textDim }}>Last Started</span>
+                    <span style={{ color: t.textDim }}>Created</span>
                     <span style={{ color: t.textMuted }}>
-                      {new Date(workspace.last_started_at).toLocaleString()}
+                      {new Date(workspace.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                     </span>
                   </div>
-                )}
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: t.textDim }}>Created</span>
-                  <span style={{ color: t.textMuted }}>
-                    {new Date(workspace.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                  </span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: t.textDim }}>Updated</span>
+                    <span style={{ color: t.textMuted }}>
+                      {new Date(workspace.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                    </span>
+                  </div>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: t.textDim }}>Updated</span>
-                  <span style={{ color: t.textMuted }}>
-                    {new Date(workspace.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-                  </span>
-                </div>
-              </div>
-            </Section>
-          )}
-        </div>
+              </Section>
+            )}
+          </div>
+        )}
+
+        {/* ---- Docker Tab ---- */}
+        {activeTab === "docker" && (
+          <DockerTab
+            image={image} setImage={setImage}
+            network={network} setNetwork={setNetwork}
+            dockerUser={dockerUser} setDockerUser={setDockerUser}
+            startupScript={startupScript} setStartupScript={setStartupScript}
+            cpus={cpus} setCpus={setCpus}
+            memoryLimit={memoryLimit} setMemoryLimit={setMemoryLimit}
+            readOnlyRoot={readOnlyRoot} setReadOnlyRoot={setReadOnlyRoot}
+            env={env} setEnv={setEnv}
+            ports={ports} setPorts={setPorts}
+            mounts={mounts} setMounts={setMounts}
+          />
+        )}
+
+        {/* ---- Bots Tab ---- */}
+        {activeTab === "bots" && !isNew && workspace && (
+          <BotsTab
+            workspaceId={workspaceId!}
+            bots={workspace.bots}
+            writeProtectedPaths={workspace.write_protected_paths || []}
+          />
+        )}
+
+        {/* ---- Skills Tab ---- */}
+        {activeTab === "skills" && (
+          <SkillsTab
+            workspaceId={workspaceId!}
+            isNew={isNew}
+            skillsEnabled={skillsEnabled}
+            setSkillsEnabled={setSkillsEnabled}
+            basePromptEnabled={basePromptEnabled}
+            setBasePromptEnabled={setBasePromptEnabled}
+            dbSkills={dbSkills}
+            setDbSkills={setDbSkills}
+          />
+        )}
+
+        {/* ---- Files Tab ---- */}
+        {activeTab === "files" && !isNew && (
+          <FilesTab
+            workspaceId={workspaceId!}
+            currentStatus={currentStatus}
+          />
+        )}
+
+        {/* ---- Indexing Tab ---- */}
+        {activeTab === "indexing" && !isNew && (
+          <IndexingTab
+            workspaceId={workspaceId!}
+            writeProtectedPaths={writeProtectedPaths}
+            setWriteProtectedPaths={setWriteProtectedPaths}
+          />
+        )}
+
+        {/* ---- Editor Tab ---- */}
+        {activeTab === "editor" && !isNew && workspace && (
+          <EditorTab workspace={workspace} />
+        )}
       </ScrollView>
     </View>
   );

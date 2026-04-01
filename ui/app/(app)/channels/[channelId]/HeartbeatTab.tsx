@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { ActivityIndicator } from "react-native";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { useRouter } from "expo-router";
-import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap, RotateCcw, AlertTriangle } from "lucide-react";
+import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap, RotateCcw, AlertTriangle, Pencil, FileText } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -15,6 +15,7 @@ import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
+import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -496,6 +497,92 @@ function ContextPreview({ form, data }: { form: any; data: any }) {
 }
 
 // ---------------------------------------------------------------------------
+// Read-only template preview card (shown when a template is linked)
+// ---------------------------------------------------------------------------
+function HeartbeatTemplatePreview({
+  content,
+  description,
+  expanded,
+  onToggleExpand,
+  onCustomize,
+}: {
+  content: string;
+  description?: string | null;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  onCustomize: () => void;
+}) {
+  const t = useThemeTokens();
+  const PREVIEW_LINES = 12;
+  const lines = content.split("\n");
+  const isLong = lines.length > PREVIEW_LINES;
+  const displayContent = expanded || !isLong
+    ? content
+    : lines.slice(0, PREVIEW_LINES).join("\n") + "\n...";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {description && (
+        <div style={{ fontSize: 12, color: t.textDim, lineHeight: "1.5" }}>
+          {description}
+        </div>
+      )}
+      <div style={{
+        borderLeft: `3px solid ${t.accent}`,
+        borderRadius: 6,
+        background: t.surfaceOverlay,
+        padding: 12,
+      }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+        }}>
+          <FileText size={12} color={t.textDim} />
+          <span style={{
+            fontSize: 10, fontWeight: 700, color: t.textDim,
+            textTransform: "uppercase", letterSpacing: "0.05em",
+          }}>
+            Template Prompt
+          </span>
+        </div>
+        <pre style={{
+          margin: 0, fontSize: 12, fontFamily: "monospace",
+          color: t.text, lineHeight: "1.5",
+          whiteSpace: "pre-wrap", wordBreak: "break-word",
+        }}>
+          {displayContent}
+        </pre>
+        {isLong && (
+          <button
+            onClick={onToggleExpand}
+            style={{
+              marginTop: 4, padding: 0, border: "none", cursor: "pointer",
+              background: "none", fontSize: 11, color: t.accent, fontWeight: 500,
+            }}
+          >
+            {expanded ? "Show less" : `Show all (${lines.length} lines)`}
+          </button>
+        )}
+        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+          <button
+            onClick={onCustomize}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "4px 10px", borderRadius: 4, cursor: "pointer",
+              fontSize: 11, fontWeight: 500,
+              border: `1px solid ${t.surfaceBorder}`,
+              background: "transparent", color: t.textDim,
+            }}
+          >
+            <Pencil size={11} />
+            Customize for this channel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Heartbeat Tab
 // ---------------------------------------------------------------------------
 export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: string; workspaceId?: string | null; botModel?: string }) {
@@ -509,6 +596,12 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
 
   const [hbForm, setHbForm] = useState<any>(null);
   const [hbSaved, setHbSaved] = useState(false);
+  const [customizedFromTemplateId, setCustomizedFromTemplateId] = useState<string | null>(null);
+  const [templatePreviewExpanded, setTemplatePreviewExpanded] = useState(false);
+
+  // Fetch templates to render linked template content
+  const { data: allTemplates } = usePromptTemplates();
+  const linkedTemplate = allTemplates?.find((tpl) => tpl.id === hbForm?.prompt_template_id);
 
   useEffect(() => {
     if (data?.config) {
@@ -643,19 +736,79 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
             <>
               <PromptTemplateLink
                 templateId={hbForm.prompt_template_id ?? null}
-                onLink={(id) => setHbForm((f: any) => ({ ...f, prompt_template_id: id }))}
-                onUnlink={() => setHbForm((f: any) => ({ ...f, prompt_template_id: null }))}
+                onLink={(id) => {
+                  setHbForm((f: any) => ({ ...f, prompt_template_id: id, prompt: "" }));
+                  setCustomizedFromTemplateId(null);
+                  setTemplatePreviewExpanded(false);
+                }}
+                onUnlink={() => {
+                  setHbForm((f: any) => ({ ...f, prompt_template_id: null }));
+                }}
               />
-              <LlmPrompt
-                value={hbForm.prompt ?? ""}
-                onChange={(v) => setHbForm((f: any) => ({ ...f, prompt: v }))}
-                label="Heartbeat Prompt"
-                placeholder={hbForm.prompt_template_id ? "Using linked template..." : "Enter the heartbeat prompt..."}
-                helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
-                rows={10}
-                fieldType="heartbeat"
-                channelId={channelId}
-              />
+
+              {/* Template linked — read-only preview with customize option */}
+              {hbForm.prompt_template_id && linkedTemplate ? (
+                <HeartbeatTemplatePreview
+                  content={linkedTemplate.content}
+                  description={linkedTemplate.description}
+                  expanded={templatePreviewExpanded}
+                  onToggleExpand={() => setTemplatePreviewExpanded((v) => !v)}
+                  onCustomize={() => {
+                    setCustomizedFromTemplateId(hbForm.prompt_template_id);
+                    setHbForm((f: any) => ({
+                      ...f,
+                      prompt: linkedTemplate.content,
+                      prompt_template_id: null,
+                    }));
+                  }}
+                />
+              ) : (
+                <>
+                  {/* "Customized" badge with reset option */}
+                  {customizedFromTemplateId && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 4,
+                        fontSize: 10, fontWeight: 600, color: t.warning,
+                      }}>
+                        <Pencil size={10} />
+                        Customized from template
+                      </div>
+                      <button
+                        onClick={() => {
+                          setHbForm((f: any) => ({
+                            ...f,
+                            prompt_template_id: customizedFromTemplateId,
+                            prompt: "",
+                          }));
+                          setCustomizedFromTemplateId(null);
+                          setTemplatePreviewExpanded(false);
+                        }}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 3,
+                          padding: "2px 8px", borderRadius: 4, cursor: "pointer",
+                          fontSize: 10, fontWeight: 600,
+                          border: `1px solid ${t.surfaceBorder}`,
+                          background: "transparent", color: t.textDim,
+                        }}
+                      >
+                        <RotateCcw size={10} />
+                        Reset to Template
+                      </button>
+                    </div>
+                  )}
+                  <LlmPrompt
+                    value={hbForm.prompt ?? ""}
+                    onChange={(v) => setHbForm((f: any) => ({ ...f, prompt: v }))}
+                    label="Heartbeat Prompt"
+                    placeholder="Enter the heartbeat prompt..."
+                    helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
+                    rows={10}
+                    fieldType="heartbeat"
+                    channelId={channelId}
+                  />
+                </>
+              )}
             </>
           )}
         </Section>

@@ -83,7 +83,7 @@ class TestIndexMemoryForBot:
         # Should pass the resolved embedding model (global default when no override)
         from app.config import settings
         mock_index.assert_called_once_with(
-            "/ws/mem_bot", "mem_bot", ["memory/**/*.md"], force=True,
+            "/ws/mem_bot", "mem_bot", ["bots/mem_bot/memory/**/*.md"], force=True,
             embedding_model=settings.EMBEDDING_MODEL,
             skip_stale_cleanup=True,
         )
@@ -108,7 +108,7 @@ class TestIndexMemoryForBot:
 
         assert result is not None
         mock_index.assert_called_once_with(
-            "/ws/custom", "custom_model_bot", ["memory/**/*.md"], force=True,
+            "/ws/custom", "custom_model_bot", ["bots/custom_model_bot/memory/**/*.md"], force=True,
             embedding_model="custom/embed-model",
             skip_stale_cleanup=True,
         )

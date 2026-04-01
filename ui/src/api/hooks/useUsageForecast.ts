@@ -38,5 +38,6 @@ export function useUsageForecast() {
     queryFn: () => apiFetch<UsageForecast>("/api/v1/admin/usage/forecast"),
     refetchInterval: 60_000,
     staleTime: 30_000,
+    retry: 2,
   });
 }

@@ -6,8 +6,10 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 
-def resolve_workspace_persona(workspace_id: str, bot_id: str) -> str | None:
+def resolve_workspace_persona(workspace_id: str | None, bot_id: str) -> str | None:
     """Read bots/{bot_id}/persona.md from workspace. Returns content or None."""
+    if not workspace_id:
+        return None
     from app.services.shared_workspace import shared_workspace_service, SharedWorkspaceError
 
     try:

@@ -150,7 +150,7 @@ async def _handle_message(message: dict) -> None:
     # Only process messages from chats that have a bound Channel in the DB.
     # This prevents the bot from responding to random/unknown contacts.
     if chat_guid not in _channel_settings:
-        logger.debug("Ignoring message from unbound chat %s", chat_guid)
+        logger.info("Ignoring message from unbound chat %s (create a channel binding first)", chat_guid)
         return
 
     is_from_me = message.get("isFromMe", False)
@@ -291,6 +291,12 @@ async def on_connect():
 @sio.on("disconnect")
 async def on_disconnect():
     logger.warning("Disconnected from BlueBubbles server")
+
+
+@sio.on("*")
+async def on_catch_all(event, data):
+    """Log any Socket.IO event for debugging."""
+    logger.info("Socket.IO event received: %s", event)
 
 
 @sio.on("new-message")

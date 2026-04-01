@@ -23,6 +23,8 @@ _model_info_cache: dict[str | None, dict[str, dict]] = {}
 _no_sys_msg_models: set[str] = set()
 # Cached set of model_ids flagged as supports_tools=False in provider_models table
 _no_tools_models: set[str] = set()
+# Cached set of model_ids belonging to plan-billed providers
+_plan_billed_models: set[str] = set()
 
 
 def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
@@ -96,13 +98,14 @@ async def _warm_model_info_cache() -> None:
 
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
-    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models
+    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _plan_billed_models
     _registry = {}
     _client_cache = {}
     _tpm_windows = {}
     _model_info_cache = {}
     _no_sys_msg_models = set()
     _no_tools_models = set()
+    _plan_billed_models = set()
 
     async with async_session() as db:
         rows = (
@@ -131,6 +134,18 @@ async def load_providers() -> None:
         ).scalars().all()
         _no_tools_models = set(no_tools)
 
+        # Load model IDs belonging to plan-billed providers
+        plan_provider_ids = [r.id for r in rows if r.billing_type == "plan"]
+        if plan_provider_ids:
+            plan_models = (
+                await db.execute(
+                    select(ProviderModel.model_id).where(
+                        ProviderModel.provider_id.in_(plan_provider_ids)
+                    )
+                )
+            ).scalars().all()
+            _plan_billed_models = set(plan_models)
+
     from app.services.encryption import decrypt
 
     for row in rows:
@@ -153,6 +168,8 @@ async def load_providers() -> None:
         logger.info("Models with no_system_messages flag: %s", _no_sys_msg_models)
     if _no_tools_models:
         logger.info("Models with supports_tools=false flag: %s", _no_tools_models)
+    if _plan_billed_models:
+        logger.info("Models on plan-billed providers: %s", _plan_billed_models)
 
     # Pre-warm model info cache for all litellm providers + .env fallback
     await _warm_model_info_cache()

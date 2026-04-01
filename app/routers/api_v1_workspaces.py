@@ -106,7 +106,7 @@ async def _background_reindex(
                             ws.indexing_config if ws else None,
                         )
                         _segments = _resolved.get("segments")
-                        if bot.shared_workspace_id and not _segments:
+                        if not _segments:
                             continue
                         for root in get_all_roots(bot, workspace_service):
                             await index_directory(
@@ -331,12 +331,33 @@ async def list_workspaces(
     return [_ws_to_out(ws, bots_by_ws.get(ws.id, [])) for ws in workspaces]
 
 
+@router.get("/default", response_model=WorkspaceOut)
+async def get_default_workspace(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Convenience endpoint: return the single default workspace."""
+    ws = (await db.execute(
+        select(SharedWorkspace).order_by(SharedWorkspace.created_at.asc()).limit(1)
+    )).scalar_one_or_none()
+    if not ws:
+        raise HTTPException(404, "No workspace exists")
+    sw_bots = (await db.execute(
+        select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws.id)
+    )).scalars().all()
+    return _ws_to_out(ws, sw_bots)
+
+
 @router.post("", response_model=WorkspaceOut, status_code=201)
 async def create_workspace(
     body: WorkspaceCreate,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("workspaces:write")),
 ):
+    # Single workspace mode: block creation if one already exists
+    existing = (await db.execute(select(SharedWorkspace.id).limit(1))).scalar_one_or_none()
+    if existing:
+        raise HTTPException(400, "Single workspace mode: a workspace already exists. Use PUT to update it.")
     now = datetime.now(timezone.utc)
     ws = SharedWorkspace(
         name=body.name.strip(),
@@ -415,18 +436,7 @@ async def delete_workspace(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("workspaces:write")),
 ):
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    if ws.container_name:
-        try:
-            await shared_workspace_service.stop(ws)
-        except Exception:
-            pass
-    await db.execute(delete(SharedWorkspace).where(SharedWorkspace.id == ws_id))
-    await db.commit()
-    await reload_bots()
+    raise HTTPException(400, "Single workspace mode: the default workspace cannot be deleted.")
 
 
 # ── Container controls ──────────────────────────────────────────
@@ -1216,7 +1226,7 @@ async def reindex_workspace(
             if bot and bot.workspace.indexing.enabled:
                 _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
                 _segments = _resolved.get("segments")
-                if bot.shared_workspace_id and not _segments:
+                if not _segments:
                     continue
                 bot_results = []
                 for root in get_all_roots(bot):
