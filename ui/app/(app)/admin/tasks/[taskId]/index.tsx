@@ -4,10 +4,12 @@ import { useLocalSearchParams } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks";
+import { useWorkflowRun } from "@/src/api/hooks/useWorkflows";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useState } from "react";
-import { ChevronLeft, Trash2 } from "lucide-react";
+import { ChevronLeft, Trash2, Zap } from "lucide-react";
+import { Link } from "expo-router";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
@@ -33,6 +35,7 @@ const TASK_TYPE_OPTIONS = [
   { label: "Exec", value: "exec" },
   { label: "Callback", value: "callback" },
   { label: "API", value: "api" },
+  { label: "Workflow", value: "workflow" },
   { label: "Agent", value: "agent" },
 ];
 
@@ -209,6 +212,41 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
       </div>
       {!compact && (enabled ? "Enabled" : "Disabled")}
     </button>
+  );
+}
+
+function WorkflowRunLink({ runId, stepIndex, t }: { runId: string; stepIndex?: number; t: ReturnType<typeof useThemeTokens> }) {
+  const { data: run } = useWorkflowRun(runId);
+  const href = run ? `/admin/workflows/${run.workflow_id}` : undefined;
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 6, display: "flex", alignItems: "center", gap: 4 }}>
+        <Zap size={11} color="#ea580c" />
+        Workflow Step
+      </div>
+      <div style={{
+        display: "flex", flexDirection: "column", gap: 6,
+        padding: 8, borderRadius: 6, background: "rgba(249,115,22,0.06)",
+        border: "1px solid rgba(249,115,22,0.15)",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: t.textDim }}>Run</span>
+          {href ? (
+            <Link href={href as any} style={{ fontSize: 11, color: t.accent, fontFamily: "monospace" }}>
+              {runId.slice(0, 8)}...
+            </Link>
+          ) : (
+            <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>{runId.slice(0, 8)}...</span>
+          )}
+        </div>
+        {stepIndex != null && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 11, color: t.textDim }}>Step Index</span>
+            <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{stepIndex}</span>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -527,7 +565,13 @@ export default function TaskDetailScreen() {
                       </pre>
                     </div>
                   )}
-                  {task.callback_config && (
+                  {task.callback_config?.workflow_run_id ? (
+                    <WorkflowRunLink
+                      runId={task.callback_config.workflow_run_id}
+                      stepIndex={task.callback_config.workflow_step_index}
+                      t={t}
+                    />
+                  ) : task.callback_config ? (
                     <div>
                       <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Callback Config</div>
                       <pre style={{
@@ -537,7 +581,7 @@ export default function TaskDetailScreen() {
                         {JSON.stringify(task.callback_config, null, 2)}
                       </pre>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </Section>
             )}

@@ -41,6 +41,7 @@ export const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
   exec: { bg: "rgba(107,114,128,0.12)", fg: "#6b7280" },
   callback: { bg: "rgba(239,68,68,0.12)", fg: "#dc2626" },
   api: { bg: "rgba(34,197,94,0.12)", fg: "#16a34a" },
+  workflow: { bg: "rgba(249,115,22,0.12)", fg: "#ea580c" },
   agent: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af" },
 };
 

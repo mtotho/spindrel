@@ -167,7 +167,21 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           return {
             Enter: ({ editor: ed }) => {
               if (ed.isActive("codeBlock")) {
-                // Actively insert newline — returning false would let HardBreak exitCode
+                const { $from } = ed.state.selection;
+                const text = $from.parent.textContent;
+                const offset = $from.parentOffset;
+                // Double-Enter exit: cursor at end, text ends with \n (empty last line)
+                if (offset === text.length && text.endsWith("\n")) {
+                  // Remove the trailing \n and exit code block
+                  return ed.chain()
+                    .command(({ tr }) => {
+                      tr.delete($from.pos - 1, $from.pos);
+                      return true;
+                    })
+                    .exitCode()
+                    .run();
+                }
+                // Normal case: insert newline within code block
                 return ed.commands.command(({ tr, dispatch }) => {
                   if (dispatch) tr.insertText("\n");
                   return true;

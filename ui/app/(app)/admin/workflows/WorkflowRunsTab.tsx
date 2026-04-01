@@ -14,8 +14,9 @@ import {
 import {
   Play, X, Check, SkipForward, RotateCcw, Clock,
   CheckCircle2, XCircle, Loader2, ShieldCheck, CircleDot, Minus,
-  ChevronDown, ChevronRight, ArrowLeft,
+  ChevronDown, ChevronRight, ArrowLeft, ExternalLink,
 } from "lucide-react";
+import { Link } from "expo-router";
 import type { WorkflowRun, WorkflowStepState } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
@@ -410,6 +411,22 @@ function StepCard({
               <span style={{ fontSize: 11, color: t.warning }}>
                 Retries: {state.retry_count}
               </span>
+            )}
+            {state.task_id && (
+              <Link href={`/admin/tasks/${state.task_id}` as any}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+                  <ExternalLink size={10} />
+                  Task: {state.task_id.slice(0, 8)}...
+                </span>
+              </Link>
+            )}
+            {state.correlation_id && (
+              <Link href={`/admin/logs/${state.correlation_id}` as any}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+                  <ExternalLink size={10} />
+                  Trace
+                </span>
+              </Link>
             )}
           </div>
 

@@ -813,6 +813,11 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
           )}
         </Section>
 
+        <div style={{ fontSize: 11, color: t.textDim, marginTop: -4, marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+          <Zap size={11} color={t.textDim} />
+          Tip: Pin manage_workflow in your bot's tools to trigger workflows from heartbeats.
+        </div>
+
         {/* ---- Dispatch Section ---- */}
         <Section title="Dispatch">
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
