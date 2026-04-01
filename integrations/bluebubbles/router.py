@@ -249,14 +249,16 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     BB POSTs ``{"type": "new-message", "data": {...}}`` for each incoming
     iMessage.  This replaces Socket.IO for message delivery.
 
-    Authenticated via ``?token=<API_KEY>`` query param (the agent server's
-    API key).  BB webhooks don't support custom headers, so the token goes
-    in the URL.
+    Authenticated via ``?token=<BB_WEBHOOK_TOKEN>`` query param.
+    If ``BB_WEBHOOK_TOKEN`` is not configured, the endpoint is open
+    (for local/trusted networks).
     """
-    from app.config import settings as app_settings
-    token = request.query_params.get("token", "")
-    if token != app_settings.API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    from integrations.bluebubbles.config import settings as bb_settings
+    expected = bb_settings.BB_WEBHOOK_TOKEN
+    if expected:
+        token = request.query_params.get("token", "")
+        if not token or token != expected:
+            raise HTTPException(status_code=401, detail="Invalid or missing token")
 
     try:
         payload = await request.json()

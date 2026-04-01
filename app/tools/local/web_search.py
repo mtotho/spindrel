@@ -55,7 +55,9 @@ def _check_ssrf(url: str) -> None:
                 )
 
 
-@register({
+# ── web_search (conditional) ──────────────────────────────────────────────
+
+_WEB_SEARCH_SCHEMA = {
     "type": "function",
     "function": {
         "name": "web_search",
@@ -78,8 +80,11 @@ def _check_ssrf(url: str) -> None:
             "required": ["query"],
         },
     },
-})
-async def web_search(query: str, num_results: int = 5) -> str:
+}
+
+
+async def _web_search_searxng(query: str, num_results: int = 5) -> str:
+    """Search via self-hosted SearXNG instance."""
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{settings.SEARXNG_URL}/search",
@@ -95,6 +100,28 @@ async def web_search(query: str, num_results: int = 5) -> str:
         for r in results
     ])
 
+
+async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
+    """Search via ddgs (DuckDuckGo + other backends). No infrastructure required."""
+    import asyncio
+    from ddgs import DDGS
+
+    results = await asyncio.to_thread(DDGS().text, query, max_results=num_results)
+    return json.dumps([
+        {"title": r.get("title", ""), "url": r.get("href", ""), "content": r.get("body", "")}
+        for r in results
+    ])
+
+
+if settings.WEB_SEARCH_ENABLED:
+    register(_WEB_SEARCH_SCHEMA)(_web_search_searxng)
+    logger.info("web_search tool registered (SearXNG backend)")
+else:
+    register(_WEB_SEARCH_SCHEMA)(_web_search_ddgs)
+    logger.info("web_search tool registered (ddgs backend — SearXNG disabled)")
+
+
+# ── fetch_url (always registered) ─────────────────────────────────────────
 
 @register({
     "type": "function",

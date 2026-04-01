@@ -54,6 +54,29 @@ Edit `.env` with your settings. Required fields:
 docker compose up -d
 ```
 
+## Web Search
+
+The built-in `web_search` tool uses SearXNG and Playwright containers. These are **opt-in** via Docker Compose profiles — they only start when you enable them.
+
+### Enabling web search
+
+Add to your `.env`:
+
+```bash
+WEB_SEARCH_ENABLED=true
+COMPOSE_PROFILES=web-search
+```
+
+Then `docker compose up -d` will start the SearXNG and Playwright containers alongside the server.
+
+### Disabling web search
+
+Remove or set `WEB_SEARCH_ENABLED=false` and remove `COMPOSE_PROFILES` from `.env`. The `web_search` tool will not be registered, and the containers won't start. The `fetch_url` tool still works (falls back to httpx without Playwright).
+
+You can always add custom search tools in `tools/`.
+
+> **Upgrading?** If you already use web search, add `COMPOSE_PROFILES=web-search` to your `.env` — without it, SearXNG and Playwright containers won't start after this update.
+
 ## LLM Provider Configuration
 
 ### Default provider (`.env`)

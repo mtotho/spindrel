@@ -328,21 +328,16 @@ def _make_binding(channel_id, client_id="bb:iMessage;-;+15551234567"):
     return b
 
 
-_AGENT_API_KEY = "test-agent-api-key"
+_WEBHOOK_TOKEN = "test-webhook-token"
 
 
-def _mock_bb_settings(wake_words="atlas", default_bot="atlas"):
+def _mock_bb_settings(wake_words="atlas", default_bot="atlas", webhook_token=_WEBHOOK_TOKEN):
     s = MagicMock()
     s.BLUEBUBBLES_SERVER_URL = "http://bb:1234"
     s.BLUEBUBBLES_PASSWORD = "bb-server-password"
     s.BB_DEFAULT_BOT = default_bot
     s.BB_WAKE_WORDS = wake_words
-    return s
-
-
-def _mock_app_settings():
-    s = MagicMock()
-    s.API_KEY = _AGENT_API_KEY
+    s.BB_WEBHOOK_TOKEN = webhook_token
     return s
 
 
@@ -350,7 +345,7 @@ def _webhook_request(payload: dict) -> AsyncMock:
     """Build a mock Request with valid auth token and the given JSON payload."""
     request = AsyncMock()
     request.json.return_value = payload
-    request.query_params = {"token": _AGENT_API_KEY}
+    request.query_params = {"token": _WEBHOOK_TOKEN}
     return request
 
 
@@ -368,7 +363,7 @@ class TestWebhookEndpoint:
         request.query_params = {}
         db = AsyncMock()
 
-        with patch("app.config.settings", _mock_app_settings()):
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
             with pytest.raises(_Exc) as exc_info:
                 await webhook(request, db)
             assert exc_info.value.status_code == 401
@@ -381,13 +376,29 @@ class TestWebhookEndpoint:
 
         request = AsyncMock()
         request.json.return_value = _bb_webhook_payload()
-        request.query_params = {"token": "wrong-key"}
+        request.query_params = {"token": "wrong-token"}
         db = AsyncMock()
 
-        with patch("app.config.settings", _mock_app_settings()):
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
             with pytest.raises(_Exc) as exc_info:
                 await webhook(request, db)
             assert exc_info.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_no_token_configured_allows_all(self):
+        """When BB_WEBHOOK_TOKEN is empty, requests are allowed without token."""
+        from integrations.bluebubbles.router import webhook
+
+        request = AsyncMock()
+        request.json.return_value = _bb_webhook_payload(text="", event_type="new-message")
+        request.query_params = {}
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings(webhook_token="")):
+            # Should pass auth and hit the empty_text check, not 401
+            result = await webhook(request, db)
+        assert result["status"] == "ignored"
+        assert result["reason"] == "empty_text"
 
     @pytest.mark.asyncio
     async def test_non_new_message_event_ignored(self):

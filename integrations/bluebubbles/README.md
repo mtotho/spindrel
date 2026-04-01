@@ -22,6 +22,7 @@ Add to your `.env` file or set via the Integration Settings UI:
 | `AGENT_BASE_URL` | No | Agent server URL (default: `http://localhost:8000`) |
 | `BB_DEFAULT_BOT` | No | Default bot ID for all chats (default: `default`) |
 | `BB_WAKE_WORDS` | No | Comma-separated wake words (default: bot name). See [Wake Words](#wake-words). |
+| `BB_WEBHOOK_TOKEN` | No | Shared secret for webhook auth. If set, BB must send `?token=` in the webhook URL. |
 
 Example `.env`:
 ```env
@@ -49,8 +50,8 @@ The BlueBubbles integration is auto-discovered. When `BLUEBUBBLES_SERVER_URL` an
 1. Open your BlueBubbles Server UI
 2. Navigate to **Settings → API & Webhooks**
 3. Click **Add Webhook**
-4. Set the URL to: `http://{agent-server-host}:8000/integrations/bluebubbles/webhook?token={BLUEBUBBLES_PASSWORD}`
-   - The `?token=` param authenticates the webhook using your BB server password. Without it, requests are rejected with 401.
+4. Set the URL to: `http://{agent-server-host}:8000/integrations/bluebubbles/webhook?token={BB_WEBHOOK_TOKEN}`
+   - If `BB_WEBHOOK_TOKEN` is set, the `?token=` param is required — requests without it get 401. Omit the param if you haven't set a token (local/trusted network).
 5. Subscribe to the `new-message` event (at minimum)
 6. Save
 
