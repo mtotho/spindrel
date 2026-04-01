@@ -43,12 +43,14 @@ async def _process_discord_files(attachments: list[discord.Attachment], user: st
         except Exception as e:
             text_parts.append(f"\n[Could not fetch {name}: {e}]")
             continue
+        # posted_by must be None for user uploads so that persist_turn's orphan-
+        # linking associates them with the user message (not the assistant message).
         file_metadata.append({
             "url": att.url,
             "filename": name,
             "mime_type": mime,
             "size_bytes": size,
-            "posted_by": f"discord:{user}" if user else None,
+            "posted_by": None,
             "file_data": base64.b64encode(data).decode("ascii"),
         })
         if any(mime.startswith(t) for t in TEXT_MIMES) or mime.startswith("text/"):

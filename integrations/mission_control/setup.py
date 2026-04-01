@@ -36,7 +36,6 @@ SETUP = {
     ],
     "activation": {
         "carapaces": ["mission-control"],
-        "workspace_schema": "structured-task-hub",
         "requires_workspace": True,
         "description": "Project management with task boards, plans, and timelines",
     },

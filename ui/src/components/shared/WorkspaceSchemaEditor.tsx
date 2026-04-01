@@ -11,6 +11,8 @@ interface Props {
   schemaContent: string | null | undefined;
   onTemplateChange: (id: string | null) => void;
   onContentChange: (content: string | null) => void;
+  /** When set, templates with this tag get a "Recommended" badge in the picker */
+  highlightTag?: string;
 }
 
 export function WorkspaceSchemaEditor({
@@ -18,6 +20,7 @@ export function WorkspaceSchemaEditor({
   schemaContent,
   onTemplateChange,
   onContentChange,
+  highlightTag,
 }: Props) {
   const t = useThemeTokens();
   const [editing, setEditing] = useState(false);
@@ -85,6 +88,7 @@ export function WorkspaceSchemaEditor({
           onLink={handleTemplateLink}
           onUnlink={handleTemplateUnlink}
           category="workspace_schema"
+          highlightTag={highlightTag}
         />
       </View>
     );
@@ -98,6 +102,7 @@ export function WorkspaceSchemaEditor({
         onLink={handleTemplateLink}
         onUnlink={handleTemplateUnlink}
         category="workspace_schema"
+        highlightTag={highlightTag}
       />
 
       {/* Template description */}

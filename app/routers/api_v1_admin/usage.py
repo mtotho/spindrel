@@ -104,6 +104,14 @@ def _cache_discount_for_provider(
     return _CACHE_DISCOUNT_BY_PROVIDER_TYPE.get(ptype, _DEFAULT_CACHE_DISCOUNT)
 
 
+def _is_plan_provider(provider_id: str | None) -> bool:
+    """Check if a provider uses fixed plan billing (cost per call is zero)."""
+    from app.services.providers import _registry
+    if not provider_id or provider_id not in _registry:
+        return False
+    return _registry[provider_id].billing_type == "plan"
+
+
 def _resolve_event_cost(
     d: dict,
     pricing: dict[tuple[str, str], tuple[str | None, str | None]],
@@ -112,6 +120,7 @@ def _resolve_event_cost(
     """Resolve cost for a single trace event data dict.
 
     Prefers response_cost (actual from provider) → computed with cache awareness.
+    For plan providers (fixed monthly/weekly cost), marginal cost per call is 0.
     """
     cost = d.get("response_cost")
     if cost is not None:
@@ -123,7 +132,11 @@ def _resolve_event_cost(
     input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
     cached = d.get("cached_tokens", 0)
     discount = _cache_discount_for_provider(ev_provider, provider_type_map) if cached else 0.0
-    return _compute_cost(pt, ct, input_rate, output_rate, cached, discount)
+    computed = _compute_cost(pt, ct, input_rate, output_rate, cached, discount)
+    # Plan providers: marginal cost is 0 (flat rate), suppress "no pricing" warnings
+    if computed is None and _is_plan_provider(ev_provider):
+        return 0.0
+    return computed
 
 
 async def _load_pricing_map(
@@ -1010,6 +1023,26 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
             daily_cost=round(task_daily, 4),
             monthly_cost=round(task_daily * 30, 4),
             count=len(recurring_tasks),
+        ))
+
+    # --- Fixed plan costs ---
+    from app.services.providers import _registry as _provider_registry
+    plan_daily = 0.0
+    plan_count = 0
+    for prow in _provider_registry.values():
+        if prow.billing_type == "plan" and prow.plan_cost:
+            if prow.plan_period == "weekly":
+                plan_daily += prow.plan_cost / 7
+            else:  # monthly
+                plan_daily += prow.plan_cost / 30
+            plan_count += 1
+    if plan_count > 0:
+        components.append(ForecastComponent(
+            source="fixed_plans",
+            label="Fixed plans",
+            daily_cost=round(plan_daily, 4),
+            monthly_cost=round(plan_daily * 30, 4),
+            count=plan_count,
         ))
 
     # --- Trajectory (extrapolation from current pace) ---

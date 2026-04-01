@@ -16,7 +16,58 @@ import {
   Section, FormRow, TextInput, SelectInput, EmptyState,
 } from "@/src/components/shared/FormControls";
 import { ActionButton, StatusBadge, InfoBanner } from "@/src/components/shared/SettingsControls";
-import type { ActivationResult } from "@/src/types/api";
+import type { ActivatableIntegration, ActivationResult } from "@/src/types/api";
+
+// ---------------------------------------------------------------------------
+// Injection summary helpers
+// ---------------------------------------------------------------------------
+
+function InjectionSummaryLine({ ig }: { ig: ActivatableIntegration }) {
+  const parts: string[] = [];
+  if (ig.tools.length > 0) parts.push(`${ig.tools.length} tools`);
+  if (ig.skill_count > 0) parts.push(`${ig.skill_count} skills`);
+  if (ig.has_system_prompt) parts.push("system prompt");
+  if (parts.length === 0) return null;
+  const carapaceLabel = ig.carapaces.length > 0 ? ig.carapaces.join(", ") : null;
+  return (
+    <span>
+      Adds {parts.join(", ")}
+      {carapaceLabel ? ` via ${carapaceLabel} carapace` : ""}
+    </span>
+  );
+}
+
+function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
+  if (ig.tools.length === 0 && ig.skill_count === 0 && !ig.has_system_prompt) return null;
+  return (
+    <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${t.surfaceBorder}` }}>
+      {ig.carapaces.length > 0 && (
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 3 }}>
+          <span style={{ fontWeight: 600, color: t.text }}>Carapace: </span>
+          {ig.carapaces.join(", ")}
+        </div>
+      )}
+      {ig.tools.length > 0 && (
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 3 }}>
+          <span style={{ fontWeight: 600, color: t.text }}>Tools: </span>
+          {ig.tools.join(", ")}
+        </div>
+      )}
+      {ig.skill_count > 0 && (
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 3 }}>
+          <span style={{ fontWeight: 600, color: t.text }}>Skills: </span>
+          {ig.skill_count}
+        </div>
+      )}
+      {ig.has_system_prompt && (
+        <div style={{ fontSize: 11, color: t.textDim }}>
+          <span style={{ fontWeight: 600, color: t.text }}>System prompt: </span>
+          injected
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Event filter multi-select
@@ -172,6 +223,15 @@ function ActivationsSection({
                   <div style={{ fontSize: 11, color: t.textDim, marginTop: 3, lineHeight: "1.4" }}>
                     {ig.description}
                   </div>
+                )}
+                {ig.activated ? (
+                  <InjectionDetails ig={ig} t={t} />
+                ) : (
+                  (ig.tools.length > 0 || ig.skill_count > 0) && (
+                    <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3, fontStyle: "italic" }}>
+                      <InjectionSummaryLine ig={ig} />
+                    </div>
+                  )
                 )}
               </div>
 

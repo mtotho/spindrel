@@ -50,6 +50,12 @@ _semaphore = asyncio.Semaphore(_MAX_CONCURRENT)
 # Chat GUID → bot_id overrides (populated from router config endpoint)
 _chat_bot_map: dict[str, str] = {}
 
+# Wake words for mention detection (populated from router config endpoint)
+_wake_words: list[str] = []
+
+# Chat GUID → {require_mention, passive_memory} (populated from router config endpoint)
+_channel_settings: dict[str, dict] = {}
+
 # Global echo tracker instance
 _echo = EchoTracker()
 
@@ -70,8 +76,8 @@ sio = socketio.AsyncClient(
 # Config refresh
 # ---------------------------------------------------------------------------
 async def _refresh_config() -> None:
-    """Pull per-chat bot mapping from the router config endpoint."""
-    global _chat_bot_map
+    """Pull config from the router config endpoint."""
+    global _chat_bot_map, _wake_words, _channel_settings
     try:
         async with httpx.AsyncClient(timeout=5.0) as c:
             r = await c.get(
@@ -81,6 +87,8 @@ async def _refresh_config() -> None:
             if r.status_code == 200:
                 data = r.json()
                 _chat_bot_map = data.get("chat_bot_map", {})
+                _wake_words = data.get("wake_words", [])
+                _channel_settings = data.get("channels", {})
     except Exception:
         logger.debug("Config refresh failed (server may not be ready yet)")
 
@@ -114,14 +122,15 @@ def _extract_sender(message: dict) -> str:
     return str(message.get("handleId") or "unknown")
 
 
-def _is_group_chat(chat_guid: str) -> bool:
-    """Check if a chat GUID represents a group chat.
-
-    BB chat GUIDs use:
-      iMessage;-;... for 1:1 chats
-      iMessage;+;... for group chats
-    """
-    return ";+;" in chat_guid
+# ---------------------------------------------------------------------------
+# Wake word detection
+# ---------------------------------------------------------------------------
+def _check_wake_word(text: str) -> bool:
+    """Check if any configured wake word appears in the message text (case-insensitive)."""
+    if not _wake_words:
+        return False
+    text_lower = text.lower()
+    return any(w in text_lower for w in _wake_words)
 
 
 # ---------------------------------------------------------------------------
@@ -146,17 +155,22 @@ async def _handle_message(message: dict) -> None:
         if _echo.is_echo(msg_guid, text):
             logger.debug("Skipping echo: %s", msg_guid)
             return
-        # Not an echo → it's the human user texting from their phone
+        # Not an echo → it's the human user texting from their phone — always active
         logger.info("Human isFromMe message in chat %s", chat_guid)
     else:
-        # In group chats, only respond to external messages if they're
-        # directed at the bot (not every random group message).
-        # For now we store non-addressed group messages passively.
-        if _is_group_chat(chat_guid):
-            logger.info("External group message from %s in chat %s (passive)", _extract_sender(message), chat_guid)
-            await _store_passive(chat_guid, message, text)
+        # External message — check channel settings for require_mention
+        settings = _channel_settings.get(chat_guid, {})
+        require_mention = settings.get("require_mention", True)
+
+        if require_mention and not _check_wake_word(text):
+            # No wake word + require_mention → store passively
+            passive_memory = settings.get("passive_memory", True)
+            sender = _extract_sender(message)
+            logger.info("Passive message from %s in chat %s (no wake word)", sender, chat_guid)
+            await _store_passive(chat_guid, message, text, include_in_memory=passive_memory)
             return
-        logger.info("External message from %s in chat %s", _extract_sender(message), chat_guid)
+
+        logger.info("Active message from %s in chat %s", _extract_sender(message), chat_guid)
 
     bot_id = _bot_for_chat(chat_guid)
     client_id = bb_client_id(chat_guid)
@@ -191,8 +205,9 @@ async def _handle_message(message: dict) -> None:
         await _send_reply(chat_guid, response_text)
 
 
-async def _store_passive(chat_guid: str, message: dict, text: str) -> None:
-    """Store a group chat message passively (no agent response triggered)."""
+async def _store_passive(chat_guid: str, message: dict, text: str,
+                         *, include_in_memory: bool = True) -> None:
+    """Store a message passively (no agent response triggered)."""
     from agent_client import store_passive_message
 
     bot_id = _bot_for_chat(chat_guid)
@@ -207,6 +222,7 @@ async def _store_passive(chat_guid: str, message: dict, text: str) -> None:
                 "sender": sender,
                 "sender_display_name": sender,
                 "bb_guid": message.get("guid", ""),
+                "include_in_memory": include_in_memory,
             },
         )
     except Exception:

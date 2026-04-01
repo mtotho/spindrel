@@ -37,5 +37,9 @@ class _Settings:
     def BB_DEFAULT_BOT(self) -> str:
         return _get("BB_DEFAULT_BOT", "default")
 
+    @property
+    def BB_WAKE_WORDS(self) -> str:
+        return _get("BB_WAKE_WORDS")
+
 
 settings = _Settings()
