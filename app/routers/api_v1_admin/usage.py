@@ -868,22 +868,22 @@ def _recurrence_runs_per_day(recurrence: str) -> float:
 
 
 def _group_costs_by_template(
-    corr_parent: dict[str, str],
-    corr_costs: dict[str, float],
+    run_parent: dict[str, str],
+    run_costs: dict[str, float],
 ) -> dict[str, list[float]]:
-    """Group per-correlation-id costs by their parent template task id.
+    """Group per-run costs by their parent template task id.
 
     Args:
-        corr_parent: mapping from correlation_id → parent_task_id (template)
-        corr_costs: mapping from correlation_id → total cost for that run
+        run_parent: mapping from run key (session_id) → parent_task_id (template)
+        run_costs: mapping from run key → total cost for that run
 
     Returns:
         dict mapping template_id → list of per-run costs
     """
     from collections import defaultdict
     result: dict[str, list[float]] = defaultdict(list)
-    for cid, run_cost in corr_costs.items():
-        parent_id = corr_parent.get(cid)
+    for key, run_cost in run_costs.items():
+        parent_id = run_parent.get(key)
         if parent_id:
             result[parent_id].append(run_cost)
     return dict(result)
@@ -1028,48 +1028,46 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
         # Estimate avg cost per task from recent spawned runs.
         # Group by parent_task_id (the schedule template) so each task gets
         # its own cost average rather than sharing a per-bot average.
-        # Use correlation_id (unique per run) instead of session_id, which can
-        # be shared across runs or swapped during stale-session recovery.
         from collections import defaultdict
 
         template_ids = [t.id for t in recurring_tasks]
         recent_runs = (await db.execute(
             select(Task).where(
                 Task.parent_task_id.in_(template_ids),
-                Task.correlation_id.isnot(None),
+                Task.session_id.isnot(None),
                 Task.completed_at >= seven_days_ago,
             )
         )).scalars().all()
 
-        # Map correlation_id → parent_task_id for cost attribution
-        corr_parent: dict[str, str] = {}
-        task_correlation_ids = []
+        # Map session_id → parent_task_id for cost attribution
+        session_parent: dict[str, str] = {}
+        task_session_ids = []
         for run in recent_runs:
-            if run.correlation_id and run.parent_task_id:
-                cid = str(run.correlation_id)
-                corr_parent[cid] = str(run.parent_task_id)
-                task_correlation_ids.append(run.correlation_id)
+            if run.session_id and run.parent_task_id:
+                sid = str(run.session_id)
+                session_parent[sid] = str(run.parent_task_id)
+                task_session_ids.append(run.session_id)
 
-        # Sum cost per correlation_id, then attribute to parent template
-        corr_costs: dict[str, float] = defaultdict(float)
-        if task_correlation_ids:
+        # Sum cost per session, then attribute to parent template
+        session_costs: dict[str, float] = defaultdict(float)
+        if task_session_ids:
             task_events = (await db.execute(
                 select(TraceEvent).where(
                     TraceEvent.event_type == "token_usage",
-                    TraceEvent.correlation_id.in_(task_correlation_ids),
+                    TraceEvent.session_id.in_(task_session_ids),
                 )
             )).scalars().all()
 
             for ev in task_events:
-                cid = str(ev.correlation_id) if ev.correlation_id else None
-                if not cid:
+                sid = str(ev.session_id) if ev.session_id else None
+                if not sid:
                     continue
                 d = ev.data or {}
                 cost = _resolve_event_cost(d, pricing, ptype_map)
                 if cost is not None:
-                    corr_costs[cid] += cost
+                    session_costs[sid] += cost
 
-        template_run_costs = _group_costs_by_template(corr_parent, corr_costs)
+        template_run_costs = _group_costs_by_template(session_parent, session_costs)
         task_daily = _compute_recurring_task_daily(recurring_tasks, template_run_costs)
 
         components.append(ForecastComponent(

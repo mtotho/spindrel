@@ -236,11 +236,17 @@ async def trigger_workflow(
         for _ in workflow.steps
     ]
 
+    # Shared session mode: create a single session for the entire workflow run
+    shared_session_id = None
+    if getattr(workflow, "session_mode", "isolated") == "shared":
+        shared_session_id = uuid.uuid4()
+
     run = WorkflowRun(
         id=uuid.uuid4(),
         workflow_id=workflow_id,
         bot_id=effective_bot_id,
         channel_id=channel_id,
+        session_id=shared_session_id,
         params=resolved_params,
         status="running",
         current_step_index=0,

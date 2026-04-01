@@ -120,6 +120,7 @@ async def create_workflow(data: dict) -> Workflow:
         steps=data.get("steps", []),
         triggers=data.get("triggers", {}),
         tags=data.get("tags", []),
+        session_mode=data.get("session_mode", "isolated"),
         source_type=data.get("source_type", "manual"),
         source_path=data.get("source_path"),
         content_hash=data.get("content_hash"),
@@ -144,7 +145,7 @@ async def update_workflow(workflow_id: str, data: dict) -> Workflow | None:
             raise ValueError("Cannot update file-sourced workflows via API")
 
         for field in ("name", "description", "params", "secrets", "defaults",
-                       "steps", "triggers", "tags"):
+                       "steps", "triggers", "tags", "session_mode"):
             if field in data:
                 setattr(row, field, data[field])
         row.updated_at = datetime.now(timezone.utc)

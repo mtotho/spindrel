@@ -27,6 +27,7 @@ def upgrade() -> None:
         sa.Column("steps", JSONB, server_default=sa.text("'[]'::jsonb")),
         sa.Column("triggers", JSONB, server_default=sa.text("'{}'::jsonb")),
         sa.Column("tags", JSONB, server_default=sa.text("'[]'::jsonb")),
+        sa.Column("session_mode", sa.Text(), nullable=False, server_default=sa.text("'isolated'")),
         sa.Column("source_type", sa.Text(), nullable=False, server_default=sa.text("'manual'")),
         sa.Column("source_path", sa.Text(), nullable=True),
         sa.Column("content_hash", sa.Text(), nullable=True),

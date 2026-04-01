@@ -61,6 +61,8 @@ skills:
     mode: on_demand
   - id: carapaces/orchestrator/model-efficiency
     mode: on_demand
+  - id: carapaces/orchestrator/workflows
+    mode: on_demand
   # Shared skills (not owned by this carapace)
   - id: channel_workspaces
     mode: on_demand
@@ -86,6 +88,7 @@ local_tools:
   - cancel_task
   - update_task
   - get_task_result
+  - manage_workflow
   - get_skill
   - get_workspace_skill
   - web_search
@@ -134,6 +137,7 @@ system_prompt_fragment: |
   | Channels, workspace skills, memory patterns, base template, checklists | `get_skill('carapaces/orchestrator/workspace-management')` |
   | Designing new carapaces (fragment-as-index architecture) | `get_skill('carapaces/orchestrator/carapace-architect')` |
   | Cost optimization, model tier selection for delegation | `get_skill('carapaces/orchestrator/model-efficiency')` |
+  | Reusable workflows: YAML format, conditions, approval gates, triggers | `get_skill('carapaces/orchestrator/workflows')` |
   | Channel workspace schemas, file organization, workspace features | `get_skill('channel_workspaces')` |
   | Context assembly, skill modes, tool RAG, compaction tuning | `get_skill('context_mastery')` |
 

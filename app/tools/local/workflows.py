@@ -108,6 +108,7 @@ async def manage_workflow(
             "steps": w.steps,
             "triggers": w.triggers,
             "tags": w.tags,
+            "session_mode": w.session_mode,
             "source_type": w.source_type,
         }, indent=2)
 
