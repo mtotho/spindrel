@@ -22,9 +22,9 @@ from integrations.mission_control.helpers import (
     get_bot,
     get_mc_prefs,
     get_user,
-    has_plans_file,
-    has_tasks_file,
-    has_timeline_file,
+    has_kanban_data,
+    has_plans_data,
+    has_timeline_data,
     read_tasks_for_channel,
     require_channel_access,
     tracked_channels,
@@ -183,19 +183,17 @@ async def readiness(
         issues=dashboard_issues,
     )
 
-    def _count_tasks_files():
-        return sum(1 for ch in channels if has_tasks_file(ch))
-
-    tasks_count = await asyncio.to_thread(_count_tasks_files) if channels else 0
+    kanban_results = await asyncio.gather(*(has_kanban_data(ch) for ch in channels)) if channels else []
+    kanban_count = sum(1 for r in kanban_results if r)
     kanban_issues: list[str] = []
-    if channels and tasks_count == 0:
-        kanban_issues.append("No channels have tasks.md. The MC skill creates this automatically.")
+    if channels and kanban_count == 0:
+        kanban_issues.append("No channels have task cards yet. The mission-control carapace (auto-injected) gives bots the tools to create cards, or create them from the Kanban page.")
     elif not channels:
         kanban_issues.append("No workspace-enabled channels. Enable workspace in channel settings first.")
     kanban = FeatureReadiness(
-        ready=tasks_count > 0,
-        detail=f"{tasks_count} of {len(channels)} channels have tasks.md",
-        count=tasks_count,
+        ready=kanban_count > 0,
+        detail=f"{kanban_count} of {len(channels)} channels have task cards",
+        count=kanban_count,
         total=len(channels),
         issues=kanban_issues,
     )
@@ -247,35 +245,31 @@ async def readiness(
         issues=memory_issues,
     )
 
-    def _count_timeline_files():
-        return sum(1 for ch in channels if has_timeline_file(ch))
-
-    timeline_count = await asyncio.to_thread(_count_timeline_files) if channels else 0
+    timeline_results = await asyncio.gather(*(has_timeline_data(ch) for ch in channels)) if channels else []
+    timeline_count = sum(1 for r in timeline_results if r)
     timeline_issues: list[str] = []
     if channels and timeline_count == 0:
-        timeline_issues.append("No channels have timeline.md yet. Events are auto-logged when tasks are created or moved.")
+        timeline_issues.append("No channels have timeline events yet. Events are auto-logged when tasks are created or moved.")
     elif not channels:
         timeline_issues.append("No workspace-enabled channels. Enable workspace in channel settings first.")
     timeline_feat = FeatureReadiness(
         ready=timeline_count > 0,
-        detail=f"{timeline_count} of {len(channels)} channels have timeline.md",
+        detail=f"{timeline_count} of {len(channels)} channels have timeline events",
         count=timeline_count,
         total=len(channels),
         issues=timeline_issues,
     )
 
-    def _count_plans_files():
-        return sum(1 for ch in channels if has_plans_file(ch))
-
-    plans_count = await asyncio.to_thread(_count_plans_files) if channels else 0
+    plans_results = await asyncio.gather(*(has_plans_data(ch) for ch in channels)) if channels else []
+    plans_count = sum(1 for r in plans_results if r)
     plans_issues: list[str] = []
     if channels and plans_count == 0:
-        plans_issues.append("No channels have plans.md yet. Plans are created when bots draft structured proposals.")
+        plans_issues.append("No channels have plans yet. Plans are created when bots draft structured proposals.")
     elif not channels:
         plans_issues.append("No workspace-enabled channels. Enable workspace in channel settings first.")
     plans_feat = FeatureReadiness(
         ready=plans_count > 0,
-        detail=f"{plans_count} of {len(channels)} channels have plans.md",
+        detail=f"{plans_count} of {len(channels)} channels have plans",
         count=plans_count,
         total=len(channels),
         issues=plans_issues,
@@ -357,7 +351,7 @@ async def setup_guide():
     content = """\
 # Mission Control Setup Guide
 
-Mission Control aggregates workspace data from your channels and bots into a unified fleet dashboard.
+Mission Control is a **DB-backed** project management system. All task cards, timeline events, and plans are stored in a local SQLite database. Workspace files (`tasks.md`, `timeline.md`, `plans.md`) are **read-only renderings** auto-generated from the database — never edit them directly.
 
 ## Prerequisites
 
@@ -379,22 +373,27 @@ This creates a `memory/` directory with:
 - `memory/reference/` — reference documents
 
 ### 3. Task Board (Kanban)
-The Kanban page reads `tasks.md` from each channel's workspace.
+Task cards are stored in the **MC database** and aggregated across all tracked channels.
 
-**Automatic**: When a channel has workspace enabled, the **mission-control** carapace is auto-injected. This gives the bot the `create_task_card` and `move_task_card` tools, plus the Mission Control skill documenting the `tasks.md` format, `status.md`, and card metadata conventions. No per-bot configuration needed.
+**Automatic**: When a channel has workspace enabled, the **mission-control** carapace is auto-injected. This gives the bot the `create_task_card` and `move_task_card` tools, plus the Mission Control skill. No per-bot configuration needed.
 
-You can also create and move cards directly from the Kanban page in the UI.
+You can also create and move cards directly from the **Kanban page** in the UI.
 
-> **Note**: If a bot already has the Mission Control skill or tools configured manually, the auto-injection is a no-op (deduplication is built in). You can also disable the auto-injection per channel by adding `mission-control` to the channel's `carapaces_disabled` list.
+> **Note**: If a bot already has the Mission Control carapace configured manually, the auto-injection is a no-op (deduplication is built in). You can also disable auto-injection per channel by adding `mission-control` to the channel's `carapaces_disabled` list.
+
+### 4. Plans
+Plans are created via the `draft_plan` tool and stored in the MC database. After user approval, the **plan executor** automatically creates tasks for each step and manages sequencing. Steps marked with approval gates pause execution until approved in the dashboard.
 
 ## Feature Reference
 
-| Feature | Requires | What it shows |
-|---------|----------|---------------|
-| **Dashboard** | Workspace-enabled channels | Channel list, bot list, stats |
-| **Kanban** | Workspace-enabled channels (tools auto-injected) | Aggregated task board across channels |
-| **Journal** | `memory_scheme: workspace-files` | Daily logs from all tracked bots |
-| **Memory** | `memory_scheme: workspace-files` | MEMORY.md + reference files per bot |
+| Feature | Requires | Data Source | What it shows |
+|---------|----------|-------------|---------------|
+| **Dashboard** | Workspace-enabled channels | MC DB | Channel list, bot list, stats |
+| **Kanban** | Workspace-enabled channels (tools auto-injected) | MC DB | Aggregated task board across channels |
+| **Timeline** | Workspace-enabled channels | MC DB | Activity events (task moves, plan state changes) |
+| **Plans** | Workspace-enabled channels | MC DB | Structured plans with step tracking and approval gates |
+| **Journal** | `memory_scheme: workspace-files` | Filesystem | Daily logs from all tracked bots |
+| **Memory** | `memory_scheme: workspace-files` | Filesystem | MEMORY.md + reference files per bot |
 
 ## Scope Toggle
 Admins see a **Fleet / Personal** toggle:
@@ -404,9 +403,17 @@ Admins see a **Fleet / Personal** toggle:
 ## Integration Modules
 Integrations can register custom dashboard modules. These appear as additional pages under Mission Control. Check **Admin → Integrations** for available modules.
 
+## Architecture Notes
+- **Database**: MC uses a local SQLite database (WAL mode) independent of the core PostgreSQL database
+- **Read-only files**: `tasks.md`, `timeline.md`, and `plans.md` in channel workspaces are auto-generated renderings — all mutations go through tools
+- **Tools**: `create_task_card`, `move_task_card`, `draft_plan`, `update_plan_step`, `update_plan_status`, `append_timeline_event`
+- **Plan executor**: After plan approval, automatically creates tasks for each step, handles step sequencing, and supports approval gates
+
 ## Troubleshooting
 - **Empty dashboard?** Check that at least one channel has workspace enabled
-- **Empty kanban?** Make sure the channel has workspace enabled — the mission-control carapace (skill + tools) is auto-injected. Ask the bot to create a task, or create cards from the Kanban page UI.
+- **Empty kanban?** Make sure the channel has workspace enabled — the mission-control carapace (tools + skill) is auto-injected. Ask the bot to create a task, or create cards from the Kanban page UI.
+- **Empty timeline?** Timeline events are auto-logged when cards are created/moved or plans change state
+- **Empty plans?** Ask the bot to draft a plan, or check if any plans exist in the Plans page
 - **Empty journal?** Set `memory_scheme: workspace-files` in bot YAML and wait for the next interaction
 - **Empty memory?** Same as journal — MEMORY.md is created on the bot's first run
 """

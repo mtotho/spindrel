@@ -126,7 +126,7 @@ def write_env_file(config: dict[str, str]) -> None:
         ("Database", ["DATABASE_URL"]),
         ("LLM Provider", ["LITELLM_BASE_URL", "LITELLM_API_KEY"]),
         ("Embeddings", ["EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS"]),
-        ("Web Search", ["WEB_SEARCH_MODE", "COMPOSE_PROFILES"]),
+        ("Web Search", ["WEB_SEARCH_MODE", "SEARXNG_URL", "PLAYWRIGHT_WS_URL", "COMPOSE_PROFILES"]),
     ]
 
     written_keys: set[str] = set()
@@ -259,8 +259,12 @@ def main() -> None:
         "Web search backend:",
         choices=[
             questionary.Choice(
-                "SearXNG — self-hosted, private (adds 2 containers)",
+                "SearXNG — built-in containers (adds 2 containers)",
                 value="searxng",
+            ),
+            questionary.Choice(
+                "SearXNG — external (bring your own instance)",
+                value="searxng-external",
             ),
             questionary.Choice(
                 "DuckDuckGo — lightweight, no extra containers",
@@ -276,9 +280,30 @@ def main() -> None:
     if web_mode is None:
         return
 
-    env_config["WEB_SEARCH_MODE"] = web_mode
     if web_mode == "searxng":
+        env_config["WEB_SEARCH_MODE"] = "searxng"
         env_config["COMPOSE_PROFILES"] = "web-search"
+    elif web_mode == "searxng-external":
+        env_config["WEB_SEARCH_MODE"] = "searxng"
+        searxng_url = questionary.text(
+            "SearXNG URL:",
+            default="http://localhost:8080",
+            style=STYLE,
+        ).ask()
+        if searxng_url is None:
+            return
+        env_config["SEARXNG_URL"] = searxng_url
+        playwright_url = questionary.text(
+            "Playwright WebSocket URL (leave empty to skip JS rendering):",
+            default="",
+            style=STYLE,
+        ).ask()
+        if playwright_url is None:
+            return
+        if playwright_url:
+            env_config["PLAYWRIGHT_WS_URL"] = playwright_url
+    else:
+        env_config["WEB_SEARCH_MODE"] = web_mode
 
     # ── 5. Auth ────────────────────────────────────────────────────────────
 
@@ -326,7 +351,7 @@ def main() -> None:
     print(f"  API Key: {env_config['API_KEY'][:20]}...")
     print(f"  Provider: {provider_name}")
     print(f"  Model: {model}")
-    web_labels = {"searxng": "SearXNG (self-hosted)", "ddgs": "DuckDuckGo (lightweight)", "none": "Disabled"}
+    web_labels = {"searxng": "SearXNG (built-in)", "searxng-external": "SearXNG (external)", "ddgs": "DuckDuckGo (lightweight)", "none": "Disabled"}
     print(f"  Web Search: {web_labels.get(web_mode, web_mode)}")
     print()
     print("  The Orchestrator bot will guide you through the rest:")

@@ -2,7 +2,7 @@
 import os
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -28,8 +28,8 @@ class TestMCReadiness:
         assert body["memory"]["ready"] is False
         assert len(body["dashboard"]["issues"]) > 0
 
-    async def test_readiness_with_channels_no_tasks(self, client, db_session):
-        """Workspace channels but no tasks.md → dashboard ready, kanban not ready."""
+    async def test_readiness_with_channels_no_data(self, client, db_session):
+        """Workspace channels but no kanban data → dashboard ready, kanban not ready."""
         from app.db.models import Channel
 
         ch = Channel(
@@ -43,9 +43,10 @@ class TestMCReadiness:
         db_session.add(ch)
         await db_session.commit()
 
-        # _has_tasks_file does os.path.isfile — mock it to return False
+        # has_kanban_data queries MC DB — mock to return False
         with patch(
-            "integrations.mission_control.helpers.has_tasks_file",
+            "integrations.mission_control.router.has_kanban_data",
+            new_callable=AsyncMock,
             return_value=False,
         ):
             resp = await client.get(
@@ -57,7 +58,7 @@ class TestMCReadiness:
         assert body["dashboard"]["ready"] is True
         assert body["dashboard"]["count"] == 1
         assert body["kanban"]["ready"] is False
-        assert "No channels have tasks.md" in body["kanban"]["issues"][0]
+        assert "No channels have task cards" in body["kanban"]["issues"][0]
 
     async def test_readiness_with_memory_bot(self, client, db_session):
         """Bot with memory_scheme=workspace-files + filesystem → journal/memory ready."""
@@ -85,7 +86,9 @@ class TestMCReadiness:
         await db_session.commit()
 
         with (
-            patch("integrations.mission_control.router.has_tasks_file", return_value=True),
+            patch("integrations.mission_control.router.has_kanban_data", new_callable=AsyncMock, return_value=True),
+            patch("integrations.mission_control.router.has_timeline_data", new_callable=AsyncMock, return_value=False),
+            patch("integrations.mission_control.router.has_plans_data", new_callable=AsyncMock, return_value=False),
             patch("integrations.mission_control.router_memory.get_bot", return_value=mem_bot),
             patch("app.agent.bots.list_bots", return_value=[mem_bot]),
             patch("app.services.memory_scheme.get_memory_root", return_value="/tmp/test-mem"),
@@ -104,7 +107,7 @@ class TestMCReadiness:
         assert body["memory"]["ready"] is True
 
     async def test_readiness_all_features_ready(self, client, db_session):
-        """Full setup: channels + tasks + memory → all ready."""
+        """Full setup: channels + DB data + memory → all ready."""
         from app.db.models import Channel
 
         mem_bot = BotConfig(
@@ -129,8 +132,9 @@ class TestMCReadiness:
         await db_session.commit()
 
         with (
-            patch("integrations.mission_control.router.has_tasks_file", return_value=True),
-            patch("integrations.mission_control.router.has_timeline_file", return_value=True),
+            patch("integrations.mission_control.router.has_kanban_data", new_callable=AsyncMock, return_value=True),
+            patch("integrations.mission_control.router.has_timeline_data", new_callable=AsyncMock, return_value=True),
+            patch("integrations.mission_control.router.has_plans_data", new_callable=AsyncMock, return_value=True),
             patch("integrations.mission_control.router_memory.get_bot", return_value=mem_bot),
             patch("app.agent.bots.list_bots", return_value=[mem_bot]),
             patch("app.services.memory_scheme.get_memory_root", return_value="/tmp/test-mem"),
@@ -142,7 +146,7 @@ class TestMCReadiness:
             )
 
         body = resp.json()
-        for feature in ["dashboard", "kanban", "journal", "memory", "timeline"]:
+        for feature in ["dashboard", "kanban", "journal", "memory", "timeline", "plans"]:
             assert body[feature]["ready"] is True, f"{feature} should be ready"
             assert body[feature]["issues"] == [], f"{feature} should have no issues"
 

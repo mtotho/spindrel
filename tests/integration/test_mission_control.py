@@ -442,6 +442,156 @@ class TestMCPlanApprove:
         assert resp.status_code == 409
 
 
+class TestMCPlanStepApprove:
+    """Tests for step-level approval on awaiting_approval plans."""
+
+    async def test_approve_step_clears_gate(self, client, db_session, _mc_db):
+        """Approving a gated step transitions it to in_progress and creates a task."""
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="step-approve",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        # Create a plan with an approval gate on step 2
+        from integrations.mission_control.tools.plans import draft_plan
+        import re
+        result_text = await draft_plan(
+            str(ch.id), "Gated Plan",
+            ["Auto step", "Manual step", "Another auto"],
+            approval_steps=[2],
+        )
+        plan_id = re.search(r"plan-\w+", result_text).group()
+
+        # Approve the plan
+        from integrations.mission_control.services import approve_plan
+        await approve_plan(str(ch.id), plan_id)
+
+        # Simulate: step 1 done, plan paused at step 2 (awaiting_approval)
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            db_plan.steps[0].status = "done"
+            db_plan.status = "awaiting_approval"
+            await session.commit()
+
+        # Mock _create_step_task to avoid core DB access
+        with patch(
+            "integrations.mission_control.plan_executor._create_step_task",
+            new_callable=AsyncMock,
+        ) as mock_create:
+            resp = await client.post(
+                f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/steps/2/approve",
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ok"] is True
+        assert body["step"] == 2
+        assert body["status"] == "approved"
+
+        # Verify step is now in_progress and plan is executing
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            await session.refresh(db_plan, ["steps"])
+            assert db_plan.status == "executing"
+            step2 = next(s for s in db_plan.steps if s.position == 2)
+            assert step2.status == "in_progress"
+            assert step2.started_at is not None
+            # requires_approval flag should be preserved
+            assert step2.requires_approval is True
+
+        # Verify _create_step_task was called with correct args
+        mock_create.assert_called_once()
+        call_kwargs = mock_create.call_args[1]
+        assert call_kwargs["plan_id"] == plan_id
+        assert call_kwargs["step_position"] == 2
+
+    async def test_approve_step_wrong_status(self, client, db_session, _mc_db):
+        """Approving a step on a non-awaiting_approval plan returns 409."""
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="step-409",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        from integrations.mission_control.tools.plans import draft_plan
+        import re
+        result_text = await draft_plan(str(ch.id), "Draft Plan", ["Step 1"], approval_steps=[1])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+
+        # Plan is still draft — not awaiting_approval
+        resp = await client.post(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/steps/1/approve",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 409
+
+    async def test_approve_step_not_found(self, client, db_session, _mc_db):
+        """Approving a non-existent step returns 404."""
+        from app.db.models import Channel
+
+        ch = Channel(
+            id=uuid.uuid4(),
+            name="step-404",
+            bot_id="test-bot",
+            channel_workspace_enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        from integrations.mission_control.tools.plans import draft_plan
+        from integrations.mission_control.services import approve_plan
+        import re
+        result_text = await draft_plan(str(ch.id), "Plan", ["Step 1"], approval_steps=[1])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+        await approve_plan(str(ch.id), plan_id)
+
+        # Set plan to awaiting_approval
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            db_plan.status = "awaiting_approval"
+            await session.commit()
+
+        # Step 99 doesn't exist
+        resp = await client.post(
+            f"/integrations/mission_control/channels/{ch.id}/plans/{plan_id}/steps/99/approve",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 404
+
+
 class TestMCPlanResume:
     """Tests for plan resume with the plan execution engine."""
 

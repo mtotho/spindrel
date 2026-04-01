@@ -4,6 +4,7 @@ description: "Personal goal tracking with life areas, habits, and reflections �
 category: workspace_schema
 compatible_integrations:
   - mission_control
+mc_min_version: "2.0"
 tags:
   - personal
   - goals
@@ -78,7 +79,7 @@ Each card follows the Mission Control card format:
 - **area**: Life area tag (e.g. health, finance, growth, relationships, career, home)
 - **started** / **completed**: ISO date timestamps (auto-set by `move_task_card`)
 
-Use `create_task_card` and `move_task_card` tools for task management instead of manual edits.
+Use `create_task_card` and `move_task_card` tools for all task management — tasks.md is a read-only rendering from the database and must not be edited directly.
 
 ### status.md — Life Dashboard
 
@@ -159,6 +160,6 @@ Use for weekly reviews, monthly retrospectives, or ad-hoc reflections:
 - ...
 ```
 
-### plans.md — Structured Execution Plans
+### plans.md — Structured Execution Plans (Read-Only Rendering)
 
-You can create structured plans for complex goals. Use `draft_plan` when proposing multi-step work — the user reviews and approves in Mission Control before execution begins. Pull the planning skill for the full protocol.
+Plans are stored in the MC database. `plans.md` is auto-generated after every state change — never edit it directly. Use `draft_plan` to create plans, and `update_plan_step`/`update_plan_status` for mutations. After approval, the plan executor automatically sequences step execution. Pull the planning skill for the full protocol.

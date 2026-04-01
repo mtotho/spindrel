@@ -160,7 +160,9 @@ async def update_plan_step(
 
     async with await mc_session() as session:
         result = await session.execute(
-            select(McPlan).where(McPlan.plan_id == plan_id)
+            select(McPlan)
+            .where(McPlan.plan_id == plan_id)
+            .where(McPlan.channel_id == channel_id)
         )
         db_plan = result.scalar_one_or_none()
         if not db_plan:
@@ -263,7 +265,9 @@ async def update_plan_status(
 
     async with await mc_session() as session:
         result = await session.execute(
-            select(McPlan).where(McPlan.plan_id == plan_id)
+            select(McPlan)
+            .where(McPlan.plan_id == plan_id)
+            .where(McPlan.channel_id == channel_id)
         )
         db_plan = result.scalar_one_or_none()
         if not db_plan:

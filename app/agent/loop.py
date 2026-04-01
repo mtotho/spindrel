@@ -180,6 +180,7 @@ async def run_agent_tool_loop(
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
     tool_call_trace: list[ToolCallSignature] = []  # for within-run cycle detection
     _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
+    _detected_cycle_len: int = 0  # populated when cycle detected
 
     try:
         from app.services.secret_registry import redact as _redact_secrets
@@ -716,19 +717,19 @@ async def run_agent_tool_loop(
 
             # --- Within-run tool loop detection ---
             if settings.TOOL_LOOP_DETECTION_ENABLED and len(tool_call_trace) >= 3:
-                _cycle_len = detect_cycle(tool_call_trace)
-                if _cycle_len is not None:
+                _detected_cycle_len = detect_cycle(tool_call_trace) or 0
+                if _detected_cycle_len:
                     _loop_broken_reason = "cycle"
                     logger.warning(
                         "Tool loop detected: cycle length %d after %d calls — breaking",
-                        _cycle_len, len(tool_call_trace),
+                        _detected_cycle_len, len(tool_call_trace),
                     )
                     break
 
         # --- Post-loop: forced response (max iterations or cycle break) ---
         if _loop_broken_reason == "cycle":
             _break_msg = (
-                f"Tool loop detected (cycle of {_cycle_len} call(s) repeating) "
+                f"Tool loop detected (cycle of {_detected_cycle_len} call(s) repeating) "
                 f"after {len(tool_call_trace)} tool calls. Breaking cycle."
             )
             _break_code = "tool_loop_detected"

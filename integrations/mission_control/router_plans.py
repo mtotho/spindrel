@@ -99,7 +99,9 @@ async def approve_plan_endpoint(
 
         async with await mc_session() as session:
             db_result = await session.execute(
-                select(McPlan).where(McPlan.plan_id == plan_id)
+                select(McPlan)
+                .where(McPlan.plan_id == plan_id)
+                .where(McPlan.channel_id == str(channel_id))
             )
             db_plan = db_result.scalar_one_or_none()
             if db_plan:
@@ -177,7 +179,9 @@ async def resume_plan_endpoint(
 
         async with await mc_session() as session:
             db_result = await session.execute(
-                select(McPlan).where(McPlan.plan_id == plan_id)
+                select(McPlan)
+                .where(McPlan.plan_id == plan_id)
+                .where(McPlan.channel_id == str(channel_id))
             )
             db_plan = db_result.scalar_one_or_none()
             if db_plan:
@@ -209,15 +213,21 @@ async def approve_step_endpoint(
         raise HTTPException(404, "Channel not found")
     require_channel_access(channel, user)
 
+    from datetime import datetime, timezone
+
     from integrations.mission_control.db.engine import mc_session
     from integrations.mission_control.db.models import McPlan, McPlanStep
-    from integrations.mission_control.plan_executor import advance_plan as _advance
+    from integrations.mission_control.plan_executor import _create_step_task
     from integrations.mission_control.services import _render_plans_md, append_timeline
     from sqlalchemy import select
 
+    ch_id = str(channel_id)
+
     async with await mc_session() as session:
         result = await session.execute(
-            select(McPlan).where(McPlan.plan_id == plan_id)
+            select(McPlan)
+            .where(McPlan.plan_id == plan_id)
+            .where(McPlan.channel_id == ch_id)
         )
         db_plan = result.scalar_one_or_none()
         if not db_plan:
@@ -235,24 +245,38 @@ async def approve_step_endpoint(
         if not step.requires_approval:
             raise HTTPException(409, f"Step {position} does not require approval")
 
-        # Clear the approval gate and set plan back to executing
-        step.requires_approval = False
+        # Mark step as in_progress and set plan back to executing.
+        # Preserve requires_approval so the flag remains as metadata.
+        step.status = "in_progress"
+        step.started_at = datetime.now(timezone.utc)
         db_plan.status = "executing"
         plan_db_id = db_plan.id
+        step_db_id = step.id
         step_content = step.content
+        plan_title = db_plan.title
         await session.commit()
 
-    await _render_plans_md(str(channel_id))
+    await _render_plans_md(ch_id)
 
     try:
         await append_timeline(
-            str(channel_id),
+            ch_id,
             f"Plan step {position} approved: **{step_content}** ({plan_id})",
         )
     except Exception:
         pass
 
-    # Advance the plan (will pick up this step as next pending)
-    await _advance(plan_db_id)
+    # Create the step task directly (advance_plan would re-pause at the gate)
+    try:
+        await _create_step_task(
+            channel_id=ch_id,
+            plan_id=plan_id,
+            plan_title=plan_title,
+            step_db_id=step_db_id,
+            step_position=position,
+            step_content=step_content,
+        )
+    except Exception:
+        logger.warning("Failed to create step task for approved step %d", position, exc_info=True)
 
     return {"ok": True, "plan_id": plan_id, "step": position, "status": "approved"}

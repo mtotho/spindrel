@@ -1,7 +1,7 @@
 """Mission Control integration setup manifest."""
 
 SETUP = {
-    "version": "1.0",
+    "version": "2.0",
     "icon": "LayoutDashboard",
     "env_vars": [
         {

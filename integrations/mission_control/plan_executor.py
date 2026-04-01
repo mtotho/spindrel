@@ -176,8 +176,11 @@ async def _create_step_task(
                     f"You are executing step {step_position} of plan '{plan_title}' ({plan_id}). "
                     f"Step: {step_content}\n\n"
                     "Focus on this single step. When done, call update_plan_step to mark it "
-                    "as done (or failed if it cannot be completed). "
-                    "Write results to workspace files. "
+                    "as done (or failed if it cannot be completed).\n\n"
+                    "CONTEXT SHARING: Each step runs in a fresh context. Active workspace "
+                    "files (.md at workspace root) are auto-injected, so write key findings, "
+                    "decisions, and artifacts to root files for the next step to pick up. "
+                    "For large outputs, write to data/ and reference from a root summary.\n\n"
                     "Do NOT call schedule_task or try to advance to the next step — "
                     "the plan executor handles sequencing automatically."
                 ),

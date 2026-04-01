@@ -577,6 +577,7 @@ class TestRunAgentToolLoop:
              patch("app.agent.loop.settings") as mock_settings:
             mock_settings.AGENT_MAX_ITERATIONS = 3
             mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_LOOP_DETECTION_ENABLED = False  # isolate max-iterations path
             mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
             mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
             mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
@@ -592,6 +593,9 @@ class TestRunAgentToolLoop:
             response_events = [e for e in events if e["type"] == "response"]
             assert len(response_events) == 1
             assert response_events[0]["text"] == "forced response"
+            # Verify it hit max_iterations, not cycle detection
+            warning_events = [e for e in events if e["type"] == "warning"]
+            assert any(w["code"] == "max_iterations" for w in warning_events)
 
     @pytest.mark.asyncio
     async def test_compaction_tag_added(self):
@@ -745,3 +749,388 @@ class TestRunAgentToolLoop:
             response_events = [e for e in events if e["type"] == "response"]
             assert len(response_events) == 1
             assert response_events[0]["text"] == "Here is the actual response"
+
+
+# ---------------------------------------------------------------------------
+# Tool loop cycle detection (integration with run_agent_tool_loop)
+# ---------------------------------------------------------------------------
+
+class TestToolLoopCycleDetection:
+    """Verify cycle detection fires inside the actual agent loop."""
+
+    @pytest.mark.asyncio
+    async def test_cycle_breaks_loop_before_max_iterations(self):
+        """Same tool+args repeated should trigger cycle detection, not max_iterations."""
+        from app.agent.loop import run_agent_tool_loop
+
+        # Same tool call every iteration — will form a length-1 cycle
+        tc = _mock_tool_call("stuck_tool", '{"retry": true}', "tc_1")
+        acc_tool = _mock_accumulated(content=None, tool_calls=[tc])
+        final_resp = _mock_response("I was stuck, here is my response")
+
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=final_resp), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.settings") as mock_settings:
+            mock_settings.AGENT_MAX_ITERATIONS = 25  # high — should not be reached
+            mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_LOOP_DETECTION_ENABLED = True
+            mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
+            mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
+            mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "do something"}], bot
+            ):
+                events.append(event)
+
+            # Should have a tool_loop_detected warning, NOT max_iterations
+            warning_events = [e for e in events if e["type"] == "warning"]
+            assert any(w["code"] == "tool_loop_detected" for w in warning_events)
+            assert not any(w["code"] == "max_iterations" for w in warning_events)
+
+            # Should still get a forced response
+            response_events = [e for e in events if e["type"] == "response"]
+            assert len(response_events) == 1
+            assert response_events[0]["text"] == "I was stuck, here is my response"
+
+            # Should have broken early — fewer tool_start events than max_iterations
+            tool_starts = [e for e in events if e["type"] == "tool_start"]
+            assert len(tool_starts) < 25
+            # Length-1 cycle needs 3 reps to detect
+            assert len(tool_starts) == 3
+
+    @pytest.mark.asyncio
+    async def test_cycle_detection_disabled_falls_through_to_max_iterations(self):
+        """With TOOL_LOOP_DETECTION_ENABLED=False, repeating calls hit max_iterations."""
+        from app.agent.loop import run_agent_tool_loop
+
+        tc = _mock_tool_call("stuck_tool", '{"retry": true}', "tc_1")
+        acc_tool = _mock_accumulated(content=None, tool_calls=[tc])
+        final_resp = _mock_response("max iter response")
+
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=final_resp), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.settings") as mock_settings:
+            mock_settings.AGENT_MAX_ITERATIONS = 5
+            mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_LOOP_DETECTION_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
+            mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
+            mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "loop forever"}], bot
+            ):
+                events.append(event)
+
+            # Should hit max_iterations, not cycle detection
+            warning_events = [e for e in events if e["type"] == "warning"]
+            assert any(w["code"] == "max_iterations" for w in warning_events)
+            assert not any(w["code"] == "tool_loop_detected" for w in warning_events)
+
+            # All 5 iterations consumed
+            tool_starts = [e for e in events if e["type"] == "tool_start"]
+            assert len(tool_starts) == 5
+
+    @pytest.mark.asyncio
+    async def test_no_false_positive_with_varied_tool_calls(self):
+        """Different tool calls each iteration should NOT trigger cycle detection."""
+        from app.agent.loop import run_agent_tool_loop
+
+        call_count = {"n": 0}
+
+        def _make_varied_stream(*args, **kwargs):
+            """Each call returns a different tool with different args."""
+            n = call_count["n"]
+            call_count["n"] += 1
+            tc = _mock_tool_call(f"tool_{n}", f'{{"step": {n}}}', f"tc_{n}")
+            acc = _mock_accumulated(content=None, tool_calls=[tc])
+
+            async def _gen():
+                yield acc
+            return _gen()
+
+        final_resp = _mock_response("completed all iterations")
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_varied_stream), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=final_resp), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.settings") as mock_settings:
+            mock_settings.AGENT_MAX_ITERATIONS = 5
+            mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_LOOP_DETECTION_ENABLED = True
+            mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
+            mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
+            mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "do five things"}], bot
+            ):
+                events.append(event)
+
+            # Should hit max_iterations (no cycle to detect)
+            warning_events = [e for e in events if e["type"] == "warning"]
+            assert any(w["code"] == "max_iterations" for w in warning_events)
+            assert not any(w["code"] == "tool_loop_detected" for w in warning_events)
+
+    @pytest.mark.asyncio
+    async def test_multi_tool_cycle_detected(self):
+        """A repeating pattern of 2 different tool calls should be detected."""
+        from app.agent.loop import run_agent_tool_loop
+
+        call_count = {"n": 0}
+
+        def _make_alternating_stream(*args, **kwargs):
+            """Alternates between two tool calls: search then read, repeating."""
+            n = call_count["n"]
+            call_count["n"] += 1
+            if n % 2 == 0:
+                tc = _mock_tool_call("web_search", '{"query": "test"}', f"tc_{n}")
+            else:
+                tc = _mock_tool_call("read_file", '{"path": "/tmp/test"}', f"tc_{n}")
+            acc = _mock_accumulated(content=None, tool_calls=[tc])
+
+            async def _gen():
+                yield acc
+            return _gen()
+
+        final_resp = _mock_response("breaking cycle")
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_alternating_stream), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=final_resp), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.settings") as mock_settings:
+            mock_settings.AGENT_MAX_ITERATIONS = 25
+            mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_LOOP_DETECTION_ENABLED = True
+            mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
+            mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
+            mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "search and read"}], bot
+            ):
+                events.append(event)
+
+            # Should detect cycle, not hit max_iterations
+            warning_events = [e for e in events if e["type"] == "warning"]
+            assert any(w["code"] == "tool_loop_detected" for w in warning_events)
+
+            # 2-call cycle needs 2 reps = 4 tool calls to detect
+            tool_starts = [e for e in events if e["type"] == "tool_start"]
+            assert len(tool_starts) == 4
+
+    @pytest.mark.asyncio
+    async def test_cycle_detection_final_llm_call_fails(self):
+        """When cycle is detected and the forced final LLM call raises, error path works."""
+        from app.agent.loop import run_agent_tool_loop
+
+        tc = _mock_tool_call("stuck_tool", '{"retry": true}', "tc_1")
+        acc_tool = _mock_accumulated(content=None, tool_calls=[tc])
+
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, side_effect=Exception("LLM down")), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.settings") as mock_settings:
+            mock_settings.AGENT_MAX_ITERATIONS = 25
+            mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_LOOP_DETECTION_ENABLED = True
+            mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
+            mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
+            mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "do something"}], bot
+            ):
+                events.append(event)
+
+            # Cycle detection warning should still appear
+            warning_events = [e for e in events if e["type"] == "warning"]
+            assert any(w["code"] == "tool_loop_detected" for w in warning_events)
+
+            # Error event from the failed forced LLM call
+            error_events = [e for e in events if e["type"] == "error"]
+            assert len(error_events) == 1
+            assert "Exception" in error_events[0]["message"]
+
+            # Should still yield a response (the error fallback text)
+            response_events = [e for e in events if e["type"] == "response"]
+            assert len(response_events) == 1
+            # Fallback text should reference cycle detection, not max_iterations
+            assert "Tool loop detected" in response_events[0]["text"]
+            assert "Final response generation also failed" in response_events[0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_cycle_detection_system_prompt_injected(self):
+        """Verify the cycle-specific system prompt is what the forced LLM call sees."""
+        from app.agent.loop import run_agent_tool_loop
+
+        tc = _mock_tool_call("stuck_tool", '{"retry": true}', "tc_1")
+        acc_tool = _mock_accumulated(content=None, tool_calls=[tc])
+        final_resp = _mock_response("I was stuck")
+
+        bot = _make_bot()
+        captured_messages = []
+
+        async def _capture_llm_call(model, messages, *args, **kwargs):
+            captured_messages.extend(messages)
+            return final_resp
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, side_effect=_capture_llm_call), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.settings") as mock_settings:
+            mock_settings.AGENT_MAX_ITERATIONS = 25
+            mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_LOOP_DETECTION_ENABLED = True
+            mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
+            mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
+            mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "do something"}], bot
+            ):
+                events.append(event)
+
+            # The last system message passed to _llm_call should be the cycle prompt
+            system_msgs = [m for m in captured_messages if m.get("role") == "system"]
+            assert system_msgs, "No system message found in forced LLM call"
+            last_system = system_msgs[-1]["content"]
+            assert "stuck in a loop" in last_system
+            assert "Stop calling tools" in last_system
+
+    @pytest.mark.asyncio
+    async def test_cycle_detection_multi_tool_per_iteration(self):
+        """Real-world: LLM returns 3 tool calls per iteration, same set repeats."""
+        from app.agent.loop import run_agent_tool_loop
+
+        def _make_multi_tool_stream(*args, **kwargs):
+            """Each iteration returns 3 tool calls with the same names+args."""
+            tcs = [
+                _mock_tool_call("search", '{"q":"test"}', f"tc_a_{uuid.uuid4().hex[:6]}"),
+                _mock_tool_call("fetch",  '{"url":"http://x"}', f"tc_b_{uuid.uuid4().hex[:6]}"),
+                _mock_tool_call("parse",  '{"fmt":"json"}', f"tc_c_{uuid.uuid4().hex[:6]}"),
+            ]
+            acc = _mock_accumulated(content=None, tool_calls=tcs)
+
+            async def _gen():
+                yield acc
+            return _gen()
+
+        final_resp = _mock_response("done")
+        bot = _make_bot()
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_multi_tool_stream), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=final_resp), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.loop.settings") as mock_settings:
+            mock_settings.AGENT_MAX_ITERATIONS = 25
+            mock_settings.AGENT_TRACE = False
+            mock_settings.TOOL_LOOP_DETECTION_ENABLED = True
+            mock_settings.TOOL_RESULT_SUMMARIZE_ENABLED = False
+            mock_settings.TOOL_RESULT_SUMMARIZE_THRESHOLD = 99999
+            mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
+            mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+
+            events = []
+            async for event in run_agent_tool_loop(
+                [{"role": "user", "content": "do research"}], bot
+            ):
+                events.append(event)
+
+            # Cycle should be detected — 3-call pattern repeated 2x = 6 tool calls
+            warning_events = [e for e in events if e["type"] == "warning"]
+            assert any(w["code"] == "tool_loop_detected" for w in warning_events)
+
+            tool_starts = [e for e in events if e["type"] == "tool_start"]
+            # Iteration 1: 3 calls (trace=[s,f,p]), len<3? No, len=3 after all 3.
+            # detect_cycle on [s,f,p] → no cycle (need 2 reps of 3-len = 6)
+            # Iteration 2: 3 more calls (trace=[s,f,p,s,f,p]), len=6
+            # detect_cycle finds 3-call cycle with 2 reps → break
+            assert len(tool_starts) == 6
+            assert not any(w["code"] == "max_iterations" for w in warning_events)
