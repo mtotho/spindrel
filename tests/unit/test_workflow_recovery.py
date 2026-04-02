@@ -233,6 +233,7 @@ class TestPriorResultInjection:
         run.bot_id = "test-bot"
         run.channel_id = None
         run.session_id = None
+        run.session_mode = "isolated"
         run.params = {"name": "Test"}
         run.step_states = [
             {"status": "done", "result": "Step 1 completed successfully", "task_id": "t1",
@@ -280,6 +281,7 @@ class TestPriorResultInjection:
         run.bot_id = "test-bot"
         run.channel_id = None
         run.session_id = None
+        run.session_mode = "isolated"
         run.params = {}
         run.step_states = [
             {"status": "done", "result": "Done", "task_id": "t1",
@@ -322,6 +324,7 @@ class TestPriorResultInjection:
         run.bot_id = "test-bot"
         run.channel_id = None
         run.session_id = uuid.uuid4()
+        run.session_mode = "shared"
         run.params = {}
         run.step_states = [
             {"status": "done", "result": "Done", "task_id": "t1",
@@ -364,6 +367,7 @@ class TestPriorResultInjection:
         run.bot_id = "test-bot"
         run.channel_id = None
         run.session_id = None
+        run.session_mode = "isolated"
         run.params = {}
         run.step_states = [
             {"status": "done", "result": "A" * 1000, "task_id": "t1",
@@ -1120,6 +1124,7 @@ class TestEphemeralSessionId:
         run.bot_id = "test-bot"
         run.channel_id = uuid.uuid4()
         run.session_id = None  # Isolated mode
+        run.session_mode = "isolated"
         run.params = {}
         run.step_states = [
             {"status": "pending", "result": None, "task_id": None,
@@ -1163,6 +1168,7 @@ class TestEphemeralSessionId:
         run.bot_id = "test-bot"
         run.channel_id = uuid.uuid4()
         run.session_id = shared_session
+        run.session_mode = "shared"
         run.params = {}
         run.step_states = [
             {"status": "pending", "result": None, "task_id": None,
@@ -1356,6 +1362,7 @@ class TestCreateStepTaskReturnValue:
         run.bot_id = "test-bot"
         run.channel_id = uuid.uuid4()
         run.session_id = None
+        run.session_mode = "isolated"
         run.params = {"x": "1"}
         run.step_states = [
             {"status": "pending", "result": None, "task_id": None,

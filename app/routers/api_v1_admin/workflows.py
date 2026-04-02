@@ -78,6 +78,7 @@ class WorkflowRunOut(BaseModel):
     dispatch_type: str = "none"
     dispatch_config: dict | None = None
     triggered_by: str | None = None
+    session_mode: str = "isolated"
     error: str | None = None
     created_at: datetime | None = None
     completed_at: datetime | None = None
@@ -90,6 +91,7 @@ class TriggerWorkflowIn(BaseModel):
     bot_id: str | None = None
     channel_id: uuid.UUID | None = None
     triggered_by: str = "api"
+    session_mode: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +262,7 @@ async def trigger_workflow_run(
             bot_id=body.bot_id,
             channel_id=body.channel_id,
             triggered_by=body.triggered_by,
+            session_mode=body.session_mode,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

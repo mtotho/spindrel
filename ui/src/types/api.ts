@@ -147,6 +147,7 @@ export interface WorkflowRun {
   dispatch_type: string;
   dispatch_config?: Record<string, any> | null;
   triggered_by?: string | null;
+  session_mode?: string;
   error?: string | null;
   created_at: string;
   completed_at?: string | null;

@@ -67,6 +67,11 @@ logger = logging.getLogger(__name__)
                     "type": "string",
                     "description": "JSON object of default execution config (for create).",
                 },
+                "session_mode": {
+                    "type": "string",
+                    "enum": ["isolated", "shared"],
+                    "description": "Override session mode for trigger (isolated=separate context per step, shared=shared channel context).",
+                },
             },
             "required": ["action"],
         },
@@ -83,6 +88,7 @@ async def manage_workflow(
     description: str | None = None,
     steps: str | None = None,
     defaults: str | None = None,
+    session_mode: str | None = None,
     **kwargs,
 ) -> str:
     import uuid
@@ -163,6 +169,7 @@ async def manage_workflow(
                 bot_id=effective_bot_id,
                 channel_id=parsed_channel_id,
                 triggered_by="tool",
+                session_mode=session_mode,
             )
         except Exception as e:
             return json.dumps({"error": str(e)})

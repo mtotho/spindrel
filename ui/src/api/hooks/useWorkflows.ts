@@ -104,7 +104,7 @@ export function useWorkflowRun(runId?: string) {
 export function useTriggerWorkflow(workflowId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { params: Record<string, any>; bot_id?: string; channel_id?: string }) =>
+    mutationFn: (data: { params: Record<string, any>; bot_id?: string; channel_id?: string; session_mode?: string }) =>
       apiFetch<WorkflowRun>(`/api/v1/admin/workflows/${workflowId}/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

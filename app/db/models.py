@@ -983,6 +983,7 @@ class ChannelHeartbeat(Base):
     previous_result_max_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
     repetition_detection: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     workflow_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workflow_session_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     channel: Mapped["Channel"] = relationship("Channel")
 
@@ -1345,6 +1346,7 @@ class WorkflowRun(Base):
     dispatch_type: Mapped[str] = mapped_column(Text, nullable=False, default="none")
     dispatch_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     triggered_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    session_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'isolated'"))
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)

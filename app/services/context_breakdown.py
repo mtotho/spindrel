@@ -420,20 +420,39 @@ async def compute_context_breakdown(
                 row = result.one()
                 msgs_since_watermark = row[0]
                 chars_since_watermark = row[1]
+                # Count user messages only (matches compaction trigger logic)
+                user_msgs_since_watermark = (await db.execute(
+                    select(func.count())
+                    .where(
+                        Message.session_id == channel.active_session_id,
+                        Message.created_at > watermark_msg.created_at,
+                        Message.role == "user",
+                    )
+                )).scalar_one()
             else:
                 msgs_since_watermark = total_messages
                 chars_since_watermark = total_msg_chars
+                user_msgs_since_watermark = None
         else:
             msgs_since_watermark = total_messages
             chars_since_watermark = total_msg_chars
+            user_msgs_since_watermark = None
 
         # Add conversation history category
         if chars_since_watermark > 0:
+            # Show user turn count since compaction triggers on user messages
+            if session and session.summary:
+                if user_msgs_since_watermark is not None:
+                    desc = f"{user_msgs_since_watermark} user turns since last compaction ({msgs_since_watermark} messages total)"
+                else:
+                    desc = f"{msgs_since_watermark} messages since last compaction"
+            else:
+                desc = f"{total_messages} messages (no compaction yet)"
             categories.append(ContextCategory(
                 key="conversation", label="Conversation History",
                 chars=chars_since_watermark,
                 tokens_approx=0, percentage=0, category="conversation",
-                description=f"{msgs_since_watermark} messages since last compaction" if session and session.summary else f"{total_messages} messages (no compaction yet)",
+                description=desc,
             ))
 
         # Context pruning savings estimate

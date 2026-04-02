@@ -175,12 +175,15 @@ def list_workspace_files(
     if include_data:
         data_path = os.path.join(ws_path, "data")
         if os.path.isdir(data_path):
-            for entry in sorted(os.scandir(data_path), key=lambda e: e.name):
-                if entry.is_file():
-                    stat = entry.stat()
+            for dirpath, _dirnames, filenames in os.walk(data_path):
+                _dirnames.sort()
+                for fname in sorted(filenames):
+                    fpath = os.path.join(dirpath, fname)
+                    rel = os.path.relpath(fpath, ws_path)  # e.g. "data/spindrel/file.md"
+                    stat = os.stat(fpath)
                     files.append({
-                        "name": entry.name,
-                        "path": f"data/{entry.name}",
+                        "name": os.path.relpath(fpath, data_path),  # e.g. "spindrel/file.md"
+                        "path": rel,
                         "size": stat.st_size,
                         "modified_at": stat.st_mtime,
                         "section": "data",

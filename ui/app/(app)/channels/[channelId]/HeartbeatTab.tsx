@@ -83,6 +83,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         quiet_end: data.config.quiet_end ?? "",
         timezone: data.config.timezone ?? "",
         workflow_id: data.config.workflow_id ?? null,
+        workflow_session_mode: data.config.workflow_session_mode ?? null,
       });
     } else if (data && !data.config) {
       setHbForm({
@@ -104,6 +105,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         quiet_end: "",
         timezone: "",
         workflow_id: null,
+        workflow_session_mode: null,
       });
     }
   }, [data]);
@@ -252,6 +254,19 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                   </div>
                 );
               })()}
+              {hbForm.workflow_id && (
+                <FormRow label="Session Mode" description="Override the workflow's session mode for heartbeat triggers.">
+                  <SelectInput
+                    value={hbForm.workflow_session_mode ?? ""}
+                    onChange={(v) => setHbForm((f: any) => ({ ...f, workflow_session_mode: v || null }))}
+                    options={[
+                      { label: "Use workflow default", value: "" },
+                      { label: "Isolated (no chat messages)", value: "isolated" },
+                      { label: "Shared (visible in chat)", value: "shared" },
+                    ]}
+                  />
+                </FormRow>
+              )}
             </div>
           ) : (
             /* ---- Prompt Editor ---- */

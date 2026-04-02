@@ -106,6 +106,37 @@ class TestChannelWorkspaceFileOps:
                 assert len(archived) == 1
                 assert archived[0]["name"] == "old.md"
 
+    def test_list_workspace_files_data_recurses_subdirs(self):
+        """Data section must include files in subdirectories like data/spindrel/."""
+        from app.services.channel_workspace import list_workspace_files
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            # Create data/ with a subdirectory
+            os.makedirs(os.path.join(tmp, "data", "spindrel"))
+            with open(os.path.join(tmp, "data", "top_level.md"), "w") as f:
+                f.write("top")
+            with open(os.path.join(tmp, "data", "spindrel", "channel_prompt.md"), "w") as f:
+                f.write("prompt content")
+            with open(os.path.join(tmp, "data", "spindrel", "heartbeat.md"), "w") as f:
+                f.write("heartbeat content")
+
+            with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
+                files = list_workspace_files("ch-1", bot, include_data=True)
+
+            data_files = [f for f in files if f["section"] == "data"]
+            names = {f["name"] for f in data_files}
+            paths = {f["path"] for f in data_files}
+
+            assert len(data_files) == 3
+            # Names show relative path within data/
+            assert "top_level.md" in names
+            assert os.path.join("spindrel", "channel_prompt.md") in names
+            assert os.path.join("spindrel", "heartbeat.md") in names
+            # Paths include the data/ prefix
+            assert "data/top_level.md" in paths
+            assert os.path.join("data", "spindrel", "channel_prompt.md") in paths
+            assert os.path.join("data", "spindrel", "heartbeat.md") in paths
+
     def test_read_workspace_file(self):
         from app.services.channel_workspace import read_workspace_file
         bot = _make_bot()

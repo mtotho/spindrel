@@ -247,6 +247,7 @@ async def trigger_workflow(
     triggered_by: str = "api",
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
+    session_mode: str | None = None,
 ) -> WorkflowRun:
     """Create and start a workflow run.
 
@@ -287,9 +288,12 @@ async def trigger_workflow(
         for _ in workflow.steps
     ]
 
+    # Resolve effective session mode: explicit override > workflow default
+    effective_mode = session_mode or getattr(workflow, "session_mode", "isolated")
+
     # Shared session mode: create a single session for the entire workflow run
     shared_session_id = None
-    if getattr(workflow, "session_mode", "isolated") == "shared":
+    if effective_mode == "shared":
         shared_session_id = uuid.uuid4()
 
     run = WorkflowRun(
@@ -305,6 +309,7 @@ async def trigger_workflow(
         dispatch_type=dispatch_type or "none",
         dispatch_config=dispatch_config,
         triggered_by=triggered_by,
+        session_mode=effective_mode,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -498,7 +503,7 @@ async def _create_step_task(
 
     # Prior result injection (skip for shared sessions where full context is already available)
     inject = step_def.get("inject_prior_results", defaults.get("inject_prior_results", False))
-    if inject and getattr(workflow, "session_mode", "isolated") == "shared":
+    if inject and run.session_mode == "shared":
         inject = False
     if inject and step_index > 0:
         max_chars = step_def.get("prior_result_max_chars", defaults.get("prior_result_max_chars", 500))

@@ -1,9 +1,9 @@
 id: arr-heartbeat
 name: "Media Stack Heartbeat"
 description: >
-  Periodic maintenance cycle — checks service health, detects stuck downloads,
-  syncs tracked media state, verifies Jellyfin availability, processes requests,
-  updates schedules, promotes persistent issues, and rebuilds workspace files.
+  Periodic maintenance cycle — checks service health, syncs all media state
+  (downloads, libraries, requests), updates schedules, rebuilds workspace
+  files, promotes persistent issues, and posts a summary if anything changed.
 
 defaults:
   model: gemini/gemini-2.5-flash
@@ -19,11 +19,11 @@ triggers:
   tool: true
 
 tags: [media, heartbeat, arr, maintenance]
-session_mode: shared
+session_mode: isolated
 
 steps:
   # -----------------------------------------------------------------------
-  # Phase 1: Service Health Check
+  # 1. Service Health
   # -----------------------------------------------------------------------
   - id: health_check
     prompt: |
@@ -50,21 +50,22 @@ steps:
       JELLYSEERR: UP|DOWN|NOT_CONFIGURED
       ```
 
-      Then update `status.md` Service Status table with current state + timestamp.
       If any service went down that was previously up, or recovered from being down,
       log it via `append_timeline_event`.
     on_failure: continue
     timeout: 60
 
   # -----------------------------------------------------------------------
-  # Phase 2: Download Check (qBittorrent)
+  # 2. Media Sync (downloads + arr queue + jellyfin + requests)
   # -----------------------------------------------------------------------
-  - id: download_check
+  - id: media_sync
     prompt: |
-      Check the download queue for stuck or errored torrents.
+      Sync all media state across the stack. Use the health_check results to know which
+      services are available — skip sections for services that are DOWN or NOT_CONFIGURED.
 
-      1. `qbit_torrents(filter="downloading")` — get active downloads
-      2. `qbit_torrents(filter="stalled")` — get stalled torrents
+      **Downloads** (if qBit is UP):
+      1. `qbit_torrents(filter="downloading")` — active downloads
+      2. `qbit_torrents(filter="stalled")` — stalled torrents
 
       For each torrent, classify:
       - **Healthy**: downloading with seeds, progressing — note title + progress
@@ -78,115 +79,50 @@ steps:
          `radarr_command(action="MoviesSearch", movie_ids=[X])`
       4. Log: `append_timeline_event` with remediation details
 
-      Report summary:
-      - N healthy downloads (list top 3 with progress)
-      - N stalled/errored (list each with action taken)
-      - "DOWNLOADS: OK" if all healthy, "DOWNLOADS: ISSUES" if any problems found
-    when:
-      step: health_check
-      output_contains: "QBIT: UP"
-    on_failure: continue
-    timeout: 120
-
-  # -----------------------------------------------------------------------
-  # Phase 3: Arr Stack Sync (Sonarr + Radarr)
-  # -----------------------------------------------------------------------
-  - id: arr_sync
-    prompt: |
-      Sync tracked media state with what Sonarr and Radarr report.
-
-      **Sonarr** (if available):
-      1. `sonarr_queue()` — check in-progress downloads
+      **Sonarr** (if UP):
+      1. `sonarr_queue()` — in-progress downloads
       2. `sonarr_wanted(limit=20)` — missing episodes for monitored series
       3. `sonarr_calendar(days_ahead=7)` — upcoming episodes
 
-      Note any episodes that were missing and are now downloaded/imported.
+      Note episodes that were missing and are now downloaded/imported.
       Note upcoming episodes in the next 48 hours.
 
-      **Radarr** (if available):
-      1. `radarr_queue()` — check in-progress downloads
+      **Radarr** (if UP):
+      1. `radarr_queue()` — in-progress downloads
       2. `radarr_movies(filter="wanted")` — missing/wanted movies
 
       Note any movies that are newly available.
 
-      Report:
-      - New completions (titles that finished downloading)
-      - Active queue items with progress
-      - Upcoming episodes in next 48h
-      - Wanted items still missing
-
-      Log completions via `append_timeline_event`.
-    when:
-      all:
-        - step: health_check
-          output_not_contains: "SONARR: DOWN"
-        - step: health_check
-          output_not_contains: "RADARR: DOWN"
-    on_failure: continue
-    timeout: 120
-
-  # -----------------------------------------------------------------------
-  # Phase 4: Jellyfin Verification
-  # -----------------------------------------------------------------------
-  - id: jellyfin_verify
-    prompt: |
-      Verify that recently completed media is actually playable in Jellyfin.
-
-      From the arr_sync step results, check any media that was reported as newly completed
-      or imported. For each:
-
+      **Jellyfin** (if UP):
+      From the Sonarr/Radarr results above, for any media reported as newly completed:
       1. `jellyfin_library(action="search", search="TITLE")` — confirm it exists
       2. If found: log confirmation via `append_timeline_event`
       3. If NOT found despite being imported: flag as import issue, try
          `jellyfin_library(action="scan")` to trigger a library refresh
 
-      Also check `jellyfin_library(action="recent", limit=10)` for any recent additions
-      worth noting.
+      Also check `jellyfin_library(action="recent", limit=10)` for recent additions.
 
-      Report:
-      - Verified items (confirmed in Jellyfin)
-      - Missing items (imported but not in library)
-      - Recent additions
-    when:
-      all:
-        - step: health_check
-          output_contains: "JELLYFIN: UP"
-        - step: arr_sync
-          status: done
-    on_failure: continue
-    timeout: 90
-
-  # -----------------------------------------------------------------------
-  # Phase 5: Jellyseerr Request Sync
-  # -----------------------------------------------------------------------
-  - id: request_sync
-    prompt: |
-      Sync Jellyseerr requests with tracked media state.
-
+      **Jellyseerr** (if UP):
       1. `jellyseerr_requests(filter="pending")` — pending requests
       2. `jellyseerr_requests(filter="processing")` — in-progress requests
       3. `jellyseerr_requests(filter="available", limit=10, sort="modified")` — recently fulfilled
 
-      Cross-reference:
-      - New pending requests → note for tracking
-      - Fulfilled requests → note for summary
-      - Any requests stuck in "processing" for too long → flag
-
+      Cross-reference: new pending → note, fulfilled → note, stuck processing → flag.
       Log new requests and fulfillments via `append_timeline_event`.
 
-      Report:
-      - N pending requests (list titles)
-      - N processing
-      - N recently fulfilled
-      - Any stuck requests
+      Report summary:
+      - Downloads: N healthy (top 3 with progress), N stalled/errored (with actions taken)
+      - Sonarr/Radarr: new completions, active queue, upcoming 48h, wanted still missing
+      - Jellyfin: verified items, missing items, recent additions
+      - Requests: N pending, N processing, N recently fulfilled, any stuck
     when:
       step: health_check
-      output_contains: "JELLYSEERR: UP"
+      status: done
     on_failure: continue
-    timeout: 90
+    timeout: 180
 
   # -----------------------------------------------------------------------
-  # Phase 6: Schedule Updates (rate-limited web search)
+  # 3. Schedule Updates (rate-limited web search)
   # -----------------------------------------------------------------------
   - id: schedule_updates
     prompt: |
@@ -216,16 +152,16 @@ steps:
     tools: [web_search]
 
   # -----------------------------------------------------------------------
-  # Phase 7: Issue Promotion
+  # 4. Workspace Sync + Issue Promotion
   # -----------------------------------------------------------------------
-  - id: issue_promotion
+  - id: workspace_sync
     prompt: |
-      Review issues found in this heartbeat cycle and any persisting from prior cycles.
+      Rebuild workspace files with data from all prior steps, and promote persistent issues.
 
-      Read MEDIA.md Issues section. For each open issue, check promotion criteria:
-      - **Time threshold**: issue open >24 hours
-      - **Remediation threshold**: auto-remediation failed 2+ times
-      - **Manual intervention**: issue requires config change or manual grab
+      **Issue Promotion** — read MEDIA.md Issues section. For each open issue:
+      - **Time threshold**: issue open >24 hours → promote
+      - **Remediation threshold**: auto-remediation failed 2+ times → promote
+      - **Manual intervention**: issue requires config change or manual grab → promote
 
       If criteria met and no existing task card reference:
       - Create a task card using `create_task_card` in `tasks.md` Backlog
@@ -237,28 +173,14 @@ steps:
       - Move the task card to Done
       - Log resolution
 
-      Report:
-      - N issues reviewed
-      - N newly promoted to task cards
-      - N resolved (cards moved to Done)
-    on_failure: continue
-    timeout: 120
-
-  # -----------------------------------------------------------------------
-  # Phase 8: Workspace Sync
-  # -----------------------------------------------------------------------
-  - id: workspace_sync
-    prompt: |
-      Rebuild workspace files with data gathered from all prior phases.
-
       **MEDIA.md** — update each section:
-      - Active Downloads: current queue from phases 2-3
+      - Active Downloads: current queue from media_sync
       - Issues: carry forward unresolved, add new from this cycle, remove resolved
-      - Requests: from phase 5 Jellyseerr sync
+      - Requests: from media_sync Jellyseerr data
       - Recently Resolved: add newly completed, remove entries >7 days old
 
       **status.md** — update:
-      - Service status table from phase 1
+      - Service status table from health_check
       - Health indicator:
         - `green`: all services up, no stuck downloads, no unresolved issues >24h
         - `yellow`: degraded service, active issues, or items in remediation
@@ -268,16 +190,16 @@ steps:
 
       If health changed, log via `append_timeline_event`.
 
-      Report what was updated.
+      Report: what was updated, N issues promoted, N resolved.
     on_failure: continue
     timeout: 120
 
   # -----------------------------------------------------------------------
-  # Phase 9: Summary
+  # 5. Summary
   # -----------------------------------------------------------------------
   - id: summary
     prompt: |
-      Compose the heartbeat summary based on all prior phase results.
+      Compose the heartbeat summary based on all prior step results.
 
       Compile:
       - Services: N healthy, N degraded, N down
