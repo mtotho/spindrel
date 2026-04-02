@@ -219,9 +219,101 @@ def _build_repetition_preamble(recent_runs: list[HeartbeatRun]) -> str:
     return "\n".join(lines)
 
 
+async def _fire_heartbeat_workflow(hb: ChannelHeartbeat, now: datetime) -> None:
+    """Trigger a workflow run for a heartbeat and record the outcome."""
+    from app.services.workflow_executor import trigger_workflow
+    from app.db.models import WorkflowRun
+
+    async with async_session() as db:
+        channel = await db.get(Channel, hb.channel_id)
+        if not channel:
+            logger.warning("Heartbeat %s: channel %s not found, skipping", hb.id, hb.channel_id)
+            return
+
+        # Record the heartbeat run
+        run_record = HeartbeatRun(
+            heartbeat_id=hb.id,
+            run_at=now,
+            status="running",
+        )
+        db.add(run_record)
+
+        # Advance schedule
+        heartbeat = await db.get(ChannelHeartbeat, hb.id)
+        if heartbeat:
+            effective = get_effective_interval(heartbeat.interval_minutes, heartbeat)
+            heartbeat.last_run_at = now
+            heartbeat.next_run_at = next_aligned_time(now, effective if effective > 0 else heartbeat.interval_minutes)
+            heartbeat.updated_at = now
+
+        await db.commit()
+        await db.refresh(run_record)
+        run_id = run_record.id
+        bot_id = channel.bot_id
+        channel_id = channel.id
+
+        # Resolve dispatch for workflow
+        dispatch_type = "none"
+        dispatch_config = None
+        if hb.dispatch_results and channel.dispatch_config:
+            dispatch_type = channel.integration or "none"
+            dispatch_config = dict(channel.dispatch_config)
+            dispatch_config.pop("thread_ts", None)
+            dispatch_config["reply_in_thread"] = False
+
+    error_text = None
+    workflow_run_id = None
+    try:
+        wf_run = await trigger_workflow(
+            hb.workflow_id,
+            {},
+            bot_id=bot_id,
+            channel_id=channel_id,
+            triggered_by="heartbeat",
+            dispatch_type=dispatch_type,
+            dispatch_config=dispatch_config,
+        )
+        workflow_run_id = str(wf_run.id)
+        logger.info(
+            "Heartbeat %s triggered workflow %s → run %s",
+            hb.id, hb.workflow_id, workflow_run_id,
+        )
+    except Exception as exc:
+        logger.exception("Heartbeat %s: workflow trigger failed", hb.id)
+        error_text = str(exc)[:4000]
+
+    # Update heartbeat run record — workflow runs complete asynchronously,
+    # so we mark the heartbeat run as "complete" (trigger succeeded) or "failed".
+    async with async_session() as db:
+        run_rec = await db.get(HeartbeatRun, run_id)
+        if run_rec:
+            run_rec.completed_at = datetime.now(timezone.utc)
+            run_rec.status = "complete" if error_text is None else "failed"
+            run_rec.error = error_text
+            run_rec.result = f"Triggered workflow run {workflow_run_id}" if workflow_run_id else None
+
+        heartbeat = await db.get(ChannelHeartbeat, hb.id)
+        if heartbeat:
+            heartbeat.last_result = run_rec.result if run_rec else None
+            heartbeat.last_error = error_text
+            heartbeat.run_count = (heartbeat.run_count or 0) + 1
+            heartbeat.updated_at = datetime.now(timezone.utc)
+
+        await db.commit()
+
+
 async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
-    """Execute a heartbeat directly (no Task row) and record history."""
+    """Execute a heartbeat directly (no Task row) and record history.
+
+    If ``workflow_id`` is set, triggers the workflow instead of running the
+    agent prompt.  The heartbeat run record still tracks the outcome.
+    """
     now = datetime.now(timezone.utc)
+
+    # --- Workflow mode: trigger workflow instead of agent prompt ---
+    if hb.workflow_id:
+        await _fire_heartbeat_workflow(hb, now)
+        return
 
     async with async_session() as db:
         channel = await db.get(Channel, hb.channel_id)

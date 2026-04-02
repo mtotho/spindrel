@@ -156,10 +156,18 @@ export default function WorkflowDetailPage() {
     fontSize: 14, width: "100%", outline: "none",
   };
 
+  const isYaml = activeTab === "yaml";
+
   return (
-    <div style={{ overflow: "auto", flex: 1 }}>
+    <div style={{ overflow: "auto", flex: 1, display: "flex", flexDirection: "column" }}>
       <MobileHeader title={isNew ? "New Workflow" : draft.name || "Workflow"} />
-      <div style={{ padding: 16, maxWidth: 800 }}>
+      <div style={{
+        padding: 16,
+        maxWidth: isYaml ? 1200 : 800,
+        flex: isYaml ? 1 : undefined,
+        display: isYaml ? "flex" : undefined,
+        flexDirection: isYaml ? "column" : undefined,
+      }}>
         {/* Top bar: back + actions */}
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -444,11 +452,12 @@ function YamlEditor({ draft, onUpdate, t }: {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minHeight: 0 }}>
       {parseError && (
         <div style={{
           padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace",
           background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`, color: t.danger,
+          flexShrink: 0,
         }}>
           {parseError}
         </div>
@@ -459,16 +468,17 @@ function YamlEditor({ draft, onUpdate, t }: {
         spellCheck={false}
         style={{
           width: "100%",
-          minHeight: 500,
+          flex: 1,
+          minHeight: 400,
           fontFamily: "monospace",
           fontSize: 13,
-          lineHeight: "1.5",
-          padding: 12,
+          lineHeight: "1.6",
+          padding: 16,
           borderRadius: 8,
           border: `1px solid ${parseError ? t.dangerBorder : t.inputBorder}`,
           background: t.inputBg,
           color: t.inputText,
-          resize: "vertical",
+          resize: "none",
           outline: "none",
           tabSize: 2,
         }}

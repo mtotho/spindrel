@@ -206,10 +206,45 @@ const SOURCE_COLORS: Record<string, (t: ReturnType<typeof useThemeTokens>) => st
   fixed_plans: (t) => t.purple,
 };
 
-function DonutChart({ components }: { components: ForecastComponent[] }) {
+type ForecastPeriod = "daily" | "monthly";
+
+function getCost(c: ForecastComponent, period: ForecastPeriod): number {
+  return period === "daily" ? c.daily_cost : c.monthly_cost;
+}
+
+const PERIOD_LABEL: Record<ForecastPeriod, string> = { daily: "Daily", monthly: "Monthly" };
+const PERIOD_SUFFIX: Record<ForecastPeriod, string> = { daily: "/ day", monthly: "/ month" };
+
+function PeriodToggle({ period, onChange }: { period: ForecastPeriod; onChange: (p: ForecastPeriod) => void }) {
   const t = useThemeTokens();
-  const items = components.filter((c) => c.daily_cost > 0);
-  const total = items.reduce((s, c) => s + c.daily_cost, 0);
+  return (
+    <div style={{ display: "flex", gap: 2 }}>
+      {(["daily", "monthly"] as const).map((p) => (
+        <button
+          key={p}
+          onClick={() => onChange(p)}
+          style={{
+            padding: "3px 10px",
+            fontSize: 11,
+            fontWeight: period === p ? 600 : 400,
+            background: period === p ? t.accent : "transparent",
+            color: period === p ? "#fff" : t.textMuted,
+            border: `1px solid ${period === p ? t.accent : t.surfaceBorder}`,
+            borderRadius: 4,
+            cursor: "pointer",
+          }}
+        >
+          {PERIOD_LABEL[p]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DonutChart({ components, period }: { components: ForecastComponent[]; period: ForecastPeriod }) {
+  const t = useThemeTokens();
+  const items = components.filter((c) => getCost(c, period) > 0);
+  const total = items.reduce((s, c) => s + getCost(c, period), 0);
 
   if (items.length === 0 || total === 0) return null;
 
@@ -222,7 +257,8 @@ function DonutChart({ components }: { components: ForecastComponent[] }) {
   // Build arc segments
   let startAngle = -Math.PI / 2; // start at top
   const segments = items.map((c) => {
-    const fraction = c.daily_cost / total;
+    const cost = getCost(c, period);
+    const fraction = cost / total;
     const sweep = fraction * Math.PI * 2;
     const endAngle = startAngle + sweep;
     const color = (SOURCE_COLORS[c.source] ?? (() => t.accent))(t);
@@ -248,7 +284,7 @@ function DonutChart({ components }: { components: ForecastComponent[] }) {
 
     startAngle = endAngle;
 
-    return { source: c.source, label: SOURCE_LABELS[c.source] || c.label, color, path, cost: c.daily_cost };
+    return { source: c.source, label: SOURCE_LABELS[c.source] || c.label, color, path, cost };
   });
 
   return (
@@ -266,7 +302,7 @@ function DonutChart({ components }: { components: ForecastComponent[] }) {
       }}
     >
       <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 12, alignSelf: "flex-start" }}>
-        Daily Cost Breakdown
+        {PERIOD_LABEL[period]} Cost Breakdown
       </div>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {segments.map((seg, i) => (
@@ -280,7 +316,7 @@ function DonutChart({ components }: { components: ForecastComponent[] }) {
           {fmtCost(total)}
         </text>
         <text x={cx} y={cy + 26} textAnchor="middle" fill={t.textDim} fontSize={9}>
-          / day
+          {PERIOD_SUFFIX[period]}
         </text>
       </svg>
       {/* Legend */}
@@ -462,15 +498,15 @@ function ForecastBreakdown({ components }: { components: ForecastComponent[] }) 
 // ForecastBarChart — horizontal bar chart by component
 // ---------------------------------------------------------------------------
 
-function ForecastBarChart({ components }: { components: ForecastComponent[] }) {
+function ForecastBarChart({ components, period }: { components: ForecastComponent[]; period: ForecastPeriod }) {
   const t = useThemeTokens();
   if (components.length === 0) return null;
 
   const items = components
-    .filter((c) => c.daily_cost > 0)
+    .filter((c) => getCost(c, period) > 0)
     .map((c) => ({
       label: SOURCE_LABELS[c.source] || c.label,
-      value: c.daily_cost,
+      value: getCost(c, period),
       color: (SOURCE_COLORS[c.source] ?? (() => t.accent))(t),
     }));
 
@@ -479,7 +515,7 @@ function ForecastBarChart({ components }: { components: ForecastComponent[] }) {
   return (
     <div>
       <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 12 }}>
-        Daily Forecast by Component
+        {PERIOD_LABEL[period]} Forecast by Component
       </div>
       <BarChart items={items} formatValue={fmtCost} />
     </div>
@@ -493,6 +529,7 @@ function ForecastBarChart({ components }: { components: ForecastComponent[] }) {
 export function ForecastTab() {
   const t = useThemeTokens();
   const { data: forecast, isLoading } = useUsageForecast();
+  const [period, setPeriod] = useState<ForecastPeriod>("daily");
 
   if (isLoading) {
     return (
@@ -518,9 +555,15 @@ export function ForecastTab() {
       {/* Today + This Month cards */}
       <ForecastCards forecast={forecast} />
 
+      {/* Period toggle */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, color: t.textDim }}>Projection period:</span>
+        <PeriodToggle period={period} onChange={setPeriod} />
+      </div>
+
       {/* Donut + Comparison side by side */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        <DonutChart components={forecast.components} />
+        <DonutChart components={forecast.components} period={period} />
         <SpendComparisonChart forecast={forecast} />
       </div>
 
@@ -528,7 +571,7 @@ export function ForecastTab() {
       <ForecastBreakdown components={forecast.components} />
 
       {/* Bar chart */}
-      <ForecastBarChart components={forecast.components} />
+      <ForecastBarChart components={forecast.components} period={period} />
     </div>
   );
 }

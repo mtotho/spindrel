@@ -1192,3 +1192,196 @@ class TestEphemeralSessionId:
         assert len(created_tasks) == 1
         task = created_tasks[0]
         assert task.session_id == shared_session
+
+
+# ---------------------------------------------------------------------------
+# advance_workflow task creation failure handling
+# ---------------------------------------------------------------------------
+
+class TestAdvanceWorkflowTaskCreationFailure:
+    """advance_workflow should handle _create_step_task failures gracefully."""
+
+    @pytest.mark.asyncio
+    async def test_task_creation_failure_marks_step_failed(self):
+        """If _create_step_task raises, step should be marked failed, not stuck at running."""
+        from app.services.workflow_executor import advance_workflow
+
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.workflow_id = "test-wf"
+        run.status = "running"
+        run.params = {}
+        run.step_states = [
+            {"status": "pending", "result": None, "task_id": None,
+             "error": None, "started_at": None, "completed_at": None},
+        ]
+
+        workflow = MagicMock()
+        workflow.id = "test-wf"
+        workflow.name = "Test"
+        workflow.steps = [{"id": "step1", "prompt": "Do something."}]
+        workflow.defaults = {}
+        workflow.secrets = []
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(side_effect=lambda model, id_:
+            run if model.__name__ == "WorkflowRun" else workflow)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor._create_step_task", new_callable=AsyncMock) as mock_create,
+        ):
+            mock_session.return_value = _mock_session_ctx(mock_db)
+            mock_create.side_effect = RuntimeError("DB connection failed")
+
+            await advance_workflow(run_id)
+
+        # Step should be marked failed, not stuck at "running"
+        assert run.step_states[0]["status"] == "failed"
+        assert "Task creation failed" in run.step_states[0]["error"]
+        assert run.step_states[0]["completed_at"] is not None
+        # Run should also be marked failed
+        assert run.status == "failed"
+        assert run.error is not None
+        assert run.completed_at is not None
+
+    @pytest.mark.asyncio
+    async def test_task_creation_success_sets_task_id(self):
+        """Successful task creation should set task_id on step state."""
+        from app.services.workflow_executor import advance_workflow
+
+        run_id = uuid.uuid4()
+        task_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.workflow_id = "test-wf"
+        run.status = "running"
+        run.params = {}
+        run.step_states = [
+            {"status": "pending", "result": None, "task_id": None,
+             "error": None, "started_at": None, "completed_at": None},
+        ]
+
+        workflow = MagicMock()
+        workflow.id = "test-wf"
+        workflow.name = "Test"
+        workflow.steps = [{"id": "step1", "prompt": "Do something."}]
+        workflow.defaults = {}
+        workflow.secrets = []
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(side_effect=lambda model, id_:
+            run if model.__name__ == "WorkflowRun" else workflow)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor._create_step_task", new_callable=AsyncMock) as mock_create,
+        ):
+            mock_session.return_value = _mock_session_ctx(mock_db)
+            mock_create.return_value = task_id
+
+            await advance_workflow(run_id)
+
+        # Step should be running with task_id set
+        assert run.step_states[0]["status"] == "running"
+        assert run.step_states[0]["task_id"] == str(task_id)
+        assert run.step_states[0]["started_at"] is not None
+        # Run should still be running (waiting for task)
+        assert run.current_step_index == 0
+
+    @pytest.mark.asyncio
+    async def test_task_creation_failure_does_not_leave_step_running(self):
+        """Key invariant: after advance_workflow returns, no step should be 'running' without a task_id."""
+        from app.services.workflow_executor import advance_workflow
+
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.workflow_id = "test-wf"
+        run.status = "running"
+        run.params = {"title": "test"}
+        run.step_states = [
+            {"status": "done", "result": "ok", "task_id": str(uuid.uuid4()),
+             "error": None, "started_at": "2025-01-01T00:00:00", "completed_at": "2025-01-01T00:01:00"},
+            {"status": "pending", "result": None, "task_id": None,
+             "error": None, "started_at": None, "completed_at": None},
+        ]
+
+        workflow = MagicMock()
+        workflow.id = "test-wf"
+        workflow.name = "Test"
+        workflow.steps = [
+            {"id": "step1", "prompt": "First step."},
+            {"id": "step2", "prompt": "Second step with {{title}}."},
+        ]
+        workflow.defaults = {}
+        workflow.secrets = []
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(side_effect=lambda model, id_:
+            run if model.__name__ == "WorkflowRun" else workflow)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor._create_step_task", new_callable=AsyncMock) as mock_create,
+        ):
+            mock_session.return_value = _mock_session_ctx(mock_db)
+            mock_create.side_effect = Exception("network error")
+
+            await advance_workflow(run_id)
+
+        # Key invariant: no step should be "running" without a task_id
+        for state in run.step_states:
+            if state["status"] == "running":
+                assert state["task_id"] is not None, \
+                    "Step is 'running' without a task_id — this causes stuck workflow runs"
+
+
+# ---------------------------------------------------------------------------
+# _create_step_task returns task ID
+# ---------------------------------------------------------------------------
+
+class TestCreateStepTaskReturnValue:
+    """_create_step_task should return the task UUID."""
+
+    @pytest.mark.asyncio
+    async def test_returns_task_uuid(self):
+        """_create_step_task should return the UUID of the created task."""
+        run = MagicMock()
+        run.id = uuid.uuid4()
+        run.bot_id = "test-bot"
+        run.channel_id = uuid.uuid4()
+        run.session_id = None
+        run.params = {"x": "1"}
+        run.step_states = [
+            {"status": "pending", "result": None, "task_id": None,
+             "error": None, "started_at": None, "completed_at": None},
+        ]
+
+        workflow = MagicMock()
+        workflow.id = "test-wf"
+        workflow.name = "Test"
+        workflow.steps = [{"id": "s1", "prompt": "Do."}]
+        workflow.defaults = {}
+        workflow.secrets = []
+        workflow.session_mode = "isolated"
+
+        created_tasks = []
+        mock_db = AsyncMock()
+        mock_db.add = lambda obj: created_tasks.append(obj)
+        mock_db.commit = AsyncMock()
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+            result = await _create_step_task(run, workflow, workflow.steps[0], 0)
+
+        assert isinstance(result, uuid.UUID)
+        assert len(created_tasks) == 1
+        assert result == created_tasks[0].id

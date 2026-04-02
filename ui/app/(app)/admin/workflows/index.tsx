@@ -154,7 +154,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
                   st.status === "running" ? t.accent :
                   st.status === "failed" ? t.danger :
                   st.status === "skipped" ? t.surfaceBorder :
-                  t.surfaceOverlay;
+                  t.inputBorder;
                 return <div key={i} style={{ flex: 1, background: color, borderRadius: 1 }} />;
               })}
             </div>

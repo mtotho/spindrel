@@ -17,7 +17,7 @@ export function Section({ title, description, action, children }: {
 }) {
   const t = useThemeTokens();
   return (
-    <View style={{ gap: 16, borderTopWidth: 1, borderTopColor: t.surfaceOverlay, paddingTop: 16 }}>
+    <View style={{ gap: 16, borderTopWidth: 1, borderTopColor: t.surfaceBorder, paddingTop: 16 }}>
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <View>
           <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>{title}</Text>

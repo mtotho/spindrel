@@ -26,7 +26,7 @@ from app.services.provider_drivers.openai_driver import OpenAICompatibleDriver, 
 
 
 class TestDriverRegistry:
-    def test_all_six_types_registered(self):
+    def test_all_types_registered(self):
         assert len(DRIVER_REGISTRY) == 6
         expected = {"litellm", "openai", "openai-compatible", "anthropic", "anthropic-compatible", "ollama"}
         assert set(DRIVER_REGISTRY.keys()) == expected
@@ -42,9 +42,10 @@ class TestDriverRegistry:
         assert isinstance(get_driver("anthropic-compatible"), AnthropicCompatibleDriver)
         assert isinstance(get_driver("ollama"), OllamaDriver)
 
-    def test_get_driver_unknown_type_raises(self):
-        with pytest.raises(ValueError, match="Unknown provider type"):
-            get_driver("nonexistent")
+    def test_get_driver_unknown_type_returns_fallback(self):
+        """Unknown provider types fall back to OpenAI-compatible driver."""
+        driver = get_driver("nonexistent")
+        assert isinstance(driver, OpenAICompatibleDriver)
 
     def test_drivers_are_singletons(self):
         """Same instance is returned on repeated calls."""

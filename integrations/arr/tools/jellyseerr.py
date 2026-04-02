@@ -1,5 +1,6 @@
 """Jellyseerr tools — media requests, search, approve/decline/request."""
 
+import asyncio
 import json
 import logging
 from urllib.parse import quote, urlencode
@@ -66,7 +67,9 @@ async def _post(path: str, payload: dict | None = None, timeout: float = 15.0):
     "function": {
         "name": "jellyseerr_requests",
         "description": (
-            "List media requests in Jellyseerr (newest first). "
+            "List media requests in Jellyseerr (newest first) with titles and availability. "
+            "Each result includes media_status (available/processing/pending/etc) showing "
+            "whether the content is already in Jellyfin — no need to check Jellyfin separately. "
             "Supports paging via skip/limit. "
             "Filters: all, pending, approved, processing, available, unavailable, failed."
         ),
@@ -108,27 +111,46 @@ async def jellyseerr_requests(filter: str = "all", limit: int = 20, skip: int = 
         results_data = data.get("results", [])
         page_info = data.get("pageInfo", {})
         total = page_info.get("results", len(results_data))
+
+        # Build entries with media availability (from Jellyseerr, no Jellyfin call needed)
         requests_list = []
+        title_lookups: list[tuple[int, str, int]] = []  # (index, media_type, tmdb_id)
         for req in results_data:
             media = req.get("media", {})
+            media_type = req.get("type") or media.get("mediaType", "unknown")
             entry: dict = {
                 "id": req.get("id"),
-                "media_type": req.get("type") or media.get("mediaType", "unknown"),
+                "media_type": media_type,
                 "status": _request_status(req.get("status", 0)),
+                "media_status": _media_status(media.get("status", 0)),
                 "requested_by": req.get("requestedBy", {}).get("displayName", "Unknown"),
                 "created_at": req.get("createdAt", ""),
             }
-            # Pull title from media info
-            media_info = req.get("media", {})
-            if media_info.get("externalServiceSlug"):
-                entry["title"] = sanitize(media_info["externalServiceSlug"])
-            # Try to get TMDB/TVDB IDs
-            if media_info.get("tmdbId"):
-                entry["tmdb_id"] = media_info["tmdbId"]
-            if media_info.get("tvdbId"):
-                entry["tvdb_id"] = media_info["tvdbId"]
-
+            if media.get("tmdbId"):
+                entry["tmdb_id"] = media["tmdbId"]
+                title_lookups.append((len(requests_list), media_type, media["tmdbId"]))
+            if media.get("tvdbId"):
+                entry["tvdb_id"] = media["tvdbId"]
             requests_list.append(entry)
+
+        # Batch-resolve titles from Jellyseerr's TMDB cache (parallel)
+        if title_lookups:
+            async def _fetch_title(mtype: str, tmdb_id: int) -> str | None:
+                ep = "movie" if mtype == "movie" else "tv"
+                try:
+                    detail = await _get(f"/api/v1/{ep}/{tmdb_id}", timeout=8.0)
+                    if ep == "movie":
+                        return sanitize(detail.get("title", ""))
+                    return sanitize(detail.get("name", ""))
+                except Exception:
+                    return None
+
+            titles = await asyncio.gather(
+                *[_fetch_title(mt, tid) for _, mt, tid in title_lookups]
+            )
+            for (idx, _, _), title in zip(title_lookups, titles):
+                if title:
+                    requests_list[idx]["title"] = title
 
         return json.dumps({
             "total": total,

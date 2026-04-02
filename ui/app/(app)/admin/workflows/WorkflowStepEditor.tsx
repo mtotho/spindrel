@@ -172,7 +172,7 @@ function StepCard({
         <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
           {step.requires_approval && <Badge t={t} bg={t.warningSubtle} border={t.warningBorder} color={t.warning} icon={<ShieldAlert size={10} />} text="approval" />}
           {step.when && Object.keys(step.when).length > 0 && <Badge t={t} bg={t.purpleSubtle} border={t.purpleBorder} color={t.purple} icon={<GitBranch size={10} />} text="conditional" />}
-          {step.on_failure && step.on_failure.startsWith("retry:") && <Badge t={t} bg={t.surfaceOverlay} border={t.surfaceBorder} color={t.textDim} icon={<RotateCcw size={10} />} text={step.on_failure} />}
+          {step.on_failure && step.on_failure.startsWith("retry:") && <Badge t={t} bg={t.codeBg} border={t.surfaceBorder} color={t.textMuted} icon={<RotateCcw size={10} />} text={step.on_failure} />}
         </div>
 
         {/* Action buttons */}
