@@ -21,9 +21,9 @@ export function FallbackModelList({ value, onChange, placeholder }: Props) {
   const t = useThemeTokens();
 
   const updateEntry = useCallback(
-    (index: number, model: string) => {
+    (index: number, model: string, providerId?: string | null) => {
       const next = [...value];
-      next[index] = { ...next[index], model };
+      next[index] = { ...next[index], model, provider_id: providerId ?? null };
       onChange(next);
     },
     [value, onChange],
@@ -47,7 +47,8 @@ export function FallbackModelList({ value, onChange, placeholder }: Props) {
           <div style={{ flex: 1 }}>
             <LlmModelDropdown
               value={entry.model}
-              onChange={(m) => updateEntry(i, m)}
+              selectedProviderId={entry.provider_id}
+              onChange={(m, pid) => updateEntry(i, m, pid)}
               placeholder={placeholder ?? "Select fallback model..."}
               allowClear={false}
             />

@@ -32,7 +32,7 @@ export interface BotConfig {
   name: string;
   model: string;
   system_prompt?: string;
-  model_provider_id?: string;
+  model_provider_id?: string | null;
   fallback_models?: Array<{ model: string; provider_id?: string | null }>;
   display_name?: string;
   avatar_url?: string;
@@ -267,8 +267,8 @@ export interface Channel {
   private: boolean;
   user_id?: string;
   display_name?: string;
-  model_override?: string;
-  model_provider_id_override?: string;
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
   integrations?: IntegrationBinding[];
   heartbeat_enabled?: boolean;
   heartbeat_in_quiet_hours?: boolean;
@@ -320,8 +320,8 @@ export interface ChannelSettings {
   memory_flush_workspace_id?: string | null;
   section_index_count?: number | null;
   section_index_verbosity?: string | null;
-  model_override?: string;
-  model_provider_id_override?: string;
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
   fallback_models?: Array<{ model: string; provider_id?: string | null }>;
   // Tool / skill overrides
   local_tools_override?: string[] | null;

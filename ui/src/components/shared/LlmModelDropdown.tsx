@@ -9,7 +9,7 @@ import type { LlmModel } from "../../types/api";
 
 interface Props {
   value: string;
-  onChange: (modelId: string) => void;
+  onChange: (modelId: string, providerId?: string | null) => void;
   placeholder?: string;
   label?: string;
   allowClear?: boolean;
@@ -17,6 +17,8 @@ interface Props {
   anchor?: "bottom" | "top";
   /** "llm" (default) fetches /models; "embedding" fetches /embedding-models (includes local fastembed). */
   variant?: "llm" | "embedding";
+  /** When set, only highlight the model in the matching provider group. */
+  selectedProviderId?: string | null;
 }
 
 function ModelStatusBadge({
@@ -138,6 +140,7 @@ export function LlmModelDropdown({
   allowClear = true,
   anchor = "bottom",
   variant = "llm",
+  selectedProviderId,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -176,10 +179,10 @@ export function LlmModelDropdown({
     }))
     .filter((g) => g.models.length > 0);
 
-  const handleModelClick = (model: LlmModel) => {
+  const handleModelClick = (model: LlmModel, providerId?: string | null) => {
     // Don't select models that are currently downloading
     if (model.download_status === "downloading") return;
-    onChange(model.id);
+    onChange(model.id, providerId);
     setOpen(false);
   };
 
@@ -296,10 +299,14 @@ export function LlmModelDropdown({
                         </div>
                         {group.models.map((model) => {
                           const isDownloading = model.download_status === "downloading";
+                          const isSelected = model.id === value && (
+                            selectedProviderId === undefined ||
+                            (group.provider_id ?? null) === (selectedProviderId ?? null)
+                          );
                           return (
                             <div
                               key={model.id}
-                              onClick={() => handleModelClick(model)}
+                              onClick={() => handleModelClick(model, group.provider_id ?? null)}
                               onMouseEnter={(e) => {
                                 if (!isDownloading) {
                                   (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay;
@@ -307,12 +314,12 @@ export function LlmModelDropdown({
                               }}
                               onMouseLeave={(e) => {
                                 (e.currentTarget as HTMLElement).style.background =
-                                  model.id === value ? t.accentSubtle : "transparent";
+                                  isSelected ? t.accentSubtle : "transparent";
                               }}
                               style={{
                                 padding: "8px 12px",
                                 cursor: isDownloading ? "default" : "pointer",
-                                background: model.id === value ? t.accentSubtle : "transparent",
+                                background: isSelected ? t.accentSubtle : "transparent",
                                 opacity: isDownloading ? 0.6 : 1,
                                 display: "flex",
                                 alignItems: "center",
@@ -320,7 +327,7 @@ export function LlmModelDropdown({
                               }}
                             >
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, color: model.id === value ? t.accent : t.text }}>
+                                <div style={{ fontSize: 13, color: isSelected ? t.accent : t.text }}>
                                   {model.id}
                                 </div>
                                 {model.display !== model.id && (

@@ -306,9 +306,10 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
         <FormRow label="Model" description="All messages in this channel will use this model instead of the bot default.">
           <LlmModelDropdown
             value={form.model_override ?? ""}
-            onChange={(v) => {
-              patch("model_override", v || undefined);
-              if (!v) patch("model_provider_id_override", undefined);
+            selectedProviderId={form.model_provider_id_override}
+            onChange={(v, providerId) => {
+              patch("model_override", v || null);
+              patch("model_provider_id_override", v ? (providerId ?? null) : null);
             }}
             placeholder={`inherit (${bots?.find((b) => b.id === settings.bot_id)?.model ?? "bot default"})`}
             allowClear

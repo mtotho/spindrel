@@ -10,18 +10,20 @@ interface Props {
   isWide: boolean;
 }
 
+function cleanDesc(d: string | null | undefined): string | null {
+  if (!d) return null;
+  const trimmed = d.trim();
+  if (!trimmed || trimmed === "---") return null;
+  return trimmed;
+}
+
 export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWide }: Props) {
   const t = useThemeTokens();
 
-  // Channel-level additions
   const extras = settings.skills_extra || [];
   const isExtra = (id: string) => extras.some((s) => s.id === id);
   const getExtra = (id: string) => extras.find((s) => s.id === id);
-
-  // Channel-level disabled
   const disabledSet = new Set(settings.skills_disabled || []);
-
-  // Bot's configured skills
   const botSkillIds = new Set((editorData.bot.skills || []).map((s) => s.id));
   const botSkillMap = Object.fromEntries((editorData.bot.skills || []).map((s) => [s.id, s]));
 
@@ -70,122 +72,115 @@ export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWi
     : editorData.all_skills;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: isWide ? 0 : 10 }}>
-      <div style={{ fontSize: 11, color: t.textDim, padding: isWide ? "0 16px 8px" : "0 0 8px" }}>
-        Check skills to <strong style={{ color: t.textMuted }}>add at the channel level</strong>, independent of the bot&apos;s config.
-        The <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "rgba(34,197,94,0.12)", color: "#16a34a", fontWeight: 600 }}>bot</span> badge shows skills the bot already has.
+    <div style={{ display: "flex", flexDirection: "column", gap: isWide ? 0 : 6 }}>
+      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
+        Check to add skills at the channel level.
+        <span style={{ fontSize: 9, padding: "1px 4px", borderRadius: 3, background: "rgba(34,197,94,0.12)", color: "#16a34a", fontWeight: 600, marginLeft: 4 }}>bot</span> = already on bot.
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: isWide ? 0 : 6 }}>
-        {filtered.map((skill) => {
-          const sel = isExtra(skill.id);
-          const entry = getExtra(skill.id);
-          const onBot = botSkillIds.has(skill.id);
-          const botEntry = botSkillMap[skill.id];
-          const dis = disabledSet.has(skill.id);
+      {filtered.map((skill) => {
+        const sel = isExtra(skill.id);
+        const entry = getExtra(skill.id);
+        const onBot = botSkillIds.has(skill.id);
+        const botEntry = botSkillMap[skill.id];
+        const dis = disabledSet.has(skill.id);
+        const desc = cleanDesc(skill.description);
 
-          if (!isWide) {
-            return (
-              <div key={skill.id} style={{
-                display: "flex", flexDirection: "column", gap: 6,
-                padding: "12px 16px", background: t.inputBg, borderRadius: 8,
-                border: `1px solid ${sel ? t.accentBorder : dis ? "rgba(239,68,68,0.15)" : t.surfaceBorder}`,
-                opacity: dis ? 0.6 : 1,
-              }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-                  <input type="checkbox" checked={sel} onChange={() => toggleExtra(skill.id)} style={{ accentColor: t.accent }} />
-                  <span style={{ fontSize: 13, fontWeight: 500, color: sel ? t.accent : t.text, flex: 1 }}>{skill.name}</span>
-                  {onBot && (
-                    <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: "rgba(34,197,94,0.12)", color: "#16a34a", fontWeight: 600, whiteSpace: "nowrap" }}>
-                      bot{botEntry ? ` \u00b7 ${botEntry.mode}` : ""}
-                    </span>
-                  )}
-                </label>
-                <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted, marginLeft: 30 }}>{skill.id}</span>
-                {skill.description && (
-                  <div style={{ fontSize: 11, color: t.textDim, marginLeft: 30, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {skill.description}
-                  </div>
-                )}
-                {sel && entry && (
-                  <div style={{ marginLeft: 30 }}>
-                    <select value={entry.mode || "on_demand"} onChange={(e: any) => setExtraMode(skill.id, e.target.value)}
-                      style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}>
-                      <option value="on_demand">on_demand</option>
-                      <option value="pinned">pinned</option>
-                      <option value="rag">rag</option>
-                    </select>
-                  </div>
-                )}
-              </div>
-            );
-          }
-
+        if (!isWide) {
           return (
-            <label
-              key={skill.id}
-              style={{
-                display: "grid", gridTemplateColumns: "24px 120px 1fr auto auto",
-                alignItems: "center", gap: 12,
-                padding: "10px 16px", background: "transparent",
-                borderBottom: `1px solid ${sel ? t.accentBorder : t.surfaceBorder}`,
-                cursor: "pointer",
-                opacity: dis ? 0.6 : 1,
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.inputBg; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
-            >
-              <input type="checkbox" checked={sel} onChange={() => toggleExtra(skill.id)} style={{ accentColor: t.accent }} />
-              <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {skill.id}
-              </span>
-              <div style={{ overflow: "hidden" }}>
-                <span style={{ fontSize: 13, fontWeight: 500, color: sel ? t.accent : t.text }}>{skill.name}</span>
-                {skill.description && (
-                  <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
-                    {skill.description}
-                  </div>
+            <div key={skill.id} style={{
+              display: "flex", flexDirection: "column", gap: 4,
+              padding: "10px 12px", background: t.inputBg, borderRadius: 8,
+              border: `1px solid ${sel ? t.accentBorder : dis ? "rgba(239,68,68,0.15)" : t.surfaceBorder}`,
+              opacity: dis ? 0.6 : 1,
+            }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input type="checkbox" checked={sel} onChange={() => toggleExtra(skill.id)} style={{ accentColor: t.accent }} />
+                <span style={{ fontSize: 13, fontWeight: 500, color: sel ? t.accent : t.text, flex: 1 }}>{skill.name}</span>
+                {onBot && (
+                  <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: "rgba(34,197,94,0.12)", color: "#16a34a", fontWeight: 600, whiteSpace: "nowrap" }}>
+                    bot{botEntry ? ` \u00b7 ${botEntry.mode}` : ""}
+                  </span>
                 )}
-              </div>
-              {onBot ? (
-                <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: "rgba(34,197,94,0.12)", color: "#16a34a", fontWeight: 600, whiteSpace: "nowrap" }}>
-                  bot{botEntry ? ` \u00b7 ${botEntry.mode}` : ""}
-                </span>
-              ) : <span />}
-              {sel && entry ? (
-                <select
-                  value={entry.mode || "on_demand"}
-                  onChange={(e: any) => setExtraMode(skill.id, e.target.value)}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}
-                >
-                  <option value="on_demand">on_demand</option>
-                  <option value="pinned">pinned</option>
-                  <option value="rag">rag</option>
-                </select>
-              ) : <span />}
-            </label>
+              </label>
+              <span style={{ fontSize: 10, fontFamily: "monospace", color: t.textMuted, marginLeft: 28 }}>{skill.id}</span>
+              {desc && (
+                <div style={{ fontSize: 11, color: t.textDim, marginLeft: 28, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {desc}
+                </div>
+              )}
+              {sel && entry && (
+                <div style={{ marginLeft: 28 }}>
+                  <select value={entry.mode || "on_demand"} onChange={(e: any) => setExtraMode(skill.id, e.target.value)}
+                    style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}>
+                    <option value="on_demand">on_demand</option>
+                    <option value="pinned">pinned</option>
+                    <option value="rag">rag</option>
+                  </select>
+                </div>
+              )}
+            </div>
           );
-        })}
-      </div>
+        }
 
-      {/* Disabled bot skills */}
+        return (
+          <label
+            key={skill.id}
+            style={{
+              display: "grid", gridTemplateColumns: "24px 160px 1fr auto auto",
+              alignItems: "center", gap: 12,
+              padding: "6px 4px", background: "transparent",
+              borderBottom: `1px solid ${sel ? t.accentBorder : t.surfaceBorder}`,
+              cursor: "pointer",
+              opacity: dis ? 0.6 : 1,
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.inputBg; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+          >
+            <input type="checkbox" checked={sel} onChange={() => toggleExtra(skill.id)} style={{ accentColor: t.accent }} />
+            <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {skill.id}
+            </span>
+            <div style={{ overflow: "hidden" }}>
+              <span style={{ fontSize: 13, fontWeight: 500, color: sel ? t.accent : t.text }}>{skill.name}</span>
+              {desc && (
+                <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>
+                  {desc}
+                </div>
+              )}
+            </div>
+            {onBot ? (
+              <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 3, background: "rgba(34,197,94,0.12)", color: "#16a34a", fontWeight: 600, whiteSpace: "nowrap" }}>
+                bot{botEntry ? ` \u00b7 ${botEntry.mode}` : ""}
+              </span>
+            ) : <span />}
+            {sel && entry ? (
+              <select
+                value={entry.mode || "on_demand"}
+                onChange={(e: any) => setExtraMode(skill.id, e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}
+              >
+                <option value="on_demand">on_demand</option>
+                <option value="pinned">pinned</option>
+                <option value="rag">rag</option>
+              </select>
+            ) : <span />}
+          </label>
+        );
+      })}
+
+      {/* Disable bot skills */}
       {(editorData.bot.skills || []).length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: isWide ? "10px 16px 6px" : "10px 0 6px",
-          }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0 4px" }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1 }}>
               Disable bot skills
             </span>
             <span style={{ fontSize: 10, color: t.textDim }}>
               {(editorData.bot.skills || []).length}
             </span>
             <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
-          </div>
-          <div style={{ fontSize: 10, color: t.textDim, padding: isWide ? "0 16px 8px" : "0 0 8px" }}>
-            Check to <strong style={{ color: t.danger }}>disable</strong> a skill the bot has for this channel.
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: isWide ? 0 : 6 }}>
             {(editorData.bot.skills || []).map((bs) => {
@@ -196,7 +191,7 @@ export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWi
                 return (
                   <label key={bs.id} style={{
                     display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
-                    padding: "10px 16px", background: t.inputBg, borderRadius: 8,
+                    padding: "8px 12px", background: t.inputBg, borderRadius: 8,
                     border: `1px solid ${dis ? "rgba(239,68,68,0.15)" : t.surfaceBorder}`,
                   }}>
                     <input type="checkbox" checked={dis} onChange={() => toggleDisabled(bs.id)} style={{ accentColor: t.danger }} />
@@ -214,9 +209,9 @@ export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWi
                 <label
                   key={bs.id}
                   style={{
-                    display: "grid", gridTemplateColumns: "24px 120px 1fr auto",
+                    display: "grid", gridTemplateColumns: "24px 160px 1fr auto",
                     alignItems: "center", gap: 12,
-                    padding: "10px 16px", background: "transparent",
+                    padding: "6px 4px", background: "transparent",
                     borderBottom: `1px solid ${t.surfaceBorder}`,
                     cursor: "pointer",
                   }}
