@@ -41,6 +41,7 @@ function statusColor(
 
 export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
   const { data, isLoading, isError } = useUsageForecast();
+  const { data: spikeData } = useSpikeStatus();
   const enabled = useUsageHudStore((s) => s.enabled);
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
@@ -140,7 +141,6 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
     );
   }
 
-  const { data: spikeData } = useSpikeStatus();
   const isSpiking = spikeData?.enabled && spikeData?.spiking;
 
   const baseColor =
