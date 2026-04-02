@@ -162,3 +162,7 @@ The result: the bot has exactly the right tools, knowledge, and context for this
 ### "I want a code review channel"
 1. Create channel → Give the bot `carapaces: [code-review]` (or `qa` for full QA)
 2. No activation needed — code review is a static carapace, not integration-bound
+
+### "I want to add my own tools and carapaces"
+1. Drop a `.py` file in `tools/` with a `@register` decorator → tool is available on next restart
+2. Or keep a personal extensions repo and load it via `INTEGRATION_DIRS` — see the [Custom Tools & Extensions guide](custom-tools.md)

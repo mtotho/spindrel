@@ -19,6 +19,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Smart orchestrator bot** — Ships with an orchestrator that guides you through setup conversationally.
 - **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
 - **Bot-to-bot delegation** — Orchestrator bots delegate to specialists, synchronously or as background tasks, up to 3 levels deep.
+- **Custom tools & extensions** — Drop a `.py` file in `tools/` to add a tool. Keep a personal extensions repo with tools, carapaces, and skills — load it via `INTEGRATION_DIRS` with no boilerplate.
 
 ## Quick Start
 
@@ -96,6 +97,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | [Chat History](docs/guides/chat-history.md) | Conversation archival, searchable sections, continuity |
 | [Agent Client](docs/guides/clients.md) | Remote voice assistant + local tool executor |
 | [Usage & Billing](docs/guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting |
+| [Custom Tools & Extensions](docs/guides/custom-tools.md) | Create tools, manage a personal extensions repo |
 | [Creating Integrations](docs/integrations/index.md) | Build custom integrations |
 | [Backup & Restore](docs/backup.md) | Automated Postgres + config backups to S3 |
 | [Docker Deployment](docs/docker-deployment.md) | Production Docker setup |

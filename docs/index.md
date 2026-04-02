@@ -141,6 +141,10 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
     Cost tracking, budget limits, spend forecasting, and provider pricing.
 
+-   [:material-wrench: **Custom Tools & Extensions**](guides/custom-tools.md)
+
+    Create custom tools, manage a personal extensions repo, load external carapaces and skills.
+
 -   [:material-puzzle-edit-outline: **Creating Integrations**](integrations/index.md)
 
     Build custom integrations with routers, dispatchers, and hooks.

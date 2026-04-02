@@ -8,6 +8,7 @@ import base64
 import json
 import logging
 import mimetypes
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -15,6 +16,32 @@ from pathlib import Path
 from integrations._register import register
 
 logger = logging.getLogger(__name__)
+
+
+def _find_chrome_path() -> str | None:
+    """Find a usable Chromium/Chrome binary, avoiding snap-packaged browsers.
+
+    Snap browsers can't be launched from systemd services due to cgroup
+    restrictions, so we prefer non-snap installations.
+    """
+    # Respect explicit config
+    for env in ("CHROME_PATH", "PUPPETEER_EXECUTABLE_PATH"):
+        val = os.environ.get(env)
+        if val and shutil.which(val):
+            return val
+
+    # Prefer non-snap browsers
+    for candidate in (
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/google-chrome",
+    ):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+
+    # Fallback to whatever is on PATH (might be snap Firefox, but worth trying)
+    return None
 
 
 async def _ensure_marp() -> str | None:
@@ -108,10 +135,19 @@ async def create_slides(
 
         cmd = f"{marp_cmd} {input_path} --{format} --allow-local-files -o {output_path}"
 
+        # Set CHROME_PATH so Marp/Puppeteer uses a non-snap browser.
+        # Snap-packaged Firefox can't launch from systemd services.
+        env = os.environ.copy()
+        chrome = _find_chrome_path()
+        if chrome:
+            env["CHROME_PATH"] = chrome
+            logger.info("Using browser for Marp: %s", chrome)
+
         proc = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
         stdout, stderr = await proc.communicate()
 

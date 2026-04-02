@@ -222,14 +222,80 @@ The shared workspace includes an `integrations/` directory that is automatically
 
 This is the easiest way to add custom integrations: ask a bot (or use Claude Code) to write the integration code, then restart the server.
 
+### Custom Tools
+
+Drop a `.py` file in `tools/` with a `@register` decorator and restart — the tool is available to any bot:
+
+```python
+# tools/my_tool.py
+from app.tools.registry import register
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "my_tool",
+        "description": "Does something useful.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+})
+async def my_tool() -> str:
+    return '{"result": "ok"}'
+```
+
+Additional tool directories can be loaded via `TOOL_DIRS`:
+
+```bash
+# .env
+TOOL_DIRS=/path/to/more/tools
+```
+
+### Personal Extensions Repo
+
+Keep your own tools, carapaces, and skills in a separate repo and load everything via `INTEGRATION_DIRS`. Structure your repo with a subdirectory that contains `tools/`, `carapaces/`, and/or `skills/`:
+
+```
+my-extensions/              # your repo
+└── personal/               # becomes a discoverable extension
+    ├── tools/
+    │   └── weather.py      # auto-discovered tool
+    ├── carapaces/
+    │   └── baking/
+    │       └── carapace.yaml
+    └── skills/
+        └── my-skill.md
+```
+
+```bash
+# .env
+INTEGRATION_DIRS=/path/to/my-extensions
+```
+
+No `setup.py` or boilerplate needed — the server auto-discovers tools, carapaces, and skills from any subdirectory.
+
+For Docker, mount the directory into the container:
+
+```yaml
+# docker-compose.override.yml
+services:
+  agent-server:
+    volumes:
+      - /home/you/my-extensions:/app/ext:ro
+    environment:
+      - INTEGRATION_DIRS=/app/ext
+```
+
+See the [Custom Tools & Extensions guide](guides/custom-tools.md) for a full walkthrough with examples.
+
 ### External Integrations
 
-Add custom integration directories:
+For full integrations with webhooks, dispatchers, and background processes:
 
 ```bash
 # .env
 INTEGRATION_DIRS=/path/to/my-integrations:/another/path
 ```
+
+See [Creating Integrations](integrations/index.md) for the complete guide.
 
 ## Directory Structure
 
@@ -271,9 +337,7 @@ agent-server/
 
 ### LLM calls failing
 
-1. Verify `LITELLM_BASE_URL` is reachable from the server container
-2. Check `LITELLM_API_KEY` is set correctly
-3. Check bot model is available at the provider
+1. Check admin/logs for trace information
 
 ### Integration process not starting
 
