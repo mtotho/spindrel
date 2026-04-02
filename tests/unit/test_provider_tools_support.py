@@ -28,6 +28,11 @@ class TestHeuristicNoToolsSets:
     def test_image_generation_pattern_present(self):
         assert "image-generation" in _HEURISTIC_NO_TOOLS_PATTERNS
 
+    def test_gemini_image_patterns_present(self):
+        """Gemini native image models (flash-image, pro-image) should be in patterns."""
+        assert "flash-image" in _HEURISTIC_NO_TOOLS_PATTERNS
+        assert "pro-image" in _HEURISTIC_NO_TOOLS_PATTERNS
+
 
 # ---------------------------------------------------------------------------
 # model_supports_tools — DB cache path
@@ -59,6 +64,18 @@ class TestModelSupportsToolsHeuristic:
         """Models containing a heuristic pattern substring should return False."""
         with patch("app.services.providers._no_tools_models", set()):
             assert model_supports_tools("some-future-image-generation-model") is False
+
+    def test_gemini_flash_image_no_tools(self):
+        """Gemini native image generation models should not support tools."""
+        with patch("app.services.providers._no_tools_models", set()):
+            assert model_supports_tools("gemini/gemini-2.5-flash-image") is False
+            assert model_supports_tools("gemini/gemini-2.5-pro-image") is False
+            assert model_supports_tools("gemini/gemini-2.0-flash-image") is False
+
+    def test_gpt_image_models_support_tools(self):
+        """OpenAI gpt-image models DO support tools — patterns must not match them."""
+        with patch("app.services.providers._no_tools_models", set()):
+            assert model_supports_tools("gpt-image-1") is True
 
     def test_normal_model_returns_true(self):
         """Normal models should return True (supports tools)."""
@@ -191,9 +208,10 @@ class TestProactiveToolStripping:
         assert isinstance(msg, AccumulatedMessage)
         assert msg.content == "I can't use tools"
 
-        # Verify the API was called with tools=None
-        call_kwargs = mock_client.chat.completions.create.call_args
-        assert call_kwargs.kwargs.get("tools") is None or call_kwargs[1].get("tools") is None
+        # Verify tools/tool_choice were NOT passed to the API at all (not even as None)
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        assert "tools" not in call_kwargs, "tools should be omitted, not passed as None"
+        assert "tool_choice" not in call_kwargs, "tool_choice should be omitted, not passed as None"
 
     @pytest.mark.asyncio
     async def test_tools_passed_when_model_supports_tools(self):
@@ -255,8 +273,8 @@ class TestReactive400Retry:
 
         # Should have been called twice: first with tools, second without
         assert mock_client.chat.completions.create.await_count == 2
-        second_call = mock_client.chat.completions.create.call_args_list[1]
-        assert second_call.kwargs.get("tools") is None
+        second_call_kwargs = mock_client.chat.completions.create.call_args_list[1].kwargs
+        assert "tools" not in second_call_kwargs, "tools should be omitted on retry, not passed as None"
 
     @pytest.mark.asyncio
     async def test_unrelated_bad_request_raises(self):

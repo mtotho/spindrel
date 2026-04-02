@@ -243,3 +243,87 @@ class TestLlmCallStream:
         assert isinstance(msg, AccumulatedMessage)
         assert msg.thinking_content == "Let me think..."
         assert msg.content == "Here's the answer."
+
+    @pytest.mark.asyncio
+    async def test_tools_none_not_passed_to_api(self):
+        """When tools are stripped (force_no_tools), tools=None should NOT be sent to the API.
+
+        Some providers (Vertex/Gemini via LiteLLM) interpret tools=null as
+        'enable function calling' and reject models that don't support it.
+        """
+        chunks = [
+            _make_chunk(content="ok"),
+            _make_chunk(finish_reason="stop"),
+        ]
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=_async_iter(chunks))
+
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.providers.requires_system_message_folding", return_value=False), \
+             patch("app.services.providers.model_supports_tools", return_value=False), \
+             patch("app.services.server_config.get_global_fallback_models", return_value=[]):
+            items = []
+            # Pass tools, but model_supports_tools returns False → tools should be stripped
+            async for item in _llm_call_stream(
+                "gemini/gemini-2.5-flash-image",
+                [{"role": "user", "content": "hi"}],
+                [{"type": "function", "function": {"name": "test", "parameters": {}}}],
+                "auto",
+            ):
+                items.append(item)
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        # tools and tool_choice should NOT be present in kwargs at all
+        assert "tools" not in call_kwargs, "tools=None should not be passed to the API"
+        assert "tool_choice" not in call_kwargs, "tool_choice=None should not be passed to the API"
+
+    @pytest.mark.asyncio
+    async def test_tools_not_supported_retry_failure_falls_to_fallback(self):
+        """If retry without tools also fails, the error should fall through to fallback chain."""
+        bad_request = openai.BadRequestError(
+            message="Function calling is not enabled for this model",
+            response=MagicMock(status_code=400),
+            body=None,
+        )
+        # Retry also fails with a different error
+        retry_error = openai.BadRequestError(
+            message="Some other error on retry",
+            response=MagicMock(status_code=400),
+            body=None,
+        )
+        chunks = [
+            _make_chunk(content="fallback ok"),
+            _make_chunk(finish_reason="stop"),
+        ]
+        mock_client = AsyncMock()
+
+        call_count = {"n": 0}
+        async def side_effect(**kwargs):
+            call_count["n"] += 1
+            if kwargs.get("model") == "gemini/gemini-2.5-flash":
+                if call_count["n"] == 1:
+                    raise bad_request
+                raise retry_error
+            return _async_iter(chunks)
+
+        mock_client.chat.completions.create = AsyncMock(side_effect=side_effect)
+
+        tools = [{"type": "function", "function": {"name": "test", "parameters": {}}}]
+        with patch("app.services.providers.get_llm_client", return_value=mock_client), \
+             patch("app.services.providers.requires_system_message_folding", return_value=False), \
+             patch("app.agent.llm.settings", _default_mock_settings()), \
+             patch("app.services.server_config.get_global_fallback_models",
+                   return_value=[{"model": "gpt-3.5-turbo"}]):
+            items = []
+            async for item in _llm_call_stream(
+                "gemini/gemini-2.5-flash",
+                [{"role": "user", "content": "hi"}],
+                tools, "auto",
+                fallback_models=[{"model": "gpt-3.5-turbo"}],
+            ):
+                items.append(item)
+
+        # Should have fallen through to fallback and succeeded
+        msg = items[-1]
+        assert isinstance(msg, AccumulatedMessage)
+        assert msg.content == "fallback ok"

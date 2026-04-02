@@ -262,3 +262,78 @@ class TestPersistTurn:
         added = [call[0][0] for call in db.add.call_args_list]
         assert added[0].metadata_ == meta
         assert added[1].metadata_ == {}
+
+    @pytest.mark.asyncio
+    async def test_pre_user_msg_id_skips_first_user_message(self):
+        """When pre_user_msg_id is set, the first user message should be skipped."""
+        from app.services.sessions import persist_turn
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        session_id = uuid.uuid4()
+        pre_id = uuid.uuid4()
+        bot = _make_bot()
+        messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi back"},
+        ]
+        result = await persist_turn(
+            db, session_id, bot, messages, from_index=0,
+            pre_user_msg_id=pre_id,
+        )
+
+        # Only assistant should be persisted (user was pre-persisted)
+        added = [call[0][0] for call in db.add.call_args_list]
+        roles = [m.role for m in added]
+        assert "user" not in roles
+        assert "assistant" in roles
+        # Return value should be the pre-persisted user message ID
+        assert result == pre_id
+
+    @pytest.mark.asyncio
+    async def test_pre_user_msg_id_skips_only_first_user(self):
+        """pre_user_msg_id should only skip the first user message, not subsequent ones."""
+        from app.services.sessions import persist_turn
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        session_id = uuid.uuid4()
+        pre_id = uuid.uuid4()
+        bot = _make_bot()
+        messages = [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "reply"},
+            {"role": "user", "content": "follow-up"},
+            {"role": "assistant", "content": "reply2"},
+        ]
+        await persist_turn(
+            db, session_id, bot, messages, from_index=0,
+            pre_user_msg_id=pre_id,
+        )
+
+        added = [call[0][0] for call in db.add.call_args_list]
+        roles = [m.role for m in added]
+        # First user skipped, second user kept
+        user_contents = [m.content for m in added if m.role == "user"]
+        assert user_contents == ["follow-up"]
+        assert roles.count("assistant") == 2
+
+    @pytest.mark.asyncio
+    async def test_no_pre_user_msg_id_persists_all(self):
+        """Without pre_user_msg_id, all messages (except system) are persisted as before."""
+        from app.services.sessions import persist_turn
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        session_id = uuid.uuid4()
+        bot = _make_bot()
+        messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+        ]
+        await persist_turn(db, session_id, bot, messages, from_index=0)
+
+        added = [call[0][0] for call in db.add.call_args_list]
+        roles = [m.role for m in added]
+        assert "user" in roles
+        assert "assistant" in roles

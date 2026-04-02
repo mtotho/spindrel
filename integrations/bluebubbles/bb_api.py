@@ -11,6 +11,8 @@ import uuid
 
 import httpx
 
+from integrations.bluebubbles.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,7 +53,7 @@ async def send_text(
                 "chatGuid": chat_guid,
                 "message": text,
                 "tempGuid": temp_guid,
-                "method": "private-api",
+                "method": settings.BB_SEND_METHOD,
             },
             timeout=60.0,
         )

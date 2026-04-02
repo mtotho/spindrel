@@ -488,6 +488,10 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     ATTACHMENT_TYPES_ALLOWED: list[str] | None = None  # global default, None = all types
     ATTACHMENT_RETENTION_SWEEP_INTERVAL_S: int = 3600  # 1 hour between sweeps
 
+    # Data retention (operational tables: trace_events, tool_calls, heartbeat_runs, etc.)
+    DATA_RETENTION_DAYS: int | None = None  # None = keep forever
+    DATA_RETENTION_SWEEP_INTERVAL_S: int = 86400  # 24 hours between sweeps
+
     # User authentication (JWT + Google OAuth)
     JWT_SECRET: str = ""  # auto-generated on first startup if empty
     JWT_ACCESS_EXPIRY: int = 3600  # 1 hour

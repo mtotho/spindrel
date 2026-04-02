@@ -45,5 +45,9 @@ class _Settings:
     def BB_WEBHOOK_TOKEN(self) -> str:
         return _get("BB_WEBHOOK_TOKEN")
 
+    @property
+    def BB_SEND_METHOD(self) -> str:
+        return _get("BB_SEND_METHOD", "apple-script")
+
 
 settings = _Settings()

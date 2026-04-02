@@ -447,6 +447,23 @@ async def chat(
                 if _secret_vals:
                     _register_secrets(_secret_vals)
 
+    # Persist user message immediately so it's visible even if the agent loop crashes
+    _pre_user_msg_id = None
+    try:
+        _user_record = MessageModel(
+            session_id=session_id,
+            role="user",
+            content=message,
+            correlation_id=correlation_id,
+            metadata_=req.msg_metadata or {},
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(_user_record)
+        await db.commit()
+        _pre_user_msg_id = _user_record.id
+    except Exception:
+        logger.warning("Failed to pre-persist user message for session %s", session_id, exc_info=True)
+
     try:
         result = await run(
             messages, bot, message,
@@ -472,6 +489,7 @@ async def chat(
         correlation_id=correlation_id,
         msg_metadata=req.msg_metadata,
         channel_id=channel_id,
+        pre_user_msg_id=_pre_user_msg_id,
     )
     maybe_compact(
         session_id, bot, messages,
@@ -730,6 +748,27 @@ async def chat_stream(
                             _register_secrets(_secret_vals)
                         yield f"data: {json.dumps({'type': 'secret_warning', 'patterns': [{'type': p['type']} for p in _pattern_hits]})}\n\n"
 
+            # Persist user message immediately so it's visible even if the
+            # agent loop crashes.  Uses a fresh DB session because the
+            # dependency-injected one may be closed during streaming.
+            _pre_user_msg_id = None
+            try:
+                from app.db.engine import async_session as _async_session_early
+                async with _async_session_early() as _early_db:
+                    _user_record = MessageModel(
+                        session_id=session_id,
+                        role="user",
+                        content=message,
+                        correlation_id=correlation_id,
+                        metadata_=req.msg_metadata or {},
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    _early_db.add(_user_record)
+                    await _early_db.commit()
+                    _pre_user_msg_id = _user_record.id
+            except Exception:
+                logger.warning("Failed to pre-persist user message for session %s", session_id, exc_info=True)
+
             response_text = ""
             response_actions = None
             was_cancelled = False
@@ -780,6 +819,7 @@ async def chat_stream(
                         correlation_id=correlation_id,
                         msg_metadata=req.msg_metadata,
                         channel_id=channel_id,
+                        pre_user_msg_id=_pre_user_msg_id,
                     )
             except Exception:
                 logger.exception("CRITICAL: persist_turn failed for session %s — messages will be lost", session_id)

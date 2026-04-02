@@ -1,6 +1,7 @@
 /**
  * Aggregated cross-channel swimlane kanban board.
  * Rows = channels, columns = stages. HTML5 drag-and-drop.
+ * TFS-inspired clean layout: no heavy grid borders, shadow-elevated cards.
  */
 import { useState, useMemo, useCallback } from "react";
 import ReactDOM from "react-dom";
@@ -141,24 +142,19 @@ export default function KanbanSwimlane({
 
   return (
     <div className="flex-1 overflow-auto relative">
-      <div
-        className="border-l border-t border-surface-3"
-        style={{ display: "grid", gridTemplateColumns }}
-      >
+      <div style={{ display: "grid", gridTemplateColumns }}>
         {/* Header row */}
-        <div className="sticky top-0 left-0 z-30 bg-surface-1 border-r border-b border-surface-3 p-2 flex items-center">
+        <div className="sticky top-0 left-0 z-30 bg-surface-0 border-b border-surface-3 p-2 flex items-center">
           <span className="text-[10px] font-semibold text-content-dim uppercase tracking-wider">Channel</span>
         </div>
         {columns.map((col, ci) => (
           <div
             key={col.name}
-            className="sticky top-0 z-20 bg-surface-1 border-r border-b border-surface-3 px-2.5 py-2 flex items-center gap-2"
+            className="sticky top-0 z-20 bg-surface-0 border-b border-surface-3 px-3 py-2 flex items-center gap-2"
             style={{ borderTopWidth: 2, borderTopColor: columnColor(col.name) }}
           >
             <span className="text-xs font-semibold text-content flex-1">{col.name}</span>
-            <span className="text-[10px] font-semibold text-content-dim bg-surface-3/50 rounded-full px-1.5 py-px">
-              {colCounts[ci]}
-            </span>
+            <span className="text-[10px] font-medium text-content-dim">{colCounts[ci]}</span>
           </div>
         ))}
 
@@ -183,7 +179,7 @@ export default function KanbanSwimlane({
         })}
 
         {swimlanes.length === 0 && (
-          <div className="border-r border-b border-surface-3 p-8 text-center text-content-dim text-sm" style={{ gridColumn: "1 / -1" }}>
+          <div className="p-8 text-center text-content-dim text-sm" style={{ gridColumn: "1 / -1" }}>
             No cards to display
           </div>
         )}
@@ -234,7 +230,7 @@ function SwimlaneRowCells({
   return (
     <>
       {/* Channel label */}
-      <div className="sticky left-0 z-10 bg-surface-0 border-r border-b border-surface-3 px-2.5 py-2 flex items-start gap-1.5" style={{ minHeight: 60 }}>
+      <div className="sticky left-0 z-10 bg-surface-0 border-b border-surface-3 px-2.5 py-2 flex items-start gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: channelDotColor }} />
         <div className="overflow-hidden">
           <div className="text-xs font-semibold text-content truncate">{row.channelName}</div>
@@ -254,8 +250,8 @@ function SwimlaneRowCells({
         return (
           <div
             key={col.name}
-            className="border-r border-b border-surface-3 p-1.5 transition-colors"
-            style={{ minHeight: 60, backgroundColor: isDropTarget ? "rgba(99,102,241,0.05)" : "transparent" }}
+            className="border-b border-surface-3 p-2 transition-colors"
+            style={{ backgroundColor: isDropTarget ? "rgba(99,102,241,0.08)" : undefined }}
             onDragOver={(e) => { e.preventDefault(); onDragHover(col.name, row.channelId); }}
             onDragLeave={() => onDragHover(null, null)}
             onDrop={(e) => { e.preventDefault(); onDrop(col.name); }}
@@ -315,12 +311,12 @@ function SwimlaneCard({
       onDragStart={() => onDragStart(cardId, card.channel_id, columnName)}
       onDragEnd={onDragEnd}
       onClick={onClick}
-      className="mb-1 rounded-lg bg-surface-2 border border-surface-3 cursor-pointer hover:border-surface-4 transition-colors"
+      className="mb-1.5 rounded-lg bg-surface-0 shadow-sm cursor-pointer hover:shadow transition-shadow"
       style={{ opacity: isDragging ? 0.4 : 1 }}
     >
-      <div className="px-2 py-1.5">
-        <div className="text-xs text-content truncate">{card.title}</div>
-        <div className="flex items-center gap-2 mt-0.5">
+      <div className="px-2.5 py-2">
+        <div className="text-xs text-content leading-snug">{card.title}</div>
+        <div className="flex items-center gap-2 mt-1">
           {card.meta?.priority && (
             <>
               <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: pc.fg }} />
@@ -337,7 +333,7 @@ function SwimlaneCard({
 }
 
 // ---------------------------------------------------------------------------
-// Card detail modal (portal)
+// Card editor modal (portal) — always in edit mode
 // ---------------------------------------------------------------------------
 
 const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"];
@@ -358,40 +354,34 @@ function CardModal({
   onClose: () => void;
 }) {
   const cardId = card.meta?.id || card.title;
-  const priority = (card.meta?.priority || "medium").toLowerCase();
-  const pc = PRIORITY_COLORS[priority] || PRIORITY_COLORS.medium;
+  const origPriority = (card.meta?.priority || "medium").toLowerCase();
 
-  const [editing, setEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState(card.title);
-  const [editDesc, setEditDesc] = useState(card.description || "");
-  const [editPriority, setEditPriority] = useState(priority);
-  const [editAssigned, setEditAssigned] = useState(card.meta?.assigned || "");
-  const [editTags, setEditTags] = useState(card.meta?.tags || "");
-  const [editDue, setEditDue] = useState(card.meta?.due || "");
+  const [title, setTitle] = useState(card.title);
+  const [desc, setDesc] = useState(card.description || "");
+  const [priority, setPriority] = useState(origPriority);
+  const [assigned, setAssigned] = useState(card.meta?.assigned || "");
+  const [tags, setTags] = useState(card.meta?.tags || "");
+  const [due, setDue] = useState(card.meta?.due || "");
+
+  const isDirty =
+    title !== card.title ||
+    desc !== (card.description || "") ||
+    priority !== origPriority ||
+    assigned !== (card.meta?.assigned || "") ||
+    tags !== (card.meta?.tags || "") ||
+    due !== (card.meta?.due || "");
 
   const handleSave = () => {
-    if (!onUpdate) return;
+    if (!onUpdate || !isDirty) return;
     const fields: Record<string, string> = {};
-    if (editTitle !== card.title) fields.title = editTitle;
-    if (editDesc !== (card.description || "")) fields.description = editDesc;
-    if (editPriority !== priority) fields.priority = editPriority;
-    if (editAssigned !== (card.meta?.assigned || "")) fields.assigned = editAssigned;
-    if (editTags !== (card.meta?.tags || "")) fields.tags = editTags;
-    if (editDue !== (card.meta?.due || "")) fields.due = editDue;
-    if (Object.keys(fields).length > 0) {
-      onUpdate(cardId, card.channel_id, fields);
-    }
-    setEditing(false);
-  };
-
-  const handleCancel = () => {
-    setEditTitle(card.title);
-    setEditDesc(card.description || "");
-    setEditPriority(priority);
-    setEditAssigned(card.meta?.assigned || "");
-    setEditTags(card.meta?.tags || "");
-    setEditDue(card.meta?.due || "");
-    setEditing(false);
+    if (title !== card.title) fields.title = title;
+    if (desc !== (card.description || "")) fields.description = desc;
+    if (priority !== origPriority) fields.priority = priority;
+    if (assigned !== (card.meta?.assigned || "")) fields.assigned = assigned;
+    if (tags !== (card.meta?.tags || "")) fields.tags = tags;
+    if (due !== (card.meta?.due || "")) fields.due = due;
+    onUpdate(cardId, card.channel_id, fields);
+    onClose();
   };
 
   const moveToColumn = (toCol: string) => {
@@ -401,14 +391,15 @@ function CardModal({
     onClose();
   };
 
-  const inputClass = "w-full bg-surface-0 border border-surface-4 rounded px-2 py-1.5 text-xs text-content focus:outline-none focus:border-accent";
+  const inputClass =
+    "w-full bg-surface-0 border border-surface-3 rounded px-2.5 py-1.5 text-xs text-content placeholder-content-dim focus:outline-none focus:border-accent transition-colors";
 
   return ReactDOM.createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-black/50" />
+      <div className="absolute inset-0 bg-black/20" />
       <div
         className="relative bg-surface-1 border border-surface-3 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -416,141 +407,90 @@ function CardModal({
       >
         <div className="p-5 space-y-4">
           {/* Title */}
-          {editing ? (
-            <input
-              type="text"
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              className={inputClass + " text-sm font-semibold"}
-            />
-          ) : (
-            <h2 className="text-sm font-semibold text-content pr-8">{card.title}</h2>
-          )}
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Card title"
+            className={inputClass + " text-sm font-semibold"}
+          />
+
+          {/* Context: status + channel (read-only) */}
+          <div className="flex items-center gap-4 text-[10px] text-content-dim">
+            <span className="uppercase tracking-wider">{currentColumn}</span>
+            <span>{card.channel_name}</span>
+          </div>
 
           {/* Description */}
-          {editing ? (
-            <div>
-              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Description</label>
-              <textarea
-                value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
-                rows={4}
-                className={inputClass + " resize-none"}
-              />
-            </div>
-          ) : card.description ? (
-            <div>
-              <p className="text-[10px] text-content-dim uppercase tracking-wider mb-1">Description</p>
-              <pre className="text-xs text-content-muted whitespace-pre-wrap font-sans">{card.description}</pre>
-            </div>
-          ) : null}
+          <div>
+            <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Description</label>
+            <textarea
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              rows={4}
+              placeholder="Add a description..."
+              className={inputClass + " resize-none"}
+            />
+          </div>
 
-          {/* Meta */}
-          {editing ? (
-            <div className="space-y-3">
-              <div>
-                <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Priority</label>
-                <select
-                  value={editPriority}
-                  onChange={(e) => setEditPriority(e.target.value)}
-                  className={inputClass}
-                >
-                  {PRIORITY_OPTIONS.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Assigned</label>
-                <input type="text" value={editAssigned} onChange={(e) => setEditAssigned(e.target.value)} className={inputClass} />
-              </div>
-              <div>
-                <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Tags (comma-separated)</label>
-                <input type="text" value={editTags} onChange={(e) => setEditTags(e.target.value)} className={inputClass} />
-              </div>
-              <div>
-                <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Due date</label>
-                <input type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)} className={inputClass} />
-              </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
-              <div className="text-content-dim">Status</div>
-              <div className="text-content">{currentColumn}</div>
-              <div className="text-content-dim">Channel</div>
-              <div className="text-content">{card.channel_name}</div>
-              <div className="text-content-dim">Priority</div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: pc.fg }} />
-                <span style={{ color: pc.fg }}>{priority}</span>
-              </div>
-              {card.meta?.assigned && (
-                <>
-                  <div className="text-content-dim">Assigned</div>
-                  <div className="text-content">{card.meta.assigned}</div>
-                </>
-              )}
-              {card.meta?.due && (
-                <>
-                  <div className="text-content-dim">Due</div>
-                  <div className="text-content">{card.meta.due}</div>
-                </>
-              )}
-              {card.meta?.tags && (
-                <>
-                  <div className="text-content-dim">Tags</div>
-                  <div className="text-content">{card.meta.tags}</div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Edit / Save / Cancel buttons */}
-          {editing ? (
-            <div className="flex gap-2">
-              <button
-                onClick={handleSave}
-                className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover transition-colors"
-              >
-                Save
-              </button>
-              <button
-                onClick={handleCancel}
-                className="px-3 py-1.5 text-xs rounded-md border border-surface-3 text-content-muted hover:text-content transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : onUpdate ? (
-            <button
-              onClick={() => setEditing(true)}
-              className="px-3 py-1.5 text-xs rounded-md border border-surface-3 text-content-muted hover:text-content transition-colors"
-            >
-              Edit
-            </button>
-          ) : null}
-
-          {/* Move buttons */}
-          {!editing && (
+          {/* Meta fields — 2-column grid */}
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-[10px] text-content-dim uppercase tracking-wider mb-1.5">Move to</p>
-              <div className="flex flex-wrap gap-1">
-                {columns.map((col) => (
-                  <button
-                    key={col.name}
-                    onClick={() => moveToColumn(col.name)}
-                    disabled={col.name === currentColumn}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                      col.name === currentColumn
-                        ? "bg-accent/15 text-accent-hover cursor-default"
-                        : "border border-surface-3 text-content-muted hover:text-content"
-                    }`}
-                  >
-                    {col.name}
-                  </button>
+              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Priority</label>
+              <select value={priority} onChange={(e) => setPriority(e.target.value)} className={inputClass}>
+                {PRIORITY_OPTIONS.map((p) => (
+                  <option key={p} value={p}>{p}</option>
                 ))}
-              </div>
+              </select>
             </div>
+            <div>
+              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Due date</label>
+              <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={inputClass} />
+            </div>
+            <div>
+              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Assigned</label>
+              <input type="text" value={assigned} onChange={(e) => setAssigned(e.target.value)} placeholder="Unassigned" className={inputClass} />
+            </div>
+            <div>
+              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Tags</label>
+              <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Comma-separated" className={inputClass} />
+            </div>
+          </div>
+
+          {/* Move to column */}
+          <div>
+            <p className="text-[10px] text-content-dim uppercase tracking-wider mb-1.5">Move to</p>
+            <div className="flex flex-wrap gap-1">
+              {columns.map((col) => (
+                <button
+                  key={col.name}
+                  onClick={() => moveToColumn(col.name)}
+                  disabled={col.name === currentColumn}
+                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                    col.name === currentColumn
+                      ? "bg-accent/15 text-accent-hover cursor-default"
+                      : "border border-surface-3 text-content-muted hover:text-content"
+                  }`}
+                >
+                  {col.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Save */}
+          {onUpdate && (
+            <button
+              onClick={handleSave}
+              disabled={!isDirty}
+              className={`w-full py-2 text-xs font-medium rounded-md transition-colors ${
+                isDirty
+                  ? "bg-accent text-white hover:bg-accent-hover"
+                  : "bg-surface-3 text-content-dim cursor-not-allowed"
+              }`}
+            >
+              Save changes
+            </button>
           )}
         </div>
 

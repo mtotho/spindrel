@@ -638,11 +638,18 @@ async def _llm_call_stream(
     async def _try_model(m: str, pid: str | None, mp: dict | None, *, force_no_tools: bool = False):
         """Attempt one model. Returns stream or raises."""
         p = _prepare_call_params(m, messages, tools_param, tool_choice, pid, mp, force_no_tools=force_no_tools)
-        return await p.client.chat.completions.create(
-            model=p.model, messages=p.messages, tools=p.tools,
-            tool_choice=p.tool_choice, stream=True,
+        # Only include tools/tool_choice when they have values — passing None
+        # sends "tools": null in the JSON body which some providers (Vertex/Gemini
+        # via LiteLLM) interpret as "enable function calling" and reject.
+        kwargs: dict = dict(
+            model=p.model, messages=p.messages, stream=True,
             stream_options={"include_usage": True}, **p.extra,
         )
+        if p.tools is not None:
+            kwargs["tools"] = p.tools
+        if p.tool_choice is not None:
+            kwargs["tool_choice"] = p.tool_choice
+        return await p.client.chat.completions.create(**kwargs)
 
     # --- Circuit breaker: skip model if in cooldown ---
     primary_exc = None
@@ -680,7 +687,12 @@ async def _llm_call_stream(
                     logger.warning("Model %s returned 400 (tools not supported), retrying without tools", model)
                     yield {"type": "llm_retry", "attempt": 1, "max_retries": 1,
                            "wait_seconds": 0, "reason": "tools_not_supported", "model": model}
-                    stream = await _try_model(model, provider_id, model_params, force_no_tools=True)
+                    try:
+                        stream = await _try_model(model, provider_id, model_params, force_no_tools=True)
+                    except Exception as retry_exc:
+                        logger.warning("Retry without tools also failed for %s: %s", model, retry_exc)
+                        primary_exc = retry_exc
+                        stream = None
                     break
                 raise
             except openai.RateLimitError as exc:
@@ -742,7 +754,12 @@ async def _llm_call_stream(
                 except openai.BadRequestError as exc:
                     if _is_tools_not_supported_error(exc) and tools_param:
                         logger.warning("Fallback %s returned 400 (tools not supported), retrying without tools", fb_model)
-                        stream = await _try_model(fb_model, fb_provider, model_params, force_no_tools=True)
+                        try:
+                            stream = await _try_model(fb_model, fb_provider, model_params, force_no_tools=True)
+                        except Exception as retry_exc:
+                            logger.warning("Fallback %s retry without tools also failed: %s", fb_model, retry_exc)
+                            last_exc = retry_exc
+                            break
                         last_fallback_info.set(FallbackInfo(
                             original_model=model, fallback_model=fb_model,
                             reason=type(primary_exc).__name__,
@@ -958,12 +975,12 @@ async def _llm_call_with_retries(
 
     async def _do_call(*, use_tools: bool = True):
         """Execute the API call, optionally stripping tools."""
-        resp = await p.client.chat.completions.create(
-            model=p.model, messages=p.messages,
-            tools=p.tools if use_tools else None,
-            tool_choice=p.tool_choice if use_tools else None,
-            **p.extra,
-        )
+        kwargs: dict = dict(model=p.model, messages=p.messages, **p.extra)
+        if use_tools and p.tools is not None:
+            kwargs["tools"] = p.tools
+        if use_tools and p.tool_choice is not None:
+            kwargs["tool_choice"] = p.tool_choice
+        resp = await p.client.chat.completions.create(**kwargs)
         if not resp.choices:
             raise EmptyChoicesError(
                 f"LLM returned empty choices list (model={model}, "

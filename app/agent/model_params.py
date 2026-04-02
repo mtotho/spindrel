@@ -16,6 +16,9 @@ _HEURISTIC_NO_TOOLS_MODELS: set[str] = {
 # Substring patterns — if any pattern appears in the model ID, tools are not supported.
 _HEURISTIC_NO_TOOLS_PATTERNS: list[str] = [
     "image-generation",
+    # Gemini native image generation models (e.g. gemini-2.5-flash-image)
+    "flash-image",
+    "pro-image",
 ]
 
 

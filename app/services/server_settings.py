@@ -117,6 +117,9 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "ATTACHMENT_TEXT_MAX_CHARS": {"group": "Attachments", "label": "Text Max Chars", "description": "Max chars for text summarization", "type": "int", "min": 1000, "max": 200000},
     "ATTACHMENT_RETENTION_DAYS": {"group": "Attachments", "label": "Retention Days", "description": "Days to keep attachments (empty = forever)", "type": "int", "min": 1, "max": 3650, "nullable": True},
     "ATTACHMENT_MAX_SIZE_BYTES": {"group": "Attachments", "label": "Max Size (bytes)", "description": "Max attachment size (empty = no limit)", "type": "int", "min": 1024, "max": 1073741824, "nullable": True},
+    # --- Data Retention ---
+    "DATA_RETENTION_DAYS": {"group": "Data Retention", "label": "Retention Days", "description": "Days to keep operational data (trace events, tool calls, heartbeat runs, etc.). Empty = keep forever.", "type": "int", "min": 1, "max": 3650, "nullable": True},
+    "DATA_RETENTION_SWEEP_INTERVAL_S": {"group": "Data Retention", "label": "Sweep Interval (seconds)", "description": "Seconds between automatic retention sweeps", "type": "int", "min": 3600, "max": 604800},
     # --- Image Generation ---
     "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation", "type": "string", "widget": "model"},
     # --- Prompt Generation ---
@@ -128,7 +131,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 GROUP_ORDER = [
     "System", "General", "Security", "Web Search", "Agent", "Chat History",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization",
-    "Tool Policies", "Speech-to-Text", "Heartbeat", "Attachments", "Image Generation", "Prompt Generation",
+    "Tool Policies", "Speech-to-Text", "Heartbeat", "Attachments", "Data Retention", "Image Generation", "Prompt Generation",
 ]
 
 

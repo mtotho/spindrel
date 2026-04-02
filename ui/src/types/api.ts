@@ -810,6 +810,27 @@ export interface AvailableTargetsResponse {
   integrations: AvailableIntegration[];
 }
 
+// Storage / data retention types
+export interface TableStats {
+  table: string;
+  row_count: number;
+  size_bytes: number | null;
+  size_display: string | null;
+  oldest_row: string | null;
+  purgeable: number;
+}
+
+export interface StorageBreakdown {
+  tables: TableStats[];
+  retention_days: number | null;
+  sweep_interval_s: number;
+}
+
+export interface PurgeResult {
+  deleted: Record<string, number>;
+  total: number;
+}
+
 // Admin types
 export interface AdminStats {
   sessions: number;

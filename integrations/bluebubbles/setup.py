@@ -10,6 +10,7 @@ SETUP = {
         {"key": "BB_DEFAULT_BOT", "required": False, "description": "Default bot ID for Socket.IO client (default: default). Not used by webhook path."},
         {"key": "BB_WAKE_WORDS", "required": False, "description": "Extra wake words (comma-separated). Added on top of automatic bot name/id wake words."},
         {"key": "BB_WEBHOOK_TOKEN", "required": False, "description": "Shared secret for webhook auth (?token=). If empty, webhook is unauthenticated.", "secret": True},
+        {"key": "BB_SEND_METHOD", "required": False, "description": "iMessage send method: 'apple-script' (default, reliable) or 'private-api' (requires Private API helper)"},
     ],
     "api_permissions": "slack_integration",
     "webhook": {

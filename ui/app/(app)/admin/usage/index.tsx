@@ -22,6 +22,7 @@ import { useUsageForecast } from "@/src/api/hooks/useUsageForecast";
 import { ForecastTab, LimitAlerts, ForecastCards } from "./ForecastSection";
 import { LimitsTab } from "./LimitsTab";
 import { AlertsTab } from "./AlertsTab";
+import { StorageTab } from "./StorageTab";
 import { useUsageHudStore } from "@/src/stores/usageHud";
 
 // ---------------------------------------------------------------------------
@@ -36,7 +37,7 @@ const TIME_PRESETS: { label: string; value: string }[] = [
   { label: "30d", value: "30d" },
 ];
 
-const TABS = ["Overview", "Forecast", "Logs", "Charts", "Limits", "Alerts"] as const;
+const TABS = ["Overview", "Forecast", "Logs", "Charts", "Limits", "Alerts", "Storage"] as const;
 type Tab = (typeof TABS)[number];
 
 function fmtCost(v: number | null | undefined): string {
@@ -959,7 +960,7 @@ export default function UsageScreen() {
       <MobileHeader title="Usage & Costs" subtitle="LLM cost analytics" />
 
       {/* Filter bar — only shown on tabs that use time/filter params */}
-      {tab !== "Forecast" && tab !== "Limits" && tab !== "Alerts" && (
+      {tab !== "Forecast" && tab !== "Limits" && tab !== "Alerts" && tab !== "Storage" && (
         <div
           style={{
             display: "flex",
@@ -1103,6 +1104,7 @@ export default function UsageScreen() {
           {tab === "Charts" && <ChartsTab params={params} />}
           {tab === "Limits" && <LimitsTab knownModels={modelNames} />}
           {tab === "Alerts" && <AlertsTab />}
+          {tab === "Storage" && <StorageTab />}
         </div>
       </RefreshableScrollView>
     </View>

@@ -401,6 +401,8 @@ async def lifespan(application: FastAPI):
     asyncio.create_task(attachment_sweep_worker())
     from app.services.attachment_retention import attachment_retention_worker
     asyncio.create_task(attachment_retention_worker())
+    from app.services.data_retention import data_retention_worker
+    asyncio.create_task(data_retention_worker())
     if settings.CONFIG_STATE_FILE:
         from app.services.config_export import config_export_worker
         asyncio.create_task(config_export_worker())

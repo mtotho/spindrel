@@ -378,19 +378,38 @@ async def persist_turn(
     msg_metadata: dict | None = None,
     channel_id: uuid.UUID | None = None,
     is_heartbeat: bool = False,
+    pre_user_msg_id: uuid.UUID | None = None,
 ) -> uuid.UUID | None:
-    """Persist new messages from a turn. Returns the first user message ID (for attachment linking)."""
+    """Persist new messages from a turn. Returns the first user message ID (for attachment linking).
+
+    If pre_user_msg_id is set, the first user message was already persisted
+    before the agent loop and should be skipped here. The pre-persisted ID
+    is used for attachment linking.
+    """
     # Ephemeral system messages (datetime, memory, skills, fs_context, tool_index, etc.) are
     # re-injected fresh on every turn — persisting them causes unbounded context growth.
     new_messages = [m for m in messages[from_index:] if m.get("role") != "system"]
+
+    # If user message was pre-persisted, skip the first user message from the list
+    if pre_user_msg_id:
+        _skipped = False
+        filtered = []
+        for m in new_messages:
+            if not _skipped and m.get("role") == "user":
+                _skipped = True
+                continue
+            filtered.append(m)
+        new_messages = filtered
+
     roles = [m.get("role") for m in new_messages]
     logger.info(
-        "persist_turn: session=%s from_index=%d total_msgs=%d new_msgs=%d roles=%s",
+        "persist_turn: session=%s from_index=%d total_msgs=%d new_msgs=%d roles=%s pre_user=%s",
         session_id, from_index, len(messages), len(new_messages), roles,
+        pre_user_msg_id is not None,
     )
     now = datetime.now(timezone.utc)
-    first_user = True
-    first_user_msg_id: uuid.UUID | None = None
+    first_user = pre_user_msg_id is None  # only track first user if not pre-persisted
+    first_user_msg_id: uuid.UUID | None = pre_user_msg_id
     last_assistant_msg_id: uuid.UUID | None = None
     for i, msg in enumerate(new_messages):
         # Attach msg_metadata to the first user message in the turn
