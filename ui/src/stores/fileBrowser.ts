@@ -31,6 +31,9 @@ interface FileBrowserState {
   expandedDirs: DirMap;
   treeWidth: number;
 
+  // Channel file explorer (chat sidebar)
+  channelExplorerWidth: number;
+
   // Actions — split
   toggleSplit: () => void;
   setSplitRatio: (ratio: number) => void;
@@ -43,6 +46,7 @@ interface FileBrowserState {
   expandDir: (path: string) => void;
   collapseDir: (path: string) => void;
   setTreeWidth: (width: number) => void;
+  setChannelExplorerWidth: (width: number) => void;
 
   // Actions — files
   openFile: (path: string, name: string, pane?: PaneId) => void;
@@ -78,6 +82,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
   treeVisible: true,
   expandedDirs: {} as DirMap,
   treeWidth: 220,
+  channelExplorerWidth: 260,
 
   toggleTree: () => set((s) => ({ treeVisible: !s.treeVisible })),
   showTree: () => set({ treeVisible: true }),
@@ -128,6 +133,7 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
     }),
 
   setTreeWidth: (width) => set({ treeWidth: Math.max(140, Math.min(500, width)) }),
+  setChannelExplorerWidth: (width) => set({ channelExplorerWidth: Math.max(180, Math.min(500, width)) }),
 
   openFile: (path, name, pane = "left") =>
     set((s) => {
@@ -200,5 +206,6 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
       treeVisible: true,
       expandedDirs: {} as DirMap,
       treeWidth: 220,
+      channelExplorerWidth: 260,
     }),
 }));

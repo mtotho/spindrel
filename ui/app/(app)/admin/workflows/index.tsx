@@ -12,6 +12,7 @@ import {
 import { Link, useRouter } from "expo-router";
 import type { Workflow, WorkflowRun } from "@/src/types/api";
 import { fmtTime } from "./WorkflowRunHelpers";
+import { StatusFilterChips, filterRuns, type RunStatusFilter } from "./StatusFilterChips";
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -40,6 +41,9 @@ function getRunStatusStyle(status: string, t: ThemeTokens) {
 // ---------------------------------------------------------------------------
 
 function RecentRunsFeed({ runs, t }: { runs: WorkflowRun[]; t: ThemeTokens }) {
+  const [statusFilter, setStatusFilter] = useState<RunStatusFilter>("all");
+  const filtered = useMemo(() => filterRuns(runs, statusFilter), [runs, statusFilter]);
+
   if (runs.length === 0) return null;
 
   return (
@@ -59,10 +63,19 @@ function RecentRunsFeed({ runs, t }: { runs: WorkflowRun[]; t: ThemeTokens }) {
         <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
       </div>
 
+      <div style={{ marginBottom: 8 }}>
+        <StatusFilterChips runs={runs} active={statusFilter} onChange={setStatusFilter} />
+      </div>
+
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {runs.map((run) => (
+        {filtered.map((run) => (
           <RunRow key={run.id} run={run} t={t} />
         ))}
+        {filtered.length === 0 && statusFilter !== "all" && (
+          <div style={{ padding: 16, textAlign: "center", color: t.textDim, fontSize: 12 }}>
+            No {statusFilter.replace(/_/g, " ")} runs.
+          </div>
+        )}
       </div>
     </div>
   );

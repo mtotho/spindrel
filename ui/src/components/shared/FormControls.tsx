@@ -10,7 +10,7 @@ import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 // Section card
 // ---------------------------------------------------------------------------
 export function Section({ title, description, action, children }: {
-  title: string;
+  title: React.ReactNode;
   description?: string;
   action?: React.ReactNode;
   children: React.ReactNode;
@@ -36,7 +36,7 @@ export function Section({ title, description, action, children }: {
 // Form row (label + control + description)
 // ---------------------------------------------------------------------------
 export function FormRow({ label, description, children }: {
-  label: string;
+  label: React.ReactNode;
   description?: string;
   children: React.ReactNode;
 }) {
@@ -123,7 +123,7 @@ export function SelectInput({ value, onChange, options, style }: {
 export function Toggle({ value, onChange, label, description }: {
   value: boolean;
   onChange: (v: boolean) => void;
-  label?: string;
+  label?: React.ReactNode;
   description?: string;
 }) {
   const t = useThemeTokens();

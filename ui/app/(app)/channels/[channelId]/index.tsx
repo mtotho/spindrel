@@ -7,6 +7,7 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { Settings, Menu, ArrowLeft, Hash, ChevronDown, FolderOpen, Code, PanelLeft, Shield } from "lucide-react";
 import { ChannelFileExplorer } from "./ChannelFileExplorer";
 import { ChannelFileViewer } from "./ChannelFileViewer";
+import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
 import { MessageBubble, extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
@@ -608,6 +609,8 @@ export default function ChatScreen() {
   const workspaceId = channel?.resolved_workspace_id;
   const enableEditorMutation = useEnableEditor(workspaceId ?? "");
   const expandDir = useFileBrowserStore((s) => s.expandDir);
+  const explorerWidth = useFileBrowserStore((s) => s.channelExplorerWidth);
+  const setExplorerWidth = useFileBrowserStore((s) => s.setChannelExplorerWidth);
 
   // File explorer state
   const explorerOpen = useUIStore((s) => s.fileExplorerOpen);
@@ -868,89 +871,93 @@ export default function ChatScreen() {
         )
       ) : (
         /* ---- Desktop/tablet: side-by-side layout ---- */
-        <>
-          <View style={{ flex: 1, flexDirection: "row", overflow: "hidden" }}>
-            {/* Explorer panel */}
-            {showExplorer && channelId && (
+        <View style={{ flex: 1, flexDirection: "row", overflow: "hidden" }}>
+          {/* Explorer panel + resize handle */}
+          {showExplorer && channelId && (
+            <>
               <ChannelFileExplorer
                 channelId={channelId}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
                 onClose={handleCloseExplorer}
+                width={explorerWidth}
               />
-            )}
-
-            {/* Chat area — visible when no file selected or in split mode */}
-            {(!showFileViewer || splitMode) && (
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <ChatMessageArea
-                  flatListRef={flatListRef}
-                  invertedData={invertedData}
-                  renderMessage={renderMessage}
-                  chatState={chatState}
-                  bot={bot}
-                  isLoading={isLoading}
-                  isFetchingNextPage={isFetchingNextPage}
-                  showScrollBtn={showScrollBtn}
-                  scrollToBottom={scrollToBottom}
-                  handleScroll={handleScroll}
-                  handleListLayout={handleListLayout}
-                  handleContentSizeChange={handleContentSizeChange}
-                  handleLoadMore={handleLoadMore}
-                  isProcessing={chatState.isProcessing}
-                  t={t}
+              {Platform.OS === "web" && (
+                <ResizeHandle
+                  direction="horizontal"
+                  onResize={(delta) => setExplorerWidth(explorerWidth + delta)}
                 />
-              </View>
-            )}
+              )}
+            </>
+          )}
 
-            {/* File viewer — visible when a file is selected */}
-            {showFileViewer && channelId && (
-              <View style={{
-                flex: 1,
-                minWidth: 0,
-                borderLeftWidth: splitMode ? 1 : 0,
-                borderLeftColor: t.surfaceBorder,
-              }}>
-                {/* Split mode toggle in viewer header */}
-                <ChannelFileViewer
-                  channelId={channelId}
-                  filePath={activeFile!}
-                  onBack={handleCloseFile}
-                  splitMode={splitMode}
-                  onToggleSplit={toggleSplit}
-                  onDirtyChange={handleDirtyChange}
+          {/* Chat column — messages + input stacked vertically */}
+          {(!showFileViewer || splitMode) && (
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <ChatMessageArea
+                flatListRef={flatListRef}
+                invertedData={invertedData}
+                renderMessage={renderMessage}
+                chatState={chatState}
+                bot={bot}
+                isLoading={isLoading}
+                isFetchingNextPage={isFetchingNextPage}
+                showScrollBtn={showScrollBtn}
+                scrollToBottom={scrollToBottom}
+                handleScroll={handleScroll}
+                handleListLayout={handleListLayout}
+                handleContentSizeChange={handleContentSizeChange}
+                handleLoadMore={handleLoadMore}
+                isProcessing={chatState.isProcessing}
+                t={t}
+              />
+              {chatState.error && (
+                <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
+              )}
+              {chatState.secretWarning && (
+                <SecretWarningBanner
+                  patterns={chatState.secretWarning.patterns}
+                  onDismiss={() => channelId && useChatStore.setState((s) => ({
+                    channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
+                  }))}
                 />
-              </View>
-            )}
-          </View>
+              )}
+              <ActiveWorkflowStrip channelId={channelId!} />
+              <MessageInput
+                onSend={handleSend}
+                onSendAudio={handleSendAudio}
+                disabled={isPaused}
+                isStreaming={chatState.isStreaming || chatState.isProcessing}
+                onCancel={handleCancel}
+                modelOverride={turnModelOverride}
+                onModelOverrideChange={setTurnModelOverride}
+                defaultModel={channel?.model_override || bot?.model}
+                currentBotId={channel?.bot_id}
+                channelId={channelId}
+                onSlashCommand={handleSlashCommand}
+              />
+            </View>
+          )}
 
-          {/* Error + Secret warning + Workflow strip + Input — always visible on desktop */}
-          {chatState.error && (
-            <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
+          {/* File viewer — visible when a file is selected */}
+          {showFileViewer && channelId && (
+            <View style={{
+              flex: 1,
+              minWidth: 0,
+              borderLeftWidth: splitMode ? 1 : 0,
+              borderLeftColor: t.surfaceBorder,
+            }}>
+              <ChannelFileViewer
+                channelId={channelId}
+                filePath={activeFile!}
+                onBack={handleCloseFile}
+                splitMode={splitMode}
+                onToggleSplit={toggleSplit}
+                onDirtyChange={handleDirtyChange}
+              />
+            </View>
           )}
-          {chatState.secretWarning && (
-            <SecretWarningBanner
-              patterns={chatState.secretWarning.patterns}
-              onDismiss={() => channelId && useChatStore.setState((s) => ({
-                channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
-              }))}
-            />
-          )}
-          <ActiveWorkflowStrip channelId={channelId!} />
-          <MessageInput
-            onSend={handleSend}
-            onSendAudio={handleSendAudio}
-            disabled={isPaused}
-            isStreaming={chatState.isStreaming || chatState.isProcessing}
-            onCancel={handleCancel}
-            modelOverride={turnModelOverride}
-            onModelOverrideChange={setTurnModelOverride}
-            defaultModel={channel?.model_override || bot?.model}
-            currentBotId={channel?.bot_id}
-            channelId={channelId}
-            onSlashCommand={handleSlashCommand}
-          />
-        </>
+        </View>
       )}
       {secretWarning && (
         <SecretWarningDialog

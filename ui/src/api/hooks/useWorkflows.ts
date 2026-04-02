@@ -9,6 +9,13 @@ export function useWorkflows() {
   });
 }
 
+export function useWorkflowTemplates() {
+  return useQuery({
+    queryKey: ["workflow-templates"],
+    queryFn: () => apiFetch<Workflow[]>("/api/v1/admin/workflows/templates"),
+  });
+}
+
 export function useWorkflow(id?: string) {
   return useQuery({
     queryKey: ["workflows", id],

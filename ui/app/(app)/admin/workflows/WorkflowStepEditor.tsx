@@ -12,6 +12,7 @@ import {
   ShieldAlert, GitBranch, RotateCcw,
 } from "lucide-react";
 import type { WorkflowStep } from "@/src/types/api";
+import { HelpTooltip } from "./HelpTooltip";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -229,7 +230,7 @@ function StepCard({
               />
             </div>
             <div style={{ flex: 1, minWidth: 180 }}>
-              <FormRow label="On Failure">
+              <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>On Failure <HelpTooltip text="abort: stops the workflow. continue: marks failed but proceeds. retry:N: retries N times before failing." /></span>}>
                 <select
                   value={step.on_failure || "abort"}
                   onChange={(e) => onChange({ on_failure: e.target.value })}
@@ -307,7 +308,7 @@ function StepCard({
               <Toggle
                 value={!!step.inject_prior_results}
                 onChange={(v) => onChange({ inject_prior_results: v })}
-                label="Inject Prior Results"
+                label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Inject Prior Results <HelpTooltip text="Appends completed step results to this step's prompt context. Useful for synthesis/analysis steps that need to reference earlier work." /></span>}
                 description="Include completed step results in this step's context"
               />
             </div>
@@ -382,7 +383,7 @@ function ConditionEditor({
 
   if (advanced || (condition && !isSimple && Object.keys(condition).length > 0)) {
     return (
-      <FormRow label="When (Condition)">
+      <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>When (Condition) <HelpTooltip text='Only runs this step if the condition is met. Use "step + status" for simple cases, or JSON for complex conditions (any/all combinators, param checks).' /></span>}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <textarea
             value={jsonText}
@@ -435,7 +436,7 @@ function ConditionEditor({
   const stepStatus = (isSimple && condition?.status) || "done";
 
   return (
-    <FormRow label="When (Condition)" description="Only run this step if a prior step has a specific status">
+    <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>When (Condition) <HelpTooltip text='Only runs this step if the condition is met. Use "step + status" for simple cases, or JSON for complex conditions (any/all combinators, param checks).' /></span>} description="Only run this step if a prior step has a specific status">
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <select
           value={stepId}

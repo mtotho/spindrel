@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
@@ -15,6 +15,7 @@ import type { WorkflowRun } from "@/src/types/api";
 
 import { StatusBadge, fmtTime } from "./WorkflowRunHelpers";
 import WorkflowRunDetail from "./WorkflowRunDetail";
+import { StatusFilterChips, filterRuns, type RunStatusFilter } from "./StatusFilterChips";
 
 // ---------------------------------------------------------------------------
 // Main tab
@@ -25,6 +26,12 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
   const { data: runs, isLoading } = useWorkflowRuns(workflowId);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId ?? null);
   const [showTrigger, setShowTrigger] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<RunStatusFilter>("all");
+
+  const filteredRuns = useMemo(
+    () => (runs ? filterRuns(runs, statusFilter) : []),
+    [runs, statusFilter],
+  );
 
   if (selectedRunId) {
     return (
@@ -58,6 +65,11 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
         </button>
       </div>
 
+      {/* Status filter chips */}
+      {runs && runs.length > 0 && (
+        <StatusFilterChips runs={runs} active={statusFilter} onChange={setStatusFilter} />
+      )}
+
       {/* Trigger form */}
       {showTrigger && (
         <TriggerForm
@@ -85,9 +97,16 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {runs.map((run) => (
+          {filteredRuns.map((run) => (
             <RunCard key={run.id} run={run} t={t} onSelect={() => setSelectedRunId(run.id)} />
           ))}
+          {filteredRuns.length === 0 && statusFilter !== "all" && (
+            <div style={{
+              padding: 24, textAlign: "center", color: t.textDim, fontSize: 12,
+            }}>
+              No {statusFilter.replace(/_/g, " ")} runs.
+            </div>
+          )}
         </div>
       )}
     </View>

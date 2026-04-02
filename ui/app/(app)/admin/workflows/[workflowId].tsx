@@ -16,6 +16,8 @@ import type { Workflow, WorkflowStep } from "@/src/types/api";
 import WorkflowRunsTab from "./WorkflowRunsTab";
 import { WorkflowStepEditor } from "./WorkflowStepEditor";
 import { DefaultsEditor, ParamsEditor, TriggersEditor } from "./WorkflowFormParts";
+import { WorkflowTemplateGallery } from "./WorkflowTemplateGallery";
+import { HelpTooltip } from "./HelpTooltip";
 import yaml from "js-yaml";
 
 // ---------------------------------------------------------------------------
@@ -25,10 +27,11 @@ import yaml from "js-yaml";
 export default function WorkflowDetailPage() {
   const t = useThemeTokens();
   const router = useRouter();
-  const { workflowId, tab: tabParam, run: runParam } = useLocalSearchParams<{
+  const { workflowId, tab: tabParam, run: runParam, clone: cloneParam } = useLocalSearchParams<{
     workflowId: string;
     tab?: string;
     run?: string;
+    clone?: string;
   }>();
   const isNew = workflowId === "new";
 
@@ -49,8 +52,24 @@ export default function WorkflowDetailPage() {
   });
   const [dirty, setDirty] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showGallery, setShowGallery] = useState(isNew && !cloneParam);
+  const [showYamlImport, setShowYamlImport] = useState(false);
 
   const isFileBased = existing?.source_type === "file" || existing?.source_type === "integration";
+
+  // Hydrate from clone param
+  useEffect(() => {
+    if (isNew && cloneParam) {
+      try {
+        const cloneData = JSON.parse(cloneParam);
+        setDraft((prev) => ({ ...prev, ...cloneData }));
+        setDirty(true);
+        setShowGallery(false);
+      } catch {
+        // ignore bad clone data
+      }
+    }
+  }, [isNew, cloneParam]);
 
   useEffect(() => {
     if (existing && !isNew) {
@@ -75,6 +94,24 @@ export default function WorkflowDetailPage() {
   }, []);
 
   const goBack = () => router.push("/admin/workflows" as any);
+
+  const handleClone = () => {
+    // Generate a unique clone ID
+    const baseId = (draft.id || "workflow") + "-copy";
+    const cloneData: Partial<Workflow> = {
+      id: baseId,
+      name: `${draft.name || "Workflow"} (copy)`,
+      description: draft.description || "",
+      steps: draft.steps || [],
+      params: draft.params || {},
+      defaults: draft.defaults || {},
+      secrets: draft.secrets || [],
+      triggers: draft.triggers || {},
+      tags: draft.tags || [],
+      session_mode: draft.session_mode || "isolated",
+    };
+    router.push(`/admin/workflows/new?clone=${encodeURIComponent(JSON.stringify(cloneData))}` as any);
+  };
 
   const handleSave = async () => {
     try {
@@ -184,6 +221,20 @@ export default function WorkflowDetailPage() {
             <Text style={{ color: t.textMuted, fontSize: 13 }}>Workflows</Text>
           </Pressable>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {/* Clone */}
+            {!isNew && (
+              <Pressable
+                onPress={handleClone}
+                style={{
+                  flexDirection: "row", alignItems: "center", gap: 4,
+                  paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
+                  backgroundColor: t.codeBg, borderWidth: 1, borderColor: t.surfaceBorder,
+                }}
+              >
+                <Copy size={14} color={t.textMuted} />
+                <Text style={{ color: t.textMuted, fontSize: 12 }}>Clone</Text>
+              </Pressable>
+            )}
             {/* Export YAML */}
             {!isNew && (
               <Pressable
@@ -262,7 +313,33 @@ export default function WorkflowDetailPage() {
           </div>
         )}
 
-        {activeTab === "definition" && (
+        {/* Template gallery for new workflows */}
+        {isNew && showGallery && !showYamlImport && (
+          <WorkflowTemplateGallery
+            onSelectTemplate={(tmpl) => {
+              setDraft((prev) => ({ ...prev, ...tmpl }));
+              setDirty(true);
+              setShowGallery(false);
+            }}
+            onStartBlank={() => setShowGallery(false)}
+            onImportYaml={() => { setShowGallery(false); setShowYamlImport(true); }}
+          />
+        )}
+
+        {/* YAML import for new workflows */}
+        {isNew && showYamlImport && (
+          <YamlImport
+            onImport={(parsed) => {
+              setDraft((prev) => ({ ...prev, ...parsed }));
+              setDirty(true);
+              setShowYamlImport(false);
+            }}
+            onCancel={() => { setShowYamlImport(false); setShowGallery(true); }}
+            t={t}
+          />
+        )}
+
+        {activeTab === "definition" && !(isNew && (showGallery || showYamlImport)) && (
           <View style={{ gap: 20 }}>
             {/* Identity */}
             <Section title="Identity">
@@ -303,8 +380,8 @@ export default function WorkflowDetailPage() {
             </Section>
 
             {/* Execution */}
-            <Section title="Execution">
-              <FormRow label="Session Mode" description="How step conversations relate to each other">
+            <Section title={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Execution</span>}>
+              <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Session Mode <HelpTooltip text="Isolated: each step gets fresh context. Shared: all steps share one conversation channel — outputs appear in chat." /></span>} description="How step conversations relate to each other">
                 <SelectInput
                   value={draft.session_mode || "isolated"}
                   onChange={(v) => update({ session_mode: v })}
@@ -314,7 +391,7 @@ export default function WorkflowDetailPage() {
                   ]}
                 />
               </FormRow>
-              <FormRow label="Secrets" description="Comma-separated secret names available to steps">
+              <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Secrets <HelpTooltip text='Secret names that steps can reference via {{secrets.NAME}}. Values are stored in server settings, not in the workflow.' /></span>} description="Comma-separated secret names available to steps">
                 <input
                   value={(draft.secrets || []).join(", ")}
                   onChange={(e) => update({ secrets: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
@@ -341,7 +418,7 @@ export default function WorkflowDetailPage() {
             </Section>
 
             {/* Triggers */}
-            <Section title="Triggers" description="How this workflow can be invoked">
+            <Section title={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Triggers <HelpTooltip text="Controls which sources can start this workflow. Disable a trigger to prevent that source from running it." /></span>} description="How this workflow can be invoked">
               <TriggersEditor
                 value={(draft.triggers || {}) as Record<string, boolean>}
                 onChange={(v) => update({ triggers: v })}
@@ -376,6 +453,111 @@ export default function WorkflowDetailPage() {
         />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// YAML import (paste to create)
+// ---------------------------------------------------------------------------
+
+function YamlImport({ onImport, onCancel, t }: {
+  onImport: (parsed: Partial<Workflow>) => void;
+  onCancel: () => void;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const [yamlText, setYamlText] = useState("");
+  const [parseError, setParseError] = useState<string | null>(null);
+
+  const handleParse = () => {
+    try {
+      const parsed = yaml.load(yamlText) as Record<string, unknown> | null;
+      if (!parsed || typeof parsed !== "object") {
+        setParseError("YAML must be an object");
+        return;
+      }
+      setParseError(null);
+      onImport({
+        id: (parsed.id as string) || "",
+        name: (parsed.name as string) || "",
+        description: (parsed.description as string) || "",
+        steps: (parsed.steps as WorkflowStep[]) || [],
+        params: (parsed.params as Record<string, unknown>) || {},
+        defaults: (parsed.defaults as Record<string, unknown>) || {},
+        secrets: (parsed.secrets as string[]) || [],
+        triggers: (parsed.triggers as Record<string, boolean>) || {},
+        tags: (parsed.tags as string[]) || [],
+        session_mode: (parsed.session_mode as string) || "isolated",
+      });
+    } catch (e: unknown) {
+      setParseError(e instanceof Error ? e.message : "Invalid YAML");
+    }
+  };
+
+  return (
+    <View style={{ gap: 12 }}>
+      <View style={{ gap: 4 }}>
+        <Text style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>
+          Import YAML
+        </Text>
+        <Text style={{ color: t.textMuted, fontSize: 13 }}>
+          Paste a workflow YAML definition below.
+        </Text>
+      </View>
+
+      {parseError && (
+        <div style={{
+          padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace",
+          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`, color: t.danger,
+        }}>
+          {parseError}
+        </div>
+      )}
+
+      <textarea
+        value={yamlText}
+        onChange={(e) => { setYamlText(e.target.value); setParseError(null); }}
+        placeholder={"id: my-workflow\nname: My Workflow\nsteps:\n  - id: step_1\n    prompt: Do something..."}
+        spellCheck={false}
+        style={{
+          width: "100%",
+          minHeight: 300,
+          fontFamily: "monospace",
+          fontSize: 13,
+          lineHeight: "1.6",
+          padding: 16,
+          borderRadius: 8,
+          border: `1px solid ${parseError ? t.dangerBorder : t.inputBorder}`,
+          background: t.inputBg,
+          color: t.inputText,
+          resize: "vertical",
+          outline: "none",
+          tabSize: 2,
+        }}
+      />
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <Pressable
+          onPress={onCancel}
+          style={{
+            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
+            borderWidth: 1, borderColor: t.surfaceBorder,
+          }}
+        >
+          <Text style={{ color: t.textMuted, fontSize: 12 }}>Back</Text>
+        </Pressable>
+        <Pressable
+          onPress={handleParse}
+          disabled={!yamlText.trim()}
+          style={{
+            paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
+            backgroundColor: yamlText.trim() ? t.accent : t.surfaceBorder,
+            opacity: yamlText.trim() ? 1 : 0.5,
+          }}
+        >
+          <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Import</Text>
+        </Pressable>
+      </div>
+    </View>
   );
 }
 

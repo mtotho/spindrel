@@ -119,6 +119,21 @@ async def get_workflow(
     return WorkflowOut.model_validate(row)
 
 
+@router.get("/workflows/templates", response_model=list[WorkflowOut])
+async def list_workflow_templates(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workflows:read")),
+):
+    """Return file-based and integration workflows as reusable templates."""
+    stmt = (
+        select(Workflow)
+        .where(Workflow.source_type.in_(["file", "integration"]))
+        .order_by(Workflow.name)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [WorkflowOut.model_validate(r) for r in rows]
+
+
 @router.post("/workflows", response_model=WorkflowOut, status_code=201)
 async def create_workflow(
     body: WorkflowCreateIn,

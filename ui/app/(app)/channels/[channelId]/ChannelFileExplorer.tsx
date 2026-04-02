@@ -456,8 +456,6 @@ export function ChannelFileExplorer({
     <View
       style={{
         ...(fullWidth ? { flex: 1 } : { width, flexShrink: 0 }),
-        borderRightWidth: fullWidth ? 0 : 1,
-        borderRightColor: t.surfaceBorder,
         backgroundColor: t.surfaceRaised,
       }}
     >
