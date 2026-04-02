@@ -216,6 +216,12 @@ Integrations can ship workspace templates that define file structures compatible
 
 See the [Templates & Activation guide](guides/templates-and-activation.md) for the full walkthrough.
 
+### Workspace Integrations
+
+The shared workspace includes an `integrations/` directory that is automatically added to the integration discovery path at startup. Bots can scaffold integrations directly at `/workspace/integrations/` — they're discovered on the next server restart, just like any other integration directory.
+
+This is the easiest way to add custom integrations: ask a bot (or use Claude Code) to write the integration code, then restart the server.
+
 ### External Integrations
 
 Add custom integration directories:

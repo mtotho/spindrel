@@ -3,6 +3,7 @@ import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { Plus, X, Pencil, Check, AlertTriangle, Zap, Power, Layers } from "lucide-react";
 import { Link } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { prettyIntegrationName } from "@/src/utils/format";
 import {
   useChannelIntegrations,
   useBindIntegration,
@@ -23,12 +24,6 @@ import type { ActivatableIntegration, ActivationResult } from "@/src/types/api";
 // ---------------------------------------------------------------------------
 // Injection summary helpers
 // ---------------------------------------------------------------------------
-
-function fmtIntName(key: string): string {
-  const special: Record<string, string> = { arr: "ARR", github: "GitHub" };
-  if (special[key]) return special[key];
-  return key.replace(/(^|_)(\w)/g, (_, sep, c) => (sep ? " " : "") + c.toUpperCase());
-}
 
 function CarapacePill({ id, t }: { id: string; t: any }) {
   return (
@@ -81,7 +76,7 @@ function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
             <CarapacePill key={id} id={id} t={t} />
           ))}
           <span style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>
-            from {fmtIntName(ig.integration_type)}
+            from {prettyIntegrationName(ig.integration_type)}
           </span>
         </div>
       )}
@@ -323,10 +318,22 @@ function ActivationsSection({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
-                    {ig.integration_type}
+                    {prettyIntegrationName(ig.integration_type)}
                   </span>
                   {ig.activated && (
                     <StatusBadge label="Active" variant="success" />
+                  )}
+                  {ig.includes?.length > 0 && (
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: t.textDim,
+                      padding: "1px 6px",
+                      borderRadius: 3,
+                      background: t.surfaceOverlay,
+                    }}>
+                      includes {ig.includes.map(i => prettyIntegrationName(i)).join(", ")}
+                    </span>
                   )}
                   {ig.requires_workspace && !workspaceEnabled && (
                     <StatusBadge label="Requires workspace" variant="warning" />

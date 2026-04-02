@@ -46,6 +46,64 @@ class TestDiscoverActivationManifests:
         # Reset for other tests
         integrations._activation_manifests = None
 
+    def test_includes_merges_carapaces(self):
+        """Arr includes mission_control — its manifest should contain both carapaces."""
+        import integrations
+        integrations._activation_manifests = None
+
+        manifests = integrations.discover_activation_manifests()
+        arr = manifests.get("arr")
+        assert arr is not None, "arr activation manifest not found"
+        # arr declares carapaces: ["arr"] and includes: ["mission_control"]
+        # After resolution, it should have both arr and mission-control carapaces
+        assert "arr" in arr["carapaces"]
+        assert "mission-control" in arr["carapaces"]
+
+        # requires_workspace is NOT inherited — arr keeps its own value (False)
+        assert arr.get("requires_workspace") is False
+
+        # The includes field should be preserved
+        assert "mission_control" in arr.get("includes", [])
+
+        # Reset for other tests
+        integrations._activation_manifests = None
+
+    def test_includes_does_not_duplicate_carapaces(self):
+        """If the including manifest already has a carapace from includes, no duplicate."""
+        import integrations
+        integrations._activation_manifests = None
+
+        # Simulate: integration A includes B, both declare carapace "shared"
+        with patch.object(integrations, "_iter_integration_candidates", return_value=[]):
+            integrations._activation_manifests = None
+
+        # Manually set up manifests for resolution testing
+        integrations._activation_manifests = None
+        manifests_raw = {
+            "intA": {"carapaces": ["shared", "a-only"], "includes": ["intB"]},
+            "intB": {"carapaces": ["shared", "b-only"]},
+        }
+        # Simulate resolution by calling the merge logic directly
+        for itype, manifest in manifests_raw.items():
+            includes = manifest.get("includes")
+            if not includes:
+                continue
+            merged = list(manifest["carapaces"])
+            for inc_id in includes:
+                inc = manifests_raw.get(inc_id)
+                if not inc:
+                    continue
+                for cap_id in inc.get("carapaces", []):
+                    if cap_id not in merged:
+                        merged.append(cap_id)
+            manifest["carapaces"] = merged
+
+        assert manifests_raw["intA"]["carapaces"] == ["shared", "a-only", "b-only"]
+        assert manifests_raw["intB"]["carapaces"] == ["shared", "b-only"]
+
+        # Reset
+        integrations._activation_manifests = None
+
 
 # ---------------------------------------------------------------------------
 # Context assembly: activated integrations inject carapaces

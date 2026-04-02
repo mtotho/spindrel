@@ -17,6 +17,16 @@ export function SecretWarningDialog({
 }: SecretWarningDialogProps) {
   const t = useThemeTokens();
 
+  const btnBase: React.CSSProperties = {
+    padding: "8px 16px",
+    borderRadius: 6,
+    cursor: "pointer",
+    fontSize: 13,
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  };
+
   return (
     <div
       style={{
@@ -93,48 +103,39 @@ export function SecretWarningDialog({
           <button
             onClick={onCancel}
             style={{
-              padding: "8px 16px",
-              borderRadius: 6,
+              ...btnBase,
               border: `1px solid ${t.surfaceOverlay}`,
               background: "transparent",
               color: t.text,
-              cursor: "pointer",
-              fontSize: 13,
               fontWeight: 600,
             }}
           >
-            <X size={14} style={{ marginRight: 4 }} />
+            <X size={14} />
             Cancel
           </button>
           <button
             onClick={onAddToSecrets}
             style={{
-              padding: "8px 16px",
-              borderRadius: 6,
+              ...btnBase,
               border: `1px solid ${t.surfaceOverlay}`,
               background: "transparent",
               color: t.accent,
-              cursor: "pointer",
-              fontSize: 13,
             }}
           >
-            <Lock size={14} style={{ marginRight: 4 }} />
+            <Lock size={14} />
             Add to Secrets
           </button>
           <button
             onClick={onSendAnyway}
             style={{
-              padding: "8px 16px",
-              borderRadius: 6,
+              ...btnBase,
               border: "none",
               background: t.warning,
               color: "#fff",
-              cursor: "pointer",
-              fontSize: 13,
               fontWeight: 600,
             }}
           >
-            <Send size={14} style={{ marginRight: 4 }} />
+            <Send size={14} />
             Send Anyway
           </button>
         </div>

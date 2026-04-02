@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+import { useRouter } from "expo-router";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { Lock, Plus, Trash2, Edit2, Check, X } from "lucide-react";
+import { Lock, Plus, Trash2, Edit2, Check, X, ArrowLeft } from "lucide-react";
 import {
   useSecretValues,
   useCreateSecretValue,
@@ -113,16 +114,25 @@ function CreateDialog({
   onSave,
   isPending,
   initial,
+  prefillValue,
+  prefillType,
 }: {
   onClose: () => void;
   onSave: (name: string, value: string, description: string) => void;
   isPending: boolean;
   initial?: SecretValueItem;
+  prefillValue?: string;
+  prefillType?: string;
 }) {
   const t = useThemeTokens();
-  const [name, setName] = useState(initial?.name ?? "");
-  const [value, setValue] = useState("");
-  const [description, setDescription] = useState(initial?.description ?? "");
+  const suggestedName = prefillType
+    ? prefillType.toUpperCase().replace(/\s+/g, "_").replace(/[^A-Z0-9_]/g, "")
+    : "";
+  const [name, setName] = useState(initial?.name ?? suggestedName);
+  const [value, setValue] = useState(prefillValue ?? "");
+  const [description, setDescription] = useState(
+    initial?.description ?? (prefillType ? `Auto-detected ${prefillType}` : ""),
+  );
 
   const inputStyle: React.CSSProperties = {
     width: "100%",
@@ -210,9 +220,12 @@ function CreateDialog({
               color: t.text,
               cursor: "pointer",
               fontSize: 13,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            <X size={14} style={{ marginRight: 4 }} />
+            <X size={14} />
             Cancel
           </button>
           <button
@@ -228,9 +241,12 @@ function CreateDialog({
               opacity: isPending || !name || (!initial && !value) ? 0.5 : 1,
               fontSize: 13,
               fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
             }}
           >
-            <Check size={14} style={{ marginRight: 4 }} />
+            <Check size={14} />
             {isPending ? "Saving..." : "Save"}
           </button>
         </div>
@@ -241,12 +257,36 @@ function CreateDialog({
 
 export default function SecretValuesScreen() {
   const t = useThemeTokens();
+  const router = useRouter();
   const { data: secrets, isLoading } = useSecretValues();
   const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
   const [showCreate, setShowCreate] = useState(false);
   const [editingSecret, setEditingSecret] = useState<SecretValueItem | null>(null);
+  const [prefillValue, setPrefillValue] = useState<string | undefined>();
+  const [prefillType, setPrefillType] = useState<string | undefined>();
+  const [savedName, setSavedName] = useState<string | null>(null);
+  const [returnTo, setReturnTo] = useState<string | null>(null);
+  const [originalMessage, setOriginalMessage] = useState<string | undefined>();
+
+  // Check sessionStorage for prefill from SecretWarningDialog
+  useState(() => {
+    try {
+      const raw = sessionStorage.getItem("secret_prefill");
+      if (raw) {
+        sessionStorage.removeItem("secret_prefill");
+        const data = JSON.parse(raw);
+        if (data.value) {
+          setPrefillValue(data.value);
+          setPrefillType(data.type);
+          setReturnTo(data.returnTo ?? null);
+          setOriginalMessage(data.originalMessage);
+          setShowCreate(true);
+        }
+      }
+    } catch { /* ignore */ }
+  });
 
   const [error, setError] = useState<string | null>(null);
   const createMutation = useCreateSecretValue();
@@ -258,7 +298,25 @@ export default function SecretValuesScreen() {
     createMutation.mutate(
       { name, value, description },
       {
-        onSuccess: () => setShowCreate(false),
+        onSuccess: () => {
+          setShowCreate(false);
+          // If created from prefill flow, store return data and redirect back
+          if (prefillValue && returnTo) {
+            try {
+              sessionStorage.setItem("secret_return", JSON.stringify({
+                varName: name,
+                secretValue: prefillValue,
+                originalMessage: originalMessage,
+              }));
+            } catch { /* ignore */ }
+            setPrefillValue(undefined);
+            setPrefillType(undefined);
+            router.push(returnTo as any);
+          } else {
+            setPrefillValue(undefined);
+            setPrefillType(undefined);
+          }
+        },
         onError: (err) => setError(err instanceof Error ? err.message : "Failed to create secret"),
       }
     );
@@ -403,6 +461,58 @@ export default function SecretValuesScreen() {
           {error}
         </div>
       )}
+      {savedName && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "12px 20px",
+            borderRadius: 8,
+            background: t.successSubtle,
+            border: `1px solid ${t.successBorder}`,
+            fontSize: 13,
+            color: t.success,
+            zIndex: 1001,
+            maxWidth: 460,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, marginBottom: 2 }}>
+              Secret saved as <code style={{ background: t.surfaceOverlay, padding: "1px 4px", borderRadius: 3 }}>{savedName}</code>
+            </div>
+            <div style={{ fontSize: 11, color: t.textDim }}>
+              Tell the bot to use <code style={{ background: t.surfaceOverlay, padding: "1px 4px", borderRadius: 3 }}>${"{" + savedName + "}"}</code> instead of pasting the value.
+            </div>
+          </div>
+          {returnTo && (
+            <button
+              onClick={() => { setSavedName(null); router.push(returnTo as any); }}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: `1px solid ${t.successBorder}`,
+                background: "transparent",
+                color: t.success,
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                whiteSpace: "nowrap",
+              }}
+            >
+              <ArrowLeft size={12} />
+              Back to chat
+            </button>
+          )}
+        </div>
+      )}
       {deleteConfirm && (
         <div
           style={{
@@ -472,9 +582,15 @@ export default function SecretValuesScreen() {
       )}
       {showCreate && (
         <CreateDialog
-          onClose={() => setShowCreate(false)}
+          onClose={() => {
+            setShowCreate(false);
+            setPrefillValue(undefined);
+            setPrefillType(undefined);
+          }}
           onSave={handleCreate}
           isPending={createMutation.isPending}
+          prefillValue={prefillValue}
+          prefillType={prefillType}
         />
       )}
       {editingSecret && (

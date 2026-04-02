@@ -25,6 +25,7 @@ SETUP = {
     ],
     "activation": {
         "carapaces": ["arr"],
+        "includes": ["mission_control"],
         "requires_workspace": False,
         "description": "Media library management with Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr",
         "compatible_templates": ["media-management"],

@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
@@ -78,25 +78,19 @@ export default function ChannelSettingsScreen() {
   const tabKeys = ALL_TABS.map((tab) => tab.key);
   const [tab, setTab] = useHashTab("general", tabKeys);
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
 
   const isAdvancedTab = ADVANCED_KEYS.has(tab);
 
-  // Close "More" dropdown on click-outside or Escape
+  // Close "More" dropdown on Escape
   useEffect(() => {
     if (!moreOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
-    };
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setMoreOpen(false);
     };
-    document.addEventListener("mousedown", handleClick);
     document.addEventListener("keydown", handleKey);
     return () => {
-      document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
   }, [moreOpen]);
@@ -297,7 +291,7 @@ export default function ChannelSettingsScreen() {
           </div>
 
           {/* "More" dropdown — outside scroll container so it isn't clipped */}
-          <div ref={moreRef as any} style={{ position: "relative", flexShrink: 0, paddingBottom: 4 }}>
+          <div style={{ position: "relative", flexShrink: 0, paddingBottom: 4 }}>
             <button
               onClick={() => setMoreOpen((v) => !v)}
               style={{
@@ -326,42 +320,48 @@ export default function ChannelSettingsScreen() {
               />
             </button>
             {moreOpen && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: "calc(100% + 4px)",
-                  right: 0,
-                  zIndex: 50,
-                  background: t.surfaceOverlay,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  borderRadius: 8,
-                  padding: 4,
-                  minWidth: 140,
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-                }}
-              >
-                {ADVANCED_TABS.map((at) => (
-                  <button
-                    key={at.key}
-                    onClick={() => { setTab(at.key); setMoreOpen(false); }}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "8px 10px",
-                      fontSize: 12,
-                      fontWeight: at.key === tab ? 600 : 400,
-                      color: at.key === tab ? t.accent : t.text,
-                      background: "transparent",
-                      border: "none",
-                      borderRadius: 4,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {at.label}
-                  </button>
-                ))}
-              </div>
+              <>
+                <div
+                  onClick={() => setMoreOpen(false)}
+                  style={{ position: "fixed", inset: 0, zIndex: 49 }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    right: 0,
+                    zIndex: 50,
+                    background: t.surfaceRaised,
+                    border: `1px solid ${t.surfaceBorder}`,
+                    borderRadius: 8,
+                    padding: 4,
+                    minWidth: 140,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                  }}
+                >
+                  {ADVANCED_TABS.map((at) => (
+                    <button
+                      key={at.key}
+                      onClick={() => { setTab(at.key); setMoreOpen(false); }}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "8px 10px",
+                        fontSize: 12,
+                        fontWeight: at.key === tab ? 600 : 400,
+                        color: at.key === tab ? t.accent : t.text,
+                        background: "transparent",
+                        border: "none",
+                        borderRadius: 4,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {at.label}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </div>

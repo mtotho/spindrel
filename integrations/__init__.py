@@ -395,6 +395,9 @@ def discover_activation_manifests() -> dict[str, dict]:
 
     Returns {integration_id: activation_manifest} for integrations that
     declare an ``"activation"`` key in their SETUP dict.
+
+    Supports ``"includes": ["other_integration"]`` — the including manifest
+    inherits the included integration's carapaces (merged, deduped).
     """
     global _activation_manifests
     results: dict[str, dict] = {}
@@ -415,6 +418,24 @@ def discover_activation_manifests() -> dict[str, dict]:
                 results[integration_id] = activation
         except Exception:
             logger.exception("Failed to load activation manifest for integration %r", integration_id)
+
+    # Resolve "includes" — merge carapaces from included integrations.
+    # Note: requires_workspace is NOT inherited — each integration declares
+    # its own requirement.  Included carapaces are a bonus; their tools
+    # degrade gracefully if workspace isn't enabled.
+    for itype, manifest in results.items():
+        includes = manifest.get("includes")
+        if not includes or not isinstance(includes, list):
+            continue
+        merged_carapaces = list(manifest.get("carapaces", []))
+        for included_id in includes:
+            included = results.get(included_id)
+            if not included:
+                continue
+            for cap_id in included.get("carapaces", []):
+                if cap_id not in merged_carapaces:
+                    merged_carapaces.append(cap_id)
+        manifest["carapaces"] = merged_carapaces
 
     _activation_manifests = results
     return results

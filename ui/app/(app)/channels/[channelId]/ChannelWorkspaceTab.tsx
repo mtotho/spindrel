@@ -91,7 +91,7 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
   };
 
   return (
-    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+    <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8}}>
       <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
         <Pressable
           onPress={handleBrowse}
@@ -215,7 +215,7 @@ function IndexedDirectoriesSection({
   return (
     <Section
       title="Indexed Directories"
-      description="Additional folders to index for code search. Paths relative to channel workspace."
+      description="Additional folders to index for semantic search. Contents are automatically retrieved and injected into context when relevant to the conversation. The bot can also use the search_workspace tool for more targeted lookups. Paths relative to channel workspace."
       action={
         <View style={{ flexDirection: "row", gap: 6 }}>
           <Pressable
@@ -241,7 +241,7 @@ function IndexedDirectoriesSection({
       }
     >
       {segments.length === 0 && !adding && (
-        <EmptyState message="No indexed directories configured. Add one to enable code search." />
+        <EmptyState message="No indexed directories configured. Add one to enable automatic semantic retrieval from those files." />
       )}
 
       {segments.map((seg, i) => (

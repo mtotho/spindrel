@@ -52,6 +52,7 @@ class TestEnsureHostDirs:
             assert os.path.isdir(os.path.join(root, "bots"))
             assert os.path.isdir(os.path.join(root, "common"))
             assert os.path.isdir(os.path.join(root, "users"))
+            assert os.path.isdir(os.path.join(root, "integrations"))
 
     def test_idempotent(self):
         svc = SharedWorkspaceService()

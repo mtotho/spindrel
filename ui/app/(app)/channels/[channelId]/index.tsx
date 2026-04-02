@@ -24,9 +24,11 @@ import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
+import { useDraftsStore } from "@/src/stores/drafts";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
+import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
 import type { Message, ChatAttachment, ChatFileMetadata, ChatRequest } from "@/src/types/api";
 
 interface MessagePage {
@@ -94,51 +96,6 @@ function DateSeparator({ label }: { label: string }) {
       <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
       <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>{label}</Text>
       <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
-    </View>
-  );
-}
-
-function ErrorBanner({ error, onDismiss }: { error: string; onDismiss: () => void }) {
-  useEffect(() => {
-    const timer = setTimeout(onDismiss, 8000);
-    return () => clearTimeout(timer);
-  }, [error, onDismiss]);
-
-  return (
-    <Pressable
-      onPress={onDismiss}
-      className="px-4 py-2 bg-red-500/10 border-t border-red-500/20"
-    >
-      <Text className="text-red-400 text-sm">{error}</Text>
-    </Pressable>
-  );
-}
-
-function SecretWarningBanner({ patterns, onDismiss }: { patterns: { type: string }[]; onDismiss: () => void }) {
-  useEffect(() => {
-    const timer = setTimeout(onDismiss, 15000);
-    return () => clearTimeout(timer);
-  }, [onDismiss]);
-
-  const types = patterns.map((p) => p.type).join(", ");
-
-  return (
-    <View className="px-4 py-2 bg-yellow-500/10 border-t border-yellow-500/20 flex-row items-center justify-between gap-2">
-      <View className="flex-1">
-        <Text className="text-yellow-400 text-sm font-semibold">
-          <Shield size={12} /> Secret detected: {types}
-        </Text>
-        <Text className="text-yellow-400/70 text-xs mt-0.5">
-          Consider using{" "}
-          <Link href={"/admin/secret-values" as any} className="underline">
-            Secrets Manager
-          </Link>{" "}
-          instead of pasting credentials in chat.
-        </Text>
-      </View>
-      <Pressable onPress={onDismiss} className="px-2 py-1">
-        <Text className="text-yellow-400/60 text-xs">Dismiss</Text>
-      </Pressable>
     </View>
   );
 }
@@ -280,6 +237,28 @@ export default function ChatScreen() {
   // Mark channel as read on mount / channel switch
   useEffect(() => {
     if (channelId) markRead(channelId);
+  }, [channelId]);
+
+  const setDraftText = useDraftsStore((s) => s.setDraftText);
+
+  // Check for secret_return data (returning from "Add to Secrets" flow)
+  useEffect(() => {
+    if (!channelId) return;
+    try {
+      const raw = sessionStorage.getItem("secret_return");
+      if (raw) {
+        sessionStorage.removeItem("secret_return");
+        const data = JSON.parse(raw);
+        if (data.varName && data.originalMessage && data.secretValue) {
+          // Replace the raw secret with ${VAR_NAME} reference in the original message
+          const substituted = data.originalMessage.replaceAll(
+            data.secretValue,
+            "${" + data.varName + "}",
+          );
+          setDraftText(channelId, substituted);
+        }
+      }
+    } catch { /* ignore */ }
   }, [channelId]);
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
@@ -1006,6 +985,41 @@ export default function ChatScreen() {
           }}
           onCancel={() => setSecretWarning(null)}
           onAddToSecrets={() => {
+            // Extract the first detected secret value and pass via sessionStorage
+            const { text, result } = secretWarning;
+            const patternType = result.pattern_matches?.[0]?.type ?? "Secret";
+            // Use a simple regex extraction for common patterns
+            const secretPatterns = [
+              /sk_live_[A-Za-z0-9]{20,}/,
+              /sk_test_[A-Za-z0-9]{20,}/,
+              /rk_live_[A-Za-z0-9]{20,}/,
+              /pk_live_[A-Za-z0-9]{20,}/,
+              /sk-[A-Za-z0-9]{20,}/,
+              /sk-proj-[A-Za-z0-9_-]{20,}/,
+              /sk-ant-[A-Za-z0-9_-]{20,}/,
+              /gh[pso]_[A-Za-z0-9]{20,}/,
+              /github_pat_[A-Za-z0-9_]{20,}/,
+              /xox[bpas]-[A-Za-z0-9-]+/,
+              /AKIA[0-9A-Z]{16}/,
+              /SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/,
+              /AIza[A-Za-z0-9_-]{35}/,
+              /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+/,
+            ];
+            let extractedValue = "";
+            for (const pat of secretPatterns) {
+              const m = text.match(pat);
+              if (m) { extractedValue = m[0]; break; }
+            }
+            if (extractedValue) {
+              try {
+                sessionStorage.setItem("secret_prefill", JSON.stringify({
+                  value: extractedValue,
+                  type: patternType,
+                  returnTo: `/channels/${channelId}`,
+                  originalMessage: text,
+                }));
+              } catch { /* ignore */ }
+            }
             setSecretWarning(null);
             router.push("/admin/secret-values" as any);
           }}

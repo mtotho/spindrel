@@ -51,7 +51,7 @@ class SharedWorkspaceService:
     def ensure_host_dirs(self, workspace_id: str) -> str:
         """Create the workspace directory structure on the host. Returns root."""
         root = self.get_host_root(workspace_id)
-        for subdir in ("bots", "common", "users"):
+        for subdir in ("bots", "common", "users", "integrations"):
             os.makedirs(os.path.join(root, subdir), exist_ok=True)
         return root
 

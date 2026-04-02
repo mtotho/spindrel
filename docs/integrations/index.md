@@ -8,6 +8,32 @@ touching core code.
 
 ---
 
+## Workspace Integrations
+
+The shared workspace includes an `integrations/` directory that is automatically added
+to the discovery path at startup. Bots can write integration code directly to
+`/workspace/integrations/` and it will be discovered on the next server restart.
+
+This is the bridge between bot-generated code and the integration system — bots
+(especially via Claude Code) can scaffold complete integrations that the server picks
+up automatically. No manual `INTEGRATION_DIRS` configuration needed.
+
+```
+/workspace/integrations/
+├── my_api_client/
+│   └── tools/
+│       └── api_tool.py     # Custom tool — auto-discovered
+├── my_webhook/
+│   ├── router.py            # Webhook endpoint
+│   ├── setup.py             # Env var declarations
+│   └── tools/
+│       └── handler.py
+```
+
+In Docker, this works automatically — the workspace volume mount covers it.
+
+---
+
 ## External Integrations (INTEGRATION_DIRS)
 
 Integrations don't have to live inside the agent-server repo. Set `INTEGRATION_DIRS` in

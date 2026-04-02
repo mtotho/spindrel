@@ -2160,6 +2160,7 @@ async def list_activatable_integrations_global(
             "has_system_prompt": has_system_prompt,
             "version": manifest.get("version"),
             "compatible_template_tag": compat_tags[0] if compat_tags else None,
+            "includes": manifest.get("includes", []),
         })
     return result
 

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -308,7 +309,54 @@ async def lifespan(app: FastAPI):
         _sw_rows = (await _sw_db.execute(sa_select(_SW))).scalars().all()
     for _sw in _sw_rows:
         shared_workspace_service.ensure_host_dirs(str(_sw.id))
-        # Auto-start containers that were previously running
+
+    # Auto-append workspace integrations directory to INTEGRATION_DIRS
+    # so bots can scaffold integrations at /workspace/integrations/ and
+    # they'll be discovered on next restart.
+    if default_ws:
+        _ws_int_path = os.path.join(
+            shared_workspace_service.get_host_root(str(default_ws.id)),
+            "integrations",
+        )
+        os.makedirs(_ws_int_path, exist_ok=True)
+        _existing = settings.INTEGRATION_DIRS
+        if _ws_int_path not in (_existing or ""):
+            settings.INTEGRATION_DIRS = (
+                f"{_existing}:{_ws_int_path}" if _existing else _ws_int_path
+            )
+            logger.info("Added workspace integrations directory: %s", _ws_int_path)
+
+    # Discover and register integration routers (must happen inside lifespan
+    # so workspace integrations path is available in INTEGRATION_DIRS)
+    from integrations import discover_integrations as _discover_integrations
+    for _integration_id, _integration_router in _discover_integrations():
+        try:
+            app.include_router(
+                _integration_router,
+                prefix=f"/integrations/{_integration_id}",
+                tags=[f"Integration: {_integration_id}"],
+            )
+            logger.info("Registered integration: %s", _integration_id)
+        except Exception:
+            logger.exception("Failed to register integration router: %s", _integration_id)
+
+    # Mount static files for integration web UIs
+    from integrations import discover_web_uis as _discover_web_uis
+    from starlette.staticfiles import StaticFiles
+    for _web_ui in _discover_web_uis():
+        _ui_path = f"/integrations/{_web_ui['integration_id']}/ui"
+        try:
+            app.mount(
+                _ui_path,
+                StaticFiles(directory=str(_web_ui["static_dir_path"]), html=True),
+                name=f"integration-ui-{_web_ui['integration_id']}",
+            )
+            logger.info("Mounted integration web UI: %s → %s", _ui_path, _web_ui["static_dir_path"])
+        except Exception:
+            logger.exception("Failed to mount integration web UI at %s", _ui_path)
+
+    # Auto-start shared workspace containers that were previously running
+    for _sw in _sw_rows:
         if _sw.status == "running":
             try:
                 await shared_workspace_service.ensure_container(_sw)
@@ -439,35 +487,6 @@ app.include_router(sessions.router)
 app.include_router(transcribe.router)
 app.include_router(_api_v1_router)
 
-# Auto-discover and register integrations from integrations/*/router.py
-from integrations import discover_integrations as _discover_integrations  # noqa: E402
-for _integration_id, _integration_router in _discover_integrations():
-    try:
-        app.include_router(
-            _integration_router,
-            prefix=f"/integrations/{_integration_id}",
-            tags=[f"Integration: {_integration_id}"],
-        )
-        logger.info("Registered integration: %s", _integration_id)
-    except Exception:
-        logger.exception("Failed to register integration router: %s", _integration_id)
-
-
-# Mount static files for integration web UIs (e.g. dashboards served via iframe)
-from integrations import discover_web_uis as _discover_web_uis  # noqa: E402
-from starlette.staticfiles import StaticFiles  # noqa: E402
-
-for _web_ui in _discover_web_uis():
-    _ui_path = f"/integrations/{_web_ui['integration_id']}/ui"
-    try:
-        app.mount(
-            _ui_path,
-            StaticFiles(directory=str(_web_ui["static_dir_path"]), html=True),
-            name=f"integration-ui-{_web_ui['integration_id']}",
-        )
-        logger.info("Mounted integration web UI: %s → %s", _ui_path, _web_ui["static_dir_path"])
-    except Exception:
-        logger.exception("Failed to mount integration web UI at %s", _ui_path)
 
 
 @app.get("/health")

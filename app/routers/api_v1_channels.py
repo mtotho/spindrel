@@ -1165,6 +1165,7 @@ class AvailableIntegrationOut(BaseModel):
     has_system_prompt: bool = False
     version: Optional[str] = None
     compatible_template_tag: Optional[str] = None
+    includes: list[str] = []
 
 
 @router.post("/{channel_id}/integrations/{integration_type}/activate", response_model=ActivationOut)
@@ -1327,6 +1328,7 @@ async def list_available_integrations(
             has_system_prompt=has_system_prompt,
             version=manifest.get("version"),
             compatible_template_tag=compat_tags[0] if compat_tags else None,
+            includes=manifest.get("includes", []),
         ))
 
     return result

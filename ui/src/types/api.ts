@@ -246,6 +246,7 @@ export interface ActivatableIntegration {
   has_system_prompt: boolean;
   version?: string | null;
   compatible_template_tag?: string | null;
+  includes: string[];
 }
 
 export interface ActivationResult {

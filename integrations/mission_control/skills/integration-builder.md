@@ -303,8 +303,10 @@ For push-based integrations, you need a proper integration directory.
 
 ### Directory Structure
 
+Create the integration in the workspace integrations directory so bots have write access:
+
 ```
-integrations/my_webhook/
+/workspace/integrations/my_webhook/
 ├── __init__.py          # empty
 ├── router.py            # FastAPI router (webhook endpoint)
 ├── dispatcher.py        # optional: custom result delivery
@@ -387,10 +389,71 @@ This requires no custom code — just `fetch_url` + heartbeat.
 
 ---
 
+## Where Integration Code Lives
+
+### Three tiers of connecting external services
+
+Choose the simplest tier that meets the need:
+
+#### Tier 1: API Key + Skill (no code)
+
+For services with a REST API, you often need nothing more than:
+1. Store the API key as a secret value (Admin > Security > Secrets)
+2. Create a skill document explaining the API endpoints and auth pattern
+3. Use `fetch_url` or `exec_command` with the API — no custom code needed
+
+**Best for**: Simple API integrations, status checks, data fetching.
+
+#### Tier 2: Custom Tool (`/workspace/integrations/{name}/tools/`)
+
+When you need structured tool calls with validated parameters:
+1. Create a directory at `/workspace/integrations/{name}/`
+2. Add `tools/my_tool.py` with `@register(schema)` decorator
+3. Restart the server — the tool is auto-discovered
+
+**Best for**: Structured interactions, complex API flows, data transformations.
+
+#### Tier 3: Full Integration (router + dispatcher + activation)
+
+For event-driven integrations that receive webhooks, deliver results externally, or
+need deep UI integration:
+1. Scaffold the full directory structure at `/workspace/integrations/{name}/`
+2. Include `router.py`, `dispatcher.py`, `setup.py`, `hooks.py` as needed
+3. Restart the server — everything is auto-discovered
+
+**Best for**: Webhook receivers, chat platform bridges, real-time event processing.
+
+### Workspace integrations directory
+
+Bots can write integration code directly to `/workspace/integrations/`. This directory
+is inside the shared workspace and is automatically added to `INTEGRATION_DIRS` at
+server startup. Files written here by bots (via file tools or Claude Code) are
+discovered on the next server restart — same as any other integration directory.
+
+```
+/workspace/integrations/
+├── my_webhook/
+│   ├── __init__.py
+│   ├── router.py          # Webhook endpoint
+│   ├── setup.py            # Env vars, capabilities
+│   └── tools/
+│       └── my_tool.py     # Custom tool
+├── my_api_client/
+│   └── tools/
+│       └── api_tool.py    # Just a tool, no router needed
+```
+
+In Docker, this is already volume-mounted (the workspace mount covers it). No extra
+Docker configuration needed.
+
+For complex integrations, delegate to Claude Code — it can scaffold the full directory
+structure, write the code, and test it.
+
 ## Where Things Live
 
 | Component | Location | Purpose |
 |---|---|---|
+| Workspace integrations | `/workspace/integrations/` | Bot-writable, auto-discovered on restart |
 | Ingestion pipeline | `integrations/ingestion/` | 4-layer security for all external data |
 | Integration auto-discovery | `integrations/__init__.py` | Scans for routers, dispatchers, tools, skills |
 | Example integration | `integrations/example/` | Minimal reference implementation |
