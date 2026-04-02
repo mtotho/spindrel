@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { ActivityIndicator, useWindowDimensions } from "react-native";
 import { Check, Search, X, RotateCcw } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -106,6 +106,38 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
     },
     [settings, save],
   );
+
+  // Build skill → carapace mapping for active carapaces (walks includes)
+  const skillFromCarapace = useMemo(() => {
+    const map = new Map<string, { carapaceId: string; carapaceName: string; mode: string }>();
+    if (!allCarapaces || !effective?.carapaces) return map;
+
+    const carapaceById = new Map(allCarapaces.map((c) => [c.id, c]));
+    const activeIds = new Set(effective.carapaces);
+    const visited = new Set<string>();
+
+    function walk(id: string, rootId: string, rootName: string) {
+      const key = `${rootId}:${id}`;
+      if (visited.has(key)) return;
+      visited.add(key);
+      const c = carapaceById.get(id);
+      if (!c) return;
+      for (const s of c.skills) {
+        if (!map.has(s.id)) {
+          map.set(s.id, { carapaceId: rootId, carapaceName: rootName, mode: s.mode || "on_demand" });
+        }
+      }
+      for (const inc of c.includes) {
+        walk(inc, rootId, rootName);
+      }
+    }
+
+    for (const cId of activeIds) {
+      const c = carapaceById.get(cId);
+      if (c) walk(cId, cId, c.name);
+    }
+    return map;
+  }, [allCarapaces, effective]);
 
   if (editorLoading) {
     return <ActivityIndicator size="small" color={t.textDim} />;
@@ -311,6 +343,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
         filter={filter}
         onSave={save}
         isWide={isWide}
+        skillFromCarapace={skillFromCarapace}
       />
 
       {/* Tool Overrides */}

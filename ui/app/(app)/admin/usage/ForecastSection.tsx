@@ -22,7 +22,7 @@ function alertLevel(lf: LimitForecast): "red" | "orange" | null {
   return null;
 }
 
-function LimitAlerts({ limits }: { limits: LimitForecast[] }) {
+export function LimitAlerts({ limits }: { limits: LimitForecast[] }) {
   const t = useThemeTokens();
   const [dismissed, setDismissed] = useState(false);
 
@@ -154,7 +154,7 @@ function ForecastCard({
   );
 }
 
-function ForecastCards({ forecast }: { forecast: UsageForecast }) {
+export function ForecastCards({ forecast }: { forecast: UsageForecast }) {
   const dailyLimits = forecast.limits.filter((l) => l.period === "daily");
   const monthlyLimits = forecast.limits.filter((l) => l.period === "monthly");
   const worstDaily = dailyLimits.length > 0

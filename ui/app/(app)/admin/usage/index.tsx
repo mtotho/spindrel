@@ -18,7 +18,8 @@ import {
 } from "@/src/api/hooks/useUsage";
 import { BarChart, LineChart } from "@/src/components/shared/SimpleCharts";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { ForecastTab } from "./ForecastSection";
+import { useUsageForecast } from "@/src/api/hooks/useUsageForecast";
+import { ForecastTab, LimitAlerts, ForecastCards } from "./ForecastSection";
 import { LimitsTab } from "./LimitsTab";
 import { useUsageHudStore } from "@/src/stores/usageHud";
 
@@ -219,6 +220,7 @@ function OverviewTab({
 }) {
   const t = useThemeTokens();
   const { data, isLoading } = useUsageSummary(params);
+  const { data: forecast } = useUsageForecast();
 
   if (isLoading) {
     return (
@@ -236,6 +238,10 @@ function OverviewTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Forecast: limit warnings + spend summary */}
+      {forecast && <LimitAlerts limits={forecast.limits} />}
+      {forecast && <ForecastCards forecast={forecast} />}
+
       {/* Stat cards */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <StatCard label="Total Calls" value={fmtTokens(data.total_calls)} />
@@ -951,110 +957,112 @@ export default function UsageScreen() {
     <View className="flex-1 bg-surface">
       <MobileHeader title="Usage & Costs" subtitle="LLM cost analytics" />
 
-      {/* Filter bar */}
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          padding: isMobile ? "8px 12px" : "10px 20px",
-          borderBottom: `1px solid ${t.surfaceRaised}`,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        {/* Time presets */}
-        <div style={{ display: "flex", gap: 2 }}>
-          {TIME_PRESETS.map((p) => (
+      {/* Filter bar — only shown on tabs that use time/filter params */}
+      {tab !== "Forecast" && tab !== "Limits" && (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            padding: isMobile ? "8px 12px" : "10px 20px",
+            borderBottom: `1px solid ${t.surfaceRaised}`,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          {/* Time presets */}
+          <div style={{ display: "flex", gap: 2 }}>
+            {TIME_PRESETS.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => setTimePreset(p.value)}
+                style={{
+                  padding: "4px 10px",
+                  fontSize: 12,
+                  fontWeight: timePreset === p.value ? 600 : 400,
+                  background: timePreset === p.value ? t.accent : t.surfaceRaised,
+                  color: timePreset === p.value ? "#fff" : t.textMuted,
+                  border: `1px solid ${timePreset === p.value ? t.accent : t.surfaceBorder}`,
+                  borderRadius: 4,
+                  cursor: "pointer",
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Bot filter */}
+          <select
+            value={botFilter}
+            onChange={(e) => setBotFilter(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="">All Bots</option>
+            {bots?.map((b: any) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Model filter */}
+          <select
+            value={modelFilter}
+            onChange={(e) => setModelFilter(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="">All Models</option>
+            {modelNames.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+
+          {/* Provider filter */}
+          <select
+            value={providerFilter}
+            onChange={(e) => setProviderFilter(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="">All Providers</option>
+            {providerIds.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+
+          {/* Clear filters button */}
+          {(botFilter || modelFilter || providerFilter) && (
             <button
-              key={p.value}
-              onClick={() => setTimePreset(p.value)}
+              onClick={() => {
+                setBotFilter("");
+                setModelFilter("");
+                setProviderFilter("");
+              }}
               style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
                 padding: "4px 10px",
-                fontSize: 12,
-                fontWeight: timePreset === p.value ? 600 : 400,
-                background: timePreset === p.value ? t.accent : t.surfaceRaised,
-                color: timePreset === p.value ? "#fff" : t.textMuted,
-                border: `1px solid ${timePreset === p.value ? t.accent : t.surfaceBorder}`,
+                fontSize: 11,
+                background: t.accentSubtle,
+                color: t.accent,
+                border: `1px solid ${t.accent}`,
                 borderRadius: 4,
                 cursor: "pointer",
               }}
             >
-              {p.label}
+              <X size={12} /> Clear filters
             </button>
-          ))}
+          )}
+
+          {/* Spacer + HUD toggle */}
+          <div style={{ flex: 1 }} />
+          <HudToggle />
         </div>
-
-        {/* Bot filter */}
-        <select
-          value={botFilter}
-          onChange={(e) => setBotFilter(e.target.value)}
-          style={selectStyle}
-        >
-          <option value="">All Bots</option>
-          {bots?.map((b: any) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-
-        {/* Model filter */}
-        <select
-          value={modelFilter}
-          onChange={(e) => setModelFilter(e.target.value)}
-          style={selectStyle}
-        >
-          <option value="">All Models</option>
-          {modelNames.map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-
-        {/* Provider filter */}
-        <select
-          value={providerFilter}
-          onChange={(e) => setProviderFilter(e.target.value)}
-          style={selectStyle}
-        >
-          <option value="">All Providers</option>
-          {providerIds.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-
-        {/* Clear filters button */}
-        {(botFilter || modelFilter || providerFilter) && (
-          <button
-            onClick={() => {
-              setBotFilter("");
-              setModelFilter("");
-              setProviderFilter("");
-            }}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "4px 10px",
-              fontSize: 11,
-              background: t.accentSubtle,
-              color: t.accent,
-              border: `1px solid ${t.accent}`,
-              borderRadius: 4,
-              cursor: "pointer",
-            }}
-          >
-            <X size={12} /> Clear filters
-          </button>
-        )}
-
-        {/* Spacer + HUD toggle */}
-        <div style={{ flex: 1 }} />
-        <HudToggle />
-      </div>
+      )}
 
       {/* Tab bar */}
       <div
