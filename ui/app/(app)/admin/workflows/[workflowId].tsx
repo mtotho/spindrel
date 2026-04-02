@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -16,6 +16,7 @@ import type { Workflow, WorkflowStep } from "@/src/types/api";
 import WorkflowRunsTab from "./WorkflowRunsTab";
 import { WorkflowStepEditor } from "./WorkflowStepEditor";
 import { DefaultsEditor, ParamsEditor, TriggersEditor } from "./WorkflowFormParts";
+import yaml from "js-yaml";
 
 // ---------------------------------------------------------------------------
 // Page
@@ -24,7 +25,11 @@ import { DefaultsEditor, ParamsEditor, TriggersEditor } from "./WorkflowFormPart
 export default function WorkflowDetailPage() {
   const t = useThemeTokens();
   const router = useRouter();
-  const { workflowId } = useLocalSearchParams<{ workflowId: string }>();
+  const { workflowId, tab: tabParam, run: runParam } = useLocalSearchParams<{
+    workflowId: string;
+    tab?: string;
+    run?: string;
+  }>();
   const isNew = workflowId === "new";
 
   const { data: existing, isLoading } = useWorkflow(isNew ? undefined : workflowId);
@@ -33,7 +38,9 @@ export default function WorkflowDetailPage() {
   const deleteMut = useDeleteWorkflow();
   const exportMut = useExportWorkflow(workflowId || "");
 
-  const [activeTab, setActiveTab] = useState<string>("definition");
+  const [activeTab, setActiveTab] = useState<string>(
+    !isNew && tabParam === "runs" ? "runs" : "definition"
+  );
   const [draft, setDraft] = useState<Partial<Workflow>>({
     id: "", name: "", description: "",
     steps: [], params: {}, defaults: {},
@@ -137,7 +144,10 @@ export default function WorkflowDetailPage() {
 
   const tabs = [
     { key: "definition", label: "Definition" },
-    ...(isNew ? [] : [{ key: "runs", label: "Runs" }]),
+    ...(isNew ? [] : [
+      { key: "runs", label: "Runs" },
+      { key: "yaml", label: "YAML" },
+    ]),
   ];
 
   const inputStyle: React.CSSProperties = {
@@ -338,7 +348,11 @@ export default function WorkflowDetailPage() {
         )}
 
         {activeTab === "runs" && workflowId && !isNew && (
-          <WorkflowRunsTab workflowId={workflowId} />
+          <WorkflowRunsTab workflowId={workflowId} initialRunId={runParam} />
+        )}
+
+        {activeTab === "yaml" && !isNew && (
+          <YamlEditor draft={draft} onUpdate={(patch) => update(patch)} t={t} />
         )}
       </div>
 
@@ -350,6 +364,115 @@ export default function WorkflowDetailPage() {
           t={t}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// YAML editor
+// ---------------------------------------------------------------------------
+
+function draftToYamlObj(draft: Partial<Workflow>) {
+  const obj: Record<string, unknown> = {};
+  if (draft.id) obj.id = draft.id;
+  if (draft.name) obj.name = draft.name;
+  if (draft.description) obj.description = draft.description;
+  if (draft.session_mode && draft.session_mode !== "isolated") obj.session_mode = draft.session_mode;
+  if (draft.tags && draft.tags.length > 0) obj.tags = draft.tags;
+  if (draft.params && Object.keys(draft.params).length > 0) obj.params = draft.params;
+  if (draft.secrets && draft.secrets.length > 0) obj.secrets = draft.secrets;
+  if (draft.defaults && Object.keys(draft.defaults).length > 0) obj.defaults = draft.defaults;
+  if (draft.triggers && Object.keys(draft.triggers).length > 0) obj.triggers = draft.triggers;
+  if (draft.steps && draft.steps.length > 0) obj.steps = draft.steps;
+  return obj;
+}
+
+function YamlEditor({ draft, onUpdate, t }: {
+  draft: Partial<Workflow>;
+  onUpdate: (patch: Partial<Workflow>) => void;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const [yamlText, setYamlText] = useState("");
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [internalEdit, setInternalEdit] = useState(false);
+
+  // Sync draft → YAML text (only when draft changes externally, not from our own edits)
+  useEffect(() => {
+    if (internalEdit) {
+      setInternalEdit(false);
+      return;
+    }
+    try {
+      const text = yaml.dump(draftToYamlObj(draft), {
+        lineWidth: 120,
+        noRefs: true,
+        quotingType: '"',
+        forceQuotes: false,
+      });
+      setYamlText(text);
+      setParseError(null);
+    } catch {
+      // Keep existing text
+    }
+  }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleChange = (text: string) => {
+    setYamlText(text);
+    try {
+      const parsed = yaml.load(text) as Record<string, unknown> | null;
+      if (!parsed || typeof parsed !== "object") {
+        setParseError("YAML must be an object");
+        return;
+      }
+      setParseError(null);
+      setInternalEdit(true);
+      onUpdate({
+        id: (parsed.id as string) || draft.id,
+        name: (parsed.name as string) || "",
+        description: (parsed.description as string) || "",
+        steps: (parsed.steps as WorkflowStep[]) || [],
+        params: (parsed.params as Record<string, unknown>) || {},
+        defaults: (parsed.defaults as Record<string, unknown>) || {},
+        secrets: (parsed.secrets as string[]) || [],
+        triggers: (parsed.triggers as Record<string, boolean>) || {},
+        tags: (parsed.tags as string[]) || [],
+        session_mode: (parsed.session_mode as string) || "isolated",
+      });
+    } catch (e: unknown) {
+      setParseError(e instanceof Error ? e.message : "Invalid YAML");
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {parseError && (
+        <div style={{
+          padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace",
+          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`, color: t.danger,
+        }}>
+          {parseError}
+        </div>
+      )}
+      <textarea
+        value={yamlText}
+        onChange={(e) => handleChange(e.target.value)}
+        spellCheck={false}
+        style={{
+          width: "100%",
+          minHeight: 500,
+          fontFamily: "monospace",
+          fontSize: 13,
+          lineHeight: "1.5",
+          padding: 12,
+          borderRadius: 8,
+          border: `1px solid ${parseError ? t.dangerBorder : t.inputBorder}`,
+          background: t.inputBg,
+          color: t.inputText,
+          resize: "vertical",
+          outline: "none",
+          tabSize: 2,
+        }}
+      />
     </div>
   );
 }

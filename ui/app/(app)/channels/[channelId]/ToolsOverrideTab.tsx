@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { View, Text, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
+import { ActivityIndicator, useWindowDimensions } from "react-native";
 import { Check, Search, X, RotateCcw } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -9,11 +9,26 @@ import {
 } from "@/src/api/hooks/useChannels";
 import { useBotEditorData } from "@/src/api/hooks/useBots";
 import { useCarapaces } from "@/src/api/hooks/useCarapaces";
-import { Section, EmptyState } from "@/src/components/shared/FormControls";
+import { EmptyState } from "@/src/components/shared/FormControls";
 import { StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { ChannelSettings } from "@/src/types/api";
 import { EffectiveToolsList } from "./EffectiveToolsList";
 import { EffectiveSkillsList } from "./EffectiveSkillsList";
+
+function SectionDivider({ label, count }: { label: string; count?: number }) {
+  const t = useThemeTokens();
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 0 4px" }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+        {label}
+      </span>
+      {count != null && (
+        <span style={{ fontSize: 10, color: t.textDim }}>{count}</span>
+      )}
+      <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+    </div>
+  );
+}
 
 export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botId?: string }) {
   const t = useThemeTokens();
@@ -60,7 +75,6 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
       const next = current.includes(carapaceId)
         ? current.filter((c) => c !== carapaceId)
         : [...current, carapaceId];
-      // Remove from disabled if we're adding to extra (mutual exclusion)
       const updates: any = { carapaces_extra: next.length > 0 ? next : null };
       if (!current.includes(carapaceId)) {
         const disabled = settings?.carapaces_disabled ?? [];
@@ -80,7 +94,6 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
       const next = current.includes(carapaceId)
         ? current.filter((c) => c !== carapaceId)
         : [...current, carapaceId];
-      // Remove from extra if we're adding to disabled (mutual exclusion)
       const updates: any = { carapaces_disabled: next.length > 0 ? next : null };
       if (!current.includes(carapaceId)) {
         const extra = settings?.carapaces_extra ?? [];
@@ -124,77 +137,51 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
 
   return (
     <>
-      {/* Status + controls */}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+      {/* Search + controls */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 6, flex: 1,
+          background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
+          borderRadius: 6, padding: "6px 10px",
+        }}>
+          <Search size={13} color={t.textDim} />
+          <input
+            type="text"
+            value={filter}
+            onChange={(e: any) => setFilter(e.target.value)}
+            placeholder="Filter tools, skills & carapaces..."
+            style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 12 }}
+          />
+          {filter && (
+            <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
+              <X size={10} color={t.textDim} />
+            </button>
+          )}
+        </div>
         {saved && (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Check size={12} color={t.success} />
-            <Text style={{ color: t.success, fontSize: 11 }}>Saved</Text>
-          </View>
+          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.success, whiteSpace: "nowrap" }}>
+            <Check size={12} /> Saved
+          </span>
         )}
-        <View style={{ flex: 1 }} />
         {hasOverrides && (
-          <Pressable
-            onPress={handleResetAll}
+          <button
+            onClick={handleResetAll}
             style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              paddingHorizontal: 8,
-              paddingVertical: 6,
-              borderRadius: 4,
-              borderWidth: 1,
-              borderColor: t.surfaceBorder,
+              display: "flex", alignItems: "center", gap: 4, padding: "5px 10px",
+              borderRadius: 4, border: `1px solid ${t.surfaceBorder}`,
+              background: "transparent", color: t.textDim, cursor: "pointer",
+              fontSize: 11, whiteSpace: "nowrap",
             }}
           >
-            <RotateCcw size={10} color={t.textDim} />
-            <Text style={{ fontSize: 10, color: t.textDim }}>Reset All</Text>
-          </Pressable>
+            <RotateCcw size={10} /> Reset All
+          </button>
         )}
-      </View>
+      </div>
 
-      {/* Search (for tools section) */}
-      <View
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          background: t.inputBg,
-          border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 6,
-          padding: "5px 10px",
-          marginBottom: 12,
-        } as any}
-      >
-        <Search size={12} color={t.textDim} />
-        <input
-          type="text"
-          value={filter}
-          onChange={(e: any) => setFilter(e.target.value)}
-          placeholder="Search tools, skills & carapaces..."
-          style={{
-            flex: 1,
-            background: "transparent",
-            border: "none",
-            outline: "none",
-            color: t.text,
-            fontSize: 12,
-          }}
-        />
-        {filter && (
-          <Pressable onPress={() => setFilter("")}>
-            <X size={10} color={t.textDim} />
-          </Pressable>
-        )}
-      </View>
-
-      {/* Carapaces — channel extras/disabled */}
+      {/* Carapaces */}
       {filteredCarapaces.length > 0 && (
-        <Section title="Channel Carapaces">
-          <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 8 }}>
-            Add or disable carapaces for this channel. Extras layer on top of the bot&apos;s carapaces.
-          </div>
+        <>
+          <SectionDivider label="Carapaces" count={filteredCarapaces.length} />
           {filteredCarapaces.map((c) => {
             const isExtra = extras.has(c.id);
             const isDisabled = disabled.has(c.id);
@@ -209,9 +196,9 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                 <div
                   key={c.id}
                   style={{
-                    display: "flex", flexDirection: "column", gap: 6,
-                    padding: "12px 16px", background: t.inputBg, borderRadius: 8,
-                    border: `1px solid ${t.surfaceBorder}`, marginBottom: 8,
+                    display: "flex", flexDirection: "column", gap: 4,
+                    padding: "10px 12px", background: t.inputBg, borderRadius: 8,
+                    border: `1px solid ${t.surfaceBorder}`, marginBottom: 6,
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -221,7 +208,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                     {isActivation && <StatusBadge label={activationLabel!} variant="purple" />}
                     {source === "bot" && <StatusBadge label="bot default" variant="neutral" />}
                   </div>
-                  <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted }}>
+                  <span style={{ fontSize: 10, fontFamily: "monospace", color: t.textMuted }}>
                     {c.id}
                   </span>
                   {c.description && (
@@ -229,12 +216,12 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                       {c.description}
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+                  <div style={{ display: "flex", gap: 6, marginTop: 2 }}>
                     {!isActivation && (
                       <button
                         onClick={() => toggleCarapaceExtra(c.id)}
                         style={{
-                          padding: "3px 10px", borderRadius: 4, fontSize: 11, fontWeight: 500, cursor: "pointer",
+                          padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 500, cursor: "pointer",
                           border: `1px solid ${isExtra ? t.success : t.surfaceBorder}`,
                           background: isExtra ? `${t.success}18` : "transparent",
                           color: isExtra ? t.success : t.textDim,
@@ -246,7 +233,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                     <button
                       onClick={() => toggleCarapaceDisabled(c.id)}
                       style={{
-                        padding: "3px 10px", borderRadius: 4, fontSize: 11, fontWeight: 500, cursor: "pointer",
+                        padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 500, cursor: "pointer",
                         border: `1px solid ${isDisabled ? t.danger : t.surfaceBorder}`,
                         background: isDisabled ? `${t.danger}18` : "transparent",
                         color: isDisabled ? t.danger : t.textDim,
@@ -263,9 +250,9 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
               <div
                 key={c.id}
                 style={{
-                  display: "grid", gridTemplateColumns: "120px 1fr auto auto auto",
+                  display: "grid", gridTemplateColumns: "160px 1fr auto auto auto",
                   alignItems: "center", gap: 12,
-                  padding: "10px 16px", background: "transparent",
+                  padding: "6px 4px", background: "transparent",
                   borderBottom: `1px solid ${t.surfaceBorder}`,
                 }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.inputBg; }}
@@ -277,7 +264,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                 <div style={{ overflow: "hidden" }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{c.name}</span>
                   {c.description && (
-                    <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
+                    <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>
                       {c.description}
                     </div>
                   )}
@@ -290,7 +277,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                   <button
                     onClick={() => toggleCarapaceExtra(c.id)}
                     style={{
-                      padding: "3px 10px", borderRadius: 4, fontSize: 11, fontWeight: 500, cursor: "pointer",
+                      padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 500, cursor: "pointer",
                       border: `1px solid ${isExtra ? t.success : t.surfaceBorder}`,
                       background: isExtra ? `${t.success}18` : "transparent",
                       color: isExtra ? t.success : t.textDim,
@@ -302,7 +289,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                 <button
                   onClick={() => toggleCarapaceDisabled(c.id)}
                   style={{
-                    padding: "3px 10px", borderRadius: 4, fontSize: 11, fontWeight: 500, cursor: "pointer",
+                    padding: "2px 10px", borderRadius: 4, fontSize: 11, fontWeight: 500, cursor: "pointer",
                     border: `1px solid ${isDisabled ? t.danger : t.surfaceBorder}`,
                     background: isDisabled ? `${t.danger}18` : "transparent",
                     color: isDisabled ? t.danger : t.textDim,
@@ -313,39 +300,36 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
               </div>
             );
           })}
-        </Section>
+        </>
       )}
 
-      {/* Skills — channel additions */}
-      <Section title="Channel Skills">
-        <EffectiveSkillsList
-          editorData={editorData}
-          settings={settings}
-          filter={filter}
-          onSave={save}
-          isWide={isWide}
-        />
-      </Section>
+      {/* Skills */}
+      <SectionDivider label="Skills" />
+      <EffectiveSkillsList
+        editorData={editorData}
+        settings={settings}
+        filter={filter}
+        onSave={save}
+        isWide={isWide}
+      />
 
-      {/* Tools — disable from bot defaults */}
-      <Section title="Tool Overrides">
-        <EffectiveToolsList
-          editorData={editorData}
-          settings={settings}
-          filter={filter}
-          onSave={save}
-        />
-      </Section>
+      {/* Tool Overrides */}
+      <SectionDivider label="Tool Overrides" />
+      <EffectiveToolsList
+        editorData={editorData}
+        settings={settings}
+        filter={filter}
+        onSave={save}
+      />
 
       {/* Summary */}
       {effective && (
-        <Section title="Effective Summary">
-          <Text style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
-            {effective.local_tools.length} local tools, {effective.mcp_servers.length} MCP servers,{" "}
-            {effective.client_tools.length} client tools, {effective.pinned_tools.length} pinned,{" "}
-            {effective.skills.length} skills, {effective.carapaces.length} carapaces
-          </Text>
-        </Section>
+        <>
+          <SectionDivider label="Summary" />
+          <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
+            {effective.local_tools.length} local, {effective.mcp_servers.length} MCP, {effective.client_tools.length} client, {effective.pinned_tools.length} pinned, {effective.skills.length} skills, {effective.carapaces.length} carapaces
+          </span>
+        </>
       )}
     </>
   );

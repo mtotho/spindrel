@@ -10,6 +10,8 @@ skills:
     mode: on_demand
   - id: integrations/arr/download-monitoring
     mode: on_demand
+  - id: integrations/arr/media-troubleshoot
+    mode: on_demand
 
 local_tools:
   - manage_workflow
@@ -47,7 +49,7 @@ system_prompt_fragment: |
   |---|---|
   | "Request X" / "Get X on Jellyfin" / "Add X" | → **Request flow** (see below) |
   | "Is X available?" / "Do we have X?" | → Quick check: `jellyfin_library(action="search")` |
-  | "Why isn't X on?" / "X is missing" | → `manage_workflow(action="trigger", id="media-troubleshoot", params=...)` |
+  | "Why isn't X on?" / "X is missing" | → `get_skill('integrations/arr/media-troubleshoot')` then follow the procedure step by step |
   | "Make sure X is on" / "Can you get X?" | → **Request flow** — covers check + request if needed |
   | "What's downloading?" | → `sonarr_queue()` + `radarr_queue()` + `qbit_torrents(filter="downloading")` |
   | "Fix stuck downloads" | → `qbit_torrents(filter="stalled")` → diagnose → remediate |
@@ -100,14 +102,14 @@ system_prompt_fragment: |
   | `qbit_torrents` | List torrents; filters: stalled, downloading, etc. |
   | `qbit_manage` | Pause/resume/delete torrents |
 
-  ### Automated Workflows
+  ### Automated Workflows (for background/scheduled use, not interactive chat)
 
-  Complex multi-step operations have dedicated workflows:
+  These workflows run as background tasks — use them for heartbeat-triggered checks, API-triggered batch operations, or explicit "run the workflow" requests. For interactive troubleshooting in chat, use the skills above instead.
 
   - **Troubleshoot missing media**: `manage_workflow(action="trigger", id="media-troubleshoot", params='{"title": "Show Name", "media_type": "tv"}')`
-    Checks Jellyfin → Sonarr/Radarr → qBit → diagnoses → auto-fixes → reports back.
+    Background check: Jellyfin → Sonarr/Radarr → qBit → diagnoses → auto-fixes → reports.
   - **Request media**: `manage_workflow(action="trigger", id="media-request", params='{"title": "Movie Name"}')`
-    Checks availability → searches TMDB → confirms match → requests → reports back.
+    Background request: checks availability → searches TMDB → requests → reports.
 
   ### Pagination
 

@@ -64,10 +64,10 @@ function StatusBadge({ status, t }: { status: string; t: ThemeTokens }) {
 // Main tab
 // ---------------------------------------------------------------------------
 
-export default function WorkflowRunsTab({ workflowId }: { workflowId: string }) {
+export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflowId: string; initialRunId?: string }) {
   const t = useThemeTokens();
   const { data: runs, isLoading } = useWorkflowRuns(workflowId);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(initialRunId ?? null);
   const [showTrigger, setShowTrigger] = useState(false);
 
   if (selectedRunId) {

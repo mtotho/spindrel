@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { View, ActivityIndicator } from "react-native";
 import { AlertTriangle, X } from "lucide-react";
+import { useState } from "react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { BarChart } from "@/src/components/shared/SimpleCharts";
+import { useUsageForecast } from "@/src/api/hooks/useUsageForecast";
 import type { UsageForecast, ForecastComponent, LimitForecast } from "@/src/api/hooks/useUsageForecast";
 
 function fmtCost(v: number | null | undefined): string {
@@ -20,7 +22,7 @@ function alertLevel(lf: LimitForecast): "red" | "orange" | null {
   return null;
 }
 
-export function LimitAlerts({ limits }: { limits: LimitForecast[] }) {
+function LimitAlerts({ limits }: { limits: LimitForecast[] }) {
   const t = useThemeTokens();
   const [dismissed, setDismissed] = useState(false);
 
@@ -57,7 +59,7 @@ export function LimitAlerts({ limits }: { limits: LimitForecast[] }) {
             ({lf.scope_type}, {lf.period}): {lf.percentage.toFixed(0)}% used
             {lf.projected_percentage > lf.percentage && (
               <span style={{ color: t.textDim }}>
-                {" "}— projected {lf.projected_percentage.toFixed(0)}%
+                {" "}&mdash; projected {lf.projected_percentage.toFixed(0)}%
               </span>
             )}
           </div>
@@ -141,7 +143,7 @@ function ForecastCard({
           {fmtCost(actual)}
         </span>
         <span style={{ fontSize: 12, color: t.textDim }}>
-          → {fmtCost(projected)}
+          &rarr; {fmtCost(projected)}
         </span>
       </div>
       {sub && <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>{sub}</div>}
@@ -152,8 +154,7 @@ function ForecastCard({
   );
 }
 
-export function ForecastCards({ forecast }: { forecast: UsageForecast }) {
-  // Find worst limit % for daily and monthly
+function ForecastCards({ forecast }: { forecast: UsageForecast }) {
   const dailyLimits = forecast.limits.filter((l) => l.period === "daily");
   const monthlyLimits = forecast.limits.filter((l) => l.period === "monthly");
   const worstDaily = dailyLimits.length > 0
@@ -188,7 +189,7 @@ export function ForecastCards({ forecast }: { forecast: UsageForecast }) {
 }
 
 // ---------------------------------------------------------------------------
-// ForecastBreakdown — component breakdown table
+// DonutChart — SVG donut showing proportional daily cost by component
 // ---------------------------------------------------------------------------
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -198,7 +199,205 @@ const SOURCE_LABELS: Record<string, string> = {
   fixed_plans: "Fixed Plans",
 };
 
-export function ForecastBreakdown({ components }: { components: ForecastComponent[] }) {
+const SOURCE_COLORS: Record<string, (t: ReturnType<typeof useThemeTokens>) => string> = {
+  trajectory: (t) => t.accent,
+  heartbeats: (t) => t.success,
+  recurring_tasks: (t) => t.warning,
+  fixed_plans: (t) => t.purple,
+};
+
+function DonutChart({ components }: { components: ForecastComponent[] }) {
+  const t = useThemeTokens();
+  const items = components.filter((c) => c.daily_cost > 0);
+  const total = items.reduce((s, c) => s + c.daily_cost, 0);
+
+  if (items.length === 0 || total === 0) return null;
+
+  const size = 180;
+  const cx = size / 2;
+  const cy = size / 2;
+  const outerR = 70;
+  const innerR = 48;
+
+  // Build arc segments
+  let startAngle = -Math.PI / 2; // start at top
+  const segments = items.map((c) => {
+    const fraction = c.daily_cost / total;
+    const sweep = fraction * Math.PI * 2;
+    const endAngle = startAngle + sweep;
+    const color = (SOURCE_COLORS[c.source] ?? (() => t.accent))(t);
+
+    // Arc path
+    const largeArc = sweep > Math.PI ? 1 : 0;
+    const x1o = cx + outerR * Math.cos(startAngle);
+    const y1o = cy + outerR * Math.sin(startAngle);
+    const x2o = cx + outerR * Math.cos(endAngle);
+    const y2o = cy + outerR * Math.sin(endAngle);
+    const x1i = cx + innerR * Math.cos(endAngle);
+    const y1i = cy + innerR * Math.sin(endAngle);
+    const x2i = cx + innerR * Math.cos(startAngle);
+    const y2i = cy + innerR * Math.sin(startAngle);
+
+    const path = [
+      `M ${x1o} ${y1o}`,
+      `A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2o} ${y2o}`,
+      `L ${x1i} ${y1i}`,
+      `A ${innerR} ${innerR} 0 ${largeArc} 0 ${x2i} ${y2i}`,
+      "Z",
+    ].join(" ");
+
+    startAngle = endAngle;
+
+    return { source: c.source, label: SOURCE_LABELS[c.source] || c.label, color, path, cost: c.daily_cost };
+  });
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 220,
+        background: t.surfaceRaised,
+        borderRadius: 8,
+        padding: 16,
+        border: `1px solid ${t.surfaceOverlay}`,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 12, alignSelf: "flex-start" }}>
+        Daily Cost Breakdown
+      </div>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {segments.map((seg, i) => (
+          <path key={i} d={seg.path} fill={seg.color} opacity={0.85} />
+        ))}
+        {/* Center text */}
+        <text x={cx} y={cy - 6} textAnchor="middle" fill={t.textDim} fontSize={10}>
+          Projected
+        </text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fill={t.text} fontSize={16} fontWeight={700} fontFamily="monospace">
+          {fmtCost(total)}
+        </text>
+        <text x={cx} y={cy + 26} textAnchor="middle" fill={t.textDim} fontSize={9}>
+          / day
+        </text>
+      </svg>
+      {/* Legend */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12, justifyContent: "center" }}>
+        {segments.map((seg) => (
+          <div key={seg.source} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: seg.color, flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: t.textMuted }}>
+              {seg.label} {fmtCost(seg.cost)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SpendComparisonChart — Actual vs Projected grouped horizontal bars
+// ---------------------------------------------------------------------------
+
+function SpendComparisonChart({ forecast }: { forecast: UsageForecast }) {
+  const t = useThemeTokens();
+  const maxVal = Math.max(forecast.projected_daily, forecast.projected_monthly, 0.01);
+
+  const groups: { label: string; actual: number; projected: number }[] = [
+    { label: "Today", actual: forecast.daily_spend, projected: forecast.projected_daily },
+    { label: "This Month", actual: forecast.monthly_spend, projected: forecast.projected_monthly },
+  ];
+
+  return (
+    <div
+      style={{
+        flex: 1,
+        minWidth: 280,
+        background: t.surfaceRaised,
+        borderRadius: 8,
+        padding: 16,
+        border: `1px solid ${t.surfaceOverlay}`,
+      }}
+    >
+      <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 16 }}>
+        Actual vs Projected
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {groups.map((g) => {
+          const gMax = Math.max(g.projected, 0.01);
+          return (
+            <div key={g.label}>
+              <div style={{ fontSize: 12, color: t.textMuted, marginBottom: 6 }}>{g.label}</div>
+              {/* Actual bar */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ width: 60, fontSize: 10, color: t.textDim, textAlign: "right" }}>Actual</span>
+                <div style={{ flex: 1, height: 18, background: t.surfaceOverlay, borderRadius: 4, position: "relative" }}>
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: `${Math.min((g.actual / gMax) * 100, 100)}%`,
+                      background: t.accent,
+                      borderRadius: 4,
+                      minWidth: g.actual > 0 ? 2 : 0,
+                    }}
+                  />
+                </div>
+                <span style={{ width: 70, fontSize: 11, fontFamily: "monospace", color: t.text, textAlign: "right" }}>
+                  {fmtCost(g.actual)}
+                </span>
+              </div>
+              {/* Projected bar */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 60, fontSize: 10, color: t.textDim, textAlign: "right" }}>Projected</span>
+                <div style={{ flex: 1, height: 18, background: t.surfaceOverlay, borderRadius: 4, position: "relative" }}>
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: `${Math.min((g.projected / gMax) * 100, 100)}%`,
+                      background: t.accent,
+                      borderRadius: 4,
+                      opacity: 0.4,
+                      minWidth: g.projected > 0 ? 2 : 0,
+                    }}
+                  />
+                </div>
+                <span style={{ width: 70, fontSize: 11, fontFamily: "monospace", color: t.textDim, textAlign: "right" }}>
+                  {fmtCost(g.projected)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Legend */}
+      <div style={{ display: "flex", gap: 16, marginTop: 14, justifyContent: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div style={{ width: 12, height: 8, borderRadius: 2, background: t.accent }} />
+          <span style={{ fontSize: 10, color: t.textMuted }}>Actual</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div style={{ width: 12, height: 8, borderRadius: 2, background: t.accent, opacity: 0.4 }} />
+          <span style={{ fontSize: 10, color: t.textMuted }}>Projected</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ForecastBreakdown — component breakdown table
+// ---------------------------------------------------------------------------
+
+function ForecastBreakdown({ components }: { components: ForecastComponent[] }) {
   const t = useThemeTokens();
   if (components.length === 0) return null;
 
@@ -249,7 +448,7 @@ export function ForecastBreakdown({ components }: { components: ForecastComponen
             </span>
             <span style={{ width: 160, textAlign: "right", color: t.textDim, fontSize: 11 }}>
               {c.count != null && `${c.count} runs`}
-              {c.count != null && c.avg_cost_per_run != null && " · "}
+              {c.count != null && c.avg_cost_per_run != null && " \u00b7 "}
               {c.avg_cost_per_run != null && `${fmtCost(c.avg_cost_per_run)}/run`}
             </span>
           </div>
@@ -263,14 +462,7 @@ export function ForecastBreakdown({ components }: { components: ForecastComponen
 // ForecastBarChart — horizontal bar chart by component
 // ---------------------------------------------------------------------------
 
-const SOURCE_COLORS: Record<string, (t: ReturnType<typeof useThemeTokens>) => string> = {
-  trajectory: (t) => t.accent,
-  heartbeats: (t) => t.success,
-  recurring_tasks: (t) => t.warning,
-  fixed_plans: (t) => t.purple,
-};
-
-export function ForecastBarChart({ components }: { components: ForecastComponent[] }) {
+function ForecastBarChart({ components }: { components: ForecastComponent[] }) {
   const t = useThemeTokens();
   if (components.length === 0) return null;
 
@@ -289,7 +481,54 @@ export function ForecastBarChart({ components }: { components: ForecastComponent
       <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 12 }}>
         Daily Forecast by Component
       </div>
-      <BarChart items={items} formatValue={(v) => `$${v.toFixed(4)}`} />
+      <BarChart items={items} formatValue={fmtCost} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ForecastTab — top-level tab component
+// ---------------------------------------------------------------------------
+
+export function ForecastTab() {
+  const t = useThemeTokens();
+  const { data: forecast, isLoading } = useUsageForecast();
+
+  if (isLoading) {
+    return (
+      <View className="items-center justify-center" style={{ padding: 40 }}>
+        <ActivityIndicator color={t.accent} />
+      </View>
+    );
+  }
+
+  if (!forecast) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
+        No forecast data available.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Limit warnings */}
+      <LimitAlerts limits={forecast.limits} />
+
+      {/* Today + This Month cards */}
+      <ForecastCards forecast={forecast} />
+
+      {/* Donut + Comparison side by side */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <DonutChart components={forecast.components} />
+        <SpendComparisonChart forecast={forecast} />
+      </div>
+
+      {/* Breakdown table */}
+      <ForecastBreakdown components={forecast.components} />
+
+      {/* Bar chart */}
+      <ForecastBarChart components={forecast.components} />
     </div>
   );
 }
