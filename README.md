@@ -89,6 +89,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | [Secrets & Redaction](docs/guides/secrets.md) | Secret vault and automatic redaction |
 | [Content Ingestion](docs/guides/ingestion.md) | Document ingestion pipeline |
 | [Agent Client](docs/guides/clients.md) | Remote voice assistant + local tool executor |
+| [Usage & Billing](docs/guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting |
 | [Creating Integrations](docs/integrations/index.md) | Build custom integrations |
 | [Backup & Restore](docs/backup.md) | Automated Postgres + config backups to S3 |
 | [Docker Deployment](docs/docker-deployment.md) | Production Docker setup |

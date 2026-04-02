@@ -631,3 +631,11 @@ class TestWorkflowEventDispatch:
         """_fire_after_workflow_complete should exist in workflow_executor."""
         from app.services.workflow_executor import _fire_after_workflow_complete
         assert callable(_fire_after_workflow_complete)
+
+    def test_trigger_uses_channel_integration_not_dispatch_type(self):
+        """trigger_workflow should use channel.integration, not channel.dispatch_type."""
+        import inspect
+        from app.services.workflow_executor import trigger_workflow
+        source = inspect.getsource(trigger_workflow)
+        assert "ch.integration" in source, "Should use ch.integration for dispatch_type"
+        assert "ch.dispatch_type" not in source, "Channel model has no dispatch_type attr"

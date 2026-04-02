@@ -32,6 +32,7 @@ import { TasksTab } from "./TasksTab";
 import { LogsTab } from "./LogsTab";
 import { AttachmentsTab } from "./AttachmentsTab";
 import { ChannelWorkspaceTab } from "./ChannelWorkspaceTab";
+import { WorkflowsTab } from "./WorkflowsTab";
 
 // ---------------------------------------------------------------------------
 // Tab definitions — ordered by importance / frequency of use.
@@ -47,6 +48,7 @@ const TABS = [
   { key: "attachments", label: "Attachments" },
   { key: "sessions", label: "Sessions" },
   { key: "context", label: "Context" },
+  { key: "workflows", label: "Workflows" },
   { key: "tasks", label: "Tasks" },
   { key: "logs", label: "Logs" },
 ];
@@ -280,6 +282,7 @@ export default function ChannelSettingsScreen() {
         {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
         {tab === "sessions" && <SessionsTab channelId={channelId!} />}
         {tab === "context" && <ContextTab channelId={channelId!} />}
+        {tab === "workflows" && <WorkflowsTab channelId={channelId!} />}
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
       </RefreshableScrollView>
