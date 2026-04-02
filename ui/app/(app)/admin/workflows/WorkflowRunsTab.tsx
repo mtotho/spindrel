@@ -85,8 +85,8 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
         </View>
       ) : !runs || runs.length === 0 ? (
         <div style={{
-          padding: 32, textAlign: "center", color: t.textDim, fontSize: 13,
-          background: t.surfaceRaised, borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
+          padding: 32, textAlign: "center", color: t.textMuted, fontSize: 13,
+          background: t.codeBg, borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
         }}>
           No runs yet. Trigger one to get started.
         </div>
@@ -115,7 +115,7 @@ function RunCard({ run, t, onSelect }: { run: WorkflowRun; t: ThemeTokens; onSel
     <Pressable
       onPress={onSelect}
       style={{
-        backgroundColor: t.surfaceRaised, borderRadius: 8,
+        backgroundColor: t.codeBg, borderRadius: 8,
         borderWidth: 1, borderColor: t.surfaceBorder, padding: 12,
       }}
     >
@@ -255,7 +255,7 @@ function RunDetail({ runId, workflowId, onBack, onNavigateToRun }: {
       <div style={{
         display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
         gap: 8, padding: 12, borderRadius: 8,
-        background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+        background: t.codeBg, border: `1px solid ${t.surfaceBorder}`,
       }}>
         <MetaItem label="Run ID" value={run.id.slice(0, 8)} t={t} mono />
         <MetaItem label="Bot" value={run.bot_id} t={t} />
@@ -280,9 +280,9 @@ function RunDetail({ runId, workflowId, onBack, onNavigateToRun }: {
       {Object.keys(run.params).length > 0 && (
         <div style={{
           padding: 10, borderRadius: 8,
-          background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+          background: t.codeBg, border: `1px solid ${t.surfaceBorder}`,
         }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: t.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Parameters
           </div>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -297,7 +297,7 @@ function RunDetail({ runId, workflowId, onBack, onNavigateToRun }: {
       )}
 
       {/* Step timeline */}
-      <div style={{ fontSize: 11, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
         Steps
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -393,7 +393,7 @@ function TriggerForm({
   return (
     <div style={{
       padding: 12, borderRadius: 8,
-      background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+      background: t.codeBg, border: `1px solid ${t.surfaceBorder}`,
       display: "flex", flexDirection: "column", gap: 10,
     }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Trigger Workflow</div>

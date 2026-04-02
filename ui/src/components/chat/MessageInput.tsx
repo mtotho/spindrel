@@ -28,6 +28,8 @@ interface Props {
   currentBotId?: string;
   /** Channel ID for persisting drafts across navigation */
   channelId?: string;
+  /** Handler for slash commands typed in the input */
+  onSlashCommand?: (id: string) => void;
 }
 
 /** Rebuild PendingFile objects from serialized DraftFiles (restores File + preview). */
@@ -42,7 +44,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId, channelId }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId, channelId, onSlashCommand }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const insets = useSafeAreaInsets();
@@ -331,6 +333,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 onTextChange={setText}
                 onSubmit={handleSend}
                 onImagePaste={handleImagePaste}
+                onSlashCommand={onSlashCommand}
                 disabled={disabled}
                 autoFocus={!isMobile}
                 isMobile={isMobile}

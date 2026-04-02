@@ -284,6 +284,8 @@ function IndexedDirectoriesSection({
   const [newPath, setNewPath] = useState("");
   const [newPatterns, setNewPatterns] = useState("");
   const [newModel, setNewModel] = useState("");
+  const [newTopK, setNewTopK] = useState("");
+  const [newThreshold, setNewThreshold] = useState("");
 
   const reindexMutation = useMutation({
     mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/reindex-segments`, { method: "POST" }),
@@ -304,10 +306,20 @@ function IndexedDirectoriesSection({
     if (newModel.trim()) {
       seg.embedding_model = newModel.trim();
     }
+    if (newTopK.trim()) {
+      const parsed = parseInt(newTopK.trim(), 10);
+      if (!isNaN(parsed) && parsed > 0) seg.top_k = parsed;
+    }
+    if (newThreshold.trim()) {
+      const parsed = parseFloat(newThreshold.trim());
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) seg.similarity_threshold = parsed;
+    }
     onChange([...segments, seg]);
     setNewPath("");
     setNewPatterns("");
     setNewModel("");
+    setNewTopK("");
+    setNewThreshold("");
     setAdding(false);
   };
 
@@ -370,6 +382,10 @@ function IndexedDirectoriesSection({
               patterns: {seg.patterns?.join(", ") || defaultPatterns}
               {" "}&middot;{" "}
               model: {seg.embedding_model || defaultModel}
+              {" "}&middot;{" "}
+              top_k: {seg.top_k ?? defaultTopK}
+              {" "}&middot;{" "}
+              threshold: {seg.similarity_threshold ?? defaultThreshold}
             </Text>
           </View>
           <Pressable onPress={() => handleRemove(i)} style={{ padding: 4 }}>
@@ -393,7 +409,7 @@ function IndexedDirectoriesSection({
               placeholder="data/repo"
             />
           </FormRow>
-          <FormRow label="Patterns (optional)" description="Comma-separated globs">
+          <FormRow label="Patterns (optional)" description="Comma-separated globs. Prefix with ! to exclude (e.g. !**/test/**)">
             <TextInput
               value={newPatterns}
               onChangeText={setNewPatterns}
@@ -412,6 +428,28 @@ function IndexedDirectoriesSection({
             <DefaultHint value={newModel} defaultValue={defaultModel} label="Inherited" />
           </FormRow>
           <View style={{ flexDirection: "row", gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <FormRow label="Top K (optional)" description="Max results returned">
+                <TextInput
+                  value={newTopK}
+                  onChangeText={setNewTopK}
+                  placeholder={String(defaultTopK)}
+                />
+                <DefaultHint value={newTopK} defaultValue={String(defaultTopK)} label="Inherited" />
+              </FormRow>
+            </View>
+            <View style={{ flex: 1 }}>
+              <FormRow label="Similarity threshold (optional)" description="Min cosine similarity (0-1)">
+                <TextInput
+                  value={newThreshold}
+                  onChangeText={setNewThreshold}
+                  placeholder={String(defaultThreshold)}
+                />
+                <DefaultHint value={newThreshold} defaultValue={String(defaultThreshold)} label="Inherited" />
+              </FormRow>
+            </View>
+          </View>
+          <View style={{ flexDirection: "row", gap: 8 }}>
             <Pressable
               onPress={handleAdd}
               disabled={!newPath.trim()}
@@ -426,7 +464,7 @@ function IndexedDirectoriesSection({
               <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Add</Text>
             </Pressable>
             <Pressable
-              onPress={() => { setAdding(false); setNewPath(""); setNewPatterns(""); setNewModel(""); }}
+              onPress={() => { setAdding(false); setNewPath(""); setNewPatterns(""); setNewModel(""); setNewTopK(""); setNewThreshold(""); }}
               style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
             >
               <Text style={{ color: t.textMuted, fontSize: 12 }}>Cancel</Text>

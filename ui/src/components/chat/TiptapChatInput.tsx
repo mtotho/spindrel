@@ -10,6 +10,7 @@ import { useCompletions } from "../../api/hooks/useModels";
 import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
 import { useThemeTokens } from "../../theme/tokens";
 import type { CompletionItem } from "../../types/api";
+import { SlashCommand, SLASH_COMMANDS, type SlashCommandItem } from "./slashCommands";
 import type { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 import "./tiptap-input.css";
 
@@ -32,6 +33,7 @@ export interface TiptapChatInputProps {
   onTextChange: (markdown: string) => void;
   onSubmit: () => void;
   onImagePaste?: (files: File[]) => void;
+  onSlashCommand?: (id: string) => void;
   disabled?: boolean;
   autoFocus?: boolean;
   isMobile?: boolean;
@@ -45,7 +47,7 @@ export interface TiptapChatInputHandle {
 }
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
-  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, disabled, autoFocus, isMobile, currentBotId }, ref) {
+  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, disabled, autoFocus, isMobile, currentBotId }, ref) {
     const t = useThemeTokens();
     const { data: completions } = useCompletions();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -61,6 +63,8 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
     onTextChangeRef.current = onTextChange;
     const onImagePasteRef = useRef(onImagePaste);
     onImagePasteRef.current = onImagePaste;
+    const onSlashCommandRef = useRef(onSlashCommand);
+    onSlashCommandRef.current = onSlashCommand;
     const initialTextRef = useRef(text);
 
     // Guard: suppress onTextChange during programmatic setContent (draft restore, clear)
@@ -75,8 +79,18 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
     const activeIdxRef = useRef(0);
     const commandRef = useRef<((props: { id: string; label: string }) => void) | null>(null);
 
+    // Slash command menu state
+    const [showCmdMenu, setShowCmdMenu] = useState(false);
+    const [cmdFiltered, setCmdFiltered] = useState<CompletionItem[]>([]);
+    const [cmdActiveIdx, setCmdActiveIdx] = useState(0);
+    const cmdFilteredRef = useRef<CompletionItem[]>([]);
+    const cmdActiveIdxRef = useRef(0);
+    const cmdCommandRef = useRef<((props: { id: string }) => void) | null>(null);
+
     useEffect(() => { filteredRef.current = filtered; }, [filtered]);
     useEffect(() => { activeIdxRef.current = activeIdx; }, [activeIdx]);
+    useEffect(() => { cmdFilteredRef.current = cmdFiltered; }, [cmdFiltered]);
+    useEffect(() => { cmdActiveIdxRef.current = cmdActiveIdx; }, [cmdActiveIdx]);
 
     const updateMenuPos = useCallback(() => {
       if (containerRef.current) {
@@ -149,6 +163,77 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           }
           if (event.key === "Escape") {
             setShowMenu(false);
+            return true;
+          }
+          return false;
+        },
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }), [updateMenuPos]);
+
+    // Slash command suggestion config
+    const slashSuggestion = useMemo(() => ({
+      char: "/",
+      startOfLine: true,
+      items: ({ query }: { query: string }) => {
+        const q = query.toLowerCase();
+        return SLASH_COMMANDS
+          .filter((cmd) => cmd.id.startsWith(q) || cmd.label.includes(q))
+          .map((cmd): CompletionItem => ({
+            value: cmd.id,
+            label: cmd.label,
+            description: cmd.description,
+          }));
+      },
+      command: ({ editor: ed, range, props }: { editor: any; range: any; props: any }) => {
+        ed.chain().focus().deleteRange(range).run();
+        onSlashCommandRef.current?.(props.id ?? props.value);
+      },
+      render: () => ({
+        onStart: (props: SuggestionProps<CompletionItem>) => {
+          cmdCommandRef.current = props.command as any;
+          setCmdFiltered(props.items);
+          cmdFilteredRef.current = props.items;
+          setCmdActiveIdx(0);
+          cmdActiveIdxRef.current = 0;
+          updateMenuPos();
+          setShowCmdMenu(props.items.length > 0);
+        },
+        onUpdate: (props: SuggestionProps<CompletionItem>) => {
+          cmdCommandRef.current = props.command as any;
+          setCmdFiltered(props.items);
+          cmdFilteredRef.current = props.items;
+          setCmdActiveIdx(0);
+          cmdActiveIdxRef.current = 0;
+          updateMenuPos();
+          setShowCmdMenu(props.items.length > 0);
+        },
+        onExit: () => {
+          setShowCmdMenu(false);
+          cmdCommandRef.current = null;
+        },
+        onKeyDown: ({ event }: SuggestionKeyDownProps) => {
+          if (event.key === "ArrowDown") {
+            const next = Math.min(cmdActiveIdxRef.current + 1, cmdFilteredRef.current.length - 1);
+            setCmdActiveIdx(next);
+            cmdActiveIdxRef.current = next;
+            return true;
+          }
+          if (event.key === "ArrowUp") {
+            const next = Math.max(cmdActiveIdxRef.current - 1, 0);
+            setCmdActiveIdx(next);
+            cmdActiveIdxRef.current = next;
+            return true;
+          }
+          if (event.key === "Enter" || event.key === "Tab") {
+            if (cmdFilteredRef.current.length > 0) {
+              const item = cmdFilteredRef.current[cmdActiveIdxRef.current];
+              cmdCommandRef.current?.({ id: item.value } as any);
+              return true;
+            }
+          }
+          if (event.key === "Escape") {
+            setShowCmdMenu(false);
             return true;
           }
           return false;
@@ -279,7 +364,8 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         },
         suggestion,
       }),
-    ], [suggestion]);
+      SlashCommand.configure({ suggestion: slashSuggestion }),
+    ], [suggestion, slashSuggestion]);
 
     const editor = useEditor({
       extensions,
@@ -352,6 +438,10 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       commandRef.current?.({ id: item.value, label: item.label });
     }, []);
 
+    const selectCmdItem = useCallback((item: CompletionItem) => {
+      cmdCommandRef.current?.({ id: item.value } as any);
+    }, []);
+
     return (
       <>
         <div
@@ -369,6 +459,16 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           onSelect={selectItem}
           onHover={(i) => { setActiveIdx(i); activeIdxRef.current = i; }}
           onClose={() => setShowMenu(false)}
+          anchor="bottom"
+        />
+        <AutocompleteMenu
+          show={showCmdMenu}
+          items={cmdFiltered}
+          activeIdx={cmdActiveIdx}
+          menuPos={menuPos}
+          onSelect={selectCmdItem}
+          onHover={(i) => { setCmdActiveIdx(i); cmdActiveIdxRef.current = i; }}
+          onClose={() => setShowCmdMenu(false)}
           anchor="bottom"
         />
       </>

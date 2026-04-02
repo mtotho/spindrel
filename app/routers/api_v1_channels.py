@@ -718,6 +718,35 @@ async def reset_channel(
     )
 
 
+class CompactResponse(BaseModel):
+    status: str
+    title: str
+    summary_length: int
+
+
+@router.post("/{channel_id}/compact", response_model=CompactResponse)
+async def compact_channel(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.messages:write")),
+):
+    """Force-compact the channel's active session conversation."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    if not channel.active_session_id:
+        raise HTTPException(status_code=400, detail="Channel has no active session")
+
+    from app.agent.bots import get_bot
+    from app.services.compaction import run_compaction_forced
+
+    bot = get_bot(channel.bot_id)
+    title, summary = await run_compaction_forced(channel.active_session_id, bot, db)
+    await db.commit()
+
+    return CompactResponse(status="ok", title=title, summary_length=len(summary))
+
+
 class SwitchSessionRequest(BaseModel):
     session_id: uuid.UUID
 
