@@ -341,33 +341,43 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register integration router: %s", _integration_id)
 
-    # Mount static files for integration web UIs (SPA fallback: unknown paths → index.html)
+    # Register explicit routes for integration web UIs with SPA fallback.
+    # Uses FileResponse routes instead of StaticFiles mount — more robust and
+    # easier to debug than relying on Starlette's Mount + custom StaticFiles subclass.
     from integrations import discover_web_uis as _discover_web_uis
-    from starlette.exceptions import HTTPException as _StarletteHTTPException
-    from starlette.staticfiles import StaticFiles
+    from starlette.responses import FileResponse as _FileResponse
+    from pathlib import Path as _Path
 
-    class _SPAStaticFiles(StaticFiles):
-        """StaticFiles with SPA fallback — serves index.html for any 404."""
-
-        async def get_response(self, path: str, scope):
-            try:
-                return await super().get_response(path, scope)
-            except _StarletteHTTPException as exc:
-                if exc.status_code == 404:
-                    return await super().get_response("index.html", scope)
-                raise
-
+    _web_ui_dirs: dict[str, _Path] = {}
     for _web_ui in _discover_web_uis():
-        _ui_path = f"/integrations/{_web_ui['integration_id']}/ui"
-        try:
-            app.mount(
-                _ui_path,
-                _SPAStaticFiles(directory=str(_web_ui["static_dir_path"]), html=True),
-                name=f"integration-ui-{_web_ui['integration_id']}",
+        _iid = _web_ui["integration_id"]
+        _web_ui_dirs[_iid] = _Path(_web_ui["static_dir_path"])
+        logger.info("Registered integration web UI: /integrations/%s/ui → %s", _iid, _web_ui["static_dir_path"])
+
+    if _web_ui_dirs:
+        @app.get("/integrations/{integration_id}/ui/{path:path}")
+        async def _serve_integration_ui(integration_id: str, path: str = ""):
+            dist_dir = _web_ui_dirs.get(integration_id)
+            if not dist_dir:
+                raise HTTPException(status_code=404, detail=f"No web UI for integration '{integration_id}'")
+
+            # Serve exact file if it exists (assets, etc.)
+            if path:
+                file_path = (dist_dir / path).resolve()
+                # Security: ensure path doesn't escape dist_dir
+                if str(file_path).startswith(str(dist_dir.resolve())) and file_path.is_file():
+                    return _FileResponse(file_path)
+
+            # SPA fallback: serve index.html for any unknown path
+            index = dist_dir / "index.html"
+            if index.is_file():
+                return _FileResponse(index, media_type="text/html")
+
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dashboard not built for '{integration_id}'. "
+                       f"Run 'npm run build' in the dashboard directory.",
             )
-            logger.info("Mounted integration web UI: %s → %s", _ui_path, _web_ui["static_dir_path"])
-        except Exception:
-            logger.exception("Failed to mount integration web UI at %s", _ui_path)
 
     # Auto-start shared workspace containers that were previously running
     for _sw in _sw_rows:
