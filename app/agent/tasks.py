@@ -24,8 +24,29 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 async def _fire_task_complete(task: Task, status: str) -> None:
-    """Fire the generic after_task_complete hook. Any integration can listen."""
+    """Fire the generic after_task_complete hook. Any integration can listen.
+
+    For workflow tasks, the workflow advancement callback is called DIRECTLY
+    (not through the generic fire_hook broadcast) because fire_hook swallows
+    exceptions — which would silently stall workflows.
+    """
     logger.info("Firing after_task_complete hook for task %s (type=%s, status=%s)", task.id, task.task_type, status)
+
+    # Direct workflow advancement — bypass fire_hook error swallowing
+    cb = task.callback_config or {}
+    if cb.get("workflow_run_id") and cb.get("workflow_step_index") is not None:
+        try:
+            from app.services.workflow_executor import on_step_task_completed
+            await on_step_task_completed(
+                cb["workflow_run_id"], cb["workflow_step_index"], status, task,
+            )
+        except Exception:
+            logger.exception(
+                "Workflow step completion failed for task %s (run=%s step=%s)",
+                task.id, cb["workflow_run_id"], cb["workflow_step_index"],
+            )
+
+    # Fire generic hook broadcast for non-workflow listeners (integrations, etc.)
     try:
         from app.agent.hooks import HookContext, fire_hook
         ctx = HookContext(
@@ -35,7 +56,7 @@ async def _fire_task_complete(task: Task, status: str) -> None:
         )
         await fire_hook("after_task_complete", ctx, task=task, status=status)
     except Exception:
-        logger.error("after_task_complete hook error (workflow advancement may have failed)", exc_info=True)
+        logger.error("after_task_complete hook error", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

@@ -36,3 +36,30 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
+
+/* ── Tiptap editor ── */
+.tiptap {
+  outline: none;
+  padding: 0.75rem;
+  min-height: 120px;
+  max-height: 240px;
+  overflow-y: auto;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--color-text);
+}
+.tiptap p { margin: 0; }
+.tiptap p + p { margin-top: 0.4em; }
+.tiptap h2 { font-size: 0.9375rem; font-weight: 600; margin: 0.75em 0 0.25em; }
+.tiptap h3 { font-size: 0.8125rem; font-weight: 600; margin: 0.5em 0 0.25em; }
+.tiptap ul, .tiptap ol { padding-left: 1.5em; margin: 0.4em 0; }
+.tiptap li { margin: 0.125em 0; }
+.tiptap strong { font-weight: 600; }
+.tiptap em { font-style: italic; }
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-text-dim);
+  pointer-events: none;
+  height: 0;
+}

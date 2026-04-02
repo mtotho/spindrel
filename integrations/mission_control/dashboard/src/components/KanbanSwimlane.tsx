@@ -1,13 +1,14 @@
 /**
  * Aggregated cross-channel swimlane kanban board.
  * Rows = channels, columns = stages. HTML5 drag-and-drop.
- * TFS-inspired clean layout: no heavy grid borders, shadow-elevated cards.
  */
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, lazy, Suspense } from "react";
 import ReactDOM from "react-dom";
 import { X } from "lucide-react";
 import { channelColor } from "../lib/colors";
 import type { AggregatedKanbanColumn, KanbanCard } from "../lib/types";
+
+const TiptapEditor = lazy(() => import("./TiptapEditor"));
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,11 +40,11 @@ const COLUMN_COLORS: Record<string, string> = {
   done: "#22c55e",
 };
 
-const PRIORITY_COLORS: Record<string, { bg: string; fg: string }> = {
-  critical: { bg: "rgba(239,68,68,0.15)", fg: "#ef4444" },
-  high: { bg: "rgba(249,115,22,0.15)", fg: "#f97316" },
-  medium: { bg: "rgba(234,179,8,0.15)", fg: "#eab308" },
-  low: { bg: "rgba(107,114,128,0.10)", fg: "#6b7280" },
+const PRIORITY_COLORS: Record<string, { fg: string }> = {
+  critical: { fg: "#ef4444" },
+  high: { fg: "#f97316" },
+  medium: { fg: "#eab308" },
+  low: { fg: "#6b7280" },
 };
 
 function columnColor(name: string): string {
@@ -138,19 +139,22 @@ export default function KanbanSwimlane({
     [dragState, onMove, handleDragEnd],
   );
 
-  const gridTemplateColumns = `140px repeat(${columns.length}, 1fr)`;
+  const gridTemplateColumns = `160px repeat(${columns.length}, 1fr)`;
 
   return (
-    <div className="flex-1 overflow-auto relative">
-      <div style={{ display: "grid", gridTemplateColumns }}>
+    <div className="flex-1 overflow-auto">
+      <div
+        className="border-t border-surface-3"
+        style={{ display: "grid", gridTemplateColumns }}
+      >
         {/* Header row */}
-        <div className="sticky top-0 left-0 z-30 bg-surface-0 border-b border-surface-3 p-2 flex items-center">
+        <div className="sticky top-0 left-0 z-30 bg-surface-0 border-b border-surface-3 px-4 py-2.5 flex items-center">
           <span className="text-[10px] font-semibold text-content-dim uppercase tracking-wider">Channel</span>
         </div>
         {columns.map((col, ci) => (
           <div
             key={col.name}
-            className="sticky top-0 z-20 bg-surface-0 border-b border-surface-3 px-3 py-2 flex items-center gap-2"
+            className="sticky top-0 z-20 bg-surface-0 border-b border-l border-surface-3 px-3 py-2.5 flex items-center gap-2"
             style={{ borderTopWidth: 2, borderTopColor: columnColor(col.name) }}
           >
             <span className="text-xs font-semibold text-content flex-1">{col.name}</span>
@@ -230,7 +234,7 @@ function SwimlaneRowCells({
   return (
     <>
       {/* Channel label */}
-      <div className="sticky left-0 z-10 bg-surface-0 border-b border-surface-3 px-2.5 py-2 flex items-start gap-1.5">
+      <div className="sticky left-0 z-10 bg-surface-0 border-b border-surface-3 px-4 py-2.5 flex items-start gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: channelDotColor }} />
         <div className="overflow-hidden">
           <div className="text-xs font-semibold text-content truncate">{row.channelName}</div>
@@ -250,7 +254,7 @@ function SwimlaneRowCells({
         return (
           <div
             key={col.name}
-            className="border-b border-surface-3 p-2 transition-colors"
+            className="border-b border-l border-surface-3 px-2 py-2 transition-colors"
             style={{ backgroundColor: isDropTarget ? "rgba(99,102,241,0.08)" : undefined }}
             onDragOver={(e) => { e.preventDefault(); onDragHover(col.name, row.channelId); }}
             onDragLeave={() => onDragHover(null, null)}
@@ -333,7 +337,7 @@ function SwimlaneCard({
 }
 
 // ---------------------------------------------------------------------------
-// Card editor modal (portal) — always in edit mode
+// Card editor modal (portal) — always editable, tiptap description
 // ---------------------------------------------------------------------------
 
 const PRIORITY_OPTIONS = ["low", "medium", "high", "critical"];
@@ -362,81 +366,101 @@ function CardModal({
   const [assigned, setAssigned] = useState(card.meta?.assigned || "");
   const [tags, setTags] = useState(card.meta?.tags || "");
   const [due, setDue] = useState(card.meta?.due || "");
+  const [activeColumn, setActiveColumn] = useState(currentColumn);
 
-  const isDirty =
+  const fieldsDirty =
     title !== card.title ||
     desc !== (card.description || "") ||
     priority !== origPriority ||
     assigned !== (card.meta?.assigned || "") ||
     tags !== (card.meta?.tags || "") ||
     due !== (card.meta?.due || "");
+  const columnChanged = activeColumn !== currentColumn;
+  const canSave = fieldsDirty || columnChanged;
 
   const handleSave = () => {
-    if (!onUpdate || !isDirty) return;
-    const fields: Record<string, string> = {};
-    if (title !== card.title) fields.title = title;
-    if (desc !== (card.description || "")) fields.description = desc;
-    if (priority !== origPriority) fields.priority = priority;
-    if (assigned !== (card.meta?.assigned || "")) fields.assigned = assigned;
-    if (tags !== (card.meta?.tags || "")) fields.tags = tags;
-    if (due !== (card.meta?.due || "")) fields.due = due;
-    onUpdate(cardId, card.channel_id, fields);
-    onClose();
-  };
-
-  const moveToColumn = (toCol: string) => {
-    if (toCol !== currentColumn) {
-      onMove(cardId, card.channel_id, currentColumn, toCol);
+    if (onUpdate && fieldsDirty) {
+      const fields: Record<string, string> = {};
+      if (title !== card.title) fields.title = title;
+      if (desc !== (card.description || "")) fields.description = desc;
+      if (priority !== origPriority) fields.priority = priority;
+      if (assigned !== (card.meta?.assigned || "")) fields.assigned = assigned;
+      if (tags !== (card.meta?.tags || "")) fields.tags = tags;
+      if (due !== (card.meta?.due || "")) fields.due = due;
+      onUpdate(cardId, card.channel_id, fields);
+    }
+    if (columnChanged) {
+      onMove(cardId, card.channel_id, currentColumn, activeColumn);
     }
     onClose();
   };
 
   const inputClass =
-    "w-full bg-surface-0 border border-surface-3 rounded px-2.5 py-1.5 text-xs text-content placeholder-content-dim focus:outline-none focus:border-accent transition-colors";
+    "w-full bg-surface-0 border border-surface-3 rounded-lg px-3 py-2 text-sm text-content placeholder-content-dim focus:outline-none focus:border-accent transition-colors";
+
+  const saveLabel = columnChanged && fieldsDirty
+    ? "Save & move"
+    : columnChanged
+      ? `Move to ${activeColumn}`
+      : "Save changes";
 
   return ReactDOM.createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/20" />
       <div
-        className="relative bg-surface-1 border border-surface-3 rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto"
+        className="relative bg-surface-1 rounded-xl shadow-2xl w-full max-w-xl mx-4 max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.key === "Escape" && onClose()}
       >
-        <div className="p-5 space-y-4">
-          {/* Title */}
+        <div className="p-6 space-y-5">
+          {/* Title — underline-style input */}
           <input
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Card title"
-            className={inputClass + " text-sm font-semibold"}
+            className="w-full text-base font-semibold text-content bg-transparent border-b border-surface-3 focus:border-accent pb-2 outline-none transition-colors"
           />
 
-          {/* Context: status + channel (read-only) */}
-          <div className="flex items-center gap-4 text-[10px] text-content-dim">
-            <span className="uppercase tracking-wider">{currentColumn}</span>
-            <span>{card.channel_name}</span>
+          {/* Status — segmented control */}
+          <div className="flex rounded-lg overflow-hidden border border-surface-3">
+            {columns.map((col) => {
+              const isActive = col.name === activeColumn;
+              return (
+                <button
+                  key={col.name}
+                  onClick={() => setActiveColumn(col.name)}
+                  className={`flex-1 px-3 py-2 text-xs font-medium transition-all border-r border-surface-3 last:border-r-0 ${
+                    isActive ? "text-white" : "bg-surface-0 text-content-muted hover:bg-surface-2 hover:text-content"
+                  }`}
+                  style={isActive ? { backgroundColor: columnColor(col.name) } : undefined}
+                >
+                  {col.name}
+                </button>
+              );
+            })}
           </div>
 
-          {/* Description */}
+          {/* Description — tiptap rich editor */}
           <div>
-            <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Description</label>
-            <textarea
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              rows={4}
-              placeholder="Add a description..."
-              className={inputClass + " resize-none"}
-            />
+            <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1.5 block font-medium">
+              Description
+            </label>
+            <Suspense fallback={<div className="border border-surface-3 rounded-lg bg-surface-0 px-3 py-8 text-sm text-content-dim text-center">Loading editor...</div>}>
+              <TiptapEditor
+                content={desc}
+                onChange={setDesc}
+                placeholder="Add a description..."
+              />
+            </Suspense>
           </div>
 
-          {/* Meta fields — 2-column grid */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Meta — 2×2 grid */}
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Priority</label>
+              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block font-medium">
+                Priority
+              </label>
               <select value={priority} onChange={(e) => setPriority(e.target.value)} className={inputClass}>
                 {PRIORITY_OPTIONS.map((p) => (
                   <option key={p} value={p}>{p}</option>
@@ -444,52 +468,40 @@ function CardModal({
               </select>
             </div>
             <div>
-              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Due date</label>
+              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block font-medium">
+                Due date
+              </label>
               <input type="date" value={due} onChange={(e) => setDue(e.target.value)} className={inputClass} />
             </div>
             <div>
-              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Assigned</label>
-              <input type="text" value={assigned} onChange={(e) => setAssigned(e.target.value)} placeholder="Unassigned" className={inputClass} />
+              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block font-medium">
+                Assigned
+              </label>
+              <input type="text" value={assigned} onChange={(e) => setAssigned(e.target.value)} placeholder="—" className={inputClass} />
             </div>
             <div>
-              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Tags</label>
-              <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Comma-separated" className={inputClass} />
+              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block font-medium">
+                Tags
+              </label>
+              <input type="text" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="—" className={inputClass} />
             </div>
           </div>
 
-          {/* Move to column */}
-          <div>
-            <p className="text-[10px] text-content-dim uppercase tracking-wider mb-1.5">Move to</p>
-            <div className="flex flex-wrap gap-1">
-              {columns.map((col) => (
-                <button
-                  key={col.name}
-                  onClick={() => moveToColumn(col.name)}
-                  disabled={col.name === currentColumn}
-                  className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                    col.name === currentColumn
-                      ? "bg-accent/15 text-accent-hover cursor-default"
-                      : "border border-surface-3 text-content-muted hover:text-content"
-                  }`}
-                >
-                  {col.name}
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Channel — subtle info */}
+          <div className="text-[10px] text-content-dim">{card.channel_name}</div>
 
           {/* Save */}
-          {onUpdate && (
+          {(onUpdate || columnChanged) && (
             <button
               onClick={handleSave}
-              disabled={!isDirty}
-              className={`w-full py-2 text-xs font-medium rounded-md transition-colors ${
-                isDirty
+              disabled={!canSave}
+              className={`w-full py-2.5 text-sm font-medium rounded-lg transition-colors ${
+                canSave
                   ? "bg-accent text-white hover:bg-accent-hover"
                   : "bg-surface-3 text-content-dim cursor-not-allowed"
               }`}
             >
-              Save changes
+              {saveLabel}
             </button>
           )}
         </div>
@@ -497,7 +509,7 @@ function CardModal({
         {/* Close */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 text-content-dim hover:text-content-muted transition-colors"
+          className="absolute top-4 right-4 p-1 rounded-md text-content-dim hover:text-content hover:bg-surface-2 transition-colors"
         >
           <X size={16} />
         </button>

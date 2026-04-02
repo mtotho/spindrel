@@ -178,9 +178,16 @@ function IntegrationSidebarSection({
     <View className="px-2 py-1.5">
       <Pressable
         onPress={toggle}
-        className="flex-row items-center px-3 py-1.5 rounded hover:bg-surface-overlay"
+        className="flex-row items-center px-1 py-1.5 rounded hover:bg-surface-overlay"
         style={{ gap: 6 }}
       >
+        <SectionIcon size={13} color={hasActive ? t.accent : t.textDim} />
+        <Text
+          className={`${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider`}
+          style={{ flex: 1, color: hasActive ? t.accent : t.textDim }}
+        >
+          {section.title}
+        </Text>
         <ChevronRight
           size={10}
           color={hasActive ? t.accent : t.textDim}
@@ -189,19 +196,9 @@ function IntegrationSidebarSection({
             transition: "transform 0.15s",
           } as any}
         />
-        <SectionIcon size={13} color={hasActive ? t.accent : t.textDim} />
-        <Text
-          className={`${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider`}
-          style={{ flex: 1, color: hasActive ? t.accent : t.textDim }}
-        >
-          {section.title}
-        </Text>
-        {effectiveCollapsed && hasActive && (
-          <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: t.accent }} />
-        )}
       </Pressable>
       {!effectiveCollapsed && (
-        <>
+        <View style={{ paddingLeft: 6 }}>
           {items.map((item) => (
             <NavLink
               key={item.href}
@@ -225,7 +222,7 @@ function IntegrationSidebarSection({
               />
             );
           })}
-        </>
+        </View>
       )}
     </View>
   );

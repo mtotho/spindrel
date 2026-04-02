@@ -62,7 +62,7 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
     ---
 
-    Per-bot token usage and cost tracking. Budget limits with configurable enforcement. Usage forecasting and breakdown by model. Powered by LiteLLM pricing data when available.
+    Per-bot token usage and cost tracking. Budget limits with configurable enforcement. Usage forecasting and breakdown by model. Powered by LiteLLM pricing data when available. *Cost data is best-effort — always verify against your provider's billing dashboard.*
 
 -   :material-magnify:{ .lg .middle } **Web Search**
 

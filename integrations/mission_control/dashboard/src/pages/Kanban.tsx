@@ -39,40 +39,43 @@ export default function Kanban() {
   if (error) return <div className="p-6"><ErrorBanner message={error.message} onRetry={() => refetch()} /></div>;
 
   return (
-    <div className="p-6 h-screen flex flex-col">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-lg font-bold text-content">Kanban</h1>
-          <p className="text-xs text-content-dim mt-0.5">Cross-channel task board</p>
+    <div className="h-screen flex flex-col">
+      {/* Header area — padded */}
+      <div className="px-6 pt-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-lg font-bold text-content">Kanban</h1>
+            <p className="text-xs text-content-dim mt-0.5">Cross-channel task board</p>
+          </div>
+          <ScopeToggle />
         </div>
-        <ScopeToggle />
+
+        <InfoPanel
+          id="kanban"
+          description="Aggregated task board across all tracked channels. Drag cards between columns."
+          tips={[
+            "Cards are grouped into swimlanes by channel for easy scanning.",
+            "Click any card to see full details and edit inline.",
+            "Task data is stored in each channel's workspace database.",
+          ]}
+        />
+
+        {/* Channel filter */}
+        {channels.length > 1 && (
+          <div className="mb-3">
+            <ChannelFilterBar channels={channels} value={channelFilter} onChange={setChannelFilter} />
+          </div>
+        )}
+
+        {/* Error banner for move failures */}
+        {move.isError && (
+          <div className="mb-3">
+            <ErrorBanner message="Failed to move card. Please try again." onRetry={() => move.reset()} />
+          </div>
+        )}
       </div>
 
-      <InfoPanel
-        id="kanban"
-        description="Aggregated task board across all tracked channels. Drag cards between columns."
-        tips={[
-          "Cards are grouped into swimlanes by channel for easy scanning.",
-          "Click any card to see full details and edit inline.",
-          "Task data is stored in each channel's workspace database.",
-        ]}
-      />
-
-      {/* Channel filter */}
-      {channels.length > 1 && (
-        <div className="mb-3">
-          <ChannelFilterBar channels={channels} value={channelFilter} onChange={setChannelFilter} />
-        </div>
-      )}
-
-      {/* Error banner for move failures */}
-      {move.isError && (
-        <div className="mb-3">
-          <ErrorBanner message="Failed to move card. Please try again." onRetry={() => move.reset()} />
-        </div>
-      )}
-
-      {/* Swimlane board */}
+      {/* Board area — edge to edge */}
       {columns && columns.length > 0 ? (
         <KanbanSwimlane
           columns={columns}
@@ -82,16 +85,18 @@ export default function Kanban() {
           channelFilter={channelFilter}
         />
       ) : (
-        <EmptyState
-          icon="▦"
-          title="No kanban data"
-          description="Channels need tasks.md files. Ask your bots to create task cards or use the kanban tools."
-          tips={[
-            "Channels need workspace enabled to track tasks.",
-            "Ask a bot to create a task, or use + Add Card on the board.",
-          ]}
-          links={[{ label: "Go to Setup", to: "/setup" }]}
-        />
+        <div className="px-6 pb-6">
+          <EmptyState
+            icon="▦"
+            title="No kanban data"
+            description="Channels need tasks.md files. Ask your bots to create task cards or use the kanban tools."
+            tips={[
+              "Channels need workspace enabled to track tasks.",
+              "Ask a bot to create a task, or use + Add Card on the board.",
+            ]}
+            links={[{ label: "Go to Setup", to: "/setup" }]}
+          />
+        </div>
       )}
     </div>
   );

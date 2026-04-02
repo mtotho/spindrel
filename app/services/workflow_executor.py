@@ -888,8 +888,17 @@ async def on_step_task_completed(
         run.step_states = step_states
         await db.commit()
 
-    # Advance to next step
-    await advance_workflow(_run_id)
+    # Advance to next step.
+    # If this fails, the step state is already committed above — the recovery
+    # sweep will re-fire advancement.  Log prominently so we can debug.
+    try:
+        await advance_workflow(_run_id)
+    except Exception:
+        logger.exception(
+            "advance_workflow failed after step %d completion for run %s "
+            "(step state IS committed; recovery sweep will retry)",
+            step_index, run_id,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -1,16 +1,25 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { View, Text, Platform, Pressable } from "react-native";
-import { ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
+import { ChevronRight, ExternalLink } from "lucide-react";
 import { useRouter } from "expo-router";
 import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import type { Message } from "../../types/api";
 
-const TRIGGER_CONFIG: Record<string, { label: string; icon: string; color: string }> = {
-  scheduled_task: { label: "Scheduled Task", icon: "🔁", color: "#8b5cf6" },
-  callback: { label: "Task Callback", icon: "↩", color: "#8b5cf6" },
-  harness_callback: { label: "Harness Callback", icon: "⚡", color: "#06b6d4" },
-  delegation_callback: { label: "Delegation Result", icon: "↩", color: "#8b5cf6" },
+interface TriggerStyle {
+  label: string;
+  icon: string;
+  /** Accent color for border, text, links */
+  color: string;
+  /** rgba tuples for backgrounds/borders at various opacities */
+  rgb: string;
+}
+
+const TRIGGER_CONFIG: Record<string, TriggerStyle> = {
+  scheduled_task: { label: "Scheduled Task", icon: "🔁", color: "#8b5cf6", rgb: "139,92,246" },
+  callback: { label: "Task Callback", icon: "↩", color: "#8b5cf6", rgb: "139,92,246" },
+  harness_callback: { label: "Harness Callback", icon: "⚡", color: "#06b6d4", rgb: "6,182,212" },
+  delegation_callback: { label: "Delegation Result", icon: "↩", color: "#8b5cf6", rgb: "139,92,246" },
 };
 
 export const SUPPORTED_TRIGGERS = new Set(Object.keys(TRIGGER_CONFIG));
@@ -24,7 +33,8 @@ function getSubtitle(meta: Record<string, any>): string | null {
     return parts.length ? parts.join("  ·  ") : null;
   }
   if (trigger === "harness_callback") return meta.harness_name || null;
-  if (trigger === "delegation_callback") return meta.delegation_child_display ? `from ${meta.delegation_child_display}` : null;
+  if (trigger === "delegation_callback")
+    return meta.delegation_child_display ? `from ${meta.delegation_child_display}` : null;
   if (trigger === "callback") return meta.task_title || null;
   return null;
 }
@@ -34,7 +44,7 @@ interface Props {
   botName?: string;
 }
 
-export function TriggerCard({ message }: Props) {
+export const TriggerCard = memo(function TriggerCard({ message }: Props) {
   const [expanded, setExpanded] = useState(false);
   const t = useThemeTokens();
   const router = useRouter();
@@ -45,7 +55,7 @@ export function TriggerCard({ message }: Props) {
   const config = TRIGGER_CONFIG[trigger];
   if (!config) return null;
 
-  const { label, icon, color } = config;
+  const { label, icon, color, rgb } = config;
   const subtitle = getSubtitle(meta);
   const taskId = meta.task_id as string | undefined;
   const timestamp = formatTimeShort(message.created_at);
@@ -56,34 +66,56 @@ export function TriggerCard({ message }: Props) {
     return (
       <div
         style={{
-          margin: "4px 16px 4px 52px",
+          margin: "6px 20px",
           borderLeft: `3px solid ${color}`,
-          borderRadius: 6,
-          backgroundColor: `${color}08`,
-          padding: "8px 12px",
+          borderRadius: 8,
+          backgroundColor: `rgba(${rgb},0.06)`,
+          padding: "10px 14px",
+          transition: "background-color 0.15s",
         }}
       >
         {/* Header row */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 14 }}>{icon}</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color }}>{label}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ fontSize: 15, lineHeight: 1 }}>{icon}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color, letterSpacing: 0.1 }}>{label}</span>
           </div>
           <span style={{ fontSize: 11, color: t.textDim }}>{timestamp}</span>
         </div>
 
         {/* Subtitle */}
         {subtitle && (
-          <div style={{ fontSize: 12, color: t.textMuted, marginTop: 2, marginLeft: 22 }}>
+          <div
+            style={{
+              fontSize: 12,
+              color: t.textMuted,
+              marginTop: 3,
+              marginLeft: 24,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {subtitle}
           </div>
         )}
 
         {/* Actions row */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 6, marginLeft: 22 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginTop: 8,
+            marginLeft: 24,
+          }}
+        >
           {hasPrompt ? (
             <div
+              role="button"
+              tabIndex={0}
               onClick={() => setExpanded(!expanded)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") setExpanded(!expanded); }}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -92,12 +124,21 @@ export function TriggerCard({ message }: Props) {
                 fontSize: 11,
                 color: t.textMuted,
                 userSelect: "none",
+                padding: "2px 6px 2px 2px",
+                borderRadius: 4,
+                transition: "background-color 0.15s",
               }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = `rgba(${rgb},0.1)`; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.backgroundColor = "transparent"; }}
             >
-              {expanded
-                ? <ChevronDown size={12} color={t.textMuted} />
-                : <ChevronRight size={12} color={t.textMuted} />
-              }
+              <ChevronRight
+                size={12}
+                color={t.textMuted}
+                style={{
+                  transition: "transform 0.2s ease",
+                  transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+                } as any}
+              />
               <span>{expanded ? "Hide prompt" : "Show prompt"}</span>
             </div>
           ) : (
@@ -105,14 +146,31 @@ export function TriggerCard({ message }: Props) {
           )}
           {taskId && (
             <div
+              role="button"
+              tabIndex={0}
               onClick={() => router.push(`/admin/tasks/${taskId}`)}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/admin/tasks/${taskId}`); }}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 3,
+                gap: 4,
                 cursor: "pointer",
                 fontSize: 11,
                 color,
+                padding: "2px 6px",
+                borderRadius: 4,
+                transition: "background-color 0.15s, opacity 0.15s",
+                opacity: 0.85,
+              }}
+              onMouseEnter={(e) => {
+                const el = e.currentTarget as HTMLDivElement;
+                el.style.backgroundColor = `rgba(${rgb},0.1)`;
+                el.style.opacity = "1";
+              }}
+              onMouseLeave={(e) => {
+                const el = e.currentTarget as HTMLDivElement;
+                el.style.backgroundColor = "transparent";
+                el.style.opacity = "0.85";
               }}
             >
               <span>View task</span>
@@ -121,32 +179,41 @@ export function TriggerCard({ message }: Props) {
           )}
         </div>
 
-        {/* Expanded prompt */}
-        {expanded && hasPrompt && (
+        {/* Expandable prompt area — animated via max-height + opacity */}
+        {hasPrompt && (
           <div
             style={{
-              marginTop: 6,
-              borderRadius: 4,
-              backgroundColor: `${color}06`,
-              border: `1px solid ${color}15`,
-              padding: "6px 10px",
-              maxHeight: 300,
-              overflowY: "auto",
+              overflow: "hidden",
+              maxHeight: expanded ? 320 : 0,
+              opacity: expanded ? 1 : 0,
+              transition: "max-height 0.25s ease, opacity 0.2s ease, margin 0.25s ease",
+              marginTop: expanded ? 8 : 0,
             }}
           >
-            <pre
+            <div
               style={{
-                margin: 0,
-                fontSize: 11,
-                fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
-                color: t.textMuted,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                lineHeight: "1.4",
+                borderRadius: 6,
+                backgroundColor: `rgba(${rgb},0.04)`,
+                border: `1px solid rgba(${rgb},0.12)`,
+                padding: "8px 12px",
+                maxHeight: 300,
+                overflowY: "auto",
               }}
             >
-              {promptText}
-            </pre>
+              <pre
+                style={{
+                  margin: 0,
+                  fontSize: 11.5,
+                  fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
+                  color: t.textMuted,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  lineHeight: "1.5",
+                }}
+              >
+                {promptText}
+              </pre>
+            </div>
           </div>
         )}
       </div>
@@ -161,31 +228,35 @@ export function TriggerCard({ message }: Props) {
         marginVertical: 4,
         borderLeftWidth: 3,
         borderLeftColor: color,
-        borderRadius: 6,
-        backgroundColor: `${color}08`,
-        padding: 10,
+        borderRadius: 8,
+        backgroundColor: `rgba(${rgb},0.06)`,
+        padding: 12,
       }}
     >
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Text style={{ fontSize: 14 }}>{icon}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
+          <Text style={{ fontSize: 15 }}>{icon}</Text>
           <Text style={{ fontSize: 13, fontWeight: "600", color }}>{label}</Text>
         </View>
         <Text style={{ fontSize: 11, color: t.textDim }}>{timestamp}</Text>
       </View>
       {subtitle && (
-        <Text style={{ fontSize: 12, color: t.textMuted, marginTop: 2, marginLeft: 22 }}>
+        <Text
+          style={{ fontSize: 12, color: t.textMuted, marginTop: 3, marginLeft: 24 }}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {subtitle}
         </Text>
       )}
       {taskId && (
         <Pressable
           onPress={() => router.push(`/admin/tasks/${taskId}`)}
-          style={{ marginTop: 6, marginLeft: 22 }}
+          style={{ marginTop: 8, marginLeft: 24 }}
         >
           <Text style={{ fontSize: 11, color }}>View task →</Text>
         </Pressable>
       )}
     </View>
   );
-}
+});

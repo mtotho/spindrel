@@ -35,7 +35,7 @@ function fmtBytes(b: number): string {
   return `${b} B`;
 }
 
-export function StorageTab() {
+export function StorageSection() {
   const t = useThemeTokens();
   const { data, isLoading } = useStorageBreakdown();
   const purge = usePurgeStorage();

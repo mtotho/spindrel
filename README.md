@@ -15,7 +15,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Heartbeats + task scheduling** — Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks. Bots can self-schedule.
 - **Integration activation + templates** — Activate an integration on a channel and it instantly gets the right tools, skills, and behavioral instructions. Pick a compatible workspace template and the bot knows how to organize files. One click from blank channel to structured project.
 - **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Gmail, Frigate, Mission Control, Arr (Sonarr/Radarr), Claude Code, BlueBubbles, Ingestion. Extend with your own.
-- **Usage tracking + cost budgeting** — Per-bot token usage, cost tracking (with LiteLLM pricing data), and configurable budget limits.
+- **Usage tracking + cost budgeting** — Per-bot token usage, cost tracking (with LiteLLM pricing data), and configurable budget limits. *Cost data is best-effort — always verify against your provider's billing dashboard.*
 - **Smart orchestrator bot** — Ships with an orchestrator that guides you through setup conversationally.
 - **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
 - **Bot-to-bot delegation** — Orchestrator bots delegate to specialists, synchronously or as background tasks, up to 3 levels deep.

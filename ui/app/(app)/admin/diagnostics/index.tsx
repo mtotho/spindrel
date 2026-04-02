@@ -13,6 +13,7 @@ import {
 } from "@/src/api/hooks/useDiagnostics";
 import { OperationsPanel } from "./OperationsPanel";
 import { DiskUsageSection } from "./DiskUsageSection";
+import { StorageSection } from "./StorageSection";
 
 function StatusDot({ ok }: { ok: boolean }) {
   const t = useThemeTokens();
@@ -305,6 +306,14 @@ export default function DiagnosticsScreen() {
 
             {/* Disk Usage */}
             <DiskUsageSection />
+
+            {/* Data Retention & Storage */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
+                Data Retention & Storage
+              </div>
+              <StorageSection />
+            </div>
 
             {/* Filesystem Indexing (per bot) */}
             {data.systems.filesystem_indexing.length > 0 && (

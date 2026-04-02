@@ -72,50 +72,70 @@ def _make_workflow(steps=None, **overrides):
 # Test: _on_task_complete hook reads callback_config and calls executor
 # ---------------------------------------------------------------------------
 
-class TestOnTaskCompleteHook:
-    """Tests for workflow_hooks._on_task_complete."""
+class TestFireTaskCompleteWorkflowPath:
+    """Tests for _fire_task_complete's direct workflow advancement path.
+
+    Workflow step completion is now called directly from _fire_task_complete
+    (not through fire_hook) to avoid the hook system's error swallowing.
+    """
 
     @pytest.mark.asyncio
-    async def test_calls_on_step_task_completed_with_correct_args(self):
-        """Hook should extract run_id and step_index from callback_config."""
-        from app.services.workflow_hooks import _on_task_complete
+    async def test_calls_on_step_task_completed_directly(self):
+        """_fire_task_complete should call on_step_task_completed directly for workflow tasks."""
+        from app.agent.tasks import _fire_task_complete
 
         run_id = str(uuid.uuid4())
         task = _make_task(callback_config={
             "workflow_run_id": run_id,
             "workflow_step_index": 0,
         })
-        ctx = MagicMock()
 
-        with patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as mock_exec:
-            await _on_task_complete(ctx, task=task, status="complete")
+        with (
+            patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as mock_exec,
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+        ):
+            await _fire_task_complete(task, "complete")
             mock_exec.assert_called_once_with(run_id, 0, "complete", task)
 
     @pytest.mark.asyncio
-    async def test_skips_when_no_callback_config(self):
-        """Tasks without workflow callback_config should be ignored."""
-        from app.services.workflow_hooks import _on_task_complete
+    async def test_skips_direct_call_when_no_workflow_config(self):
+        """Tasks without workflow callback_config should NOT call on_step_task_completed."""
+        from app.agent.tasks import _fire_task_complete
 
         task = _make_task(callback_config={})
-        ctx = MagicMock()
 
-        with patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as mock_exec:
-            await _on_task_complete(ctx, task=task, status="complete")
+        with (
+            patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as mock_exec,
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+        ):
+            await _fire_task_complete(task, "complete")
             mock_exec.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_skips_when_no_task(self):
-        """Should return early if task is None."""
-        from app.services.workflow_hooks import _on_task_complete
+    async def test_logs_error_but_does_not_crash(self):
+        """Errors from on_step_task_completed should be logged, not crash the task worker."""
+        from app.agent.tasks import _fire_task_complete
 
-        ctx = MagicMock()
-        with patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as mock_exec:
-            await _on_task_complete(ctx, task=None, status="complete")
-            mock_exec.assert_not_called()
+        run_id = str(uuid.uuid4())
+        task = _make_task(callback_config={
+            "workflow_run_id": run_id,
+            "workflow_step_index": 0,
+        })
+
+        with (
+            patch(
+                "app.services.workflow_executor.on_step_task_completed",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("DB error"),
+            ),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+        ):
+            # Should NOT raise — errors are caught and logged
+            await _fire_task_complete(task, "complete")
 
     @pytest.mark.asyncio
-    async def test_reraises_executor_exceptions(self):
-        """Errors from on_step_task_completed should propagate (not be silently swallowed)."""
+    async def test_old_hook_is_noop(self):
+        """The _on_task_complete hook should be a no-op now (backward compat guard)."""
         from app.services.workflow_hooks import _on_task_complete
 
         run_id = str(uuid.uuid4())
@@ -125,13 +145,10 @@ class TestOnTaskCompleteHook:
         })
         ctx = MagicMock()
 
-        with patch(
-            "app.services.workflow_executor.on_step_task_completed",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("DB error"),
-        ):
-            with pytest.raises(RuntimeError, match="DB error"):
-                await _on_task_complete(ctx, task=task, status="complete")
+        with patch("app.services.workflow_executor.on_step_task_completed", new_callable=AsyncMock) as mock_exec:
+            await _on_task_complete(ctx, task=task, status="complete")
+            # Should NOT be called — hook is a no-op now
+            mock_exec.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

@@ -2,6 +2,9 @@
 
 Spindrel tracks every LLM call — tokens, latency, cost — and provides analytics, budget limits, and spend forecasting from the admin UI.
 
+!!! danger "Do not rely on Spindrel for billing accuracy"
+    Cost data is **best-effort** — it depends on correct pricing configuration, provider-reported token counts, and cached model metadata that can drift. **Always cross-check against your LLM provider's billing dashboard** before making spending decisions. Treat Spindrel's numbers as directional estimates until you've verified they match your provider invoices.
+
 ## How Cost Tracking Works
 
 Every LLM call generates a `TraceEvent` with token counts, model name, provider, and duration. Cost is computed per-call using one of these sources (in priority order):

@@ -7,31 +7,16 @@ logger = logging.getLogger(__name__)
 
 
 async def _on_task_complete(ctx, task=None, status=None, **kw):
-    """Fire when any task completes — check if it belongs to a workflow run."""
-    if task is None:
-        return
+    """Fire when any task completes — check if it belongs to a workflow run.
 
-    cb = task.callback_config or {}
-    run_id = cb.get("workflow_run_id")
-    if not run_id:
-        return
-
-    step_idx = cb.get("workflow_step_index")
-    if step_idx is None:
-        return
-
-    logger.info("Workflow hook: task %s completed (status=%s) for run %s step %d",
-                task.id, status, run_id, step_idx)
-
-    from app.services.workflow_executor import on_step_task_completed
-    try:
-        await on_step_task_completed(run_id, step_idx, status, task)
-    except Exception:
-        logger.error(
-            "on_step_task_completed failed for run %s step %d (task %s)",
-            run_id, step_idx, task.id, exc_info=True,
-        )
-        raise
+    NOTE: Workflow step advancement is now called DIRECTLY from
+    _fire_task_complete() to bypass fire_hook's error swallowing.
+    This hook callback is kept as a no-op guard to prevent double-firing
+    if both paths somehow trigger.
+    """
+    # Workflow tasks are handled directly in _fire_task_complete (tasks.py)
+    # to avoid the fire_hook error-swallowing problem.  Skip here.
+    return
 
 
 def register_workflow_hooks():
