@@ -1,12 +1,13 @@
 """API v1 — Shared Workspaces CRUD + container controls."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, Form
 from pydantic import BaseModel
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,11 +19,105 @@ from app.db.models import (
     Channel, ChannelHeartbeat, ChannelIntegration, Message, PromptTemplate,
     Session, SharedWorkspace, SharedWorkspaceBot,
 )
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes, verify_auth_or_user
 from app.services.shared_workspace import shared_workspace_service, SharedWorkspaceError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
+
+
+# ── Background re-index after file mutations ───────────────────
+# All functions use content-hash checks so they're cheap no-ops
+# when nothing actually changed.
+
+_SKILL_PATH_SEGMENTS = ("skills/",)
+_MEMORY_PATH_SEGMENTS = ("memory/",)
+
+
+def _path_touches(path: str, segments: tuple[str, ...]) -> bool:
+    """Check if a path (or either side of a move) touches a segment."""
+    return any(seg in path for seg in segments)
+
+
+def _schedule_reindex_for_paths(workspace_id: str, *paths: str) -> None:
+    """Fire-and-forget background re-index for affected subsystems.
+
+    Inspects the paths to decide which indexes need refreshing:
+    - skills/  → embed_workspace_skills (discovers mode from directory)
+    - memory/  → index_memory_for_bot (all bots in this workspace)
+    - anything → index_directory for filesystem chunks (all bots)
+    """
+    touches_skills = any(_path_touches(p, _SKILL_PATH_SEGMENTS) for p in paths)
+    touches_memory = any(_path_touches(p, _MEMORY_PATH_SEGMENTS) for p in paths)
+
+    # Always reindex filesystem chunks — the file watcher might not catch
+    # UI-driven mutations since they happen on the host path directly.
+    asyncio.create_task(_background_reindex(
+        workspace_id,
+        reindex_skills=touches_skills,
+        reindex_memory=touches_memory,
+        reindex_filesystem=True,
+    ))
+
+
+async def _background_reindex(
+    workspace_id: str,
+    *,
+    reindex_skills: bool = False,
+    reindex_memory: bool = False,
+    reindex_filesystem: bool = False,
+) -> None:
+    """Run the appropriate re-index passes in the background."""
+    try:
+        if reindex_skills:
+            from app.services.workspace_skills import embed_workspace_skills
+            stats = await embed_workspace_skills(workspace_id)
+            logger.info("Auto reindex skills for ws %s: %s", workspace_id[:8], stats)
+
+        if reindex_memory or reindex_filesystem:
+            from app.db.engine import async_session
+            from app.services.workspace_indexing import resolve_indexing, get_all_roots
+            from app.services.workspace import workspace_service
+            from app.services.memory_indexing import index_memory_for_bot
+            from app.agent.fs_indexer import index_directory
+
+            async with async_session() as db:
+                sw_bots = (await db.execute(
+                    select(SharedWorkspaceBot.bot_id)
+                    .where(SharedWorkspaceBot.workspace_id == uuid.UUID(workspace_id))
+                )).scalars().all()
+                ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+
+            for bot_id in sw_bots:
+                bot = next((b for b in list_bots() if b.id == bot_id), None)
+                if not bot or not bot.workspace.enabled:
+                    continue
+
+                if reindex_memory and bot.memory_scheme == "workspace-files":
+                    try:
+                        await index_memory_for_bot(bot, force=True)
+                    except Exception:
+                        logger.exception("Auto reindex memory failed for bot %s", bot_id)
+
+                if reindex_filesystem and bot.workspace.indexing.enabled and ws:
+                    try:
+                        _resolved = resolve_indexing(
+                            bot.workspace.indexing, bot._workspace_raw,
+                            ws.indexing_config if ws else None,
+                        )
+                        _segments = _resolved.get("segments")
+                        if not _segments:
+                            continue
+                        for root in get_all_roots(bot, workspace_service):
+                            await index_directory(
+                                root, bot_id, _resolved["patterns"],
+                                embedding_model=_resolved["embedding_model"],
+                                segments=_segments,
+                            )
+                    except Exception:
+                        logger.exception("Auto reindex fs failed for bot %s", bot_id)
+    except Exception:
+        logger.exception("Background reindex failed for workspace %s", workspace_id[:8])
 
 
 # ── Pydantic schemas ────────────────────────────────────────────
@@ -41,6 +136,7 @@ class WorkspaceCreate(BaseModel):
     read_only_root: bool = False
     startup_script: Optional[str] = "/workspace/startup.sh"
     created_by_user_id: Optional[str] = None
+    write_protected_paths: list[str] = []
 
 
 class WorkspaceUpdate(BaseModel):
@@ -59,6 +155,8 @@ class WorkspaceUpdate(BaseModel):
     workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     indexing_config: Optional[dict] = None
+    write_protected_paths: Optional[list[str]] = None
+    skills: Optional[list[dict]] = None
 
 
 class WorkspaceOut(BaseModel):
@@ -78,6 +176,10 @@ class WorkspaceOut(BaseModel):
     workspace_skills_enabled: bool = True
     workspace_base_prompt_enabled: bool = True
     indexing_config: Optional[dict] = None
+    editor_enabled: bool = False
+    editor_port: Optional[int] = None
+    write_protected_paths: list[str] = []
+    skills: list[dict] = []
     container_id: Optional[str]
     container_name: Optional[str]
     status: str
@@ -95,12 +197,14 @@ class WorkspaceBotAdd(BaseModel):
     bot_id: str
     role: str = "member"
     cwd_override: Optional[str] = None
+    write_access: list[str] = []
 
 
 class WorkspaceBotUpdate(BaseModel):
     # Workspace membership fields
     role: Optional[str] = None
     cwd_override: Optional[str] = None
+    write_access: Optional[list[str]] = None
     # Bot config fields (written to bots table)
     system_prompt: Optional[str] = None
     name: Optional[str] = None
@@ -129,11 +233,6 @@ class WorkspaceChannelOut(BaseModel):
     heartbeat_prompt_template_id: Optional[uuid.UUID] = None
     heartbeat_prompt_template_name: Optional[str] = None
     heartbeat_prompt: Optional[str] = None
-    # Summarizer
-    summarizer_enabled: bool = False
-    summarizer_threshold_minutes: Optional[int] = None
-    summarizer_model: Optional[str] = None
-    summarizer_prompt: Optional[str] = None
     # Activity
     last_user_turn_at: Optional[datetime] = None
     user_turns_24h: int = 0
@@ -156,6 +255,7 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
                 "bot_name": bot.name if bot else swb.bot_id,
                 "role": swb.role,
                 "cwd_override": swb.cwd_override,
+                "write_access": swb.write_access or [],
                 "user_id": bot.user_id if bot else None,
                 "indexing_enabled": bot.workspace.indexing.enabled if bot else False,
             })
@@ -176,6 +276,10 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         workspace_skills_enabled=ws.workspace_skills_enabled,
         workspace_base_prompt_enabled=ws.workspace_base_prompt_enabled,
         indexing_config=ws.indexing_config,
+        editor_enabled=ws.editor_enabled,
+        editor_port=ws.editor_port,
+        write_protected_paths=ws.write_protected_paths or [],
+        skills=ws.skills or [],
         container_id=ws.container_id,
         container_name=ws.container_name,
         status=ws.status,
@@ -188,12 +292,34 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
     )
 
 
+# ── Disk usage ──────────────────────────────────────────────────
+
+@router.get("/disk-usage")
+async def workspace_disk_usage(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Workspace disk usage report (bot-accessible with workspaces:read)."""
+    from app.services.disk_usage import get_full_disk_report
+
+    report = await get_full_disk_report()
+
+    # Enrich with workspace names from DB
+    ws_rows = (await db.execute(select(SharedWorkspace))).scalars().all()
+    ws_names = {str(r.id): r.name for r in ws_rows}
+    for ws in report["workspaces"]:
+        if ws["type"] == "shared" and ws["id"] in ws_names:
+            ws["name"] = ws_names[ws["id"]]
+
+    return report
+
+
 # ── CRUD ────────────────────────────────────────────────────────
 
 @router.get("", response_model=list[WorkspaceOut])
 async def list_workspaces(
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     workspaces = (await db.execute(
         select(SharedWorkspace).order_by(SharedWorkspace.name)
@@ -205,12 +331,33 @@ async def list_workspaces(
     return [_ws_to_out(ws, bots_by_ws.get(ws.id, [])) for ws in workspaces]
 
 
+@router.get("/default", response_model=WorkspaceOut)
+async def get_default_workspace(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Convenience endpoint: return the single default workspace."""
+    ws = (await db.execute(
+        select(SharedWorkspace).order_by(SharedWorkspace.created_at.asc()).limit(1)
+    )).scalar_one_or_none()
+    if not ws:
+        raise HTTPException(404, "No workspace exists")
+    sw_bots = (await db.execute(
+        select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws.id)
+    )).scalars().all()
+    return _ws_to_out(ws, sw_bots)
+
+
 @router.post("", response_model=WorkspaceOut, status_code=201)
 async def create_workspace(
     body: WorkspaceCreate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
+    # Single workspace mode: block creation if one already exists
+    existing = (await db.execute(select(SharedWorkspace.id).limit(1))).scalar_one_or_none()
+    if existing:
+        raise HTTPException(400, "Single workspace mode: a workspace already exists.")
     now = datetime.now(timezone.utc)
     ws = SharedWorkspace(
         name=body.name.strip(),
@@ -225,6 +372,7 @@ async def create_workspace(
         docker_user=body.docker_user,
         read_only_root=body.read_only_root,
         startup_script=body.startup_script,
+        write_protected_paths=body.write_protected_paths,
         created_by_user_id=uuid.UUID(body.created_by_user_id) if body.created_by_user_id else None,
         created_at=now,
         updated_at=now,
@@ -240,7 +388,7 @@ async def create_workspace(
 async def get_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -252,32 +400,29 @@ async def get_workspace(
     return _ws_to_out(ws, sw_bots)
 
 
-@router.put("/{workspace_id}", response_model=WorkspaceOut)
+@router.api_route("/{workspace_id}", methods=["PUT", "PATCH"], response_model=WorkspaceOut)
 async def update_workspace(
     workspace_id: str,
     body: WorkspaceUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
     if not ws:
         raise HTTPException(404, "Workspace not found")
-    for field in ("name", "description", "image", "network", "env", "ports", "mounts",
-                  "cpus", "memory_limit", "docker_user", "read_only_root", "startup_script",
-                  "workspace_skills_enabled", "workspace_base_prompt_enabled", "indexing_config"):
-        val = getattr(body, field, None)
-        if val is not None:
-            if isinstance(val, str):
-                val = val.strip()
-            elif isinstance(val, dict) and field == "env":
-                val = {k: v for k, v in val.items() if k}
-            setattr(ws, field, val)
+    updates = body.model_dump(exclude_unset=True)
+    for field, val in updates.items():
+        if isinstance(val, str):
+            val = val.strip()
+        elif isinstance(val, dict) and field == "env":
+            val = {k: v for k, v in val.items() if k}
+        setattr(ws, field, val)
     ws.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(ws)
     # Refresh cached _ws_indexing_config on all bots when indexing config changes
-    if body.indexing_config is not None:
+    if "indexing_config" in updates:
         await reload_bots()
     sw_bots = (await db.execute(
         select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
@@ -289,20 +434,9 @@ async def update_workspace(
 async def delete_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    if ws.container_name:
-        try:
-            await shared_workspace_service.stop(ws)
-        except Exception:
-            pass
-    await db.execute(delete(SharedWorkspace).where(SharedWorkspace.id == ws_id))
-    await db.commit()
-    await reload_bots()
+    raise HTTPException(400, "Single workspace mode: the default workspace cannot be deleted.")
 
 
 # ── Container controls ──────────────────────────────────────────
@@ -311,7 +445,7 @@ async def delete_workspace(
 async def start_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -332,7 +466,7 @@ async def start_workspace(
 async def stop_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -350,7 +484,7 @@ async def stop_workspace(
 async def recreate_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -371,7 +505,7 @@ async def recreate_workspace(
 async def pull_workspace_image(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -385,7 +519,7 @@ async def pull_workspace_image(
 async def workspace_status(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -400,7 +534,7 @@ async def workspace_logs(
     workspace_id: str,
     tail: int = Query(300, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -410,6 +544,108 @@ async def workspace_logs(
     return {"logs": logs}
 
 
+# ── Cron Jobs ─────────────────────────────────────────────────
+
+@router.get("/{workspace_id}/cron-jobs")
+async def workspace_cron_jobs(
+    workspace_id: str,
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Discover cron jobs inside a workspace container."""
+    from app.services.cron_discovery import discover_crons
+    from dataclasses import asdict
+
+    result = await discover_crons(workspace_id=workspace_id)
+    return {
+        "cron_jobs": [asdict(e) for e in result.cron_jobs],
+        "errors": result.errors,
+    }
+
+
+# ── Code Editor ────────────────────────────────────────────────
+
+@router.post("/{workspace_id}/editor/enable")
+async def enable_workspace_editor(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:write")),
+):
+    """Enable and start code-server for this workspace."""
+    from app.services.workspace_editor import ensure_editor
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    result = await ensure_editor(ws)
+    await db.refresh(ws)
+    return result
+
+
+@router.post("/{workspace_id}/editor/disable")
+async def disable_workspace_editor(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:write")),
+):
+    """Disable code-server for this workspace."""
+    from app.services.workspace_editor import disable_editor
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    await disable_editor(ws)
+    return {"editor_enabled": False}
+
+
+@router.get("/{workspace_id}/editor/status")
+async def workspace_editor_status(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Get code-server status for this workspace."""
+    from app.services.workspace_editor import editor_status
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    return await editor_status(ws)
+
+
+@router.post("/{workspace_id}/editor/session")
+async def create_editor_session(
+    workspace_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces:read")),
+):
+    """Set an httpOnly session cookie for code-server access (new-tab loads)."""
+    from fastapi.responses import JSONResponse
+
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    if not ws.editor_enabled:
+        raise HTTPException(400, "Editor not enabled")
+
+    # Extract the bearer token that was used to authenticate this request
+    auth_header = request.headers.get("authorization", "")
+    token = auth_header.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(400, "No token available for session")
+
+    cookie_name = f"editor_session_{workspace_id.replace('-', '_')}"
+    cookie_path = f"/api/v1/workspaces/{workspace_id}/editor"
+
+    response = JSONResponse({"ok": True})
+    response.set_cookie(
+        key=cookie_name,
+        value=token,
+        path=cookie_path,
+        httponly=True,
+        samesite="lax",
+        max_age=3600,  # 1 hour
+    )
+    return response
+
+
 # ── Bot management ──────────────────────────────────────────────
 
 @router.post("/{workspace_id}/bots", response_model=WorkspaceOut, status_code=201)
@@ -417,7 +653,7 @@ async def add_bot_to_workspace(
     workspace_id: str,
     body: WorkspaceBotAdd,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -428,6 +664,7 @@ async def add_bot_to_workspace(
         bot_id=body.bot_id,
         role=body.role,
         cwd_override=body.cwd_override,
+        write_access=body.write_access,
     )
     db.add(swb)
     try:
@@ -435,6 +672,14 @@ async def add_bot_to_workspace(
     except Exception as exc:
         raise HTTPException(400, f"Failed to add bot: {exc}")
     shared_workspace_service.ensure_bot_dir(str(ws_id), body.bot_id)
+    # Cascade: set workspace_id on all existing channels for this bot
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(Channel)
+        .where(Channel.bot_id == body.bot_id, Channel.workspace_id.is_(None))
+        .values(workspace_id=ws_id)
+    )
+    await db.commit()
     await reload_bots()
     await db.refresh(ws)
     sw_bots = (await db.execute(
@@ -448,7 +693,7 @@ async def get_workspace_bot(
     workspace_id: str,
     bot_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     """Get a bot's full config within a workspace context."""
     ws_id = uuid.UUID(workspace_id)
@@ -465,6 +710,10 @@ async def get_workspace_bot(
         raise HTTPException(404, "Bot not found")
     bot_map = {b.id: b for b in list_bots()}
     bot_cfg = bot_map.get(bot_id)
+
+    from app.agent.persona import resolve_workspace_persona
+    ws_persona = resolve_workspace_persona(workspace_id, bot_id)
+
     return {
         "bot_id": bot_id,
         "name": bot_row.name,
@@ -472,21 +721,24 @@ async def get_workspace_bot(
         "system_prompt": bot_row.system_prompt,
         "role": swb.role,
         "cwd_override": swb.cwd_override,
+        "write_access": swb.write_access or [],
         "skills": bot_row.skills or [],
         "local_tools": bot_row.local_tools or [],
         "persona": bot_row.persona,
         "workspace": bot_row.workspace or {},
         "indexing_enabled": bot_cfg.workspace.indexing.enabled if bot_cfg else False,
+        "persona_from_workspace": ws_persona is not None,
+        "workspace_persona_content": ws_persona,
     }
 
 
-@router.put("/{workspace_id}/bots/{bot_id}")
+@router.api_route("/{workspace_id}/bots/{bot_id}", methods=["PUT", "PATCH"])
 async def update_workspace_bot(
     workspace_id: str,
     bot_id: str,
     body: WorkspaceBotUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     """Update a bot's workspace membership and/or config fields."""
     ws_id = uuid.UUID(workspace_id)
@@ -499,15 +751,18 @@ async def update_workspace_bot(
     if not swb:
         raise HTTPException(404, "Bot not in workspace")
     # Workspace membership fields
-    if body.role is not None:
-        swb.role = body.role
-    if body.cwd_override is not None:
-        swb.cwd_override = body.cwd_override or None
+    updates = body.model_dump(exclude_unset=True)
+    if "role" in updates:
+        swb.role = updates["role"]
+    if "cwd_override" in updates:
+        swb.cwd_override = updates["cwd_override"] or None
+    if "write_access" in updates:
+        swb.write_access = updates["write_access"] or []
     # Bot config fields (written to bots table)
-    bot_fields = body.model_dump(
-        include={"system_prompt", "name", "model", "skills", "local_tools", "persona"},
-        exclude_none=True,
-    )
+    bot_fields = {
+        k: v for k, v in updates.items()
+        if k in {"system_prompt", "name", "model", "skills", "local_tools", "persona"}
+    }
     if bot_fields:
         bot_row = await db.get(BotRow, bot_id)
         if not bot_row:
@@ -521,7 +776,7 @@ async def update_workspace_bot(
         await write_persona(bot_id, body.persona_content)
     await db.commit()
     await reload_bots()
-    return {"bot_id": bot_id, "role": swb.role, "cwd_override": swb.cwd_override, **bot_fields}
+    return {"bot_id": bot_id, "role": swb.role, "cwd_override": swb.cwd_override, "write_access": swb.write_access or [], **bot_fields}
 
 
 @router.delete("/{workspace_id}/bots/{bot_id}", status_code=204)
@@ -529,7 +784,7 @@ async def remove_bot_from_workspace(
     workspace_id: str,
     bot_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     result = await db.execute(
@@ -540,6 +795,13 @@ async def remove_bot_from_workspace(
     )
     if result.rowcount == 0:
         raise HTTPException(404, "Bot not in workspace")
+    # Cascade: clear workspace_id on channels that pointed to this workspace
+    from sqlalchemy import update as sa_update
+    await db.execute(
+        sa_update(Channel)
+        .where(Channel.bot_id == bot_id, Channel.workspace_id == ws_id)
+        .values(workspace_id=None)
+    )
     await db.commit()
     await reload_bots()
 
@@ -550,7 +812,7 @@ async def remove_bot_from_workspace(
 async def list_workspace_channels(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     """List all channels for bots in this workspace, with inline heartbeat/compaction config."""
     ws_id = uuid.UUID(workspace_id)
@@ -662,10 +924,6 @@ async def list_workspace_channels(
             heartbeat_prompt_template_id=hb.prompt_template_id if hb else None,
             heartbeat_prompt_template_name=tmpl_names.get(hb.prompt_template_id) if hb and hb.prompt_template_id else None,
             heartbeat_prompt=hb.prompt if hb else None,
-            summarizer_enabled=ch.summarizer_enabled,
-            summarizer_threshold_minutes=ch.summarizer_threshold_minutes,
-            summarizer_model=ch.summarizer_model,
-            summarizer_prompt=ch.summarizer_prompt,
             last_user_turn_at=act.get("last_user_turn_at"),
             user_turns_24h=act.get("user_turns_24h", 0),
             user_turns_48h=act.get("user_turns_48h", 0),
@@ -681,13 +939,18 @@ async def workspace_files(
     workspace_id: str,
     path: str = Query("/", description="Directory path inside the workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:read")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
         raise HTTPException(404)
     entries = shared_workspace_service.list_files(workspace_id, path)
     return {"path": path, "entries": entries}
+
+
+class FileMoveBody(BaseModel):
+    src: str
+    dst: str
 
 
 class FileWriteBody(BaseModel):
@@ -699,7 +962,7 @@ async def read_workspace_file(
     workspace_id: str,
     path: str = Query(..., description="File path inside the workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:read")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
@@ -708,6 +971,10 @@ async def read_workspace_file(
         return shared_workspace_service.read_file(workspace_id, path)
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
 
 
 @router.put("/{workspace_id}/files/content")
@@ -716,15 +983,21 @@ async def write_workspace_file(
     body: FileWriteBody,
     path: str = Query(..., description="File path inside the workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:write")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
         raise HTTPException(404)
     try:
-        return shared_workspace_service.write_file(workspace_id, path, body.content)
+        result = shared_workspace_service.write_file(workspace_id, path, body.content)
+        _schedule_reindex_for_paths(workspace_id, path)
+        return result
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
 
 
 @router.post("/{workspace_id}/files/mkdir")
@@ -732,7 +1005,7 @@ async def mkdir_workspace(
     workspace_id: str,
     path: str = Query(..., description="Directory path to create"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:write")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
@@ -741,6 +1014,10 @@ async def mkdir_workspace(
         return shared_workspace_service.mkdir(workspace_id, path)
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
 
 
 @router.delete("/{workspace_id}/files")
@@ -748,24 +1025,159 @@ async def delete_workspace_file(
     workspace_id: str,
     path: str = Query(..., description="File or directory path to delete"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces.files:write")),
 ):
     ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
     if not ws:
         raise HTTPException(404)
     try:
-        return shared_workspace_service.delete_path(workspace_id, path)
+        result = shared_workspace_service.delete_path(workspace_id, path)
+        _schedule_reindex_for_paths(workspace_id, path)
+        return result
     except SharedWorkspaceError as exc:
         raise HTTPException(400, str(exc))
+    except PermissionError as exc:
+        logger.warning("Filesystem permission error deleting %s: %s", path, exc)
+        raise HTTPException(500, f"Filesystem permission denied: {path} (file may be owned by another process)")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
+
+
+@router.post("/{workspace_id}/files/move")
+async def move_workspace_file(
+    workspace_id: str,
+    body: FileMoveBody,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces.files:write")),
+):
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404)
+    try:
+        result = shared_workspace_service.move_path(workspace_id, body.src, body.dst)
+        _schedule_reindex_for_paths(workspace_id, body.src, body.dst)
+        return result
+    except SharedWorkspaceError as exc:
+        raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
+
+
+# ── File upload ─────────────────────────────────────────────────
+
+@router.post("/{workspace_id}/files/upload")
+async def upload_workspace_file(
+    workspace_id: str,
+    file: UploadFile = File(...),
+    target_dir: str = Form("/"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces.files:write")),
+):
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404)
+    content = await file.read()
+    filename = file.filename or "upload"
+    path = f"{target_dir.rstrip('/')}/{filename}"
+    try:
+        result = shared_workspace_service.write_binary_file(workspace_id, path, content)
+        _schedule_reindex_for_paths(workspace_id, path)
+        return result
+    except SharedWorkspaceError as exc:
+        raise HTTPException(400, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
 
 
 # ── Reindex ─────────────────────────────────────────────────────
+
+@router.get("/{workspace_id}/files/index-status")
+async def workspace_index_status(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces.files:read")),
+):
+    """Return which files are indexed by the RAG system, with chunk counts and metadata."""
+    import os
+    from app.db.models import FilesystemChunk
+
+    ws_id = uuid.UUID(workspace_id)
+    ws = await db.get(SharedWorkspace, ws_id)
+    if not ws:
+        raise HTTPException(404)
+
+    sw_bots = (await db.execute(
+        select(SharedWorkspaceBot.bot_id).where(SharedWorkspaceBot.workspace_id == ws_id)
+    )).scalars().all()
+    if not sw_bots:
+        return {"indexed_files": {}}
+
+    host_root = os.path.realpath(shared_workspace_service.get_host_root(workspace_id))
+
+    # Query: group by (root, file_path, bot_id) to get chunk counts + metadata
+    rows = (await db.execute(
+        select(
+            FilesystemChunk.root,
+            FilesystemChunk.file_path,
+            FilesystemChunk.bot_id,
+            func.count().label("chunk_count"),
+            func.max(FilesystemChunk.indexed_at).label("last_indexed"),
+            func.max(FilesystemChunk.language).label("language"),
+            func.max(FilesystemChunk.embedding_model).label("embedding_model"),
+        )
+        .where(FilesystemChunk.bot_id.in_(sw_bots))
+        .group_by(FilesystemChunk.root, FilesystemChunk.file_path, FilesystemChunk.bot_id)
+    )).all()
+
+    bot_map = {b.id: b.name for b in list_bots()}
+    indexed: dict[str, dict] = {}
+
+    for row in rows:
+        # Build absolute path and make it relative to workspace host_root
+        abs_path = os.path.join(row.root, row.file_path)
+        real_abs = os.path.realpath(abs_path)
+        if not real_abs.startswith(host_root):
+            continue  # skip files outside this workspace
+        rel_path = os.path.relpath(real_abs, host_root)
+
+        # Determine source: memory if path starts with memory/ or bots/*/memory/
+        parts = rel_path.split("/")
+        if parts[0] == "memory" or (len(parts) >= 3 and parts[0] == "bots" and parts[2] == "memory"):
+            source = "memory"
+        else:
+            source = "patterns"
+
+        if rel_path not in indexed:
+            indexed[rel_path] = {
+                "chunk_count": 0,
+                "last_indexed": None,
+                "bots": [],
+                "language": row.language,
+                "embedding_model": row.embedding_model,
+                "source": source,
+            }
+        entry = indexed[rel_path]
+        entry["chunk_count"] += row.chunk_count
+        ts = row.last_indexed.isoformat() if row.last_indexed else None
+        if ts and (entry["last_indexed"] is None or ts > entry["last_indexed"]):
+            entry["last_indexed"] = ts
+        entry["bots"].append({
+            "bot_id": row.bot_id,
+            "bot_name": bot_map.get(row.bot_id, row.bot_id),
+        })
+
+    return {"indexed_files": indexed}
+
 
 @router.post("/{workspace_id}/reindex")
 async def reindex_workspace(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     ws_id = uuid.UUID(workspace_id)
     ws = await db.get(SharedWorkspace, ws_id)
@@ -775,26 +1187,58 @@ async def reindex_workspace(
         select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
     )).scalars().all()
 
-    from app.agent.fs_indexer import index_directory
+    from app.agent.fs_indexer import index_directory, cleanup_stale_roots
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
+    from app.services.memory_indexing import index_memory_for_bot
+
     results = {}
+
+    # Phase 0: Clean up chunks from stale roots (e.g. after root path changes)
+    for swb in sw_bots:
+        bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
+        if bot and bot.workspace.enabled:
+            try:
+                valid = get_all_roots(bot)
+                removed = await cleanup_stale_roots(bot.id, valid)
+                if removed:
+                    results.setdefault(swb.bot_id, {})["stale_roots_cleaned"] = removed
+            except Exception:
+                pass  # non-fatal
+
+    # Phase 1: Memory reindex for all workspace-files bots
+    memory_indexed_bot_ids: set[str] = set()
+    for swb in sw_bots:
+        bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
+        if bot and bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
+            try:
+                stats = await index_memory_for_bot(bot, force=True)
+                if stats:
+                    results.setdefault(swb.bot_id, {}).update({"memory": stats})
+                memory_indexed_bot_ids.add(swb.bot_id)
+            except Exception as exc:
+                results.setdefault(swb.bot_id, {})["memory_error"] = str(exc)
+
+    # Phase 2: Segment-based indexing (only for bots with segments)
     for swb in sw_bots:
         try:
             bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
             if bot and bot.workspace.indexing.enabled:
                 _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
+                _segments = _resolved.get("segments")
+                if not _segments:
+                    continue
                 bot_results = []
                 for root in get_all_roots(bot):
                     stats = await index_directory(
                         root, swb.bot_id, _resolved["patterns"], force=True,
                         embedding_model=_resolved["embedding_model"],
-                        segments=_resolved.get("segments"),
+                        segments=_segments,
                     )
                     bot_results.append(stats)
-                results[swb.bot_id] = bot_results[0] if len(bot_results) == 1 else bot_results
+                results.setdefault(swb.bot_id, {})["indexing"] = bot_results[0] if len(bot_results) == 1 else bot_results
         except Exception as exc:
-            results[swb.bot_id] = {"error": str(exc)}
+            results.setdefault(swb.bot_id, {})["indexing_error"] = str(exc)
 
     return {"results": results}
 
@@ -803,7 +1247,7 @@ async def reindex_workspace(
 async def reindex_workspace_skills(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     """Re-discover and re-embed workspace skill .md files."""
     ws_id = uuid.UUID(workspace_id)
@@ -820,7 +1264,7 @@ async def reindex_workspace_skills(
 async def list_workspace_skills(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     """List discovered workspace skill files with metadata."""
     ws_id = uuid.UUID(workspace_id)
@@ -862,7 +1306,7 @@ class BotIndexingUpdate(BaseModel):
 async def get_workspace_indexing(
     workspace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:read")),
 ):
     """Full indexing visibility: global defaults, workspace defaults, and per-bot resolved config."""
     from app.agent.fs_indexer import _SKIP_EXTENSIONS, _SKIP_DIRS
@@ -906,6 +1350,7 @@ async def get_workspace_indexing(
             "bot_name": bot.name,
             "role": swb.role,
             "indexing_enabled": bot.workspace.indexing.enabled,
+            "memory_scheme": getattr(bot, "memory_scheme", None),
             "explicit_overrides": explicit,
             "resolved": resolved,
         })
@@ -932,13 +1377,13 @@ async def get_workspace_indexing(
     }
 
 
-@router.put("/{workspace_id}/bots/{bot_id}/indexing")
+@router.api_route("/{workspace_id}/bots/{bot_id}/indexing", methods=["PUT", "PATCH"])
 async def update_bot_indexing(
     workspace_id: str,
     bot_id: str,
     body: BotIndexingUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("workspaces:write")),
 ):
     """Update per-bot indexing overrides within a workspace. Send null to clear a field (inherit)."""
     from app.db.models import Bot as BotRow

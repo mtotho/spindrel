@@ -1,148 +1,156 @@
 ---
 name: attachments-and-images
-description: "Load when the task involves images, attachments, or file handling: generating images, editing images, combining/mixing images, finding uploaded files, referencing earlier uploads, or any use of generate_image, list_attachments, or get_attachment tools. Also trigger when a delegated bot needs to work with images from the parent channel. Do NOT trigger for plain text conversations with no file/image component."
+description: "Load when the task involves images, attachments, or file handling: generating images, editing images, sending files to the channel, finding uploaded files, referencing earlier uploads, or any use of generate_image, send_file, list_attachments, or get_attachment tools. Also trigger when a delegated bot needs to work with images from the parent channel. Do NOT trigger for plain text conversations with no file/image component."
 ---
 
-# Attachment & Image Mastery
+# Attachments & Files
 
-## Core Principle
+## Architecture
 
-Image bytes never pass through the LLM context. Attachments are referenced by UUID; image tools fetch bytes directly from the database. Passing base64 through tool results will overflow the context window.
+- Attachments are stored in the database with UUIDs and are persistent across all clients (Slack, web UI, etc.)
+- File bytes never pass through the LLM context — tools fetch bytes directly from the DB
+- Every file sent to the channel (via `send_file` or `generate_image`) creates a DB attachment linked to the assistant message
+- On the web UI, attachments appear as download links below the message
+- On Slack, attachments are uploaded as native Slack files
 
 ## Tools
 
-### list_attachments
+### send_file — deliver a file to the channel
 
-Find attachments in the current channel. Call this first whenever the user references an image or file.
+The single tool for posting any file to the chat. Two modes:
+
+| Parameter | Type | Required | Notes |
+|---|---|---|---|
+| path | string | One of path or attachment_id | File on disk. Workspace paths (`/workspace/...`) translated automatically |
+| attachment_id | string | One of path or attachment_id | UUID of an existing attachment (from `list_attachments`) |
+| caption | string | No | Caption to display with the file |
+| filename | string | No | Override display filename |
+
+**From disk:**
+```
+send_file(path="/workspace/output/report.pdf", caption="Monthly report")
+```
+
+**Re-post an existing attachment:**
+```
+send_file(attachment_id="<uuid>", caption="Here's that file again")
+```
+
+Both modes create a persistent DB attachment and deliver to the channel.
+
+### list_attachments — find files in the channel
 
 | Parameter | Type | Default | Notes |
 |---|---|---|---|
-| limit | int | 5 | Max 20 |
+| limit | int | 5 | Max 50 |
+| page | int | 1 | For pagination |
 | type_filter | string | (all) | `image`, `file`, `text`, `audio`, `video` |
 
 Returns: `id`, `filename`, `type`, `mime_type`, `size_bytes`, `description`, `posted_by`, `posted_at`
 
-No `channel_id` parameter needed — defaults to the current channel context automatically.
+No `channel_id` parameter needed — defaults to current channel automatically.
 
-### get_attachment(attachment_id)
+### get_attachment(attachment_id) — inspect metadata
 
-Fetch metadata for a single attachment by UUID. Returns description, filename, type, mime_type, has_file_data (boolean), posted_by, posted_at.
+Returns description, filename, type, mime_type, has_file_data, posted_by, posted_at.
 
-Does **NOT** return file bytes or base64. Use this to inspect metadata only.
+Does **NOT** return file bytes. Use for metadata only.
 
-### generate_image
+### describe_attachment(attachment_id, prompt?) — vision analysis
 
-Generate from scratch or edit existing images. The image model is configured server-side.
+Without `prompt`: returns the existing auto-generated description.
+With `prompt`: makes a fresh vision model call (e.g. "What's in this image?").
+
+Works with image attachments only.
+
+### save_attachment(attachment_id, path) — download to disk
+
+Save an attachment's file data to the filesystem. Use when you need to process a file locally (e.g. include a user-uploaded image in a slide deck).
+
+### generate_image — create or edit images
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| prompt | string | Yes | Describe what to generate, or the edits to apply |
-| attachment_ids | string[] | No | UUIDs from list_attachments — fetches bytes directly from DB |
-| n | int | No | Number of images (1-10). Only works with OpenAI models (gpt-image, dall-e). Ignored by Gemini. |
+| prompt | string | Yes | What to generate or how to edit |
+| attachment_ids | string[] | No | Source image UUIDs for editing |
+| n | int | No | Variations (1-10, OpenAI models only) |
 
-## Correct Patterns
+Generated images are automatically saved as attachments and delivered to the channel.
 
-### Generate from scratch
+## Auto-visible attachments
 
+Any tool that creates an attachment (`frigate_snapshot`, `generate_image`, `exec_sandbox` file output, etc.) automatically links it to the assistant message that triggered the tool. The image/file appears on the web UI and Slack without any extra step — you do **not** need to call `send_file` afterward.
+
+Use `send_file` only when you need to:
+- Send a file from disk (`path=...`)
+- Re-post an older attachment to highlight it with a specific caption (`attachment_id=...`)
+
+## Common Patterns
+
+### Send a file from disk
 ```
-generate_image(prompt="A watercolor painting of a sunset over mountains")
+send_file(path="/workspace/data/results.csv")
 ```
 
-One tool call. No attachments needed.
+### Re-post a file someone uploaded earlier
+```
+1. list_attachments(type_filter="file", limit=5)
+2. send_file(attachment_id="<uuid>")
+```
 
-### Edit a single image
+### Generate an image from scratch
+```
+generate_image(prompt="A watercolor sunset over mountains")
+```
 
+### Edit an existing image
 ```
 1. list_attachments(type_filter="image", limit=5)
 2. generate_image(prompt="Make the sky purple", attachment_ids=["<uuid>"])
 ```
 
-Two tool calls. Do NOT call get_attachment — generate_image fetches bytes itself.
-
-### Mix/combine multiple images
-
+### Combine multiple images
 ```
 1. list_attachments(type_filter="image", limit=10)
-2. generate_image(
-     prompt="Create a hybrid creature combining elements of both images",
-     attachment_ids=["<uuid_1>", "<uuid_2>"]
-   )
+2. generate_image(prompt="Merge both images into a panorama", attachment_ids=["<uuid1>", "<uuid2>"])
 ```
 
-Pass multiple UUIDs. The image API receives all source images for multi-reference editing.
-
-### "Edit that image I posted"
-
+### Iterative editing (chain edits)
+Generated images become attachments immediately:
 ```
-1. list_attachments(type_filter="image", limit=3)
-   → Pick the most recent or the one matching the user's description
-2. generate_image(prompt="<user's edit request>", attachment_ids=["<uuid>"])
-```
-
-### Generate multiple variations
-
-```
-generate_image(prompt="A logo for a coffee shop", n=4)
-```
-
-Only works with OpenAI image models. Each variation is saved as a separate attachment and sent as a separate image.
-
-### Iterative editing (chaining)
-
-Generated images are saved as attachments, so you can edit your own output:
-
-```
-1. generate_image(prompt="A red sports car on a mountain road")
-   → Image is saved as an attachment automatically
-2. list_attachments(type_filter="image", limit=1)
-   → Find the image you just generated
+1. generate_image(prompt="A red sports car")
+2. list_attachments(type_filter="image", limit=1)  → get the UUID
 3. generate_image(prompt="Add rain and dramatic clouds", attachment_ids=["<uuid>"])
 ```
 
-### "What's in this image?"
+### Save an uploaded file to disk for processing
+```
+1. list_attachments(type_filter="file", limit=5)
+2. save_attachment(attachment_id="<uuid>", path="/workspace/data/")
+```
 
+### Describe an image
 ```
 1. list_attachments(type_filter="image", limit=3)
-2. get_attachment("<uuid>")
-   → Read the description field
+2. describe_attachment(attachment_id="<uuid>", prompt="Are there any people in this image?")
 ```
-
-If the description is populated (from auto-summarization), answer from it. If description is null and you need to analyze the image, say so — you cannot retrieve raw bytes through tool results without overflowing context.
 
 ## Common Mistakes
 
 | Wrong | Right | Why |
 |---|---|---|
-| `get_attachment(id)` then pass base64 to `generate_image` | `generate_image(attachment_ids=[id])` | get_attachment doesn't return base64; generate_image fetches bytes directly |
-| Passing `n=3` with a Gemini model | Omit `n` or set `n=1` | Gemini rejects the `n` parameter; only OpenAI models support it |
-| Skipping `list_attachments` and guessing UUIDs | Always call `list_attachments` first | Attachment UUIDs are random; you must look them up |
-| Calling `list_attachments(channel_id="C06RY3YBSLE")` | Call `list_attachments()` with no channel_id | Slack channel IDs are not valid UUIDs; omit the param to use current channel context |
+| `get_attachment` then pass base64 to `generate_image` | `generate_image(attachment_ids=[id])` | generate_image fetches bytes directly |
+| Passing `n=3` with a Gemini model | Omit `n` or set `n=1` | Only OpenAI models support n>1 |
+| Guessing attachment UUIDs | Call `list_attachments` first | UUIDs are random; you must look them up |
+| Using `list_attachments(channel_id="C06RY3YBSLE")` | Omit channel_id | Slack IDs aren't UUIDs; current channel is used automatically |
+| Using `send_file` to re-show an attachment from the same turn | Just reference it in your response text | Attachments are auto-visible on the message that created them |
+| Calling `send_file` after `frigate_snapshot` or `frigate_event_snapshot` | Just use the attachment_id for analysis if needed | Frigate media tools auto-display in the channel |
 
 ## Delegation Context
 
-When bot A delegates to bot B (via `delegate_to_agent`), bot B inherits the parent's channel context. This means:
-
-- Bot B can call `list_attachments()` and see the same attachments as bot A
-- Bot B can pass those attachment IDs to `generate_image`
-- The user can upload an image, ask bot A to delegate to an image-specialist bot B, and bot B will find the upload
+When bot A delegates to bot B, bot B inherits the parent's channel context:
+- `list_attachments()` sees the same attachments as bot A
+- `generate_image(attachment_ids=[...])` can reference parent channel images
+- `send_file(attachment_id="<uuid>")` can re-post files from the parent channel
 
 No special parameters needed — channel context propagates automatically.
-
-## Image Output & Persistence
-
-Every image produced by `generate_image` is **automatically saved as an attachment** in the current channel. This means:
-
-- Generated images appear in `list_attachments` immediately — they're first-class attachments just like user uploads
-- You can chain edits: generate an image, then call `list_attachments` to get its UUID, then pass it back to `generate_image` with new edits
-- Other bots in the same channel (via delegation) can find and reference generated images
-- The `posted_by` field will be the bot ID that generated it, and `source_integration` will be `generate_image`
-
-The image is also returned as a `client_action` with type `upload_image` so the client (Slack, web, etc.) can display it. When `n > 1` (OpenAI only), each variation is saved and sent separately.
-
-## Pre-Generation Checklist
-
-- [ ] If editing: called `list_attachments` to get the UUID(s)
-- [ ] Prompt is descriptive (not just "edit it" — describe the desired changes)
-- [ ] Using `attachment_ids`, not `source_image_b64` (deprecated)
-- [ ] Not passing `n > 1` unless certain the model is OpenAI-based
-- [ ] Not calling `get_attachment` just to feed bytes into `generate_image`

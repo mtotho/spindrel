@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import PromptTemplate
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter(prefix="/prompt-templates", tags=["Prompt Templates"])
 
@@ -66,16 +66,22 @@ class PromptTemplateUpdateIn(BaseModel):
 @router.get("", response_model=list[PromptTemplateOut])
 async def list_prompt_templates(
     workspace_id: Optional[UUID] = None,
+    category: Optional[str] = None,
+    tag: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("settings:read")),
 ):
-    """List prompt templates. If workspace_id provided, returns global + workspace-scoped."""
+    """List prompt templates. Supports workspace_id, category, and tag filters."""
     stmt = select(PromptTemplate).order_by(PromptTemplate.category, PromptTemplate.name)
     if workspace_id is not None:
         stmt = stmt.where(
             (PromptTemplate.workspace_id == workspace_id)
             | (PromptTemplate.workspace_id.is_(None))
         )
+    if category is not None:
+        stmt = stmt.where(PromptTemplate.category == category)
+    if tag is not None:
+        stmt = stmt.where(PromptTemplate.tags.contains([tag]))
     rows = (await db.execute(stmt)).scalars().all()
     return rows
 
@@ -84,7 +90,7 @@ async def list_prompt_templates(
 async def get_prompt_template(
     template_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("settings:read")),
 ):
     row = await db.get(PromptTemplate, template_id)
     if not row:
@@ -96,7 +102,7 @@ async def get_prompt_template(
 async def create_prompt_template(
     body: PromptTemplateCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("settings:write")),
 ):
     if not body.name.strip():
         raise HTTPException(status_code=422, detail="name is required")
@@ -144,7 +150,7 @@ async def update_prompt_template(
     template_id: UUID,
     body: PromptTemplateUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("settings:write")),
 ):
     row = await db.get(PromptTemplate, template_id)
     if not row:
@@ -191,7 +197,7 @@ async def update_prompt_template(
 async def delete_prompt_template(
     template_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("settings:write")),
 ):
     row = await db.get(PromptTemplate, template_id)
     if not row:

@@ -3,6 +3,7 @@ import pytest
 
 from app.agent.model_params import (
     MODEL_PARAM_SUPPORT,
+    _HEURISTIC_NO_SYS_MSG_FAMILIES,
     PARAM_DEFINITIONS,
     filter_model_params,
     get_provider_family,
@@ -209,3 +210,16 @@ class TestParamDefinitions:
         assert "frequency_penalty" in names
         assert "presence_penalty" in names
         assert "reasoning_effort" in names
+
+
+# ---------------------------------------------------------------------------
+# _HEURISTIC_NO_SYS_MSG_FAMILIES (heuristic fallback set)
+# ---------------------------------------------------------------------------
+
+class TestHeuristicNoSysMsgFamilies:
+    def test_minimax_in_set(self):
+        assert "minimax" in _HEURISTIC_NO_SYS_MSG_FAMILIES
+
+    def test_standard_providers_not_in_set(self):
+        for provider in ("openai", "anthropic", "gemini", "google", "mistral", "deepseek", "groq"):
+            assert provider not in _HEURISTIC_NO_SYS_MSG_FAMILIES

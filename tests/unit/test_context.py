@@ -7,12 +7,14 @@ from app.agent.context import (
     current_bot_id,
     current_client_id,
     current_ephemeral_delegates,
+    current_ephemeral_skills,
     current_memory_cross_channel,
     current_session_depth,
     current_session_id,
     restore_agent_context,
     set_agent_context,
     set_ephemeral_delegates,
+    set_ephemeral_skills,
     snapshot_agent_context,
 )
 
@@ -94,3 +96,24 @@ class TestSetEphemeralDelegates:
         set_ephemeral_delegates(original)
         original.append("bot_b")
         assert current_ephemeral_delegates.get() == ["bot_a"]
+
+
+@pytest.mark.asyncio
+class TestSetEphemeralSkills:
+    async def test_set_and_get(self):
+        set_ephemeral_skills(["packages/slides/slides", "arch_linux"])
+        assert current_ephemeral_skills.get() == ["packages/slides/slides", "arch_linux"]
+
+    async def test_creates_copy(self):
+        original = ["slides"]
+        set_ephemeral_skills(original)
+        original.append("cooking")
+        assert current_ephemeral_skills.get() == ["slides"]
+
+    async def test_snapshot_round_trip(self):
+        set_ephemeral_skills(["my_skill"])
+        snap = snapshot_agent_context()
+        assert snap.ephemeral_skills == ["my_skill"]
+        # Mutating snapshot should not affect live vars
+        snap.ephemeral_skills.append("extra")
+        assert "extra" not in current_ephemeral_skills.get()

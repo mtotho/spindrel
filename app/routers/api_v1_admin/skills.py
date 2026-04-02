@@ -138,7 +138,7 @@ async def admin_list_skills(
     return result
 
 
-@router.get("/skills/{skill_id}", response_model=SkillOut)
+@router.get("/skills/{skill_id:path}", response_model=SkillOut)
 async def admin_get_skill(
     skill_id: str,
     db: AsyncSession = Depends(get_db),
@@ -193,7 +193,7 @@ async def admin_create_skill(
     )
 
 
-@router.put("/skills/{skill_id}", response_model=SkillOut)
+@router.put("/skills/{skill_id:path}", response_model=SkillOut)
 async def admin_update_skill(
     skill_id: str,
     body: SkillUpdateIn,
@@ -229,7 +229,7 @@ async def admin_update_skill(
     )
 
 
-@router.delete("/skills/{skill_id}")
+@router.delete("/skills/{skill_id:path}")
 async def admin_delete_skill(
     skill_id: str,
     db: AsyncSession = Depends(get_db),
@@ -249,8 +249,25 @@ async def admin_delete_skill(
 @router.post("/file-sync")
 async def admin_file_sync(
     _auth: str = Depends(verify_auth_or_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Trigger a full file sync for skills and knowledge."""
+    """Trigger a full file sync for skills, knowledge, and workspace skills."""
     from app.services.file_sync import sync_all_files
-    counts = await sync_all_files()
-    return {"ok": True, **counts}
+    result = await sync_all_files()
+
+    # Also re-embed workspace skills (with orphan cleanup)
+    ws_stats: list[dict] = []
+    from app.db.models import SharedWorkspace as SW
+    ws_rows = (await db.execute(
+        select(SW).where(SW.workspace_skills_enabled == True)  # noqa: E712
+    )).scalars().all()
+    if ws_rows:
+        from app.services.workspace_skills import embed_workspace_skills
+        for ws in ws_rows:
+            try:
+                stats = await embed_workspace_skills(str(ws.id))
+                ws_stats.append({"workspace": ws.name, **stats})
+            except Exception:
+                ws_stats.append({"workspace": ws.name, "error": True})
+
+    return {"ok": True, **result, "workspace_skills": ws_stats}

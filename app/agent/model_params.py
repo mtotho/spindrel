@@ -2,6 +2,23 @@
 
 from __future__ import annotations
 
+# Heuristic fallback: provider families that do NOT support role: "system".
+# Used when a model has no explicit DB entry.  The authoritative check is
+# `requires_system_message_folding()` in app/services/providers.py.
+_HEURISTIC_NO_SYS_MSG_FAMILIES: set[str] = {"minimax"}
+
+# Heuristic fallback: specific model IDs known not to support function calling / tools.
+_HEURISTIC_NO_TOOLS_MODELS: set[str] = {
+    "gemini-2.0-flash-exp-image-generation",
+    "imagen-3.0-generate-002",
+}
+
+# Substring patterns — if any pattern appears in the model ID, tools are not supported.
+_HEURISTIC_NO_TOOLS_PATTERNS: list[str] = [
+    "image-generation",
+]
+
+
 # Which OpenAI-style params each provider family supports.
 MODEL_PARAM_SUPPORT: dict[str, set[str]] = {
     "openai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort"},
@@ -11,6 +28,7 @@ MODEL_PARAM_SUPPORT: dict[str, set[str]] = {
     "mistral": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
     "deepseek": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort"},
     "groq": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
+    "ollama": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
     "_default": {"temperature", "max_tokens"},
 }
 

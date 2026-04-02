@@ -19,7 +19,7 @@ class TestValidateSignature:
         payload = b'{"action": "completed"}'
         header = _sign(payload, secret)
 
-        with patch("integrations.github.validator.github_config") as mock_cfg:
+        with patch("integrations.github.validator.settings") as mock_cfg:
             mock_cfg.GITHUB_WEBHOOK_SECRET = secret
             assert validate_signature(payload, header) is True
 
@@ -28,21 +28,21 @@ class TestValidateSignature:
         payload = b'{"action": "completed"}'
         header = "sha256=deadbeef"
 
-        with patch("integrations.github.validator.github_config") as mock_cfg:
+        with patch("integrations.github.validator.settings") as mock_cfg:
             mock_cfg.GITHUB_WEBHOOK_SECRET = secret
             assert validate_signature(payload, header) is False
 
     def test_missing_header(self):
-        with patch("integrations.github.validator.github_config") as mock_cfg:
+        with patch("integrations.github.validator.settings") as mock_cfg:
             mock_cfg.GITHUB_WEBHOOK_SECRET = "test-secret"
             assert validate_signature(b"payload", None) is False
 
     def test_no_secret_configured_allows_all(self):
-        with patch("integrations.github.validator.github_config") as mock_cfg:
+        with patch("integrations.github.validator.settings") as mock_cfg:
             mock_cfg.GITHUB_WEBHOOK_SECRET = ""
             assert validate_signature(b"anything", None) is True
 
     def test_wrong_prefix(self):
-        with patch("integrations.github.validator.github_config") as mock_cfg:
+        with patch("integrations.github.validator.settings") as mock_cfg:
             mock_cfg.GITHUB_WEBHOOK_SECRET = "secret"
             assert validate_signature(b"payload", "md5=abc123") is False

@@ -19,10 +19,25 @@ class TestSanitizeMessages:
         assert result[0]["content"] == ""
 
     def test_tool_null_content(self):
-        msgs = [{"role": "tool", "content": None, "tool_call_id": "abc"}]
+        msgs = [
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "abc", "type": "function", "function": {"name": "test", "arguments": "{}"}}]},
+            {"role": "tool", "content": None, "tool_call_id": "abc"},
+        ]
         result = _sanitize_messages(msgs)
-        assert result[0]["content"] == ""
-        assert result[0]["tool_call_id"] == "abc"
+        assert result[1]["content"] == ""
+        assert result[1]["tool_call_id"] == "abc"
+
+    def test_orphaned_tool_result_removed(self):
+        """Tool results with no matching tool_call should be stripped."""
+        msgs = [
+            {"role": "user", "content": "hello"},
+            {"role": "tool", "content": "result", "tool_call_id": "orphaned_id"},
+            {"role": "assistant", "content": "done"},
+        ]
+        result = _sanitize_messages(msgs)
+        assert len(result) == 2
+        assert result[0]["role"] == "user"
+        assert result[1]["role"] == "assistant"
 
     def test_missing_content_key(self):
         msgs = [{"role": "assistant"}]

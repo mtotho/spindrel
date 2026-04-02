@@ -1,7 +1,6 @@
-"""Channel message summarizer — on-demand and auto-trigger after idle."""
+"""Channel message summarizer — on-demand utility for the summarize_channel tool."""
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -20,16 +19,9 @@ Structure as: Key Context, Recent Actions, Open Items.
 
 
 def _resolve_model(channel: Channel | None) -> str:
-    """Resolve model: channel.summarizer_model > channel.compression_model > global."""
-    if channel:
-        if channel.summarizer_model:
-            return channel.summarizer_model
-        if channel.compression_model:
-            return channel.compression_model
-    if settings.SUMMARIZER_MODEL:
-        return settings.SUMMARIZER_MODEL
-    if settings.CONTEXT_COMPRESSION_MODEL:
-        return settings.CONTEXT_COMPRESSION_MODEL
+    """Resolve model for summarization: channel compaction_model > global."""
+    if channel and channel.compaction_model:
+        return channel.compaction_model
     return settings.COMPACTION_MODEL
 
 
@@ -57,14 +49,12 @@ async def summarize_messages(
     if not channel:
         return "Error: channel not found."
 
-    # Resolve parameters: param > channel > global
-    take = take or channel.summarizer_message_count or settings.SUMMARIZER_MESSAGE_COUNT
-    target_size = target_size or channel.summarizer_target_size or settings.SUMMARIZER_TARGET_SIZE
+    # Resolve parameters
+    take = take or 100
+    target_size = target_size or 1000
     model = _resolve_model(channel)
 
     custom_suffix = prompt or ""
-    if channel.summarizer_prompt and not prompt:
-        custom_suffix = channel.summarizer_prompt
 
     effective_prompt = _DEFAULT_PROMPT.format(
         target_size=target_size,
@@ -98,10 +88,8 @@ async def summarize_messages(
 
     # Ordering and pagination
     if start_date or end_date:
-        # Date-filtered: oldest first, apply take as limit
         stmt = stmt.order_by(Message.created_at.asc()).limit(take)
     else:
-        # No date filter: use skip/take pagination, oldest first
         stmt = stmt.order_by(Message.created_at.asc()).offset(skip).limit(take)
 
     async with async_session() as db:
@@ -131,26 +119,9 @@ async def summarize_messages(
             model=model,
             messages=prompt_messages,
             temperature=0.2,
-            max_tokens=settings.CONTEXT_COMPRESSION_MAX_SUMMARY_TOKENS,
+            max_tokens=2048,
         )
         return response.choices[0].message.content or "Summary generation returned empty."
     except Exception:
         logger.warning("Summarizer LLM call failed", exc_info=True)
         return "Error: summarizer LLM call failed."
-
-
-async def get_last_user_message_time(channel_id: UUID) -> datetime | None:
-    """Return the timestamp of the most recent user message in the channel."""
-    stmt = (
-        select(Message.created_at)
-        .join(Session, Message.session_id == Session.id)
-        .where(
-            Session.channel_id == channel_id,
-            Message.role == "user",
-        )
-        .order_by(Message.created_at.desc())
-        .limit(1)
-    )
-    async with async_session() as db:
-        result = (await db.execute(stmt)).scalar_one_or_none()
-    return result

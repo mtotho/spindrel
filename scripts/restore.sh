@@ -3,12 +3,16 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Load .env if present and vars not already exported
+# Load .env if present — only simple KEY=VALUE lines (skip JSON arrays, parens, etc.)
 if [ -f "$REPO_DIR/.env" ]; then
-  set -a
-  # shellcheck source=/dev/null
-  source "$REPO_DIR/.env"
-  set +a
+  while IFS='=' read -r key val; do
+    [[ -z "$key" || "$key" =~ ^[[:space:]]*# ]] && continue
+    key="${key%%[[:space:]]}"
+    val="${val#[[:space:]]}"
+    val="${val#\"}" ; val="${val%\"}"
+    val="${val#\'}" ; val="${val%\'}"
+    export "$key=$val" 2>/dev/null || true
+  done < "$REPO_DIR/.env"
 fi
 
 # ── Config ──────────────────────────────────────────────────────────────────
@@ -66,15 +70,25 @@ cp "$RESTORE_DIR/.env"      "$REPO_DIR/.env"
 cp "$RESTORE_DIR/mcp.yaml"  "$REPO_DIR/mcp.yaml"
 cp -r "$RESTORE_DIR/bots/"*   "$REPO_DIR/bots/"
 cp -r "$RESTORE_DIR/skills/"* "$REPO_DIR/skills/"
+if [[ -d "$RESTORE_DIR/tools" ]] && ls "$RESTORE_DIR/tools/"* &>/dev/null; then
+  mkdir -p "$REPO_DIR/tools"
+  cp -r "$RESTORE_DIR/tools/"* "$REPO_DIR/tools/"
+fi
 mkdir -p "$REPO_DIR/config/searxng"
 cp "$RESTORE_DIR/config/searxng/settings.yml" "$REPO_DIR/config/searxng/settings.yml"
 
-# Restore workspace data if present in backup
-if [[ -d "$RESTORE_DIR/.agent-workspaces" ]]; then
-  echo "[restore] Restoring workspaces to $HOME/.agent-workspaces …"
-  mkdir -p "$HOME/.agent-workspaces"
-  cp -r "$RESTORE_DIR/.agent-workspaces/"* "$HOME/.agent-workspaces/"
-fi
+# Restore workspace data if present in backup — detect the workspace dir name from the archive
+_WS_BASE="${WORKSPACE_BASE_DIR:-${HOME}/.spindrel-workspaces}"
+_WS_TARGET="$(eval echo "$_WS_BASE")"
+# The archive may contain .agent-workspaces, .spindrel-workspaces, or .thoth-workspaces
+for _ws_candidate in .agent-workspaces .spindrel-workspaces .thoth-workspaces; do
+  if [[ -d "$RESTORE_DIR/$_ws_candidate" ]]; then
+    echo "[restore] Restoring workspaces from $_ws_candidate to $_WS_TARGET …"
+    mkdir -p "$_WS_TARGET"
+    cp -r "$RESTORE_DIR/$_ws_candidate/"* "$_WS_TARGET/"
+    break
+  fi
+done
 
 # ── 4. Start postgres and wait for healthy ──────────────────────────────────
 echo "[restore] Starting postgres …"
@@ -108,7 +122,7 @@ docker compose -f "$REPO_DIR/docker-compose.yml" exec -T postgres \
 # ── 6. Start backing services (agent server runs natively via systemd) ──────
 echo "[restore] Starting backing services …"
 docker compose -f "$REPO_DIR/docker-compose.yml" up -d postgres searxng playwright
-# Agent server runs natively — use 'systemctl start agent-server' or './scripts/install-service.sh' to set it up.
+# Agent server runs natively — use 'spindrel restart' or './scripts/install-service.sh' to set it up.
 
 # ── 7. Cleanup ──────────────────────────────────────────────────────────────
 rm -rf "$RESTORE_DIR"

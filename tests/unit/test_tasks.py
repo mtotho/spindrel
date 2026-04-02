@@ -253,9 +253,12 @@ class TestRunTask:
         task.dispatch_type = overrides.get("dispatch_type", "none")
         task.dispatch_config = overrides.get("dispatch_config", {})
         task.callback_config = overrides.get("callback_config", {})
+        task.execution_config = overrides.get("execution_config", {})
+        task.task_type = overrides.get("task_type", "agent")
         task.recurrence = overrides.get("recurrence", None)
         task.retry_count = overrides.get("retry_count", 0)
         task.status = overrides.get("status", "pending")
+        task.max_run_seconds = overrides.get("max_run_seconds", None)
         return task
 
     def _mock_db_session(self, task_obj):
@@ -390,6 +393,7 @@ class TestRunTask:
             mock_locks.acquire.return_value = True
             mock_settings.TASK_RATE_LIMIT_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 65
+            mock_settings.TASK_MAX_RUN_SECONDS = 1200
 
             await run_task(task)
 
@@ -414,12 +418,12 @@ class TestRunTask:
 
     @pytest.mark.asyncio
     async def test_model_override_from_callback_config(self):
-        """model_override in callback_config should be passed to the agent loop."""
+        """model_override in execution_config (or callback_config fallback) should be passed to the agent loop."""
         from app.agent.tasks import run_task
         from app.agent.loop import RunResult
 
         task = self._make_task(
-            callback_config={
+            execution_config={
                 "model_override": "custom/my-model",
                 "model_provider_id_override": "provider-42",
             },
@@ -528,3 +532,161 @@ class TestFetchDueTasks:
             tasks = await fetch_due_tasks()
             assert len(tasks) == 1
             assert tasks[0] is mock_task
+
+
+# ---------------------------------------------------------------------------
+# run_harness_task — callback task model override propagation
+# ---------------------------------------------------------------------------
+
+class TestHarnessCallbackModelOverride:
+    """Verify that run_harness_task propagates parent model overrides to the callback task."""
+
+    def _make_harness_task(self, **overrides):
+        task = MagicMock()
+        task.id = overrides.get("id", uuid.uuid4())
+        task.bot_id = overrides.get("bot_id", "test_bot")
+        task.client_id = overrides.get("client_id", "client1")
+        task.session_id = overrides.get("session_id", uuid.uuid4())
+        task.channel_id = overrides.get("channel_id", None)
+        task.prompt = overrides.get("prompt", "do something")
+        task.dispatch_type = overrides.get("dispatch_type", "none")
+        task.dispatch_config = overrides.get("dispatch_config", {})
+        task.workspace_id = None
+        task.workspace_file_path = None
+        task.prompt_template_id = None
+        task.max_run_seconds = None
+        task.task_type = "harness"
+        task.execution_config = overrides.get("execution_config", {
+            "harness_name": "claude-code",
+            "output_dispatch_type": "none",
+            "output_dispatch_config": {},
+        })
+        task.callback_config = overrides.get("callback_config", {})
+        return task
+
+    def _mock_db_session(self, task_obj):
+        db = AsyncMock()
+        db.add = MagicMock()
+        db.get = AsyncMock(return_value=task_obj)
+        cm = AsyncMock()
+        cm.__aenter__ = AsyncMock(return_value=db)
+        cm.__aexit__ = AsyncMock(return_value=False)
+        return cm, db
+
+    @pytest.mark.asyncio
+    async def test_callback_task_gets_model_override_from_parent(self):
+        """When callback_config has parent_model_override, the callback task's
+        execution_config should contain model_override so it runs on the same model."""
+        from app.agent.tasks import run_harness_task
+        from app.services.harness import HarnessResult
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+
+        parent_session_id = uuid.uuid4()
+        task = self._make_harness_task(
+            callback_config={
+                "notify_parent": True,
+                "parent_bot_id": "test_bot",
+                "parent_session_id": str(parent_session_id),
+                "parent_client_id": "client1",
+                "parent_model_override": "anthropic/claude-opus-4",
+                "parent_provider_id_override": "provider-99",
+            },
+        )
+        cm, db = self._mock_db_session(task)
+
+        harness_result = HarnessResult(
+            stdout="harness output", stderr="", exit_code=0,
+            truncated=False, duration_ms=1000,
+        )
+
+        bot = BotConfig(
+            id="test_bot", name="Test", model="gpt-4",
+            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            harness_access=["claude-code"],
+        )
+
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.deliver = AsyncMock()
+
+        with patch("app.agent.tasks.async_session", return_value=cm), \
+             patch("app.agent.bots.get_bot", return_value=bot), \
+             patch("app.services.harness.harness_service") as mock_hs, \
+             patch("app.agent.recording.schedule_harness_completion_record"), \
+             patch("app.agent.tasks.dispatchers") as mock_dispatchers, \
+             patch("app.services.prompt_resolution.resolve_prompt", new_callable=AsyncMock, return_value="do something"), \
+             patch("app.agent.tasks.resolve_task_timeout", return_value=1200):
+            mock_hs.run = AsyncMock(return_value=harness_result)
+            mock_dispatchers.get.return_value = mock_dispatcher
+
+            await run_harness_task(task)
+
+            # Find the callback task that was added to db
+            assert db.add.call_count >= 1
+            cb_task = None
+            for call in db.add.call_args_list:
+                obj = call[0][0]
+                if hasattr(obj, 'task_type') and getattr(obj, 'task_type', None) == "callback":
+                    cb_task = obj
+                    break
+
+            assert cb_task is not None, "Expected a callback task to be created"
+            assert cb_task.execution_config is not None
+            assert cb_task.execution_config["model_override"] == "anthropic/claude-opus-4"
+            assert cb_task.execution_config["model_provider_id_override"] == "provider-99"
+
+    @pytest.mark.asyncio
+    async def test_callback_task_no_model_override_when_parent_has_none(self):
+        """When callback_config has no parent_model_override, the callback task's
+        execution_config should be None (no model override)."""
+        from app.agent.tasks import run_harness_task
+        from app.services.harness import HarnessResult
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+
+        parent_session_id = uuid.uuid4()
+        task = self._make_harness_task(
+            callback_config={
+                "notify_parent": True,
+                "parent_bot_id": "test_bot",
+                "parent_session_id": str(parent_session_id),
+                "parent_client_id": "client1",
+            },
+        )
+        cm, db = self._mock_db_session(task)
+
+        harness_result = HarnessResult(
+            stdout="harness output", stderr="", exit_code=0,
+            truncated=False, duration_ms=1000,
+        )
+
+        bot = BotConfig(
+            id="test_bot", name="Test", model="gpt-4",
+            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            harness_access=["claude-code"],
+        )
+
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.deliver = AsyncMock()
+
+        with patch("app.agent.tasks.async_session", return_value=cm), \
+             patch("app.agent.bots.get_bot", return_value=bot), \
+             patch("app.services.harness.harness_service") as mock_hs, \
+             patch("app.agent.recording.schedule_harness_completion_record"), \
+             patch("app.agent.tasks.dispatchers") as mock_dispatchers, \
+             patch("app.services.prompt_resolution.resolve_prompt", new_callable=AsyncMock, return_value="do something"), \
+             patch("app.agent.tasks.resolve_task_timeout", return_value=1200):
+            mock_hs.run = AsyncMock(return_value=harness_result)
+            mock_dispatchers.get.return_value = mock_dispatcher
+
+            await run_harness_task(task)
+
+            # Callback task should still be created, but without model override
+            cb_task = None
+            for call in db.add.call_args_list:
+                obj = call[0][0]
+                if hasattr(obj, 'task_type') and getattr(obj, 'task_type', None) == "callback":
+                    cb_task = obj
+                    break
+
+            assert cb_task is not None, "Expected a callback task to be created"
+            # execution_config should be None (empty dict → None)
+            assert cb_task.execution_config is None

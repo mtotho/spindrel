@@ -1,0 +1,119 @@
+id: channel-setup
+name: "Channel Setup"
+description: >
+  Guided channel creation workflow — creates a channel, configures workspace,
+  sets up heartbeat, and optionally binds an integration. Designed for
+  orchestrator bots to automate common setup patterns.
+
+params:
+  channel_name:
+    type: string
+    required: true
+    description: "Name for the new channel"
+  bot_id:
+    type: string
+    required: true
+    description: "Bot to assign to the channel"
+  purpose:
+    type: string
+    required: true
+    description: "What this channel is for (used to pick workspace schema)"
+  enable_heartbeat:
+    type: boolean
+    default: false
+    description: "Whether to configure a heartbeat for periodic check-ins"
+  heartbeat_interval:
+    type: string
+    default: "1h"
+    description: "Heartbeat interval (e.g. 30m, 1h, 6h, 1d)"
+  integration_id:
+    type: string
+    description: "Optional integration to bind (e.g. slack, github)"
+  channel_prompt:
+    type: string
+    description: "Optional per-channel behavioral instructions"
+
+defaults:
+  model: gemini/gemini-2.5-flash
+  timeout: 60
+
+triggers:
+  tool: true
+  api: true
+
+tags: [setup, channels, orchestration]
+
+steps:
+  - id: create_channel
+    prompt: |
+      Create a new channel with the following configuration:
+      - Name: "{{channel_name}}"
+      - Bot: "{{bot_id}}"
+      - Enable workspace: true
+
+      Use manage_channel to create it. Return the channel_id.
+    tools: [manage_channel]
+
+  - id: configure_workspace
+    prompt: |
+      Configure the workspace for channel "{{channel_name}}".
+      Purpose: "{{purpose}}"
+
+      Based on the purpose, select an appropriate workspace schema template.
+      Common templates: Software Dev, Research, Creative, General, PM Hub, QA.
+      Set the schema on the channel.
+    when:
+      step: create_channel
+      status: done
+    tools: [manage_channel]
+
+  - id: set_channel_prompt
+    prompt: |
+      Set the channel prompt for "{{channel_name}}":
+      "{{channel_prompt}}"
+    when:
+      all:
+        - step: create_channel
+          status: done
+        - param: channel_prompt
+    tools: [manage_channel]
+
+  - id: setup_heartbeat
+    prompt: |
+      Configure a heartbeat for channel "{{channel_name}}" (from step: {{steps.create_channel.result}}).
+      Interval: {{heartbeat_interval}}
+      Purpose: "{{purpose}}"
+
+      Set an appropriate heartbeat prompt based on the channel's purpose.
+      For monitoring channels: check status and alert on issues.
+      For project channels: summarize progress and upcoming tasks.
+      For general channels: brief status update.
+    when:
+      all:
+        - step: create_channel
+          status: done
+        - param: enable_heartbeat
+          equals: true
+    tools: [manage_channel]
+
+  - id: bind_integration
+    prompt: |
+      Bind integration "{{integration_id}}" to channel "{{channel_name}}"
+      (from step: {{steps.create_channel.result}}).
+      Activate the integration on the channel.
+    when:
+      all:
+        - step: create_channel
+          status: done
+        - param: integration_id
+    tools: [manage_integration, manage_channel]
+
+  - id: summary
+    prompt: |
+      Summarize the channel setup that was completed:
+      - Channel creation: {{steps.create_channel.result}}
+      - Workspace: {{steps.configure_workspace.result}}
+      - Heartbeat: {{steps.setup_heartbeat.result}}
+      - Integration: {{steps.bind_integration.result}}
+
+      Provide a brief confirmation message suitable for posting to the channel.

@@ -9,7 +9,7 @@ import httpx
 from integrations.arr.config import settings
 from integrations._register import register
 
-from ._helpers import error, sanitize
+from integrations.arr.tools._helpers import error, sanitize, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -23,19 +23,35 @@ def _headers() -> dict[str, str]:
 
 
 async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.SONARR_URL, "Sonarr")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Sonarr request timed out after {timeout}s: {path}"
+        )
 
 
 async def _post(path: str, payload: dict, timeout: float = 15.0):
+    url_err = validate_url(settings.SONARR_URL, "Sonarr")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, headers=_headers(), json=payload, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, headers=_headers(), json=payload, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Sonarr request timed out after {timeout}s: {path}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +115,8 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
     "function": {
         "name": "sonarr_series",
         "description": (
-            "List monitored series in Sonarr or search TVDB for new series to add. "
-            "Without search: returns all monitored series with episode counts. "
+            "List monitored series in Sonarr (newest first) or search TVDB for new series to add. "
+            "Without search: returns library series sorted by recently added. "
             "With search: searches TVDB for matching series."
         ),
         "parameters": {
@@ -110,11 +126,15 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
                     "type": "string",
                     "description": "Search term to look up on TVDB. Omit to list monitored series.",
                 },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results for library listing (default 50). Use 0 for all.",
+                },
             },
         },
     },
 })
-async def sonarr_series(search: str | None = None) -> str:
+async def sonarr_series(search: str | None = None, limit: int = 50) -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
     try:
@@ -133,6 +153,11 @@ async def sonarr_series(search: str | None = None) -> str:
             return json.dumps({"count": len(results), "results": results})
         else:
             data = await _get("/api/v3/series")
+            # Sort by added date, newest first
+            data.sort(key=lambda s: s.get("added", ""), reverse=True)
+            total = len(data)
+            if limit > 0:
+                data = data[:limit]
             series = []
             for s in data:
                 stats = s.get("statistics", {})
@@ -141,12 +166,16 @@ async def sonarr_series(search: str | None = None) -> str:
                     "title": sanitize(s.get("title", "")),
                     "year": s.get("year"),
                     "status": s.get("status"),
+                    "added": (s.get("added") or "")[:10],
                     "season_count": stats.get("seasonCount", 0),
                     "episode_count": stats.get("episodeCount", 0),
                     "episode_file_count": stats.get("episodeFileCount", 0),
                     "monitored": s.get("monitored", False),
                 })
-            return json.dumps({"count": len(series), "series": series})
+            result: dict = {"count": len(series), "total_in_library": total, "series": series}
+            if limit > 0 and total > limit:
+                result["page"] = {"limit": limit, "returned": len(series), "has_more": True}
+            return json.dumps(result)
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
@@ -196,8 +225,10 @@ async def sonarr_wanted(limit: int = 20) -> str:
                 "title": sanitize(ep.get("title", "")),
                 "air_date": ep.get("airDateUtc", "")[:10],
             })
+        total_records = data.get("totalRecords", 0)
         return json.dumps({
-            "total_records": data.get("totalRecords", 0),
+            "total_records": total_records,
+            "page": {"limit": limit, "returned": len(episodes), "has_more": len(episodes) < total_records},
             "episodes": episodes,
         })
     except httpx.HTTPStatusError as e:
@@ -322,4 +353,100 @@ async def sonarr_command(
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
         logger.exception("sonarr_command failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "sonarr_releases",
+        "description": (
+            "Browse or grab releases for a Sonarr series or episode. "
+            "Use action='search' to list available releases sorted by seeders. "
+            "Use action='grab' to download a specific release by guid + indexer_id."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["search", "grab"],
+                    "description": "Action: 'search' to browse releases, 'grab' to download one.",
+                },
+                "series_id": {
+                    "type": "integer",
+                    "description": "Series ID (for search action).",
+                },
+                "episode_id": {
+                    "type": "integer",
+                    "description": "Episode ID (for search action — more specific than series_id).",
+                },
+                "guid": {
+                    "type": "string",
+                    "description": "Release GUID (for grab action).",
+                },
+                "indexer_id": {
+                    "type": "integer",
+                    "description": "Indexer ID (for grab action).",
+                },
+            },
+            "required": ["action"],
+        },
+    },
+})
+async def sonarr_releases(
+    action: str,
+    series_id: int | None = None,
+    episode_id: int | None = None,
+    guid: str | None = None,
+    indexer_id: int | None = None,
+) -> str:
+    if not settings.SONARR_URL:
+        return error("SONARR_URL is not configured")
+    try:
+        if action == "grab":
+            if not guid or indexer_id is None:
+                return error("guid and indexer_id required for grab")
+            result = await _post("/api/v3/release", {"guid": guid, "indexerId": indexer_id})
+            return json.dumps({
+                "status": "ok",
+                "message": "Release grabbed successfully",
+            })
+
+        # Default: search
+        params: dict = {}
+        if episode_id is not None:
+            params["episodeId"] = episode_id
+        elif series_id is not None:
+            params["seriesId"] = series_id
+        else:
+            return error("series_id or episode_id required for search")
+
+        data = await _get("/api/v3/release", params=params, timeout=60.0)
+
+        # Sort by seeders descending, take top 15
+        data.sort(key=lambda r: r.get("seeders", 0) or 0, reverse=True)
+        releases = []
+        for r in data[:15]:
+            size_bytes = r.get("size", 0) or 0
+            releases.append({
+                "title": sanitize(r.get("title", ""), max_len=200),
+                "size_mb": round(size_bytes / 1_048_576, 1),
+                "seeders": r.get("seeders", 0),
+                "leechers": r.get("leechers", 0),
+                "quality": r.get("quality", {}).get("quality", {}).get("name", ""),
+                "guid": r.get("guid", ""),
+                "indexer_id": r.get("indexerId", 0),
+                "indexer": r.get("indexer", ""),
+                "age_days": r.get("ageMinutes", 0) // 1440 if r.get("ageMinutes") else 0,
+                "rejected": bool(r.get("rejections")),
+                "rejection_reasons": r.get("rejections", [])[:3],
+            })
+        return json.dumps({"count": len(releases), "releases": releases})
+    except httpx.HTTPStatusError as e:
+        return error(f"Sonarr API error: HTTP {e.response.status_code}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Sonarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("sonarr_releases failed")
         return error(str(e))

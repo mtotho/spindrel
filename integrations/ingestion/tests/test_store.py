@@ -23,6 +23,7 @@ class TestSchema:
         assert "processed_ids" in tables
         assert "quarantine" in tables
         assert "audit_log" in tables
+        assert "cursors" in tables
         store.close()
 
 
@@ -116,4 +117,41 @@ class TestAudit:
         store.audit("gmail", "msg-1", "released", "high")
         cur = store._conn.execute("SELECT COUNT(*) as cnt FROM audit_log WHERE source_id = ?", ("msg-1",))
         assert cur.fetchone()["cnt"] == 2
+        store.close()
+
+
+class TestCursors:
+    def test_get_cursor_returns_none_initially(self):
+        store = make_store()
+        assert store.get_cursor("gmail") is None
+        store.close()
+
+    def test_set_and_get_cursor(self):
+        store = make_store()
+        store.set_cursor("gmail", "uid-500")
+        assert store.get_cursor("gmail") == "uid-500"
+        store.close()
+
+    def test_set_cursor_upsert(self):
+        store = make_store()
+        store.set_cursor("gmail", "uid-100")
+        store.set_cursor("gmail", "uid-200")
+        assert store.get_cursor("gmail") == "uid-200"
+        store.close()
+
+    def test_independent_cursor_keys(self):
+        store = make_store()
+        store.set_cursor("gmail", "uid-100")
+        store.set_cursor("rss", "entry-50")
+        assert store.get_cursor("gmail") == "uid-100"
+        assert store.get_cursor("rss") == "entry-50"
+        store.close()
+
+    def test_cursor_updated_at_tracked(self):
+        store = make_store()
+        store.set_cursor("gmail", "uid-1")
+        cur = store._conn.execute("SELECT updated_at FROM cursors WHERE key = ?", ("gmail",))
+        row = cur.fetchone()
+        assert row is not None
+        assert row["updated_at"] is not None
         store.close()

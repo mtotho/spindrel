@@ -1,17 +1,17 @@
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment as AttachmentModel, Message, Session, Task
-from app.dependencies import get_db, verify_auth_or_user
+from app.db.models import Attachment, Attachment as AttachmentModel, Message, Session, Task
+from app.dependencies import get_db, require_scopes
 from app.services.sessions import store_passive_message
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ class InjectResponse(BaseModel):
 async def create_session(
     body: SessionCreate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("sessions:write")),
 ):
     """Create or retrieve a session for an integration client."""
     from app.agent.bots import get_bot
@@ -153,7 +153,7 @@ async def inject_message(
     session_id: uuid.UUID,
     body: MessageInject,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("sessions:write")),
 ):
     """
     Inject a message into a session from an external integration.
@@ -209,7 +209,7 @@ async def list_messages(
     session_id: uuid.UUID,
     limit: int = 50,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("sessions:read")),
 ):
     """List messages for a session, most recent first."""
     session = await db.get(Session, session_id)
@@ -223,5 +223,145 @@ async def list_messages(
         .order_by(Message.created_at.desc())
         .limit(limit)
     )
-    messages = result.scalars().all()
-    return [MessageOut.from_orm(m) for m in reversed(messages)]
+    messages = list(result.scalars().all())
+    messages.reverse()
+
+    # Recover orphaned attachments (send_file creates with message_id=NULL)
+    if session.channel_id:
+        await _recover_orphan_attachments(db, session.channel_id, messages)
+
+    return [MessageOut.from_orm(m) for m in messages]
+
+
+async def _recover_orphan_attachments(
+    db: AsyncSession,
+    channel_id: uuid.UUID,
+    messages: list[Message],
+) -> None:
+    """Link orphaned attachments (message_id=NULL) to the nearest assistant message."""
+    orphan_result = await db.execute(
+        select(Attachment)
+        .where(
+            Attachment.channel_id == channel_id,
+            Attachment.message_id.is_(None),
+        )
+    )
+    orphans = list(orphan_result.scalars().all())
+    if not orphans:
+        return
+
+    logger.warning(
+        "Found %d orphaned attachment(s) in channel %s — recovering",
+        len(orphans), channel_id,
+    )
+    assistant_msgs = [m for m in messages if m.role == "assistant"]
+    if not assistant_msgs:
+        return
+
+    linked = 0
+    for att in orphans:
+        best = None
+        for m in assistant_msgs:
+            if m.created_at >= att.created_at:
+                best = m
+                break
+        if best is None:
+            best = assistant_msgs[-1]
+        att.message_id = best.id
+        if not hasattr(best, "attachments") or best.attachments is None:
+            best.attachments = []
+        best.attachments.append(att)
+        linked += 1
+
+    if linked:
+        await db.commit()
+        logger.info("Recovered %d orphan attachment(s) in channel %s", linked, channel_id)
+
+
+# ---------------------------------------------------------------------------
+# Context debug — replay what the LLM would see
+# ---------------------------------------------------------------------------
+
+
+class ContextMessage(BaseModel):
+    role: str
+    content: str | None = None
+    tool_calls: Any | None = None
+    tool_call_id: str | None = None
+    chars: int = 0
+
+
+class ContextDebugOut(BaseModel):
+    session_id: uuid.UUID
+    bot_id: str
+    message_count: int
+    total_chars: int
+    messages: list[ContextMessage]
+
+
+@router.get("/{session_id}/context", response_model=ContextDebugOut)
+async def get_session_context(
+    session_id: uuid.UUID,
+    query: str = Query("hello", description="Simulated user query for RAG retrieval"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    """Return the full assembled context the LLM would see for a session.
+
+    Useful for debugging context injection — shows every system message,
+    memory, knowledge chunk, section index, etc. in order.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    from app.agent.bots import get_bot
+    from app.agent.context_assembly import AssemblyResult, assemble_context
+    from app.services.sessions import _load_messages
+
+    bot = get_bot(session.bot_id)
+
+    # Load messages the same way the agent loop does
+    messages = await _load_messages(db, session)
+
+    # Run context assembly (mutates messages in-place)
+    result = AssemblyResult()
+    async for _event in assemble_context(
+        messages=messages,
+        bot=bot,
+        user_message=query,
+        session_id=session_id,
+        client_id=session.client_id,
+        correlation_id=None,
+        channel_id=session.channel_id,
+        audio_data=None,
+        audio_format=None,
+        attachments=None,
+        native_audio=False,
+        result=result,
+    ):
+        pass  # drain events — we only want the final messages list
+
+    # Build response
+    out_messages = []
+    total_chars = 0
+    for m in messages:
+        content = m.get("content")
+        content_str = str(content) if content is not None else None
+        chars = len(content_str) if content_str else 0
+        total_chars += chars
+        out_messages.append(ContextMessage(
+            role=m.get("role", "unknown"),
+            content=content_str,
+            tool_calls=m.get("tool_calls"),
+            tool_call_id=m.get("tool_call_id"),
+            chars=chars,
+        ))
+
+    return ContextDebugOut(
+        session_id=session_id,
+        bot_id=session.bot_id,
+        message_count=len(out_messages),
+        total_chars=total_chars,
+        messages=out_messages,
+    )

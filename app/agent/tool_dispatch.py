@@ -30,9 +30,15 @@ class ToolCallResult:
     result_for_llm: str = ""
     was_summarized: bool = False
     embedded_client_action: dict | None = None
+    injected_images: list[dict] | None = None  # [{"mime_type": str, "base64": str}]
     tool_event: dict[str, Any] = field(default_factory=dict)
     pre_events: list[dict[str, Any]] = field(default_factory=list)
     duration_ms: int = 0
+    # Approval fields (Phase 3)
+    needs_approval: bool = False
+    approval_id: str | None = None
+    approval_timeout: int = 300
+    approval_reason: str | None = None
 
 
 async def dispatch_tool_call(
@@ -56,11 +62,104 @@ async def dispatch_tool_call(
     summarize_exclude: set[str],
     # Compaction flag for event tagging
     compaction: bool,
+    # Policy override — skip check when re-dispatching after approval
+    skip_policy: bool = False,
+    # Authorization — if set, only these tool names are allowed
+    allowed_tool_names: set[str] | None = None,
 ) -> ToolCallResult:
     """Route a single tool call to the appropriate handler, record it, and build the result event."""
     from app.agent.message_utils import _event_with_compaction_tag
 
     result_obj = ToolCallResult()
+
+    # --- Authorization check ---
+    if allowed_tool_names is not None and name not in allowed_tool_names:
+        _trace("✗ %s not authorized for bot %s", name, bot_id)
+        _auth_err = f"Tool '{name}' is not available. It must be explicitly assigned to this bot."
+        result_obj.result = json.dumps({"error": _auth_err})
+        result_obj.result_for_llm = result_obj.result
+        result_obj.tool_event = {"type": "tool_result", "tool": name, "error": _auth_err}
+        return result_obj
+
+    # --- Policy check ---
+    if not skip_policy:
+        try:
+            _tc_args_for_policy: dict = {}
+            try:
+                _tc_args_for_policy = json.loads(args or "{}") if args else {}
+                if not isinstance(_tc_args_for_policy, dict):
+                    _tc_args_for_policy = {}
+            except Exception:
+                pass
+            decision = await _check_tool_policy(
+                bot_id, name, _tc_args_for_policy,
+                correlation_id=str(correlation_id) if correlation_id else None,
+            )
+            if decision is not None:
+                if decision.action == "deny":
+                    result_obj.result = json.dumps({"error": f"Tool call denied by policy: {decision.reason or 'no reason'}"})
+                    result_obj.result_for_llm = result_obj.result
+                    result_obj.tool_event = {"type": "tool_result", "tool": name, "error": f"Denied by policy: {decision.reason or 'no reason'}"}
+                    _trace("✗ %s denied by policy (rule %s)", name, decision.rule_id)
+                    return result_obj
+                elif decision.action == "require_approval":
+                    # Determine tool type for the approval record
+                    if is_client_tool(name):
+                        _ap_type = "client"
+                    elif is_mcp_tool(name):
+                        _ap_type = "mcp"
+                    else:
+                        _ap_type = "local"
+                    approval_id = await _create_approval_record(
+                        session_id=session_id,
+                        channel_id=channel_id,
+                        bot_id=bot_id,
+                        client_id=client_id,
+                        correlation_id=correlation_id,
+                        tool_name=name,
+                        tool_type=_ap_type,
+                        arguments=_tc_args_for_policy,
+                        policy_rule_id=decision.rule_id,
+                        reason=decision.reason,
+                        timeout=decision.timeout,
+                    )
+                    result_obj.needs_approval = True
+                    result_obj.approval_id = approval_id
+                    result_obj.approval_timeout = decision.timeout
+                    result_obj.approval_reason = decision.reason
+                    result_obj.result_for_llm = json.dumps({"status": "pending_approval", "reason": decision.reason})
+                    result_obj.tool_event = {"type": "tool_result", "tool": name, "pending_approval": True}
+                    _trace("⏳ %s requires approval (rule %s)", name, decision.rule_id)
+                    return result_obj
+        except Exception:
+            logger.exception("Policy check failed for %s — denying by default", name)
+            _policy_err = "Tool call denied: policy evaluation error. Please retry."
+            result_obj.result = json.dumps({"error": _policy_err})
+            result_obj.result_for_llm = result_obj.result
+            result_obj.tool_event = {"type": "tool_result", "tool": name, "error": _policy_err}
+            return result_obj
+
+    # Determine tool type for hook data
+    if is_client_tool(name):
+        _pre_hook_type = "client"
+    elif is_mcp_tool(name):
+        _pre_hook_type = "mcp"
+    else:
+        _pre_hook_type = "local"
+
+    # Fire before_tool_execution lifecycle hook (after auth/policy checks pass)
+    from app.agent.hooks import fire_hook, HookContext
+    asyncio.create_task(fire_hook("before_tool_execution", HookContext(
+        bot_id=bot_id, session_id=session_id, channel_id=channel_id,
+        client_id=client_id, correlation_id=correlation_id,
+        extra={
+            "tool_name": name,
+            "tool_type": _pre_hook_type,
+            "args": args,
+            "iteration": iteration + 1,
+        },
+    )))
+
     t0 = time.monotonic()
     _tc_type = "local"
     _tc_server: str | None = None
@@ -159,7 +258,44 @@ async def dispatch_tool_call(
             _tc_args = {}
     except Exception:
         _tc_args = {}
+
+    # Redact known secrets from the raw result before storage
+    from app.services.secret_registry import redact as _redact_secrets
+    result_obj.result = _redact_secrets(result)
+
+    # Extract embedded client_action or injected_images
+    result_for_llm = result
+    try:
+        parsed_tool = json.loads(result_for_llm)
+        if isinstance(parsed_tool, dict):
+            if "client_action" in parsed_tool:
+                result_obj.embedded_client_action = parsed_tool["client_action"]
+                result_for_llm = parsed_tool.get("message", "Done.")
+            elif "injected_images" in parsed_tool:
+                result_obj.injected_images = parsed_tool["injected_images"]
+                result_for_llm = parsed_tool.get("message", "Image loaded for analysis.")
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Redact known secrets before summarization or LLM consumption
+    result_for_llm = _redact_secrets(result_for_llm)
+
+    # Summarize if needed
+    _orig_len = len(result_for_llm)
+    _was_summarized = False
+    _will_summarize = (
+        summarize_enabled
+        and name not in summarize_exclude
+        and (_tc_server is None or _tc_server not in summarize_exclude)
+        and len(result_for_llm) > summarize_threshold
+    )
+
+    # Pre-generate tool call ID so we can reference it in the retrieval hint
+    _tc_record_id = uuid.uuid4() if _will_summarize else None
+
+    # Record tool call (store full result when summarization will occur)
     asyncio.create_task(_record_tool_call(
+        id=_tc_record_id,
         session_id=session_id,
         client_id=client_id,
         bot_id=bot_id,
@@ -168,33 +304,14 @@ async def dispatch_tool_call(
         server_name=_tc_server,
         iteration=iteration,
         arguments=_tc_args,
-        result=result,
+        result=result_obj.result,  # use redacted result
         error=_tc_error,
         duration_ms=_tc_duration,
         correlation_id=correlation_id,
+        store_full_result=_will_summarize,
     ))
 
-    result_obj.result = result
-
-    # Extract embedded client_action
-    result_for_llm = result
-    try:
-        parsed_tool = json.loads(result_for_llm)
-        if isinstance(parsed_tool, dict) and "client_action" in parsed_tool:
-            result_obj.embedded_client_action = parsed_tool["client_action"]
-            result_for_llm = parsed_tool.get("message", "Done.")
-    except (json.JSONDecodeError, TypeError):
-        pass
-
-    # Summarize if needed
-    _orig_len = len(result_for_llm)
-    _was_summarized = False
-    if (
-        summarize_enabled
-        and name not in summarize_exclude
-        and (_tc_server is None or _tc_server not in summarize_exclude)
-        and len(result_for_llm) > summarize_threshold
-    ):
+    if _will_summarize:
         _was_summarized = True
         result_for_llm = await _summarize_tool_result(
             tool_name=name,
@@ -202,6 +319,11 @@ async def dispatch_tool_call(
             model=summarize_model,
             max_tokens=summarize_max_tokens,
             provider_id=provider_id,
+        )
+        # Append retrieval hint so the bot can fetch full output
+        result_for_llm += (
+            f"\n\n[Full output stored — use read_conversation_history"
+            f"(section='tool:{_tc_record_id}') to retrieve]"
         )
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
@@ -214,6 +336,7 @@ async def dispatch_tool_call(
                     "tool_name": name,
                     "original_length": _orig_len,
                     "summarized_length": len(result_for_llm),
+                    "tool_call_record_id": str(_tc_record_id),
                 },
             ))
 
@@ -223,12 +346,14 @@ async def dispatch_tool_call(
     result_preview = result_for_llm[:200] + "..." if len(result_for_llm) > 200 else result_for_llm
     logger.debug("Tool result [%s]: %s", name, result_preview)
 
-    # Build tool_event
+    # Build tool_event — use redacted result to avoid leaking secrets
+    # in SSE events, log output, or memory previews
+    _redacted_result = result_obj.result
     tool_event: dict[str, Any] = {"type": "tool_result", "tool": name}
     if _was_summarized:
         tool_event["summarized"] = True
     try:
-        parsed = json.loads(result)
+        parsed = json.loads(_redacted_result)
         if isinstance(parsed, dict) and "error" in parsed:
             err = parsed["error"]
             logger.warning("Tool %s returned error: %s", name, err)
@@ -239,16 +364,145 @@ async def dispatch_tool_call(
     except (json.JSONDecodeError, TypeError):
         _trace("← %s (%d chars)", name, len(result_for_llm))
     if name == "search_memories":
-        if result == "No relevant memories found." or result == "No search query provided.":
+        if _redacted_result == "No relevant memories found." or _redacted_result == "No search query provided.":
             tool_event["memory_count"] = 0
-        elif result.startswith("Relevant memories:\n\n"):
-            body = result[len("Relevant memories:\n\n"):]
+        elif _redacted_result.startswith("Relevant memories:\n\n"):
+            body = _redacted_result[len("Relevant memories:\n\n"):]
             tool_event["memory_count"] = 1 + body.count("\n\n---\n\n")
             if tool_event["memory_count"] > 0:
                 first = body.split("\n\n---\n\n")[0].strip()
                 tool_event["memory_preview"] = (first[:120] + "…") if len(first) > 120 else first
-    elif name == "save_memory" and result == "Memory saved.":
+    elif name == "save_memory" and _redacted_result == "Memory saved.":
         tool_event["saved"] = True
     result_obj.tool_event = tool_event
 
     return result_obj
+
+
+# ---------------------------------------------------------------------------
+# Policy helpers
+# ---------------------------------------------------------------------------
+
+async def _check_tool_policy(
+    bot_id: str, tool_name: str, arguments: dict,
+    *, correlation_id: str | None = None,
+) -> Any:
+    """Evaluate tool policy. Returns PolicyDecision or None (allow = skip overhead)."""
+    from app.config import settings
+    from app.db.engine import async_session
+    from app.services.tool_policies import evaluate_tool_policy
+
+    if not settings.TOOL_POLICY_ENABLED:
+        return None
+
+    # Session-scoped allow: if this tool was approved earlier in this conversation,
+    # skip the full policy evaluation.  This is the key UX improvement — after one
+    # approval, the user isn't asked again for the same tool in the same run.
+    from app.agent.session_allows import is_session_allowed
+    if is_session_allowed(correlation_id, tool_name):
+        return None
+
+    async with async_session() as db:
+        decision = await evaluate_tool_policy(db, bot_id, tool_name, arguments)
+    if decision.action == "allow":
+        return None
+    return decision
+
+
+async def _create_approval_record(
+    *,
+    session_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    bot_id: str,
+    client_id: str | None,
+    correlation_id: uuid.UUID | None,
+    tool_name: str,
+    tool_type: str,
+    arguments: dict,
+    policy_rule_id: str | None,
+    reason: str | None,
+    timeout: int,
+) -> str:
+    """Create a ToolApproval DB record and return its ID as string."""
+    from app.db.engine import async_session
+    from app.db.models import ToolApproval
+
+    # Resolve dispatch info from context vars for notification routing
+    from app.agent.context import current_dispatch_type, current_dispatch_config
+    dispatch_type = current_dispatch_type.get(None)
+    dispatch_config = current_dispatch_config.get(None)
+
+    approval = ToolApproval(
+        session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        client_id=client_id,
+        correlation_id=correlation_id,
+        tool_name=tool_name,
+        tool_type=tool_type,
+        arguments=arguments,
+        policy_rule_id=uuid.UUID(policy_rule_id) if policy_rule_id else None,
+        reason=reason,
+        status="pending",
+        dispatch_type=dispatch_type,
+        dispatch_metadata=dispatch_config,
+        timeout_seconds=timeout,
+    )
+    async with async_session() as db:
+        db.add(approval)
+        await db.commit()
+        await db.refresh(approval)
+        approval_id = str(approval.id)
+
+    # Fire-and-forget notification via dispatcher
+    if dispatch_type and dispatch_config:
+        asyncio.create_task(_notify_approval_request(
+            dispatch_type=dispatch_type,
+            dispatch_config=dispatch_config,
+            approval_id=approval_id,
+            bot_id=bot_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            reason=reason,
+        ))
+
+    return approval_id
+
+
+async def _notify_approval_request(
+    *,
+    dispatch_type: str,
+    dispatch_config: dict,
+    approval_id: str,
+    bot_id: str,
+    tool_name: str,
+    arguments: dict,
+    reason: str | None,
+) -> None:
+    """Send approval notification via the appropriate dispatcher."""
+    try:
+        from app.agent import dispatchers
+        dispatcher = dispatchers.get(dispatch_type)
+        if hasattr(dispatcher, "request_approval"):
+            await dispatcher.request_approval(
+                dispatch_config=dispatch_config,
+                approval_id=approval_id,
+                bot_id=bot_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                reason=reason,
+            )
+        else:
+            # Fallback: post a text message
+            args_preview = json.dumps(arguments, indent=2)[:300]
+            text = (
+                f"🔒 *Tool approval required*\n"
+                f"Bot: `{bot_id}` | Tool: `{tool_name}`\n"
+                f"Reason: {reason or 'Policy requires approval'}\n"
+                f"```\n{args_preview}\n```\n"
+                f"Approval ID: `{approval_id}`\n"
+                f"Use `POST /api/v1/approvals/{approval_id}/decide` to approve or deny."
+            )
+            await dispatcher.post_message(dispatch_config, text, bot_id=bot_id)
+    except Exception:
+        logger.exception("Failed to send approval notification for %s", approval_id)

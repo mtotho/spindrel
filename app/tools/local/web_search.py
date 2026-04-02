@@ -50,6 +50,9 @@ def _validate_url(url: str) -> None:
     hostname = parsed.hostname
     if not hostname:
         raise ValueError("URL has no hostname")
+    # Block obvious localhost names
+    if hostname in ("localhost", "0.0.0.0"):
+        raise ValueError(f"Blocked: {hostname} is a local address.")
     # Resolve hostname and check all resulting IPs
     try:
         infos = socket.getaddrinfo(hostname, parsed.port or 443, proto=socket.IPPROTO_TCP)
@@ -61,6 +64,13 @@ def _validate_url(url: str) -> None:
             raise ValueError(
                 f"URL resolves to private/reserved IP {ip_str} — request blocked (SSRF protection)"
             )
+
+
+# Alias for backward compatibility
+_check_ssrf = _validate_url
+
+
+# ── web_search (dispatches based on WEB_SEARCH_MODE at call time) ─────────────────
 
 
 @register({
@@ -88,14 +98,32 @@ def _validate_url(url: str) -> None:
     },
 })
 async def web_search(query: str, num_results: int = 5) -> str:
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{settings.SEARXNG_URL}/search",
-            params={"q": query, "format": "json"},
-            timeout=10.0,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    mode = settings.WEB_SEARCH_MODE
+    if mode == "searxng":
+        return await _web_search_searxng(query, num_results)
+    elif mode == "ddgs":
+        return await _web_search_ddgs(query, num_results)
+    else:
+        return json.dumps({"error": "Web search is disabled. Enable it in Settings > Web Search."})
+
+
+async def _web_search_searxng(query: str, num_results: int = 5) -> str:
+    """Search via self-hosted SearXNG instance."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{settings.SEARXNG_URL}/search",
+                params={"q": query, "format": "json"},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.ConnectError:
+        return json.dumps({"error": f"Cannot connect to SearXNG at {settings.SEARXNG_URL}. Are the containers running? (COMPOSE_PROFILES=web-search)"})
+    except httpx.TimeoutException:
+        return json.dumps({"error": f"SearXNG request timed out ({settings.SEARXNG_URL})"})
+    except httpx.HTTPStatusError as exc:
+        return json.dumps({"error": f"SearXNG returned HTTP {exc.response.status_code}"})
 
     results = data.get("results", [])[:num_results]
     return json.dumps([
@@ -103,6 +131,26 @@ async def web_search(query: str, num_results: int = 5) -> str:
         for r in results
     ])
 
+
+async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
+    """Search via ddgs (DuckDuckGo + other backends). No infrastructure required."""
+    import asyncio
+    from ddgs import DDGS
+
+    try:
+        results = await asyncio.to_thread(DDGS().text, query, max_results=num_results)
+    except Exception as exc:
+        logger.warning("ddgs search failed: %s", exc)
+        return json.dumps({"error": f"Web search failed: {exc}"})
+    if not results:
+        return json.dumps([])
+    return json.dumps([
+        {"title": r.get("title", ""), "url": r.get("href", ""), "content": r.get("body", "")}
+        for r in results
+    ])
+
+
+# ── fetch_url (always registered) ─────────────────────────────────────────
 
 @register({
     "type": "function",

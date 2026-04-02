@@ -1,0 +1,106 @@
+/* Tiptap rich editor styles for chat input */
+
+/* Make wrapper and EditorContent's intermediate div fill the container
+   so the contenteditable covers the full click area */
+.tiptap-chat-input {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  cursor: text;
+}
+
+.tiptap-chat-input > div {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.tiptap-chat-input .tiptap {
+  outline: none;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--tiptap-text);
+  padding: var(--tiptap-padding, 10px 16px);
+  flex: 1;
+  min-height: 24px;
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+.tiptap-chat-input .tiptap::-webkit-scrollbar {
+  display: none;
+}
+
+/* Placeholder */
+.tiptap-chat-input .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--tiptap-text-dim);
+  pointer-events: none;
+  height: 0;
+}
+
+/* Paragraph spacing — no extra margin for chat */
+.tiptap-chat-input .tiptap p {
+  margin: 0;
+}
+
+/* Inline code */
+.tiptap-chat-input .tiptap code {
+  background: var(--tiptap-code-bg);
+  color: var(--tiptap-code-text);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* Code block */
+.tiptap-chat-input .tiptap pre {
+  background: var(--tiptap-code-bg);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  overflow-x: auto;
+}
+
+.tiptap-chat-input .tiptap pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  color: var(--tiptap-code-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Bold */
+.tiptap-chat-input .tiptap strong {
+  font-weight: 700;
+}
+
+/* Italic */
+.tiptap-chat-input .tiptap em {
+  font-style: italic;
+}
+
+/* Mention chip */
+.tiptap-chat-input .tiptap .mention {
+  background: var(--tiptap-mention-bg, rgba(59, 130, 246, 0.15));
+  color: var(--tiptap-mention-text, #60a5fa);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Hard break — ensure it creates a visible line break */
+.tiptap-chat-input .tiptap br {
+  display: block;
+}

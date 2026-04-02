@@ -10,6 +10,7 @@ from typing import Any
 
 from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context
+from app.services import session_locks
 from app.agent.context_assembly import AssemblyResult, assemble_context
 from app.agent.message_utils import (
     _event_with_compaction_tag,
@@ -17,10 +18,9 @@ from app.agent.message_utils import (
     _extract_transcript,
     _merge_tool_schemas,
 )
-from app.agent.elevation import classify_turn, get_elevation_config
-from app.agent.elevation_log import backfill_elevation_log, log_elevation
 from app.agent.recording import _record_trace_event
-from app.agent.llm import EmptyChoicesError, _llm_call, _summarize_tool_result  # noqa: F401 — re-exported
+from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_think_tags  # noqa: F401 — re-exported
+from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle, make_signature
 from app.agent.tool_dispatch import dispatch_tool_call
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
@@ -31,14 +31,180 @@ from app.tools.registry import get_local_tool_schemas
 logger = logging.getLogger(__name__)
 
 
+def _sanitize_llm_text(raw: str) -> str:
+    """Apply both sanitization passes to raw LLM text output."""
+    return strip_malformed_tool_calls(strip_think_tags(raw))
+
+
+async def _record_fallback_event(
+    fb_info: FallbackInfo,
+    *,
+    session_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    bot_id: str | None,
+) -> None:
+    """Write a ModelFallbackEvent row to the DB (fire-and-forget)."""
+    try:
+        from app.agent.llm import get_cooldown_expiry
+        from app.db.engine import async_session
+        from app.db.models import ModelFallbackEvent
+
+        cooldown_until = get_cooldown_expiry(fb_info.original_model)
+
+        async with async_session() as db:
+            db.add(ModelFallbackEvent(
+                model=fb_info.original_model,
+                fallback_model=fb_info.fallback_model,
+                reason=fb_info.reason,
+                error_message=(fb_info.original_error or "")[:2000] or None,
+                session_id=session_id,
+                channel_id=channel_id,
+                bot_id=bot_id,
+                cooldown_until=cooldown_until,
+            ))
+            await db.commit()
+    except Exception:
+        logger.warning("Failed to record fallback event", exc_info=True)
+
+
+def _extract_usage_extras(response: Any) -> dict[str, Any]:
+    """Extract cached_tokens and response_cost from a raw OpenAI/LiteLLM response.
+
+    These fields are hidden in different places depending on the provider.
+    Centralizes the fragile getattr chains so they exist in one place.
+    """
+    extras: dict[str, Any] = {}
+    usage = response.usage
+    if not usage:
+        return extras
+
+    # cached_tokens: nested in prompt_tokens_details
+    details = getattr(usage, "prompt_tokens_details", None)
+    if details:
+        cached = getattr(details, "cached_tokens", None)
+        if cached is not None:
+            extras["cached_tokens"] = cached
+
+    # response_cost: hidden in LiteLLM's _hidden_params
+    cost = None
+    if hasattr(response, "_hidden_params"):
+        cost = getattr(response, "_hidden_params", {}).get("response_cost")
+    if cost is None and hasattr(response, "model_extra"):
+        hidden = (response.model_extra or {}).get("_hidden_params", {})
+        if isinstance(hidden, dict):
+            cost = hidden.get("response_cost")
+    if cost is not None:
+        extras["response_cost"] = cost
+
+    return extras
+
+
+def _finalize_response(
+    text: str,
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    correlation_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    compaction: bool,
+    native_audio: bool,
+    user_msg_index: int | None,
+    transcript_emitted: bool,
+    tool_calls_made: list[str],
+    turn_start: int,
+    embedded_client_actions: list[dict],
+) -> tuple[list[dict], bool]:
+    """Shared response finalization: transcript, tracing, hooks, tools_used, response event.
+
+    Returns ``(events_to_yield, transcript_emitted)`` — caller is responsible for
+    yielding the events (since this is not an async generator itself).
+    """
+    events: list[dict] = []
+
+    if native_audio and user_msg_index is not None and not transcript_emitted:
+        transcript, text = _extract_transcript(text)
+        messages[-1]["content"] = text
+        events.append(_event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction))
+        if transcript:
+            messages[user_msg_index] = {"role": "user", "content": transcript}
+        else:
+            messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
+        transcript_emitted = True
+
+    _trace("✓ response (%d chars)", len(text))
+    logger.info("Final response (%d chars): %r", len(text), text[:120])
+
+    if correlation_id is not None and not compaction:
+        asyncio.create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="response",
+            data={"text": text[:500], "full_length": len(text)},
+        ))
+
+    # Fire after_response lifecycle hook (fire-and-forget)
+    from app.agent.hooks import fire_hook, HookContext
+    asyncio.create_task(fire_hook("after_response", HookContext(
+        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+        client_id=client_id, correlation_id=correlation_id,
+        extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
+    )))
+
+    # Inject tools_used into the final assistant message for persist_turn.
+    if tool_calls_made and messages and messages[-1].get("role") == "assistant":
+        messages[-1]["_tools_used"] = list(tool_calls_made)
+
+    events.append(_event_with_compaction_tag({
+        "type": "response",
+        "text": text,
+        "tools_used": list(tool_calls_made) if tool_calls_made else None,
+        "client_actions": (
+            _extract_client_actions(messages, turn_start) + embedded_client_actions
+        ),
+        **({"correlation_id": str(correlation_id)} if correlation_id else {}),
+    }, compaction))
+
+    return events, transcript_emitted
+
+
 def _sanitize_messages(messages: list[dict]) -> list[dict]:
-    """Ensure no message has null/missing content — some models reject it."""
-    out = []
+    """Ensure no message has null/missing content — some models reject it.
+
+    Also removes orphaned tool-result messages whose tool_call_id doesn't
+    match any tool_call in the conversation (e.g. after compaction strips
+    the assistant message with tool_calls but leaves the tool results).
+
+    Mutates *messages* in-place (replacing individual dicts where needed)
+    so that callers holding a reference to the same list see the changes.
+    Returning the same list keeps the API unchanged for call-sites that
+    reassign: ``messages = _sanitize_messages(messages)``.
+    """
+    # Collect all valid tool_call IDs from assistant messages
+    valid_tc_ids: set[str] = set()
     for m in messages:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            for tc in m["tool_calls"]:
+                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                if tc_id:
+                    valid_tc_ids.add(tc_id)
+
+    # Remove orphaned tool results and fix null content
+    i = 0
+    while i < len(messages):
+        m = messages[i]
         if "content" not in m or m["content"] is None:
-            m = {**m, "content": ""}
-        out.append(m)
-    return out
+            messages[i] = {**m, "content": ""}
+        # Drop tool results with no matching tool_call
+        if m.get("role") == "tool" and m.get("tool_call_id"):
+            if m["tool_call_id"] not in valid_tc_ids:
+                messages.pop(i)
+                continue
+        i += 1
+    return messages
 
 
 @dataclass
@@ -61,12 +227,16 @@ async def run_agent_tool_loop(
     user_msg_index: int | None = None,
     compaction: bool = False,
     pre_selected_tools: list[dict[str, Any]] | None = None,
+    authorized_tool_names: set[str] | None = None,
     correlation_id: uuid.UUID | None = None,
     channel_id: uuid.UUID | None = None,
+    max_iterations: int | None = None,
+    fallback_models: list[dict] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
     """
+    effective_max_iterations = max_iterations or settings.AGENT_MAX_ITERATIONS
     model = model_override or bot.model
     provider_id = provider_id_override or bot.model_provider_id
 
@@ -81,14 +251,7 @@ async def run_agent_tool_loop(
     if pre_selected_tools is not None:
         all_tools = _merge_tool_schemas(pre_selected_tools)
     else:
-        # Auto-inject workspace tools when workspace is enabled
-        _local_tool_names = list(bot.local_tools)
-        if bot.workspace.enabled:
-            from app.agent.message_utils import _WORKSPACE_TOOLS
-            for wt in _WORKSPACE_TOOLS:
-                if wt not in _local_tool_names:
-                    _local_tool_names.append(wt)
-        local_schemas = get_local_tool_schemas(_local_tool_names)
+        local_schemas = get_local_tool_schemas(list(bot.local_tools))
         mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
         client_schemas = get_client_tool_schemas(bot.client_tools)
         all_tools = local_schemas + mcp_schemas + client_schemas
@@ -98,21 +261,61 @@ async def run_agent_tool_loop(
         ):
             skill_schemas = get_local_tool_schemas(["get_skill"])
             all_tools = all_tools + skill_schemas
+        # Merge dynamically injected tools (e.g. heartbeat_post_to_thread)
+        from app.agent.context import current_injected_tools
+        _injected = current_injected_tools.get()
+        if _injected:
+            _existing = {t["function"]["name"] for t in all_tools}
+            for t in _injected:
+                if t["function"]["name"] not in _existing:
+                    all_tools.append(t)
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None
+
+    # Build effective authorized tool set for dispatch enforcement
+    if authorized_tool_names:
+        _effective_allowed = authorized_tool_names
+    elif all_tools:
+        _effective_allowed = {t["function"]["name"] for t in all_tools}
+    else:
+        _effective_allowed = None
 
     logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
 
     transcript_emitted = False
     embedded_client_actions: list[dict] = []
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
+    tool_call_trace: list[ToolCallSignature] = []  # for within-run cycle detection
+    _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
+    _detected_cycle_len: int = 0  # populated when cycle detected
+
+    def _est_msg_chars(m: dict) -> int:
+        content = m.get("content") or ""
+        chars = len(content) if isinstance(content, str) else sum(
+            len(str(p)) for p in content
+        ) if isinstance(content, list) else 0
+        if m.get("tool_calls"):
+            chars += sum(len(str(tc)) for tc in m["tool_calls"])
+        return chars
 
     try:
-        for iteration in range(settings.AGENT_MAX_ITERATIONS):
+        import time as _time
+        from app.agent.hooks import fire_hook, HookContext
+        from app.services.providers import check_rate_limit
+        from app.services.secret_registry import redact as _redact_secrets
+
+        for iteration in range(effective_max_iterations):
+            # Cancellation checkpoint: before LLM call
+            if session_id and session_locks.is_cancel_requested(session_id):
+                logger.info("Cancellation requested for session %s (before LLM call, iteration %d)", session_id, iteration + 1)
+                yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                return
+
             logger.debug("--- Iteration %d ---", iteration + 1)
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
 
-            if correlation_id is not None:
+            # Context breakdown trace (first iteration only — avoids O(n) scan every iteration)
+            if correlation_id is not None and iteration == 0:
                 _breakdown: dict[str, dict] = {}
                 for _m in messages:
                     _role = _m.get("role", "?")
@@ -142,10 +345,7 @@ async def run_agent_tool_loop(
                 ))
 
             # TPM rate limit check: yield wait event and sleep if needed
-            from app.services.providers import check_rate_limit
-            _est_tokens = sum(
-                len(str(m.get("content") or "")) // 4 for m in messages
-            )
+            _est_tokens = sum(_est_msg_chars(m) // 4 for m in messages)
             _wait = check_rate_limit(provider_id, _est_tokens)
             if _wait:
                 logger.info("Provider TPM limit: waiting %ds before LLM call", _wait)
@@ -155,155 +355,249 @@ async def run_agent_tool_loop(
                 )
                 await asyncio.sleep(_wait)
 
-            # --- Model elevation ---
-            _elev_cfg = await get_elevation_config(bot, channel_id)
-            if _elev_cfg.enabled and not compaction:
-                decision = classify_turn(
-                    messages, model,
-                    _elev_cfg.elevated_model,
-                    _elev_cfg.threshold,
-                    tool_calls_made,
-                )
-                effective_model = decision.model
-                _elev_log_id = await log_elevation(
-                    decision, turn_id=correlation_id,
-                    bot_id=bot.id, channel_id=channel_id,
-                )
-                if decision.was_elevated:
-                    logger.info(
-                        "Elevation: %s → %s (score=%.2f, rules=%s)",
-                        model, effective_model, decision.score, decision.rules_fired,
-                    )
-            else:
-                effective_model = model
-                _elev_log_id = None
+            effective_model = model
 
             messages = _sanitize_messages(messages)
 
-            import time as _time
             _llm_t0 = _time.monotonic()
-            response = await _llm_call(effective_model, messages, tools_param, tool_choice, provider_id=provider_id, model_params=bot.model_params)
+
+            # Fire before_llm_call lifecycle hook
+            asyncio.create_task(fire_hook("before_llm_call", HookContext(
+                bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                client_id=client_id, correlation_id=correlation_id,
+                extra={
+                    "model": effective_model,
+                    "message_count": len(messages),
+                    "tools_count": len(tools_param) if tools_param else 0,
+                    "provider_id": provider_id,
+                    "iteration": iteration + 1,
+                },
+            )))
+
+            # --- Streaming LLM call ---
+            accumulated_msg: AccumulatedMessage | None = None
+            _llm_cancelled = False
+            async for item in _llm_call_stream(
+                effective_model, messages, tools_param, tool_choice,
+                provider_id=provider_id, model_params=bot.model_params,
+                fallback_models=fallback_models,
+            ):
+                if isinstance(item, AccumulatedMessage):
+                    accumulated_msg = item
+                else:
+                    yield _event_with_compaction_tag(item, compaction)
+                # Check cancel during LLM streaming/retries
+                if session_id and session_locks.is_cancel_requested(session_id):
+                    logger.info("Cancellation requested for session %s (during LLM stream)", session_id)
+                    _llm_cancelled = True
+                    break
+            if _llm_cancelled:
+                yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                return
+
             _llm_latency_ms = int((_time.monotonic() - _llm_t0) * 1000)
+            if accumulated_msg is None:
+                raise RuntimeError("LLM stream completed without yielding an AccumulatedMessage")
 
-            # Backfill elevation log with outcome data
-            if _elev_log_id is not None:
-                _tokens = response.usage.total_tokens if response.usage else None
-                asyncio.create_task(backfill_elevation_log(
-                    _elev_log_id, tokens_used=_tokens, latency_ms=_llm_latency_ms,
-                ))
+            # Fire after_llm_call lifecycle hook
+            _fb_info_for_hook = last_fallback_info.get()
+            _after_llm_extra: dict[str, Any] = {
+                "model": effective_model,
+                "duration_ms": _llm_latency_ms,
+                "prompt_tokens": accumulated_msg.usage.prompt_tokens if accumulated_msg.usage else None,
+                "completion_tokens": accumulated_msg.usage.completion_tokens if accumulated_msg.usage else None,
+                "total_tokens": accumulated_msg.usage.total_tokens if accumulated_msg.usage else None,
+                "tool_calls_count": len(accumulated_msg.tool_calls) if accumulated_msg.tool_calls else 0,
+                "fallback_used": _fb_info_for_hook is not None,
+                "fallback_model": _fb_info_for_hook.fallback_model if _fb_info_for_hook else None,
+                "iteration": iteration + 1,
+                "provider_id": provider_id,
+            }
+            asyncio.create_task(fire_hook("after_llm_call", HookContext(
+                bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                client_id=client_id, correlation_id=correlation_id,
+                extra=_after_llm_extra,
+            )))
 
-            msg = response.choices[0].message
-            msg_dict = msg.model_dump(exclude_none=True)
-            messages.append(msg_dict)
-
-            if response.usage:
-                logger.debug(
-                    "Token usage: prompt=%d completion=%d total=%d",
-                    response.usage.prompt_tokens,
-                    response.usage.completion_tokens,
-                    response.usage.total_tokens,
+            # Check if a fallback was used and emit trace event
+            _fb_info = last_fallback_info.get()
+            if _fb_info is not None:
+                logger.warning(
+                    "Fallback used: %s → %s (reason: %s)",
+                    _fb_info.original_model, _fb_info.fallback_model, _fb_info.reason,
                 )
+                yield _event_with_compaction_tag({
+                    "type": "fallback",
+                    "original_model": _fb_info.original_model,
+                    "fallback_model": _fb_info.fallback_model,
+                    "reason": _fb_info.reason,
+                }, compaction)
                 if correlation_id is not None:
                     asyncio.create_task(_record_trace_event(
                         correlation_id=correlation_id,
                         session_id=session_id,
                         bot_id=bot.id,
                         client_id=client_id,
-                        event_type="token_usage",
+                        event_type="model_fallback",
                         data={
-                            "prompt_tokens": response.usage.prompt_tokens,
-                            "completion_tokens": response.usage.completion_tokens,
-                            "total_tokens": response.usage.total_tokens,
+                            "original_model": _fb_info.original_model,
+                            "fallback_model": _fb_info.fallback_model,
+                            "reason": _fb_info.reason,
+                            "original_error": _fb_info.original_error,
                             "iteration": iteration + 1,
-                            "model": effective_model,
                         },
                         duration_ms=_llm_latency_ms,
                     ))
+                # Record fallback event to DB for admin visibility
+                asyncio.create_task(_record_fallback_event(
+                    _fb_info, session_id=session_id, channel_id=channel_id, bot_id=bot.id,
+                ))
 
-            if not msg.tool_calls:
-                text = msg.content or ""
-                _trace("✓ response (%d chars)", len(text))
+            msg_dict = accumulated_msg.to_msg_dict()
+            messages.append(msg_dict)
 
-                if not text.strip():
-                    _empty_msg = (
-                        f"LLM returned empty response after {iteration + 1} iteration(s) "
-                        f"({len(tool_calls_made)} tool calls). Forcing retry."
-                    )
-                    logger.warning("LLM response was empty. Forcing a response...")
-                    yield _event_with_compaction_tag({
-                        "type": "warning",
-                        "code": "empty_response",
-                        "message": _empty_msg,
-                    }, compaction)
-                    messages.append({
-                        "role": "system",
-                        "content": "You must respond to the user. Write a response now."
-                    })
-                    try:
-                        # Anthropic (via LiteLLM) rejects requests that include tool turns in
-                        # `messages` unless `tools=` is also sent; use tool_choice=none so we
-                        # only get a plain assistant reply.
-                        retry_kw: dict[str, Any] = {"model": model, "messages": messages}
-                        if tools_param is not None:
-                            retry_kw["tools"] = tools_param
-                            retry_kw["tool_choice"] = "none"
-                        from app.services.providers import get_llm_client as _get_client
-                        retry = await _get_client(provider_id).chat.completions.create(**retry_kw)
-                        text = retry.choices[0].message.content or ""
-                        messages.append(retry.choices[0].message.model_dump(exclude_none=True))
-                    except Exception as exc:
-                        logger.error("Forced-response retry failed: %s", exc)
-                        if correlation_id is not None:
-                            asyncio.create_task(_record_trace_event(
-                                correlation_id=correlation_id,
-                                session_id=session_id,
-                                bot_id=bot.id,
-                                client_id=client_id,
-                                event_type="llm_error",
-                                event_name="forced_response_retry",
-                                data={"message": str(exc)[:2000]},
-                            ))
-                        text = f"[Error: {_empty_msg} Retry also failed: {type(exc).__name__}]"
-                        messages.append({"role": "assistant", "content": text})
-                        yield _event_with_compaction_tag({
-                            "type": "error",
-                            "code": "llm_error",
-                            "message": text,
-                        }, compaction)
-
-                if native_audio and user_msg_index is not None and not transcript_emitted:
-                    transcript, text = _extract_transcript(text)
-                    messages[-1]["content"] = text
-                    yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
-                    if transcript:
-                        logger.info("Audio transcript: %r", transcript[:100])
-                        messages[user_msg_index] = {"role": "user", "content": transcript}
-                    else:
-                        logger.warning("Native audio response contained no transcript tags")
-                        messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
-                    transcript_emitted = True
-
-                logger.info("Final response (%d chars): %r", len(text), text[:120])
-                if correlation_id is not None and not compaction:
+            if accumulated_msg.usage:
+                logger.debug(
+                    "Token usage: prompt=%d completion=%d total=%d",
+                    accumulated_msg.usage.prompt_tokens,
+                    accumulated_msg.usage.completion_tokens,
+                    accumulated_msg.usage.total_tokens,
+                )
+                if correlation_id is not None:
+                    _usage_data = {
+                        "prompt_tokens": accumulated_msg.usage.prompt_tokens,
+                        "completion_tokens": accumulated_msg.usage.completion_tokens,
+                        "total_tokens": accumulated_msg.usage.total_tokens,
+                        "iteration": iteration + 1,
+                        "model": effective_model,
+                        "provider_id": provider_id,
+                        "channel_id": str(channel_id) if channel_id else None,
+                    }
+                    if accumulated_msg.cached_tokens is not None:
+                        _usage_data["cached_tokens"] = accumulated_msg.cached_tokens
+                    if accumulated_msg.response_cost is not None:
+                        _usage_data["response_cost"] = accumulated_msg.response_cost
                     asyncio.create_task(_record_trace_event(
                         correlation_id=correlation_id,
                         session_id=session_id,
                         bot_id=bot.id,
                         client_id=client_id,
-                        event_type="response",
-                        data={"text": text[:500], "full_length": len(text)},
+                        event_type="token_usage",
+                        data=_usage_data,
+                        duration_ms=_llm_latency_ms,
                     ))
-                yield _event_with_compaction_tag({
-                    "type": "response",
-                    "text": text,
-                    "client_actions": (
-                        _extract_client_actions(messages, turn_start) + embedded_client_actions
-                    ),
-                }, compaction)
+
+            # Emit thinking content event for downstream consumers (Slack, etc.)
+            if accumulated_msg.thinking_content:
+                yield _event_with_compaction_tag(
+                    {"type": "thinking_content", "text": accumulated_msg.thinking_content},
+                    compaction,
+                )
+
+            if not accumulated_msg.tool_calls:
+                # Try to recover JSON tool calls from text (local model compat)
+                _json_tcs, _remaining = extract_json_tool_calls(
+                    accumulated_msg.content or "", _effective_allowed or set()
+                )
+                if _json_tcs:
+                    logger.info("Recovered %d JSON tool call(s) from text content", len(_json_tcs))
+                    accumulated_msg.tool_calls = _json_tcs
+                    accumulated_msg.content = _remaining or None
+                    # Update the eagerly-appended message in conversation history
+                    messages[-1] = accumulated_msg.to_msg_dict()
+
+            if not accumulated_msg.tool_calls:
+                text = _sanitize_llm_text(accumulated_msg.content or "")
+                text = _redact_secrets(text)
+
+                if not text.strip():
+                    # Distinguish genuine silent completion from model API failures.
+                    # 0 completion tokens means the model didn't generate anything at
+                    # all — almost certainly a model glitch, not intentional silence.
+                    _zero_tokens = (
+                        accumulated_msg.usage is not None
+                        and accumulated_msg.usage.completion_tokens == 0
+                    )
+                    if tool_calls_made and not _zero_tokens:
+                        # Silent completion: bot did work via tool calls, nothing to say.
+                        logger.info(
+                            "LLM completed silently after %d tool call(s) — accepting empty response.",
+                            len(tool_calls_made),
+                        )
+                        # Remove empty assistant message eagerly appended above
+                        messages.pop()
+                    else:
+                        # Genuine failure — either no tool calls at all, or 0 completion
+                        # tokens (model API glitch, not intentional silence). Force retry.
+                        _reason = "0 completion tokens" if _zero_tokens else "no tool calls"
+                        _empty_msg = (
+                            f"LLM returned empty response after {iteration + 1} iteration(s) "
+                            f"({len(tool_calls_made)} tool calls, {_reason}). Forcing retry."
+                        )
+                        logger.warning("LLM response was empty (%s). Forcing a response...", _reason)
+                        yield _event_with_compaction_tag({
+                            "type": "warning",
+                            "code": "empty_response",
+                            "message": _empty_msg,
+                        }, compaction)
+                        # Remove the empty assistant message that was eagerly appended
+                        # above — it would leak into persisted history as dead weight.
+                        messages.pop()
+                        messages.append({
+                            "role": "system",
+                            "content": "You must respond to the user. Write a response now."
+                        })
+                        try:
+                            # Route through _llm_call so NO_SYSTEM_MESSAGE_PROVIDERS folding,
+                            # retry logic, and fallback all apply.  Use tool_choice=none so we
+                            # only get a plain assistant reply.
+                            retry = await _llm_call(
+                                model, messages,
+                                tools_param,
+                                "none" if tools_param is not None else None,
+                                provider_id=provider_id,
+                                fallback_models=fallback_models,
+                            )
+                            text = _sanitize_llm_text(retry.choices[0].message.content or "")
+                            text = _redact_secrets(text)
+                            messages.append(retry.choices[0].message.model_dump(exclude_none=True))
+                        except Exception as exc:
+                            logger.error("Forced-response retry failed: %s", exc)
+                            if correlation_id is not None:
+                                asyncio.create_task(_record_trace_event(
+                                    correlation_id=correlation_id,
+                                    session_id=session_id,
+                                    bot_id=bot.id,
+                                    client_id=client_id,
+                                    event_type="llm_error",
+                                    event_name="forced_response_retry",
+                                    data={"message": str(exc)[:2000]},
+                                ))
+                            text = f"[Error: {_empty_msg} Retry also failed: {type(exc).__name__}]"
+                            messages.append({"role": "assistant", "content": text})
+                            yield _event_with_compaction_tag({
+                                "type": "error",
+                                "code": "llm_error",
+                                "message": text,
+                            }, compaction)
+
+                _fin_events, transcript_emitted = _finalize_response(
+                    text,
+                    messages=messages, bot=bot, session_id=session_id,
+                    client_id=client_id, correlation_id=correlation_id,
+                    channel_id=channel_id, compaction=compaction,
+                    native_audio=native_audio, user_msg_index=user_msg_index,
+                    transcript_emitted=transcript_emitted,
+                    tool_calls_made=tool_calls_made, turn_start=turn_start,
+                    embedded_client_actions=embedded_client_actions,
+                )
+                for _evt in _fin_events:
+                    yield _evt
                 return
 
-            if native_audio and user_msg_index is not None and not transcript_emitted and msg.content:
-                transcript, _ = _extract_transcript(msg.content)
+            _acc_content = accumulated_msg.content
+            if native_audio and user_msg_index is not None and not transcript_emitted and _acc_content:
+                transcript, _ = _extract_transcript(_acc_content)
                 if transcript:
                     logger.info("Audio transcript (from tool-call response): %r", transcript[:100])
                     yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
@@ -313,18 +607,37 @@ async def run_agent_tool_loop(
             # Emit intermediate text when the LLM returns content alongside tool calls.
             # Without this, the text is recorded in conversation history but never
             # surfaces to streaming consumers (Slack, UI, etc.).
-            _intermediate_text = (msg.content or "").strip()
+            # Strip malformed tool calls (XML/JSON fragments) that local models
+            # sometimes emit as text alongside proper function calls.
+            _intermediate_text = _sanitize_llm_text(_acc_content or "")
+            _intermediate_text = _redact_secrets(_intermediate_text)
             if _intermediate_text:
                 yield _event_with_compaction_tag(
                     {"type": "assistant_text", "text": _intermediate_text},
                     compaction,
                 )
 
-            logger.info("LLM requested %d tool call(s)", len(msg.tool_calls))
+            _acc_tool_calls = accumulated_msg.tool_calls
+            logger.info("LLM requested %d tool call(s)", len(_acc_tool_calls))
+            _iteration_injected_images: list[dict] = []
 
-            for tc in msg.tool_calls:
-                name = tc.function.name
-                args = tc.function.arguments
+            for tc_idx, tc in enumerate(_acc_tool_calls):
+                # Cancellation checkpoint: before each tool dispatch
+                if session_id and session_locks.is_cancel_requested(session_id):
+                    logger.info("Cancellation requested for session %s (before tool %s)", session_id, tc["function"]["name"])
+                    # Append stub tool results for remaining tool calls to keep
+                    # conversation history well-formed (assistant references these IDs).
+                    for remaining_tc in _acc_tool_calls[tc_idx:]:
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": remaining_tc["id"],
+                            "content": "[Cancelled by user]",
+                        })
+                    yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                    return
+
+                name = tc["function"]["name"]
+                args = tc["function"]["arguments"]
                 logger.info("Tool call: %s", name)
                 logger.debug("Tool call %s args: %s", name, args)
 
@@ -334,7 +647,7 @@ async def run_agent_tool_loop(
                 tc_result = await dispatch_tool_call(
                     name=name,
                     args=args,
-                    tool_call_id=tc.id,
+                    tool_call_id=tc["id"],
                     bot_id=bot.id,
                     bot_memory=bot.memory,
                     session_id=session_id,
@@ -349,26 +662,138 @@ async def run_agent_tool_loop(
                     summarize_max_tokens=_eff_summarize_max_tokens,
                     summarize_exclude=_eff_summarize_exclude,
                     compaction=compaction,
+                    allowed_tool_names=_effective_allowed,
                 )
 
+                # --- Approval gate ---
+                if tc_result.needs_approval:
+                    yield _event_with_compaction_tag({
+                        "type": "approval_request",
+                        "approval_id": tc_result.approval_id,
+                        "tool": name,
+                        "arguments": args,
+                        "reason": tc_result.approval_reason,
+                    }, compaction)
+                    from app.agent.approval_pending import create_approval_pending
+                    future = create_approval_pending(tc_result.approval_id)
+                    try:
+                        verdict = await asyncio.wait_for(future, timeout=tc_result.approval_timeout)
+                    except asyncio.TimeoutError:
+                        verdict = "expired"
+                        # Mark DB record as expired
+                        try:
+                            from app.db.engine import async_session as _ap_session
+                            from app.db.models import ToolApproval as _TA
+                            async with _ap_session() as _ap_db:
+                                _ap_row = await _ap_db.get(_TA, uuid.UUID(tc_result.approval_id))
+                                if _ap_row and _ap_row.status == "pending":
+                                    _ap_row.status = "expired"
+                                    await _ap_db.commit()
+                        except Exception:
+                            logger.warning("Failed to mark approval %s as expired", tc_result.approval_id)
+                    if verdict == "approved":
+                        tc_result = await dispatch_tool_call(
+                            name=name,
+                            args=args,
+                            tool_call_id=tc["id"],
+                            bot_id=bot.id,
+                            bot_memory=bot.memory,
+                            session_id=session_id,
+                            client_id=client_id,
+                            correlation_id=correlation_id,
+                            channel_id=channel_id,
+                            iteration=iteration,
+                            provider_id=provider_id,
+                            summarize_enabled=_eff_summarize_enabled,
+                            summarize_threshold=_eff_summarize_threshold,
+                            summarize_model=_eff_summarize_model,
+                            summarize_max_tokens=_eff_summarize_max_tokens,
+                            summarize_exclude=_eff_summarize_exclude,
+                            compaction=compaction,
+                            skip_policy=True,
+                            allowed_tool_names=_effective_allowed,
+                        )
+                    else:
+                        tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})
+                        tc_result.tool_event = {"type": "tool_result", "tool": name, "error": f"Tool call {verdict}"}
+                    yield _event_with_compaction_tag({
+                        "type": "approval_resolved",
+                        "approval_id": tc_result.approval_id,
+                        "tool": name,
+                        "verdict": verdict,
+                    }, compaction)
+
                 tool_calls_made.append(name)
+                tool_call_trace.append(make_signature(name, args))
                 for pre_event in tc_result.pre_events:
                     yield pre_event
                 if tc_result.embedded_client_action is not None:
                     embedded_client_actions.append(tc_result.embedded_client_action)
+                if tc_result.injected_images:
+                    _iteration_injected_images.extend(tc_result.injected_images)
 
                 messages.append({
                     "role": "tool",
-                    "tool_call_id": tc.id,
+                    "tool_call_id": tc["id"],
                     "content": tc_result.result_for_llm,
                 })
                 yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
-        _max_iter_msg = (
-            f"Max iterations reached ({settings.AGENT_MAX_ITERATIONS} tool calls). "
-            "Generating final response without tools."
-        )
-        logger.warning("Agent loop hit max iterations (%d)", settings.AGENT_MAX_ITERATIONS)
+                # Fire after_tool_call lifecycle hook (fire-and-forget)
+                asyncio.create_task(fire_hook("after_tool_call", HookContext(
+                    bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                    client_id=client_id, correlation_id=correlation_id,
+                    extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
+                )))
+
+            # Inject images as synthetic user message so LLM sees them natively
+            if _iteration_injected_images:
+                _img_parts: list[dict] = [{"type": "text", "text": "[Requested image(s) for your analysis]"}]
+                for img in _iteration_injected_images:
+                    mime = img.get("mime_type", "image/jpeg")
+                    b64 = img.get("base64", "")
+                    if b64:
+                        _img_parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{b64}"},
+                        })
+                if len(_img_parts) > 1:
+                    messages.append({"role": "user", "content": _img_parts})
+
+            # --- Within-run tool loop detection ---
+            if settings.TOOL_LOOP_DETECTION_ENABLED and len(tool_call_trace) >= 3:
+                _detected_cycle_len = detect_cycle(tool_call_trace) or 0
+                if _detected_cycle_len:
+                    _loop_broken_reason = "cycle"
+                    logger.warning(
+                        "Tool loop detected: cycle length %d after %d calls — breaking",
+                        _detected_cycle_len, len(tool_call_trace),
+                    )
+                    break
+
+        # --- Post-loop: forced response (max iterations or cycle break) ---
+        if _loop_broken_reason == "cycle":
+            _break_msg = (
+                f"Tool loop detected (cycle of {_detected_cycle_len} call(s) repeating) "
+                f"after {len(tool_call_trace)} tool calls. Breaking cycle."
+            )
+            _break_code = "tool_loop_detected"
+            _system_prompt = (
+                "You are stuck in a loop — you have been making the same tool calls "
+                "with the same arguments repeatedly. Stop calling tools and respond now."
+            )
+        else:
+            _break_msg = (
+                f"Max iterations reached ({effective_max_iterations} tool calls). "
+                "Generating final response without tools."
+            )
+            _break_code = "max_iterations"
+            _system_prompt = (
+                "You have used too many tool calls. Please respond to the user now "
+                "without using any tools."
+            )
+
+        logger.warning("Agent loop ended: %s", _break_code)
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,
@@ -376,30 +801,33 @@ async def run_agent_tool_loop(
                 bot_id=bot.id,
                 client_id=client_id,
                 event_type="warning",
-                event_name="max_iterations",
-                data={"iterations": settings.AGENT_MAX_ITERATIONS, "message": _max_iter_msg},
+                event_name=_break_code,
+                data={"iterations": iteration + 1, "total_tool_calls": len(tool_call_trace), "message": _break_msg},
             ))
         yield _event_with_compaction_tag({
             "type": "warning",
-            "code": "max_iterations",
-            "message": _max_iter_msg,
+            "code": _break_code,
+            "message": _break_msg,
         }, compaction)
 
         messages.append({
             "role": "system",
-            "content": "You have used too many tool calls. Please respond to the user now without using any tools.",
+            "content": _system_prompt,
         })
-        final_kw: dict[str, Any] = {"model": model, "messages": messages}
-        if tools_param is not None:
-            final_kw["tools"] = tools_param
-            final_kw["tool_choice"] = "none"
-        from app.services.providers import get_llm_client as _get_client
         try:
-            response = await _get_client(provider_id).chat.completions.create(**final_kw)
+            # Route through _llm_call so NO_SYSTEM_MESSAGE_PROVIDERS folding,
+            # retry logic, and fallback all apply.
+            response = await _llm_call(
+                model, messages,
+                tools_param,
+                "none" if tools_param is not None else None,
+                provider_id=provider_id,
+                fallback_models=fallback_models,
+            )
             msg = response.choices[0].message
         except Exception as exc:
-            logger.error("Max-iterations final LLM call failed: %s", exc)
-            _fallback_text = f"[Error: {_max_iter_msg} Final response generation also failed: {type(exc).__name__}]"
+            logger.error("Post-loop final LLM call failed: %s", exc)
+            _fallback_text = f"[Error: {_break_msg} Final response generation also failed: {type(exc).__name__}]"
             messages.append({"role": "assistant", "content": _fallback_text})
             yield _event_with_compaction_tag({
                 "type": "error",
@@ -412,56 +840,57 @@ async def run_agent_tool_loop(
                 "client_actions": (
                     _extract_client_actions(messages, turn_start) + embedded_client_actions
                 ),
+                **({"correlation_id": str(correlation_id)} if correlation_id else {}),
             }, compaction)
             return
 
         messages.append(msg.model_dump(exclude_none=True))
         if response.usage and correlation_id is not None:
+            _usage_data2 = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+                "iteration": iteration + 2,  # +1 for 0-index, +1 for this forced call
+                "model": model,
+                "provider_id": provider_id,
+                "channel_id": str(channel_id) if channel_id else None,
+                **_extract_usage_extras(response),
+            }
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
                 bot_id=bot.id,
                 client_id=client_id,
                 event_type="token_usage",
-                data={
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens,
-                    "iteration": settings.AGENT_MAX_ITERATIONS + 1,
-                    "model": model,
-                },
+                data=_usage_data2,
             ))
 
-        text = msg.content or ""
-        if native_audio and user_msg_index is not None and not transcript_emitted:
-            transcript, text = _extract_transcript(text)
-            messages[-1]["content"] = text
-            yield _event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction)
-            if transcript:
-                messages[user_msg_index] = {"role": "user", "content": transcript}
-            else:
-                messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
-            transcript_emitted = True
-
-        _trace("✓ response (%d chars)", len(text))
-        if correlation_id is not None and not compaction:
-            asyncio.create_task(_record_trace_event(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-                event_type="response",
-                data={"text": text[:500], "full_length": len(text)},
-            ))
-        yield _event_with_compaction_tag({
-            "type": "response",
-            "text": text,
-            "client_actions": (
-                _extract_client_actions(messages, turn_start) + embedded_client_actions
-            ),
-        }, compaction)
+        text = _sanitize_llm_text(msg.content or "")
+        text = _redact_secrets(text)
+        _fin_events, transcript_emitted = _finalize_response(
+            text,
+            messages=messages, bot=bot, session_id=session_id,
+            client_id=client_id, correlation_id=correlation_id,
+            channel_id=channel_id, compaction=compaction,
+            native_audio=native_audio, user_msg_index=user_msg_index,
+            transcript_emitted=transcript_emitted,
+            tool_calls_made=tool_calls_made, turn_start=turn_start,
+            embedded_client_actions=embedded_client_actions,
+        )
+        for _evt in _fin_events:
+            yield _evt
 
     except Exception as exc:
+        # Fire after_response hook on error path so integrations can clean up
+        # (e.g. Slack removes the hourglass reaction).
+        try:
+            asyncio.create_task(fire_hook("after_response", HookContext(
+                bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                client_id=client_id, correlation_id=correlation_id,
+                extra={"error": True, "tool_calls_made": list(tool_calls_made)},
+            )))
+        except Exception:
+            pass  # best-effort; fire_hook/HookContext may not be bound if imports failed
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,
@@ -490,6 +919,9 @@ async def run_stream(
     channel_id: uuid.UUID | None = None,
     model_override: str | None = None,
     provider_id_override: str | None = None,
+    fallback_models: list[dict] | None = None,
+    injected_tools: list[dict] | None = None,
+    system_preamble: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -506,6 +938,11 @@ async def run_stream(
     client can post child-bot messages first (giving them an earlier timestamp), then post
     the parent's response as a new message — ensuring correct visual ordering.
     """
+    # Reset per-request embedding cache so identical queries across skills/memory/knowledge/tools
+    # hit the cache instead of making redundant API calls.
+    from app.agent.embeddings import clear_embed_cache
+    clear_embed_cache()
+
     # Track whether this is the outermost run_stream invocation (not a nested call from
     # run_immediate).  Only the outermost instance manages the delegation-post queue;
     # nested calls (child runs inside delegate_to_agent) share the same list so their
@@ -525,15 +962,30 @@ async def run_stream(
         bot_id=bot.id,
         correlation_id=correlation_id,
         channel_id=channel_id,
-        memory_cross_channel=bot.memory.cross_channel if bot.memory.enabled else None,
-        memory_cross_client=bot.memory.cross_client if bot.memory.enabled else None,
-        memory_cross_bot=bot.memory.cross_bot if bot.memory.enabled else None,
-        memory_similarity_threshold=bot.memory.similarity_threshold if bot.memory.enabled else None,
+        memory_cross_channel=None,  # DB memory deprecated
+        memory_cross_client=None,
+        memory_cross_bot=None,
+        memory_similarity_threshold=None,
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
     )
+    from app.agent.context import current_injected_tools
+    current_injected_tools.set(injected_tools)
     native_audio = audio_data is not None
     turn_start = len(messages)
+
+    # --- context budget ---
+    _budget = None
+    if settings.CONTEXT_BUDGET_ENABLED:
+        from app.agent.context_budget import ContextBudget, get_model_context_window
+        _effective_model = model_override or bot.model
+        _effective_provider = provider_id_override or bot.model_provider_id
+        _window = get_model_context_window(_effective_model, _effective_provider)
+        _reserve_ratio = settings.CONTEXT_BUDGET_RESERVE_RATIO
+        _budget = ContextBudget(
+            total_tokens=_window,
+            reserve_tokens=int(_window * _reserve_ratio),
+        )
 
     assembly_result = AssemblyResult()
     async for event in assemble_context(
@@ -549,137 +1001,111 @@ async def run_stream(
         attachments=attachments,
         native_audio=native_audio,
         result=assembly_result,
+        system_preamble=system_preamble,
+        budget=_budget,
     ):
         yield event
 
-    # Apply channel-level model override (lower priority than per-turn)
-    if model_override is None and assembly_result.channel_model_override:
-        model_override = assembly_result.channel_model_override
-        provider_id_override = provider_id_override or assembly_result.channel_provider_id_override
+    # --- post-assembly: account for tool schemas in budget ---
+    if _budget is not None and assembly_result.pre_selected_tools:
+        import json as _json
+        _tool_schema_chars = sum(len(_json.dumps(t)) for t in assembly_result.pre_selected_tools)
+        from app.agent.context_budget import estimate_tokens as _est
+        _budget.consume("tool_schemas", _est("x" * _tool_schema_chars))
+        logger.debug("Budget after assembly: %s", _budget.to_dict())
 
-    pre_selected_tools = assembly_result.pre_selected_tools
-    user_msg_index = assembly_result.user_msg_index
+    # Emit budget info event for downstream consumers (e.g. compaction trigger)
+    if _budget is not None:
+        yield {
+            "type": "context_budget",
+            "utilization": round(_budget.utilization, 3),
+            "total_tokens": _budget.total_tokens,
+            "consumed_tokens": _budget.consumed_tokens,
+            "remaining_tokens": _budget.remaining,
+        }
 
-    # --- Auto-summarize on resume after idle ---
-    if channel_id:
-        try:
-            from app.services.summarizer import get_last_user_message_time, summarize_messages
-            from app.db.models import Channel as _ChannelModel
-            from app.db.engine import async_session as _async_session
-            from sqlalchemy import select as _sel
-
-            async with _async_session() as _db:
-                _ch = (await _db.execute(
-                    _sel(_ChannelModel).where(_ChannelModel.id == channel_id)
-                )).scalar_one_or_none()
-
-            if _ch and _ch.summarizer_enabled:
-                _threshold = _ch.summarizer_threshold_minutes or settings.SUMMARIZER_THRESHOLD_MINUTES
-                _last_ts = await get_last_user_message_time(channel_id)
-                if _last_ts is not None:
-                    _idle_minutes = (datetime.now(timezone.utc) - _last_ts).total_seconds() / 60
-                    if _idle_minutes > _threshold:
-                        _msg_count = _ch.summarizer_message_count or settings.SUMMARIZER_MESSAGE_COUNT
-                        _summary = await summarize_messages(
-                            channel_id=channel_id,
-                            take=_msg_count,
-                            provider_id=provider_id_override or bot.model_provider_id,
-                        )
-                        if _summary and not _summary.startswith("Error:"):
-                            _auto_msg = (
-                                f"[Auto-summary of prior conversation — last activity "
-                                f"was {int(_idle_minutes)} minutes ago]\n\n{_summary}"
-                            )
-                            messages.insert(turn_start, {"role": "system", "content": _auto_msg})
-                            turn_start += 1
-                            if user_msg_index is not None:
-                                user_msg_index += 1
-
-                            if correlation_id is not None:
-                                asyncio.create_task(_record_trace_event(
-                                    correlation_id=correlation_id,
-                                    session_id=session_id,
-                                    bot_id=bot.id,
-                                    client_id=client_id,
-                                    event_type="auto_summarize",
-                                    data={"idle_minutes": int(_idle_minutes), "summary_len": len(_summary)},
-                                ))
-                            yield {"type": "trace", "event_type": "auto_summarize", "idle_minutes": int(_idle_minutes)}
-        except Exception:
-            logger.warning("Auto-summarize failed, continuing without", exc_info=True)
-
-    # --- Context compression (pre-turn) ---
-    _compression_active = False
-    _full_messages: list[dict] | None = None
-    _pre_loop_len = 0
-    loop_messages = messages
-    loop_turn_start = turn_start
-    loop_user_msg_index = user_msg_index
-
-    from app.services.compression import compress_context
-    from app.agent.context import set_compression_history
-    _comp_result = await compress_context(
-        messages, bot, user_message,
-        channel_id=channel_id,
+    # --- RAG re-ranking ---
+    from app.services.reranking import rerank_rag_context
+    _rerank_result = await rerank_rag_context(
+        messages, user_message,
         provider_id=provider_id_override or bot.model_provider_id,
     )
-    if _comp_result is not None:
-        _compressed, _drilldown = _comp_result
-        _compression_active = True
-        _full_messages = list(messages)
-        set_compression_history(session_id, _drilldown)
-        existing_names = {t.get("function", {}).get("name") for t in (pre_selected_tools or [])}
-        if "get_message_detail" not in existing_names:
-            detail_schema = get_local_tool_schemas(["get_message_detail"])
-            pre_selected_tools = (pre_selected_tools or []) + detail_schema
-
-        _original_chars = sum(len(str(m.get("content", ""))) for m in messages)
-        _compressed_chars = sum(len(str(m.get("content", ""))) for m in _compressed)
-
-        loop_messages = _compressed
-        _pre_loop_len = len(_compressed)
-        loop_turn_start = _pre_loop_len
-        # Recalculate user_msg_index for compressed list (needed for native audio)
-        if user_msg_index is not None:
-            loop_user_msg_index = None
-            for _ci in range(len(_compressed) - 1, -1, -1):
-                if _compressed[_ci].get("role") == "user":
-                    loop_user_msg_index = _ci
-                    break
-
+    if _rerank_result is not None:
+        logger.info(
+            "RAG re-rank: %d→%d chunks, %d→%d chars",
+            _rerank_result.original_chunks, _rerank_result.kept_chunks,
+            _rerank_result.original_chars, _rerank_result.kept_chars,
+        )
         if correlation_id is not None:
             asyncio.create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
                 bot_id=bot.id,
                 client_id=client_id,
-                event_type="context_compressed",
+                event_type="rag_rerank",
                 data={
-                    "original_chars": _original_chars,
-                    "compressed_chars": _compressed_chars,
-                    "original_messages": len(messages),
-                    "compressed_messages": len(_compressed),
+                    "original_chunks": _rerank_result.original_chunks,
+                    "kept_chunks": _rerank_result.kept_chunks,
+                    "original_chars": _rerank_result.original_chars,
+                    "kept_chars": _rerank_result.kept_chars,
                 },
             ))
-        yield {"type": "context_compressed", "original_chars": _original_chars, "compressed_chars": _compressed_chars}
+        yield {
+            "type": "rag_rerank",
+            "original_chunks": _rerank_result.original_chunks,
+            "kept_chunks": _rerank_result.kept_chunks,
+            "original_chars": _rerank_result.original_chars,
+            "kept_chars": _rerank_result.kept_chars,
+        }
+
+    # Apply channel-level model override (lower priority than per-turn)
+    if model_override is None and assembly_result.channel_model_override:
+        model_override = assembly_result.channel_model_override
+        provider_id_override = provider_id_override or assembly_result.channel_provider_id_override
+
+    # Expose effective model/provider to tools (e.g. delegate_to_harness callback propagation)
+    from app.agent.context import current_model_override, current_provider_id_override, current_channel_model_tier_overrides
+    current_model_override.set(model_override)
+    current_provider_id_override.set(provider_id_override)
+    # Expose channel tier overrides to delegation tools (always set to avoid staleness)
+    current_channel_model_tier_overrides.set(assembly_result.channel_model_tier_overrides)
+
+    max_iterations_override = assembly_result.channel_max_iterations
+    pre_selected_tools = assembly_result.pre_selected_tools
+    _authorized_tool_names = assembly_result.authorized_tool_names
+    user_msg_index = assembly_result.user_msg_index
+
+    # Resolve fallback models: explicit override > channel list > bot list (global appended in _llm_call)
+    _fallback_models = fallback_models if fallback_models is not None else (assembly_result.channel_fallback_models or bot.fallback_models or [])
+
+    # Check usage limits before entering the agent loop
+    from app.services.usage_limits import check_usage_limits, UsageLimitExceeded
+    try:
+        await check_usage_limits(model_override or bot.model, bot.id)
+    except UsageLimitExceeded as exc:
+        yield {"type": "error", "code": "usage_limit_exceeded", "message": str(exc)}
+        return
 
     # Only the outermost run_stream buffers the response and emits delegation_post events.
     # Nested calls (child agents inside delegate_to_agent) just pass events through.
     if _is_outermost_stream:
         _last_response: dict | None = None
         async for event in run_agent_tool_loop(
-            loop_messages,
+            messages,
             bot,
             session_id=session_id,
             client_id=client_id,
             model_override=model_override,
             provider_id_override=provider_id_override,
-            turn_start=loop_turn_start,
+            turn_start=turn_start,
             native_audio=native_audio,
-            user_msg_index=loop_user_msg_index,
+            user_msg_index=user_msg_index,
             pre_selected_tools=pre_selected_tools,
+            authorized_tool_names=_authorized_tool_names,
             correlation_id=correlation_id,
             channel_id=channel_id,
+            max_iterations=max_iterations_override,
+            fallback_models=_fallback_models,
         ):
             if event.get("type") == "response":
                 _last_response = event
@@ -699,29 +1125,23 @@ async def run_stream(
             yield _last_response
     else:
         async for event in run_agent_tool_loop(
-            loop_messages,
+            messages,
             bot,
             session_id=session_id,
             client_id=client_id,
             model_override=model_override,
             provider_id_override=provider_id_override,
-            turn_start=loop_turn_start,
+            turn_start=turn_start,
             native_audio=native_audio,
-            user_msg_index=loop_user_msg_index,
+            user_msg_index=user_msg_index,
             pre_selected_tools=pre_selected_tools,
+            authorized_tool_names=_authorized_tool_names,
             correlation_id=correlation_id,
             channel_id=channel_id,
+            max_iterations=max_iterations_override,
+            fallback_models=_fallback_models,
         ):
             yield event
-
-    # Restore original messages if compression was active — ensures persist_turn()
-    # sees full history + new turn messages (not the compressed view).
-    if _compression_active and _full_messages is not None:
-        new_msgs = loop_messages[_pre_loop_len:]
-        messages.clear()
-        messages.extend(_full_messages)
-        messages.extend(new_msgs)
-        set_compression_history(session_id, None)
 
 
 async def run(
@@ -739,6 +1159,9 @@ async def run(
     channel_id: uuid.UUID | None = None,
     model_override: str | None = None,
     provider_id_override: str | None = None,
+    fallback_models: list[dict] | None = None,
+    injected_tools: list[dict] | None = None,
+    system_preamble: str | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -754,6 +1177,9 @@ async def run(
         channel_id=channel_id,
         model_override=model_override,
         provider_id_override=provider_id_override,
+        fallback_models=fallback_models,
+        injected_tools=injected_tools,
+        system_preamble=system_preamble,
     ):
         if event["type"] == "assistant_text":
             _intermediate_texts.append(event["text"])

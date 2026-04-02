@@ -34,8 +34,8 @@ def render_base_prompt(bot) -> str | None:
         return None
 
     has_skills = bool(getattr(bot, "skills", None))
-    has_memory = getattr(bot, "memory", None) and bot.memory.enabled
-    has_knowledge = getattr(bot, "knowledge", None) and bot.knowledge.enabled
+    has_memory = False  # DB memory deprecated
+    has_knowledge = False  # DB knowledge deprecated
     has_delegation = bool(getattr(bot, "delegate_bots", None))
 
     variables = defaultdict(str, {

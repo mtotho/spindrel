@@ -1,0 +1,92 @@
+id: research-and-report
+name: "Research & Report"
+description: >
+  Multi-angle research workflow — gathers information from web search and
+  local knowledge, cross-references sources, and produces a structured report.
+  Useful for technical research, competitive analysis, or fact-checking.
+
+params:
+  topic:
+    type: string
+    required: true
+    description: "The topic or question to research"
+  depth:
+    type: string
+    default: "standard"
+    description: "Research depth: quick (1 search), standard (3 angles), deep (5+ angles)"
+  output_format:
+    type: string
+    default: "markdown"
+    description: "Output format: markdown, bullet-points, executive-summary"
+
+defaults:
+  model: gemini/gemini-2.5-flash
+  timeout: 180
+
+triggers:
+  tool: true
+  api: true
+
+tags: [research, reporting, knowledge]
+
+steps:
+  - id: initial_search
+    prompt: |
+      Research the following topic: "{{topic}}"
+      Depth: {{depth}}
+
+      Perform web searches from multiple angles:
+      - Direct search for the topic
+      - Search for recent developments or news
+      - Search for expert opinions or analysis
+
+      For "quick" depth: 1 search is fine.
+      For "standard": at least 3 different search queries.
+      For "deep": 5+ queries covering different facets.
+
+      Return structured findings with source URLs.
+    tools: [web_search]
+
+  - id: cross_reference
+    prompt: |
+      Cross-reference and verify the research findings on "{{topic}}":
+
+      Initial findings:
+      {{steps.initial_search.result}}
+
+      Check for:
+      - Contradictions between sources
+      - Claims that lack supporting evidence
+      - Outdated information (note dates)
+      - Missing perspectives or blind spots
+
+      Return a verified findings summary with confidence levels (high/medium/low)
+      for each major claim.
+    when:
+      all:
+        - step: initial_search
+          status: done
+        - param: depth
+          equals: "deep"
+    tools: [web_search]
+    on_failure: continue
+
+  - id: compile_report
+    prompt: |
+      Compile a final report on "{{topic}}" in {{output_format}} format.
+
+      Research findings:
+      {{steps.initial_search.result}}
+
+      Cross-reference analysis:
+      {{steps.cross_reference.result}}
+
+      Structure the report as:
+      1. **Summary** — Key findings in 2-3 sentences
+      2. **Detailed Findings** — Organized by subtopic
+      3. **Sources** — All referenced URLs with brief descriptions
+      4. **Confidence Assessment** — What's well-established vs. uncertain
+
+      For "executive-summary" format: limit to 1 page equivalent.
+      For "bullet-points" format: use concise bullet points throughout.
+      For "markdown" format: use full markdown with headers and sections.

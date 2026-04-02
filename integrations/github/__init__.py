@@ -1,1 +1,1 @@
-# GitHub webhook integration — trusted, no ingestion pipeline.
+"""GitHub integration — webhook receiver, comment dispatcher, API tools."""

@@ -5,13 +5,19 @@
   Layer 2 — Deterministic injection filter (regex + zero-width chars)
   Layer 3 — AI safety classifier (isolated HTTP call, fails closed)
   Layer 4 — Typed envelope (Pydantic validation)
+
+ContentFeed base class for building source connectors (Gmail, RSS, etc.)
 """
 
 from integrations.ingestion.envelope import ExternalMessage, RawMessage, RiskMetadata
+from integrations.ingestion.feed import ContentFeed, CycleResult, FeedItem
 from integrations.ingestion.pipeline import IngestionPipeline
 
 __all__ = [
+    "ContentFeed",
+    "CycleResult",
     "ExternalMessage",
+    "FeedItem",
     "IngestionPipeline",
     "RawMessage",
     "RiskMetadata",

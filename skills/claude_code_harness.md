@@ -1,249 +1,250 @@
 ---
-name: claude_code_harness
-description: "Load when delegating work to Claude Code via the delegate_to_harness tool, when discussing claude-code harness strategy, or when troubleshooting a failed/interrupted Claude Code subprocess. Trigger on: 'run claude-code', 'delegate to claude', 'harness failed', 'resume claude session', 'check harness status', 'claude-code best practices', or any task involving the claude-code harness entry in harnesses.yaml. Do NOT trigger for general CLI usage, non-Claude harnesses (cursor), or direct LLM API calls."
+name: claude-code-operator
+description: Use this skill to delegate work to Claude Code via the `delegate_to_harness` tool. Covers sync and deferred execution modes, prompt construction, response parsing, working directory targeting, and error handling. Trigger whenever you need to run Claude Code against a codebase — code review, implementation, refactoring, test generation, analysis, migration, or any coding task that benefits from Claude Code's agentic file editing and shell access. Also trigger when the user asks you to "use claude code", "run claude code", "have claude code do X", or references the claude-code harness.
 ---
 
-# Claude Code Harness — Usage Patterns
+# Claude Code Harness — Agent Operator Skill
 
-## Core Principle
-
-Claude Code is a stateful CLI agent. Every run produces a **session ID** that can be resumed. The default `--print` mode discards this. Always use `--output-format json` to capture session metadata so interrupted or partial runs can be continued instead of re-run from scratch.
-
----
-
-## How We Run Claude Code
-
-Our harness config (`harnesses.yaml`) runs Claude Code as a subprocess inside a Docker sandbox with JSON output and turn limits:
-
-```yaml
-claude-code:
-  command: claude
-  args: ["--print", "{prompt}", "--dangerously-skip-permissions", "--output-format", "json", "--max-turns", "30"]
-  working_directory: "{working_directory}"
-  timeout: 1800
-```
-
-This runs via `delegate_to_harness(harness="claude-code", prompt=..., working_directory=...)` which executes `docker exec ... sh -c 'cd {wd} && claude --print {prompt} --dangerously-skip-permissions --output-format json --max-turns 30'` inside the bot's sandbox container.
-
-**JSON output** means `result.stdout` is a structured JSON object containing `session_id`, `result`, `cost_usd`, `num_turns`, `is_error`, and `usage`. The harness task runner (`app/agent/tasks.py`) and sync delegation tool (`app/tools/local/delegation.py`) automatically parse this.
-
-**Session resume**: When a harness task fails or times out with a captured `session_id`, the task worker automatically retries with `--resume <session_id>` and a continuation prompt instead of re-running from scratch. Controlled by `HARNESS_MAX_RESUME_RETRIES` (default 1).
+You invoke Claude Code through the `delegate_to_harness` tool with `harness: "claude-code"`. You do **not** run the `claude` CLI directly. The harness system handles subprocess execution, prompt delivery, output capture, and timeout management.
 
 ---
 
-## Critical Flags for Harness Use
+## What the Harness Provides
 
-### Output Format
+The `claude-code` harness is pre-configured in `harnesses.yaml`:
 
-| Flag | Behavior | When to Use |
+| Setting | Value | Meaning |
 |---|---|---|
-| `--print` / `-p` | Non-interactive, single prompt, exits after | Always (subprocess mode) |
-| `--output-format json` | Returns `{session_id, result, usage, cost, duration_ms, is_error, num_turns}` | **Always** — captures session_id for resume |
-| `--output-format stream-json` | NDJSON streaming events in real-time | When you need progress monitoring |
-| `--output-format text` | Plain text stdout (default) | Only for simple pipe-and-forget |
+| `--dangerously-skip-permissions` | always on | No interactive permission prompts |
+| `--output-format json` | always on | Structured JSON response |
+| `--max-turns 30` | always on | Safety cap on agentic loops |
+| `prompt_mode: stdin` | always on | Your prompt is piped via heredoc, not embedded in args |
+| `timeout` | 1800s (30 min) | Process killed after this |
 
-**Implemented**: Our harness uses `--output-format json` to capture structured output including `session_id` for resume.
-
-### Session Management
-
-| Flag | Behavior |
-|---|---|
-| `--continue` / `-c` | Resume most recent session in the working directory |
-| `--resume <session-id>` / `-r <id>` | Resume a specific session by ID or name |
-| `--session-id <uuid>` | Explicitly set a session UUID (must be valid UUID) |
-| `--name <name>` / `-n <name>` | Set a display name for the session (for easier resume) |
-| `--fork-session` | Create a new session branched from the resumed one |
-| `--no-session-persistence` | Don't save session to disk (print mode only) |
-
-**Resume pattern**: Parse `session_id` from JSON output, store it on the Task row, then on retry:
-```
-claude --resume <session_id> -p "continue from where you left off" --output-format json
-```
-
-### Resource Control
-
-| Flag | Behavior | Recommended |
-|---|---|---|
-| `--max-turns N` | Limit agentic loop iterations | Set to prevent runaway (e.g., 25) |
-| `--max-budget-usd N` | Stop if API spend exceeds $N | Set for expensive tasks (e.g., 5.00) |
-| `--bare` | Skip auto-discovery (hooks, CLAUDE.md, MCP, memory) | Faster cold start for isolated tasks |
-| `--effort high\|medium\|low` | Reasoning effort level | `high` for complex code tasks |
-| `--fallback-model sonnet` | Fallback if primary model overloaded | Good for reliability |
-
-### Context Injection
-
-| Flag | Behavior |
-|---|---|
-| `--append-system-prompt "text"` | Append instructions to system prompt |
-| `--append-system-prompt-file path` | Append from file |
-| `--system-prompt "text"` | Replace entire system prompt |
-| `--add-dir ../other-project` | Add extra directories to context |
-| `--mcp-config ./mcp.json` | Load MCP servers |
-| `--allowedTools "Bash,Read,Edit"` | Auto-approve specific tools (no prompts) |
-| `--tools "Bash,Read,Edit"` | Restrict available tools |
+You do **not** pass these flags yourself. They are injected by the harness service.
 
 ---
 
-## Session Storage on Disk
-
-Sessions live at `~/.claude/projects/<encoded-cwd>/` where `<encoded-cwd>` replaces non-alphanumeric chars with `-`.
-
-```
-~/.claude/
-├── projects/
-│   └── -workspace-myproject/       # encoded working directory
-│       ├── <session-uuid>.jsonl    # conversation history
-│       └── memory/
-│           └── MEMORY.md           # auto-memory (if enabled)
-├── plans/                          # plan mode artifacts
-└── settings.json                   # global settings
-```
-
-Inside the Docker sandbox, this maps to the container user's home. If the container is ephemeral, sessions are lost on container removal. **For resumable sessions, the container must persist between runs** (our bot_sandbox containers do persist).
-
----
-
-## Best Practices for Our Harness
-
-### 1. Always Capture JSON Output
-
-Change harness args to include `--output-format json`. Parse the result to extract:
-- `session_id` — store on Task for resume
-- `is_error` — detect failures without parsing text
-- `num_turns` — check if max_turns was hit (likely incomplete)
-- `cost` — track spending
-- `result` — the actual text response
-
-### 2. Name Sessions for Traceability
-
-Use `--name` with a meaningful identifier:
-```
-args: ["-p", "{prompt}", "--dangerously-skip-permissions", "--output-format", "json", "--name", "task-{task_id}"]
-```
-
-### 3. Resume Instead of Re-run
-
-When a harness task fails or times out:
-1. Check if `session_id` was captured from prior run
-2. If yes: `claude --resume <session_id> -p "continue" --output-format json`
-3. If no: `claude --continue -p "continue" --output-format json` (resumes most recent in that working_directory)
-4. Only re-run from scratch as last resort
-
-### 4. Set Resource Limits
-
-Always pass `--max-turns` and optionally `--max-budget-usd` to prevent runaway:
-```
-args: ["-p", "{prompt}", "--dangerously-skip-permissions", "--output-format", "json", "--max-turns", "30"]
-```
-
-### 5. Use --bare for Isolated Tasks
-
-When the task is self-contained and doesn't need the sandbox's CLAUDE.md or MCP servers:
-```
-args: ["--bare", "-p", "{prompt}", "--dangerously-skip-permissions", "--output-format", "json"]
-```
-Faster cold start, more predictable behavior.
-
-### 6. Streaming for Long Tasks
-
-For tasks dispatched as deferred (mode=deferred), consider `--output-format stream-json` with `--verbose` to capture progress events. Stream events include:
-- `assistant` messages with `content[].text` (response tokens)
-- `system` events (tool calls, retries, errors)
-- `result` final event with full metadata
-
-### 7. Checking Status of Fire-and-Forget Runs
-
-Claude Code has **no built-in status API**. Options:
-- **Process monitoring**: Check if the `claude` PID is still running (`ps aux | grep claude`)
-- **Session file polling**: Watch `~/.claude/projects/<encoded-cwd>/` for JSONL file growth
-- **Our Task system**: The task_worker already tracks status (pending/running/complete/failed) — use `get_task` to check
-- **Timeout**: The harness timeout (1800s default) is the ultimate backstop
-
-### 8. Plan Recovery
-
-Claude Code stores plans in `~/.claude/plans/` (configurable via `plansDirectory` in settings.json). If a Claude Code run created a plan but was interrupted before completing it:
-1. Resume the session (`--resume <id>`) — the plan context is in the conversation history
-2. Or read the plan file directly from the container filesystem
-
----
-
-## Recommended Harness Config
-
-Upgraded `harnesses.yaml` entry optimized for our use case:
-
-```yaml
-claude-code:
-  command: claude
-  args:
-    - "--print"
-    - "{prompt}"
-    - "--dangerously-skip-permissions"
-    - "--output-format"
-    - "json"
-    - "--max-turns"
-    - "30"
-  working_directory: "{working_directory}"
-  timeout: 1800
-```
-
-With this, `result.stdout` will be a JSON object containing `session_id`, `result`, `cost`, `num_turns`, `is_error`, and `usage`.
-
----
-
-## Parsing JSON Output
-
-When `--output-format json` is used, stdout is a single JSON object:
+## Tool Interface
 
 ```json
 {
-  "type": "result",
-  "subtype": "success",
-  "session_id": "abc-123-...",
-  "is_error": false,
-  "num_turns": 12,
-  "result": "I've fixed the bug in auth.py...",
-  "cost_usd": 0.42,
-  "duration_ms": 45000,
-  "duration_api_ms": 38000,
-  "usage": {
-    "input_tokens": 15000,
-    "output_tokens": 3000,
-    "cache_creation_input_tokens": 0,
-    "cache_read_input_tokens": 12000
-  }
+  "harness": "claude-code",
+  "prompt": "<your instructions>",
+  "working_directory": "/workspace/project-name",
+  "mode": "sync | deferred",
+  "reply_in_thread": false,
+  "notify_parent": true
 }
 ```
 
-Parse this in the harness result handler to:
-1. Extract `result` as the text response
-2. Store `session_id` for potential resume
-3. Check `is_error` for failure detection
-4. Log `cost_usd` and `usage` for tracking
+### Required parameters
+- **harness**: Always `"claude-code"`.
+- **prompt**: The full instruction set for Claude Code. This is the entire context it receives — be explicit and self-contained.
+
+### Optional parameters
+- **working_directory**: Path inside the container (e.g. `/workspace`, `/workspace/my-repo`). Claude Code starts here and has filesystem access relative to it. Defaults to `/workspace` if omitted.
+- **mode**: `"sync"` (default) blocks until completion and returns output. `"deferred"` returns a task_id immediately; result posts to the channel when done.
+- **sandbox_instance_id**: UUID of a specific sandbox instance. Omit to use the bot's workspace container (the normal path).
+- **reply_in_thread**: Deferred mode only. Posts result as a Slack thread reply.
+- **notify_parent**: Deferred mode only. When true (default), you receive the harness output as a follow-up message so you can review/react.
 
 ---
 
-## Failure Modes
+## Sync vs Deferred
 
-| Failure | Symptom | Recovery |
+### Use sync when:
+- Task completes in under ~5 minutes (analysis, small edits, reviews of single files/diffs)
+- You need the result immediately to continue your workflow
+- The user is waiting for an answer
+
+### Use deferred when:
+- Task is large (multi-file implementation, full test suite generation, migrations)
+- Task may approach the 30-minute timeout
+- You want to continue doing other work while Claude Code runs
+- Fire-and-forget with `notify_parent: false` if you don't need to act on the result
+
+---
+
+## Response Format (Sync Mode)
+
+The tool returns a JSON string. When Claude Code produces valid JSON output (the normal case), the harness parses it into a structured response:
+
+```json
+{
+  "exit_code": 0,
+  "duration_ms": 45200,
+  "result": "Claude Code's text response — summary of what it did",
+  "session_id": "uuid-of-the-session",
+  "is_error": false,
+  "cost_usd": 0.045,
+  "num_turns": 8
+}
+```
+
+**Key fields:**
+- `result`: The main output text. This is what Claude Code "said" — its summary, findings, or confirmation of work done.
+- `is_error`: `true` if Claude Code hit an error or turn limit. Check this first.
+- `exit_code`: Non-zero means the process itself failed (crash, timeout, OOM). Distinct from `is_error` which is Claude Code's internal error state.
+- `session_id`: Informational — identifies the Claude Code session. **There is no resume capability through the harness** (see Session Limitations below).
+
+If Claude Code's stdout isn't valid JSON (rare — usually means a crash), you get:
+```json
+{
+  "exit_code": 1,
+  "duration_ms": 2100,
+  "stdout": "raw output text",
+  "stderr": "error details if any"
+}
+```
+
+**Always check `is_error` and `exit_code` before trusting `result`.**
+
+---
+
+## Prompt Construction
+
+Claude Code receives **only your prompt** — no conversation history, no channel context, no memory. Every invocation is a cold start. Write prompts that are:
+
+1. **Self-contained**: Include all relevant context, file paths, requirements, and constraints.
+2. **Specific about scope**: Name exact files, directories, functions, or patterns to target.
+3. **Explicit about deliverables**: State what Claude Code should produce or change.
+4. **Clear on constraints**: If it should NOT modify certain files, say so.
+
+### Prompt template
+
+```
+## Task
+<one-line summary of what to do>
+
+## Context
+<background info Claude Code needs — architecture decisions, conventions, dependencies, relevant prior decisions>
+
+## Scope
+<exact files, directories, or patterns to work on>
+
+## Requirements
+<specific technical requirements, acceptance criteria>
+
+## Constraints
+- Do not modify <files/dirs>
+- Do not install new dependencies unless <condition>
+- <other guardrails>
+
+## Deliverables
+<what the final state should look like — files changed, tests passing, output produced>
+```
+
+Not every section is needed for every task. A simple review might just need Task + Scope. Scale the prompt to the task complexity.
+
+### Anti-patterns
+- **Vague prompts**: "Fix the bugs" — Claude Code doesn't know which bugs, where, or what "fixed" means.
+- **Assuming shared context**: Claude Code doesn't know what you discussed with the user. Restate relevant decisions.
+- **Multi-objective prompts without priority**: "Review, refactor, add tests, and optimize" — Pick one primary objective or explicitly order them.
+
+---
+
+## Session Limitations
+
+**There is no session resume through the harness.** Each `delegate_to_harness` call is an independent Claude Code invocation. The `session_id` in the response is informational only.
+
+If you need multi-step workflows:
+1. **Chain prompts manually**: Capture the result from step 1, include relevant context in the prompt for step 2.
+2. **Rely on filesystem state**: Claude Code writes to disk. The next invocation in the same working directory sees those changes.
+3. **Summarize prior work**: If the previous result is large, extract the key outcomes and inject them as context.
+
+```
+Example chaining pattern:
+
+Step 1: delegate_to_harness → "Analyze src/auth/ and list all SQL injection vectors"
+Step 2: delegate_to_harness → "The following SQL injection vectors were found in src/auth/:
+  1. <from step 1 result>
+  2. <from step 1 result>
+  Fix all of them using parameterized queries. Do not change the function signatures."
+```
+
+---
+
+## Error Handling
+
+| Condition | Detection | Action |
 |---|---|---|
-| Timeout | Process killed after 1800s | Resume session with `--resume <id>` or `--continue` |
-| Max turns hit | `num_turns` equals `--max-turns` value | Resume with higher limit or refined prompt |
-| Rate limited | `is_error: true`, error mentions rate limit | Wait and resume (Claude Code has built-in retry) |
-| Container died | Docker exec fails | Re-create container, start fresh (no resume possible) |
-| OOM | Process killed | Reduce task scope, split into subtasks |
-| Permission denied | Tool blocked by permission system | Add to `--allowedTools` or use `--dangerously-skip-permissions` |
+| Claude Code internal error | `is_error: true` | Read `result` for details. Retry with refined prompt or reduced scope. |
+| Process crash/timeout | `exit_code != 0`, no `result` field | Check `stderr`. If timeout, split the task into smaller pieces. |
+| Turn limit hit | `is_error: true`, `num_turns: 30` | Task too large for one invocation. Decompose and chain. |
+| Harness not found | `error` field in response | Check harnesses.yaml config and bot's `harness_access`. |
+| Permission denied | `error` field referencing harness_access | Bot needs `claude-code` in its `harness_access` list. |
 
 ---
 
-## Delegation Checklist
+## Common Patterns
 
-Before delegating to Claude Code:
+### Code review
+```json
+{
+  "harness": "claude-code",
+  "prompt": "Review the changes in src/api/routes/ for security issues, N+1 queries, and missing error handling. List findings with file:line references and severity (critical/warning/info). Do not make any changes.",
+  "working_directory": "/workspace/my-app",
+  "mode": "sync"
+}
+```
 
-- [ ] Task is well-scoped (single objective, clear success criteria)
-- [ ] Working directory is set and exists in the sandbox
-- [ ] Prompt includes all necessary context (don't assume Claude has prior knowledge)
-- [ ] Resource limits set (`--max-turns`, timeout)
-- [ ] Output format is `json` (not bare text)
-- [ ] For resumable tasks: session_id will be captured and stored
-- [ ] For long tasks: mode=deferred with notify_parent=true
-- [ ] For fire-and-forget: mode=deferred with notify_parent=false
+### Targeted implementation
+```json
+{
+  "harness": "claude-code",
+  "prompt": "Add rate limiting middleware to the Express API in src/api/server.ts. Use a sliding window algorithm with Redis (already available at REDIS_URL env var). Rate limit: 100 requests per minute per API key. Add tests in tests/rate-limit.test.ts. Run the tests before finishing.",
+  "working_directory": "/workspace/my-app",
+  "mode": "sync"
+}
+```
+
+### Large migration (deferred)
+```json
+{
+  "harness": "claude-code",
+  "prompt": "Migrate all class components in src/components/ to functional components with hooks. Preserve all existing behavior and prop interfaces. Run existing tests after each file to verify. Skip any component that uses lifecycle methods not directly translatable to hooks — list those separately at the end.",
+  "working_directory": "/workspace/frontend",
+  "mode": "deferred",
+  "notify_parent": true
+}
+```
+
+### Analysis with structured output
+```json
+{
+  "harness": "claude-code",
+  "prompt": "Analyze the dependency tree of this project. Output a JSON file at /workspace/analysis/deps.json with this structure: { \"direct\": [...], \"outdated\": [...], \"security_advisories\": [...], \"unused\": [...] }. For each entry include package name, current version, latest version, and risk level.",
+  "working_directory": "/workspace/my-app",
+  "mode": "sync"
+}
+```
+
+---
+
+## Working Directory Guidance
+
+- Always provide `working_directory` when the task targets a specific repo or project.
+- The default `/workspace` is always safe — it's a bind mount to the host, so all writes persist.
+- **Any writes outside `/workspace` are lost** when the container exits (ephemeral overlay filesystem).
+- For shared workspaces, the full workspace tree is mounted:
+  ```
+  /workspace/
+    bots/
+      dev_bot/
+        repo/           # cloned repos
+      other_bot/
+        ...
+    common/              # shared files
+  ```
+- For standalone bot workspaces, `/workspace` is the bot's own root.
+- If Claude Code needs to reference files outside the working directory (e.g. shared configs), mention the absolute paths in your prompt.
+
+---
+
+## Cost Awareness
+
+Each sync invocation blocks your agent turn and consumes Claude Code tokens. The `cost_usd` field in the response tells you what the invocation cost. Use this to:
+- Decide whether to use sync (cheap, fast tasks) vs deferred (expensive, long tasks).
+- Avoid redundant invocations — if you already have the information, don't re-run Claude Code.
+- Decompose work efficiently — one well-scoped prompt is cheaper than three vague ones that need retries.

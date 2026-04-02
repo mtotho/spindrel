@@ -1,0 +1,226 @@
+id: arr-heartbeat
+name: "Media Stack Heartbeat"
+description: >
+  Periodic maintenance cycle — checks service health, syncs all media state
+  (downloads, libraries, requests), updates schedules, rebuilds workspace
+  files, promotes persistent issues, and posts a summary if anything changed.
+
+defaults:
+  model: gemini/gemini-2.5-flash
+  carapaces: [arr]
+  timeout: 120
+  inject_prior_results: true
+  prior_result_max_chars: 1500
+  result_max_chars: 2000
+
+triggers:
+  heartbeat: true
+  api: true
+  tool: true
+
+tags: [media, heartbeat, arr, maintenance]
+session_mode: isolated
+
+steps:
+  # -----------------------------------------------------------------------
+  # 1. Service Health
+  # -----------------------------------------------------------------------
+  - id: health_check
+    prompt: |
+      Run a quick health check on all media stack services. For each service, make one
+      lightweight API call to confirm it's reachable:
+
+      1. `sonarr_series(limit=1)` — Sonarr
+      2. `radarr_movies(limit=1)` — Radarr
+      3. `qbit_torrents(limit=1)` — qBittorrent
+      4. `jellyfin_library(action="stats")` — Jellyfin
+      5. `jellyseerr_requests(limit=1)` — Jellyseerr
+
+      For each service, report ONE of:
+      - "UP" — responded successfully
+      - "DOWN" — error or unreachable (include error message)
+      - "NOT_CONFIGURED" — tool returned "not configured"
+
+      Format your output EXACTLY like this (one line per service):
+      ```
+      SONARR: UP|DOWN|NOT_CONFIGURED
+      RADARR: UP|DOWN|NOT_CONFIGURED
+      QBIT: UP|DOWN|NOT_CONFIGURED
+      JELLYFIN: UP|DOWN|NOT_CONFIGURED
+      JELLYSEERR: UP|DOWN|NOT_CONFIGURED
+      ```
+
+      If any service went down that was previously up, or recovered from being down,
+      log it via `append_timeline_event`.
+    on_failure: continue
+    timeout: 60
+
+  # -----------------------------------------------------------------------
+  # 2. Media Sync (downloads + arr queue + jellyfin + requests)
+  # -----------------------------------------------------------------------
+  - id: media_sync
+    prompt: |
+      Sync all media state across the stack. Use the health_check results to know which
+      services are available — skip sections for services that are DOWN or NOT_CONFIGURED.
+
+      **Downloads** (if qBit is UP):
+      1. `qbit_torrents(filter="downloading")` — active downloads
+      2. `qbit_torrents(filter="stalled")` — stalled torrents
+
+      For each torrent, classify:
+      - **Healthy**: downloading with seeds, progressing — note title + progress
+      - **Stalled**: 0 seeds, stalledDL state, ETA=8640000 — flag as issue
+      - **Errored**: tracker error, missing files — flag as issue
+
+      For stalled/errored torrents, auto-remediate:
+      1. `qbit_manage(hashes=[...], action="delete")` — remove stuck torrent
+      2. Look up the media in Sonarr/Radarr queue to find the series_id/movie_id
+      3. Trigger re-search: `sonarr_command(action="SeriesSearch", series_id=X)` or
+         `radarr_command(action="MoviesSearch", movie_ids=[X])`
+      4. Log: `append_timeline_event` with remediation details
+
+      **Sonarr** (if UP):
+      1. `sonarr_queue()` — in-progress downloads
+      2. `sonarr_wanted(limit=20)` — missing episodes for monitored series
+      3. `sonarr_calendar(days_ahead=7)` — upcoming episodes
+
+      Note episodes that were missing and are now downloaded/imported.
+      Note upcoming episodes in the next 48 hours.
+
+      **Radarr** (if UP):
+      1. `radarr_queue()` — in-progress downloads
+      2. `radarr_movies(filter="wanted")` — missing/wanted movies
+
+      Note any movies that are newly available.
+
+      **Jellyfin** (if UP):
+      From the Sonarr/Radarr results above, for any media reported as newly completed:
+      1. `jellyfin_library(action="search", search="TITLE")` — confirm it exists
+      2. If found: log confirmation via `append_timeline_event`
+      3. If NOT found despite being imported: flag as import issue, try
+         `jellyfin_library(action="scan")` to trigger a library refresh
+
+      Also check `jellyfin_library(action="recent", limit=10)` for recent additions.
+
+      **Jellyseerr** (if UP):
+      1. `jellyseerr_requests(filter="pending")` — pending requests
+      2. `jellyseerr_requests(filter="processing")` — in-progress requests
+      3. `jellyseerr_requests(filter="available", limit=10, sort="modified")` — recently fulfilled
+
+      Cross-reference: new pending → note, fulfilled → note, stuck processing → flag.
+      Log new requests and fulfillments via `append_timeline_event`.
+
+      Report summary:
+      - Downloads: N healthy (top 3 with progress), N stalled/errored (with actions taken)
+      - Sonarr/Radarr: new completions, active queue, upcoming 48h, wanted still missing
+      - Jellyfin: verified items, missing items, recent additions
+      - Requests: N pending, N processing, N recently fulfilled, any stuck
+    when:
+      step: health_check
+      status: done
+    on_failure: continue
+    timeout: 180
+
+  # -----------------------------------------------------------------------
+  # 3. Schedule Updates (rate-limited web search)
+  # -----------------------------------------------------------------------
+  - id: schedule_updates
+    prompt: |
+      Check for schedule/air date updates for tracked shows using web search.
+      **Rate limit: max 3 lookups this cycle.**
+
+      Read `data/tracked-shows.json` to find shows that need schedule updates.
+      Prioritize shows with episodes airing soonest or where schedule data is stale
+      (last lookup >24h ago).
+
+      For each show (up to 3):
+      1. `web_search`: "{show title}" next episode air date {current year}
+      2. Parse results for: next episode date, season status, cancellation/renewal
+      3. Update the tracked data with new schedule info
+
+      Also check `data/tracked-movies.json` for movies where release date lookup is due
+      (count toward the 3 lookup limit).
+
+      Log any schedule changes via `append_timeline_event`.
+
+      Report:
+      - Shows checked and findings
+      - Any cancellations, date shifts, or new season announcements
+      - Shows deferred to next cycle
+    on_failure: continue
+    timeout: 180
+    tools: [web_search]
+
+  # -----------------------------------------------------------------------
+  # 4. Workspace Sync + Issue Promotion
+  # -----------------------------------------------------------------------
+  - id: workspace_sync
+    prompt: |
+      Rebuild workspace files with data from all prior steps, and promote persistent issues.
+
+      **Issue Promotion** — read MEDIA.md Issues section. For each open issue:
+      - **Time threshold**: issue open >24 hours → promote
+      - **Remediation threshold**: auto-remediation failed 2+ times → promote
+      - **Manual intervention**: issue requires config change or manual grab → promote
+
+      If criteria met and no existing task card reference:
+      - Create a task card using `create_task_card` in `tasks.md` Backlog
+      - Title: "Resolve: {title} — {issue summary}"
+      - Tags: stuck, auto-promoted
+      - Log via `append_timeline_event`
+
+      For previously promoted issues that are now resolved:
+      - Move the task card to Done
+      - Log resolution
+
+      **MEDIA.md** — update each section:
+      - Active Downloads: current queue from media_sync
+      - Issues: carry forward unresolved, add new from this cycle, remove resolved
+      - Requests: from media_sync Jellyseerr data
+      - Recently Resolved: add newly completed, remove entries >7 days old
+
+      **status.md** — update:
+      - Service status table from health_check
+      - Health indicator:
+        - `green`: all services up, no stuck downloads, no unresolved issues >24h
+        - `yellow`: degraded service, active issues, or items in remediation
+        - `red`: service down, multiple stuck items
+      - Current Focus: upcoming episodes, active investigations
+      - Recent Milestones: completions from this cycle
+
+      If health changed, log via `append_timeline_event`.
+
+      Report: what was updated, N issues promoted, N resolved.
+    on_failure: continue
+    timeout: 120
+
+  # -----------------------------------------------------------------------
+  # 5. Summary
+  # -----------------------------------------------------------------------
+  - id: summary
+    prompt: |
+      Compose the heartbeat summary based on all prior step results.
+
+      Compile:
+      - Services: N healthy, N degraded, N down
+      - Downloads: N active (any completing soon?)
+      - Issues: N new, N auto-resolved, N promoted
+      - Requests: N new, N fulfilled
+      - Schedule: any changes (cancellations, date shifts, new seasons)
+      - Upcoming: episodes/releases in next 48h
+
+      **Post to channel if ANY of these are true:**
+      - New issues detected or auto-resolved
+      - Service went down or recovered
+      - Schedule change discovered (cancellation, date shift)
+      - Media confirmed available in Jellyfin (good news)
+      - Upcoming episodes in next 48h
+
+      **Silent heartbeat if:**
+      - All services healthy, downloads progressing normally, no changes
+      - Only updated progress numbers and timestamps
+
+      If posting, keep it concise and conversational. Lead with the most important item.
+      If silent, just log: `append_timeline_event`: "Heartbeat: all healthy, N active downloads"
+    on_failure: continue
+    timeout: 90

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,6 +17,29 @@ from app.db.engine import async_session
 from app.db.models import ToolEmbedding
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Tool retrieval cache — avoids embedding API call + pgvector query per request
+# ---------------------------------------------------------------------------
+_TOOL_CACHE_TTL = 300  # 5 minutes
+_tool_cache: dict[str, tuple[float, list[dict[str, Any]], float, list[dict[str, Any]]]] = {}
+
+
+def _cache_key(query: str, local_tool_names: list[str], mcp_server_names: list[str], top_k: int, threshold: float) -> str:
+    """Build a deterministic cache key from retrieval parameters."""
+    parts = [
+        query,
+        ",".join(sorted(local_tool_names)),
+        ",".join(sorted(mcp_server_names)),
+        str(top_k),
+        f"{threshold:.4f}",
+    ]
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()
+
+
+def invalidate_tool_cache() -> None:
+    """Clear the tool retrieval cache (call after tool index changes)."""
+    _tool_cache.clear()
 
 
 def tool_key_for(server_name: str | None, tool_name: str) -> str:
@@ -108,6 +132,7 @@ async def _upsert_tool_row(
 async def index_local_tools() -> None:
     from app.tools.registry import iter_registered_tools
 
+    invalidate_tool_cache()
     current_tools = list(iter_registered_tools())
     current_keys = {tool_key_for(None, tool_name) for tool_name, _, _, _, _ in current_tools}
 
@@ -147,6 +172,7 @@ async def index_local_tools() -> None:
             await db.commit()
 
     skipped = 0
+    embed_disabled = False
     for tool_name, schema, source_dir, source_integration, source_file in current_tools:
         tkey = tool_key_for(None, tool_name)
         embed_txt = build_embed_text(schema, tool_name, None)
@@ -154,10 +180,17 @@ async def index_local_tools() -> None:
         if existing_hashes.get(tkey) == h:
             skipped += 1
             continue
+        if embed_disabled:
+            continue
         try:
             emb = await _embed_query(embed_txt)
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to embed local tool %s", tool_name)
+            # Circuit breaker: if quota exhausted or auth error, skip remaining tools
+            exc_str = str(exc).lower()
+            if "insufficient_quota" in exc_str or "invalid_api_key" in exc_str:
+                logger.warning("Embedding provider quota/auth error — skipping remaining tool embeddings")
+                embed_disabled = True
             continue
         try:
             await _upsert_tool_row(
@@ -179,6 +212,7 @@ async def index_local_tools() -> None:
 
 async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> None:
     """Replace index rows for this MCP server; embed new/changed tools only."""
+    invalidate_tool_cache()
     current_names = [s["function"]["name"] for s in schemas if s.get("function", {}).get("name")]
 
     async with async_session() as db:
@@ -201,6 +235,7 @@ async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> No
     existing_hashes = {row.tool_key: row.content_hash for row in rows}
 
     skipped = 0
+    embed_disabled = False
     for sch in schemas:
         fn = sch.get("function") or {}
         tool_name = fn.get("name")
@@ -212,10 +247,16 @@ async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> No
         if existing_hashes.get(tkey) == h:
             skipped += 1
             continue
+        if embed_disabled:
+            continue
         try:
             emb = await _embed_query(embed_txt)
-        except Exception:
+        except Exception as exc:
             logger.exception("Failed to embed MCP tool %s/%s", server_name, tool_name)
+            exc_str = str(exc).lower()
+            if "insufficient_quota" in exc_str or "invalid_api_key" in exc_str:
+                logger.warning("Embedding provider quota/auth error — skipping remaining MCP tool embeddings")
+                embed_disabled = True
             continue
         try:
             await _upsert_tool_row(
@@ -240,10 +281,25 @@ async def retrieve_tools(
     *,
     top_k: int | None = None,
     threshold: float | None = None,
-) -> tuple[list[dict[str, Any]], float]:
-    """Return (tool_dicts, best_similarity) for local + MCP tools above threshold."""
+) -> tuple[list[dict[str, Any]], float, list[dict[str, Any]]]:
+    """Return (tool_dicts, best_similarity, top_candidates) for local + MCP tools above threshold.
+
+    Results are cached for 5 minutes keyed on (query, tool_names, server_names, top_k, threshold)
+    to avoid redundant embedding API calls and pgvector queries.
+    """
     top_k = settings.TOOL_RETRIEVAL_TOP_K if top_k is None else top_k
     threshold = settings.TOOL_RETRIEVAL_THRESHOLD if threshold is None else threshold
+
+    # Check cache
+    ck = _cache_key(query, local_tool_names, mcp_server_names, top_k, threshold)
+    cached = _tool_cache.get(ck)
+    if cached is not None:
+        ts, c_out, c_sim, c_cand = cached
+        if time.monotonic() - ts < _TOOL_CACHE_TTL:
+            logger.debug("Tool retrieval cache hit for query=%s...", query[:40])
+            return c_out, c_sim, c_cand
+        else:
+            del _tool_cache[ck]
 
     filters: list[Any] = []
     if local_tool_names:
@@ -300,6 +356,17 @@ async def retrieve_tools(
             continue
         if isinstance(schema_obj, dict):
             out.append(schema_obj)
+
+    # Store in cache
+    _tool_cache[ck] = (time.monotonic(), out, best_sim, top_candidates)
+
+    # Evict stale entries periodically (every ~100 calls, scan and remove expired)
+    if len(_tool_cache) > 200:
+        now = time.monotonic()
+        stale = [k for k, (ts, *_) in _tool_cache.items() if now - ts >= _TOOL_CACHE_TTL]
+        for k in stale:
+            del _tool_cache[k]
+
     return out, best_sim, top_candidates
 
 
@@ -312,9 +379,16 @@ async def warm_mcp_tool_index_for_all_bots() -> None:
     for bot in list_bots():
         servers.update(bot.mcp_servers)
 
-    for name in sorted(servers):
-        tools = await fetch_mcp_tools([name])
-        await index_mcp_tools(name, tools)
+    import asyncio
+
+    async def _fetch_and_index(server: str) -> None:
+        try:
+            tools = await fetch_mcp_tools([server])
+            await index_mcp_tools(server, tools)
+        except Exception:
+            logger.exception("Failed to warm MCP tool index for server '%s'", server)
+
+    await asyncio.gather(*[_fetch_and_index(s) for s in sorted(servers)])
 
 
 async def validate_pinned_tools() -> None:

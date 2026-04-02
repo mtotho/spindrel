@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS audit_log (
     risk_level   TEXT,
     ts           TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS cursors (
+    key          TEXT PRIMARY KEY,
+    value        TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+);
 """
 
 
@@ -42,7 +48,7 @@ class IngestionStore:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path))
+        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._init_schema()
 
@@ -101,6 +107,25 @@ class IngestionStore:
         self._conn.execute(
             "INSERT INTO audit_log (source, source_id, action, risk_level, ts) VALUES (?, ?, ?, ?, ?)",
             (source, source_id, action, risk_level, now),
+        )
+        self._conn.commit()
+
+    # -- cursors -----------------------------------------------------------
+
+    def get_cursor(self, key: str) -> str | None:
+        """Get a cursor value by key. Returns None if not set."""
+        row = self._conn.execute(
+            "SELECT value FROM cursors WHERE key = ?", (key,)
+        ).fetchone()
+        return row[0] if row else None
+
+    def set_cursor(self, key: str, value: str) -> None:
+        """Set a cursor value (upsert)."""
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "INSERT INTO cursors (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (key, value, now),
         )
         self._conn.commit()
 

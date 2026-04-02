@@ -7,6 +7,7 @@ from __future__ import annotations
 import math
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import func, select
@@ -16,10 +17,10 @@ from app.config import settings
 from app.db.models import (
     BotKnowledge,
     Channel,
+    ConversationSection,
     KnowledgeAccess,
     Memory,
     Message,
-    Plan,
     Session,
 )
 
@@ -50,13 +51,13 @@ class CompactionState:
 
 
 @dataclass
-class CompressionState:
+class RerankState:
     enabled: bool = False
     model: str = ""
-    threshold: int = 0
-    keep_turns: int = 0
-    conversation_chars: int = 0
-    would_compress: bool = False
+    threshold_chars: int = 0
+    max_chunks: int = 0
+    total_rag_chars: int = 0
+    would_rerank: bool = False
 
 
 @dataclass
@@ -74,9 +75,10 @@ class ContextBreakdownResult:
     total_chars: int
     total_tokens_approx: int
     compaction: CompactionState
-    compression: CompressionState
+    reranking: RerankState
     effective_settings: dict[str, EffectiveSetting]
-    disclaimer: str
+    context_budget: dict | None = None
+    disclaimer: str = ""
 
 
 def _chars_to_tokens(chars: int) -> int:
@@ -111,6 +113,15 @@ async def compute_context_breakdown(
     # 1. Static context
     # -----------------------------------------------------------------------
 
+    # Global base prompt (server-level, prepended before everything)
+    from app.config import settings as _settings
+    if _settings.GLOBAL_BASE_PROMPT:
+        categories.append(ContextCategory(
+            key="global_base_prompt", label="Global Base Prompt", chars=len(_settings.GLOBAL_BASE_PROMPT),
+            tokens_approx=0, percentage=0, category="static",
+            description="Server-wide prompt prepended before all other base/system prompts",
+        ))
+
     # Base prompt
     base = render_base_prompt(bot)
     if base:
@@ -129,15 +140,7 @@ async def compute_context_breakdown(
             description="Bot-specific system prompt",
         ))
 
-    # Memory guidelines (appended to system prompt)
-    if bot.memory.enabled and bot.memory.prompt:
-        mg_chars = len(bot.memory.prompt.strip())
-        if mg_chars:
-            categories.append(ContextCategory(
-                key="memory_guidelines", label="Memory Guidelines", chars=mg_chars,
-                tokens_approx=0, percentage=0, category="static",
-                description="Instructions for memory usage appended to system prompt",
-            ))
+    # Memory guidelines — DEPRECATED (DB memory no longer in use)
 
     # Persona
     if bot.persona:
@@ -149,6 +152,65 @@ async def compute_context_breakdown(
                 tokens_approx=0, percentage=0, category="static",
                 description="Bot persona layer injected as system message",
             ))
+
+    # Workspace-files memory scheme: MEMORY.md + daily logs (injected every turn from disk)
+    if bot.memory_scheme == "workspace-files":
+        import os as _bd_os
+        from datetime import date as _bd_date
+        from app.services.memory_scheme import get_memory_root, get_memory_rel_path
+        from app.services.workspace import workspace_service
+        try:
+            _bd_ws_root = workspace_service.get_workspace_root(bot.id, bot)
+            _bd_mem_root = get_memory_root(bot, ws_root=_bd_ws_root)
+            _bd_mem_rel = get_memory_rel_path(bot)
+
+            # MEMORY.md
+            _bd_mem_md = _bd_os.path.join(_bd_mem_root, "MEMORY.md")
+            if _bd_os.path.isfile(_bd_mem_md):
+                _bd_md_chars = len(Path(_bd_mem_md).read_text())
+                if _bd_md_chars > 0:
+                    categories.append(ContextCategory(
+                        key="memory_md", label="MEMORY.md", chars=_bd_md_chars,
+                        tokens_approx=0, percentage=0, category="static",
+                        description=f"Curated stable facts ({_bd_mem_rel}/MEMORY.md) — injected every turn",
+                    ))
+
+            # Today's daily log
+            _bd_today = _bd_date.today().isoformat()
+            _bd_today_path = _bd_os.path.join(_bd_mem_root, "logs", f"{_bd_today}.md")
+            if _bd_os.path.isfile(_bd_today_path):
+                _bd_today_chars = len(Path(_bd_today_path).read_text())
+                if _bd_today_chars > 0:
+                    categories.append(ContextCategory(
+                        key="memory_today_log", label="Today's Log", chars=_bd_today_chars,
+                        tokens_approx=0, percentage=0, category="static",
+                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_today}.md) — injected every turn",
+                    ))
+
+            # Yesterday's daily log
+            _bd_yest = (_bd_date.today() - __import__("datetime").timedelta(days=1)).isoformat()
+            _bd_yest_path = _bd_os.path.join(_bd_mem_root, "logs", f"{_bd_yest}.md")
+            if _bd_os.path.isfile(_bd_yest_path):
+                _bd_yest_chars = len(Path(_bd_yest_path).read_text())
+                if _bd_yest_chars > 0:
+                    categories.append(ContextCategory(
+                        key="memory_yesterday_log", label="Yesterday's Log", chars=_bd_yest_chars,
+                        tokens_approx=0, percentage=0, category="static",
+                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_yest}.md) — injected every turn",
+                    ))
+
+            # Reference file count
+            _bd_ref_dir = _bd_os.path.join(_bd_mem_root, "reference")
+            if _bd_os.path.isdir(_bd_ref_dir):
+                _bd_ref_files = [f for f in _bd_os.listdir(_bd_ref_dir) if f.endswith(".md")]
+                if _bd_ref_files:
+                    categories.append(ContextCategory(
+                        key="memory_reference_index", label="Reference Index", chars=len(_bd_ref_files) * 40,
+                        tokens_approx=0, percentage=0, category="static",
+                        description=f"{len(_bd_ref_files)} reference file(s) listed (names only; read via get_memory_file)",
+                    ))
+        except Exception:
+            logger.debug("Could not compute memory scheme breakdown for bot %s", bot.id, exc_info=True)
 
     # Datetime
     categories.append(ContextCategory(
@@ -238,25 +300,8 @@ async def compute_context_breakdown(
             description=f"{len(bot.delegate_bots)} delegatable bot(s)",
         ))
 
-    # Memory RAG
-    if bot.memory.enabled:
-        mem_max = bot.memory_max_inject_chars or settings.MEMORY_MAX_INJECT_CHARS
-        est_mem = int(settings.MEMORY_RETRIEVAL_LIMIT * mem_max * 0.4)
-        categories.append(ContextCategory(
-            key="memory_rag", label="Memory (RAG)", chars=est_mem,
-            tokens_approx=0, percentage=0, category="rag",
-            description="Semantically recalled memories; varies by query",
-        ))
-
-    # Knowledge RAG
-    if bot.knowledge.enabled:
-        know_max = bot.knowledge_max_inject_chars or settings.KNOWLEDGE_MAX_INJECT_CHARS
-        est_k = int(3 * know_max * 0.35)
-        categories.append(ContextCategory(
-            key="knowledge_rag", label="Knowledge (RAG)", chars=est_k,
-            tokens_approx=0, percentage=0, category="rag",
-            description="Up to 3 knowledge docs; varies by query",
-        ))
+    # Memory RAG — DEPRECATED (DB memory no longer in use)
+    # Knowledge RAG — DEPRECATED (DB knowledge no longer in use)
 
     # Pinned knowledge
     pinned_k_count = (await db.execute(
@@ -274,26 +319,69 @@ async def compute_context_breakdown(
             description=f"{pinned_k_count} pinned knowledge doc(s)",
         ))
 
-    # Plans
-    active_plans = (await db.execute(
-        select(func.count()).select_from(Plan)
-        .where(Plan.channel_id == channel_id, Plan.status == "active")
-    )).scalar_one()
-    if active_plans:
-        categories.append(ContextCategory(
-            key="plans", label="Active Plans", chars=active_plans * 600,
-            tokens_approx=0, percentage=0, category="rag",
-            description=f"{active_plans} active plan(s) injected each turn",
-        ))
+    # Channel workspace active files (injected every turn as static context)
+    if getattr(channel, "channel_workspace_enabled", False):
+        try:
+            import os as _cw_os
+            from app.services.channel_workspace import get_channel_workspace_root
+            _cw_root = get_channel_workspace_root(str(channel_id), bot)
+            _cw_active_chars = 0
+            _cw_active_count = 0
+            if _cw_os.path.isdir(_cw_root):
+                for _cw_entry in sorted(_cw_os.scandir(_cw_root), key=lambda e: e.name):
+                    if _cw_entry.is_file() and _cw_entry.name.endswith(".md"):
+                        try:
+                            _cw_content = Path(_cw_entry.path).read_text()
+                            if _cw_content.strip():
+                                _cw_active_chars += len(_cw_content)
+                                _cw_active_count += 1
+                        except Exception:
+                            pass
+            if _cw_active_chars > 0:
+                # Cap at the same budget used in context_assembly
+                _CW_BUDGET = 50_000
+                _cw_injected = min(_cw_active_chars, _CW_BUDGET)
+                categories.append(ContextCategory(
+                    key="channel_workspace_files", label="Channel Workspace Files",
+                    chars=_cw_injected,
+                    tokens_approx=0, percentage=0, category="static",
+                    description=f"{_cw_active_count} active .md file(s) injected every turn ({_cw_active_chars:,} chars total"
+                                + (f", capped to {_CW_BUDGET:,})" if _cw_active_chars > _CW_BUDGET else ")"),
+                ))
+        except Exception:
+            logger.debug("Could not compute channel workspace files for channel %s", channel_id, exc_info=True)
 
-    # Workspace / filesystem context
+    # Workspace / filesystem RAG context
     if bot.workspace.enabled and bot.workspace.indexing.enabled:
         est_ws = int(settings.FS_INDEX_TOP_K * settings.FS_INDEX_CHUNK_WINDOW * 0.3)
         categories.append(ContextCategory(
-            key="workspace_context", label="Workspace Files", chars=est_ws,
+            key="workspace_context", label="Workspace Files (RAG)", chars=est_ws,
             tokens_approx=0, percentage=0, category="rag",
-            description="Workspace file chunks; varies by query",
+            description="Workspace file chunks retrieved by semantic search; varies by query",
         ))
+
+    # Section index (file mode)
+    from app.services.compaction import _get_history_mode
+    _hist_mode = _get_history_mode(bot, channel)
+    if _hist_mode == "file":
+        _si_count = getattr(channel, "section_index_count", None)
+        _si_count = _si_count if _si_count is not None else settings.SECTION_INDEX_COUNT
+        if _si_count > 0:
+            _si_verbosity = getattr(channel, "section_index_verbosity", None) or settings.SECTION_INDEX_VERBOSITY
+            _actual_sections = (await db.execute(
+                select(func.count()).select_from(ConversationSection)
+                .where(ConversationSection.channel_id == channel_id)
+            )).scalar_one()
+            _shown = min(_si_count, _actual_sections)
+            if _shown > 0:
+                # Estimate chars per section by verbosity
+                _per_section = {"compact": 60, "standard": 120, "detailed": 160}.get(_si_verbosity, 120)
+                _si_chars = 100 + _shown * _per_section  # header + entries
+                categories.append(ContextCategory(
+                    key="section_index", label="Section Index", chars=_si_chars,
+                    tokens_approx=0, percentage=0, category="rag",
+                    description=f"{_shown} recent section(s) in {_si_verbosity} mode (file history)",
+                ))
 
     # -----------------------------------------------------------------------
     # 3. Conversation history (live from DB)
@@ -332,21 +420,79 @@ async def compute_context_breakdown(
                 row = result.one()
                 msgs_since_watermark = row[0]
                 chars_since_watermark = row[1]
+                # Count user messages only (matches compaction trigger logic)
+                user_msgs_since_watermark = (await db.execute(
+                    select(func.count())
+                    .where(
+                        Message.session_id == channel.active_session_id,
+                        Message.created_at > watermark_msg.created_at,
+                        Message.role == "user",
+                    )
+                )).scalar_one()
             else:
                 msgs_since_watermark = total_messages
                 chars_since_watermark = total_msg_chars
+                user_msgs_since_watermark = None
         else:
             msgs_since_watermark = total_messages
             chars_since_watermark = total_msg_chars
+            user_msgs_since_watermark = None
 
         # Add conversation history category
         if chars_since_watermark > 0:
+            # Show user turn count since compaction triggers on user messages
+            if session and session.summary:
+                if user_msgs_since_watermark is not None:
+                    desc = f"{user_msgs_since_watermark} user turns since last compaction ({msgs_since_watermark} messages total)"
+                else:
+                    desc = f"{msgs_since_watermark} messages since last compaction"
+            else:
+                desc = f"{total_messages} messages (no compaction yet)"
             categories.append(ContextCategory(
                 key="conversation", label="Conversation History",
                 chars=chars_since_watermark,
                 tokens_approx=0, percentage=0, category="conversation",
-                description=f"{msgs_since_watermark} messages since last compaction" if session and session.summary else f"{total_messages} messages (no compaction yet)",
+                description=desc,
             ))
+
+        # Context pruning savings estimate
+        _pruning_on = _resolve_setting(
+            getattr(channel, "context_pruning", None),
+            getattr(bot, "context_pruning", None),
+            settings.CONTEXT_PRUNING_ENABLED, "context_pruning",
+        ).value
+        if _pruning_on and chars_since_watermark > 0:
+            _keep = _resolve_setting(
+                getattr(channel, "context_pruning_keep_turns", None),
+                getattr(bot, "context_pruning_keep_turns", None),
+                settings.CONTEXT_PRUNING_KEEP_TURNS, "context_pruning_keep_turns",
+            ).value
+            # Estimate: count tool-role messages with content > min_length in older turns
+            _min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
+            _watermark_clause = Message.created_at > watermark_msg.created_at if (session and session.summary_message_id and watermark_msg) else True
+            _tool_msg_stats = (await db.execute(
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(func.length(Message.content)), 0),
+                ).where(
+                    Message.session_id == channel.active_session_id,
+                    _watermark_clause,
+                    Message.role == "tool",
+                    func.length(Message.content) >= _min_len,
+                )
+            )).one()
+            _tool_count, _tool_chars = _tool_msg_stats
+            if _tool_count > 0:
+                # Rough estimate: most tool results outside keep_turns get pruned,
+                # marker is ~50 chars each, saving most of the original content
+                _marker_chars = _tool_count * 50
+                _est_savings = max(0, _tool_chars - _marker_chars)
+                categories.append(ContextCategory(
+                    key="context_pruning", label="Context Pruning (savings)",
+                    chars=-_est_savings,
+                    tokens_approx=0, percentage=0, category="conversation",
+                    description=f"~{_tool_count} tool results eligible for pruning (keeping last {_keep} turns intact)",
+                ))
 
     # -----------------------------------------------------------------------
     # 4. Compaction state
@@ -415,29 +561,17 @@ async def compute_context_breakdown(
     )
 
     # -----------------------------------------------------------------------
-    # 5. Context compression (ephemeral, per-turn)
+    # 5. RAG re-ranking state
     # -----------------------------------------------------------------------
-    from app.services.compression import (
-        _is_compression_enabled,
-        _get_compression_model,
-        _get_compression_threshold,
-        _get_compression_keep_turns,
-    )
-
-    comp_enabled = _is_compression_enabled(bot, channel)
-    comp_model = _get_compression_model(bot, channel)
-    comp_threshold = _get_compression_threshold(bot, channel)
-    comp_keep_turns = _get_compression_keep_turns(bot, channel)
-    comp_conv_chars = chars_since_watermark
-    comp_would_compress = comp_enabled and comp_conv_chars >= comp_threshold
-
-    compression = CompressionState(
-        enabled=comp_enabled,
-        model=comp_model,
-        threshold=comp_threshold,
-        keep_turns=comp_keep_turns,
-        conversation_chars=comp_conv_chars,
-        would_compress=comp_would_compress,
+    total_rag_chars = sum(c.chars for c in categories if c.category == "rag")
+    rerank_model = settings.RAG_RERANK_MODEL or settings.COMPACTION_MODEL
+    reranking = RerankState(
+        enabled=settings.RAG_RERANK_ENABLED,
+        model=rerank_model,
+        threshold_chars=settings.RAG_RERANK_THRESHOLD_CHARS,
+        max_chunks=settings.RAG_RERANK_MAX_CHUNKS,
+        total_rag_chars=total_rag_chars,
+        would_rerank=settings.RAG_RERANK_ENABLED and total_rag_chars >= settings.RAG_RERANK_THRESHOLD_CHARS,
     )
 
     # -----------------------------------------------------------------------
@@ -457,26 +591,28 @@ async def compute_context_breakdown(
             channel.compaction_keep_turns, bot.compaction_keep_turns,
             settings.COMPACTION_KEEP_TURNS, "compaction_keep_turns",
         ),
-        "context_compression": _resolve_setting(
-            channel.context_compression, (bot.compression_config or {}).get("enabled"),
-            settings.CONTEXT_COMPRESSION_ENABLED, "context_compression",
+        "memory_enabled": EffectiveSetting(value=False, source="deprecated"),
+        "knowledge_enabled": EffectiveSetting(value=False, source="deprecated"),
+        "max_iterations": _resolve_setting(
+            channel.max_iterations, None, settings.AGENT_MAX_ITERATIONS, "max_iterations",
         ),
-        "compression_threshold": _resolve_setting(
-            channel.compression_threshold, (bot.compression_config or {}).get("threshold"),
-            settings.CONTEXT_COMPRESSION_THRESHOLD, "compression_threshold",
-        ),
-        "compression_model": _resolve_setting(
-            channel.compression_model, (bot.compression_config or {}).get("model"),
-            settings.CONTEXT_COMPRESSION_MODEL or "(compaction model)", "compression_model",
-        ),
-        "memory_enabled": EffectiveSetting(value=bot.memory.enabled, source="bot"),
-        "knowledge_enabled": EffectiveSetting(value=bot.knowledge.enabled, source="bot"),
         "tool_retrieval": EffectiveSetting(value=bot.tool_retrieval, source="bot"),
         "tool_similarity_threshold": EffectiveSetting(
             value=bot.tool_similarity_threshold or settings.TOOL_RETRIEVAL_THRESHOLD,
             source="bot" if bot.tool_similarity_threshold else "global",
         ),
         "base_prompt": EffectiveSetting(value=bot.base_prompt, source="bot"),
+        "rag_reranking": EffectiveSetting(value=settings.RAG_RERANK_ENABLED, source="global"),
+        "context_pruning": _resolve_setting(
+            getattr(channel, "context_pruning", None),
+            getattr(bot, "context_pruning", None),
+            settings.CONTEXT_PRUNING_ENABLED, "context_pruning",
+        ),
+        "context_pruning_keep_turns": _resolve_setting(
+            getattr(channel, "context_pruning_keep_turns", None),
+            getattr(bot, "context_pruning_keep_turns", None),
+            settings.CONTEXT_PRUNING_KEEP_TURNS, "context_pruning_keep_turns",
+        ),
     }
 
     # -----------------------------------------------------------------------
@@ -489,6 +625,27 @@ async def compute_context_breakdown(
         cat.tokens_approx = _chars_to_tokens(cat.chars)
         cat.percentage = round((cat.chars / total_chars * 100) if total_chars > 0 else 0, 1)
 
+    # Context budget info (if enabled)
+    _budget_info = None
+    if settings.CONTEXT_BUDGET_ENABLED:
+        try:
+            from app.agent.context_budget import get_model_context_window, estimate_tokens
+            _model = channel.model_override or bot.model
+            _provider = getattr(channel, "model_provider_id_override", None) or bot.model_provider_id
+            _window = get_model_context_window(_model, _provider)
+            _reserve = int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO)
+            _available = _window - _reserve
+            _est_consumed = _chars_to_tokens(total_chars)
+            _budget_info = {
+                "model_context_window": _window,
+                "reserve_tokens": _reserve,
+                "available_tokens": _available,
+                "estimated_consumed_tokens": _est_consumed,
+                "estimated_utilization": round(_est_consumed / _available, 3) if _available > 0 else 1.0,
+            }
+        except Exception:
+            pass
+
     return ContextBreakdownResult(
         channel_id=str(channel_id),
         session_id=session_id,
@@ -497,8 +654,9 @@ async def compute_context_breakdown(
         total_chars=total_chars,
         total_tokens_approx=total_tokens,
         compaction=compaction,
-        compression=compression,
+        reranking=reranking,
         effective_settings=effective_settings,
+        context_budget=_budget_info,
         disclaimer="RAG components are heuristic estimates. Actual values vary per query based on semantic similarity scores.",
     )
 

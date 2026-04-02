@@ -117,6 +117,8 @@ def _build_docker_run_args(
 
     args += ["--restart", "unless-stopped"]
     args += ["--network", network_mode or "none"]
+    # Allow containers to reach the host (matches shared_workspace.py)
+    args += ["--add-host", "host.docker.internal:host-gateway"]
 
     if read_only_root:
         args += ["--read-only"]
@@ -337,10 +339,33 @@ class SandboxService:
 
         start_ts = datetime.now(timezone.utc).timestamp()
 
+        # Build exec args, injecting server URL + per-bot API key
+        _exec_args = ["docker", "exec", "-i"]
+        _exec_args += ["-e", f"AGENT_SERVER_URL={settings.SERVER_PUBLIC_URL}"]
+        try:
+            from app.services.api_keys import get_bot_api_key_value
+            async with async_session() as _db:
+                _bot_key = await get_bot_api_key_value(_db, instance.created_by_bot)
+            if _bot_key:
+                _exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
+        except Exception:
+            pass
+        # Inject secret values as env vars (respecting scoped secrets from workflows)
+        try:
+            from app.services.secret_values import get_env_dict as _get_secret_env
+            from app.agent.context import current_allowed_secrets
+            _all_secrets = _get_secret_env()
+            _allowed = current_allowed_secrets.get(None)
+            _secrets_to_inject = {k: v for k, v in _all_secrets.items() if k in _allowed} if _allowed is not None else _all_secrets
+            for _sk, _sv in _secrets_to_inject.items():
+                _exec_args += ["-e", f"{_sk}={_sv}"]
+        except Exception:
+            pass
+        _exec_args += [instance.container_id, "sh", "-c", command]
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                "docker", "exec", "-i", instance.container_id,
-                "sh", "-c", command,
+                *_exec_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -740,6 +765,27 @@ class SandboxService:
             exec_args = ["docker", "exec", "-i"]
             if config.user:
                 exec_args += ["--user", config.user]
+            # Inject server URL + per-bot API key so containers can call back
+            exec_args += ["-e", f"AGENT_SERVER_URL={settings.SERVER_PUBLIC_URL}"]
+            try:
+                from app.services.api_keys import get_bot_api_key_value
+                async with async_session() as _db:
+                    _bot_key = await get_bot_api_key_value(_db, bot_id)
+                if _bot_key:
+                    exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
+            except Exception:
+                pass
+            # Inject secret values as env vars (respecting scoped secrets from workflows)
+            try:
+                from app.services.secret_values import get_env_dict as _get_secret_env
+                from app.agent.context import current_allowed_secrets
+                _all_secrets = _get_secret_env()
+                _allowed = current_allowed_secrets.get(None)
+                _secrets_to_inject = {k: v for k, v in _all_secrets.items() if k in _allowed} if _allowed is not None else _all_secrets
+                for _sk, _sv in _secrets_to_inject.items():
+                    exec_args += ["-e", f"{_sk}={_sv}"]
+            except Exception:
+                pass
             exec_args += [instance.container_id, "sh", "-c", command]
             proc = await asyncio.create_subprocess_exec(
                 *exec_args,

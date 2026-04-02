@@ -1,0 +1,95 @@
+id: system-diagnostics
+name: "System Diagnostics"
+description: >
+  Multi-step system health check — disk, memory, services, and log analysis.
+  Can be triggered manually, via API, or from a heartbeat. Raises approval
+  gate before taking any corrective action.
+
+params:
+  target:
+    type: string
+    default: "all"
+    description: "Subsystem to check: all, disk, memory, services, logs"
+  threshold_disk_pct:
+    type: number
+    default: 80
+    description: "Disk usage percentage that triggers a warning"
+
+defaults:
+  model: gemini/gemini-2.5-flash
+  timeout: 120
+  tools: [exec_command]
+
+triggers:
+  heartbeat: true
+  tool: true
+  api: true
+
+tags: [ops, monitoring, system]
+
+steps:
+  - id: check_resources
+    prompt: |
+      Check system resource usage. Target: "{{target}}".
+      Run these commands and report the results:
+      - `df -h` (disk usage)
+      - `free -h` (memory usage)
+      - `uptime` (load average)
+      Report raw output, then flag anything above {{threshold_disk_pct}}% disk
+      or above 90% memory as a warning.
+
+  - id: check_services
+    prompt: |
+      Check the status of running services and containers.
+      Run: `docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"` (if docker available)
+      Also check: `systemctl list-units --state=failed --no-pager` (if systemd available)
+      Report any unhealthy or failed services.
+    when:
+      any:
+        - param: target
+          equals: "all"
+        - param: target
+          equals: "services"
+
+  - id: check_logs
+    prompt: |
+      Check recent system and application logs for errors.
+      Run: `journalctl -p err --since "1 hour ago" --no-pager -n 50` (if available)
+      Also check: `docker logs --tail 50 --since 1h $(docker ps -q)` (if docker available)
+      Summarize any recurring errors or critical issues.
+    when:
+      any:
+        - param: target
+          equals: "all"
+        - param: target
+          equals: "logs"
+
+  - id: analyze
+    prompt: |
+      Analyze all diagnostic results and produce a health report.
+
+      Resource status: {{steps.check_resources.result}}
+      Service status: {{steps.check_services.result}}
+      Log analysis: {{steps.check_logs.result}}
+
+      Format as:
+      ## System Health Report
+      **Overall: HEALTHY / WARNING / CRITICAL**
+      Then list each subsystem with status and details.
+      If any issues found, include a "Recommended Actions" section.
+    when:
+      step: check_resources
+      status: done
+
+  - id: remediate
+    prompt: |
+      The health report identified critical issues:
+      {{steps.analyze.result}}
+
+      Execute the recommended actions to resolve CRITICAL issues only.
+      Do NOT restart services unless explicitly listed in recommendations.
+    when:
+      step: analyze
+      output_contains: "CRITICAL"
+    requires_approval: true
+    on_failure: continue

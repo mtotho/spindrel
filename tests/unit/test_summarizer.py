@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.summarizer import _resolve_model, summarize_messages, get_last_user_message_time
+from app.services.summarizer import _resolve_model, summarize_messages
 
 pytestmark = pytest.mark.asyncio
 
@@ -17,11 +17,7 @@ pytestmark = pytest.mark.asyncio
 def _channel(**overrides) -> MagicMock:
     ch = MagicMock()
     ch.id = overrides.get("id", uuid.uuid4())
-    ch.summarizer_model = overrides.get("summarizer_model", None)
-    ch.compression_model = overrides.get("compression_model", None)
-    ch.summarizer_message_count = overrides.get("summarizer_message_count", None)
-    ch.summarizer_target_size = overrides.get("summarizer_target_size", None)
-    ch.summarizer_prompt = overrides.get("summarizer_prompt", None)
+    ch.compaction_model = overrides.get("compaction_model", None)
     return ch
 
 
@@ -73,33 +69,12 @@ class FakeSession:
 
 class TestResolveModel:
     @patch("app.services.summarizer.settings")
-    def test_channel_summarizer_model_wins(self, mock_settings):
-        ch = _channel(summarizer_model="summarizer-model")
-        assert _resolve_model(ch) == "summarizer-model"
+    def test_channel_compaction_model(self, mock_settings):
+        ch = _channel(compaction_model="compaction-chan")
+        assert _resolve_model(ch) == "compaction-chan"
 
     @patch("app.services.summarizer.settings")
-    def test_channel_compression_model_fallback(self, mock_settings):
-        ch = _channel(compression_model="compression-model")
-        assert _resolve_model(ch) == "compression-model"
-
-    @patch("app.services.summarizer.settings")
-    def test_global_summarizer_model(self, mock_settings):
-        mock_settings.SUMMARIZER_MODEL = "global-summarizer"
-        mock_settings.CONTEXT_COMPRESSION_MODEL = ""
-        mock_settings.COMPACTION_MODEL = "compaction"
-        assert _resolve_model(None) == "global-summarizer"
-
-    @patch("app.services.summarizer.settings")
-    def test_global_compression_model_fallback(self, mock_settings):
-        mock_settings.SUMMARIZER_MODEL = ""
-        mock_settings.CONTEXT_COMPRESSION_MODEL = "global-compression"
-        mock_settings.COMPACTION_MODEL = "compaction"
-        assert _resolve_model(None) == "global-compression"
-
-    @patch("app.services.summarizer.settings")
-    def test_compaction_model_last_resort(self, mock_settings):
-        mock_settings.SUMMARIZER_MODEL = ""
-        mock_settings.CONTEXT_COMPRESSION_MODEL = ""
+    def test_global_compaction_model_fallback(self, mock_settings):
         mock_settings.COMPACTION_MODEL = "compaction-model"
         assert _resolve_model(None) == "compaction-model"
 
@@ -179,43 +154,9 @@ class TestSummarizeMessages:
 
         assert "Error:" in result
 
-    async def test_channel_defaults_used(self):
-        """Channel-level defaults for target_size and prompt are used when no params given."""
-        ch = _channel(
-            summarizer_target_size=500,
-            summarizer_prompt="Focus on action items",
-            summarizer_message_count=50,
-        )
-        ch_id = ch.id
-        msgs = [FakeMessage(role="user", content="Test")]
-
-        session_for_channel = FakeSession(results=[FakeResult([ch])])
-        session_for_messages = FakeSession(results=[FakeResult(msgs)])
-
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.content = "Focused summary."
-
-        mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-
-        with (
-            patch("app.services.summarizer.async_session", side_effect=[
-                session_for_channel, session_for_messages,
-            ]),
-            patch("app.services.providers.get_llm_client", return_value=mock_client),
-        ):
-            result = await summarize_messages(ch_id)
-
-        # Verify the LLM was called with a prompt containing the target size
-        call_args = mock_client.chat.completions.create.call_args
-        system_prompt = call_args.kwargs["messages"][0]["content"]
-        assert "500" in system_prompt
-        assert "Focus on action items" in system_prompt
-
-    async def test_param_prompt_overrides_channel(self):
-        """Explicit prompt param takes precedence over channel.summarizer_prompt."""
-        ch = _channel(summarizer_prompt="Channel default")
+    async def test_param_prompt_used(self):
+        """Explicit prompt param is used in the LLM call."""
+        ch = _channel()
         ch_id = ch.id
         msgs = [FakeMessage(role="user", content="Test")]
 
@@ -240,25 +181,3 @@ class TestSummarizeMessages:
         call_args = mock_client.chat.completions.create.call_args
         system_prompt = call_args.kwargs["messages"][0]["content"]
         assert "What about the database?" in system_prompt
-        assert "Channel default" not in system_prompt
-
-
-# ---------------------------------------------------------------------------
-# get_last_user_message_time
-# ---------------------------------------------------------------------------
-
-class TestGetLastUserMessageTime:
-    async def test_returns_timestamp(self):
-        ts = datetime(2026, 3, 20, 12, 0, 0, tzinfo=timezone.utc)
-        session = FakeSession(results=[FakeResult([ts])])
-
-        with patch("app.services.summarizer.async_session", return_value=session):
-            result = await get_last_user_message_time(uuid.uuid4())
-        assert result == ts
-
-    async def test_returns_none_for_empty_channel(self):
-        session = FakeSession(results=[FakeResult([])])
-
-        with patch("app.services.summarizer.async_session", return_value=session):
-            result = await get_last_user_message_time(uuid.uuid4())
-        assert result is None

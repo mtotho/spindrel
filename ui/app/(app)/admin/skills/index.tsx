@@ -1,15 +1,20 @@
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, ActivityIndicator, useWindowDimensions } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
-import { Plus, RefreshCw, BookOpen, FileText, Plug } from "lucide-react";
-import { useSkills, useFileSync, type SkillItem } from "@/src/api/hooks/useSkills";
+import { Plus, RefreshCw, AlertTriangle, Search } from "lucide-react";
+import { useSkills, useFileSync, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
+import { useState, useMemo } from "react";
 
 function SourceBadge({ type, detail }: { type: string; detail?: string }) {
+  const t = useThemeTokens();
   const cfg: Record<string, { bg: string; fg: string; label: string }> = {
-    file: { bg: "rgba(59,130,246,0.15)", fg: "#93c5fd", label: "file" },
-    integration: { bg: "rgba(249,115,22,0.15)", fg: "#fdba74", label: "integration" },
-    manual: { bg: "rgba(100,100,100,0.15)", fg: "#999", label: "manual" },
-    workspace: { bg: "rgba(168,85,247,0.15)", fg: "#c084fc", label: "workspace" },
+    file: { bg: t.accentSubtle, fg: t.accent, label: "file" },
+    integration: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c", label: "integration" },
+    manual: { bg: t.surfaceOverlay, fg: t.textMuted, label: "manual" },
+    workspace: { bg: t.purpleSubtle, fg: t.purple, label: "workspace" },
   };
   const c = cfg[type] || cfg.manual;
   return (
@@ -31,7 +36,48 @@ function fmtDate(iso: string | null | undefined) {
   });
 }
 
+function fmtIntName(key: string): string {
+  const special: Record<string, string> = { arr: "ARR", github: "GitHub" };
+  if (special[key]) return special[key];
+  return key.replace(/(^|_)(\w)/g, (_, sep, c) => (sep ? " " : "") + c.toUpperCase());
+}
+
+type RenderItem =
+  | { type: "header"; key: string; label: string; count: number }
+  | { type: "subheader"; key: string; label: string; count: number }
+  | { type: "skill"; key: string; skill: SkillItem };
+
+function SectionHeader({ label, count, level, isWide }: { label: string; count: number; level: number; isWide: boolean }) {
+  const t = useThemeTokens();
+  const isSubheader = level > 0;
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: 8,
+      padding: isWide
+        ? `${isSubheader ? 8 : 14}px 16px ${isSubheader ? 4 : 6}px ${isSubheader ? 32 : 16}px`
+        : `${isSubheader ? 8 : 14}px 0 ${isSubheader ? 4 : 6}px ${isSubheader ? 16 : 0}px`,
+    }}>
+      <span style={{
+        fontSize: isSubheader ? 10 : 11,
+        fontWeight: 600,
+        color: isSubheader ? t.textDim : t.textMuted,
+        textTransform: "uppercase",
+        letterSpacing: 1,
+      }}>
+        {label}
+      </span>
+      <span style={{
+        fontSize: 10, color: t.textDim, fontWeight: 500,
+      }}>
+        {count}
+      </span>
+      <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+    </div>
+  );
+}
+
 function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () => void; isWide: boolean }) {
+  const t = useThemeTokens();
   const firstLine = (skill.content || "").split("\n").find((l) => l.trim() && !l.startsWith("#"))?.trim() || "";
   const isWs = skill.source_type === "workspace";
   const wsDetail = isWs
@@ -48,26 +94,26 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         onClick={isWs ? undefined : onPress}
         style={{
           display: "flex", flexDirection: "column", gap: 6,
-          padding: "12px 16px", background: "#111", borderRadius: 8,
-          border: `1px solid ${isWs ? "#2d1f4e" : "#1a1a1a"}`, cursor: isWs ? "default" : "pointer", textAlign: "left",
+          padding: "12px 16px", background: t.inputBg, borderRadius: 8,
+          border: `1px solid ${isWs ? t.purpleBorder : t.surfaceBorder}`, cursor: isWs ? "default" : "pointer", textAlign: "left",
           width: "100%",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", flex: 1 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>
             {skill.name}
           </span>
           <SourceBadge type={skill.source_type} detail={wsDetail} />
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "#666" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: t.textDim }}>
           <span style={{ fontFamily: "monospace" }}>{skill.id}</span>
           <span>{skill.chunk_count} chunks</span>
           {isWs && skill.workspace_name && (
-            <span style={{ color: "#c084fc" }}>{skill.workspace_name}</span>
+            <span style={{ color: t.purple }}>{skill.workspace_name}</span>
           )}
         </div>
         {description && (
-          <div style={{ fontSize: 11, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {description.slice(0, 120)}
           </div>
         )}
@@ -83,48 +129,155 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 100px",
         alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
-        borderBottom: `1px solid ${isWs ? "#1a1a2e" : "#1a1a1a"}`, cursor: isWs ? "default" : "pointer",
-        textAlign: "left", width: "100%", border: "none",
+        border: "none",
+        borderBottom: `1px solid ${isWs ? t.purpleBorder : t.surfaceBorder}`,
+        cursor: isWs ? "default" : "pointer",
+        textAlign: "left", width: "100%",
       }}
-      onMouseEnter={(e) => { if (!isWs) e.currentTarget.style.background = "#111"; }}
+      onMouseEnter={(e) => { if (!isWs) e.currentTarget.style.background = t.inputBg; }}
       onMouseLeave={(e) => { if (!isWs) e.currentTarget.style.background = "transparent"; }}
     >
-      <span style={{ fontSize: 11, fontFamily: "monospace", color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {skill.id}
       </span>
       <div style={{ overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e5e5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {skill.name}
           </span>
           {isWs && skill.workspace_name && (
-            <span style={{ fontSize: 10, color: "#c084fc", whiteSpace: "nowrap" }}>{skill.workspace_name}</span>
+            <span style={{ fontSize: 10, color: t.purple, whiteSpace: "nowrap" }}>{skill.workspace_name}</span>
           )}
         </div>
         {description && (
-          <div style={{ fontSize: 11, color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
+          <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 2 }}>
             {description.slice(0, 120)}
           </div>
         )}
       </div>
       <SourceBadge type={skill.source_type} detail={wsDetail} />
-      <span style={{ fontSize: 11, color: "#888", textAlign: "right" }}>{skill.chunk_count}</span>
-      <span style={{ fontSize: 11, color: "#666", textAlign: "right" }}>{fmtDate(skill.updated_at)}</span>
+      <span style={{ fontSize: 11, color: t.textMuted, textAlign: "right" }}>{skill.chunk_count}</span>
+      <span style={{ fontSize: 11, color: t.textDim, textAlign: "right" }}>{fmtDate(skill.updated_at)}</span>
     </button>
   );
 }
 
+function SyncResultBanner({ result, onDismiss }: { result: FileSyncResult; onDismiss: () => void }) {
+  const t = useThemeTokens();
+  const hasErrors = result.errors && result.errors.length > 0;
+  const bg = hasErrors ? t.dangerSubtle : t.successSubtle;
+  const border = hasErrors ? t.dangerBorder : t.successBorder;
+  const color = hasErrors ? t.danger : t.success;
+  return (
+    <div style={{
+      padding: "10px 16px", background: bg, border: `1px solid ${border}`,
+      margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color, lineHeight: 1.6,
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <strong>Sync complete:</strong> +{result.added} added, ~{result.updated} updated,
+          {" "}{result.unchanged} unchanged, -{result.deleted} deleted
+          {result._diagnostics && (
+            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 4 }}>
+              {result._diagnostics.files_on_disk.length} files found on disk
+              {" "}(cwd: <code>{result._diagnostics.cwd}</code>)
+            </div>
+          )}
+          {hasErrors && result.errors.map((e, i) => (
+            <div key={i} style={{ color: t.danger, marginTop: 4, display: "flex", alignItems: "center", gap: 6 }}>
+              <AlertTriangle size={12} /> {e}
+            </div>
+          ))}
+        </div>
+        <button onClick={onDismiss} style={{
+          background: "none", border: "none", color: t.textDim, cursor: "pointer", fontSize: 16, padding: "0 4px",
+        }}>&times;</button>
+      </div>
+    </div>
+  );
+}
+
 export default function SkillsScreen() {
+  const t = useThemeTokens();
   const router = useRouter();
   const { data: skills, isLoading } = useSkills();
   const syncMut = useFileSync();
+  const [syncResult, setSyncResult] = useState<FileSyncResult | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
+  const [search, setSearch] = useState("");
+
+  const filteredSkills = useMemo(() => {
+    if (!skills) return [];
+    if (!search.trim()) return skills;
+    const q = search.toLowerCase();
+    return skills.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q) ||
+        s.source_type.toLowerCase().includes(q),
+    );
+  }, [skills, search]);
+
+  const renderItems = useMemo((): RenderItem[] => {
+    if (!filteredSkills.length) return [];
+
+    const manual: SkillItem[] = [];
+    const workspace: SkillItem[] = [];
+    const core: SkillItem[] = [];
+    const integrationMap = new Map<string, SkillItem[]>();
+
+    for (const s of filteredSkills) {
+      if (s.source_type === "manual") manual.push(s);
+      else if (s.source_type === "workspace") workspace.push(s);
+      else if (s.source_type === "integration") {
+        const name = s.id.match(/^integrations\/([^/]+)\//)?.[1] ?? "other";
+        const list = integrationMap.get(name);
+        if (list) list.push(s); else integrationMap.set(name, [s]);
+      } else core.push(s);
+    }
+
+    const items: RenderItem[] = [];
+
+    const addGroup = (key: string, label: string, skills: SkillItem[]) => {
+      if (!skills.length) return;
+      items.push({ type: "header", key, label, count: skills.length });
+      for (const s of skills) items.push({ type: "skill", key: s.id, skill: s });
+    };
+
+    addGroup("manual", "User Added", manual);
+    addGroup("workspace", "Workspace", workspace);
+    addGroup("core", "Core", core);
+
+    const intKeys = [...integrationMap.keys()].sort();
+    if (intKeys.length) {
+      const totalInt = intKeys.reduce((n, k) => n + integrationMap.get(k)!.length, 0);
+      items.push({ type: "header", key: "integrations", label: "Integrations", count: totalInt });
+      for (const k of intKeys) {
+        const skills = integrationMap.get(k)!;
+        items.push({ type: "subheader", key: `int-${k}`, label: fmtIntName(k), count: skills.length });
+        for (const s of skills) items.push({ type: "skill", key: s.id, skill: s });
+      }
+    }
+
+    return items;
+  }, [filteredSkills]);
+
+  const handleSync = () => {
+    setSyncResult(null);
+    setSyncError(null);
+    syncMut.mutate(undefined, {
+      onSuccess: (data) => setSyncResult(data),
+      onError: (err) => setSyncError((err as Error).message || "Sync failed"),
+    });
+  };
 
   if (isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -136,13 +289,13 @@ export default function SkillsScreen() {
         right={
           <div style={{ display: "flex", gap: 8 }}>
             <button
-              onClick={() => syncMut.mutate()}
+              onClick={handleSync}
               disabled={syncMut.isPending}
               style={{
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 600,
-                border: "1px solid #333", borderRadius: 6,
-                background: "transparent", color: "#999", cursor: "pointer",
+                border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                background: "transparent", color: t.textMuted, cursor: "pointer",
               }}
             >
               <RefreshCw size={14} style={syncMut.isPending ? { animation: "spin 1s linear infinite" } : undefined} />
@@ -154,7 +307,7 @@ export default function SkillsScreen() {
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 600,
                 border: "none", borderRadius: 6,
-                background: "#3b82f6", color: "#fff", cursor: "pointer",
+                background: t.accent, color: "#fff", cursor: "pointer",
               }}
             >
               <Plus size={14} />
@@ -164,44 +317,90 @@ export default function SkillsScreen() {
         }
       />
 
-      {/* Table header (desktop only) */}
-      {isWide && skills && skills.length > 0 && (
+      {/* Search bar */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10,
+        padding: isWide ? "8px 16px" : "8px 12px",
+        borderBottom: `1px solid ${t.surfaceBorder}`,
+      }}>
         <div style={{
-          display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 100px",
-          gap: 12, padding: "8px 16px",
-          borderBottom: "1px solid #222",
-          fontSize: 10, fontWeight: 600, color: "#555", textTransform: "uppercase", letterSpacing: 1,
+          display: "flex", alignItems: "center", gap: 6,
+          background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
+          borderRadius: 6, padding: "5px 10px",
+          maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
         }}>
-          <span>ID</span>
-          <span>Name</span>
-          <span>Source</span>
-          <span style={{ textAlign: "right" }}>Chunks</span>
-          <span style={{ textAlign: "right" }}>Updated</span>
+          <Search size={13} color={t.textDim} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter skills..."
+            style={{
+              background: "none", border: "none", outline: "none",
+              color: t.text, fontSize: 12, flex: 1, width: "100%",
+            }}
+          />
+        </div>
+        {skills && skills.length > 0 && (
+          <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap" }}>
+            {search && filteredSkills.length !== skills.length
+              ? `${filteredSkills.length} / ${skills.length}`
+              : skills.length}{" "}
+            skills
+          </span>
+        )}
+      </div>
+
+      {/* Sync result banner */}
+      {syncResult && (
+        <SyncResultBanner result={syncResult} onDismiss={() => setSyncResult(null)} />
+      )}
+      {syncError && (
+        <div style={{
+          padding: "10px 16px", background: t.dangerSubtle,
+          border: `1px solid ${t.dangerBorder}`,
+          margin: "8px 12px 0", borderRadius: 8, fontSize: 12, color: t.danger,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <span><AlertTriangle size={12} style={{ marginRight: 6 }} />Sync failed: {syncError}</span>
+          <button onClick={() => setSyncError(null)} style={{
+            background: "none", border: "none", color: t.textDim, cursor: "pointer", fontSize: 16,
+          }}>&times;</button>
         </div>
       )}
 
       {/* List */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
         padding: isWide ? 0 : 12,
         gap: isWide ? 0 : 8,
       }}>
         {(!skills || skills.length === 0) && (
           <div style={{
-            padding: 40, textAlign: "center", color: "#555", fontSize: 13,
+            padding: 40, textAlign: "center", color: t.textDim, fontSize: 13,
           }}>
-            No skills yet. Create one or drop <code style={{ color: "#888" }}>.md</code> files in{" "}
-            <code style={{ color: "#888" }}>skills/</code> and click Sync Files.
+            No skills yet. Create one or drop <code style={{ color: t.textMuted }}>.md</code> files in{" "}
+            <code style={{ color: t.textMuted }}>skills/</code> and click Sync Files.
           </div>
         )}
-        {skills?.map((skill) => (
-          <SkillRow
-            key={skill.id}
-            skill={skill}
-            isWide={isWide}
-            onPress={() => router.push(`/admin/skills/${skill.id}` as any)}
-          />
-        ))}
-      </ScrollView>
+        {skills && skills.length > 0 && filteredSkills.length === 0 && (
+          <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
+            No skills match "{search}"
+          </div>
+        )}
+        {renderItems.map((item) =>
+          item.type === "header" ? (
+            <SectionHeader key={item.key} label={item.label} count={item.count} level={0} isWide={isWide} />
+          ) : item.type === "subheader" ? (
+            <SectionHeader key={item.key} label={item.label} count={item.count} level={1} isWide={isWide} />
+          ) : (
+            <SkillRow
+              key={item.key}
+              skill={item.skill}
+              isWide={isWide}
+              onPress={() => router.push(`/admin/skills/${encodeURIComponent(item.skill.id)}` as any)}
+            />
+          ),
+        )}
+      </RefreshableScrollView>
     </View>
   );
 }

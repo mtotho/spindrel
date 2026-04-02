@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { Channel, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding } from "../../types/api";
+import type { Channel, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult } from "../../types/api";
 
 interface ChannelListResponse {
   channels: Channel[];
@@ -9,11 +9,16 @@ interface ChannelListResponse {
   page_size: number;
 }
 
-export function useChannels() {
+export function useChannels(opts?: { workspaceId?: string | null }) {
+  const workspaceId = opts?.workspaceId;
   return useQuery({
-    queryKey: ["channels"],
+    queryKey: ["channels", { workspaceId: workspaceId ?? null }],
     queryFn: async () => {
-      const res = await apiFetch<ChannelListResponse>("/api/v1/admin/channels-enriched?page_size=100");
+      const params = new URLSearchParams({ page_size: "100" });
+      if (workspaceId) {
+        params.set("workspace_id", workspaceId);
+      }
+      const res = await apiFetch<ChannelListResponse>(`/api/v1/admin/channels-enriched?${params}`);
       return res.channels;
     },
   });
@@ -35,6 +40,31 @@ export function useCreateChannel() {
         method: "POST",
         body: JSON.stringify(body),
       }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+}
+
+export function useDeleteChannel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (channelId: string) =>
+      apiFetch(`/api/v1/channels/${channelId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+}
+
+export function useEnsureOrchestrator() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ id: string; name: string; client_id: string }>(
+        "/api/v1/admin/channels/ensure-orchestrator",
+        { method: "POST" },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channels"] });
     },
@@ -129,10 +159,159 @@ export function useAdoptIntegration(channelId: string) {
   });
 }
 
+export interface ConfigField {
+  key: string;
+  type: "string" | "boolean" | "number" | "select" | "multiselect";
+  label: string;
+  description?: string;
+  default?: any;
+  options?: { value: string; label: string }[];
+}
+
+export interface AvailableIntegration {
+  type: string;
+  binding?: {
+    client_id_prefix: string;
+    client_id_placeholder: string;
+    client_id_description: string;
+    display_name_placeholder: string;
+    config_fields?: ConfigField[];
+    event_types?: { value: string; label: string }[];
+  } | null;
+}
+
 export function useAvailableIntegrations() {
   return useQuery({
     queryKey: ["available-integrations"],
-    queryFn: () => apiFetch<string[]>("/api/v1/admin/channels/integrations/available"),
+    queryFn: () => apiFetch<AvailableIntegration[]>("/api/v1/admin/channels/integrations/available"),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Integration activation
+// ---------------------------------------------------------------------------
+
+export function useActivatableIntegrations(channelId: string | undefined) {
+  return useQuery({
+    queryKey: ["activatable-integrations", channelId],
+    queryFn: () =>
+      apiFetch<ActivatableIntegration[]>(
+        `/api/v1/channels/${channelId}/integrations/available`
+      ),
+    enabled: !!channelId,
+  });
+}
+
+export function useActivateIntegration(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (integrationType: string) =>
+      apiFetch<ActivationResult>(
+        `/api/v1/channels/${channelId}/integrations/${integrationType}/activate`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["activatable-integrations", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-integrations", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
+    },
+  });
+}
+
+export function useDeactivateIntegration(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (integrationType: string) =>
+      apiFetch(
+        `/api/v1/channels/${channelId}/integrations/${integrationType}/deactivate`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["activatable-integrations", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-integrations", channelId] });
+      qc.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Channel workspace files
+// ---------------------------------------------------------------------------
+
+interface ChannelWorkspaceFile {
+  name: string;
+  path: string;
+  size: number;
+  modified_at: number;
+  section: "active" | "archive" | "data";
+}
+
+export function useChannelWorkspaceFiles(
+  channelId: string | undefined,
+  opts: { includeArchive?: boolean; includeData?: boolean } = {},
+) {
+  const { includeArchive = false, includeData = false } = opts;
+  return useQuery({
+    queryKey: ["channel-workspace-files", channelId, includeArchive, includeData],
+    queryFn: () =>
+      apiFetch<{ files: ChannelWorkspaceFile[] }>(
+        `/api/v1/channels/${channelId}/workspace/files?include_archive=${includeArchive}&include_data=${includeData}`
+      ),
+    enabled: !!channelId,
+  });
+}
+
+export function useChannelWorkspaceFileContent(channelId: string | undefined, path: string | null) {
+  return useQuery({
+    queryKey: ["channel-workspace-file-content", channelId, path],
+    queryFn: () =>
+      apiFetch<{ path: string; content: string }>(
+        `/api/v1/channels/${channelId}/workspace/files/content?path=${encodeURIComponent(path!)}`
+      ),
+    enabled: !!channelId && !!path,
+  });
+}
+
+export function useWriteChannelWorkspaceFile(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ path, content }: { path: string; content: string }) =>
+      apiFetch(`/api/v1/channels/${channelId}/workspace/files/content?path=${encodeURIComponent(path)}`, {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-content", channelId] });
+    },
+  });
+}
+
+export function useDeleteChannelWorkspaceFile(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (path: string) =>
+      apiFetch(`/api/v1/channels/${channelId}/workspace/files?path=${encodeURIComponent(path)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+    },
+  });
+}
+
+export function useMoveChannelWorkspaceFile(channelId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ old_path, new_path }: { old_path: string; new_path: string }) =>
+      apiFetch(`/api/v1/channels/${channelId}/workspace/files/move`, {
+        method: "POST",
+        body: JSON.stringify({ old_path, new_path }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channel-workspace-file-content", channelId] });
+    },
   });
 }
 

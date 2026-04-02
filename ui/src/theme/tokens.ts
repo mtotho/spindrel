@@ -1,0 +1,147 @@
+/**
+ * Resolved hex color tokens for inline styles on raw HTML elements.
+ * Components using Tailwind classes (via NativeWind) get theme-awareness
+ * automatically from CSS variables. This hook is for `<div style={{...}}>`,
+ * `<input>`, `<textarea>`, `<button>`, etc.
+ */
+import { useThemeStore } from "../stores/theme";
+
+export interface ThemeTokens {
+  // Surfaces
+  surface: string;
+  surfaceRaised: string;
+  surfaceOverlay: string;
+  surfaceBorder: string;
+  // Text
+  text: string;
+  textMuted: string;
+  textDim: string;
+  // Accent (blue)
+  accent: string;
+  accentHover: string;
+  accentMuted: string;
+  accentSubtle: string;
+  accentBorder: string;
+  // Danger (red)
+  danger: string;
+  dangerMuted: string;
+  dangerSubtle: string;
+  dangerBorder: string;
+  // Success (green)
+  success: string;
+  successSubtle: string;
+  successBorder: string;
+  // Warning (amber)
+  warning: string;
+  warningSubtle: string;
+  warningMuted: string;
+  warningBorder: string;
+  // Purple (secondary accent)
+  purple: string;
+  purpleMuted: string;
+  purpleSubtle: string;
+  purpleBorder: string;
+  // Inputs
+  inputBg: string;
+  inputBorder: string;
+  inputText: string;
+  inputBorderFocus: string;
+  codeBg: string;
+  codeBorder: string;
+  codeText: string;
+  linkColor: string;
+  contentText: string;
+  // Overlays (rgba)
+  overlayLight: string;
+  overlayBorder: string;
+  skeletonBg: string;
+}
+
+const DARK: ThemeTokens = {
+  surface: "#111111",
+  surfaceRaised: "#1a1a1a",
+  surfaceOverlay: "#222222",
+  surfaceBorder: "#333333",
+  text: "#e5e5e5",
+  textMuted: "#999999",
+  textDim: "#666666",
+  accent: "#3b82f6",
+  accentHover: "#2563eb",
+  accentMuted: "#1e3a5f",
+  accentSubtle: "rgba(59,130,246,0.08)",
+  accentBorder: "rgba(59,130,246,0.2)",
+  danger: "#ef4444",
+  dangerMuted: "#f87171",
+  dangerSubtle: "rgba(239,68,68,0.08)",
+  dangerBorder: "rgba(239,68,68,0.15)",
+  success: "#22c55e",
+  successSubtle: "rgba(34,197,94,0.08)",
+  successBorder: "rgba(34,197,94,0.2)",
+  warning: "#eab308",
+  warningSubtle: "rgba(234,179,8,0.08)",
+  warningMuted: "#d97706",
+  warningBorder: "rgba(234,179,8,0.2)",
+  purple: "#a855f7",
+  purpleMuted: "#c084fc",
+  purpleSubtle: "rgba(168,85,247,0.08)",
+  purpleBorder: "rgba(168,85,247,0.15)",
+  inputBg: "#111111",
+  inputBorder: "#333333",
+  inputText: "#e5e5e5",
+  inputBorderFocus: "#3b82f6",
+  codeBg: "#1a1a1e",
+  codeBorder: "rgba(255,255,255,0.06)",
+  codeText: "#e06c75",
+  linkColor: "#5b9bd5",
+  contentText: "#d1d5db",
+  overlayLight: "rgba(255,255,255,0.06)",
+  overlayBorder: "rgba(255,255,255,0.08)",
+  skeletonBg: "rgba(255,255,255,0.04)",
+};
+
+const LIGHT: ThemeTokens = {
+  surface: "#fafafa",
+  surfaceRaised: "#ffffff",
+  surfaceOverlay: "#f3f4f6",
+  surfaceBorder: "#e5e7eb",
+  text: "#171717",
+  textMuted: "#737373",
+  textDim: "#6b7280",
+  accent: "#3b82f6",
+  accentHover: "#2563eb",
+  accentMuted: "#dbeafe",
+  accentSubtle: "#eff6ff",
+  accentBorder: "#93c5fd",
+  danger: "#dc2626",
+  dangerMuted: "#ef4444",
+  dangerSubtle: "#fef2f2",
+  dangerBorder: "#fecaca",
+  success: "#16a34a",
+  successSubtle: "#f0fdf4",
+  successBorder: "#bbf7d0",
+  warning: "#ca8a04",
+  warningSubtle: "#fefce8",
+  warningMuted: "#b45309",
+  warningBorder: "#fde68a",
+  purple: "#7c3aed",
+  purpleMuted: "#8b5cf6",
+  purpleSubtle: "#f5f3ff",
+  purpleBorder: "#ddd6fe",
+  inputBg: "#ffffff",
+  inputBorder: "#d1d5db",
+  inputText: "#171717",
+  inputBorderFocus: "#3b82f6",
+  codeBg: "#f3f4f6",
+  codeBorder: "rgba(0,0,0,0.08)",
+  codeText: "#c7254e",
+  linkColor: "#2563eb",
+  contentText: "#374151",
+  overlayLight: "rgba(0,0,0,0.04)",
+  overlayBorder: "rgba(0,0,0,0.08)",
+  skeletonBg: "rgba(0,0,0,0.04)",
+};
+
+export function useThemeTokens(): ThemeTokens {
+  const mode = useThemeStore((s) => s.mode);
+  return mode === "dark" ? DARK : LIGHT;
+}

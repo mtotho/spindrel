@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import hashlib
 import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from sqlalchemy import delete, func, select
 
+from app.agent.chunking import ChunkResult, chunk_markdown as _shared_chunk_markdown, chunk_sliding_window as _shared_chunk_sliding_window
 from app.agent.embeddings import embed_batch, embed_text
 from app.config import settings
 from app.db.engine import async_session
@@ -30,16 +32,75 @@ _SKIP_EXTENSIONS = {
     ".pdf", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
     ".lock", ".sum", ".mod",
 }
-_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache", ".ruff_cache", "dist", "build", ".next"}
+_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache", ".ruff_cache", "dist", "build", ".next", ".history", ".tox", ".eggs", ".cache", ".pytest_cache"}
+
+# Workspace convention files that are auto-injected via dedicated mechanisms
+# (persona, skills, base prompt).  Indexing them would cause double-injection.
+_AUTO_INJECTED_PATTERNS: list[tuple[str, ...]] = [
+    # persona.md at bot root
+    ("persona.md",),
+    # skills/ subtree (pinned, rag, on-demand, top-level) — bot or common
+    ("skills",),
+    ("common", "skills"),
+    # prompts/base.md — bot or common
+    ("prompts", "base.md"),
+    ("common", "prompts", "base.md"),
+]
 
 
-@dataclass
-class ChunkResult:
-    content: str
-    language: str | None = None
-    symbol: str | None = None
-    start_line: int | None = None
-    end_line: int | None = None
+def _split_patterns(patterns: list[str]) -> tuple[list[str], list[str]]:
+    """Split patterns into (include, exclude) lists.
+
+    Patterns starting with ``!`` are exclusion patterns — any file matching an
+    exclusion pattern is removed from the result set even if it matches an
+    include pattern.  The leading ``!`` is stripped before returning.
+    """
+    include: list[str] = []
+    exclude: list[str] = []
+    for p in patterns:
+        stripped = p.strip()
+        if stripped.startswith("!"):
+            exclude.append(stripped[1:])
+        else:
+            include.append(stripped)
+    return include, exclude
+
+
+def _glob_with_exclusions(
+    base_dir: Path,
+    patterns: list[str],
+    accept: "Any",
+) -> set[Path]:
+    """Glob *base_dir* with *patterns*, honouring ``!``-prefixed exclusions."""
+    include, exclude = _split_patterns(patterns)
+    seen: set[Path] = set()
+    for pattern in include:
+        for p in base_dir.glob(pattern):
+            if p not in seen and accept(p):
+                seen.add(p)
+    if exclude:
+        excluded: set[Path] = set()
+        for pattern in exclude:
+            for p in base_dir.glob(pattern):
+                excluded.add(p)
+        seen -= excluded
+    return seen
+
+
+def _is_auto_injected(rel_parts: tuple[str, ...]) -> bool:
+    """Return True if the file matches a workspace convention path that is auto-injected."""
+    for pattern in _AUTO_INJECTED_PATTERNS:
+        if len(pattern) == 1:
+            if pattern[0] == rel_parts[-1] and len(rel_parts) == 1:
+                # Exact filename at root (e.g. persona.md)
+                return True
+            if rel_parts[0] == pattern[0]:
+                # Entire subtree (e.g. skills/...)
+                return True
+        else:
+            if rel_parts[:len(pattern)] == pattern:
+                return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -47,20 +108,23 @@ class ChunkResult:
 # ---------------------------------------------------------------------------
 
 def _chunk_sliding_window(source: str, rel_path: str, language: str | None) -> list[ChunkResult]:
-    """Generic fallback: split by character window with overlap."""
+    """Generic fallback: boundary-aware sliding window via shared module."""
     header = f"# {rel_path}\n"
     window = settings.FS_INDEX_CHUNK_WINDOW
     overlap = settings.FS_INDEX_CHUNK_OVERLAP
     if len(source) <= window:
         return [ChunkResult(content=header + source, language=language)]
-    chunks: list[ChunkResult] = []
-    i = 0
-    while i < len(source):
-        end = min(i + window, len(source))
-        chunks.append(ChunkResult(content=header + source[i:end], language=language))
-        if end == len(source):
-            break
-        i += window - overlap
+    chunks = _shared_chunk_sliding_window(
+        source,
+        source_label=rel_path,
+        window=window,
+        overlap=overlap,
+        language=language,
+        break_on_boundaries=True,
+    )
+    # Prepend file header to content for display
+    for c in chunks:
+        c.content = header + c.content
     return chunks
 
 
@@ -115,13 +179,18 @@ def _chunk_python(source: str, rel_path: str) -> list[ChunkResult]:
 
 
 def _chunk_markdown(source: str, rel_path: str) -> list[ChunkResult]:
-    """Split by ## headers, same as skills chunker."""
-    from app.agent.skills import _chunk_markdown as _skills_chunk
-    chunks_text = _skills_chunk(source, rel_path, max_chunk=settings.FS_INDEX_CHUNK_WINDOW)
-    return [
-        ChunkResult(content=t, language="markdown")
-        for t in chunks_text
-    ]
+    """Hierarchy-aware markdown chunking via shared module."""
+    chunk_results = _shared_chunk_markdown(
+        source,
+        source_label=rel_path,
+        max_chunk=settings.FS_INDEX_CHUNK_WINDOW,
+    )
+    for cr in chunk_results:
+        cr.language = "markdown"
+        # Prepend file path header for display (like other chunkers)
+        if not cr.content.startswith(f"# {rel_path}"):
+            cr.content = f"# {rel_path}\n{cr.content}"
+    return chunk_results
 
 
 def _chunk_yaml(source: str, rel_path: str) -> list[ChunkResult]:
@@ -210,18 +279,34 @@ def _chunk_code_regex(
     return chunks
 
 
+def _chunk_code_treesitter_or_fallback(
+    source: str, rel_path: str, language: str, regex_pattern: re.Pattern[str],
+) -> list[ChunkResult]:
+    """Try tree-sitter chunking, fall back to regex on import/parse failure."""
+    try:
+        from app.agent.chunking_treesitter import chunk_code_treesitter
+        result = chunk_code_treesitter(source, rel_path, language)
+        if result is not None:
+            return result
+    except ImportError:
+        logger.debug("tree-sitter not available for %s, falling back to regex", language)
+    except Exception:
+        logger.debug("tree-sitter parse failed for %s, falling back to regex", rel_path, exc_info=True)
+    return _chunk_code_regex(source, rel_path, language, regex_pattern)
+
+
 _EXT_DISPATCH: dict[str, Any] = {
     ".py": _chunk_python,
     ".md": _chunk_markdown,
     ".yaml": _chunk_yaml,
     ".yml": _chunk_yaml,
     ".json": _chunk_json,
-    ".ts": lambda s, r: _chunk_code_regex(s, r, "typescript", _TS_SYMBOLS),
-    ".tsx": lambda s, r: _chunk_code_regex(s, r, "typescript", _TS_SYMBOLS),
-    ".js": lambda s, r: _chunk_code_regex(s, r, "javascript", _TS_SYMBOLS),
-    ".jsx": lambda s, r: _chunk_code_regex(s, r, "javascript", _TS_SYMBOLS),
-    ".go": lambda s, r: _chunk_code_regex(s, r, "go", _GO_SYMBOLS),
-    ".rs": lambda s, r: _chunk_code_regex(s, r, "rust", _RUST_SYMBOLS),
+    ".ts": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "typescript", _TS_SYMBOLS),
+    ".tsx": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "typescript", _TS_SYMBOLS),
+    ".js": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "javascript", _TS_SYMBOLS),
+    ".jsx": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "javascript", _TS_SYMBOLS),
+    ".go": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "go", _GO_SYMBOLS),
+    ".rs": lambda s, r: _chunk_code_treesitter_or_fallback(s, r, "rust", _RUST_SYMBOLS),
 }
 
 
@@ -259,6 +344,142 @@ def _match_segment(file_rel_path: str, segments: list[dict] | None) -> dict | No
 
 
 # ---------------------------------------------------------------------------
+# Per-file result for concurrent processing
+# ---------------------------------------------------------------------------
+
+@dataclass
+class _FileResult:
+    status: str  # "indexed" | "skipped" | "error"
+    rel_path: str = ""
+    dims: int | None = None
+    chunk_count: int = 0
+
+
+async def _process_file(
+    path: Path,
+    root_path: Path,
+    bot_id: str | None,
+    client_id: str | None,
+    base_model: str,
+    segments: list[dict] | None,
+    existing_hashes: dict[str, str],
+    existing_models: dict[str, str | None],
+    scope_conds: list,
+    sem: asyncio.Semaphore,
+    progress_state: dict | None,
+) -> _FileResult:
+    """Process a single file: chunk, embed, insert. Runs under semaphore."""
+    rel = str(PurePosixPath(path.relative_to(root_path)))
+    result: _FileResult | None = None
+
+    async with sem:
+        chunks = chunk_file(path, root_path)
+        if not chunks:
+            result = _FileResult(status="skipped", rel_path=rel)
+        else:
+            try:
+                raw = path.read_bytes()
+            except Exception:
+                result = _FileResult(status="error", rel_path=rel)
+
+        if result is None:
+            file_hash = hashlib.sha256(raw).hexdigest()
+
+            # Determine effective embedding model
+            seg = _match_segment(rel, segments)
+            effective_model = seg["embedding_model"] if seg else base_model
+
+            # Skip if content and model unchanged
+            # Treat existing_model=None as matching the default embedding model
+            # (legacy rows pre-dating the embedding_model column)
+            existing_model = existing_models.get(rel)
+            model_matches = (existing_model == effective_model) or (existing_model is None and effective_model == base_model)
+            if existing_hashes.get(rel) == file_hash and model_matches:
+                result = _FileResult(status="skipped", rel_path=rel)
+
+        if result is None:
+            # Embed all chunks
+            texts = [c.content for c in chunks]
+            try:
+                embeddings: list[list[float]] = []
+                for i in range(0, len(texts), 50):
+                    embeddings.extend(await embed_batch(texts[i:i + 50], model=effective_model))
+            except Exception:
+                logger.exception("Failed to embed %s", rel)
+                result = _FileResult(status="error", rel_path=rel)
+
+        if result is None:
+            if not embeddings:
+                result = _FileResult(status="error", rel_path=rel)
+
+        if result is None:
+            dims = len(embeddings[0])
+            if dims != settings.EMBEDDING_DIMENSIONS:
+                logger.error(
+                    "Embedding dimension mismatch after zero-pad: model %s returned %d dims, "
+                    "expected %d. This should not happen — check embeddings.py routing.",
+                    effective_model, dims, settings.EMBEDDING_DIMENSIONS,
+                )
+                result = _FileResult(status="error", rel_path=rel, dims=dims)
+
+        if result is None:
+            # Write to DB
+            try:
+                async with async_session() as db:
+                    await db.execute(
+                        delete(FilesystemChunk).where(
+                            *scope_conds,
+                            FilesystemChunk.file_path == rel,
+                        )
+                    )
+                    for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+                        db.add(FilesystemChunk(
+                            bot_id=bot_id,
+                            client_id=client_id,
+                            root=str(root_path),
+                            file_path=rel,
+                            content_hash=file_hash,
+                            chunk_index=i,
+                            content=chunk.content,
+                            embedding=emb,
+                            language=chunk.language,
+                            symbol=chunk.symbol,
+                            start_line=chunk.start_line,
+                            end_line=chunk.end_line,
+                            embedding_model=effective_model,
+                        ))
+                    await db.commit()
+            except Exception:
+                logger.exception("Failed to insert chunks for %s (bot=%s, root=%s)", rel, bot_id, root_path)
+                result = _FileResult(status="error", rel_path=rel)
+
+        if result is None:
+            # Populate tsvector (non-fatal)
+            try:
+                async with async_session() as db:
+                    from sqlalchemy import text as _sa_text
+                    await db.execute(_sa_text(
+                        "UPDATE filesystem_chunks SET tsv = to_tsvector('english', content) "
+                        "WHERE file_path = :fp AND root = :rt AND tsv IS NULL"
+                    ).bindparams(fp=rel, rt=str(root_path)))
+                    await db.commit()
+            except Exception:
+                logger.warning("TSVector population failed for %s (chunks saved without FTS)", rel)
+
+            logger.debug("Indexed %s (%d chunks, model=%s)", rel, len(chunks), effective_model)
+            result = _FileResult(status="indexed", rel_path=rel, dims=dims, chunk_count=len(chunks))
+
+    # Update progress after semaphore release — always runs regardless of outcome
+    # (single-threaded asyncio = safe to mutate shared dict)
+    if progress_state is not None:
+        progress_state["n"] += 1
+        from app.services import progress
+        progress.update(progress_state["op_id"], current=progress_state["n"], message=rel)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Indexer
 # ---------------------------------------------------------------------------
 
@@ -285,6 +506,8 @@ async def index_directory(
     cooldown_seconds: int | None = None,
     embedding_model: str | None = None,
     segments: list[dict] | None = None,
+    _progress_op_id: str | None = None,
+    skip_stale_cleanup: bool = False,
 ) -> dict:
     """
     Index a directory for semantic search.
@@ -293,6 +516,8 @@ async def index_directory(
     - client_id=None: cross-client index (accessible from all channels/clients).
     - force=True: bypass cooldown (used on startup and by the agent tool).
     - file_paths: if provided, only re-index those specific files (watcher use).
+    - skip_stale_cleanup: if True, don't remove DB entries for files not on disk
+      (use when indexing a subset of patterns, e.g. memory-only).
     - Returns stats: {indexed, skipped, removed, errors, cooldown}.
     """
     root_path = Path(root).resolve()
@@ -309,31 +534,46 @@ async def index_directory(
     spec = _build_pathspec(root_path)
 
     # Discover candidate files
+    def _accept(p: Path) -> bool:
+        """Return True if the file should be indexed (passes all filters)."""
+        if not p.is_file():
+            return False
+        parts = p.relative_to(root_path).parts
+        if any(part in _SKIP_DIRS for part in parts):
+            return False
+        if p.suffix.lower() in _SKIP_EXTENSIONS:
+            return False
+        if _is_auto_injected(parts):
+            return False
+        if spec:
+            try:
+                rel = str(PurePosixPath(p.relative_to(root_path)))
+                if spec.match_file(rel):
+                    return False
+            except ValueError:
+                pass
+        return True
+
     if file_paths is not None:
-        candidates = [p.resolve() for p in file_paths if p.is_file()]
-    else:
+        candidates = [
+            p.resolve() for p in file_paths
+            if p.is_file() and not _is_auto_injected(p.resolve().relative_to(root_path).parts)
+        ]
+    elif segments:
+        # Segment-exclusive discovery: only walk within segment path prefixes.
+        # Each segment defines its own scope; files outside all segments are skipped.
         seen: set[Path] = set()
-        for pattern in patterns:
-            for p in root_path.glob(pattern):
-                if not p.is_file():
-                    continue
-                if p in seen:
-                    continue
-                # Skip ignored dirs
-                parts = p.relative_to(root_path).parts
-                if any(part in _SKIP_DIRS for part in parts):
-                    continue
-                if p.suffix.lower() in _SKIP_EXTENSIONS:
-                    continue
-                if spec:
-                    try:
-                        rel = str(PurePosixPath(p.relative_to(root_path)))
-                        if spec.match_file(rel):
-                            continue
-                    except ValueError:
-                        pass
-                seen.add(p)
+        for seg in segments:
+            seg_prefix = seg["path_prefix"].rstrip("/")
+            seg_dir = root_path / seg_prefix
+            if not seg_dir.is_dir():
+                logger.debug("Segment dir %s does not exist, skipping", seg_dir)
+                continue
+            seg_patterns = seg.get("patterns") or patterns
+            seen |= _glob_with_exclusions(seg_dir, seg_patterns, _accept)
         candidates = list(seen)
+    else:
+        candidates = list(_glob_with_exclusions(root_path, patterns, _accept))
 
     stats = {"indexed": 0, "skipped": 0, "removed": 0, "errors": 0, "cooldown": False}
 
@@ -376,86 +616,58 @@ async def index_directory(
     # Resolve the base embedding model for this index run
     base_model = embedding_model or settings.EMBEDDING_MODEL
 
-    # Process each candidate
-    _dims_validated = False
-    for path in candidates:
-        rel = str(PurePosixPath(path.relative_to(root_path)))
-        chunks = chunk_file(path, root_path)
-        if not chunks:
-            continue
+    # Process candidates concurrently
+    scope_conds = _scope_filter()
+    sem = asyncio.Semaphore(settings.FS_INDEX_CONCURRENCY)
 
-        raw = path.read_bytes()
-        file_hash = hashlib.sha256(raw).hexdigest()
+    # Progress tracking (if an operation is registered for this call)
+    progress_state: dict | None = None
+    if _progress_op_id:
+        from app.services import progress
+        progress.update(_progress_op_id, total=len(candidates))
+        progress_state = {"n": 0, "op_id": _progress_op_id}
 
-        # Determine effective embedding model for this file (segment override or base)
-        seg = _match_segment(rel, segments)
-        effective_model = seg["embedding_model"] if seg else base_model
+    coros = [
+        _process_file(
+            path, root_path, bot_id, client_id,
+            base_model, segments,
+            existing_hashes, existing_models,
+            scope_conds, sem, progress_state,
+        )
+        for path in candidates
+    ]
+    results = await asyncio.gather(*coros, return_exceptions=True)
 
-        # Re-embed if content changed OR if the embedding model changed
-        content_unchanged = existing_hashes.get(rel) == file_hash
-        model_unchanged = existing_models.get(rel) == effective_model
-        if content_unchanged and model_unchanged:
-            stats["skipped"] += 1
-            continue
-
-        # Embed all chunks for this file
-        texts = [c.content for c in chunks]
-        try:
-            # Batch in groups of 50
-            embeddings: list[list[float]] = []
-            for i in range(0, len(texts), 50):
-                embeddings.extend(await embed_batch(texts[i:i + 50], model=effective_model))
-        except Exception:
-            logger.exception("Failed to embed %s", rel)
+    # Aggregate stats from results
+    for r in results:
+        if isinstance(r, BaseException):
+            logger.exception("Unexpected error in _process_file: %s", r)
             stats["errors"] += 1
-            continue
-
-        # Validate dimensions on first successful batch
-        if not _dims_validated and embeddings:
-            dim = len(embeddings[0])
-            if dim != settings.EMBEDDING_DIMENSIONS:
-                logger.error(
-                    "Embedding dimension mismatch: model %s returned %d dims, expected %d",
-                    effective_model, dim, settings.EMBEDDING_DIMENSIONS,
-                )
-                stats["errors"] += 1
-                continue
-            _dims_validated = True
-
-        async with async_session() as db:
-            # Delete old chunks for this file
-            await db.execute(
-                delete(FilesystemChunk).where(
-                    *_scope_filter(),
-                    FilesystemChunk.file_path == rel,
-                )
-            )
-            # Insert new chunks
-            for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-                db.add(FilesystemChunk(
-                    bot_id=bot_id,
-                    client_id=client_id,
-                    root=str(root_path),
-                    file_path=rel,
-                    content_hash=file_hash,
-                    chunk_index=i,
-                    content=chunk.content,
-                    embedding=emb,
-                    language=chunk.language,
-                    symbol=chunk.symbol,
-                    start_line=chunk.start_line,
-                    end_line=chunk.end_line,
-                    embedding_model=effective_model,
-                ))
-            await db.commit()
-
-        stats["indexed"] += 1
-        logger.debug("Indexed %s (%d chunks, model=%s)", rel, len(chunks), effective_model)
+        elif r.status == "indexed":
+            stats["indexed"] += 1
+        elif r.status == "skipped":
+            stats["skipped"] += 1
+        elif r.status == "error":
+            stats["errors"] += 1
 
     # Remove stale DB entries for files no longer on disk (full re-index only)
-    if file_paths is None:
+    if file_paths is None and not skip_stale_cleanup:
         disk_set = {str(PurePosixPath(p.relative_to(root_path))) for p in candidates}
         stale = set(existing_hashes.keys()) - disk_set
+        # When using segments, protect memory files (indexed by Phase 1) from
+        # being purged by the segment-based Phase 2.  But DO purge files from
+        # removed segments — if a file doesn't match any current segment prefix
+        # and isn't a memory file, it's orphaned.
+        if segments and stale:
+            # Protect memory files (indexed by Phase 1) from being purged by
+            # the segment-based Phase 2.  Everything else is fair game — files
+            # within current segments that were deleted from disk, AND files
+            # from removed segments that are no longer in scope.
+            # Standalone bots: memory/   Shared workspace bots: bots/{id}/memory/
+            _memory_prefixes = ["memory/"]
+            if bot_id:
+                _memory_prefixes.append(f"bots/{bot_id}/memory/")
+            stale = {fp for fp in stale if not any(fp.startswith(p) for p in _memory_prefixes)}
         if stale:
             async with async_session() as db:
                 await db.execute(
@@ -468,11 +680,78 @@ async def index_directory(
             stats["removed"] = len(stale)
         _last_indexed[key] = time.monotonic()
 
+    # Touch indexed_at on skipped (unchanged) files so the timestamp reflects
+    # "last verified" rather than "last content change".  This prevents the UI
+    # from showing stale dates when indexing is running but nothing changed.
+    skipped_paths = [r.rel_path for r in results if isinstance(r, _FileResult) and r.status == "skipped" and r.rel_path]
+    if skipped_paths:
+        try:
+            async with async_session() as db:
+                from sqlalchemy import text as _sa_text, bindparam
+                await db.execute(
+                    _sa_text(
+                        "UPDATE filesystem_chunks SET indexed_at = now() "
+                        "WHERE root = :rt AND "
+                        + ("bot_id = :bid" if bot_id is not None else "bot_id IS NULL")
+                        + " AND "
+                        + ("client_id = :cid" if client_id is not None else "client_id IS NULL")
+                        + " AND file_path = ANY(:fps)"
+                    ).bindparams(
+                        rt=str(root_path),
+                        **({"bid": bot_id} if bot_id is not None else {}),
+                        **({"cid": client_id} if client_id is not None else {}),
+                        fps=skipped_paths,
+                    )
+                )
+                await db.commit()
+        except Exception:
+            logger.warning("Failed to touch indexed_at for skipped files (bot=%s, root=%s)", bot_id, root_path)
+
+    # Backfill tsvector for any chunks still missing it (e.g. pre-migration rows
+    # that were skipped because content_hash was unchanged).  Non-fatal.
+    try:
+        async with async_session() as db:
+            from sqlalchemy import text as _sa_text
+            if bot_id is not None:
+                result = await db.execute(_sa_text(
+                    "UPDATE filesystem_chunks SET tsv = to_tsvector('english', content) "
+                    "WHERE root = :rt AND bot_id = :bid AND tsv IS NULL"
+                ).bindparams(rt=str(root_path), bid=bot_id))
+            else:
+                result = await db.execute(_sa_text(
+                    "UPDATE filesystem_chunks SET tsv = to_tsvector('english', content) "
+                    "WHERE root = :rt AND bot_id IS NULL AND tsv IS NULL"
+                ).bindparams(rt=str(root_path)))
+            await db.commit()
+            backfilled = result.rowcount
+            if backfilled:
+                logger.info("Backfilled tsvector for %d chunks (bot=%s, root=%s)", backfilled, bot_id, root_path)
+    except Exception:
+        logger.warning("TSVector backfill failed for bot=%s root=%s", bot_id, root_path)
+
     logger.info(
         "Indexed %s for bot %s client %s: %d new, %d skipped, %d removed, %d errors",
         root, bot_id, client_id, stats["indexed"], stats["skipped"], stats["removed"], stats["errors"],
     )
     return stats
+
+
+async def cleanup_stale_roots(bot_id: str, valid_roots: list[str]) -> int:
+    """Delete chunks for a bot whose root no longer matches any current root.
+
+    Call on startup after the workspace root computation changes to purge
+    orphaned chunks from old root paths.  Returns the number of deleted rows.
+    """
+    resolved = [str(Path(r).resolve()) for r in valid_roots]
+    async with async_session() as db:
+        result = await db.execute(
+            delete(FilesystemChunk).where(
+                FilesystemChunk.bot_id == bot_id,
+                FilesystemChunk.root.notin_(resolved),
+            )
+        )
+        await db.commit()
+        return result.rowcount
 
 
 # ---------------------------------------------------------------------------

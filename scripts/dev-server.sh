@@ -12,7 +12,7 @@ source .venv/bin/activate
 
 if [ ! -f .env ]; then
     echo "No .env file found. Copying from .env.example..."
-    cp .env.example .envhttps:/platform.claude.com/oauth/code/callback is not supported by client.
+    cp .env.example .env
     echo "Edit .env with your settings before continuing."
     exit 1
 fi
@@ -31,20 +31,9 @@ until docker compose exec postgres pg_isready -U agent -d agentdb -q 2>/dev/null
     sleep 1
 done
 
-PIDS=()
-cleanup() {
-    for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
-}
-trap cleanup EXIT INT TERM
-
-# Auto-discover and start integration background processes
-while IFS= read -r line; do
-    [[ "$line" == \#* ]] && { echo "$line"; continue; }
-    [ -z "$line" ] && continue
-    echo "Starting: $line"
-    eval "$line" &
-    PIDS+=($!)
-done < <(python scripts/list_integration_processes.py 2>/dev/null)
+# Integration processes are now managed by the server's process manager
+# (app/services/integration_processes.py) — auto-started during lifespan.
+# Control them via Admin UI > Integrations or the /api/v1/admin/integrations/{id}/process endpoints.
 
 echo "Starting server with --reload..."
 uvicorn app.main:app --host 0.0.0.0 --reload --reload-include '*.py' --reload-include '*.yaml' --reload-exclude '.venv'

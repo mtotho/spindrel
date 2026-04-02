@@ -8,27 +8,13 @@ import { useChannels } from "@/src/api/hooks/useChannels";
 import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type TaskDetail } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
-import { FormRow, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
+import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
+import { FormRow, TextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
+import { DateTimePicker } from "@/src/components/shared/DateTimePicker";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function toLocalDatetimeString(d: Date): string {
-  const y = d.getFullYear();
-  const mo = String(d.getMonth() + 1).padStart(2, "0");
-  const da = String(d.getDate()).padStart(2, "0");
-  const h = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  return `${y}-${mo}-${da}T${h}:${mi}`;
-}
-
-function fmtDatetime(iso: string | null | undefined) {
-  if (!iso) return "\u2014";
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-  });
-}
+import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
+import { formatDateTime, isoToLocalInput, localInputToISO } from "@/src/utils/time";
+import { useThemeTokens } from "../../theme/tokens";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,11 +30,9 @@ const STATUS_OPTIONS = [
 
 const TASK_TYPE_OPTIONS = [
   { label: "Scheduled", value: "scheduled" },
-  { label: "Heartbeat", value: "heartbeat" },
   { label: "Delegation", value: "delegation" },
   { label: "Harness", value: "harness" },
   { label: "Exec", value: "exec" },
-  { label: "Callback", value: "callback" },
   { label: "API", value: "api" },
   { label: "Agent", value: "agent" },
 ];
@@ -70,13 +54,14 @@ const RECURRENCE_PRESETS = [
   { label: "6 hours", value: "+6h" },
   { label: "12 hours", value: "+12h" },
   { label: "Daily", value: "+1d" },
-  { label: "Weekly", value: "+7d" },
+  { label: "Weekly", value: "+1w" },
 ];
 
 // ---------------------------------------------------------------------------
 // EnableToggle
 // ---------------------------------------------------------------------------
 function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
+  const t = useThemeTokens();
   return (
     <button
       onClick={() => onChange(!enabled)}
@@ -85,13 +70,13 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
         display: "flex", alignItems: "center", gap: compact ? 0 : 6,
         padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
         border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
-        background: enabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
-        color: enabled ? "#86efac" : "#fca5a5",
+        background: enabled ? t.successSubtle : t.dangerSubtle,
+        color: enabled ? t.success : t.danger,
       }}
     >
       <div style={{
         width: 28, height: 16, borderRadius: 8, position: "relative",
-        background: enabled ? "#22c55e" : "#555",
+        background: enabled ? t.success : t.textDim,
         transition: "background 0.2s",
       }}>
         <div style={{
@@ -110,6 +95,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
 // ScheduledAtPicker
 // ---------------------------------------------------------------------------
 function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useThemeTokens();
   const isRelative = /^\+\d+[smhd]$/.test(value);
 
   return (
@@ -121,8 +107,8 @@ function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: s
             style={{
               padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
               borderRadius: 6,
-              background: !value ? "#3b82f6" : "#1a1a1a",
-              color: !value ? "#fff" : "#888",
+              background: !value ? t.accent : t.surfaceRaised,
+              color: !value ? "#fff" : t.textMuted,
             }}
           >
             Now
@@ -134,26 +120,21 @@ function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: s
               style={{
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 6,
-                background: value === p.value ? "#3b82f6" : "#1a1a1a",
-                color: value === p.value ? "#fff" : "#888",
+                background: value === p.value ? t.accent : t.surfaceRaised,
+                color: value === p.value ? "#fff" : t.textMuted,
               }}
             >
               {p.label}
             </button>
           ))}
         </div>
-        <input
-          type="datetime-local"
+        <DateTimePicker
           value={isRelative ? "" : value}
-          onChange={(e) => onChange(e.target.value)}
-          style={{
-            background: "#111", border: "1px solid #333", borderRadius: 8,
-            padding: "7px 12px", color: "#e5e5e5", fontSize: 13,
-            outline: "none", colorScheme: "dark",
-          }}
+          onChange={onChange}
+          placeholder="Pick a date & time..."
         />
         {isRelative && (
-          <div style={{ fontSize: 10, color: "#666" }}>
+          <div style={{ fontSize: 10, color: t.textDim }}>
             Relative: runs {value} from now
           </div>
         )}
@@ -166,6 +147,7 @@ function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: s
 // RecurrencePicker
 // ---------------------------------------------------------------------------
 function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useThemeTokens();
   const isPreset = RECURRENCE_PRESETS.some((p) => p.value === value);
   const showCustom = !!value && !isPreset;
 
@@ -180,8 +162,8 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
               style={{
                 padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
                 borderRadius: 6,
-                background: value === p.value ? (p.value ? "#92400e" : "#333") : "#1a1a1a",
-                color: value === p.value ? (p.value ? "#fcd34d" : "#e5e5e5") : "#888",
+                background: value === p.value ? (p.value ? t.warningSubtle : t.surfaceBorder) : t.surfaceRaised,
+                color: value === p.value ? (p.value ? t.warningMuted : t.text) : t.textMuted,
               }}
             >
               {p.label}
@@ -192,8 +174,8 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
             style={{
               padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
               borderRadius: 6,
-              background: showCustom ? "#92400e" : "#1a1a1a",
-              color: showCustom ? "#fcd34d" : "#888",
+              background: showCustom ? t.warningSubtle : t.surfaceRaised,
+              color: showCustom ? t.warningMuted : t.textMuted,
             }}
           >
             Custom
@@ -206,8 +188,8 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
             onChange={(e) => onChange(e.target.value)}
             placeholder="+3h, +45m, etc."
             style={{
-              background: "#111", border: "1px solid #333", borderRadius: 8,
-              padding: "7px 12px", color: "#e5e5e5", fontSize: 13, outline: "none",
+              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
+              padding: "7px 12px", color: t.text, fontSize: 13, outline: "none",
               maxWidth: 200,
             }}
           />
@@ -221,10 +203,11 @@ function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: st
 // InfoRow
 // ---------------------------------------------------------------------------
 function InfoRow({ label, value }: { label: string; value: string }) {
+  const t = useThemeTokens();
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: "#666" }}>{label}</span>
-      <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace" }}>{value}</span>
+      <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
+      <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
     </div>
   );
 }
@@ -253,6 +236,7 @@ export function TaskEditor({
   cloneFromId,
   extraQueryKeysToInvalidate,
 }: TaskEditorProps) {
+  const t = useThemeTokens();
   const isCreate = !taskId;
   const loadTaskId = taskId ?? cloneFromId;
   const { data: existingTask, isLoading: loadingTask } = useTask(loadTaskId ?? undefined);
@@ -266,8 +250,11 @@ export function TaskEditor({
   const qc = useQueryClient();
 
   // Form state
+  const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
   const [promptTemplateId, setPromptTemplateId] = useState<string | null>(null);
+  const [workspaceFilePath, setWorkspaceFilePath] = useState<string | null>(null);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [botId, setBotId] = useState("");
   const [channelId, setChannelId] = useState("");
   const [status, setStatus] = useState("pending");
@@ -276,34 +263,46 @@ export function TaskEditor({
   const [recurrence, setRecurrence] = useState("");
   const [triggerRagLoop, setTriggerRagLoop] = useState(false);
   const [modelOverride, setModelOverride] = useState("");
+  const [fallbackModels, setFallbackModels] = useState<Array<{ model: string; provider_id?: string | null }>>([]);
+  const [maxRunSeconds, setMaxRunSeconds] = useState<string>("");
   const [initialized, setInitialized] = useState(false);
 
   // Populate form when existing task loads (edit mode)
   if (!isCreate && !cloneFromId && existingTask && !initialized) {
+    setTitle(existingTask.title || "");
     setPrompt(existingTask.prompt || "");
     setPromptTemplateId(existingTask.prompt_template_id ?? null);
+    setWorkspaceFilePath(existingTask.workspace_file_path ?? null);
+    setWorkspaceId(existingTask.workspace_id ?? null);
     setBotId(existingTask.bot_id || "");
     setChannelId(existingTask.channel_id || "");
     setStatus(existingTask.status || "pending");
     setTaskType(existingTask.task_type || "scheduled");
-    setScheduledAt(existingTask.scheduled_at ? toLocalDatetimeString(new Date(existingTask.scheduled_at)) : "");
+    setScheduledAt(existingTask.scheduled_at ? isoToLocalInput(existingTask.scheduled_at) : "");
     setRecurrence(existingTask.recurrence || "");
-    setTriggerRagLoop(existingTask.callback_config?.trigger_rag_loop ?? false);
-    setModelOverride(existingTask.callback_config?.model_override || "");
+    setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
+    setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
+    setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
+    setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
     setInitialized(true);
   }
 
   // Populate form when cloning
   if (isCreate && cloneFromId && existingTask && !initialized) {
+    setTitle(existingTask.title || "");
     setPrompt(existingTask.prompt || "");
     setPromptTemplateId(existingTask.prompt_template_id ?? null);
+    setWorkspaceFilePath(existingTask.workspace_file_path ?? null);
+    setWorkspaceId(existingTask.workspace_id ?? null);
     setBotId(existingTask.bot_id || "");
     setChannelId(existingTask.channel_id || "");
     setTaskType(existingTask.task_type || "scheduled");
-    setScheduledAt(existingTask.scheduled_at ? toLocalDatetimeString(new Date(existingTask.scheduled_at)) : "");
+    setScheduledAt(existingTask.scheduled_at ? isoToLocalInput(existingTask.scheduled_at) : "");
     setRecurrence(existingTask.recurrence || "");
-    setTriggerRagLoop(existingTask.callback_config?.trigger_rag_loop ?? false);
-    setModelOverride(existingTask.callback_config?.model_override || "");
+    setTriggerRagLoop(existingTask.trigger_rag_loop ?? existingTask.callback_config?.trigger_rag_loop ?? false);
+    setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
+    setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
+    setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
     setInitialized(true);
   }
 
@@ -324,32 +323,45 @@ export function TaskEditor({
     }
   }, [qc, extraQueryKeysToInvalidate]);
 
+  const hasPrompt = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath;
+
   const handleSave = useCallback(async () => {
-    if (!prompt.trim() || !botId) return;
+    if (!hasPrompt || !botId) return;
     try {
+      const scheduledAtISO = localInputToISO(scheduledAt) || null;
       if (isCreate) {
         await createMut.mutateAsync({
           prompt,
+          title: title || null,
           prompt_template_id: promptTemplateId,
+          workspace_file_path: workspaceFilePath,
+          workspace_id: workspaceId,
           bot_id: botId,
           channel_id: channelId || null,
-          scheduled_at: scheduledAt || null,
+          scheduled_at: scheduledAtISO,
           recurrence: recurrence || null,
           task_type: taskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
+          fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
+          max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
         });
       } else {
         await updateMut.mutateAsync({
           prompt,
+          title: title || null,
           prompt_template_id: promptTemplateId,
+          workspace_file_path: workspaceFilePath,
+          workspace_id: workspaceId,
           bot_id: botId,
           status,
-          scheduled_at: scheduledAt || null,
+          scheduled_at: scheduledAtISO,
           recurrence: recurrence || null,
           task_type: taskType,
           trigger_rag_loop: triggerRagLoop,
           model_override: modelOverride || null,
+          fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
+          max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
         });
       }
       invalidateExtra();
@@ -357,7 +369,7 @@ export function TaskEditor({
     } catch {
       // error is shown via mutation state
     }
-  }, [prompt, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, status, isCreate, createMut, updateMut, onSaved, invalidateExtra]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -380,39 +392,39 @@ export function TaskEditor({
     })),
   ];
 
-  const title = cloneFromId ? "New Task (Clone)" : isCreate ? "New Task" : "Edit Task";
+  const editorTitle = cloneFromId ? "New Task (Clone)" : isCreate ? "New Task" : "Edit Task";
 
   return ReactDOM.createPortal(
     <div style={{
       position: "fixed", inset: 0, zIndex: 10000,
-      background: "#0a0a0a", display: "flex", flexDirection: "column",
+      background: t.surface, display: "flex", flexDirection: "column",
     }}>
       {/* Header */}
       <div style={{
         display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px", borderBottom: "1px solid #333", flexShrink: 0,
+        padding: isWide ? "12px 20px" : "10px 12px", borderBottom: `1px solid ${t.surfaceBorder}`, flexShrink: 0,
         gap: 8,
       }}>
         <button
           onClick={onClose}
           style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}
         >
-          <ChevronLeft size={22} color="#999" />
+          <ChevronLeft size={22} color={t.textMuted} />
         </button>
 
-        <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-          {title}
+        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+          {editorTitle}
         </span>
         {cloneFromId && (
           <span style={{
             fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-            background: "#92400e", color: "#fcd34d",
+            background: t.warningSubtle, color: t.warningMuted,
           }}>
             CLONE
           </span>
         )}
         {!isCreate && existingTask && isWide && (
-          <span style={{ color: "#555", fontSize: 11, fontFamily: "monospace" }}>
+          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>
             {taskId?.slice(0, 8)}
           </span>
         )}
@@ -430,8 +442,8 @@ export function TaskEditor({
             style={{
               display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: "1px solid #1e3a5f", borderRadius: 6,
-              background: "transparent", color: "#93c5fd", cursor: "pointer", flexShrink: 0,
+              border: `1px solid ${t.accentMuted}`, borderRadius: 6,
+              background: "transparent", color: t.accent, cursor: "pointer", flexShrink: 0,
             }}
           >
             <FileText size={14} />
@@ -447,8 +459,8 @@ export function TaskEditor({
             style={{
               display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: "1px solid #333", borderRadius: 6,
-              background: "transparent", color: "#999", cursor: "pointer", flexShrink: 0,
+              border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+              background: "transparent", color: t.textMuted, cursor: "pointer", flexShrink: 0,
             }}
           >
             <Copy size={14} />
@@ -464,8 +476,8 @@ export function TaskEditor({
             style={{
               display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: "1px solid #7f1d1d", borderRadius: 6,
-              background: "transparent", color: "#fca5a5", cursor: "pointer", flexShrink: 0,
+              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
             }}
           >
             <Trash2 size={14} />
@@ -485,13 +497,13 @@ export function TaskEditor({
         )}
         <button
           onClick={handleSave}
-          disabled={saving || !prompt.trim() || !botId}
+          disabled={saving || !hasPrompt || !botId}
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!prompt.trim() || !botId) ? "#333" : "#3b82f6",
-            color: (!prompt.trim() || !botId) ? "#666" : "#fff",
-            cursor: (!prompt.trim() || !botId) ? "not-allowed" : "pointer",
+            background: (!hasPrompt || !botId) ? t.surfaceBorder : t.accent,
+            color: (!hasPrompt || !botId) ? t.textDim : "#fff",
+            cursor: (!hasPrompt || !botId) ? "not-allowed" : "pointer",
           }}
         >
           {saving ? "..." : isCreate ? "Create" : "Save"}
@@ -500,7 +512,7 @@ export function TaskEditor({
 
       {/* Error display */}
       {(createMut.error || updateMut.error || deleteMut.error) && (
-        <div style={{ padding: "8px 20px", background: "#7f1d1d", color: "#fca5a5", fontSize: 12 }}>
+        <div style={{ padding: "8px 20px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
           {(createMut.error || updateMut.error || deleteMut.error)?.message || "An error occurred"}
         </div>
       )}
@@ -508,7 +520,7 @@ export function TaskEditor({
       {/* Body */}
       {(((!isCreate && !cloneFromId) || cloneFromId) && loadingTask) ? (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color="#3b82f6" />
+          <ActivityIndicator color={t.accent} />
         </div>
       ) : (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{
@@ -516,30 +528,55 @@ export function TaskEditor({
         }}>
           {/* Prompt + Result/Error */}
           <div style={{
-            ...(isWide ? { flex: 3, borderRight: "1px solid #2a2a2a" } : {}),
+            ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
             display: "flex", flexDirection: "column",
           }}>
             <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
-              <PromptTemplateLink
-                templateId={promptTemplateId}
-                onLink={(id) => setPromptTemplateId(id)}
-                onUnlink={() => setPromptTemplateId(null)}
-                workspaceId={selectedBot?.shared_workspace_id ?? undefined}
+              <FormRow label="Title">
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Short task title (optional)"
+                  style={{
+                    background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
+                    padding: "7px 12px", color: t.text, fontSize: 13,
+                    outline: "none", width: "100%",
+                  }}
+                />
+              </FormRow>
+              <WorkspaceFilePrompt
+                workspaceId={workspaceId ?? selectedBot?.shared_workspace_id}
+                filePath={workspaceFilePath}
+                onLink={(path, wsId) => { setWorkspaceFilePath(path); setWorkspaceId(wsId); setPromptTemplateId(null); }}
+                onUnlink={() => { setWorkspaceFilePath(null); setWorkspaceId(null); }}
               />
-              <LlmPrompt
-                value={prompt}
-                onChange={setPrompt}
-                label="Prompt"
-                placeholder={promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
-                rows={isWide ? 12 : 6}
-              />
+              {!workspaceFilePath && (
+                <>
+                  <PromptTemplateLink
+                    templateId={promptTemplateId}
+                    onLink={(id) => setPromptTemplateId(id)}
+                    onUnlink={() => setPromptTemplateId(null)}
+                  />
+                  <LlmPrompt
+                    value={prompt}
+                    onChange={setPrompt}
+                    label="Prompt"
+                    placeholder={promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
+                    rows={isWide ? 12 : 6}
+                    fieldType="task_prompt"
+                    botId={botId}
+                    channelId={channelId}
+                  />
+                </>
+              )}
 
               {!isCreate && existingTask?.result && (
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>Result</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Result</div>
                   <div style={{
-                    padding: 12, borderRadius: 8, background: "#111", border: "1px solid #1a1a1a",
-                    fontSize: 12, color: "#86efac", whiteSpace: "pre-wrap",
+                    padding: 12, borderRadius: 8, background: t.inputBg, border: `1px solid ${t.surfaceRaised}`,
+                    fontSize: 12, color: t.success, whiteSpace: "pre-wrap",
                     maxHeight: 300, overflow: "auto", fontFamily: "monospace",
                   }}>
                     {existingTask.result}
@@ -549,10 +586,10 @@ export function TaskEditor({
 
               {!isCreate && existingTask?.error && (
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>Error</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>Error</div>
                   <div style={{
-                    padding: 12, borderRadius: 8, background: "#1a0a0a", border: "1px solid #7f1d1d",
-                    fontSize: 12, color: "#fca5a5", whiteSpace: "pre-wrap",
+                    padding: 12, borderRadius: 8, background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+                    fontSize: 12, color: t.danger, whiteSpace: "pre-wrap",
                     maxHeight: 200, overflow: "auto", fontFamily: "monospace",
                   }}>
                     {existingTask.error}
@@ -566,7 +603,7 @@ export function TaskEditor({
           <div style={{
             ...(isWide ? { flex: 2 } : {}),
             padding: "16px 20px",
-            borderTop: isWide ? "none" : "1px solid #2a2a2a",
+            borderTop: isWide ? "none" : `1px solid ${t.surfaceOverlay}`,
           }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <Section title="Configuration">
@@ -627,16 +664,32 @@ export function TaskEditor({
                     allowClear
                   />
                 </FormRow>
+
+                <FormRow label="Fallback Models" description="Ordered fallback chain for this task.">
+                  <FallbackModelList
+                    value={fallbackModels}
+                    onChange={setFallbackModels}
+                  />
+                </FormRow>
+
+                <FormRow label="Max run time (seconds)">
+                  <TextInput
+                    value={maxRunSeconds}
+                    onChangeText={setMaxRunSeconds}
+                    placeholder="Inherit from channel/global"
+                    type="number"
+                  />
+                </FormRow>
               </Section>
 
               {/* Read-only timing info in edit mode */}
               {!isCreate && existingTask && (
                 <Section title="Timing">
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <InfoRow label="Created" value={fmtDatetime(existingTask.created_at)} />
-                    <InfoRow label="Scheduled" value={fmtDatetime(existingTask.scheduled_at)} />
-                    <InfoRow label="Run At" value={fmtDatetime(existingTask.run_at)} />
-                    <InfoRow label="Completed" value={fmtDatetime(existingTask.completed_at)} />
+                    <InfoRow label="Created" value={formatDateTime(existingTask.created_at)} />
+                    <InfoRow label="Scheduled" value={formatDateTime(existingTask.scheduled_at)} />
+                    <InfoRow label="Run At" value={formatDateTime(existingTask.run_at)} />
+                    <InfoRow label="Completed" value={formatDateTime(existingTask.completed_at)} />
                     <InfoRow label="Retry Count" value={String(existingTask.retry_count)} />
                     {existingTask.run_count > 0 && (
                       <InfoRow label="Run Count" value={String(existingTask.run_count)} />
@@ -650,22 +703,36 @@ export function TaskEditor({
                 <Section title="Dispatch">
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <InfoRow label="Type" value={existingTask.dispatch_type} />
+                    {existingTask.delegation_session_id && (
+                      <InfoRow label="Delegation Session" value={existingTask.delegation_session_id.slice(0, 8) + "..."} />
+                    )}
                     {existingTask.dispatch_config && (
                       <div>
-                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Config</div>
+                        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Dispatch Config</div>
                         <pre style={{
-                          fontSize: 10, color: "#888", background: "#111", padding: 8,
+                          fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
                           borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
                         }}>
                           {JSON.stringify(existingTask.dispatch_config, null, 2)}
                         </pre>
                       </div>
                     )}
+                    {existingTask.execution_config && (
+                      <div>
+                        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Execution Config</div>
+                        <pre style={{
+                          fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
+                          borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
+                        }}>
+                          {JSON.stringify(existingTask.execution_config, null, 2)}
+                        </pre>
+                      </div>
+                    )}
                     {existingTask.callback_config && (
                       <div>
-                        <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Callback Config</div>
+                        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Callback Config</div>
                         <pre style={{
-                          fontSize: 10, color: "#888", background: "#111", padding: 8,
+                          fontSize: 10, color: t.textMuted, background: t.inputBg, padding: 8,
                           borderRadius: 6, overflow: "auto", maxHeight: 120, margin: 0,
                         }}>
                           {JSON.stringify(existingTask.callback_config, null, 2)}

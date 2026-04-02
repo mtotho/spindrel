@@ -1,8 +1,9 @@
 harnesses:
   claude-code:
     command: claude
-    args: ["--print", "{prompt}", "--dangerously-skip-permissions", "--output-format", "json", "--max-turns", "30"]
-    working_directory: "{working_directory}"
+    args: ["--dangerously-skip-permissions", "--output-format", "json", "--max-turns", "30"]
+    prompt_mode: stdin
+    working_directory: "/workspace"
     timeout: 1800
 
   cursor:

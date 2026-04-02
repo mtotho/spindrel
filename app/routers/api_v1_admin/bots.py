@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -10,6 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
+
 from app.agent.bots import get_bot, list_bots
 from app.db.models import (
     Bot as BotRow,
@@ -17,6 +20,7 @@ from app.db.models import (
     Memory,
     SandboxProfile,
     SharedWorkspace,
+    SharedWorkspaceBot,
     Skill as SkillRow,
     ToolEmbedding,
 )
@@ -37,36 +41,63 @@ async def admin_bots_list(
     _auth: str = Depends(verify_auth_or_user),
 ):
     """List all bots with full config."""
+    from app.agent.persona import resolve_workspace_persona
+
     bots = list_bots()
-    return BotListOut(
-        bots=[_bot_to_out(b) for b in bots],
-        total=len(bots),
-    )
+    out = []
+    for b in bots:
+        ws_persona = resolve_workspace_persona(b.shared_workspace_id, b.id)
+        out.append(_bot_to_out(
+            b,
+            persona_from_workspace=ws_persona is not None,
+            workspace_persona_content=ws_persona,
+        ))
+    return BotListOut(bots=out, total=len(bots))
 
 
 @router.get("/bots/{bot_id}", response_model=BotOut)
 async def admin_bot_detail(
     bot_id: str,
+    db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth_or_user),
 ):
     """Get a single bot's full config."""
-    from app.agent.persona import get_persona
+    from app.agent.persona import get_persona, resolve_workspace_persona
     try:
         bot = get_bot(bot_id)
     except HTTPException:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
     persona_content = await get_persona(bot_id)
-    return _bot_to_out(bot, persona_content=persona_content)
+    ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
+
+    # Get api_permissions from linked key
+    bot_row = await db.get(BotRow, bot_id)
+    api_perms = await _get_bot_api_permissions(db, bot_row) if bot_row else None
+
+    return _bot_to_out(
+        bot,
+        persona_content=persona_content,
+        persona_from_workspace=ws_persona is not None,
+        workspace_persona_content=ws_persona,
+        api_permissions=api_perms,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Editor data
 # ---------------------------------------------------------------------------
 
+class ToolPackOut(BaseModel):
+    pack: str
+    label: str
+    warning: Optional[str] = None
+    tools: list[dict] = []
+
+
 class ToolGroupOut(BaseModel):
     integration: str
     is_core: bool
-    packs: list[dict] = []
+    packs: list[ToolPackOut] = []
     total: int = 0
 
 
@@ -112,9 +143,9 @@ async def admin_bot_editor_data(
     Use bot_id="new" to get a blank default bot for the create form.
     """
     from app.agent.bots import list_bots as _list_bots
-    from app.agent.persona import get_persona
+    from app.agent.persona import get_persona, resolve_workspace_persona
     from app.services.harness import harness_service
-    from app.tools.mcp import _servers
+    from app.services.mcp_servers import list_server_names
     from app.tools.client_tools import _client_tools
 
     is_new = bot_id == "new"
@@ -138,10 +169,20 @@ async def admin_bot_editor_data(
             _fetch_tool_rows(db),
             _fetch_sandbox_profiles(db),
         )
-        bot_out = _bot_to_out(bot, persona_content=persona_content)
+        ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)
+        bot_row = await db.get(BotRow, bot_id)
+        api_perms = await _get_bot_api_permissions(db, bot_row) if bot_row else None
+        bot_out = _bot_to_out(
+            bot,
+            persona_content=persona_content,
+            persona_from_workspace=ws_persona is not None,
+            workspace_persona_content=ws_persona,
+            api_permissions=api_perms,
+        )
 
-    tool_groups = _build_tool_groups(tool_rows)
-    mcp_servers = sorted(_servers.keys())
+    bot_memory_scheme = getattr(bot_out, "memory_scheme", None) if not is_new else None
+    tool_groups = _build_tool_groups(tool_rows, memory_scheme=bot_memory_scheme)
+    mcp_servers = list_server_names()
     client_tools = sorted(_client_tools.keys())
 
     all_skills = [
@@ -172,7 +213,7 @@ async def admin_bot_editor_data(
     ws_skills_out: list[WorkspaceSkillOut] = []
     if not is_new:
         ws_id = getattr(bot, "shared_workspace_id", None)
-        if ws_id:
+        if ws_id:  # Always true for enrolled bots
             ws_skill_rows = (await db.execute(
                 select(
                     Document.metadata_["skill_id"].as_string().label("skill_id"),
@@ -235,6 +276,7 @@ async def _fetch_tool_rows(db: AsyncSession):
             ToolEmbedding.server_name,
             ToolEmbedding.source_integration,
             ToolEmbedding.source_file,
+            ToolEmbedding.schema_,
         ).order_by(ToolEmbedding.server_name.nullsfirst(), ToolEmbedding.tool_name)
     )).all()
 
@@ -247,7 +289,15 @@ async def _fetch_sandbox_profiles(db: AsyncSession):
     )).scalars().all()
 
 
-def _build_tool_groups(tool_rows) -> list[dict]:
+PACK_METADATA: dict[str, dict] = {
+    "memory":       {"label": "Memory (DB)",    "deprecated": True},
+    "memory_files": {"label": "Memory (Files)"},
+    "knowledge":    {"label": "Knowledge (DB)", "deprecated": True},
+    "plans":        {"label": "Plans (DB)",      "deprecated": True},
+}
+
+
+def _build_tool_groups(tool_rows, *, memory_scheme: str | None = None) -> list[dict]:
     from collections import defaultdict
     integration_packs: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for r in tool_rows:
@@ -255,7 +305,12 @@ def _build_tool_groups(tool_rows) -> list[dict]:
             continue
         intg = r.source_integration or "core"
         pack = (r.source_file or "misc").replace(".py", "")
-        integration_packs[intg][pack].append({"name": r.tool_name})
+        schema = r.schema_ or {}
+        fn = schema.get("function", {})
+        integration_packs[intg][pack].append({
+            "name": r.tool_name,
+            "description": fn.get("description"),
+        })
 
     ordered = (["core"] if "core" in integration_packs else []) + sorted(
         k for k in integration_packs if k != "core"
@@ -263,13 +318,26 @@ def _build_tool_groups(tool_rows) -> list[dict]:
     groups = []
     for intg_id in ordered:
         packs_dict = integration_packs[intg_id]
+        packs_out = []
+        for pn in sorted(packs_dict):
+            meta = PACK_METADATA.get(pn, {})
+            label = meta.get("label", pn)
+            warning = None
+            if meta.get("deprecated"):
+                if memory_scheme == "workspace-files":
+                    warning = "Not recommended with workspace-files memory scheme"
+                else:
+                    warning = "DB-based — consider workspace-files memory scheme instead"
+            packs_out.append({
+                "pack": pn,
+                "label": label,
+                "warning": warning,
+                "tools": sorted(packs_dict[pn], key=lambda t: t["name"]),
+            })
         groups.append({
             "integration": intg_id,
             "is_core": intg_id == "core",
-            "packs": [
-                {"pack": pn, "tools": sorted(packs_dict[pn], key=lambda t: t["name"])}
-                for pn in sorted(packs_dict)
-            ],
+            "packs": packs_out,
             "total": sum(len(v) for v in packs_dict.values()),
         })
     return groups
@@ -284,6 +352,7 @@ class BotUpdateIn(BaseModel):
     model: Optional[str] = None
     system_prompt: Optional[str] = None
     model_provider_id: Optional[str] = None
+    fallback_models: Optional[list[dict]] = None
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
     local_tools: Optional[list[str]] = None
@@ -294,13 +363,15 @@ class BotUpdateIn(BaseModel):
     tool_retrieval: Optional[bool] = None
     tool_similarity_threshold: Optional[float] = None
     tool_result_config: Optional[dict] = None
-    compression_config: Optional[dict] = None
     persona: Optional[bool] = None
     persona_content: Optional[str] = None
     context_compaction: Optional[bool] = None
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
+    context_pruning: Optional[bool] = None
+    context_pruning_keep_turns: Optional[int] = None
+    history_mode: Optional[str] = None
     audio_input: Optional[str] = None
     memory_config: Optional[dict] = None
     knowledge_config: Optional[dict] = None
@@ -311,17 +382,20 @@ class BotUpdateIn(BaseModel):
     docker_sandbox_profiles: Optional[list[str]] = None
     model_params: Optional[dict] = None
     delegation_config: Optional[dict] = None
-    elevation_enabled: Optional[bool] = None
-    elevation_threshold: Optional[float] = None
-    elevated_model: Optional[str] = None
     attachment_summarization_enabled: Optional[bool] = None
     attachment_summary_model: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
     user_id: Optional[str] = None
+    api_permissions: Optional[list[str]] = None
+    api_docs_mode: Optional[str] = None  # "pinned"|"rag"|"on_demand"|null
+    memory_scheme: Optional[str] = None  # "workspace-files"|null
+    workspace_only: Optional[bool] = None
+    system_prompt_workspace_file: Optional[bool] = None
+    system_prompt_write_protected: Optional[bool] = None
 
 
-@router.put("/bots/{bot_id}", response_model=BotOut)
+@router.api_route("/bots/{bot_id}", methods=["PUT", "PATCH"], response_model=BotOut)
 async def admin_bot_update(
     bot_id: str,
     data: BotUpdateIn = Body(...),
@@ -336,9 +410,10 @@ async def admin_bot_update(
     if not row:
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
 
-    updates = data.model_dump(exclude_none=True)
+    updates = data.model_dump(exclude_unset=True)
 
     persona_content_val = updates.pop("persona_content", None)
+    api_permissions_val = updates.pop("api_permissions", None)
 
     if "memory_config" in updates:
         row.memory_config = updates.pop("memory_config")
@@ -359,16 +434,50 @@ async def admin_bot_update(
             setattr(row, key, val)
 
     row.updated_at = datetime.now(timezone.utc)
+
+    # Handle api_permissions: auto-create/update scoped API key for this bot
+    if api_permissions_val is not None:
+        await _sync_bot_api_key(db, row, api_permissions_val)
+
     await db.commit()
 
     if persona_content_val is not None:
         await write_persona(bot_id, persona_content_val)
 
+    # Sync write protection for system_prompt workspace file
+    if "system_prompt_write_protected" in updates:
+        try:
+            sw_row = (await db.execute(
+                select(SharedWorkspaceBot.workspace_id).where(SharedWorkspaceBot.bot_id == bot_id)
+            )).scalar_one_or_none()
+            if sw_row:
+                sp_path = f"bots/{bot_id}/system_prompt.md"
+                ws = await db.get(SharedWorkspace, sw_row)
+                if ws:
+                    wp = list(ws.write_protected_paths or [])
+                    if updates["system_prompt_write_protected"] and sp_path not in wp:
+                        wp.append(sp_path)
+                    elif not updates["system_prompt_write_protected"] and sp_path in wp:
+                        wp.remove(sp_path)
+                    ws.write_protected_paths = wp
+                    await db.commit()
+        except Exception:
+            logger.warning("Failed to sync write protection for bot %s", bot_id, exc_info=True)
+
     await reload_bots()
 
     bot = get_bot(bot_id)
+
+    # Bootstrap memory directories when memory_scheme is set via PUT/PATCH
+    if updates.get("memory_scheme") == "workspace-files":
+        from app.services.memory_scheme import bootstrap_memory_scheme
+        try:
+            bootstrap_memory_scheme(bot)
+        except Exception:
+            pass  # non-fatal
+
     pc = await get_persona(bot_id)
-    return _bot_to_out(bot, persona_content=pc)
+    return _bot_to_out(bot, persona_content=pc, api_permissions=await _get_bot_api_permissions(db, row))
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +490,7 @@ class BotCreateIn(BaseModel):
     model: str
     system_prompt: Optional[str] = ""
     model_provider_id: Optional[str] = None
+    fallback_models: Optional[list[dict]] = None
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
     local_tools: Optional[list[str]] = None
@@ -391,13 +501,15 @@ class BotCreateIn(BaseModel):
     tool_retrieval: Optional[bool] = True
     tool_similarity_threshold: Optional[float] = None
     tool_result_config: Optional[dict] = None
-    compression_config: Optional[dict] = None
     persona: Optional[bool] = False
     persona_content: Optional[str] = None
     context_compaction: Optional[bool] = True
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
+    context_pruning: Optional[bool] = None
+    context_pruning_keep_turns: Optional[int] = None
+    history_mode: Optional[str] = "summary"
     audio_input: Optional[str] = "transcribe"
     memory_config: Optional[dict] = None
     knowledge_config: Optional[dict] = None
@@ -408,14 +520,12 @@ class BotCreateIn(BaseModel):
     docker_sandbox_profiles: Optional[list[str]] = None
     model_params: Optional[dict] = None
     delegation_config: Optional[dict] = None
-    elevation_enabled: Optional[bool] = None
-    elevation_threshold: Optional[float] = None
-    elevated_model: Optional[str] = None
     attachment_summarization_enabled: Optional[bool] = None
     attachment_summary_model: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
     user_id: Optional[str] = None
+    memory_scheme: Optional[str] = None  # "workspace-files"|null
 
 
 @router.post("/bots", response_model=BotOut, status_code=201)
@@ -477,6 +587,156 @@ async def admin_bot_create(
 
     bot = get_bot(data.id)
     return _bot_to_out(bot)
+
+
+# ---------------------------------------------------------------------------
+# Bot API key management helpers
+# ---------------------------------------------------------------------------
+
+async def _sync_bot_api_key(db: AsyncSession, bot_row: BotRow, scopes: list[str]) -> None:
+    """Create or update the scoped API key for a bot based on permissions."""
+    from app.db.models import ApiKey
+    from app.services.api_keys import create_api_key, ALL_SCOPES
+
+    # Validate scopes
+    invalid = [s for s in scopes if s not in ALL_SCOPES]
+    if invalid:
+        raise HTTPException(status_code=422, detail=f"Invalid scopes: {invalid}")
+
+    if bot_row.api_key_id:
+        # Update existing key's scopes
+        api_key = await db.get(ApiKey, bot_row.api_key_id)
+        if api_key:
+            api_key.scopes = scopes
+            api_key.updated_at = datetime.now(timezone.utc)
+            return
+
+    # Create new key (store_key_value=True so we can inject it into containers)
+    key_row, _full_key = await create_api_key(
+        db,
+        name=f"bot:{bot_row.id}",
+        scopes=scopes,
+        store_key_value=True,
+    )
+    bot_row.api_key_id = key_row.id
+
+
+async def _get_bot_api_permissions(db: AsyncSession, bot_row: BotRow) -> list[str] | None:
+    """Read the scopes from a bot's linked API key."""
+    if not bot_row.api_key_id:
+        return None
+    from app.db.models import ApiKey
+    api_key = await db.get(ApiKey, bot_row.api_key_id)
+    if not api_key:
+        return None
+    return api_key.scopes or []
+
+
+# ---------------------------------------------------------------------------
+# Memory scheme
+# ---------------------------------------------------------------------------
+
+@router.post("/bots/{bot_id}/memory-scheme")
+async def admin_bot_enable_memory_scheme(
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Enable the workspace-files memory scheme on an existing bot.
+
+    Sets memory_scheme, bootstraps directory structure, and triggers reindex.
+    """
+    from app.agent.bots import reload_bots
+    from app.services.memory_scheme import bootstrap_memory_scheme
+
+    row = await db.get(BotRow, bot_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    row.memory_scheme = "workspace-files"
+    row.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    await reload_bots()
+    bot = get_bot(bot_id)
+
+    # Bootstrap memory directories
+    memory_root = bootstrap_memory_scheme(bot)
+
+    # Trigger filesystem reindex for the memory directory
+    try:
+        from app.services.memory_indexing import index_memory_for_bot
+        await index_memory_for_bot(bot, force=True)
+    except Exception:
+        pass  # non-fatal; will be indexed on next natural cycle
+
+    return {"status": "ok", "memory_scheme": "workspace-files", "memory_root": memory_root}
+
+
+# ---------------------------------------------------------------------------
+# Bot sandbox status + recreate
+# ---------------------------------------------------------------------------
+
+class SandboxStatusOut(BaseModel):
+    exists: bool = False
+    status: Optional[str] = None
+    container_name: Optional[str] = None
+    container_id: Optional[str] = None
+    image_id: Optional[str] = None
+    error_message: Optional[str] = None
+    created_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+
+
+@router.get("/bots/{bot_id}/sandbox", response_model=SandboxStatusOut)
+async def admin_bot_sandbox_status(
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Get the status of a bot's local sandbox container."""
+    from app.db.models import SandboxInstance
+
+    instance = (await db.execute(
+        select(SandboxInstance).where(
+            SandboxInstance.scope_type == "bot",
+            SandboxInstance.scope_key == bot_id,
+        )
+    )).scalar_one_or_none()
+
+    if not instance:
+        return SandboxStatusOut(exists=False)
+
+    return SandboxStatusOut(
+        exists=True,
+        status=instance.status,
+        container_name=instance.container_name,
+        container_id=instance.container_id[:12] if instance.container_id else None,
+        image_id=instance.image_id[:19] if instance.image_id else None,
+        error_message=instance.error_message,
+        created_at=instance.created_at,
+        last_used_at=instance.last_used_at,
+    )
+
+
+@router.post("/bots/{bot_id}/sandbox/recreate")
+async def admin_bot_sandbox_recreate(
+    bot_id: str,
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Recreate the bot's local sandbox container.
+
+    Stops and removes the existing container. The next exec_command call
+    will auto-create a fresh one with the latest config.
+    """
+    from app.services.sandbox import sandbox_service
+
+    try:
+        await sandbox_service.recreate_bot_local(bot_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"status": "ok", "message": f"Sandbox for '{bot_id}' destroyed. Will be recreated on next use."}
 
 
 # ---------------------------------------------------------------------------

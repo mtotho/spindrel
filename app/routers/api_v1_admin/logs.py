@@ -1,7 +1,8 @@
-"""Logs & Traces: /logs, /traces/{id}, /server-logs."""
+"""Logs & Traces: /logs, /traces/{id}, /server-logs, /log-level."""
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from typing import Optional
@@ -12,7 +13,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Message, Session, ToolCall, TraceEvent
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
 
@@ -94,7 +95,7 @@ async def admin_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("logs:read")),
 ):
     """List log entries (tool calls + trace events), merged and sorted desc."""
     offset = (page - 1) * page_size
@@ -195,7 +196,7 @@ async def admin_logs(
 async def admin_trace_detail(
     correlation_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("logs:read")),
 ):
     """Get full trace timeline for a correlation ID."""
     tool_calls = (await db.execute(
@@ -323,7 +324,7 @@ async def server_logs(
     logger: Optional[str] = Query(None, description="Logger name prefix filter (e.g. 'app.agent')"),
     search: Optional[str] = Query(None, description="Case-insensitive text search in message"),
     since_minutes: Optional[float] = Query(None, ge=0, description="Only entries from last N minutes"),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("logs:read")),
 ):
     """Return recent server log entries from the in-memory ring buffer.
 
@@ -364,3 +365,40 @@ async def server_logs(
         total=len(entries),
         levels=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Dynamic log level
+# ---------------------------------------------------------------------------
+
+_VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
+class LogLevelOut(BaseModel):
+    level: str
+
+
+class LogLevelIn(BaseModel):
+    level: str
+
+
+@router.get("/log-level", response_model=LogLevelOut)
+async def get_log_level(
+    _auth=Depends(require_scopes("logs:read")),
+):
+    """Return the current root logger level."""
+    return LogLevelOut(level=logging.getLevelName(logging.getLogger().level))
+
+
+@router.put("/log-level", response_model=LogLevelOut)
+async def set_log_level(
+    body: LogLevelIn,
+    _auth=Depends(require_scopes("logs:write")),
+):
+    """Set the root logger level dynamically (DEBUG/INFO/WARNING/ERROR/CRITICAL)."""
+    name = body.level.upper()
+    if name not in _VALID_LEVELS:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Invalid level: {body.level}. Must be one of {sorted(_VALID_LEVELS)}")
+    logging.getLogger().setLevel(getattr(logging, name))
+    return LogLevelOut(level=name)

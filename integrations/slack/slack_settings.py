@@ -29,7 +29,7 @@ AGENT_BASE_URL = os.environ.get("AGENT_BASE_URL", "http://localhost:8000")
 STATE_PATH = _DIR / "slack_state.json"
 
 # ---------------------------------------------------------------------------
-# Live config cache (TTL=60s) — reads from /api/slack/config on agent server
+# Live config cache (TTL=60s) — reads from /integrations/slack/config on agent server
 # ---------------------------------------------------------------------------
 _config_cache: dict = {}
 _config_cache_ts: float = 0.0
@@ -38,7 +38,7 @@ _CONFIG_TTL = 60.0
 
 def _fetch_slack_config() -> dict:
     """Synchronously fetch Slack config from agent server API."""
-    url = f"{AGENT_BASE_URL}/api/slack/config"
+    url = f"{AGENT_BASE_URL}/integrations/slack/config"
     headers = {}
     if API_KEY:
         headers["X-API-Key"] = API_KEY
@@ -99,6 +99,7 @@ def get_channel_config(channel_id: str) -> dict:
             "require_mention": ch.get("require_mention", True),
             "passive_memory": ch.get("passive_memory", True),
             "allow_bot_messages": ch.get("allow_bot_messages", False),
+            "thinking_display": ch.get("thinking_display", "append"),
         }
     # Legacy: ch is a bot_id string
     bot_id = ch if ch else default_bot
@@ -107,6 +108,7 @@ def get_channel_config(channel_id: str) -> dict:
         "require_mention": True,
         "passive_memory": True,
         "allow_bot_messages": False,
+        "thinking_display": "append",
     }
 
 

@@ -163,6 +163,7 @@ async def create_local_user(
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    await _provision_user_api_key(db, user)
     return user
 
 
@@ -187,4 +188,35 @@ async def get_or_create_google_user(
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    await _provision_user_api_key(db, user)
     return user
+
+
+async def ensure_user_api_key(db: AsyncSession, user: User) -> None:
+    """Ensure a user has an API key. Called on login for backward compat."""
+    if user.api_key_id:
+        return
+    await _provision_user_api_key(db, user)
+
+
+async def _provision_user_api_key(db: AsyncSession, user: User) -> None:
+    """Provision a scoped API key for a user based on their role."""
+    try:
+        from app.services.api_keys import ensure_entity_api_key, SCOPE_PRESETS
+
+        preset_name = "admin_user" if user.is_admin else "member_user"
+        scopes = SCOPE_PRESETS[preset_name]["scopes"]
+
+        key, _full_value = await ensure_entity_api_key(
+            db,
+            name=f"user:{user.email}",
+            scopes=scopes,
+            existing_key_id=user.api_key_id,
+        )
+        if not user.api_key_id:
+            user.api_key_id = key.id
+            await db.commit()
+            await db.refresh(user)
+        logger.debug("Provisioned API key for user %s (preset=%s)", user.email, preset_name)
+    except Exception:
+        logger.warning("Failed to provision API key for user %s", user.email, exc_info=True)

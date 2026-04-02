@@ -1,40 +1,29 @@
-import { useState, useMemo } from "react";
-import { View, ScrollView, ActivityIndicator } from "react-native";
+import { useState, useMemo, Fragment } from "react";
+import { useRouter } from "expo-router";
+import { View, ActivityIndicator } from "react-native";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronLeft, ChevronRight, Plus,
+  ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Plus,
   Clock, AlertCircle, CheckCircle2, Loader2, RefreshCw, Calendar,
-  List,
+  List, AlertTriangle, XCircle, Terminal,
 } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
 import { TaskEditor } from "@/src/components/shared/TaskEditor";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
-
-interface TaskItem {
-  id: string;
-  status: string;
-  bot_id: string;
-  prompt: string;
-  result?: string;
-  error?: string;
-  dispatch_type: string;
-  task_type?: string;
-  recurrence?: string;
-  run_count?: number;
-  channel_id?: string;
-  parent_task_id?: string;
-  correlation_id?: string;
-  created_at?: string;
-  scheduled_at?: string;
-  run_at?: string;
-  completed_at?: string;
-  is_schedule?: boolean;
-  is_virtual?: boolean;
-  /** For virtual entries, the real schedule ID to open in editor */
-  _schedule_id?: string;
-}
+import { formatTime, formatDate } from "@/src/utils/time";
+import { useThemeTokens } from "@/src/theme/tokens";
+import { CronJobsView } from "./CronJobsView";
+import {
+  type TaskItem,
+  TYPE_BADGE_COLORS, STATUS_CFG, BOT_COLORS,
+  botColor, displayTitle,
+  TypeBadge, TaskStatusBadge as StatusBadge, BotDot,
+} from "@/src/components/shared/TaskConstants";
+import { TaskCardRow } from "@/src/components/shared/TaskCardRow";
 
 interface TasksResponse {
   tasks: TaskItem[];
@@ -42,8 +31,9 @@ interface TasksResponse {
   total: number;
 }
 
-type ViewMode = "day" | "week" | "list";
-type TaskTypeFilter = "all" | "scheduled" | "heartbeat" | "delegation" | "harness" | "exec" | "callback" | "api";
+type ViewMode = "schedule" | "day" | "week" | "list" | "cron";
+type TaskTypeFilter = "all" | "scheduled" | "delegation" | "harness" | "exec" | "api" | "workflow";
+type StatusFilter = "active" | "all" | "cancelled" | "failed";
 
 type EditorState =
   | { mode: "closed" }
@@ -54,41 +44,40 @@ type EditorState =
 const TASK_TYPE_FILTERS: { key: TaskTypeFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "scheduled", label: "Scheduled" },
-  { key: "heartbeat", label: "Heartbeat" },
   { key: "delegation", label: "Delegation" },
   { key: "harness", label: "Harness" },
   { key: "exec", label: "Exec" },
-  { key: "callback", label: "Callback" },
   { key: "api", label: "API" },
+  { key: "workflow", label: "Workflow" },
 ];
 
-const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
-  scheduled: { bg: "#1e3a5f", fg: "#93c5fd" },
-  heartbeat: { bg: "#3b2e1a", fg: "#fbbf24" },
-  delegation: { bg: "#2d1b4e", fg: "#c084fc" },
-  harness: { bg: "#1a3333", fg: "#5eead4" },
-  exec: { bg: "#333", fg: "#a3a3a3" },
-  callback: { bg: "#2e1a1a", fg: "#f87171" },
-  api: { bg: "#1a2e1a", fg: "#86efac" },
-  agent: { bg: "#222", fg: "#666" },
-};
+const STATUS_FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: "active", label: "Active" },
+  { key: "all", label: "All Statuses" },
+  { key: "cancelled", label: "Cancelled" },
+  { key: "failed", label: "Failed" },
+];
 
-const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any }> = {
-  pending: { bg: "#333", fg: "#999", icon: Clock },
-  running: { bg: "#1e3a5f", fg: "#93c5fd", icon: Loader2 },
-  complete: { bg: "#166534", fg: "#86efac", icon: CheckCircle2 },
-  failed: { bg: "#7f1d1d", fg: "#fca5a5", icon: AlertCircle },
-  active: { bg: "#92400e", fg: "#fcd34d", icon: RefreshCw },
-  upcoming: { bg: "#1a1a2e", fg: "#555", icon: Clock },
-  cancelled: { bg: "#333", fg: "#666", icon: Clock },
-};
 
-// Parse recurrence interval like "+1d", "+2h" into milliseconds
-const UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+// ---------------------------------------------------------------------------
+// Utility helpers
+// ---------------------------------------------------------------------------
+const UNIT_MS: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
 function parseRecurrenceMs(recurrence: string): number | null {
-  const m = recurrence.match(/^\+(\d+)([smhd])$/);
+  const m = recurrence.match(/^\+(\d+)([smhdw])$/);
   if (!m) return null;
   return parseInt(m[1]) * (UNIT_MS[m[2]] || 0);
+}
+
+function isValidRecurrence(recurrence: string): boolean {
+  return /^\+\d+[smhdw]$/.test(recurrence);
+}
+
+/** Find active schedules with unparseable recurrence values. */
+function detectInvalidSchedules(schedules: TaskItem[]): TaskItem[] {
+  return schedules.filter(
+    s => s.status === "active" && s.recurrence && !isValidRecurrence(s.recurrence)
+  );
 }
 
 function startOfDay(d: Date) {
@@ -103,13 +92,7 @@ function addDays(d: Date, n: number) {
   return r;
 }
 
-function fmtDate(d: Date) {
-  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-}
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
+// fmtDate and fmtTime are imported from @/src/utils/time as formatDate and formatTime
 
 function getTaskTime(t: TaskItem): Date {
   return new Date(t.scheduled_at || t.created_at || Date.now());
@@ -120,10 +103,112 @@ function isToday(d: Date) {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
+function isTomorrow(d: Date) {
+  const tom = addDays(new Date(), 1);
+  return d.getFullYear() === tom.getFullYear() && d.getMonth() === tom.getMonth() && d.getDate() === tom.getDate();
+}
+
+function dateSectionLabel(d: Date): string {
+  if (isToday(d)) return "Today";
+  if (isTomorrow(d)) return "Tomorrow";
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+// ---------------------------------------------------------------------------
+// Status filter helper
+// ---------------------------------------------------------------------------
+function passesStatusFilter(task: TaskItem, filter: StatusFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "active") return task.status !== "cancelled";
+  if (filter === "cancelled") return task.status === "cancelled";
+  if (filter === "failed") return task.status === "failed";
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Schedule conflict detection
+// ---------------------------------------------------------------------------
+function detectScheduleConflicts(schedules: TaskItem[]): Map<string, string[]> {
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  const conflicts = new Map<string, string[]>();
+
+  // Group active schedules by bot (only scheduled task_type)
+  const byBot: Record<string, TaskItem[]> = {};
+  for (const s of schedules) {
+    if (s.status !== "active" || !s.recurrence) continue;
+    if (s.task_type && s.task_type !== "scheduled") continue;
+    (byBot[s.bot_id] ??= []).push(s);
+  }
+
+  const now = Date.now();
+  const rangeEnd = now + 24 * 60 * 60 * 1000;
+
+  for (const [botId, botSchedules] of Object.entries(byBot)) {
+    if (botSchedules.length < 2) continue;
+
+    const warnings: string[] = [];
+    for (let i = 0; i < botSchedules.length; i++) {
+      for (let j = i + 1; j < botSchedules.length; j++) {
+        const a = botSchedules[i];
+        const b = botSchedules[j];
+        const aMs = parseRecurrenceMs(a.recurrence!);
+        const bMs = parseRecurrenceMs(b.recurrence!);
+        if (!aMs || !bMs) continue;
+
+        // Both intervals <= 2h means they'll definitely fire close together
+        if (aMs <= TWO_HOURS && bMs <= TWO_HOURS) {
+          const aTitle = a.title || a.prompt?.substring(0, 30) || a.id.slice(0, 8);
+          const bTitle = b.title || b.prompt?.substring(0, 30) || b.id.slice(0, 8);
+          warnings.push(`"${aTitle}" (${a.recurrence}) and "${bTitle}" (${b.recurrence})`);
+          continue;
+        }
+
+        // Expand next 24h of occurrences and check proximity
+        const aStart = a.scheduled_at ? new Date(a.scheduled_at).getTime() : now;
+        const bStart = b.scheduled_at ? new Date(b.scheduled_at).getTime() : now;
+
+        const aOccs: number[] = [];
+        let t = aStart;
+        while (t < now) t += aMs;
+        while (t < rangeEnd && aOccs.length < 50) { aOccs.push(t); t += aMs; }
+
+        const bOccs: number[] = [];
+        t = bStart;
+        while (t < now) t += bMs;
+        while (t < rangeEnd && bOccs.length < 50) { bOccs.push(t); t += bMs; }
+
+        let hasConflict = false;
+        for (const at of aOccs) {
+          for (const bt of bOccs) {
+            if (Math.abs(at - bt) < TWO_HOURS) {
+              hasConflict = true;
+              break;
+            }
+          }
+          if (hasConflict) break;
+        }
+
+        if (hasConflict) {
+          const aTitle = a.title || a.prompt?.substring(0, 30) || a.id.slice(0, 8);
+          const bTitle = b.title || b.prompt?.substring(0, 30) || b.id.slice(0, 8);
+          warnings.push(`"${aTitle}" (${a.recurrence}) and "${bTitle}" (${b.recurrence})`);
+        }
+      }
+    }
+
+    if (warnings.length > 0) {
+      conflicts.set(botId, warnings);
+    }
+  }
+
+  return conflicts;
+}
+
 // ---------------------------------------------------------------------------
 // Current time indicator line
 // ---------------------------------------------------------------------------
 function NowLine() {
+  const t = useThemeTokens();
   const now = new Date();
   const minutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
   const pct = (minutesSinceMidnight / 1440) * 100;
@@ -132,16 +217,17 @@ function NowLine() {
       position: "absolute", left: 0, right: 0, top: `${pct}%`,
       display: "flex", alignItems: "center", zIndex: 5, pointerEvents: "none",
     }}>
-      <div style={{ width: 8, height: 8, borderRadius: 4, background: "#ef4444", marginLeft: -4 }} />
-      <div style={{ flex: 1, height: 1, background: "#ef4444" }} />
+      <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger, marginLeft: -4 }} />
+      <div style={{ flex: 1, height: 1, background: t.danger }} />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Hour labels
+// Hour labels / grid
 // ---------------------------------------------------------------------------
 function HourLabels() {
+  const t = useThemeTokens();
   const hours = Array.from({ length: 24 }, (_, i) => i);
   return (
     <>
@@ -150,7 +236,7 @@ function HourLabels() {
         return (
           <div key={h} style={{
             position: "absolute", left: 0, top: `${pct}%`,
-            fontSize: 10, color: "#444", width: 40, textAlign: "right", paddingRight: 8,
+            fontSize: 10, color: t.textDim, width: 40, textAlign: "right", paddingRight: 8,
             transform: "translateY(-50%)", pointerEvents: "none",
           }}>
             {h === 0 ? "12 AM" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}
@@ -161,10 +247,8 @@ function HourLabels() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Hour grid lines
-// ---------------------------------------------------------------------------
 function HourGrid() {
+  const t = useThemeTokens();
   const hours = Array.from({ length: 24 }, (_, i) => i);
   return (
     <>
@@ -172,7 +256,7 @@ function HourGrid() {
         <div key={h} style={{
           position: "absolute", left: 48, right: 0,
           top: `${(h / 24) * 100}%`,
-          borderTop: "1px solid #1a1a1a",
+          borderTop: `1px solid ${t.surfaceRaised}`,
           pointerEvents: "none",
         }} />
       ))}
@@ -181,36 +265,59 @@ function HourGrid() {
 }
 
 // ---------------------------------------------------------------------------
-// Task type badge
+// Schedule conflict warning banner
 // ---------------------------------------------------------------------------
-function TypeBadge({ type }: { type: string }) {
-  const c = TYPE_BADGE_COLORS[type] || TYPE_BADGE_COLORS.agent;
+function ConflictBanner({ warnings }: { warnings: string[] }) {
+  const t = useThemeTokens();
   return (
-    <span style={{
-      display: "inline-block",
-      background: c.bg, color: c.fg,
-      padding: "1px 6px", borderRadius: 4, fontSize: 9, fontWeight: 600,
-      textTransform: "uppercase", letterSpacing: 0.5,
+    <div style={{
+      display: "flex", alignItems: "flex-start", gap: 8,
+      padding: "8px 16px 8px 36px",
+      background: t.warningSubtle,
+      borderLeft: `3px solid ${t.warning}`,
     }}>
-      {type}
-    </span>
+      <AlertTriangle size={14} color={t.warning} style={{ flexShrink: 0, marginTop: 1 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: t.warningMuted, marginBottom: 2 }}>
+          Schedule Overlap — Schedules fire within 2 hours of each other
+        </div>
+        {warnings.map((w, i) => (
+          <div key={i} style={{ fontSize: 10, color: t.warningMuted }}>
+            {w}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Task card on timeline
+// Task card on timeline (Day/Week views) — simplified
 // ---------------------------------------------------------------------------
 function TaskCard({
-  task, isPast, onPress, style: extraStyle,
+  task, isPast, onPress, compact, style: extraStyle,
 }: {
-  task: TaskItem; isPast: boolean; onPress: () => void; style?: React.CSSProperties;
+  task: TaskItem; isPast: boolean; onPress: () => void; compact?: boolean; style?: React.CSSProperties;
 }) {
+  const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
   const isVirtual = task.is_virtual;
+  const isCancelled = task.status === "cancelled";
   const s = STATUS_CFG[task.status] || STATUS_CFG.pending;
   const Icon = s.icon;
   const isRecurring = !!task.recurrence;
   const time = task.scheduled_at || task.created_at;
+
+  // Theme-aware backgrounds
+  const cancelledBg = hovered ? t.surfaceOverlay : t.surface;
+  const virtualBg = hovered ? t.surfaceOverlay : t.accentMuted;
+  const normalBg = hovered ? t.surfaceOverlay : isPast ? t.inputBg : t.surfaceRaised;
+  const bg = isCancelled ? cancelledBg : isVirtual ? virtualBg : normalBg;
+  const borderColor = isCancelled
+    ? t.surfaceRaised
+    : isVirtual
+    ? (hovered ? t.accent : t.surfaceBorder)
+    : hovered ? t.accent : isPast ? t.surfaceRaised : t.surfaceOverlay;
 
   return (
     <div
@@ -218,63 +325,63 @@ function TaskCard({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        padding: "8px 12px", borderRadius: 8,
-        background: isVirtual
-          ? (hovered ? "#151520" : "#0e0e18")
-          : (hovered ? "#222" : isPast ? "#111" : "#1a1a1a"),
-        border: `1px solid ${isVirtual ? (hovered ? "#3b82f6" : "#1a1a2e") : hovered ? "#3b82f6" : isPast ? "#1a1a1a" : "#2a2a2a"}`,
+        padding: compact ? "4px 8px" : "8px 12px", borderRadius: compact ? 6 : 8,
+        background: bg,
+        border: `1px solid ${borderColor}`,
         borderStyle: isVirtual ? "dashed" : "solid",
-        opacity: isVirtual ? (hovered ? 0.8 : 0.6) : (isPast && !hovered ? 0.5 : 1),
+        opacity: isCancelled ? 0.4 : isVirtual ? (hovered ? 0.8 : 0.6) : (isPast && !hovered ? 0.5 : 1),
         transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s",
         cursor: "pointer",
-        boxShadow: hovered ? "0 4px 16px rgba(0,0,0,0.5)" : "none",
+        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.15)" : "none",
         zIndex: hovered ? 100 : undefined,
         ...extraStyle,
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Icon size={13} color={s.fg} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: s.fg }}>
-          {isVirtual ? "upcoming" : task.status}
+      <div style={{ display: "flex", alignItems: "center", gap: compact ? 4 : 8 }}>
+        <Icon size={compact ? 10 : 13} color={s.fg} style={{ flexShrink: 0 }} />
+        <span style={{
+          fontSize: compact ? 10 : 13, fontWeight: 600,
+          color: isCancelled ? t.textDim : t.text,
+          textDecoration: isCancelled ? "line-through" : "none",
+          flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
+          {displayTitle(task)}
         </span>
 
-        {task.task_type && <TypeBadge type={task.task_type} />}
+        {!compact && <StatusBadge status={task.status} />}
 
         {isRecurring && (
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 3,
-            background: "#92400e", color: "#fcd34d",
-            padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+            background: t.warningSubtle, color: t.warning,
+            padding: compact ? "0px 5px" : "1px 7px", borderRadius: 10,
+            fontSize: compact ? 8 : 10, fontWeight: 700,
+            flexShrink: 0,
           }}>
-            <RefreshCw size={9} color="#fcd34d" />
+            <RefreshCw size={compact ? 7 : 9} color={t.warning} />
             {task.recurrence}
           </span>
         )}
 
-        {task.run_count != null && task.run_count > 0 && task.status === "active" && (
-          <span style={{ fontSize: 10, color: "#666" }}>
-            {task.run_count} runs
+        {!compact && (
+          <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>
+            {time ? formatTime(time) : "\u2014"}
           </span>
         )}
-
-        <span style={{ fontSize: 11, color: "#555", marginLeft: "auto" }}>
-          {time ? fmtTime(time) : "\u2014"}
-        </span>
       </div>
 
-      <div style={{ fontSize: 11, color: "#999", marginTop: 4, fontFamily: "monospace" }}>
-        {task.bot_id}
+      <div style={{ display: "flex", alignItems: "center", gap: compact ? 4 : 6, marginTop: compact ? 2 : 4 }}>
+        <BotDot botId={task.bot_id} size={compact ? 6 : 8} />
+        <span style={{ fontSize: compact ? 9 : 10, color: t.textDim }}>{task.bot_id}</span>
+        {!compact && task.task_type && <TypeBadge type={task.task_type} />}
+        {compact && (
+          <span style={{ fontSize: 9, color: t.textDim, marginLeft: "auto" }}>
+            {time ? formatTime(time) : ""}
+          </span>
+        )}
       </div>
-      {task.prompt && (
-        <div style={{
-          fontSize: 11, color: isVirtual ? "#444" : isPast ? "#555" : "#888", marginTop: 4,
-          whiteSpace: "pre-wrap", maxHeight: 40, overflow: "hidden",
-        }}>
-          {task.prompt.substring(0, 150)}{task.prompt.length > 150 ? "..." : ""}
-        </div>
-      )}
-      {task.error && (
-        <div style={{ fontSize: 10, color: "#fca5a5", marginTop: 4 }}>
+      {!compact && task.error && (
+        <div style={{ fontSize: 10, color: t.danger, marginTop: 4 }}>
           {task.error.substring(0, 100)}
         </div>
       )}
@@ -285,12 +392,29 @@ function TaskCard({
 // ---------------------------------------------------------------------------
 // Day column
 // ---------------------------------------------------------------------------
-const CARD_HEIGHT_PX = 80;
+const CARD_HEIGHT_PX = 70;
+const CARD_COMPACT_HEIGHT_PX = 46;
+const CARD_SUPER_COMPACT_HEIGHT_PX = 28;
 const CARD_MIN_GAP = 4;
+/** Max minutes a card can be pushed past its natural time-of-day position */
+const MAX_COLLISION_PUSH = 180;
 
-function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void }) {
+function DayColumn({ date, tasks, onTaskPress, compact }: { date: Date; tasks: TaskItem[]; onTaskPress: (t: TaskItem) => void; compact?: boolean }) {
+  const t = useThemeTokens();
   const now = new Date();
   const showNow = isToday(date);
+
+  const baseCardHeight = compact ? CARD_COMPACT_HEIGHT_PX : CARD_HEIGHT_PX;
+
+  // Shrink cards dynamically when there are too many to fit in 1440px (24h)
+  const effectiveCardHeight = useMemo(() => {
+    if (tasks.length <= 1) return baseCardHeight;
+    const available = 1440 - CARD_MIN_GAP * (tasks.length - 1);
+    const fitHeight = Math.floor(available / tasks.length);
+    return Math.max(CARD_SUPER_COMPACT_HEIGHT_PX, Math.min(baseCardHeight, fitHeight));
+  }, [tasks.length, baseCardHeight]);
+
+  const autoCompact = effectiveCardHeight <= CARD_COMPACT_HEIGHT_PX;
 
   const positioned = useMemo(() => {
     const sorted = [...tasks].sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime());
@@ -298,31 +422,35 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
 
     for (const t of sorted) {
       const taskTime = getTaskTime(t);
-      const minutes = taskTime.getHours() * 60 + taskTime.getMinutes();
-      let topPx = minutes;
+      const naturalPos = taskTime.getHours() * 60 + taskTime.getMinutes();
+      let topPx = naturalPos;
 
       for (const prev of items) {
-        const prevBottom = prev.topPx + CARD_HEIGHT_PX + CARD_MIN_GAP;
+        const prevBottom = prev.topPx + effectiveCardHeight + CARD_MIN_GAP;
         if (topPx < prevBottom) {
           topPx = prevBottom;
         }
       }
+      // Don't push a card more than MAX_COLLISION_PUSH minutes past its real time
+      topPx = Math.min(topPx, naturalPos + MAX_COLLISION_PUSH);
+      // Stay within day bounds
+      topPx = Math.min(topPx, 1440 - effectiveCardHeight);
       items.push({ task: t, topPx });
     }
     return items;
-  }, [tasks]);
+  }, [tasks, effectiveCardHeight]);
 
   return (
     <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
       <div style={{
-        padding: "8px 12px", borderBottom: "1px solid #2a2a2a",
-        background: showNow ? "rgba(59,130,246,0.08)" : "transparent",
+        padding: "8px 12px", borderBottom: `1px solid ${t.surfaceOverlay}`,
+        background: showNow ? t.accentSubtle : "transparent",
         position: "sticky", top: 0, zIndex: 3,
       }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: showNow ? "#3b82f6" : "#e5e5e5" }}>
-          {fmtDate(date)}
+        <div style={{ fontSize: 12, fontWeight: 600, color: showNow ? t.accent : t.text }}>
+          {formatDate(date)}
         </div>
-        <div style={{ fontSize: 10, color: "#555" }}>
+        <div style={{ fontSize: 10, color: t.textDim }}>
           {tasks.length} task{tasks.length !== 1 ? "s" : ""}
         </div>
       </div>
@@ -338,11 +466,14 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
             task={t}
             isPast={getTaskTime(t) < now && t.status !== "running"}
             onPress={() => onTaskPress(t)}
+            compact={autoCompact || compact}
             style={{
               position: "absolute",
               top: topPx,
               left: 52,
               right: 8,
+              maxHeight: effectiveCardHeight,
+              overflow: "hidden",
             }}
           />
         ))}
@@ -352,88 +483,315 @@ function DayColumn({ date, tasks, onTaskPress }: { date: Date; tasks: TaskItem[]
 }
 
 // ---------------------------------------------------------------------------
-// List view
+// Schedule view — grouped by bot, with date sub-headers
 // ---------------------------------------------------------------------------
-function TaskListView({ tasks, schedules, onTaskPress }: {
+function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter, conflicts }: {
   tasks: TaskItem[];
   schedules: TaskItem[];
   onTaskPress: (t: TaskItem) => void;
+  bots: any[] | undefined;
+  statusFilter: StatusFilter;
+  conflicts: Map<string, string[]>;
 }) {
+  const t = useThemeTokens();
+  const [collapsedBots, setCollapsedBots] = useState<Set<string>>(new Set());
   const now = new Date();
-  // Combine active schedules (at the top) + concrete tasks (sorted by time desc)
-  const allItems = useMemo(() => {
-    const schedulesWithFlag = schedules.map(s => ({ ...s, is_schedule: true }));
-    const sortedTasks = [...tasks].sort((a, b) => {
-      const ta = getTaskTime(a).getTime();
-      const tb = getTaskTime(b).getTime();
-      return tb - ta; // newest first
-    });
-    return [...schedulesWithFlag, ...sortedTasks];
-  }, [tasks, schedules]);
 
-  if (!allItems.length) {
+  // Merge schedules + concrete tasks, generate virtual occurrences for next 14 days
+  const allItems = useMemo(() => {
+    const SIX_HOURS = 6 * 60 * 60 * 1000;
+    const pastCutoff = new Date(now.getTime() - SIX_HOURS);
+    const items: TaskItem[] = [...tasks.filter(t =>
+      passesStatusFilter(t, statusFilter) &&
+      (getTaskTime(t) >= pastCutoff || t.status === "running" || t.status === "active")
+    )];
+
+    // Build set of (schedule_id, day) for concrete tasks
+    const concreteByScheduleDay = new Set<string>();
+    for (const t of tasks) {
+      if (t.parent_task_id) {
+        const d = startOfDay(getTaskTime(t)).toDateString();
+        concreteByScheduleDay.add(`${t.parent_task_id}:${d}`);
+      }
+    }
+
+    // Expand schedules into virtual entries for the next 14 days
+    const rangeEnd = addDays(now, 14).getTime();
+    const rangeStart = pastCutoff.getTime();
+
+    for (const sched of schedules) {
+      if (!passesStatusFilter(sched, statusFilter)) continue;
+
+      // Add the schedule itself as a reference item
+      items.push({ ...sched, is_schedule: true });
+
+      if (!sched.recurrence || !sched.scheduled_at || sched.status === "cancelled") continue;
+      const intervalMs = parseRecurrenceMs(sched.recurrence);
+      if (!intervalMs) continue;
+
+      const schedStart = new Date(sched.scheduled_at).getTime();
+      let t = schedStart;
+      if (t < rangeStart) {
+        const steps = Math.floor((rangeStart - t) / intervalMs);
+        t += steps * intervalMs;
+      }
+      if (t > rangeStart) {
+        const prevT = t - intervalMs;
+        if (prevT >= rangeStart) t = prevT;
+      }
+
+      let count = 0;
+      while (t < rangeEnd && count < 100) {
+        if (t >= rangeStart) {
+          const occDate = new Date(t);
+          const dayStr = startOfDay(occDate).toDateString();
+          const key = `${sched.id}:${dayStr}`;
+          if (!concreteByScheduleDay.has(key)) {
+            items.push({
+              ...sched,
+              id: `virtual-${sched.id}-${t}`,
+              status: "upcoming",
+              scheduled_at: occDate.toISOString(),
+              is_schedule: true,
+              is_virtual: true,
+              _schedule_id: sched.id,
+              result: undefined,
+              error: undefined,
+            });
+          }
+        }
+        t += intervalMs;
+        count++;
+      }
+    }
+
+    return items;
+  }, [tasks, schedules, now, statusFilter]);
+
+  // Group by bot_id
+  const grouped = useMemo(() => {
+    const map: Record<string, TaskItem[]> = {};
+    for (const t of allItems) {
+      (map[t.bot_id] ??= []).push(t);
+    }
+    // Sort each bot's tasks chronologically
+    for (const key of Object.keys(map)) {
+      map[key].sort((a, b) => getTaskTime(a).getTime() - getTaskTime(b).getTime());
+    }
+    // Sort bots by earliest upcoming task
+    return Object.entries(map).sort(([, a], [, b]) => {
+      const aNext = a.find(t => t.status !== "complete" && t.status !== "failed");
+      const bNext = b.find(t => t.status !== "complete" && t.status !== "failed");
+      if (!aNext && !bNext) return 0;
+      if (!aNext) return 1;
+      if (!bNext) return -1;
+      return getTaskTime(aNext).getTime() - getTaskTime(bNext).getTime();
+    });
+  }, [allItems]);
+
+  if (!grouped.length) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: "#555", fontSize: 13 }}>
+      <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
         No tasks found.
       </div>
     );
   }
 
+  const toggleBot = (botId: string) => {
+    setCollapsedBots(prev => {
+      const next = new Set(prev);
+      if (next.has(botId)) next.delete(botId); else next.add(botId);
+      return next;
+    });
+  };
+
+  const botName = (botId: string) => {
+    const b = bots?.find((x: any) => x.id === botId);
+    return b?.name || botId;
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "8px 16px" }}>
-      {allItems.map((t) => {
-        const s = STATUS_CFG[t.status] || STATUS_CFG.pending;
-        const Icon = s.icon;
-        const time = t.scheduled_at || t.created_at;
-        const isPast = getTaskTime(t) < now && t.status !== "running";
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, padding: "0 0 24px" }}>
+      {grouped.map(([botId, botTasks]) => {
+        const c = botColor(botId);
+        const isCollapsed = collapsedBots.has(botId);
+        // Filter out schedule reference items (is_schedule && !is_virtual && status === "active") — they're shown as headers
+        const displayTasks = botTasks.filter(t => !(t.is_schedule && !t.is_virtual && t.status === "active"));
+        const scheduleCount = botTasks.filter(t => t.is_schedule && !t.is_virtual && (t.status === "active" || t.status === "cancelled")).length;
+        const cancelledCount = botTasks.filter(t => t.status === "cancelled").length;
+        const botConflicts = conflicts.get(botId);
+
+        // Group tasks by date
+        const byDate: Record<string, TaskItem[]> = {};
+        for (const t of displayTasks) {
+          const d = startOfDay(getTaskTime(t)).toDateString();
+          (byDate[d] ??= []).push(t);
+        }
+
         return (
-          <div
-            key={t.id}
-            onClick={() => onTaskPress(t)}
-            style={{
-              display: "flex", alignItems: "center", gap: 12,
-              padding: "10px 14px", background: "#111", borderRadius: 8,
-              border: "1px solid #1a1a1a", cursor: "pointer",
-              opacity: isPast && t.status !== "active" ? 0.6 : 1,
-            }}
-          >
-            <Icon size={14} color={s.fg} />
-            <span style={{
-              fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-              background: s.bg, color: s.fg, minWidth: 55, textAlign: "center",
-            }}>
-              {t.status}
-            </span>
-            {t.task_type && <TypeBadge type={t.task_type} />}
-            {t.recurrence && (
-              <span style={{
-                display: "inline-flex", alignItems: "center", gap: 3,
-                background: "#92400e", color: "#fcd34d",
-                padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
-              }}>
-                <RefreshCw size={9} color="#fcd34d" />
-                {t.recurrence}
+          <div key={botId}>
+            {/* Bot section header */}
+            <div
+              onClick={() => toggleBot(botId)}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: "12px 20px",
+                borderLeft: `3px solid ${c.border}`,
+                background: c.bg,
+                cursor: "pointer",
+                userSelect: "none",
+                position: "sticky", top: 0, zIndex: 2,
+              }}
+            >
+              {isCollapsed ? <ChevronRight size={14} color={t.textDim} /> : <ChevronDown size={14} color={t.textDim} />}
+              <BotDot botId={botId} size={10} />
+              <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
+                {botName(botId)}
               </span>
-            )}
-            {t.run_count != null && t.run_count > 0 && (
-              <span style={{ fontSize: 10, color: "#666" }}>{t.run_count} runs</span>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: "#999", fontFamily: "monospace" }}>
-                {t.bot_id}
-              </div>
-              {t.prompt && (
-                <div style={{
-                  fontSize: 11, color: "#666", marginTop: 2,
-                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              <span style={{ fontSize: 11, color: t.textDim }}>
+                {displayTasks.length} task{displayTasks.length !== 1 ? "s" : ""}
+                {scheduleCount > 0 && ` \u00b7 ${scheduleCount} schedule${scheduleCount !== 1 ? "s" : ""}`}
+              </span>
+              {cancelledCount > 0 && statusFilter === "all" && (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, color: t.textDim,
+                  background: t.surfaceRaised, padding: "1px 6px", borderRadius: 4,
                 }}>
-                  {t.prompt.substring(0, 200)}
-                </div>
+                  {cancelledCount} cancelled
+                </span>
+              )}
+              {botConflicts && (
+                <span style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  fontSize: 10, fontWeight: 700, color: t.warningMuted,
+                  background: t.warningSubtle, padding: "2px 8px", borderRadius: 4,
+                }}>
+                  <AlertTriangle size={10} color={t.warningMuted} />
+                  Overlap
+                </span>
               )}
             </div>
-            <span style={{ fontSize: 11, color: "#555", whiteSpace: "nowrap" }}>
-              {time ? new Date(time).toLocaleString() : "\u2014"}
-            </span>
+
+            {/* Conflict warning */}
+            {!isCollapsed && botConflicts && (
+              <ConflictBanner warnings={botConflicts} />
+            )}
+
+            {/* Tasks grouped by date */}
+            {!isCollapsed && Object.entries(byDate).map(([dayStr, dayTasks]) => (
+              <div key={dayStr}>
+                {/* Date sub-header */}
+                <div style={{
+                  padding: "6px 20px 6px 36px",
+                  borderLeft: `3px solid ${c.border}`,
+                  borderBottom: `1px solid ${t.surfaceRaised}`,
+                }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 600,
+                    color: isToday(new Date(dayStr)) ? t.accent : t.textDim,
+                  }}>
+                    {dateSectionLabel(new Date(dayStr))}
+                  </span>
+                </div>
+
+                {/* Task cards */}
+                {dayTasks.map((tk, idx) => {
+                  const s = STATUS_CFG[tk.status] || STATUS_CFG.pending;
+                  const Icon = s.icon;
+                  const time = tk.scheduled_at || tk.created_at;
+                  const isPast = getTaskTime(tk) < now && tk.status !== "running" && tk.status !== "active";
+                  const isVirtual = tk.is_virtual;
+                  const isCancelled = tk.status === "cancelled";
+                  const pastBg = isPast && !isCancelled ? "rgba(107,114,128,0.04)" : "transparent";
+
+                  // Show NOW divider between past and future items on today
+                  const prevTask = idx > 0 ? dayTasks[idx - 1] : null;
+                  const prevIsPast = prevTask
+                    ? (getTaskTime(prevTask) < now && prevTask.status !== "running" && prevTask.status !== "active")
+                    : false;
+                  const showNowDivider = isToday(new Date(dayStr)) && !isPast && !isCancelled && prevIsPast;
+
+                  return (
+                    <Fragment key={tk.id}>
+                      {showNowDivider && (
+                        <div style={{
+                          display: "flex", alignItems: "center", gap: 8,
+                          padding: "6px 20px 6px 36px",
+                          borderLeft: `3px solid ${c.border}`,
+                        }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger }} />
+                          <div style={{ flex: 1, height: 1, background: t.danger }} />
+                          <span style={{ fontSize: 9, fontWeight: 700, color: t.danger, textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
+                          <div style={{ flex: 1, height: 1, background: t.danger }} />
+                        </div>
+                      )}
+                      <div
+                        onClick={() => onTaskPress(tk)}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "10px 20px 10px 36px",
+                          borderLeft: `3px solid ${isCancelled ? t.surfaceBorder : c.border}`,
+                          borderBottom: `1px solid ${t.surfaceRaised}`,
+                          cursor: "pointer",
+                          opacity: isCancelled ? 0.35 : isVirtual ? 0.5 : isPast ? 0.35 : 1,
+                          background: pastBg,
+                          transition: "background 0.1s, opacity 0.1s",
+                        }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = pastBg; }}
+                      >
+                        <Icon size={14} color={s.fg} style={{ flexShrink: 0 }} />
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{
+                            fontSize: 13, fontWeight: 600,
+                            color: isCancelled ? t.textDim : t.text,
+                            textDecoration: isCancelled ? "line-through" : "none",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                          }}>
+                            {displayTitle(tk)}
+                          </div>
+                        </div>
+
+                        <StatusBadge status={tk.status} />
+
+                        {tk.recurrence && (
+                          <span style={{
+                            display: "inline-flex", alignItems: "center", gap: 3,
+                            background: isCancelled ? t.surfaceRaised : t.warningSubtle,
+                            color: isCancelled ? t.textDim : t.warning,
+                            padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
+                            flexShrink: 0,
+                          }}>
+                            <RefreshCw size={9} color={isCancelled ? t.textDim : t.warning} />
+                            {tk.recurrence}
+                          </span>
+                        )}
+
+                        <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0, minWidth: 90, textAlign: "right" }}>
+                          {time ? formatTime(time) : "\u2014"}
+                        </span>
+                      </div>
+                    </Fragment>
+                  );
+                })}
+                {/* Trailing NOW line when all of today's items are past */}
+                {isToday(new Date(dayStr)) && dayTasks.length > 0 && dayTasks.every(tk =>
+                  getTaskTime(tk) < now && tk.status !== "running" && tk.status !== "active"
+                ) && (
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "6px 20px 6px 36px",
+                    borderLeft: `3px solid ${c.border}`,
+                  }}>
+                    <div style={{ width: 8, height: 8, borderRadius: 4, background: t.danger }} />
+                    <div style={{ flex: 1, height: 1, background: t.danger }} />
+                    <span style={{ fontSize: 9, fontWeight: 700, color: t.danger, textTransform: "uppercase", letterSpacing: 1 }}>NOW</span>
+                    <div style={{ flex: 1, height: 1, background: t.danger }} />
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         );
       })}
@@ -442,21 +800,109 @@ function TaskListView({ tasks, schedules, onTaskPress }: {
 }
 
 // ---------------------------------------------------------------------------
+// List view — simplified with title + bot dot
+// ---------------------------------------------------------------------------
+function TaskListView({ tasks, schedules, onTaskPress, statusFilter }: {
+  tasks: TaskItem[];
+  schedules: TaskItem[];
+  onTaskPress: (tk: TaskItem) => void;
+  statusFilter: StatusFilter;
+}) {
+  const t = useThemeTokens();
+  const now = new Date();
+  const allItems = useMemo(() => {
+    const schedulesWithFlag = schedules
+      .filter(s => passesStatusFilter(s, statusFilter))
+      .map(s => ({ ...s, is_schedule: true }));
+    const sortedTasks = [...tasks]
+      .filter(tk => passesStatusFilter(tk, statusFilter))
+      .sort((a, b) => {
+        const ta = getTaskTime(a).getTime();
+        const tb = getTaskTime(b).getTime();
+        return tb - ta; // newest first
+      });
+    return [...schedulesWithFlag, ...sortedTasks];
+  }, [tasks, schedules, statusFilter]);
+
+  if (!allItems.length) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
+        No tasks found.
+      </div>
+    );
+  }
+
+  // Group by date
+  const byDate: Record<string, TaskItem[]> = {};
+  // Schedules go in a special section
+  const activeSchedules: TaskItem[] = [];
+  for (const item of allItems) {
+    if (item.is_schedule && (item.status === "active" || item.status === "cancelled")) {
+      activeSchedules.push(item);
+    } else {
+      const d = startOfDay(getTaskTime(item)).toDateString();
+      (byDate[d] ??= []).push(item);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0, padding: "0 16px 24px" }}>
+      {/* Active schedules section */}
+      {activeSchedules.length > 0 && (
+        <>
+          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: t.warning, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            Schedules
+          </div>
+          {activeSchedules.map((tk) => (
+            <TaskCardRow
+              key={tk.id}
+              task={tk}
+              onPress={() => onTaskPress(tk)}
+            />
+          ))}
+        </>
+      )}
+
+      {/* Date sections */}
+      {Object.entries(byDate).map(([dayStr, dayTasks]) => (
+        <div key={dayStr}>
+          <div style={{ padding: "12px 0 6px", fontSize: 11, fontWeight: 700, color: isToday(new Date(dayStr)) ? t.accent : t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            {dateSectionLabel(new Date(dayStr))}
+          </div>
+          {dayTasks.map((tk) => (
+            <TaskCardRow
+              key={tk.id}
+              task={tk}
+              onPress={() => onTaskPress(tk)}
+              isPast={getTaskTime(tk) < now && tk.status !== "running"}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Tasks screen
 // ---------------------------------------------------------------------------
 export default function TasksScreen() {
+  const t = useThemeTokens();
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [baseDate, setBaseDate] = useState(() => startOfDay(new Date()));
   const [typeFilter, setTypeFilter] = useState<TaskTypeFilter>("scheduled");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [botFilter, setBotFilter] = useState<string>("");
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
   const qc = useQueryClient();
+  const router = useRouter();
+  const { refreshing, onRefresh } = usePageRefresh();
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const { data: bots } = useBots();
 
-  const isCalendar = viewMode !== "list";
-  const rangeDays = viewMode === "day" ? 1 : 7;
+  const isCalendar = viewMode === "day" || viewMode === "week";
+  const rangeDays = viewMode === "day" ? 1 : viewMode === "week" ? 7 : 1;
   const rangeStart = baseDate;
   const rangeEnd = addDays(baseDate, rangeDays);
 
@@ -473,6 +919,16 @@ export default function TasksScreen() {
     ),
   });
 
+  // Compute schedule conflicts from schedule data
+  const scheduleConflicts = useMemo(() => {
+    return detectScheduleConflicts(data?.schedules ?? []);
+  }, [data?.schedules]);
+
+  // Detect schedules with invalid recurrence values
+  const invalidSchedules = useMemo(() => {
+    return detectInvalidSchedules(data?.schedules ?? []);
+  }, [data?.schedules]);
+
   const tasksByDay = useMemo(() => {
     if (!isCalendar) return {};
     const map: Record<string, TaskItem[]> = {};
@@ -480,13 +936,12 @@ export default function TasksScreen() {
       const d = addDays(baseDate, i);
       map[d.toDateString()] = [];
     }
-    // Add concrete tasks
-    for (const t of data?.tasks ?? []) {
+    const filteredTasks = (data?.tasks ?? []).filter(t => passesStatusFilter(t, statusFilter));
+    for (const t of filteredTasks) {
       const d = startOfDay(getTaskTime(t)).toDateString();
       (map[d] ??= []).push(t);
     }
 
-    // Build a set of (schedule_id, day) pairs that already have concrete tasks
     const concreteByScheduleDay = new Set<string>();
     for (const t of data?.tasks ?? []) {
       if (t.parent_task_id) {
@@ -495,9 +950,9 @@ export default function TasksScreen() {
       }
     }
 
-    // Expand schedule templates into virtual entries
     for (const sched of data?.schedules ?? []) {
-      if (!sched.recurrence || !sched.scheduled_at) continue;
+      if (!passesStatusFilter(sched, statusFilter)) continue;
+      if (!sched.recurrence || !sched.scheduled_at || sched.status === "cancelled") continue;
       const intervalMs = parseRecurrenceMs(sched.recurrence);
       if (!intervalMs) continue;
 
@@ -506,13 +961,10 @@ export default function TasksScreen() {
       const schedStart = new Date(sched.scheduled_at).getTime();
 
       let t = schedStart;
-
-      // If the schedule starts before the range, skip forward
       if (t < rangeStartMs) {
         const steps = Math.floor((rangeStartMs - t) / intervalMs);
         t += steps * intervalMs;
       }
-      // If we overshot, go back one
       if (t > rangeStartMs) {
         const prevT = t - intervalMs;
         if (prevT >= rangeStartMs) t = prevT;
@@ -524,8 +976,6 @@ export default function TasksScreen() {
           const occDate = new Date(t);
           const dayStr = startOfDay(occDate).toDateString();
           const key = `${sched.id}:${dayStr}`;
-
-          // Only inject virtual if no concrete task exists for this schedule+day
           if (!concreteByScheduleDay.has(key)) {
             (map[dayStr] ??= []).push({
               ...sched,
@@ -545,7 +995,7 @@ export default function TasksScreen() {
       }
     }
     return map;
-  }, [data, baseDate, rangeDays, rangeStart, rangeEnd, isCalendar]);
+  }, [data, baseDate, rangeDays, rangeStart, rangeEnd, isCalendar, statusFilter]);
 
   const goToday = () => setBaseDate(startOfDay(new Date()));
   const goPrev = () => setBaseDate(addDays(baseDate, -rangeDays));
@@ -558,15 +1008,20 @@ export default function TasksScreen() {
   };
 
   const handleTaskPress = (t: TaskItem) => {
-    // Virtual entries open the parent schedule template
+    // Workflow tasks → navigate to task detail page (has WorkflowRunLink)
+    if (t.task_type === "workflow") {
+      router.push(`/admin/tasks/${t.id}` as any);
+      return;
+    }
     const taskId = t.is_virtual && t._schedule_id ? t._schedule_id : t.id;
     setEditorState({ mode: "edit", taskId });
   };
 
-  // Derive TaskEditor props from editor state
   const editorOpen = editorState.mode !== "closed";
   const editorTaskId = editorState.mode === "edit" ? editorState.taskId : null;
   const editorCloneFromId = editorState.mode === "clone" ? editorState.cloneFromId : undefined;
+
+  const conflictCount = scheduleConflicts.size;
 
   return (
     <View className="flex-1 bg-surface">
@@ -581,7 +1036,7 @@ export default function TasksScreen() {
               style={{
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "5px 14px", fontSize: 12, fontWeight: 600,
-                border: "none", cursor: "pointer", borderRadius: 6, background: "#3b82f6", color: "#fff",
+                border: "none", cursor: "pointer", borderRadius: 6, background: t.accent, color: "#fff",
               }}
             >
               <Plus size={14} />
@@ -593,8 +1048,8 @@ export default function TasksScreen() {
               onChange={(e) => setBotFilter(e.target.value)}
               style={{
                 padding: "5px 8px", fontSize: 11, borderRadius: 6,
-                background: "#1a1a1a", color: botFilter ? "#e5e5e5" : "#666",
-                border: botFilter ? "1px solid #3b82f6" : "1px solid #333",
+                background: t.surfaceRaised, color: botFilter ? t.text : t.textDim,
+                border: botFilter ? `1px solid ${t.accent}` : `1px solid ${t.surfaceBorder}`,
                 cursor: "pointer", maxWidth: 140,
               }}
             >
@@ -604,22 +1059,24 @@ export default function TasksScreen() {
               ))}
             </select>
 
-            <div style={{ display: "flex", background: "#1a1a1a", borderRadius: 6, overflow: "hidden" }}>
-              {(["day", "week", "list"] as ViewMode[]).map((m) => (
+            <div style={{ display: "flex", background: t.surfaceRaised, borderRadius: 6, overflow: "hidden" }}>
+              {(["schedule", "day", "week", "list", "cron"] as ViewMode[]).map((m) => (
                 <button
                   key={m}
                   onClick={() => setViewMode(m)}
                   style={{
-                    padding: "5px 14px", fontSize: 11, fontWeight: 500,
+                    padding: "5px 12px", fontSize: 11, fontWeight: 500,
                     border: "none", cursor: "pointer",
-                    background: viewMode === m ? "#3b82f6" : "transparent",
-                    color: viewMode === m ? "#fff" : "#999",
+                    background: viewMode === m ? t.accent : "transparent",
+                    color: viewMode === m ? "#fff" : t.textMuted,
                     textTransform: "capitalize",
                     display: "flex", alignItems: "center", gap: 4,
                   }}
                 >
+                  {m === "schedule" && <Calendar size={12} />}
                   {m === "list" && <List size={12} />}
-                  {m}
+                  {m === "cron" && <Terminal size={12} />}
+                  {m === "schedule" ? "Schedule" : m === "cron" ? "Cron Jobs" : m}
                 </button>
               ))}
             </div>
@@ -627,21 +1084,21 @@ export default function TasksScreen() {
             {isCalendar && (
               <>
                 <button onClick={goToday} style={{
-                  padding: "5px 8px", fontSize: 11, border: "1px solid #333", borderRadius: 6,
-                  background: "transparent", color: "#999", cursor: "pointer",
+                  padding: "5px 8px", fontSize: 11, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                  background: "transparent", color: t.textMuted, cursor: "pointer",
                 }}>
                   Today
                 </button>
                 <button onClick={goPrev} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-                  <ChevronLeft size={16} color="#999" />
+                  <ChevronLeft size={16} color={t.textMuted} />
                 </button>
-                <span style={{ fontSize: 12, color: "#e5e5e5", fontWeight: 500, textAlign: "center" }}>
+                <span style={{ fontSize: 12, color: t.text, fontWeight: 500, textAlign: "center" }}>
                   {viewMode === "day"
-                    ? fmtDate(baseDate)
-                    : `${fmtDate(baseDate)} \u2014 ${fmtDate(addDays(baseDate, 6))}`}
+                    ? formatDate(baseDate)
+                    : `${formatDate(baseDate)} \u2014 ${formatDate(addDays(baseDate, 6))}`}
                 </span>
                 <button onClick={goNext} style={{ background: "none", border: "none", cursor: "pointer", padding: 2 }}>
-                  <ChevronRight size={16} color="#999" />
+                  <ChevronRight size={16} color={t.textMuted} />
                 </button>
               </>
             )}
@@ -649,47 +1106,141 @@ export default function TasksScreen() {
         }
       />
 
-      {/* Type filter pills */}
-      <div style={{
+      {/* Filter rows (hidden in cron mode) */}
+      {viewMode !== "cron" && <div style={{
         display: "flex", alignItems: "center", gap: 6,
-        padding: "8px 20px", borderBottom: "1px solid #1a1a1a",
-        overflowX: "auto",
+        padding: "8px 20px", borderBottom: `1px solid ${t.surfaceRaised}`,
+        overflowX: "auto", flexWrap: "wrap",
       }}>
-        {TASK_TYPE_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setTypeFilter(f.key)}
-            style={{
-              padding: "4px 12px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 12,
-              background: typeFilter === f.key ? "#3b82f6" : "#1a1a1a",
-              color: typeFilter === f.key ? "#fff" : "#888",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+        {/* Type filter pills */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, marginRight: 2 }}>TYPE</span>
+          {TASK_TYPE_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setTypeFilter(f.key)}
+              style={{
+                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+                borderRadius: 12,
+                background: typeFilter === f.key ? t.accent : t.surfaceRaised,
+                color: typeFilter === f.key ? "#fff" : t.textMuted,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Separator */}
+        <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
+
+        {/* Status filter pills */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, marginRight: 2 }}>STATUS</span>
+          {STATUS_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setStatusFilter(f.key)}
+              style={{
+                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
+                borderRadius: 12,
+                background: statusFilter === f.key
+                  ? (f.key === "cancelled" ? t.surfaceBorder : f.key === "failed" ? t.dangerSubtle : t.accent)
+                  : t.surfaceRaised,
+                color: statusFilter === f.key
+                  ? (f.key === "cancelled" ? t.textMuted : f.key === "failed" ? t.danger : "#fff")
+                  : t.textMuted,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Conflict indicator */}
+        {conflictCount > 0 && (
+          <>
+            <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              fontSize: 11, fontWeight: 700, color: t.warningMuted,
+              background: t.warningSubtle, padding: "3px 10px", borderRadius: 12,
+            }}>
+              <AlertTriangle size={11} color={t.warningMuted} />
+              {conflictCount} bot{conflictCount !== 1 ? "s" : ""} with overlapping schedules
+            </span>
+          </>
+        )}
+      </div>}
+
+      {/* Invalid schedule warning */}
+      {invalidSchedules.length > 0 && (
+        <div style={{
+          display: "flex", alignItems: "flex-start", gap: 8,
+          padding: "10px 16px",
+          background: t.dangerSubtle,
+          borderBottom: `1px solid ${t.dangerBorder}`,
+        }}>
+          <AlertCircle size={14} color={t.danger} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: t.danger, marginBottom: 2 }}>
+              {invalidSchedules.length} schedule{invalidSchedules.length !== 1 ? "s" : ""} with invalid recurrence — will never fire
+            </div>
+            {invalidSchedules.map((s) => (
+              <span
+                key={s.id}
+                onClick={() => setEditorState({ mode: "edit", taskId: s.id })}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 4,
+                  fontSize: 11, color: t.danger, cursor: "pointer",
+                  marginRight: 12,
+                  textDecoration: "underline",
+                  textDecorationColor: t.dangerBorder,
+                }}
+              >
+                {s.title || s.prompt?.substring(0, 40) || s.id.slice(0, 8)} ({s.recurrence})
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Body */}
-      {isLoading ? (
+      {viewMode === "cron" ? (
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
+          <CronJobsView />
+        </RefreshableScrollView>
+      ) : isLoading ? (
         <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#3b82f6" />
+          <ActivityIndicator color={t.accent} />
         </View>
+      ) : viewMode === "schedule" ? (
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
+          <ScheduleView
+            tasks={data?.tasks ?? []}
+            schedules={data?.schedules ?? []}
+            onTaskPress={handleTaskPress}
+            bots={bots}
+            statusFilter={statusFilter}
+            conflicts={scheduleConflicts}
+          />
+        </RefreshableScrollView>
       ) : viewMode === "list" ? (
-        <ScrollView className="flex-1">
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
           <TaskListView
             tasks={data?.tasks ?? []}
             schedules={data?.schedules ?? []}
             onTaskPress={handleTaskPress}
+            statusFilter={statusFilter}
           />
-        </ScrollView>
+        </RefreshableScrollView>
       ) : (
-        <ScrollView className="flex-1" contentContainerStyle={{ minHeight: 1500 }}>
+        <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ minHeight: 1500 }}>
           <div style={{
             display: "flex", flex: 1, minHeight: 1500,
-            borderLeft: "1px solid #2a2a2a",
+            borderLeft: `1px solid ${t.surfaceOverlay}`,
           }}>
             {Object.entries(tasksByDay).map(([dayStr, tasks]) => (
               <DayColumn
@@ -697,10 +1248,11 @@ export default function TasksScreen() {
                 date={new Date(dayStr)}
                 tasks={tasks}
                 onTaskPress={handleTaskPress}
+                compact={viewMode === "week"}
               />
             ))}
           </div>
-        </ScrollView>
+        </RefreshableScrollView>
       )}
 
       {/* Task Editor overlay */}
