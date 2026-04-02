@@ -8,6 +8,7 @@ interface Props {
   filter: string;
   onSave: (patch: Partial<ChannelSettings>) => void;
   isWide: boolean;
+  skillFromCarapace: Map<string, { carapaceId: string; carapaceName: string; mode: string }>;
 }
 
 function cleanDesc(d: string | null | undefined): string | null {
@@ -17,7 +18,18 @@ function cleanDesc(d: string | null | undefined): string | null {
   return trimmed;
 }
 
-export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWide }: Props) {
+function CarapaceBadge({ mode, name, t }: { mode: string; name: string; t: any }) {
+  return (
+    <span style={{
+      fontSize: 9, padding: "1px 6px", borderRadius: 3, fontWeight: 500, whiteSpace: "nowrap",
+      background: t.purpleSubtle, color: t.purple,
+    }}>
+      {mode} via {name}
+    </span>
+  );
+}
+
+export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWide, skillFromCarapace }: Props) {
   const t = useThemeTokens();
 
   const extras = settings.skills_extra || [];
@@ -85,6 +97,7 @@ export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWi
         const botEntry = botSkillMap[skill.id];
         const dis = disabledSet.has(skill.id);
         const desc = cleanDesc(skill.description);
+        const carapaceSource = skillFromCarapace.get(skill.id);
 
         if (!isWide) {
           return (
@@ -103,6 +116,11 @@ export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWi
                   </span>
                 )}
               </label>
+              {carapaceSource && (
+                <div style={{ marginLeft: 28 }}>
+                  <CarapaceBadge mode={carapaceSource.mode} name={carapaceSource.carapaceName} t={t} />
+                </div>
+              )}
               <span style={{ fontSize: 10, fontFamily: "monospace", color: t.textMuted, marginLeft: 28 }}>{skill.id}</span>
               {desc && (
                 <div style={{ fontSize: 11, color: t.textDim, marginLeft: 28, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -142,7 +160,12 @@ export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWi
               {skill.id}
             </span>
             <div style={{ overflow: "hidden" }}>
-              <span style={{ fontSize: 13, fontWeight: 500, color: sel ? t.accent : t.text }}>{skill.name}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: sel ? t.accent : t.text }}>{skill.name}</span>
+                {carapaceSource && (
+                  <CarapaceBadge mode={carapaceSource.mode} name={carapaceSource.carapaceName} t={t} />
+                )}
+              </div>
               {desc && (
                 <div style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginTop: 1 }}>
                   {desc}
