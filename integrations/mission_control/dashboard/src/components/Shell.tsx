@@ -1,12 +1,12 @@
 /**
- * App shell — sidebar + main content area.
+ * App shell — sidebar + main content area + mobile bottom nav.
  *
- * When embedded inside the main app's iframe, the sidebar is hidden
- * because the parent app's sidebar handles navigation.
+ * - Standalone (not embedded): sidebar on desktop (md+), bottom tab bar on mobile.
+ * - Embedded (iframe): bottom tab bar on mobile, no chrome on desktop.
  */
 
 import { useState, useMemo } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   BookOpen,
@@ -16,6 +16,8 @@ import {
   Settings,
   Wrench,
   LayoutGrid,
+  MoreHorizontal,
+  X,
 } from "lucide-react";
 import { useOverview } from "../hooks/useOverview";
 import { isEmbedded } from "../lib/auth-bridge";
@@ -40,6 +42,24 @@ const NAV_ITEMS: NavItem[] = [
   { label: "Setup", to: "/setup", Icon: Wrench },
 ];
 
+// Primary tabs shown in the bottom bar; the rest go into "More"
+const BOTTOM_TAB_ITEMS: NavItem[] = [
+  NAV_ITEMS[0], // Overview
+  NAV_ITEMS[1], // Kanban
+  NAV_ITEMS[5], // Plans
+  NAV_ITEMS[4], // Memory
+];
+const MORE_ITEMS: NavItem[] = [
+  NAV_ITEMS[2], // Journal
+  NAV_ITEMS[3], // Timeline
+  NAV_ITEMS[6], // Settings
+  NAV_ITEMS[7], // Setup
+];
+
+// ---------------------------------------------------------------------------
+// Sidebar link (desktop)
+// ---------------------------------------------------------------------------
+
 function SidebarLink({ item }: { item: NavItem }) {
   const { Icon } = item;
   return (
@@ -60,20 +80,112 @@ function SidebarLink({ item }: { item: NavItem }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Mobile bottom tab bar
+// ---------------------------------------------------------------------------
+
+function MobileBottomNav() {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const location = useLocation();
+
+  // Check if current path matches a "More" item
+  const isMoreActive = MORE_ITEMS.some((item) =>
+    item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to),
+  );
+
+  return (
+    <>
+      {/* More menu overlay */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)}>
+          <div
+            className="absolute bottom-14 left-0 right-0 bg-surface-1 border-t border-surface-3 px-2 py-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="grid grid-cols-4 gap-1">
+              {MORE_ITEMS.map((item) => {
+                const Icon = item.Icon;
+                const isActive = item.to === "/"
+                  ? location.pathname === "/"
+                  : location.pathname.startsWith(item.to);
+                return (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    onClick={() => setMoreOpen(false)}
+                    className={`flex flex-col items-center gap-1 py-2.5 rounded-lg transition-colors ${
+                      isActive ? "text-accent-hover bg-accent/10" : "text-gray-400"
+                    }`}
+                  >
+                    <Icon size={18} />
+                    <span className="text-[10px]">{item.label}</span>
+                  </NavLink>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom bar */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-surface-1 border-t border-surface-3 safe-area-bottom">
+        <div className="flex items-center justify-around px-1 py-1">
+          {BOTTOM_TAB_ITEMS.map((item) => {
+            const Icon = item.Icon;
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === "/"}
+                onClick={() => setMoreOpen(false)}
+                className={({ isActive }) =>
+                  `flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-lg transition-colors min-w-0 ${
+                    isActive ? "text-accent-hover" : "text-gray-500"
+                  }`
+                }
+              >
+                <Icon size={20} />
+                <span className="text-[10px] leading-tight">{item.label}</span>
+              </NavLink>
+            );
+          })}
+          <button
+            onClick={() => setMoreOpen(!moreOpen)}
+            className={`flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-lg transition-colors min-w-0 ${
+              moreOpen || isMoreActive ? "text-accent-hover" : "text-gray-500"
+            }`}
+          >
+            {moreOpen ? <X size={20} /> : <MoreHorizontal size={20} />}
+            <span className="text-[10px] leading-tight">More</span>
+          </button>
+        </div>
+      </nav>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Shell
+// ---------------------------------------------------------------------------
+
 export default function Shell() {
   const embedded = isEmbedded();
 
   if (embedded) {
     return (
-      <div className="h-screen overflow-y-auto">
-        <Outlet />
+      <div className="h-screen flex flex-col">
+        <div className="flex-1 overflow-y-auto pb-14 md:pb-0">
+          <Outlet />
+        </div>
+        <MobileBottomNav />
       </div>
     );
   }
 
   return (
     <div className="flex h-screen">
-      <aside className="w-56 flex-shrink-0 bg-surface-1 border-r border-surface-3 flex flex-col">
+      {/* Desktop sidebar — hidden on mobile */}
+      <aside className="hidden md:flex w-56 flex-shrink-0 bg-surface-1 border-r border-surface-3 flex-col">
         <div className="p-4 border-b border-surface-3">
           <h1 className="text-lg font-semibold text-gray-100">Mission Control</h1>
           <p className="text-xs text-gray-500 mt-0.5">Agent Dashboard</p>
@@ -97,12 +209,20 @@ export default function Shell() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">
+      {/* Main content — bottom padding on mobile for tab bar */}
+      <main className="flex-1 overflow-y-auto pb-14 md:pb-0">
         <Outlet />
       </main>
+
+      {/* Mobile bottom nav — visible on small screens */}
+      <MobileBottomNav />
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Channel nav list (desktop sidebar only)
+// ---------------------------------------------------------------------------
 
 const INITIAL_SHOW = 10;
 
