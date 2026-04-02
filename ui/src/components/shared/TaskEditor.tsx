@@ -704,7 +704,7 @@ export function TaskEditor({
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <InfoRow label="Type" value={existingTask.dispatch_type} />
                     {existingTask.delegation_session_id && (
-                      <InfoRow label="Delegation Session" value={existingTask.delegation_session_id.slice(0, 8) + "..."} />
+                      <InfoRow label="Delegation Context" value={existingTask.delegation_session_id.slice(0, 8) + "..."} />
                     )}
                     {existingTask.dispatch_config && (
                       <div>

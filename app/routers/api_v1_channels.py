@@ -706,7 +706,7 @@ async def delete_channel(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels:write")),
 ):
-    """Delete a channel and all associated data (integrations, heartbeat cascade; sessions/tasks/etc set null)."""
+    """Delete a channel and all associated data (integrations, heartbeat cascade; conversations/tasks/etc set null)."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -760,7 +760,7 @@ async def inject_channel_message(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels.messages:write")),
 ):
-    """Inject a message into a channel's active session."""
+    """Inject a message into a channel's active conversation."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -813,7 +813,7 @@ async def reset_channel(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels.messages:write")),
 ):
-    """Reset a channel's session. Old session preserved, new one becomes active."""
+    """Start a fresh conversation on a channel. Previous conversation is preserved."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -841,13 +841,13 @@ async def compact_channel(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels.messages:write")),
 ):
-    """Force-compact the channel's active session conversation."""
+    """Force-compact the channel's active conversation."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     _check_protected(channel, _auth)
     if not channel.active_session_id:
-        raise HTTPException(status_code=400, detail="Channel has no active session")
+        raise HTTPException(status_code=400, detail="Channel has no active conversation")
 
     from app.agent.bots import get_bot
     from app.services.compaction import run_compaction_forced
@@ -870,7 +870,7 @@ async def switch_session(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels.messages:write")),
 ):
-    """Switch a channel's active session to an existing session."""
+    """Switch a channel to a previous conversation."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -937,7 +937,7 @@ async def search_channel_messages(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels.messages:read")),
 ):
-    """Search messages across all sessions in a channel."""
+    """Search messages across all conversations in a channel."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1016,11 +1016,10 @@ async def get_session_status(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth_or_user),
 ):
-    """Check if the channel's active session is currently processing.
+    """Check if the channel is currently processing.
 
-    Returns whether the session lock is held (agent loop running) and how many
-    pending/running tasks are queued for the session.  Cheap enough to poll at
-    ~3 s intervals from the UI.
+    Returns whether the agent loop is running and how many pending/running tasks
+    are queued.  Cheap enough to poll at ~3 s intervals from the UI.
     """
     channel = await db.get(Channel, channel_id)
     if not channel:

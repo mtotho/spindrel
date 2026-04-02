@@ -4,7 +4,7 @@ import {
   Bot,
   BookOpen,
   ClipboardList,
-  Wrench,
+
   FileText,
   Settings,
   Users,
@@ -22,6 +22,8 @@ import {
   Layers,
   Zap,
   Cable,
+  Database,
+  FileCode,
 } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
 import { useThemeTokens } from "../../../theme/tokens";
@@ -34,18 +36,20 @@ interface NavItem {
 
 export const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
   {
-    title: "AGENTS & KNOWLEDGE",
+    title: "CONFIGURE",
     items: [
       { label: "Bots", href: "/admin/bots", icon: Bot },
-      { label: "Carapaces", href: "/admin/carapaces", icon: Layers },
+      { label: "Integrations", href: "/admin/integrations", icon: Plug },
+      { label: "Providers", href: "/admin/providers", icon: Server },
+      { label: "MCP Servers", href: "/admin/mcp-servers", icon: Cable },
+      { label: "Carapaces (Expertise)", href: "/admin/carapaces", icon: Layers },
       { label: "Skills", href: "/admin/skills", icon: BookOpen },
-      { label: "Tool Index", href: "/admin/tools", icon: Wrench },
       { label: "Templates", href: "/admin/prompt-templates", icon: FileText },
       { label: "Attachments", href: "/admin/attachments", icon: Paperclip },
     ],
   },
   {
-    title: "AUTOMATION",
+    title: "AUTOMATE",
     items: [
       { label: "Tasks", href: "/admin/tasks", icon: ClipboardList },
       { label: "Workflows", href: "/admin/workflows", icon: Zap },
@@ -58,19 +62,18 @@ export const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Secrets", href: "/admin/secret-values", icon: Lock },
       { label: "Policies", href: "/admin/tool-policies", icon: Shield },
       { label: "Approvals", href: "/admin/approvals", icon: ShieldCheck },
-      { label: "Tool Calls", href: "/admin/tool-calls", icon: Activity },
     ],
   },
   {
-    title: "SYSTEM",
+    title: "MONITOR",
     items: [
-      { label: "Integrations", href: "/admin/integrations", icon: Plug },
-      { label: "Providers", href: "/admin/providers", icon: Server },
-      { label: "MCP Servers", href: "/admin/mcp-servers", icon: Cable },
       { label: "Usage", href: "/admin/usage", icon: BarChart3 },
+      { label: "Tool Calls", href: "/admin/tool-calls", icon: Activity },
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: FileText },
       { label: "Diagnostics", href: "/admin/diagnostics", icon: HardDrive },
+      { label: "Operations", href: "/admin/operations", icon: Database },
+      { label: "API Docs", href: "/admin/api-docs", icon: FileCode },
       { label: "Config", href: "/admin/config-state", icon: Code2 },
       { label: "Settings", href: "/settings", icon: Settings },
     ],

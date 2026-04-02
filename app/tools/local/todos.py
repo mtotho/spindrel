@@ -1,4 +1,4 @@
-"""Agent tools for creating and managing cross-session todos."""
+"""Agent tools for creating and managing persistent todos."""
 import json
 import uuid
 from datetime import datetime, timezone
@@ -26,7 +26,7 @@ def _get_scope():
     "type": "function",
     "function": {
         "name": "create_todo",
-        "description": "Create a new todo item. Use for tracking work that persists across sessions.",
+        "description": "Create a new todo item. Use for tracking work that persists across conversations.",
         "parameters": {
             "type": "object",
             "properties": {

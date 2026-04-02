@@ -171,7 +171,7 @@ function ToolCallRow({ call }: { call: ToolCallItem }) {
           )}
           <div style={{ fontSize: 10, color: t.textDim }}>
             ID: {call.id}
-            {call.session_id && ` | Session: ${call.session_id}`}
+            {call.session_id && ` | Conv: ${call.session_id}`}
             {call.correlation_id && ` | Correlation: ${call.correlation_id}`}
           </div>
         </div>

@@ -62,6 +62,8 @@ ALL_SCOPES = [
     "mission_control:read", "mission_control:write",
     # Carapaces
     "carapaces:read", "carapaces:write",
+    # Workflows
+    "workflows:read", "workflows:write",
 ]
 
 # Scope descriptions (shown in admin UI)
@@ -113,6 +115,8 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "mission_control:write": "Write Mission Control data (create/move kanban cards, update preferences)",
     "carapaces:read": "List and get carapace details (skill+tool bundles)",
     "carapaces:write": "Create, update, and delete carapaces",
+    "workflows:read": "List workflows, view workflow runs and step details",
+    "workflows:write": "Create, update, delete workflows; trigger, cancel, approve, skip, retry runs",
 }
 
 # Grouped scopes for the UI — each group has a description and ordered scope list.
@@ -206,6 +210,10 @@ SCOPE_GROUPS: dict[str, dict] = {
     "Carapaces": {
         "description": "Manage skill+tool bundles (composable expert configurations)",
         "scopes": ["carapaces:read", "carapaces:write"],
+    },
+    "Workflows": {
+        "description": "Multi-step automations with conditions, approvals, and cross-bot coordination",
+        "scopes": ["workflows:read", "workflows:write"],
     },
 }
 
@@ -851,6 +859,263 @@ ENDPOINT_CATALOG: list[dict] = [
     {
         "scope": "carapaces:write", "method": "PUT", "path": "/api/v1/carapaces/{id}",
         "description": "Update a carapace",
+    },
+    # Channels — integration activation
+    {
+        "scope": "channels.integrations:write", "method": "POST",
+        "path": "/api/v1/channels/{id}/integrations/{integration_type}/activate",
+        "description": "Activate an integration on a channel",
+    },
+    {
+        "scope": "channels.integrations:write", "method": "POST",
+        "path": "/api/v1/channels/{id}/integrations/{integration_type}/deactivate",
+        "description": "Deactivate an integration on a channel",
+    },
+    {
+        "scope": "channels.integrations:read", "method": "GET",
+        "path": "/api/v1/channels/{id}/integrations/available",
+        "description": "List integrations with activation status for a channel",
+    },
+    # Channels — session status
+    {
+        "scope": "channels:read", "method": "GET",
+        "path": "/api/v1/channels/{id}/session-status",
+        "description": "Check if the channel is currently processing",
+        "response": "{processing: bool}",
+    },
+    # Channels — channel workspace files
+    {
+        "scope": "channels:read", "method": "GET",
+        "path": "/api/v1/channels/{id}/workspace/files",
+        "description": "List files in the channel workspace",
+        "params": "?path=/",
+    },
+    {
+        "scope": "channels:read", "method": "GET",
+        "path": "/api/v1/channels/{id}/workspace/files/content",
+        "description": "Read a file from the channel workspace",
+        "params": "?path=/file.md",
+    },
+    {
+        "scope": "channels:write", "method": "PUT",
+        "path": "/api/v1/channels/{id}/workspace/files/content",
+        "description": "Write a file to the channel workspace",
+        "params": "?path=/file.md",
+        "body": '{"content": "str"}',
+    },
+    {
+        "scope": "channels:write", "method": "POST",
+        "path": "/api/v1/channels/{id}/workspace/files/upload",
+        "description": "Upload a file to the channel workspace",
+    },
+    {
+        "scope": "channels:write", "method": "DELETE",
+        "path": "/api/v1/channels/{id}/workspace/files",
+        "description": "Delete a file from the channel workspace",
+        "params": "?path=/file.md",
+    },
+    {
+        "scope": "channels:write", "method": "POST",
+        "path": "/api/v1/channels/{id}/workspace/files/move",
+        "description": "Move/rename a file in the channel workspace",
+        "body": '{"src": "/old.md", "dst": "/new.md"}',
+    },
+    # Admin — channels (extended)
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/categories",
+        "description": "List distinct channel categories (for autocomplete)",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels-enriched",
+        "description": "List channels with integration-resolved display names",
+        "params": "?bot_id=&category=&integration=",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/effective-tools",
+        "description": "Resolved tool/skill lists after applying channel overrides",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/sessions",
+        "description": "List conversations for a channel (last 20, with message counts)",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/sections",
+        "description": "List conversation sections for a channel",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/sections/search",
+        "description": "Search conversation sections by topic or content",
+        "params": "?q=&limit=20",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/context-breakdown",
+        "description": "Detailed context token breakdown for the channel",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/context-preview",
+        "description": "Preview all system messages that would be injected",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/compaction-logs",
+        "description": "Recent compaction log entries for a channel",
+    },
+    {
+        "scope": "admin", "method": "POST", "path": "/api/v1/admin/channels/{id}/backfill-sections",
+        "description": "Backfill conversation sections (async task)",
+        "response": "{task_id}",
+    },
+    {
+        "scope": "admin", "method": "POST", "path": "/api/v1/admin/channels/{id}/backfill-transcripts",
+        "description": "Populate transcript DB column from existing section files",
+    },
+    # Admin — workflows
+    {
+        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflows",
+        "description": "List all workflows",
+    },
+    {
+        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflows/{id}",
+        "description": "Get workflow details",
+    },
+    {
+        "scope": "workflows:write", "method": "POST", "path": "/api/v1/admin/workflows",
+        "description": "Create a workflow",
+    },
+    {
+        "scope": "workflows:write", "method": "PUT", "path": "/api/v1/admin/workflows/{id}",
+        "description": "Update a workflow",
+    },
+    {
+        "scope": "workflows:write", "method": "DELETE", "path": "/api/v1/admin/workflows/{id}",
+        "description": "Delete a workflow",
+    },
+    {
+        "scope": "workflows:read", "method": "POST", "path": "/api/v1/admin/workflows/{id}/export",
+        "description": "Export a workflow as YAML",
+    },
+    {
+        "scope": "workflows:write", "method": "POST", "path": "/api/v1/admin/workflows/{id}/run",
+        "description": "Trigger a workflow run",
+        "body": '{"channel_id?": "uuid", "params?": {}}',
+    },
+    {
+        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflows/{id}/runs",
+        "description": "List runs for a workflow",
+    },
+    {
+        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflow-runs/recent",
+        "description": "Recent workflow runs across all workflows",
+    },
+    {
+        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflow-runs/{id}",
+        "description": "Get a workflow run",
+    },
+    {
+        "scope": "workflows:write", "method": "POST", "path": "/api/v1/admin/workflow-runs/{id}/cancel",
+        "description": "Cancel a workflow run",
+    },
+    {
+        "scope": "workflows:write", "method": "POST",
+        "path": "/api/v1/admin/workflow-runs/{id}/steps/{step_index}/approve",
+        "description": "Approve a pending workflow step",
+    },
+    {
+        "scope": "workflows:write", "method": "POST",
+        "path": "/api/v1/admin/workflow-runs/{id}/steps/{step_index}/skip",
+        "description": "Skip a workflow step",
+    },
+    {
+        "scope": "workflows:write", "method": "POST",
+        "path": "/api/v1/admin/workflow-runs/{id}/steps/{step_index}/retry",
+        "description": "Retry a failed workflow step",
+    },
+    # Admin — tasks (extended)
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/tasks/{id}/children",
+        "description": "List child tasks of a parent task",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/cron-jobs",
+        "description": "Discover cron jobs across workspace containers and host",
+    },
+    # Admin — providers (extended)
+    {
+        "scope": "admin", "method": "POST", "path": "/api/v1/admin/providers/{id}/test",
+        "description": "Test a provider's connection",
+    },
+    {
+        "scope": "admin", "method": "POST", "path": "/api/v1/admin/providers/test-inline",
+        "description": "Test provider connection without saving",
+        "body": '{"provider_type": "str", "base_url?": "str", "api_key?": "str"}',
+    },
+    {
+        "scope": "admin", "method": "GET",
+        "path": "/api/v1/admin/provider-types/{provider_type}/capabilities",
+        "description": "Get capabilities for a provider type",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/providers/{id}/capabilities",
+        "description": "Get capabilities for a saved provider",
+    },
+    {
+        "scope": "admin", "method": "POST", "path": "/api/v1/admin/providers/{id}/sync-models",
+        "description": "Sync remote models from provider API",
+    },
+    # Admin — bots (extended)
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/bots/{bot_id}/editor-data",
+        "description": "Bot config + all available options for the editor UI",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/bots/{bot_id}/sandbox",
+        "description": "Get bot sandbox container status",
+    },
+    # Admin — diagnostics
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/diagnostics/indexing",
+        "description": "Comprehensive indexing health check across all systems",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/diagnostics/operations",
+        "description": "List in-progress background operations",
+    },
+    {
+        "scope": "admin", "method": "POST", "path": "/api/v1/admin/diagnostics/reindex",
+        "description": "Force re-index all filesystem directories and workspace skills",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/diagnostics/disk-usage",
+        "description": "Workspace disk usage report",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/diagnostics/feature-validation",
+        "description": "Validate bots have tools required by their configured features",
+    },
+    # Admin — usage (extended)
+    {
+        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/breakdown",
+        "description": "Usage breakdown grouped by model, bot, channel, or provider",
+        "params": "?group_by=model|bot|channel|provider&after=&before=",
+    },
+    {
+        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/timeseries",
+        "description": "Usage timeseries data (cost/tokens over time)",
+        "params": "?interval=day|hour&after=&before=&bot_id=",
+    },
+    # Admin — integrations (extended)
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/integrations/activatable",
+        "description": "List all integrations with activation manifests",
+    },
+    {
+        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/integrations/available",
+        "description": "List registered integration types with binding metadata",
+    },
+    # Search
+    {
+        "scope": "admin", "method": "POST", "path": "/api/v1/search/memory",
+        "description": "Semantic search over bot memory files (hybrid vector + BM25)",
+        "body": '{"query": "str", "bot_id": "str", "limit?": 10}',
     },
     # Discovery
     {

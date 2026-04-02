@@ -95,7 +95,7 @@ HOW IT WORKS
     Before compaction runs, the bot is prompted to:
     - Append key decisions/events to today's daily log
     - Promote stable facts to MEMORY.md
-    - Write anything needed for future sessions
+    - Write anything needed for future conversations
 `.trim();
 
 const DIR_STRUCTURE = `memory/

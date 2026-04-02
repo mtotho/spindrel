@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.tools.local.web_search import web_search, _check_ssrf, _BLOCKED_NETWORKS
+from app.tools.local.web_search import web_search, _check_ssrf, _BLOCKED_NETWORKS, _sanitize_fetched_content
 
 
 # ---------------------------------------------------------------------------
@@ -167,3 +167,40 @@ class TestRegistration:
         """_check_ssrf and _BLOCKED_NETWORKS must stay importable for test_security.py."""
         assert callable(_check_ssrf)
         assert len(_BLOCKED_NETWORKS) > 0
+
+
+class TestSanitizeFetchedContent:
+    def test_wraps_content_with_markers(self):
+        result = _sanitize_fetched_content("Hello world", "https://example.com")
+        assert "[EXTERNAL WEB CONTENT from https://example.com - BEGIN]" in result
+        assert "[EXTERNAL WEB CONTENT - END]" in result
+        assert "untrusted data" in result
+        assert "Hello world" in result
+
+    def test_strips_control_characters(self):
+        text = "Hello\x00World\x07Test\x1fEnd"
+        result = _sanitize_fetched_content(text, "https://example.com")
+        assert "\x00" not in result
+        assert "\x07" not in result
+        assert "\x1f" not in result
+        assert "HelloWorldTestEnd" in result
+
+    def test_preserves_normal_whitespace(self):
+        """Tabs and newlines should not be stripped by control char removal."""
+        text = "Line one\nLine two"
+        result = _sanitize_fetched_content(text, "https://example.com")
+        assert "Line one" in result
+        assert "Line two" in result
+
+    def test_truncates_long_content(self):
+        text = "A" * 5000
+        result = _sanitize_fetched_content(text, "https://example.com", max_length=100)
+        # The inner content should be truncated, not the full wrapped output
+        assert "...(truncated)" in result
+        # Full output includes markers, but inner content is capped
+        assert "A" * 101 not in result
+
+    def test_strips_blank_lines(self):
+        text = "Line one\n\n\n   \nLine two"
+        result = _sanitize_fetched_content(text, "https://example.com")
+        assert "Line one\nLine two" in result

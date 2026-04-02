@@ -11,6 +11,14 @@ import {
   Plug,
   ChevronDown,
   ChevronRight,
+  MessageSquare,
+  Code2,
+  Mail,
+  Camera,
+  LayoutDashboard,
+  Tv,
+  Terminal,
+  MessageCircle,
 } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
 import { useChannelReadStore } from "../../../stores/channelRead";
@@ -22,6 +30,7 @@ import { useState, useMemo, useCallback } from "react";
 /** Resolve a lucide icon name to a component. */
 const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   Container, Plug, Lock, Hash, Home, Shield, Moon,
+  MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle,
 };
 function resolveIcon(name: string): React.ComponentType<{ size: number; color: string }> {
   return ICON_MAP[name] || Plug;

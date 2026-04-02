@@ -1,4 +1,4 @@
-"""Agent tools for creating and managing session-scoped plans."""
+"""Agent tools for creating and managing channel-scoped plans."""
 import json
 import uuid
 from datetime import datetime, timezone
@@ -16,7 +16,7 @@ from app.tools.registry import register
     "function": {
         "name": "create_plan",
         "description": (
-            "Create a new plan with an ordered checklist of items for the current session. "
+            "Create a new plan with an ordered checklist of items for the current conversation. "
             "Use this to track multi-step work so progress persists across turns. "
             "The plan is automatically injected into every subsequent turn until completed or abandoned."
         ),
@@ -127,7 +127,7 @@ async def get_plan(plan_id: str) -> str:
     "type": "function",
     "function": {
         "name": "list_plans",
-        "description": "List plans for the current bot and session.",
+        "description": "List plans for the current bot and channel.",
         "parameters": {
             "type": "object",
             "properties": {

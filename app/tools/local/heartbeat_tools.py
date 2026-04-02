@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
         "description": (
             "Get recent heartbeat results for the current channel. "
             "Returns the prompt, full result text, timestamps, and status. "
-            "Use list_session_traces + get_trace with the session for deeper "
+            "Use list_session_traces + get_trace for deeper "
             "tool-call-level inspection."
         ),
         "parameters": {

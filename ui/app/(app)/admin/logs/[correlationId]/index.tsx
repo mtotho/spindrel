@@ -72,7 +72,7 @@ function formatTraceForCopy(data: import("@/src/api/hooks/useLogs").TraceDetailR
   lines.push(`=== Request Trace ===`);
   lines.push(`Correlation: ${data.correlation_id}`);
   if (data.bot_id) lines.push(`Bot: ${data.bot_id}`);
-  if (data.session_id) lines.push(`Session: ${data.session_id}`);
+  if (data.session_id) lines.push(`Conversation: ${data.session_id}`);
   if (data.client_id) lines.push(`Client: ${data.client_id}`);
   if (data.time_range_start && data.time_range_end) {
     lines.push(`Time: ${fmtTime(data.time_range_start)} — ${fmtTime(data.time_range_end)}`);
@@ -191,7 +191,7 @@ export default function TraceScreen() {
           <span><span style={{ color: t.textDim }}>Bot: </span><span style={{ color: t.textMuted }}>{data.bot_id}</span></span>
         )}
         {data.session_id && (
-          <span><span style={{ color: t.textDim }}>Session: </span><span style={{ color: t.textMuted, fontFamily: "monospace", fontSize: 11 }}>{data.session_id.substring(0, 12)}...</span></span>
+          <span><span style={{ color: t.textDim }}>Conv: </span><span style={{ color: t.textMuted, fontFamily: "monospace", fontSize: 11 }}>{data.session_id.substring(0, 12)}...</span></span>
         )}
         {data.client_id && (
           <span><span style={{ color: t.textDim }}>Client: </span><span style={{ color: t.textMuted }}>{data.client_id}</span></span>

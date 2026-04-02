@@ -91,6 +91,22 @@ def _rebuild_ui(repo):
     run(f"docker compose -f {repo}/docker-compose.yml up -d ui")
 
 
+def _build_integration_uis(repo):
+    """Build integration web UIs (dashboards served via iframe)."""
+    integrations_dir = os.path.join(repo, "integrations")
+    if not os.path.isdir(integrations_dir):
+        return
+    for name in sorted(os.listdir(integrations_dir)):
+        dashboard_dir = os.path.join(integrations_dir, name, "dashboard")
+        pkg_json = os.path.join(dashboard_dir, "package.json")
+        if not os.path.isfile(pkg_json):
+            continue
+        print(f"Building integration UI: {name}...")
+        result = run(f"cd {dashboard_dir} && npm ci --ignore-scripts && npx vite build", check=False)
+        if result.returncode != 0:
+            print(f"warning: Integration UI build failed for {name}.", file=sys.stderr)
+
+
 def cmd_pull(args):
     """Pull latest code and restart services."""
     repo = get_repo_dir()
@@ -100,6 +116,7 @@ def cmd_pull(args):
         print("Pull failed — skipping restart.", file=sys.stderr)
         return
     _build_workspace_image(repo)
+    _build_integration_uis(repo)
     _rebuild_ui(repo)
     cmd_restart(args)
 

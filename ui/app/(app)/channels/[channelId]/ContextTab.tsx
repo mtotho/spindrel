@@ -195,7 +195,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
             ["Total Tokens", `~${data.total_tokens_approx.toLocaleString()}`],
             ["Total Chars", data.total_chars.toLocaleString()],
             ["Bot", data.bot_id],
-            ["Session", data.session_id ? data.session_id.slice(0, 8) + "..." : "none"],
+            ["Conversation", data.session_id ? data.session_id.slice(0, 8) + "..." : "none"],
           ].map(([label, val]) => (
             <div key={String(label)} style={{
               padding: "12px 14px", background: t.surfaceRaised, borderRadius: 8, border: `1px solid ${t.surfaceOverlay}`,

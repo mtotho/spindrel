@@ -1,4 +1,4 @@
-"""Channel CRUD + tab endpoints: sessions, heartbeat, memories, tasks, plans,
+"""Channel CRUD + tab endpoints: conversations, heartbeat, memories, tasks, plans,
 knowledge, enriched."""
 from __future__ import annotations
 
@@ -843,7 +843,7 @@ async def admin_channel_sessions(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth_or_user),
 ):
-    """List sessions for a channel (last 20, ordered by last_active desc, with message counts)."""
+    """List conversations for a channel (last 20, ordered by last_active desc, with message counts)."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1834,7 +1834,7 @@ async def admin_channel_context_breakdown(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth_or_user),
 ):
-    """Compute a detailed context breakdown for the channel's active session."""
+    """Compute a detailed context breakdown for the channel's active conversation."""
     from app.services.context_breakdown import compute_context_breakdown
     from dataclasses import asdict
 
@@ -1864,7 +1864,7 @@ async def admin_channel_context_breakdown(
 @router.get("/channels/{channel_id}/context-preview")
 async def admin_channel_context_preview(
     channel_id: uuid.UUID,
-    include_history: bool = Query(False, description="Include conversation messages from the active session"),
+    include_history: bool = Query(False, description="Include conversation messages from the active conversation"),
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth_or_user),
 ):

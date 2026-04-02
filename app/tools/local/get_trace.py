@@ -1,4 +1,4 @@
-"""Agent self-debugging tools: browse session traces and inspect specific turns."""
+"""Agent self-debugging tools: browse conversation traces and inspect specific turns."""
 import json
 import uuid
 
@@ -15,7 +15,7 @@ from app.tools.registry import register
     "function": {
         "name": "list_session_traces",
         "description": (
-            "List recent conversation turns for the current session, showing which had errors, "
+            "List recent conversation turns for the current channel, showing which had errors, "
             "how many tool calls were made, and a preview of the user's message. "
             "Use this to find a failing turn, then call get_trace with its correlation_id to inspect it."
         ),
@@ -34,7 +34,7 @@ from app.tools.registry import register
 async def list_session_traces(limit: int = 10) -> str:
     session_id = current_session_id.get()
     if not session_id:
-        return "No session context available."
+        return "No conversation context available."
 
     limit = min(max(1, limit), 50)
 
@@ -53,7 +53,7 @@ async def list_session_traces(limit: int = 10) -> str:
         )).all()
 
         if not rows:
-            return f"No trace events found for session {session_id}."
+            return f"No trace events found for this conversation."
 
         # Collect correlation_ids to look up errors and tool call counts
         corr_ids = [r.correlation_id for r in rows]
@@ -97,7 +97,7 @@ async def list_session_traces(limit: int = 10) -> str:
             if r.correlation_id not in user_msgs and r.content:
                 user_msgs[r.correlation_id] = r.content
 
-    lines = [f"Recent traces for session {session_id} (newest first):\n"]
+    lines = [f"Recent traces (newest first):\n"]
     for r in rows:
         ts = r.started_at.strftime("%m-%d %H:%M") if r.started_at else "?"
         errors = error_counts.get(r.correlation_id, 0)
@@ -125,7 +125,7 @@ async def list_session_traces(limit: int = 10) -> str:
             "Read the full trace of a conversation turn: all RAG retrieval events, "
             "tool calls (with arguments and results), token usage, and errors. "
             "Defaults to the current turn. Pass a correlation_id, trace_id, or id to inspect a previous turn. "
-            "Use list_session_traces first to find correlation_ids with errors."
+            "Use list_session_traces to find correlation_ids with errors."
         ),
         "parameters": {
             "type": "object",

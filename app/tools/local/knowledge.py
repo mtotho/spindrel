@@ -24,8 +24,8 @@ UPSERT_KNOWLEDGE_DESCRIPTION = (
     "Use for structured, multi-faceted information that will grow over time — "
     "e.g. 'project_xyz_architecture', 'home_network_layout', 'bayada_cicd_setup'. "
     "Unlike memories (single facts), knowledge docs are living documents you update "
-    "as understanding deepens. Documents are always scoped to this chat session only "
-    "(not visible to other sessions); created_by_bot records which bot wrote them."
+    "as understanding deepens. Documents are scoped to the current channel; "
+    "created_by_bot records which bot wrote them."
 )
 
 GET_KNOWLEDGE_DESCRIPTION = (
@@ -286,7 +286,7 @@ async def unpin_knowledge_tool(name: str, scope: str) -> str:
     "function": {
         "name": "set_knowledge_similarity_threshold",
         "description": (
-            "Set the minimum cosine similarity (0–1) for one knowledge document in the current session scope. "
+            "Set the minimum cosine similarity (0–1) for one knowledge document in the current channel scope. "
             "Higher = stricter (fewer injections). Lower = looser. Per-document; does not affect other knowledge bases."
         ),
         "parameters": {
@@ -332,7 +332,7 @@ async def call_knowledge_tool(
         if not content:
             return "No content provided; knowledge not saved."
         if not session_id:
-            return "Cannot save knowledge without an active session."
+            return "Cannot save knowledge without an active conversation."
         # Guard: reject writes to file-managed entries
         existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True, channel_id=channel_id)
         if existing_row and not existing_row.editable_from_tool:
@@ -357,7 +357,7 @@ async def call_knowledge_tool(
             similarity_threshold=sim_thr,
         )
         if ok:
-            return f"Knowledge '{doc_name}' saved for this session."
+            return f"Knowledge '{doc_name}' saved."
         return f"Failed to save knowledge: {err}" if err else "Failed to save knowledge."
 
     if name == "get_knowledge":
@@ -395,7 +395,7 @@ async def call_knowledge_tool(
         if not content:
             return "No content provided."
         if not session_id:
-            return "Cannot append knowledge without an active session."
+            return "Cannot append knowledge without an active conversation."
         # Guard: reject writes to file-managed entries
         existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True, channel_id=channel_id)
         if existing_row and not existing_row.editable_from_tool:
@@ -418,7 +418,7 @@ async def call_knowledge_tool(
         if not old_text:
             return "No old_text provided."
         if not session_id:
-            return "Cannot edit knowledge without an active session."
+            return "Cannot edit knowledge without an active conversation."
         # Guard: reject writes to file-managed entries
         existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True, channel_id=channel_id)
         if existing_row and not existing_row.editable_from_tool:
@@ -436,7 +436,7 @@ async def call_knowledge_tool(
         if not doc_name:
             return "No name provided."
         if not session_id:
-            return "Cannot delete knowledge without an active session."
+            return "Cannot delete knowledge without an active conversation."
         # Guard: reject deletes of file-managed entries
         existing_row = await get_knowledge_row_by_name(doc_name, bot_id, client_id, session_id=session_id, ignore_session_scope=True, channel_id=channel_id)
         if not existing_row:
@@ -478,7 +478,7 @@ async def call_knowledge_tool(
         if not (0.0 <= thr <= 1.0):
             return "Threshold must be between 0.0 and 1.0."
         if not session_id:
-            return "No active session."
+            return "No active conversation."
         ok, err = await set_knowledge_similarity_for_match(
             doc_name, bot_id, client_id, session_id, thr, channel_id=channel_id,
         )

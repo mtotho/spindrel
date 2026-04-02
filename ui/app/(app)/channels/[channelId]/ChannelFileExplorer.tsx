@@ -13,7 +13,6 @@ import {
   useWriteChannelWorkspaceFile,
   useMoveChannelWorkspaceFile,
   useUploadChannelWorkspaceFile,
-  type ChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
 import { useChatStore } from "@/src/stores/chat";
 
