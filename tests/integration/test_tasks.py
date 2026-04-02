@@ -477,18 +477,20 @@ class TestRunTask:
 
     @pytest.mark.asyncio
     async def test_session_busy_defers(self, engine):
-        """When session lock can't be acquired, task is deferred."""
+        """When session lock can't be acquired, task is deferred with status reverted to pending."""
         factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         task_id = uuid.uuid4()
         sid = uuid.uuid4()
         original_scheduled = datetime.now(timezone.utc)
+        run_at = datetime.now(timezone.utc)
         async with factory() as db:
             db.add(Session(id=sid, client_id="task", bot_id="test-bot"))
+            # Simulate what fetch_due_tasks does: status=running, run_at set
             db.add(Task(
                 id=task_id, bot_id="test-bot", session_id=sid,
-                prompt="deferred", status="pending", dispatch_type="none",
-                scheduled_at=original_scheduled,
+                prompt="deferred", status="running", dispatch_type="none",
+                scheduled_at=original_scheduled, run_at=run_at,
             ))
             await db.commit()
 
@@ -508,6 +510,58 @@ class TestRunTask:
             # scheduled_at was updated (deferred by 10s)
             assert t.scheduled_at is not None
             assert t.scheduled_at != original_scheduled
+            # Status must revert to pending so fetch_due_tasks can pick it up again
+            assert t.status == "pending"
+            # run_at must be cleared so recover_stuck_tasks doesn't kill it
+            assert t.run_at is None
+
+    @pytest.mark.asyncio
+    async def test_delegation_skips_session_lock(self, engine):
+        """Delegation tasks skip the session lock to avoid deadlock with parent."""
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        bot = _bot(id="image-bot")
+
+        task_id = uuid.uuid4()
+        sid = uuid.uuid4()
+        async with factory() as db:
+            db.add(Session(id=sid, client_id="task", bot_id="test-bot"))
+            db.add(Task(
+                id=task_id, bot_id="image-bot", session_id=sid,
+                prompt="generate image", status="running", dispatch_type="none",
+                task_type="delegation",
+                run_at=datetime.now(timezone.utc),
+            ))
+            await db.commit()
+
+        async with factory() as db:
+            task = await db.get(Task, task_id)
+
+        from app.agent.loop import RunResult
+        mock_run_result = RunResult(response="Done!", transcript="", client_actions=[])
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.deliver = AsyncMock()
+
+        with (
+            patch("app.agent.tasks.async_session", factory),
+            patch("app.agent.tasks.get_bot", return_value=bot),
+            patch("app.agent.tasks.session_locks") as mock_locks,
+            patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result),
+            patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value=None),
+            patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(sid, [{"role": "system", "content": "sp"}])),
+            patch("app.services.sessions.persist_turn", new_callable=AsyncMock),
+            patch("app.agent.tasks.dispatchers") as mock_dispatchers,
+        ):
+            # Session lock is held (simulating parent streaming request)
+            mock_locks.acquire.return_value = False
+            mock_dispatchers.get.return_value = mock_dispatcher
+            from app.agent.tasks import run_task
+            await run_task(task)
+
+        async with factory() as db:
+            t = await db.get(Task, task_id)
+            # Delegation task should NOT be deferred — it should complete
+            assert t.status == "complete"
+            assert t.result == "Done!"
 
     @pytest.mark.asyncio
     async def test_concrete_task_failure_does_not_break_schedule(self, engine):

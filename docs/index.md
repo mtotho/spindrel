@@ -101,7 +101,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
     The mental model — channels, templates, activation, carapaces, and how they compose.
 
--   [:material-setup: **Setup Guide**](setup.md)
+-   [:material-cog-outline: **Setup Guide**](setup.md)
 
     Installation, providers, workspaces, integrations, troubleshooting.
 

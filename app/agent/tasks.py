@@ -13,7 +13,7 @@ from app.agent import dispatchers
 from app.agent.bots import get_bot
 from app.config import settings
 from app.db.engine import async_session
-from app.db.models import Channel, Session, Task
+from app.db.models import Channel, Session, Task, TraceEvent
 from app.services import session_locks
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,34 @@ async def _fire_task_complete(task: Task, status: str) -> None:
         await fire_hook("after_task_complete", ctx, task=task, status=status)
     except Exception:
         logger.error("after_task_complete hook error", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Timeout trace event
+# ---------------------------------------------------------------------------
+
+async def _record_timeout_event(
+    task: Task,
+    correlation_id: uuid.UUID | None,
+    error_msg: str,
+) -> None:
+    """Create a TraceEvent for a timed-out task so it appears in the logs UI."""
+    if correlation_id is None:
+        return
+    try:
+        async with async_session() as db:
+            db.add(TraceEvent(
+                correlation_id=correlation_id,
+                session_id=task.session_id,
+                bot_id=task.bot_id,
+                client_id=task.client_id,
+                event_type="task_timeout",
+                event_name=f"Task timed out ({task.task_type})",
+                data={"task_id": str(task.id), "error": error_msg, "task_type": task.task_type},
+            ))
+            await db.commit()
+    except Exception:
+        logger.debug("Failed to record timeout trace event for task %s", task.id, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -438,14 +466,23 @@ async def run_task(task: Task) -> None:
     # Respect the per-session active lock.  If a streaming HTTP request is still
     # running for this session, defer this task by 10 seconds rather than running
     # a parallel agent loop.
-    if task.session_id and not session_locks.acquire(task.session_id):
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=10)
-                await db.commit()
-        logger.info("Task %s deferred 10s: session %s is busy", task.id, task.session_id)
-        return
+    # Skip lock for delegation tasks: they create their own child session (cross-bot)
+    # or explicitly need to run alongside the parent who is waiting for their result.
+    _skip_lock = task.task_type == "delegation"
+    _lock_acquired = False
+    if task.session_id and not _skip_lock:
+        if session_locks.acquire(task.session_id):
+            _lock_acquired = True
+        else:
+            async with async_session() as db:
+                t = await db.get(Task, task.id)
+                if t:
+                    t.status = "pending"
+                    t.run_at = None
+                    t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=10)
+                    await db.commit()
+            logger.info("Task %s deferred 10s: session %s is busy", task.id, task.session_id)
+            return
 
     logger.info("Running task %s (bot=%s)", task.id, task.bot_id)
 
@@ -454,7 +491,7 @@ async def run_task(task: Task) -> None:
     async with async_session() as db:
         t = await db.get(Task, task.id)
         if t is None:
-            if task.session_id:
+            if _lock_acquired:
                 session_locks.release(task.session_id)
             return
 
@@ -758,13 +795,15 @@ async def run_task(task: Task) -> None:
 
     except asyncio.TimeoutError:
         logger.error("Task %s timed out after %ds", task.id, _task_timeout)
+        _timeout_err = f"Timed out after {_task_timeout}s"
         async with async_session() as db:
             t = await db.get(Task, task.id)
             if t:
                 t.status = "failed"
-                t.error = f"Timed out after {_task_timeout}s"
+                t.error = _timeout_err
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
+        await _record_timeout_event(task, correlation_id, _timeout_err)
         await _fire_task_complete(task, "failed")
         _err_text = f"[Error: Task timed out after {_task_timeout}s]"
         try:
@@ -823,7 +862,7 @@ async def run_task(task: Task) -> None:
         except Exception:
             logger.warning("Failed to dispatch error for task %s", task.id)
     finally:
-        if task.session_id:
+        if _lock_acquired:
             session_locks.release(task.session_id)
 
 
@@ -894,6 +933,8 @@ async def recover_stuck_tasks() -> None:
                     await db.commit()
                     recovered += 1
                     logger.warning("Recovered stuck task %s (running %ds, timeout %ds)", task.id, int(elapsed), timeout)
+                    # Record a trace event so the logs UI can display the timeout
+                    await _record_timeout_event(task, t.correlation_id, t.error)
                     # For workflow tasks, skip the hook to prevent auto-resume
                     # on server restart. The stalled-run sweep will handle them.
                     is_workflow_task = bool((task.callback_config or {}).get("workflow_run_id"))

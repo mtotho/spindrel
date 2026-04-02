@@ -27,6 +27,7 @@ DRIVER_REGISTRY: dict[str, ProviderDriver] = {
     "openai-compatible": OpenAICompatibleDriver(),
     "anthropic": AnthropicDriver(),
     "anthropic-compatible": AnthropicCompatibleDriver(),
+    "anthropic-subscription": AnthropicDriver(),
     "ollama": OllamaDriver(),
 }
 
