@@ -2,9 +2,9 @@
 name: "Plan Workflow — Draft, Approve & Execute Structured Plans"
 description: >
   Protocol for creating structured execution plans that users review and
-  approve in Mission Control. Use when asked to plan, propose, strategize,
-  outline steps, or break down a goal. Covers draft creation, approval gates,
-  automatic step execution, and progress tracking.
+  approve in conversation. Use when asked to plan, propose, strategize,
+  outline steps, or break down a goal. Covers draft creation, conversational
+  approval, automatic step execution, and progress tracking.
 ---
 
 # SKILL: Plan Workflow
@@ -19,41 +19,83 @@ Create a structured plan when the user:
 
 **Do NOT plan** trivial single-step tasks. Just do those directly.
 
-## Drafting a Plan
+## The Conversational Plan Flow
+
+Plans follow a **draft → review → approve → execute** cycle, all within the chat conversation:
+
+### Step 1: Draft the plan
 
 Call `draft_plan` with:
 - `channel_id` — the current channel
 - `title` — concise, action-oriented (e.g. "Deploy v2 API", "Migrate auth to OAuth2")
 - `steps` — ordered list of concrete action items (3-10 steps typical)
 - `notes` — optional context, estimates, risks, or rationale
-- `approval_steps` — optional list of step positions (1-based) that require human approval before execution; the plan executor pauses at these steps until the user approves them in the Mission Control dashboard
+- `approval_steps` — optional list of step positions (1-based) that require human approval mid-execution
+
+### Step 2: Present the plan and ask for approval
+
+After drafting, **immediately present the plan clearly in chat** and ask the user to approve:
 
 ```
-draft_plan(
-  channel_id="...",
-  title="Set up CI/CD pipeline",
-  steps=[
-    "Configure GitHub Actions workflow",
-    "Add unit test stage",
-    "Add integration test stage",
-    "Set up staging deployment",
-    "Configure production deployment with approval gate"
-  ],
-  notes="Using GitHub Actions. Estimated 2-3 hours.",
-  approval_steps=[5]
-)
+Here's the plan:
+
+**Set up CI/CD pipeline** (plan-a1b2c3)
+
+1. Configure GitHub Actions workflow
+2. Add unit test stage
+3. Add integration test stage
+4. Set up staging deployment
+5. Configure production deployment ⛨ (approval gate)
+
+Notes: Using GitHub Actions. Estimated 2-3 hours.
+
+Want me to go ahead with this, or would you like to change anything?
 ```
 
-This creates the plan as `[draft]` in the MC database. The rendered `plans.md` file is auto-generated and read-only.
+Use a clear, scannable format. Mark approval-gated steps with ⛨ or similar. End with a direct question.
 
-## What Happens After Drafting
+### Step 3: Wait for the user's response
 
-The plan appears in the Mission Control dashboard with **Approve** and **Reject** buttons. The user reviews the steps, then:
+**Do NOT proceed until the user responds.** They may:
+- **Approve**: "looks good", "go ahead", "approved", "yes", "do it"
+- **Reject**: "no", "scrap it", "never mind", "cancel"
+- **Revise**: "change step 3 to...", "add a step for...", "remove the last step"
 
-- **Approves** — the plan transitions to `[executing]` and the **plan executor automatically creates tasks for each step**
-- **Rejects** — the plan transitions to `[abandoned]`
+### Step 4: Act on the response
 
-**Do NOT execute draft plans.** Wait for approval.
+- **If approved**: Call `update_plan_status(channel_id, plan_id, "approved")` — this starts automatic execution. Confirm to the user: "Plan approved — execution is starting."
+- **If rejected**: Call `update_plan_status(channel_id, plan_id, "abandoned")` — confirm: "Plan cancelled."
+- **If revision requested**: Call `update_plan_status(channel_id, plan_id, "abandoned")` on the current plan, then draft a new one with the changes and present it again.
+
+## Example
+
+```
+User: "Plan out how to set up monitoring for the API"
+
+Bot: [calls draft_plan with title, steps, notes]
+
+Bot: Here's the plan:
+
+**Set up API monitoring** (plan-x1y2z3)
+
+1. Research monitoring options (Prometheus, Datadog, Grafana)
+2. Set up health check endpoints
+3. Configure alerting thresholds
+4. Set up dashboard ⛨ (approval gate — review before deploying)
+5. Deploy monitoring stack
+6. Verify alerts fire correctly
+
+Notes: Will evaluate Prometheus+Grafana vs Datadog based on existing infra.
+
+Ready to start, or want to adjust anything?
+
+User: "looks good, go ahead"
+
+Bot: [calls update_plan_status(channel_id, plan_id, "approved")]
+
+Bot: Plan approved — execution is starting. I'll work through each step
+automatically and update you on progress.
+```
 
 ## How Execution Works (Automatic)
 
@@ -64,7 +106,7 @@ After approval, the plan executor handles step sequencing automatically:
 3. The bot receives the task and executes the step's work
 4. When done, the bot calls `update_plan_step(plan_id, step_number, "done")` (or `"failed"`)
 5. The executor detects the step completion and advances to the next step
-6. If a step has `requires_approval`, the plan pauses at `[awaiting_approval]` until the user approves it in the dashboard
+6. If a step has `requires_approval`, the plan pauses at `[awaiting_approval]` — the user can approve the step in the Mission Control dashboard or ask you to resume
 
 **You do NOT need to:**
 - Read `plans.md` to find the next step — the executor tells you via the task's system preamble
@@ -95,18 +137,15 @@ Each step runs in a **fresh context window**. Active workspace files (`.md` at t
 - Update `status.md` with progress so the user and future steps have a clear picture
 - If a step produces information the next step critically needs, put it in a root file — not just `data/`
 
-This prevents context bloat while ensuring each step has the information it needs.
-
 ## Approval Gates
 
-Steps marked with `approval_steps` in `draft_plan` create pause points in execution:
+Steps marked with `approval_steps` in `draft_plan` create pause points during execution:
 
-1. When the executor reaches a step with `requires_approval`, it pauses the plan (`[awaiting_approval]`)
-2. The user sees the pending step in the Mission Control dashboard
-3. The user clicks **Approve Step** to continue
-4. The executor creates a task for that step and resumes execution
+1. When the executor reaches a gated step, it pauses the plan (`[awaiting_approval]`)
+2. The user can approve the step in the Mission Control dashboard, or ask you to resume
+3. After approval, the executor creates a task for that step and resumes execution
 
-This is useful for high-risk steps (production deployments, irreversible operations) where you want human review before proceeding.
+Use approval gates for high-risk steps (production deployments, irreversible operations, expensive actions).
 
 ## Step Status Reference
 
@@ -118,12 +157,6 @@ This is useful for high-risk steps (production deployments, irreversible operati
 | `[-]` | skipped | Intentionally skipped |
 | `[!]` | failed | Attempted but could not be completed |
 
-## Progress Reporting
-
-- Step completions are auto-logged to the timeline
-- For significant milestones, also use `append_timeline_event`
-- If a step takes multiple turns, keep the user informed of progress
-
 ## Handling Issues
 
 - If a step fails, mark it `failed` with `update_plan_step(plan_id, step_number, "failed")` — the executor will advance to the next step
@@ -133,7 +166,8 @@ This is useful for high-risk steps (production deployments, irreversible operati
 
 ## Anti-patterns
 
-- **Don't execute draft plans** — always wait for user approval
+- **Don't execute draft plans** — always present the plan and wait for user approval
+- **Don't approve plans silently** — always present the plan first and get explicit user confirmation
 - **Don't call `schedule_task()` to continue plan steps** — the plan executor handles sequencing automatically
 - **Don't read `plans.md` to find the next step** — the system preamble tells you what to do
 - **Don't edit `plans.md` directly** — it is a read-only rendering from the database

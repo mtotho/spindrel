@@ -226,8 +226,10 @@ async def update_plan_step(
 @reg.register({"type": "function", "function": {
     "name": "update_plan_status",
     "description": (
-        "Change a plan's overall status. Bots can transition: "
-        "executing→complete, draft→abandoned."
+        "Change a plan's overall status. Transitions: "
+        "draft→approved (starts automatic execution), "
+        "executing→complete, draft/approved/executing→abandoned. "
+        "Use 'approved' after the user confirms a draft plan in chat."
     ),
     "parameters": {
         "type": "object",
@@ -236,7 +238,7 @@ async def update_plan_step(
             "plan_id": {"type": "string", "description": "Plan ID (e.g. plan-a1b2c3)"},
             "status": {
                 "type": "string",
-                "enum": ["complete", "abandoned"],
+                "enum": ["approved", "complete", "abandoned"],
                 "description": "New plan status",
             },
         },
@@ -249,8 +251,8 @@ async def update_plan_status(
     status: str,
 ) -> str:
     """Change a plan's overall status via DB."""
-    if status not in ("complete", "abandoned"):
-        return f"Invalid status: {status}. Bots can only set complete or abandoned."
+    if status not in ("approved", "complete", "abandoned"):
+        return f"Invalid status: {status}. Bots can set approved, complete, or abandoned."
 
     from integrations.mission_control.db.engine import mc_session
     from integrations.mission_control.db.models import McPlan
@@ -259,6 +261,7 @@ async def update_plan_status(
     await _ensure_plans_migrated(channel_id)
 
     allowed = {
+        "approved": ("draft",),
         "complete": ("executing",),
         "abandoned": ("draft", "approved", "executing"),
     }
@@ -281,7 +284,13 @@ async def update_plan_status(
 
         old_status = db_plan.status
         db_plan.status = status
+
+        if status == "approved":
+            from datetime import date as _date
+            db_plan.approved_date = _date.today().isoformat()
+
         plan_title = db_plan.title
+        plan_db_id = db_plan.id
         await session.commit()
 
     await _render_plans_md(channel_id)
@@ -290,5 +299,21 @@ async def update_plan_status(
         channel_id,
         f"Plan {status}: **{plan_title}** ({plan_id}) — was [{old_status}]",
     )
+
+    # Kick off the plan executor for approved plans
+    if status == "approved":
+        try:
+            from integrations.mission_control.plan_executor import advance_plan
+            await advance_plan(plan_db_id)
+        except Exception:
+            logger.warning("Failed to start plan execution for %s", plan_id, exc_info=True)
+            return (
+                f"Plan '{plan_title}' approved but execution engine failed to start. "
+                f"You can retry via the Mission Control dashboard."
+            )
+        return (
+            f"Plan '{plan_title}' approved and execution started. "
+            f"Steps will execute automatically — do not call schedule_task or try to advance manually."
+        )
 
     return f"Plan '{plan_title}' transitioned: {old_status} → {status}"

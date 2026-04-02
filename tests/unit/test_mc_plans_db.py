@@ -516,6 +516,68 @@ class TestUpdatePlanStatus:
         result = await update_plan_status(CHANNEL_ID, plan_id, "complete")
         assert "Cannot transition" in result
 
+    async def test_approve_from_draft(self, mc_db, mock_workspace):
+        """Bot can approve a draft plan via update_plan_status, triggering execution."""
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_status
+
+        result_text = await draft_plan(CHANNEL_ID, "Bot approval", ["Step A", "Step B"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+
+        with patch(
+            "integrations.mission_control.plan_executor.advance_plan",
+            new_callable=AsyncMock,
+        ) as mock_advance:
+            result = await update_plan_status(CHANNEL_ID, plan_id, "approved")
+
+        assert "approved" in result
+        assert "execution started" in result
+        mock_advance.assert_awaited_once()
+
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from sqlalchemy import select
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            assert db_plan.status == "approved"
+            assert db_plan.approved_date is not None
+
+    async def test_approve_wrong_status(self, mc_db, mock_workspace):
+        """Can't approve a plan that's not in draft status."""
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_status
+        from integrations.mission_control.services import approve_plan
+
+        result_text = await draft_plan(CHANNEL_ID, "Already approved", ["Step 1"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+
+        with patch(
+            "integrations.mission_control.plan_executor.advance_plan",
+            new_callable=AsyncMock,
+        ):
+            await approve_plan(CHANNEL_ID, plan_id)
+
+        result = await update_plan_status(CHANNEL_ID, plan_id, "approved")
+        assert "Cannot transition" in result
+
+    async def test_approve_executor_failure(self, mc_db, mock_workspace):
+        """If executor fails after approval, returns graceful error message."""
+        from integrations.mission_control.tools.plans import draft_plan, update_plan_status
+
+        result_text = await draft_plan(CHANNEL_ID, "Exec fail", ["Step 1"])
+        plan_id = re.search(r"plan-\w+", result_text).group()
+
+        with patch(
+            "integrations.mission_control.plan_executor.advance_plan",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("core DB unavailable"),
+        ):
+            result = await update_plan_status(CHANNEL_ID, plan_id, "approved")
+
+        assert "approved" in result
+        assert "failed to start" in result
+
 
 @pytest.mark.asyncio
 class TestPlanMigration:
