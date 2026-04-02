@@ -166,8 +166,9 @@ async def _resolve_bot_tools(db: AsyncSession, key_id: UUID) -> set[str] | None:
     if bot is None:
         return set()  # Bot not in registry — deny all
 
-    # Start with the bot's base local_tools
+    # Start with the bot's base local_tools + pinned_tools
     allowed = set(bot.local_tools)
+    allowed.update(bot.pinned_tools)
 
     # Add tools from carapaces
     if bot.carapaces:

@@ -159,7 +159,7 @@ export default function WorkflowDetailPage() {
   const isYaml = activeTab === "yaml";
 
   return (
-    <div style={{ overflow: "auto", flex: 1, display: "flex", flexDirection: "column" }}>
+    <div style={{ overflow: "auto", flex: 1, display: "flex", flexDirection: "column", background: t.surface }}>
       <MobileHeader title={isNew ? "New Workflow" : draft.name || "Workflow"} />
       <div style={{
         padding: 16,
