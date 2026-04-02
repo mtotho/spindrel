@@ -84,8 +84,7 @@ export function WorkspaceSkills({
     return globalSkills.filter(
       (s) =>
         s.id.toLowerCase().includes(q) ||
-        s.name.toLowerCase().includes(q) ||
-        (s.description || "").toLowerCase().includes(q),
+        s.name.toLowerCase().includes(q),
     );
   }, [globalSkills, filter]);
 

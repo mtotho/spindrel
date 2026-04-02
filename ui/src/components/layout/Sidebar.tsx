@@ -10,6 +10,7 @@ import {
   Plug,
   Clock,
   Heart,
+  ClipboardCheck,
   ClipboardList,
   LayoutDashboard,
   Columns,
@@ -64,7 +65,7 @@ import { ThemeToggleIcon, SidebarFooterCollapsed, SidebarFooterExpanded } from "
 /** Resolve a lucide icon name string to a component. Falls back to Plug. */
 const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   LayoutDashboard, Columns, BookOpen, Brain, HelpCircle, Settings, Zap, Plug, Filter,
-  Bot, Layers, FileText, Paperclip, ClipboardList, Key, Shield, ShieldCheck,
+  Bot, Layers, FileText, Paperclip, ClipboardCheck, ClipboardList, Key, Shield, ShieldCheck,
   Activity, Server, Wrench, BarChart3, Users, HardDrive, Code2, Hash, Home,
   MessageSquare, Container, Clock, Heart, Lock, Sun, Moon,
   Mail, Camera, MessageCircle, Terminal,

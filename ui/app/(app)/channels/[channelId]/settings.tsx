@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
@@ -78,6 +78,7 @@ export default function ChannelSettingsScreen() {
   const tabKeys = ALL_TABS.map((tab) => tab.key);
   const [tab, setTab] = useHashTab("general", tabKeys);
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
 
@@ -290,9 +291,10 @@ export default function ChannelSettingsScreen() {
             })}
           </div>
 
-          {/* "More" dropdown — outside scroll container so it isn't clipped */}
-          <div style={{ position: "relative", flexShrink: 0, paddingBottom: 4 }}>
+          {/* "More" dropdown — rendered via portal to avoid stacking context issues */}
+          <div style={{ flexShrink: 0, paddingBottom: 4 }}>
             <button
+              ref={moreBtnRef as any}
               onClick={() => setMoreOpen((v) => !v)}
               style={{
                 display: "flex",
@@ -319,50 +321,59 @@ export default function ChannelSettingsScreen() {
                 style={{ transform: moreOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" } as any}
               />
             </button>
-            {moreOpen && (
-              <>
-                <div
-                  onClick={() => setMoreOpen(false)}
-                  style={{ position: "fixed", inset: 0, zIndex: 49 }}
-                />
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "calc(100% + 4px)",
-                    right: 0,
-                    zIndex: 50,
-                    background: t.surfaceRaised,
-                    border: `1px solid ${t.surfaceBorder}`,
-                    borderRadius: 8,
-                    padding: 4,
-                    minWidth: 140,
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-                  }}
-                >
-                  {ADVANCED_TABS.map((at) => (
-                    <button
-                      key={at.key}
-                      onClick={() => { setTab(at.key); setMoreOpen(false); }}
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "8px 10px",
-                        fontSize: 12,
-                        fontWeight: at.key === tab ? 600 : 400,
-                        color: at.key === tab ? t.accent : t.text,
-                        background: "transparent",
-                        border: "none",
-                        borderRadius: 4,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {at.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
+            {moreOpen && typeof document !== "undefined" && (() => {
+              const ReactDOM = require("react-dom");
+              const rect = moreBtnRef.current?.getBoundingClientRect();
+              return ReactDOM.createPortal(
+                <>
+                  <div
+                    onClick={() => setMoreOpen(false)}
+                    style={{ position: "fixed", inset: 0, zIndex: 10010 }}
+                  />
+                  <div
+                    style={{
+                      position: "fixed",
+                      top: (rect?.bottom ?? 0) + 4,
+                      right: window.innerWidth - (rect?.right ?? 0),
+                      zIndex: 10011,
+                      background: t.surfaceRaised,
+                      border: `1px solid ${t.surfaceBorder}`,
+                      borderRadius: 8,
+                      padding: 4,
+                      minWidth: 140,
+                      boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+                    }}
+                  >
+                    {ADVANCED_TABS.map((at) => (
+                      <button
+                        key={at.key}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setTab(at.key);
+                          setMoreOpen(false);
+                        }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "8px 10px",
+                          fontSize: 12,
+                          fontWeight: at.key === tab ? 600 : 400,
+                          color: at.key === tab ? t.accent : t.text,
+                          background: "transparent",
+                          border: "none",
+                          borderRadius: 4,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {at.label}
+                      </button>
+                    ))}
+                  </div>
+                </>,
+                document.body,
+              );
+            })()}
           </div>
         </div>
       </View>

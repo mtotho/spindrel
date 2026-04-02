@@ -24,7 +24,6 @@ import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
-import { useDraftsStore } from "@/src/stores/drafts";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
@@ -237,28 +236,6 @@ export default function ChatScreen() {
   // Mark channel as read on mount / channel switch
   useEffect(() => {
     if (channelId) markRead(channelId);
-  }, [channelId]);
-
-  const setDraftText = useDraftsStore((s) => s.setDraftText);
-
-  // Check for secret_return data (returning from "Add to Secrets" flow)
-  useEffect(() => {
-    if (!channelId) return;
-    try {
-      const raw = sessionStorage.getItem("secret_return");
-      if (raw) {
-        sessionStorage.removeItem("secret_return");
-        const data = JSON.parse(raw);
-        if (data.varName && data.originalMessage && data.secretValue) {
-          // Replace the raw secret with ${VAR_NAME} reference in the original message
-          const substituted = data.originalMessage.replaceAll(
-            data.secretValue,
-            "${" + data.varName + "}",
-          );
-          setDraftText(channelId, substituted);
-        }
-      }
-    } catch { /* ignore */ }
   }, [channelId]);
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
@@ -1016,6 +993,7 @@ export default function ChatScreen() {
                   value: extractedValue,
                   type: patternType,
                   returnTo: `/channels/${channelId}`,
+                  channelId,
                   originalMessage: text,
                 }));
               } catch { /* ignore */ }

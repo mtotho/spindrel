@@ -13,6 +13,7 @@ import {
 } from "@/src/api/hooks/useSecretValues";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useDraftsStore } from "@/src/stores/drafts";
 
 function SecretCard({
   secret,
@@ -269,6 +270,7 @@ export default function SecretValuesScreen() {
   const [savedName, setSavedName] = useState<string | null>(null);
   const [returnTo, setReturnTo] = useState<string | null>(null);
   const [originalMessage, setOriginalMessage] = useState<string | undefined>();
+  const [sourceChannelId, setSourceChannelId] = useState<string | undefined>();
 
   // Check sessionStorage for prefill from SecretWarningDialog
   useState(() => {
@@ -282,6 +284,7 @@ export default function SecretValuesScreen() {
           setPrefillType(data.type);
           setReturnTo(data.returnTo ?? null);
           setOriginalMessage(data.originalMessage);
+          setSourceChannelId(data.channelId);
           setShowCreate(true);
         }
       }
@@ -300,15 +303,15 @@ export default function SecretValuesScreen() {
       {
         onSuccess: () => {
           setShowCreate(false);
-          // If created from prefill flow, store return data and redirect back
+          // If created from prefill flow, populate draft with substituted message and redirect back
           if (prefillValue && returnTo) {
-            try {
-              sessionStorage.setItem("secret_return", JSON.stringify({
-                varName: name,
-                secretValue: prefillValue,
-                originalMessage: originalMessage,
-              }));
-            } catch { /* ignore */ }
+            if (sourceChannelId && originalMessage) {
+              const substituted = originalMessage.replaceAll(
+                prefillValue,
+                "${" + name + "}",
+              );
+              useDraftsStore.getState().setDraftText(sourceChannelId, substituted);
+            }
             setPrefillValue(undefined);
             setPrefillType(undefined);
             router.push(returnTo as any);
