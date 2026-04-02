@@ -47,7 +47,7 @@ ALL_SCOPES = [
     # Logs
     "logs:read", "logs:write",
     # Tools
-    "tools:read",
+    "tools:read", "tools:execute",
     # Providers
     "providers:read", "providers:write",
     # Users
@@ -99,6 +99,7 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "logs:read": "View agent turns, tool call history, traces, and server logs",
     "logs:write": "Change server log level",
     "tools:read": "List available tools",
+    "tools:execute": "Execute local tools directly via API",
     "providers:read": "List provider configurations and models",
     "providers:write": "Create and manage provider configurations",
     "users:read": "List users and get user details",
@@ -175,8 +176,8 @@ SCOPE_GROUPS: dict[str, dict] = {
         "scopes": ["attachments:read", "attachments:write"],
     },
     "Tools": {
-        "description": "Read registered tool schemas",
-        "scopes": ["tools:read"],
+        "description": "Read and execute registered tools",
+        "scopes": ["tools:read", "tools:execute"],
     },
     "Providers": {
         "description": "LLM provider configurations and model lists",
@@ -242,7 +243,7 @@ SCOPE_PRESETS: dict[str, dict] = {
     },
     "workspace_bot": {
         "name": "Workspace Bot",
-        "description": "For bots in shared workspace containers — chat, files, tasks, documents",
+        "description": "For bots in shared workspace containers — chat, files, tasks, documents, tools",
         "scopes": [
             "chat", "bots:read",
             "channels:read", "channels:write",
@@ -253,6 +254,7 @@ SCOPE_PRESETS: dict[str, dict] = {
             "workspaces.files:read", "workspaces.files:write",
             "attachments:read", "attachments:write",
             "carapaces:read", "carapaces:write",
+            "tools:read", "tools:execute",
         ],
         "instructions": (
             "Injected automatically when a bot has API permissions configured.\n"

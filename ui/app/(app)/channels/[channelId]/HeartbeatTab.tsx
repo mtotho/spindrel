@@ -1,15 +1,13 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { ActivityIndicator } from "react-native";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
-import { useRouter } from "expo-router";
-import { Play, ExternalLink, ChevronDown, ChevronRight, Clock, Zap, RotateCcw, AlertTriangle, Pencil, FileText } from "lucide-react";
-import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
+import { Play, RotateCcw, Pencil, FileText, Workflow as WorkflowIcon } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
   Row, Col,
 } from "@/src/components/shared/FormControls";
-import { AdvancedSection, ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { AdvancedSection, ActionButton } from "@/src/components/shared/SettingsControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -18,221 +16,14 @@ import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useWorkflows } from "@/src/api/hooks/useWorkflows";
+
+import { QuietHoursPicker } from "./QuietHoursPicker";
+import { HeartbeatHistoryList } from "./HeartbeatHistoryList";
+import { ContextPreview, HeartbeatTemplatePreview } from "./HeartbeatContextPreview";
 
 // ---------------------------------------------------------------------------
-// Quiet hours presets + picker
-// ---------------------------------------------------------------------------
-const QUIET_PRESETS: ReadonlyArray<{
-  label: string; start: string; end: string; description: string;
-}> = [
-  { label: "Overnight",   start: "22:00", end: "06:30", description: "10 PM \u2013 6:30 AM" },
-  { label: "Late Night",  start: "23:00", end: "07:00", description: "11 PM \u2013 7 AM" },
-  { label: "Sleep In",    start: "00:00", end: "09:00", description: "Midnight \u2013 9 AM" },
-  { label: "Work Hours",  start: "09:00", end: "17:00", description: "9 AM \u2013 5 PM" },
-];
-
-const COMMON_TIMEZONES = [
-  { label: "Eastern (America/New_York)", value: "America/New_York" },
-  { label: "Central (America/Chicago)", value: "America/Chicago" },
-  { label: "Mountain (America/Denver)", value: "America/Denver" },
-  { label: "Pacific (America/Los_Angeles)", value: "America/Los_Angeles" },
-  { label: "UTC", value: "UTC" },
-  { label: "London (Europe/London)", value: "Europe/London" },
-  { label: "Berlin (Europe/Berlin)", value: "Europe/Berlin" },
-  { label: "Tokyo (Asia/Tokyo)", value: "Asia/Tokyo" },
-  { label: "Sydney (Australia/Sydney)", value: "Australia/Sydney" },
-];
-
-/** Parse "HH:MM" to fractional hours (e.g. "22:30" -> 22.5) */
-function timeToHours(hhmm: string): number {
-  const [h, m] = hhmm.split(":").map(Number);
-  return (h || 0) + (m || 0) / 60;
-}
-
-/** Format "HH:MM" to human-readable (e.g. "22:00" -> "10 PM") */
-function fmtTime12(hhmm: string): string {
-  const [h, m] = hhmm.split(":").map(Number);
-  if (isNaN(h)) return "";
-  const ampm = h >= 12 ? "PM" : "AM";
-  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return m ? `${h12}:${String(m).padStart(2, "0")} ${ampm}` : `${h12} ${ampm}`;
-}
-
-function QuietHoursPicker({ start, end, timezone, onChangeStart, onChangeEnd, onChangeTimezone, inheritedRange, defaultTimezone }: {
-  start: string;
-  end: string;
-  timezone: string;
-  onChangeStart: (v: string) => void;
-  onChangeEnd: (v: string) => void;
-  onChangeTimezone: (v: string) => void;
-  inheritedRange?: string | null;
-  defaultTimezone?: string | null;
-}) {
-  const t = useThemeTokens();
-  const hasValue = !!(start || end);
-
-  // Find matching preset
-  const activePreset = QUIET_PRESETS.find(p => p.start === start && p.end === end);
-
-  // Compute visual bar segments for the 24h timeline
-  const barSegments = useMemo(() => {
-    const s = start || (inheritedRange ? inheritedRange.split("-")[0] : "");
-    const e = end || (inheritedRange ? inheritedRange.split("-")[1] : "");
-    if (!s || !e) return null;
-    const startH = timeToHours(s);
-    const endH = timeToHours(e);
-    // Wrap-around: e.g. 22:00-06:30 means quiet from 22 to 24 and 0 to 6.5
-    if (startH > endH) {
-      return [
-        { left: (startH / 24) * 100, width: ((24 - startH) / 24) * 100 },
-        { left: 0, width: (endH / 24) * 100 },
-      ];
-    }
-    return [{ left: (startH / 24) * 100, width: ((endH - startH) / 24) * 100 }];
-  }, [start, end, inheritedRange]);
-
-  const applyPreset = useCallback((p: typeof QUIET_PRESETS[number]) => {
-    onChangeStart(p.start);
-    onChangeEnd(p.end);
-  }, [onChangeStart, onChangeEnd]);
-
-  const clear = useCallback(() => {
-    onChangeStart("");
-    onChangeEnd("");
-    onChangeTimezone("");
-  }, [onChangeStart, onChangeEnd, onChangeTimezone]);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {/* Presets */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-        {QUIET_PRESETS.map((p) => {
-          const isActive = activePreset?.label === p.label;
-          return (
-            <button
-              key={p.label}
-              onClick={() => applyPreset(p)}
-              style={{
-                padding: "5px 12px", borderRadius: 6, cursor: "pointer",
-                fontSize: 12, fontWeight: isActive ? 700 : 500, minHeight: 36,
-                border: `1px solid ${isActive ? t.accent : t.surfaceBorder}`,
-                background: isActive ? `${t.accent}18` : t.inputBg,
-                color: isActive ? t.accent : t.textMuted,
-                transition: "all 0.12s",
-              }}
-              title={p.description}
-            >
-              {p.label}
-              <span style={{ fontSize: 10, marginLeft: 4, color: isActive ? t.accent : t.textDim, opacity: 0.8 }}>
-                {p.description}
-              </span>
-            </button>
-          );
-        })}
-        {hasValue && (
-          <button
-            onClick={clear}
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              padding: "5px 10px", borderRadius: 6, cursor: "pointer",
-              fontSize: 11, fontWeight: 600, border: "none",
-              background: "none", color: t.textDim,
-            }}
-            title={inheritedRange ? `Reset to inherited (${inheritedRange})` : "Clear quiet hours"}
-          >
-            <RotateCcw size={11} />
-            {inheritedRange ? "Reset" : "Clear"}
-          </button>
-        )}
-      </div>
-
-      {/* 24h visual bar */}
-      {barSegments && (
-        <div style={{ position: "relative", height: 28, borderRadius: 6, overflow: "hidden" }}>
-          {/* Background — active hours */}
-          <div style={{
-            position: "absolute", inset: 0, borderRadius: 6,
-            background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
-          }} />
-          {/* Quiet segments */}
-          {barSegments.map((seg, i) => (
-            <div key={i} style={{
-              position: "absolute", top: 0, bottom: 0,
-              left: `${seg.left}%`, width: `${seg.width}%`,
-              background: `${t.accent}25`, borderLeft: i === 0 && seg.left > 0 ? `2px solid ${t.accent}` : undefined,
-              borderRight: `2px solid ${t.accent}`,
-            }} />
-          ))}
-          {/* Hour markers */}
-          {[0, 3, 6, 9, 12, 15, 18, 21].map((h) => (
-            <span key={h} style={{
-              position: "absolute", top: 1, fontSize: 8, color: t.textDim,
-              left: `${(h / 24) * 100}%`, transform: "translateX(-50%)",
-              userSelect: "none", pointerEvents: "none",
-            }}>
-              {h === 0 ? "12a" : h === 12 ? "12p" : h < 12 ? `${h}a` : `${h - 12}p`}
-            </span>
-          ))}
-          {/* Summary text */}
-          <span style={{
-            position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)",
-            fontSize: 10, fontWeight: 600, color: t.textMuted, whiteSpace: "nowrap",
-            pointerEvents: "none",
-          }}>
-            {start && end ? `Quiet ${fmtTime12(start)} \u2013 ${fmtTime12(end)}` :
-             inheritedRange ? `Inherited: ${inheritedRange}` : ""}
-          </span>
-        </div>
-      )}
-
-      {/* Manual time inputs + timezone */}
-      <Row>
-        <Col>
-          <FormRow label="Start" description="When quiet hours begin">
-            <TextInput
-              value={start}
-              onChangeText={onChangeStart}
-              placeholder={inheritedRange ? inheritedRange.split("-")[0] : "HH:MM"}
-              type="time"
-            />
-          </FormRow>
-        </Col>
-        <Col>
-          <FormRow label="End" description="When quiet hours end">
-            <TextInput
-              value={end}
-              onChangeText={onChangeEnd}
-              placeholder={inheritedRange ? inheritedRange.split("-")[1] : "HH:MM"}
-              type="time"
-            />
-          </FormRow>
-        </Col>
-        <Col>
-          <FormRow label="Timezone">
-            <SelectInput
-              value={timezone}
-              onChange={onChangeTimezone}
-              options={[
-                { label: defaultTimezone ? `Inherit (${defaultTimezone})` : "Server default", value: "" },
-                ...COMMON_TIMEZONES,
-              ]}
-            />
-          </FormRow>
-        </Col>
-      </Row>
-
-      {/* Inherited indicator */}
-      {!hasValue && inheritedRange && (
-        <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>
-          Using global default: {inheritedRange}{defaultTimezone ? ` (${defaultTimezone})` : ""}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Interval options for heartbeat (shared with main settings)
+// Interval options for heartbeat
 // ---------------------------------------------------------------------------
 const INTERVAL_OPTIONS = [
   { label: "5 minutes", value: "5" },
@@ -245,342 +36,6 @@ const INTERVAL_OPTIONS = [
   { label: "12 hours", value: "720" },
   { label: "24 hours", value: "1440" },
 ];
-
-// ---------------------------------------------------------------------------
-// Heartbeat History List (expandable rows with result + trace link)
-// ---------------------------------------------------------------------------
-function fmtDuration(ms: number | null | undefined): string {
-  if (ms == null) return "";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function fmtTokens(n: number): string {
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-  return String(n);
-}
-
-function HeartbeatHistoryList({ history, isWide }: { history: import("@/src/types/api").HeartbeatHistoryRun[]; isWide?: boolean }) {
-  const t = useThemeTokens();
-  const router = useRouter();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  return (
-    <>
-      <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 8 }}>
-        Recent Runs
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {history.map((hb) => {
-          const isExpanded = expandedId === hb.id;
-          const hasContent = hb.result || hb.error || hb.correlation_id;
-          return (
-            <div key={hb.id}>
-              <div
-                onClick={() => hasContent && setExpandedId(isExpanded ? null : hb.id)}
-                style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "8px 12px", background: isExpanded ? t.surfaceOverlay : t.surfaceRaised,
-                  borderRadius: isExpanded ? "6px 6px 0 0" : 6,
-                  border: `1px solid ${isExpanded ? t.accent : t.surfaceOverlay}`,
-                  cursor: hasContent ? "pointer" : "default",
-                  transition: "background 0.1s, border-color 0.1s",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {hasContent && (
-                    isExpanded
-                      ? <ChevronDown size={12} color={t.textDim} />
-                      : <ChevronRight size={12} color={t.textDim} />
-                  )}
-                  <span style={{ fontSize: 12, color: t.textMuted }}>
-                    {new Date(hb.run_at).toLocaleString()}
-                  </span>
-                  {hb.completed_at && (
-                    <span style={{ fontSize: 10, color: t.textDim }}>
-                      ({Math.round((new Date(hb.completed_at).getTime() - new Date(hb.run_at).getTime()) / 1000)}s)
-                    </span>
-                  )}
-                </div>
-                <StatusBadge
-                  label={hb.status}
-                  variant={hb.status === "complete" ? "success" : hb.status === "failed" ? "danger" : "neutral"}
-                />
-                {hb.repetition_detected && (
-                  <span style={{
-                    fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-                    background: t.warningSubtle, color: t.warningMuted,
-                    display: "inline-flex", alignItems: "center", gap: 3,
-                  }}>
-                    <AlertTriangle size={10} /> repetitive
-                  </span>
-                )}
-              </div>
-              {isExpanded && (
-                <div style={{
-                  padding: "10px 12px", background: t.codeBg,
-                  borderRadius: "0 0 6px 6px",
-                  border: `1px solid ${t.accent}`, borderTop: "none",
-                }}>
-                  {hb.error && (
-                    <div style={{
-                      fontSize: 12, color: t.danger, marginBottom: 8,
-                      padding: "6px 8px", background: t.dangerSubtle, borderRadius: 4, border: `1px solid ${t.dangerBorder}`,
-                      whiteSpace: "pre-wrap", wordBreak: "break-word",
-                    }}>
-                      {hb.error}
-                    </div>
-                  )}
-                  {hb.result && (
-                    <div style={{
-                      fontSize: 12, color: t.text, lineHeight: 1.5,
-                      maxHeight: 200, overflowY: "auto",
-                      whiteSpace: "pre-wrap", wordBreak: "break-word",
-                    }}>
-                      {hb.result}
-                    </div>
-                  )}
-                  {/* Stats row */}
-                  {(hb.iterations > 0 || hb.total_tokens > 0 || hb.duration_ms != null) && (
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: 12,
-                      marginTop: 8, fontSize: 10, color: t.textDim,
-                    }}>
-                      {hb.duration_ms != null && (
-                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                          <Clock size={10} /> {fmtDuration(hb.duration_ms)}
-                        </span>
-                      )}
-                      {hb.total_tokens > 0 && (
-                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                          <Zap size={10} /> {fmtTokens(hb.total_tokens)} tokens
-                        </span>
-                      )}
-                      {hb.iterations > 0 && (
-                        <span>{hb.iterations} iter</span>
-                      )}
-                    </div>
-                  )}
-                  {/* Tool calls */}
-                  {hb.tool_calls.length > 0 && (
-                    <ToolCallsList toolCalls={hb.tool_calls as any} isWide={isWide} />
-                  )}
-                  {hb.correlation_id && (
-                    <div
-                      onClick={() => router.push(`/admin/logs/${hb.correlation_id}`)}
-                      style={{
-                        display: "inline-flex", alignItems: "center", gap: 5,
-                        marginTop: 8, fontSize: 11, color: t.accent, cursor: "pointer",
-                      }}
-                    >
-                      <ExternalLink size={11} color={t.accent} />
-                      View trace
-                    </div>
-                  )}
-                  {!hb.result && !hb.error && (
-                    <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic" }}>No output recorded</div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Context Preview Builder
-// ---------------------------------------------------------------------------
-function buildMetadataPreview(form: any, data: any): string {
-  const interval = form?.interval_minutes ?? 60;
-  const dispatchResults = form?.dispatch_results ?? true;
-  const dispatchMode = form?.dispatch_mode ?? "always";
-  const prevMaxChars = form?.previous_result_max_chars;
-  const globalDefault = data?.default_previous_result_chars ?? 500;
-  const effectiveMax = prevMaxChars ?? globalDefault;
-
-  const lines = [
-    "[SCHEDULED HEARTBEAT]",
-    "You are running a scheduled heartbeat \u2014 an automated periodic prompt (not a user message).",
-    "Your job: follow the prompt below, analyze what is relevant, and produce a concise result.",
-    "Current time: {current_time}",
-    `Channel: ${data?.channel_name ?? "{channel_name}"}`,
-    `Heartbeat interval: every ${interval} minutes`,
-    "Run number: {run_number}",
-    "Last heartbeat: {last_run_time}",
-    "Activity since last heartbeat: {activity_summary}",
-  ];
-
-  // Quiet hours line
-  const qStart = form?.quiet_start;
-  const qEnd = form?.quiet_end;
-  const qTz = form?.timezone;
-  if (qStart && qEnd) {
-    lines.push(`Quiet hours: ${qStart}\u2013${qEnd} (${qTz || data?.default_timezone || "server default"})`);
-  } else if (data?.default_quiet_hours) {
-    lines.push(`Quiet hours: ${data.default_quiet_hours} (global default, ${data.default_timezone})`);
-  }
-
-  if (effectiveMax === 0) {
-    lines.push("Previous heartbeat conclusion: {full_previous_result}");
-  } else {
-    lines.push(`Previous heartbeat conclusion: {previous_result_truncated_to_${effectiveMax}_chars}`);
-    lines.push("(Use get_last_heartbeat tool for full previous output if needed)");
-  }
-
-  if (dispatchResults && dispatchMode === "optional") {
-    lines.push(
-      "Dispatch: Your response will NOT be automatically posted. " +
-      "You have a post_heartbeat_to_channel tool \u2014 call it ONLY if you have " +
-      "something worth sharing. If nothing noteworthy, just respond normally " +
-      "and nothing will be posted to the channel."
-    );
-  } else if (dispatchResults) {
-    lines.push("Dispatch: Your response will be posted to the channel.");
-  }
-
-  const repEnabled = form?.repetition_detection ?? data?.default_repetition_detection ?? true;
-  if (repEnabled) {
-    lines.push("");
-    lines.push("Recent heartbeat outputs (newest first):");
-    lines.push("  #1 ({N}m ago): {first_line_of_result} [tools: ...]");
-    lines.push("  #2 ({N}m ago): {first_line_of_result} [tools: ...]");
-    lines.push("");
-    lines.push("{repetition_warning_if_detected}");
-  }
-
-  lines.push(
-    "",
-    "--- [system: current-turn marker] ---",
-    "Everything above is context and conversation history. The user's CURRENT message follows \u2014 respond to it directly.",
-    "",
-    "--- [user message: heartbeat prompt] ---",
-    "{heartbeat_prompt}",
-  );
-  return lines.join("\n");
-}
-
-function ContextPreview({ form, data }: { form: any; data: any }) {
-  const t = useThemeTokens();
-  const [expanded, setExpanded] = useState(false);
-  const preview = useMemo(() => buildMetadataPreview(form, data), [form, data]);
-
-  return (
-    <div style={{ marginTop: 20 }}>
-      <div
-        onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-          fontSize: 11, fontWeight: 600, color: t.textDim,
-          letterSpacing: "0.05em", textTransform: "uppercase",
-        }}
-      >
-        {expanded ? <ChevronDown size={12} color={t.textDim} /> : <ChevronRight size={12} color={t.textDim} />}
-        Context Preview
-      </div>
-      {expanded && (
-        <pre style={{
-          marginTop: 8, padding: 12, background: t.codeBg, borderRadius: 6,
-          border: `1px solid ${t.surfaceBorder}`,
-          fontSize: 11, lineHeight: 1.6, color: t.textMuted,
-          whiteSpace: "pre-wrap", wordBreak: "break-word",
-          maxHeight: 400, overflowY: "auto",
-          fontFamily: "monospace",
-        }}>
-          {preview}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Read-only template preview card (shown when a template is linked)
-// ---------------------------------------------------------------------------
-function HeartbeatTemplatePreview({
-  content,
-  description,
-  expanded,
-  onToggleExpand,
-  onCustomize,
-}: {
-  content: string;
-  description?: string | null;
-  expanded: boolean;
-  onToggleExpand: () => void;
-  onCustomize: () => void;
-}) {
-  const t = useThemeTokens();
-  const PREVIEW_LINES = 12;
-  const lines = content.split("\n");
-  const isLong = lines.length > PREVIEW_LINES;
-  const displayContent = expanded || !isLong
-    ? content
-    : lines.slice(0, PREVIEW_LINES).join("\n") + "\n...";
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      {description && (
-        <div style={{ fontSize: 12, color: t.textDim, lineHeight: "1.5" }}>
-          {description}
-        </div>
-      )}
-      <div style={{
-        borderLeft: `3px solid ${t.accent}`,
-        borderRadius: 6,
-        background: t.surfaceOverlay,
-        padding: 12,
-      }}>
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
-        }}>
-          <FileText size={12} color={t.textDim} />
-          <span style={{
-            fontSize: 10, fontWeight: 700, color: t.textDim,
-            textTransform: "uppercase", letterSpacing: "0.05em",
-          }}>
-            Template Prompt
-          </span>
-        </div>
-        <pre style={{
-          margin: 0, fontSize: 12, fontFamily: "monospace",
-          color: t.text, lineHeight: "1.5",
-          whiteSpace: "pre-wrap", wordBreak: "break-word",
-        }}>
-          {displayContent}
-        </pre>
-        {isLong && (
-          <button
-            onClick={onToggleExpand}
-            style={{
-              marginTop: 4, padding: 0, border: "none", cursor: "pointer",
-              background: "none", fontSize: 11, color: t.accent, fontWeight: 500,
-            }}
-          >
-            {expanded ? "Show less" : `Show all (${lines.length} lines)`}
-          </button>
-        )}
-        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-          <button
-            onClick={onCustomize}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: 4,
-              padding: "4px 10px", borderRadius: 4, cursor: "pointer",
-              fontSize: 11, fontWeight: 500,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: "transparent", color: t.textDim,
-            }}
-          >
-            <Pencil size={11} />
-            Customize for this channel
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Heartbeat Tab
@@ -603,6 +58,9 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
   const { data: allTemplates } = usePromptTemplates();
   const linkedTemplate = allTemplates?.find((tpl) => tpl.id === hbForm?.prompt_template_id);
 
+  // Fetch workflows for the workflow selector
+  const { data: workflows } = useWorkflows();
+
   useEffect(() => {
     if (data?.config) {
       setHbForm({
@@ -623,6 +81,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         quiet_start: data.config.quiet_start ?? "",
         quiet_end: data.config.quiet_end ?? "",
         timezone: data.config.timezone ?? "",
+        workflow_id: data.config.workflow_id ?? null,
       });
     } else if (data && !data.config) {
       setHbForm({
@@ -643,6 +102,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         quiet_start: "",
         quiet_end: "",
         timezone: "",
+        workflow_id: null,
       });
     }
   }, [data]);
@@ -681,6 +141,10 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
   if (isLoading || !hbForm) return <ActivityIndicator color={t.accent} />;
 
   const enabled = data?.config?.enabled ?? false;
+  const isWorkflowMode = !!hbForm.workflow_id;
+  const hasAction = isWorkflowMode
+    ? !!hbForm.workflow_id
+    : !!(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path);
 
   return (
     <>
@@ -724,128 +188,212 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
           </Row>
         </Section>
 
-        {/* ---- Prompt Section ---- */}
-        <Section title="Prompt">
-          <WorkspaceFilePrompt
-            workspaceId={hbForm.workspace_id ?? workspaceId}
-            filePath={hbForm.workspace_file_path}
-            onLink={(path, wsId) => setHbForm((f: any) => ({ ...f, workspace_file_path: path, workspace_id: wsId, prompt_template_id: null }))}
-            onUnlink={() => setHbForm((f: any) => ({ ...f, workspace_file_path: null, workspace_id: null }))}
-          />
-          {!hbForm.workspace_file_path && (
-            <>
-              <PromptTemplateLink
-                templateId={hbForm.prompt_template_id ?? null}
-                onLink={(id) => {
-                  setHbForm((f: any) => ({ ...f, prompt_template_id: id, prompt: "" }));
-                  setCustomizedFromTemplateId(null);
-                  setTemplatePreviewExpanded(false);
-                }}
-                onUnlink={() => {
-                  setHbForm((f: any) => ({ ...f, prompt_template_id: null }));
-                }}
-              />
-
-              {/* Template linked — read-only preview with customize option */}
-              {hbForm.prompt_template_id && linkedTemplate ? (
-                <HeartbeatTemplatePreview
-                  content={linkedTemplate.content}
-                  description={linkedTemplate.description}
-                  expanded={templatePreviewExpanded}
-                  onToggleExpand={() => setTemplatePreviewExpanded((v) => !v)}
-                  onCustomize={() => {
-                    setCustomizedFromTemplateId(hbForm.prompt_template_id);
-                    setHbForm((f: any) => ({
-                      ...f,
-                      prompt: linkedTemplate.content,
-                      prompt_template_id: null,
-                    }));
+        {/* ---- Action: Workflow or Prompt ---- */}
+        <Section title="Action">
+          {/* Mode toggle: Prompt (default) vs Workflow */}
+          <div style={{ display: "flex", gap: 2, marginBottom: 12 }}>
+            {[
+              { key: "prompt", label: "Prompt", icon: <FileText size={12} /> },
+              { key: "workflow", label: "Workflow", icon: <WorkflowIcon size={12} /> },
+            ].map((tab) => {
+              const isActive = tab.key === "workflow" ? isWorkflowMode : !isWorkflowMode;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => {
+                    if (tab.key === "workflow" && !isWorkflowMode) {
+                      const firstWf = workflows?.[0];
+                      setHbForm((f: any) => ({ ...f, workflow_id: firstWf?.id ?? "" }));
+                    } else if (tab.key === "prompt" && isWorkflowMode) {
+                      setHbForm((f: any) => ({ ...f, workflow_id: null }));
+                    }
                   }}
-                />
+                  style={{
+                    display: "flex", alignItems: "center", gap: 5,
+                    padding: "6px 14px", borderRadius: 6, cursor: "pointer",
+                    fontSize: 12, fontWeight: isActive ? 600 : 400,
+                    border: `1px solid ${isActive ? t.accent : t.surfaceBorder}`,
+                    background: isActive ? `${t.accent}15` : "transparent",
+                    color: isActive ? t.accent : t.textMuted,
+                    transition: "all 0.12s",
+                  }}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {isWorkflowMode ? (
+            /* ---- Workflow Selector ---- */
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {(!workflows || workflows.length === 0) ? (
+                <div style={{
+                  padding: "16px 12px", borderRadius: 6, textAlign: "center",
+                  background: t.codeBg, border: `1px solid ${t.codeBorder}`,
+                }}>
+                  <div style={{ fontSize: 13, color: t.textMuted, marginBottom: 4 }}>
+                    No workflows available
+                  </div>
+                  <div style={{ fontSize: 11, color: t.textDim }}>
+                    Create a workflow in Admin &rarr; Workflows first.
+                  </div>
+                </div>
               ) : (
                 <>
-                  {/* "Customized" badge with reset option */}
-                  {customizedFromTemplateId && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <FormRow label="Workflow" description="This workflow will be triggered on each heartbeat interval.">
+                    <SelectInput
+                      value={hbForm.workflow_id || ""}
+                      onChange={(v) => setHbForm((f: any) => ({ ...f, workflow_id: v || null }))}
+                      options={workflows.map((wf) => ({
+                        label: wf.name || wf.id,
+                        value: wf.id,
+                      }))}
+                    />
+                  </FormRow>
+                  {hbForm.workflow_id && (() => {
+                    const wf = workflows.find((w) => w.id === hbForm.workflow_id);
+                    if (!wf) return null;
+                    return (
                       <div style={{
-                        display: "flex", alignItems: "center", gap: 4,
-                        fontSize: 10, fontWeight: 600, color: t.warning,
+                        padding: "8px 12px", borderRadius: 6,
+                        background: t.codeBg, border: `1px solid ${t.codeBorder}`,
+                        fontSize: 12, color: t.textMuted, lineHeight: 1.5,
                       }}>
-                        <Pencil size={10} />
-                        Customized from template
+                        {wf.description && <div style={{ marginBottom: 4 }}>{wf.description}</div>}
+                        <div style={{ fontSize: 11, color: t.textDim }}>
+                          {wf.steps?.length ?? 0} step{(wf.steps?.length ?? 0) !== 1 ? "s" : ""}
+                          {wf.tags?.length ? ` · ${wf.tags.join(", ")}` : ""}
+                        </div>
                       </div>
-                      <button
-                        onClick={() => {
-                          setHbForm((f: any) => ({
-                            ...f,
-                            prompt_template_id: customizedFromTemplateId,
-                            prompt: "",
-                          }));
-                          setCustomizedFromTemplateId(null);
-                          setTemplatePreviewExpanded(false);
-                        }}
-                        style={{
-                          display: "inline-flex", alignItems: "center", gap: 3,
-                          padding: "2px 8px", borderRadius: 4, cursor: "pointer",
-                          fontSize: 10, fontWeight: 600,
-                          border: `1px solid ${t.surfaceBorder}`,
-                          background: "transparent", color: t.textDim,
-                        }}
-                      >
-                        <RotateCcw size={10} />
-                        Reset to Template
-                      </button>
-                    </div>
-                  )}
-                  <LlmPrompt
-                    value={hbForm.prompt ?? ""}
-                    onChange={(v) => setHbForm((f: any) => ({ ...f, prompt: v }))}
-                    label="Heartbeat Prompt"
-                    placeholder="Enter the heartbeat prompt..."
-                    helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
-                    rows={10}
-                    fieldType="heartbeat"
-                    channelId={channelId}
+                    );
+                  })()}
+                </>
+              )}
+            </div>
+          ) : (
+            /* ---- Prompt Editor ---- */
+            <>
+              <WorkspaceFilePrompt
+                workspaceId={hbForm.workspace_id ?? workspaceId}
+                filePath={hbForm.workspace_file_path}
+                onLink={(path, wsId) => setHbForm((f: any) => ({ ...f, workspace_file_path: path, workspace_id: wsId, prompt_template_id: null }))}
+                onUnlink={() => setHbForm((f: any) => ({ ...f, workspace_file_path: null, workspace_id: null }))}
+              />
+              {!hbForm.workspace_file_path && (
+                <>
+                  <PromptTemplateLink
+                    templateId={hbForm.prompt_template_id ?? null}
+                    onLink={(id) => {
+                      setHbForm((f: any) => ({ ...f, prompt_template_id: id, prompt: "" }));
+                      setCustomizedFromTemplateId(null);
+                      setTemplatePreviewExpanded(false);
+                    }}
+                    onUnlink={() => {
+                      setHbForm((f: any) => ({ ...f, prompt_template_id: null }));
+                    }}
                   />
+
+                  {/* Template linked — read-only preview with customize option */}
+                  {hbForm.prompt_template_id && linkedTemplate ? (
+                    <HeartbeatTemplatePreview
+                      content={linkedTemplate.content}
+                      description={linkedTemplate.description}
+                      expanded={templatePreviewExpanded}
+                      onToggleExpand={() => setTemplatePreviewExpanded((v) => !v)}
+                      onCustomize={() => {
+                        setCustomizedFromTemplateId(hbForm.prompt_template_id);
+                        setHbForm((f: any) => ({
+                          ...f,
+                          prompt: linkedTemplate.content,
+                          prompt_template_id: null,
+                        }));
+                      }}
+                    />
+                  ) : (
+                    <>
+                      {/* "Customized" badge with reset option */}
+                      {customizedFromTemplateId && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <div style={{
+                            display: "flex", alignItems: "center", gap: 4,
+                            fontSize: 10, fontWeight: 600, color: t.warning,
+                          }}>
+                            <Pencil size={10} />
+                            Customized from template
+                          </div>
+                          <button
+                            onClick={() => {
+                              setHbForm((f: any) => ({
+                                ...f,
+                                prompt_template_id: customizedFromTemplateId,
+                                prompt: "",
+                              }));
+                              setCustomizedFromTemplateId(null);
+                              setTemplatePreviewExpanded(false);
+                            }}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 3,
+                              padding: "2px 8px", borderRadius: 4, cursor: "pointer",
+                              fontSize: 10, fontWeight: 600,
+                              border: `1px solid ${t.surfaceBorder}`,
+                              background: "transparent", color: t.textDim,
+                            }}
+                          >
+                            <RotateCcw size={10} />
+                            Reset to Template
+                          </button>
+                        </div>
+                      )}
+                      <LlmPrompt
+                        value={hbForm.prompt ?? ""}
+                        onChange={(v) => setHbForm((f: any) => ({ ...f, prompt: v }))}
+                        label="Heartbeat Prompt"
+                        placeholder="Enter the heartbeat prompt..."
+                        helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
+                        rows={10}
+                        fieldType="heartbeat"
+                        channelId={channelId}
+                      />
+                    </>
+                  )}
                 </>
               )}
             </>
           )}
         </Section>
 
-        <div style={{ fontSize: 11, color: t.textDim, marginTop: -4, marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
-          <Zap size={11} color={t.textDim} />
-          Tip: Pin manage_workflow in your bot's tools to trigger workflows from heartbeats.
-        </div>
-
-        {/* ---- Dispatch Section ---- */}
-        <Section title="Dispatch">
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <Toggle
-              value={hbForm.dispatch_results ?? true}
-              onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_results: v }))}
-              label="Post results to channel"
-            />
-            {hbForm.dispatch_results && (
-              <FormRow label="Dispatch mode" description="How heartbeat results are posted.">
-                <SelectInput
-                  value={hbForm.dispatch_mode ?? "always"}
-                  onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_mode: v }))}
-                  options={[
-                    { label: "Always post", value: "always" },
-                    { label: "LLM decides (via tool)", value: "optional" },
-                  ]}
-                />
-              </FormRow>
-            )}
-            <Toggle
-              value={hbForm.trigger_response ?? false}
-              onChange={(v) => setHbForm((f: any) => ({ ...f, trigger_response: v }))}
-              label="Trigger agent response after posting"
-              description="After posting the heartbeat result, the bot will process it and respond again."
-            />
-          </div>
-        </Section>
+        {/* ---- Dispatch Section (only for prompt mode) ---- */}
+        {!isWorkflowMode && (
+          <Section title="Dispatch">
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <Toggle
+                value={hbForm.dispatch_results ?? true}
+                onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_results: v }))}
+                label="Post results to channel"
+              />
+              {hbForm.dispatch_results && (
+                <FormRow label="Dispatch mode" description="How heartbeat results are posted.">
+                  <SelectInput
+                    value={hbForm.dispatch_mode ?? "always"}
+                    onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_mode: v }))}
+                    options={[
+                      { label: "Always post", value: "always" },
+                      { label: "LLM decides (via tool)", value: "optional" },
+                    ]}
+                  />
+                </FormRow>
+              )}
+              <Toggle
+                value={hbForm.trigger_response ?? false}
+                onChange={(v) => setHbForm((f: any) => ({ ...f, trigger_response: v }))}
+                label="Trigger agent response after posting"
+                description="After posting the heartbeat result, the bot will process it and respond again."
+              />
+            </div>
+          </Section>
+        )}
 
         {/* Save + Fire */}
         <div style={{ marginTop: 20, display: "flex", gap: 8 }}>
@@ -858,77 +406,79 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
             label={hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
             onPress={() => fireMutation.mutate()}
             variant="secondary"
-            disabled={!hbForm.prompt && !hbForm.prompt_template_id && !hbForm.workspace_file_path}
+            disabled={!hasAction}
             icon={<Play size={12} />}
           />
         </div>
 
-        {/* ---- Advanced Section ---- */}
-        <AdvancedSection>
-          <Section title="Quiet Hours">
-            <QuietHoursPicker
-              start={hbForm.quiet_start ?? ""}
-              end={hbForm.quiet_end ?? ""}
-              timezone={hbForm.timezone ?? ""}
-              onChangeStart={(v) => setHbForm((f: any) => ({ ...f, quiet_start: v }))}
-              onChangeEnd={(v) => setHbForm((f: any) => ({ ...f, quiet_end: v }))}
-              onChangeTimezone={(v) => setHbForm((f: any) => ({ ...f, timezone: v }))}
-              inheritedRange={data?.default_quiet_hours}
-              defaultTimezone={data?.default_timezone}
-            />
-          </Section>
-          <Section title="Detection">
-            <Toggle
-              value={hbForm.repetition_detection ?? data?.default_repetition_detection ?? true}
-              onChange={(v) => {
-                const globalDefault = data?.default_repetition_detection ?? true;
-                setHbForm((f: any) => ({ ...f, repetition_detection: v === globalDefault ? null : v }));
-              }}
-              label="Repetition detection"
-              description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
-            />
-          </Section>
-          <Section title="Model">
-            <Row stack={isMobile}>
-              <Col minWidth={isMobile ? 0 : 200}>
-                <LlmModelDropdown
-                  label="Model"
-                  value={hbForm.model ?? ""}
-                  onChange={(v) => setHbForm((f: any) => ({ ...f, model: v }))}
-                  placeholder={`inherit (${botModel ?? "bot default"})`}
-                  allowClear
-                />
-              </Col>
-            </Row>
-            <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
-              <FallbackModelList
-                value={hbForm.fallback_models ?? []}
-                onChange={(v) => setHbForm((f: any) => ({ ...f, fallback_models: v }))}
+        {/* ---- Advanced Section (only for prompt mode) ---- */}
+        {!isWorkflowMode && (
+          <AdvancedSection>
+            <Section title="Quiet Hours">
+              <QuietHoursPicker
+                start={hbForm.quiet_start ?? ""}
+                end={hbForm.quiet_end ?? ""}
+                timezone={hbForm.timezone ?? ""}
+                onChangeStart={(v) => setHbForm((f: any) => ({ ...f, quiet_start: v }))}
+                onChangeEnd={(v) => setHbForm((f: any) => ({ ...f, quiet_end: v }))}
+                onChangeTimezone={(v) => setHbForm((f: any) => ({ ...f, timezone: v }))}
+                inheritedRange={data?.default_quiet_hours}
+                defaultTimezone={data?.default_timezone}
               />
-            </FormRow>
-          </Section>
-          <Section title="Limits">
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <FormRow label="Max run time (seconds)">
-                <TextInput
-                  value={hbForm.max_run_seconds?.toString() ?? ""}
-                  onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
-                  placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
-                  type="number"
+            </Section>
+            <Section title="Detection">
+              <Toggle
+                value={hbForm.repetition_detection ?? data?.default_repetition_detection ?? true}
+                onChange={(v) => {
+                  const globalDefault = data?.default_repetition_detection ?? true;
+                  setHbForm((f: any) => ({ ...f, repetition_detection: v === globalDefault ? null : v }));
+                }}
+                label="Repetition detection"
+                description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
+              />
+            </Section>
+            <Section title="Model">
+              <Row stack={isMobile}>
+                <Col minWidth={isMobile ? 0 : 200}>
+                  <LlmModelDropdown
+                    label="Model"
+                    value={hbForm.model ?? ""}
+                    onChange={(v) => setHbForm((f: any) => ({ ...f, model: v }))}
+                    placeholder={`inherit (${botModel ?? "bot default"})`}
+                    allowClear
+                  />
+                </Col>
+              </Row>
+              <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
+                <FallbackModelList
+                  value={hbForm.fallback_models ?? []}
+                  onChange={(v) => setHbForm((f: any) => ({ ...f, fallback_models: v }))}
                 />
               </FormRow>
-              <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
-                <TextInput
-                  value={hbForm.previous_result_max_chars?.toString() ?? ""}
-                  onChangeText={(v) => setHbForm((f: any) => ({ ...f, previous_result_max_chars: v ? parseInt(v) || null : null }))}
-                  placeholder={`${data?.default_previous_result_chars ?? 500} (global default)`}
-                  type="number"
-                />
-              </FormRow>
-            </div>
-          </Section>
-          <ContextPreview form={hbForm} data={data} />
-        </AdvancedSection>
+            </Section>
+            <Section title="Limits">
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <FormRow label="Max run time (seconds)">
+                  <TextInput
+                    value={hbForm.max_run_seconds?.toString() ?? ""}
+                    onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
+                    placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
+                    type="number"
+                  />
+                </FormRow>
+                <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
+                  <TextInput
+                    value={hbForm.previous_result_max_chars?.toString() ?? ""}
+                    onChangeText={(v) => setHbForm((f: any) => ({ ...f, previous_result_max_chars: v ? parseInt(v) || null : null }))}
+                    placeholder={`${data?.default_previous_result_chars ?? 500} (global default)`}
+                    type="number"
+                  />
+                </FormRow>
+              </div>
+            </Section>
+            <ContextPreview form={hbForm} data={data} />
+          </AdvancedSection>
+        )}
       </div>
 
       {/* Status + History */}

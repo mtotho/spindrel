@@ -32,13 +32,25 @@ DRIVER_REGISTRY: dict[str, ProviderDriver] = {
 
 PROVIDER_TYPES: list[str] = list(DRIVER_REGISTRY.keys())
 
+# Fallback for unknown types — treats them as OpenAI-compatible (most common)
+_FALLBACK_DRIVER = OpenAICompatibleDriver()
+
+logger = __import__("logging").getLogger(__name__)
+
 
 def get_driver(provider_type: str) -> ProviderDriver:
-    """Return the driver singleton for a provider type."""
+    """Return the driver singleton for a provider type.
+
+    Unknown types fall back to OpenAI-compatible with a warning instead of
+    crashing, so providers with custom/legacy types still work.
+    """
     driver = DRIVER_REGISTRY.get(provider_type)
     if driver is None:
-        raise ValueError(
-            f"Unknown provider type: {provider_type!r}. "
-            f"Valid types: {PROVIDER_TYPES}"
+        logger.warning(
+            "Unknown provider type %r — falling back to openai-compatible driver. "
+            "Valid types: %s",
+            provider_type,
+            PROVIDER_TYPES,
         )
+        return _FALLBACK_DRIVER
     return driver

@@ -1188,19 +1188,11 @@ async def recover_stalled_workflow_runs() -> None:
     from app.db.models import WorkflowRun
 
     now = datetime.now(timezone.utc)
-    stale_threshold = now - timedelta(minutes=10)
 
     async with async_session() as db:
-        from sqlalchemy import or_
         stmt = (
             select(WorkflowRun)
             .where(WorkflowRun.status.in_(["running", "awaiting_approval"]))
-            .where(
-                or_(
-                    WorkflowRun.created_at < stale_threshold,
-                    # Also check runs where completed_at is null and created > 10 min ago
-                )
-            )
         )
         stalled = list((await db.execute(stmt)).scalars().all())
 
@@ -1227,8 +1219,9 @@ async def recover_stalled_workflow_runs() -> None:
                 started_at = datetime.fromisoformat(started_at_str)
                 if started_at.tzinfo is None:
                     started_at = started_at.replace(tzinfo=timezone.utc)
-                if started_at > stale_threshold:
-                    continue  # Not stale yet
+                elapsed_s = (now - started_at).total_seconds()
+                if elapsed_s < 300:  # Not stale until 5 minutes
+                    continue
             except (ValueError, TypeError):
                 pass
 
@@ -1309,8 +1302,8 @@ async def task_worker() -> None:
                 except Exception:
                     logger.exception("periodic recover_stuck_tasks failed")
 
-            # Periodic stalled workflow run sweep (every 5 min)
-            if (now - last_workflow_sweep_at).total_seconds() >= 300:
+            # Periodic stalled workflow run sweep (every 2 min)
+            if (now - last_workflow_sweep_at).total_seconds() >= 120:
                 last_workflow_sweep_at = now
                 try:
                     await recover_stalled_workflow_runs()

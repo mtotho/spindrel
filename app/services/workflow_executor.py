@@ -390,9 +390,29 @@ async def advance_workflow(run_id: uuid.UUID) -> None:
             logger.info("Workflow run %s awaiting approval at step %d (%s)", run_id, i, step_def.get("id", "?"))
             return
 
-        # Create task for this step
+        # Create task for this step — task first, then step state update.
+        # This avoids a stuck "running" step if task creation fails.
+        now = datetime.now(timezone.utc)
+        try:
+            task_id = await _create_step_task(run, workflow, step_def, i)
+        except Exception as e:
+            logger.exception("Failed to create step task for run %s step %d", run_id, i)
+            state["status"] = "failed"
+            state["error"] = f"Task creation failed: {e}"
+            state["completed_at"] = now.isoformat()
+            async with async_session() as db:
+                run = await db.get(WorkflowRun, run_id)
+                if run:
+                    run.step_states = step_states
+                    run.status = "failed"
+                    run.error = f"Step '{step_def.get('id', i)}' task creation failed: {e}"
+                    run.completed_at = now
+                    await db.commit()
+            return
+
         state["status"] = "running"
-        state["started_at"] = datetime.now(timezone.utc).isoformat()
+        state["started_at"] = now.isoformat()
+        state["task_id"] = str(task_id)
         advanced = True
 
         async with async_session() as db:
@@ -402,7 +422,6 @@ async def advance_workflow(run_id: uuid.UUID) -> None:
                 run.step_states = step_states
                 await db.commit()
 
-        await _create_step_task(run, workflow, step_def, i)
         return  # Wait for task completion callback
 
     # If we got here, no more steps to process — check if all are terminal
@@ -451,8 +470,8 @@ def _build_condition_context(steps: list[dict], step_states: list[dict], params:
 
 async def _create_step_task(
     run: WorkflowRun, workflow: Workflow, step_def: dict, step_index: int
-) -> None:
-    """Create a Task for the given workflow step and enqueue it."""
+) -> uuid.UUID:
+    """Create a Task for the given workflow step and enqueue it. Returns the task ID."""
     # Render prompt
     prompt = render_prompt(
         step_def["prompt"],
@@ -558,6 +577,7 @@ async def _create_step_task(
         "Created task %s for workflow run %s step %d (%s)",
         task.id, run.id, step_index, step_def.get("id", "?"),
     )
+    return task.id
 
 
 # ---------------------------------------------------------------------------

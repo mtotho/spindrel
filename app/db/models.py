@@ -982,6 +982,7 @@ class ChannelHeartbeat(Base):
     dispatch_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'always'"))
     previous_result_max_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
     repetition_detection: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    workflow_id: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     channel: Mapped["Channel"] = relationship("Channel")
 

@@ -1,4 +1,5 @@
 """Slash commands for the REPL (/new, /session, /bots, /v, etc.)."""
+import json
 import sys
 import uuid
 
@@ -337,6 +338,54 @@ def handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         print(f"Audio input mode: {state}")
         return True
 
+    elif cmd == "/tools":
+        try:
+            tools = client.list_tools()
+            for t in tools:
+                src = t.get("server_name") or t.get("source_integration") or "local"
+                desc = (t.get("description") or "")[:60]
+                print(f"  {t['tool_name']:<35} [{src}]  {desc}")
+            print(f"\n  {len(tools)} tools. Use /tool <name> [args json] to execute.")
+        except httpx.HTTPError as e:
+            print(f"Error listing tools: {e}")
+        return True
+
+    elif cmd == "/tool":
+        if len(parts) < 2:
+            print("Usage: /tool <tool_name> [json args]")
+            print("  e.g. /tool sonarr_queue")
+            print('  e.g. /tool sonarr_series {"search": "breaking bad"}')
+            return True
+        rest = parts[1].strip()
+        space_idx = rest.find(" ")
+        if space_idx == -1:
+            tool_name = rest
+            tool_args = {}
+        else:
+            tool_name = rest[:space_idx]
+            try:
+                tool_args = json.loads(rest[space_idx + 1:])
+            except json.JSONDecodeError:
+                print(f"Error: Cannot parse arguments as JSON: {rest[space_idx + 1:]}")
+                return True
+        try:
+            result = client.execute_tool(tool_name, tool_args)
+            if result.get("error"):
+                print(f"  Error: {result['error']}")
+            out = result.get("result")
+            if isinstance(out, (dict, list)):
+                print(json.dumps(out, indent=2))
+            else:
+                print(out)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                print(f"Tool '{tool_name}' not found (only local tools supported).")
+            else:
+                print(f"Error: {e.response.status_code}")
+        except httpx.HTTPError as e:
+            print(f"Error: {e}")
+        return True
+
     elif cmd == "/help":
         print("Commands:")
         print("  /new             Start a new session")
@@ -349,6 +398,8 @@ def handle_command(line: str, client: AgentClient, ctx: dict) -> bool:
         print("  /listen          Wake word mode (say wake word to talk)")
         print("  /bots            List available bots")
         print("  /bot [id]        Show or switch bot")
+        print("  /tools           List all server tools")
+        print("  /tool <name>     Execute a tool directly (JSON args)")
         print("  /tts             Toggle text-to-speech")
         print("  /tts_voice [model] GET or SET TTS voice")
         print("  /tone [preset]   GET or SET listen tone")

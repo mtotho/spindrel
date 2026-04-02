@@ -186,6 +186,7 @@ class HeartbeatConfigOut(BaseModel):
     max_run_seconds: Optional[int] = None
     previous_result_max_chars: Optional[int] = None
     repetition_detection: Optional[bool] = None
+    workflow_id: Optional[str] = None
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
@@ -201,6 +202,7 @@ class HeartbeatConfigOut(BaseModel):
             "workspace_file_path", "workspace_id",
             "dispatch_results", "dispatch_mode", "trigger_response",
             "timezone", "max_run_seconds", "previous_result_max_chars", "repetition_detection",
+            "workflow_id",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -257,6 +259,7 @@ class HeartbeatUpdate(BaseModel):
     max_run_seconds: Optional[int] = None
     previous_result_max_chars: Optional[int] = None
     repetition_detection: Optional[bool] = None
+    workflow_id: Optional[str] = None
 
 
 class TaskOut(BaseModel):
@@ -1046,6 +1049,13 @@ async def admin_channel_heartbeat_update(
         heartbeat.previous_result_max_chars = updates["previous_result_max_chars"]
     if "repetition_detection" in updates:
         heartbeat.repetition_detection = updates["repetition_detection"]
+    if "workflow_id" in updates:
+        wf_id = updates["workflow_id"]
+        if wf_id:
+            from app.services.workflows import get_workflow
+            if not get_workflow(wf_id):
+                raise HTTPException(status_code=400, detail=f"Workflow '{wf_id}' not found")
+        heartbeat.workflow_id = wf_id
     heartbeat.updated_at = now
 
     if heartbeat.enabled:
