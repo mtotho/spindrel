@@ -5,7 +5,7 @@
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useWorkflowTemplates } from "@/src/api/hooks/useWorkflows";
-import { Zap, FileText, ClipboardPaste, Plus } from "lucide-react";
+import { Zap, ClipboardPaste, Plus } from "lucide-react";
 import type { Workflow } from "@/src/types/api";
 
 interface Props {
@@ -40,11 +40,22 @@ export function WorkflowTemplateGallery({ onSelectTemplate, onStartBlank, onImpo
           gap: 12,
         }}>
           {/* Templates */}
+          {(!templates || templates.length === 0) && (
+            <div style={{
+              gridColumn: "1 / -1",
+              padding: "8px 0",
+              fontSize: 12,
+              color: t.textDim,
+            }}>
+              No templates found. Add YAML files to <code style={{ fontSize: 11 }}>workflows/</code> to see them here.
+            </div>
+          )}
           {templates?.map((tmpl) => (
             <TemplateCard
               key={tmpl.id}
               template={tmpl}
               onSelect={() => onSelectTemplate({
+                id: `${tmpl.id}-custom`,
                 name: `${tmpl.name} (copy)`,
                 description: tmpl.description || "",
                 steps: tmpl.steps || [],

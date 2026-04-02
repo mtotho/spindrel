@@ -221,7 +221,6 @@ export default function WorkflowDetailPage() {
             <Text style={{ color: t.textMuted, fontSize: 13 }}>Workflows</Text>
           </Pressable>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {/* Clone */}
             {!isNew && (
               <Pressable
                 onPress={handleClone}
@@ -262,21 +261,23 @@ export default function WorkflowDetailPage() {
                 <Text style={{ color: t.danger, fontSize: 12 }}>Delete</Text>
               </Pressable>
             )}
-            <Pressable
-              onPress={handleSave}
-              disabled={!dirty && !isNew}
-              style={{
-                flexDirection: "row", alignItems: "center", gap: 4,
-                paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
-                backgroundColor: dirty || isNew ? t.accent : t.surfaceBorder,
-                opacity: dirty || isNew ? 1 : 0.5,
-              }}
-            >
-              <Save size={14} color="#fff" />
-              <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
-                {isNew ? "Create" : isFileBased && dirty ? "Detach & Save" : "Save"}
-              </Text>
-            </Pressable>
+            {!(isNew && (showGallery || showYamlImport)) && (
+              <Pressable
+                onPress={handleSave}
+                disabled={!dirty && !isNew}
+                style={{
+                  flexDirection: "row", alignItems: "center", gap: 4,
+                  paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
+                  backgroundColor: dirty || isNew ? t.accent : t.surfaceBorder,
+                  opacity: dirty || isNew ? 1 : 0.5,
+                }}
+              >
+                <Save size={14} color="#fff" />
+                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                  {isNew ? "Create" : isFileBased && dirty ? "Detach & Save" : "Save"}
+                </Text>
+              </Pressable>
+            )}
           </div>
         </div>
 
@@ -380,7 +381,7 @@ export default function WorkflowDetailPage() {
             </Section>
 
             {/* Execution */}
-            <Section title={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Execution</span>}>
+            <Section title="Execution">
               <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Session Mode <HelpTooltip text="Isolated: each step gets fresh context. Shared: all steps share one conversation channel — outputs appear in chat." /></span>} description="How step conversations relate to each other">
                 <SelectInput
                   value={draft.session_mode || "isolated"}
