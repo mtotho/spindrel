@@ -343,16 +343,19 @@ async def lifespan(app: FastAPI):
 
     # Mount static files for integration web UIs (SPA fallback: unknown paths → index.html)
     from integrations import discover_web_uis as _discover_web_uis
+    from starlette.exceptions import HTTPException as _StarletteHTTPException
     from starlette.staticfiles import StaticFiles
 
     class _SPAStaticFiles(StaticFiles):
         """StaticFiles with SPA fallback — serves index.html for any 404."""
 
         async def get_response(self, path: str, scope):
-            response = await super().get_response(path, scope)
-            if response.status_code == 404:
-                response = await super().get_response("index.html", scope)
-            return response
+            try:
+                return await super().get_response(path, scope)
+            except _StarletteHTTPException as exc:
+                if exc.status_code == 404:
+                    return await super().get_response("index.html", scope)
+                raise
 
     for _web_ui in _discover_web_uis():
         _ui_path = f"/integrations/{_web_ui['integration_id']}/ui"
