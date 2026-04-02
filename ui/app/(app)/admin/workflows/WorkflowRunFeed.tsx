@@ -436,7 +436,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
           </span>
         )}
         {state.task_id && (
-          <CopyBadge value={state.task_id} label={`Task: ${state.task_id.slice(0, 8)}`} t={t} />
+          <TaskLink taskId={state.task_id} t={t} />
         )}
         {state.correlation_id && (
           <Link href={`/admin/logs/${state.correlation_id}` as any}>
@@ -452,30 +452,37 @@ const FeedSection = forwardRef<HTMLDivElement, {
 });
 
 // ---------------------------------------------------------------------------
-// Copyable badge (for task ID)
+// Clickable task link (navigates to task detail + copy button)
 // ---------------------------------------------------------------------------
 
-function CopyBadge({ value, label, t }: { value: string; label: string; t: ThemeTokens }) {
+function TaskLink({ taskId, t }: { taskId: string; t: ThemeTokens }) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(value);
+  const handleCopy = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(taskId);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
   return (
-    <Pressable onPress={handleCopy} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-      <span style={{
-        display: "inline-flex", alignItems: "center", gap: 3,
-        fontSize: 10, color: t.textMuted, fontFamily: "monospace",
-        padding: "1px 5px", borderRadius: 3,
-        background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-        cursor: "pointer",
-      }}>
-        <Copy size={8} />
-        {copied ? "Copied!" : label}
-      </span>
-    </Pressable>
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+      <Link href={`/admin/tasks/${taskId}` as any}>
+        <span style={{
+          display: "inline-flex", alignItems: "center", gap: 3,
+          fontSize: 10, color: t.accent, fontFamily: "monospace",
+          padding: "1px 5px", borderRadius: 3,
+          background: t.codeBg, border: `1px solid ${t.codeBorder}`,
+          cursor: "pointer",
+        }}>
+          <ExternalLink size={8} />
+          Task: {taskId.slice(0, 8)}
+        </span>
+      </Link>
+      <Pressable onPress={handleCopy as any} style={{ padding: 2 }}>
+        <Copy size={9} color={copied ? t.success : t.textMuted} />
+      </Pressable>
+    </span>
   );
 }

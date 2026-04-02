@@ -663,7 +663,7 @@ async def update_task(
 
 
 # ---------------------------------------------------------------------------
-# get_task_result — check output of a delegation / harness / exec task
+# get_task_result — check output of a delegation / exec task
 # ---------------------------------------------------------------------------
 @register({
     "type": "function",
@@ -671,7 +671,7 @@ async def update_task(
         "name": "get_task_result",
         "description": (
             "Retrieve the result or current status of a task by ID. "
-            "Useful for checking the output of delegation, harness, or exec tasks "
+            "Useful for checking the output of delegation or exec tasks "
             "after they complete."
         ),
         "parameters": {

@@ -19,6 +19,7 @@ import {
   StatusBadge, fmtTime, MetaItem, StepNavItem, StepNavStrip,
 } from "./WorkflowRunHelpers";
 import WorkflowRunFeed from "./WorkflowRunFeed";
+import WorkflowRunTasks from "./WorkflowRunTasks";
 
 // ---------------------------------------------------------------------------
 // Run detail (split-panel: step nav + feed)
@@ -203,6 +204,9 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
           </div>
         </div>
       )}
+
+      {/* Tasks spawned by this run */}
+      <WorkflowRunTasks runId={runId} steps={steps} t={t} />
 
       {/* Mobile: horizontal step strip */}
       {isMobile && (

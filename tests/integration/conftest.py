@@ -29,7 +29,7 @@ def _compile_vector_sqlite(type_, compiler, **kw):
 
 @compiles(JSONB, "sqlite")
 def _compile_jsonb_sqlite(type_, compiler, **kw):
-    return "TEXT"
+    return "JSON"
 
 
 @compiles(PG_UUID, "sqlite")

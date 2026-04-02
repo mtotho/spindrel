@@ -12,7 +12,7 @@ from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import and_, func, or_, select
 
 # Task types allowed to be created/updated via the admin API.
-# Internal types like 'exec', 'harness', 'claude_code', 'delegation' are only
+# Internal types like 'exec', 'claude_code', 'delegation' are only
 # created programmatically by the system (task worker, delegation service, etc.).
 ALLOWED_TASK_TYPES = {"scheduled", "agent"}
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -155,6 +155,7 @@ async def admin_list_tasks(
     bot_id: Optional[str] = None,
     channel_id: Optional[uuid.UUID] = None,
     task_type: Optional[str] = None,
+    workflow_run_id: Optional[str] = None,
     after: Optional[str] = None,
     before: Optional[str] = None,
     include_children: bool = False,
@@ -178,12 +179,22 @@ async def admin_list_tasks(
     count_stmt = select(func.count()).select_from(Task).where(~is_schedule_template)
 
     # By default, hide child tasks (callbacks/concrete schedule runs with parent_task_id)
+    # workflow_run_id filter overrides this to include children.
+    if workflow_run_id:
+        include_children = True
     if not include_children:
         stmt = stmt.where(Task.parent_task_id.is_(None))
         count_stmt = count_stmt.where(Task.parent_task_id.is_(None))
 
     # Schedule templates query (always returned — both active and disabled)
     sched_stmt = select(Task).where(is_schedule_template)
+
+    # workflow_run_id filter: match tasks linked to a specific workflow run
+    if workflow_run_id:
+        wf_filter = Task.callback_config["workflow_run_id"].as_string() == workflow_run_id
+        stmt = stmt.where(wf_filter)
+        count_stmt = count_stmt.where(wf_filter)
+        sched_stmt = sched_stmt.where(wf_filter)
 
     if status and status != "active":
         stmt = stmt.where(Task.status == status)
@@ -245,6 +256,8 @@ async def admin_list_tasks(
             "model_override": ec.get("model_override") or cb.get("model_override"),
             "model_provider_id_override": ec.get("model_provider_id_override") or cb.get("model_provider_id_override"),
             "trigger_rag_loop": cb.get("trigger_rag_loop", False),
+            "workflow_run_id": cb.get("workflow_run_id"),
+            "workflow_step_index": cb.get("workflow_step_index"),
             "max_run_seconds": t.max_run_seconds,
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,

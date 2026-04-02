@@ -14,8 +14,8 @@ RUN chmod +x /usr/local/bin/git-credential-github-env
 
 # GITHUB_TOKEN must be set when the container runs (sandbox profile env). Not required at docker build.
 RUN git config --global credential.helper /usr/local/bin/git-credential-github-env && \
-    git config --global user.email "mike@tothdev.com" && \
-    git config --global user.name "Slack Bot" && \
+    git config --global user.email "agent@spindrel.dev" && \
+    git config --global user.name "Spindrel Agent" && \
     git config --global --add safe.directory /workspace
 
 RUN useradd -m -u 1000 agent && \

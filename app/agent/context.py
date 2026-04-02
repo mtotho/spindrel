@@ -37,7 +37,7 @@ current_dispatch_type: ContextVar[str | None] = ContextVar("current_dispatch_typ
 current_dispatch_config: ContextVar[dict | None] = ContextVar("current_dispatch_config", default=None)
 
 # Effective model/provider for the current agent run (after override resolution).
-# Tools (e.g. delegate_to_harness) read these to propagate the model to callback tasks.
+# Tools read these to propagate the model to callback tasks.
 current_model_override: ContextVar[str | None] = ContextVar("current_model_override", default=None)
 current_provider_id_override: ContextVar[str | None] = ContextVar("current_provider_id_override", default=None)
 

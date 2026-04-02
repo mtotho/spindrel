@@ -41,27 +41,6 @@ def test_exec_command_missing_command_key():
     assert result == "🔧 _exec_command..._"
 
 
-# -- delegate_to_harness --
-
-def test_delegate_to_harness():
-    args = json.dumps({"harness": "claude", "prompt": "Summarize this file\nwith details"})
-    result = format_tool_status("delegate_to_harness", args)
-    assert result == "🤖 claude → Summarize this file"
-
-
-def test_delegate_to_harness_truncates_long_prompt():
-    long_prompt = "a " * 100  # 200 chars
-    args = json.dumps({"harness": "claude", "prompt": long_prompt})
-    result = format_tool_status("delegate_to_harness", args)
-    assert "…" in result
-
-
-def test_delegate_to_harness_no_prompt():
-    args = json.dumps({"harness": "claude"})
-    result = format_tool_status("delegate_to_harness", args)
-    assert result == "🤖 claude"
-
-
 # -- delegate_to_agent --
 
 def test_delegate_to_agent():

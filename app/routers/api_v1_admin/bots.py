@@ -126,7 +126,6 @@ class BotEditorDataOut(BaseModel):
     all_skills: list[SkillOptionOut] = []
     workspace_skills: list[WorkspaceSkillOut] = []
     all_bots: list[dict] = []
-    all_harnesses: list[str] = []
     all_sandbox_profiles: list[dict] = []
     model_param_definitions: list[dict] = []
     model_param_support: dict[str, list[str]] = {}
@@ -144,7 +143,6 @@ async def admin_bot_editor_data(
     """
     from app.agent.bots import list_bots as _list_bots
     from app.agent.persona import get_persona, resolve_workspace_persona
-    from app.services.harness import harness_service
     from app.services.mcp_servers import list_server_names
     from app.tools.client_tools import _client_tools
 
@@ -199,8 +197,6 @@ async def admin_bot_editor_data(
         for b in _list_bots()
         if b.id != bot_id
     ]
-
-    all_harnesses = harness_service.list_harnesses()
 
     sandbox_profiles = [
         {"name": p.name, "description": getattr(p, "description", None)}
@@ -258,7 +254,6 @@ async def admin_bot_editor_data(
         all_skills=all_skills,
         workspace_skills=ws_skills_out,
         all_bots=all_bots_out,
-        all_harnesses=all_harnesses,
         all_sandbox_profiles=sandbox_profiles,
         model_param_definitions=PARAM_DEFINITIONS,
         model_param_support={k: sorted(v) for k, v in MODEL_PARAM_SUPPORT.items()},

@@ -31,7 +31,6 @@ const STATUS_OPTIONS = [
 const TASK_TYPE_OPTIONS = [
   { label: "Scheduled", value: "scheduled" },
   { label: "Delegation", value: "delegation" },
-  { label: "Harness", value: "harness" },
   { label: "Exec", value: "exec" },
   { label: "API", value: "api" },
   { label: "Agent", value: "agent" },

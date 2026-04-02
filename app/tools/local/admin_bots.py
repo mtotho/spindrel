@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
                         "system_prompt, local_tools (list), skills (list of {id, mode}), "
                         "workspace ({enabled: bool}), memory_scheme ('workspace-files' or null), "
                         "context_compaction (bool), tool_retrieval (bool), "
-                        "delegate_bots (list), harness_access (list), "
+                        "delegate_bots (list), "
                         "pinned_tools (list), mcp_servers (list), client_tools (list)."
                     ),
                 },
@@ -145,12 +145,10 @@ async def manage_bot(
             if "workspace" in config:
                 row.workspace = {**(row.workspace or {}), **config["workspace"]}
 
-            if "delegate_bots" in config or "harness_access" in config or "cross_workspace_access" in config:
+            if "delegate_bots" in config or "cross_workspace_access" in config:
                 dc = dict(row.delegation_config or {})
                 if "delegate_bots" in config:
                     dc["delegate_bots"] = config["delegate_bots"]
-                if "harness_access" in config:
-                    dc["harness_access"] = config["harness_access"]
                 if "cross_workspace_access" in config:
                     dc["cross_workspace_access"] = config["cross_workspace_access"]
                 row.delegation_config = dc

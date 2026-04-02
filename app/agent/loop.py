@@ -1063,7 +1063,7 @@ async def run_stream(
         model_override = assembly_result.channel_model_override
         provider_id_override = provider_id_override or assembly_result.channel_provider_id_override
 
-    # Expose effective model/provider to tools (e.g. delegate_to_harness callback propagation)
+    # Expose effective model/provider to tools (e.g. delegation callback propagation)
     from app.agent.context import current_model_override, current_provider_id_override, current_channel_model_tier_overrides
     current_model_override.set(model_override)
     current_provider_id_override.set(provider_id_override)

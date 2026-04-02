@@ -121,13 +121,12 @@ The agent loop is iterative: LLM calls tools until it returns a text response (m
 11. Sync file-sourced skills/knowledge/prompts from `skills/*.md`, `knowledge/*.md`, `prompts/*.md`
 12. Seed + load carapaces from `carapaces/*.yaml` + `integrations/*/carapaces/*.yaml`
 13. Seed + load workflows from `workflows/*.yaml` + `integrations/*/workflows/*.yaml`
-14. Load harness configs from `harnesses.yaml`
-15. Register integration routers (discover + mount at `/integrations/{id}`)
-16. Start file watcher + index configured filesystem directories
-17. Warm up STT provider (if enabled)
-18. Start integration background processes (Slack bot, MQTT listener, etc.)
-19. Start `task_worker` background loop (polls every 5s)
-20. Start `heartbeat_worker` background loop (polls every 30s)
+14. Register integration routers (discover + mount at `/integrations/{id}`)
+15. Start file watcher + index configured filesystem directories
+16. Warm up STT provider (if enabled)
+17. Start integration background processes (Slack bot, MQTT listener, etc.)
+18. Start `task_worker` background loop (polls every 5s)
+19. Start `heartbeat_worker` background loop (polls every 30s)
 
 ### Configuration Layers
 - **`.env`** → `app/config.py` (Pydantic Settings) — all runtime config
@@ -136,7 +135,6 @@ The agent loop is iterative: LLM calls tools until it returns a text response (m
 - **`workflows/*.yaml`** — Multi-step automations (gitignored; users create their own)
 - **`carapaces/*.yaml`** — Composable expertise bundles (checked in; see Carapaces section)
 - **`mcp.yaml`** — MCP server URLs and auth (supports `${ENV_VAR}` substitution)
-- **`harnesses.yaml`** — External CLI tool configs (claude, cursor, etc.)
 - **`INTEGRATION_DIRS`** — colon-separated paths to external integration directories
 
 ### Tool System
@@ -223,10 +221,10 @@ Manages scheduled recurring tasks and one-off deferred agent executions.
 - **Worker**: `app/agent/tasks.py` — polls every 5s, max 20 tasks per poll
 - **Model**: `tasks` table — status: pending/running/complete/failed/active/cancelled
 - **Schedule templates**: status=`active` + `recurrence` set (e.g., `+1h`, `+1d`) → spawns concrete tasks
-- **Task types**: agent, scheduled, delegation, harness, exec, callback, api, webhook
+- **Task types**: agent, scheduled, delegation, claude_code, exec, callback, api, webhook
 - **Dispatch**: `dispatch_type` + `dispatch_config` routed via dispatcher registry
 - **execution_config** (JSONB): Model overrides, system preamble, injected skills/tools/carapaces
-- **callback_config** (JSONB): Orchestration — trigger_rag_loop, notify_parent, harness params
+- **callback_config** (JSONB): Orchestration — trigger_rag_loop, notify_parent
 - **Tool**: `schedule_task` (local tool for bots — supports cross-bot, relative time, recurrence)
 - **Prompt resolution**: workspace file path (fresh at exec time) > template > inline prompt
 - **Rate limit handling**: Exponential backoff (65s, 130s, 260s), max 3 retries
@@ -292,15 +290,12 @@ SETUP = {
 }
 ```
 
-### Delegation + Harness System
+### Delegation System
 
 - **Delegation**: Bot-to-bot communication via `DelegationService`
   - Immediate (`run_immediate`): Synchronous child agent run
   - Deferred (`run_deferred`): Creates Task, executed by task_worker
   - Security: `delegate_bots` allowlist (bypassed by @-tags), max depth 3
-- **Harnesses**: External CLI tools (claude, cursor) via `HarnessService`
-  - Config: `harnesses.yaml`
-  - Execution modes: host, bot sandbox, docker sandbox, shared workspace
 
 ### Memory/Knowledge Status
 - **DB memory (`memories` table) is DEPRECATED** — not in use
@@ -394,7 +389,6 @@ workspace:
   indexing:
     enabled: true
 delegate_bots: [helper_bot]
-harness_access: [claude-code]
 context_compaction: true
 compaction_interval: 10
 compaction_keep_turns: 4

@@ -109,7 +109,7 @@ export default function BotEditorScreen() {
       knowledge: ["knowledge"],
       attachments: ["attachment", "summarization", "vision"],
       workspace: ["workspace", "docker", "host", "exec", "sandbox", "index", "command", "port", "mount"],
-      delegation: ["delegat", "harness", "bot"],
+      delegation: ["delegat", "bot"],
       permissions: ["permission", "scope", "api", "key", "access"],
       tool_policies: ["tool", "policy", "policies", "allow", "deny", "approval"],
       display: ["display", "avatar", "icon", "slack", "emoji"],
@@ -577,7 +577,7 @@ export default function BotEditorScreen() {
           {activeSection === "delegation" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Delegation</div>
-              <div style={{ fontSize: 11, color: t.textDim }}>Allow this bot to delegate work to other bots or external harnesses.</div>
+              <div style={{ fontSize: 11, color: t.textDim }}>Allow this bot to delegate work to other bots.</div>
               {editorData.all_bots.length > 0 && (
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Delegate-to Bots</div>
@@ -606,34 +606,8 @@ export default function BotEditorScreen() {
                   </div>
                 </div>
               )}
-              {editorData.all_harnesses.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Harness Access</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 2 }}>
-                    {editorData.all_harnesses.map((h) => {
-                      const on = (draft.delegation_config?.harness_access || draft.harness_access || []).includes(h);
-                      return (
-                        <label key={h} style={{
-                          display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
-                          borderRadius: 4, cursor: "pointer", fontSize: 11,
-                          background: on ? t.purpleSubtle : "transparent",
-                        }}>
-                          <input type="checkbox" checked={on} style={{ accentColor: t.purple }}
-                            onChange={() => {
-                              const dc = { ...draft.delegation_config };
-                              const cur: string[] = dc.harness_access || draft.harness_access || [];
-                              dc.harness_access = on ? cur.filter((x: string) => x !== h) : [...cur, h];
-                              update({ delegation_config: dc });
-                            }} />
-                          <span style={{ fontFamily: "monospace", color: on ? t.purple : t.textDim }}>{h}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {editorData.all_bots.length === 0 && editorData.all_harnesses.length === 0 && (
-                <div style={{ color: t.textDim, fontSize: 12 }}>No other bots or harnesses configured.</div>
+              {editorData.all_bots.length === 0 && (
+                <div style={{ color: t.textDim, fontSize: 12 }}>No other bots configured.</div>
               )}
             </div>
           )}

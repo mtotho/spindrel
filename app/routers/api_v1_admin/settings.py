@@ -137,7 +137,7 @@ async def memory_scheme_defaults(_auth: str = Depends(verify_auth_or_user)):
 @router.get("/version/check-update")
 async def check_update(_auth=Depends(verify_auth_or_user)):
     """Check GitHub for the latest release and compare to current version."""
-    from app.config import VERSION
+    from app.config import VERSION, settings
 
     # Get git hash
     git_hash: str | None = None
@@ -167,7 +167,7 @@ async def check_update(_auth=Depends(verify_auth_or_user)):
         async with httpx.AsyncClient(timeout=10) as client:
             # Try releases/latest first
             resp = await client.get(
-                "https://api.github.com/repos/mtotho/spindrel/releases/latest",
+                f"https://api.github.com/repos/{settings.GITHUB_REPO}/releases/latest",
                 headers={"Accept": "application/vnd.github+json"},
             )
             if resp.status_code == 200:
@@ -180,7 +180,7 @@ async def check_update(_auth=Depends(verify_auth_or_user)):
             else:
                 # Fallback to tags
                 resp = await client.get(
-                    "https://api.github.com/repos/mtotho/spindrel/tags?per_page=1",
+                    f"https://api.github.com/repos/{settings.GITHUB_REPO}/tags?per_page=1",
                     headers={"Accept": "application/vnd.github+json"},
                 )
                 if resp.status_code == 200:
@@ -188,7 +188,7 @@ async def check_update(_auth=Depends(verify_auth_or_user)):
                     if tags:
                         latest = tags[0]["name"].lstrip("v")
                         result["latest"] = latest
-                        result["latest_url"] = f"https://github.com/mtotho/spindrel/releases/tag/{tags[0]['name']}"
+                        result["latest_url"] = f"https://github.com/{settings.GITHUB_REPO}/releases/tag/{tags[0]['name']}"
                         result["update_available"] = latest != VERSION
     except Exception as exc:
         log.warning("Failed to check for updates: %s", exc)

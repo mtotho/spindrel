@@ -6,12 +6,17 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import SandboxBotAccess, SandboxInstance, SandboxProfile
+from app.services.paths import local_to_host
+
+if TYPE_CHECKING:
+    from app.agent.bots import BotConfig, BotSandboxConfig
 
 logger = logging.getLogger(__name__)
 
@@ -857,3 +862,42 @@ class SandboxService:
 
 
 sandbox_service = SandboxService()
+
+
+def workspace_to_sandbox_config(bot: "BotConfig") -> "BotSandboxConfig":
+    """Build a BotSandboxConfig from workspace.docker config.
+
+    For shared workspace bots, mount the entire shared workspace root at /workspace
+    so paths match the shared container (repos, common/, etc. are all accessible).
+    For standalone bots, mount just the bot's workspace directory.
+    """
+    from app.agent.bots import BotSandboxConfig
+    from app.services.workspace import workspace_service
+
+    docker = bot.workspace.docker
+
+    if bot.shared_workspace_id:
+        from app.services.shared_workspace import shared_workspace_service
+        host_root = shared_workspace_service.ensure_host_dirs(bot.shared_workspace_id)
+    else:
+        host_root = workspace_service.ensure_host_dir(bot.id, bot=bot)
+
+    workspace_mount = {
+        "host_path": local_to_host(host_root),
+        "container_path": "/workspace",
+        "mode": "rw",
+    }
+    mounts = list(docker.mounts or [])
+    if not any(m.get("container_path") == "/workspace" for m in mounts):
+        mounts.insert(0, workspace_mount)
+
+    return BotSandboxConfig(
+        enabled=True,
+        unrestricted=True,
+        image=docker.image,
+        network=docker.network,
+        env=docker.env,
+        ports=docker.ports,
+        mounts=mounts,
+        user=docker.user,
+    )

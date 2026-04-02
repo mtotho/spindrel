@@ -251,7 +251,7 @@ class TestRunInContainer:
         mock_sandbox_config = MagicMock()
 
         with patch("app.agent.bots.get_bot", return_value=bot), \
-             patch("app.services.harness.HarnessService._workspace_to_sandbox_config", return_value=mock_sandbox_config), \
+             patch("app.services.sandbox.workspace_to_sandbox_config", return_value=mock_sandbox_config), \
              patch("app.services.sandbox.sandbox_service") as mock_sandbox, \
              patch("integrations.claude_code.config.settings", mock_settings):
             mock_sandbox.exec_bot_local = AsyncMock(return_value=mock_exec_result)
@@ -292,7 +292,7 @@ class TestRunInContainer:
         mock_settings.MODEL = None
 
         with patch("app.agent.bots.get_bot", return_value=bot), \
-             patch("app.services.harness.HarnessService._workspace_to_sandbox_config", return_value=MagicMock()), \
+             patch("app.services.sandbox.workspace_to_sandbox_config", return_value=MagicMock()), \
              patch("app.services.sandbox.sandbox_service") as mock_sandbox, \
              patch("integrations.claude_code.config.settings", mock_settings):
             mock_sandbox.exec_bot_local = AsyncMock(return_value=mock_exec_result)
@@ -325,7 +325,7 @@ class TestRunInContainer:
         mock_settings.MODEL = None
 
         with patch("app.agent.bots.get_bot", return_value=bot), \
-             patch("app.services.harness.HarnessService._workspace_to_sandbox_config", return_value=MagicMock()), \
+             patch("app.services.sandbox.workspace_to_sandbox_config", return_value=MagicMock()), \
              patch("app.services.sandbox.sandbox_service") as mock_sandbox, \
              patch("integrations.claude_code.config.settings", mock_settings):
             mock_sandbox.exec_bot_local = AsyncMock(return_value=mock_exec_result)
@@ -354,7 +354,7 @@ class TestRunInContainer:
         mock_settings.MODEL = None
 
         with patch("app.agent.bots.get_bot", return_value=bot), \
-             patch("app.services.harness.HarnessService._workspace_to_sandbox_config", return_value=MagicMock()), \
+             patch("app.services.sandbox.workspace_to_sandbox_config", return_value=MagicMock()), \
              patch("app.services.sandbox.sandbox_service") as mock_sandbox, \
              patch("integrations.claude_code.config.settings", mock_settings):
             mock_sandbox.exec_bot_local = AsyncMock(return_value=mock_exec_result)
@@ -367,3 +367,59 @@ class TestRunInContainer:
         script = mock_sandbox.exec_bot_local.call_args[0][1]
         assert "--resume" in script
         assert "sess-old" in script
+
+
+# ---------------------------------------------------------------------------
+# workspace_to_sandbox_config
+# ---------------------------------------------------------------------------
+class TestWorkspaceToSandboxConfig:
+    """Test the workspace_to_sandbox_config standalone function."""
+
+    def _make_bot(self, *, shared_workspace_id=None, mounts=None, image="node:20"):
+        from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig, WorkspaceConfig, WorkspaceDockerConfig
+        docker_cfg = WorkspaceDockerConfig(image=image, mounts=mounts or [])
+        ws_cfg = WorkspaceConfig(enabled=True, type="docker", docker=docker_cfg)
+        return BotConfig(
+            id="test_bot", name="Test", model="gpt-4",
+            system_prompt="test", memory=MemoryConfig(), knowledge=KnowledgeConfig(),
+            workspace=ws_cfg,
+            shared_workspace_id=shared_workspace_id,
+        )
+
+    def test_standalone_bot_mounts_workspace(self):
+        from app.services.sandbox import workspace_to_sandbox_config
+        bot = self._make_bot()
+
+        with patch("app.services.workspace.workspace_service") as mock_ws, \
+             patch("app.services.sandbox.local_to_host", side_effect=lambda x: x):
+            mock_ws.ensure_host_dir.return_value = "/data/workspaces/test_bot"
+            config = workspace_to_sandbox_config(bot)
+
+        assert config.enabled is True
+        assert config.unrestricted is True
+        assert config.image == "node:20"
+        assert any(m.get("container_path") == "/workspace" for m in config.mounts)
+
+    def test_shared_workspace_bot_mounts_shared_root(self):
+        from app.services.sandbox import workspace_to_sandbox_config
+        bot = self._make_bot(shared_workspace_id="sw-123")
+
+        with patch("app.services.shared_workspace.shared_workspace_service") as mock_sw, \
+             patch("app.services.sandbox.local_to_host", side_effect=lambda x: x):
+            mock_sw.ensure_host_dirs.return_value = "/data/shared/sw-123"
+            config = workspace_to_sandbox_config(bot)
+
+        assert any(m.get("host_path") == "/data/shared/sw-123" for m in config.mounts)
+
+    def test_existing_workspace_mount_not_duplicated(self):
+        from app.services.sandbox import workspace_to_sandbox_config
+        bot = self._make_bot(mounts=[{"host_path": "/custom", "container_path": "/workspace", "mode": "rw"}])
+
+        with patch("app.services.workspace.workspace_service") as mock_ws, \
+             patch("app.services.sandbox.local_to_host", side_effect=lambda x: x):
+            mock_ws.ensure_host_dir.return_value = "/data/workspaces/test_bot"
+            config = workspace_to_sandbox_config(bot)
+
+        workspace_mounts = [m for m in config.mounts if m.get("container_path") == "/workspace"]
+        assert len(workspace_mounts) == 1
+        assert workspace_mounts[0]["host_path"] == "/custom"

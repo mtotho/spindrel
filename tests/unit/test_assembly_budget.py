@@ -31,7 +31,6 @@ def _minimal_bot(**overrides) -> BotConfig:
         history_mode=None,
         filesystem_indexes=[],
         delegate_bots=[],
-        harness_access=[],
     )
     defaults.update(overrides)
     return BotConfig(**defaults)

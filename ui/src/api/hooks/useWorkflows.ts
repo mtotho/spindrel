@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { Workflow, WorkflowRun } from "../../types/api";
+import type { TasksResponse } from "../../components/shared/TaskConstants";
 
 export function useWorkflows() {
   return useQuery({
@@ -217,6 +218,26 @@ export function useChannelWorkflowRuns(channelId?: string) {
     refetchInterval: (query) => {
       const runs = query.state.data;
       if (runs && runs.length > 0) return 3000;
+      return false;
+    },
+  });
+}
+
+// --- Workflow Run Tasks ---
+
+const TERMINAL_STATUSES = new Set(["complete", "failed", "cancelled"]);
+
+export function useWorkflowRunTasks(runId?: string) {
+  return useQuery({
+    queryKey: ["workflow-run-tasks", runId],
+    queryFn: () =>
+      apiFetch<TasksResponse>(
+        `/api/v1/admin/tasks?workflow_run_id=${runId}&include_children=true&limit=100`,
+      ),
+    enabled: !!runId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (data?.tasks.some((t) => !TERMINAL_STATUSES.has(t.status))) return 3000;
       return false;
     },
   });

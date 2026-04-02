@@ -136,7 +136,6 @@ def _make_bot_row(**overrides):
     row.memory_max_inject_chars = overrides.get("memory_max_inject_chars", 3000)
     row.delegation_config = overrides.get("delegation_config", {
         "delegate_bots": ["child_bot"],
-        "harness_access": ["harness1"],
     })
     row.model_provider_id = overrides.get("model_provider_id", "provider1")
     row.bot_sandbox = overrides.get("bot_sandbox", {"enabled": True, "image": "node:20"})
@@ -198,7 +197,6 @@ class TestBotRowToConfig:
         row = _make_bot_row()
         config = _bot_row_to_config(row)
         assert config.delegate_bots == ["child_bot"]
-        assert config.harness_access == ["harness1"]
 
     def test_bot_sandbox_parsed(self):
         row = _make_bot_row()
@@ -210,7 +208,6 @@ class TestBotRowToConfig:
         row = _make_bot_row(delegation_config=None)
         config = _bot_row_to_config(row)
         assert config.delegate_bots == []
-        assert config.harness_access == []
 
     def test_empty_memory_config(self):
         """Even with empty memory_config in DB, deprecated defaults are used."""

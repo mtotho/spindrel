@@ -24,18 +24,6 @@ workspace:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
 ```
 
-### Migrating from Harness
-
-```yaml
-# Before (harness-based)
-local_tools: [delegate_to_harness]
-harness_access: [claude-code]
-
-# After (Docker workspace)
-local_tools: [run_claude_code]
-skills: [claude_code]
-```
-
 ### Migrating from SDK
 
 ```yaml

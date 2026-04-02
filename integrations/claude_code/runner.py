@@ -75,7 +75,7 @@ def build_script(
 ) -> str:
     """Build a shell script that pipes the prompt to claude via heredoc stdin.
 
-    Uses the same heredoc pattern as harness prompt_mode=stdin.
+    Uses a heredoc pattern to safely pass the prompt via stdin.
     """
     inner = shlex.join(["claude"] + cli_args + ["-p"])
     delim = f"__CLAUDE_PROMPT_{uuid.uuid4().hex[:8]}__"
@@ -151,8 +151,7 @@ async def run_in_container(
     Raises ValueError if the bot has no Docker workspace configured.
     """
     from app.agent.bots import get_bot
-    from app.services.harness import HarnessService
-    from app.services.sandbox import sandbox_service
+    from app.services.sandbox import sandbox_service, workspace_to_sandbox_config
     from integrations.claude_code.config import settings as cc_settings
 
     bot = get_bot(bot_id)
@@ -192,8 +191,8 @@ async def run_in_container(
     # Build script
     script = build_script(prompt, cli_args, working_directory=container_wd)
 
-    # Get sandbox config via harness infrastructure
-    sandbox_config = HarnessService._workspace_to_sandbox_config(bot)
+    # Get sandbox config from workspace config
+    sandbox_config = workspace_to_sandbox_config(bot)
 
     logger.info(
         "[claude_code] exec bot=%s image=%r wd=%s timeout=%ds",

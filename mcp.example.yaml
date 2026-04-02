@@ -1,0 +1,16 @@
+# MCP server definitions.
+# Bots reference these by name in their mcp_servers list.
+#
+# Each server needs a url (the MCP endpoint) and optionally an api_key.
+# If api_key is omitted, no Authorization header is sent.
+# Environment variables can be referenced with ${VAR_NAME} syntax.
+#
+# Example:
+#
+# homeassistant:
+#   url: http://your-ha-host:4000/homeassistant/mcp
+#   api_key: ${LITELLM_API_KEY}
+#
+# custom-server:
+#   url: http://localhost:3000/mcp
+#   api_key: ${CUSTOM_MCP_KEY}

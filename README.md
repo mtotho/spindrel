@@ -93,7 +93,6 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | [Discord Integration](docs/guides/discord.md) | Discord bot setup |
 | [Gmail Integration](docs/guides/gmail.md) | Gmail integration |
 | [Delegation](docs/guides/delegation.md) | Bot-to-bot delegation |
-| [Harnesses](docs/guides/harnesses.md) | External CLI tools (Claude Code, Cursor) |
 | [Secrets & Redaction](docs/guides/secrets.md) | Secret vault and automatic redaction |
 | [Content Ingestion](docs/guides/ingestion.md) | Document ingestion pipeline |
 | [Chat History](docs/guides/chat-history.md) | Conversation archival, searchable sections, continuity |

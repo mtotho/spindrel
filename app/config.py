@@ -245,6 +245,7 @@ class Settings(BaseSettings):
 
     TIMEZONE: str = "America/New_York"
     BASE_URL: str = ""  # Public URL (e.g. tunnel); used to build webhook URLs in admin UI
+    GITHUB_REPO: str = "mtotho/spindrel"  # owner/repo for update checks
 
     # Encryption (secrets at rest)
     ENCRYPTION_KEY: str = ""  # Fernet key for encrypting provider API keys + integration secrets
@@ -361,9 +362,6 @@ class Settings(BaseSettings):
 
     # Delegation
     DELEGATION_MAX_DEPTH: int = 3
-    HARNESS_CONFIG_FILE: str = "harnesses.yaml"
-    HARNESS_WORKING_DIR_ALLOWLIST: Annotated[list[str], NoDecode] = []
-    HARNESS_MAX_RESUME_RETRIES: int = 1
 
     # Workflow safety
     WORKFLOW_MAX_TASK_EXECUTIONS: int = 50  # max tasks a single workflow run can spawn before auto-fail
@@ -549,7 +547,6 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
         "HOST_EXEC_BLOCKED_PATTERNS",
         "HOST_EXEC_ENV_PASSTHROUGH",
         "TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS",
-        "HARNESS_WORKING_DIR_ALLOWLIST",
         mode="before",
     )
     @classmethod

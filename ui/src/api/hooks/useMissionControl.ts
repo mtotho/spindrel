@@ -414,6 +414,13 @@ export function useMCPlans(scope?: "fleet" | "personal", status?: string) {
         `/integrations/mission_control/plans${qs ? `?${qs}` : ""}`
       );
     },
+    refetchInterval: (query) => {
+      const plans = query.state.data?.plans;
+      const hasActive = plans?.some(
+        (p) => p.status === "executing" || p.status === "awaiting_approval"
+      );
+      return hasActive ? 10000 : false;
+    },
   });
 }
 
@@ -515,6 +522,12 @@ export function useMCPlan(channelId: string | undefined, planId: string | undefi
         `/integrations/mission_control/channels/${channelId}/plans/${planId}`
       ),
     enabled: !!channelId && !!planId,
+    refetchInterval: (query) => {
+      const s = query.state.data?.status;
+      return s === "executing" || s === "awaiting_approval" || s === "approved"
+        ? 5000
+        : false;
+    },
   });
 }
 

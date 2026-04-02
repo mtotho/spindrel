@@ -18,7 +18,6 @@ interface TriggerStyle {
 const TRIGGER_CONFIG: Record<string, TriggerStyle> = {
   scheduled_task: { label: "Scheduled Task", icon: "🔁", color: "#8b5cf6", rgb: "139,92,246" },
   callback: { label: "Task Callback", icon: "↩", color: "#8b5cf6", rgb: "139,92,246" },
-  harness_callback: { label: "Harness Callback", icon: "⚡", color: "#06b6d4", rgb: "6,182,212" },
   delegation_callback: { label: "Delegation Result", icon: "↩", color: "#8b5cf6", rgb: "139,92,246" },
 };
 
@@ -32,7 +31,6 @@ function getSubtitle(meta: Record<string, any>): string | null {
     if (meta.recurrence) parts.push(`recurring ${meta.recurrence}`);
     return parts.length ? parts.join("  ·  ") : null;
   }
-  if (trigger === "harness_callback") return meta.harness_name || null;
   if (trigger === "delegation_callback")
     return meta.delegation_child_display ? `from ${meta.delegation_child_display}` : null;
   if (trigger === "callback") return meta.task_title || null;

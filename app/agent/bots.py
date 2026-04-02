@@ -188,7 +188,6 @@ class BotConfig:
     memory_max_inject_chars: int | None = None
     # Delegation
     delegate_bots: list[str] = field(default_factory=list)   # allowed bot_ids for delegation
-    harness_access: list[str] = field(default_factory=list)  # allowed harness names
     cross_workspace_access: bool = False  # if True, channel workspace tools can see/search all bots' channels
     # LLM sampling parameters (temperature, max_tokens, etc.)
     model_params: dict = field(default_factory=dict)
@@ -413,7 +412,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         knowledge_max_inject_chars=row.knowledge_max_inject_chars,
         memory_max_inject_chars=row.memory_max_inject_chars,
         delegate_bots=list(row.delegation_config.get("delegate_bots", [])) if row.delegation_config else [],
-        harness_access=list(row.delegation_config.get("harness_access", [])) if row.delegation_config else [],
         cross_workspace_access=bool(row.delegation_config.get("cross_workspace_access", False)) if row.delegation_config else False,
         model_params=row.model_params or {},
         model_provider_id=row.model_provider_id,
@@ -497,7 +495,6 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "memory_max_inject_chars": data.get("memory_max_inject_chars"),
         "delegation_config": {
             "delegate_bots": data.get("delegate_bots", []),
-            "harness_access": data.get("harness_access", []),
             "cross_workspace_access": data.get("cross_workspace_access", False),
         },
         "fallback_models": data.get("fallback_models", []),

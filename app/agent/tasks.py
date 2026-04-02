@@ -184,327 +184,18 @@ async def spawn_due_schedules() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Runner
+# Runner helpers
 # ---------------------------------------------------------------------------
 
-def _harness_source_correlation(cfg: dict) -> uuid.UUID | None:
-    raw = cfg.get("source_correlation_id")
+def _parse_uuid_opt(cfg: dict, key: str) -> uuid.UUID | None:
+    """Parse an optional UUID from a config dict."""
+    raw = cfg.get(key)
     if not raw:
         return None
     try:
         return uuid.UUID(str(raw))
     except (ValueError, TypeError):
         return None
-
-
-def _harness_sandbox_instance(cfg: dict) -> uuid.UUID | None:
-    raw = cfg.get("sandbox_instance_id")
-    if not raw:
-        return None
-    try:
-        return uuid.UUID(str(raw))
-    except (ValueError, TypeError):
-        return None
-
-
-def _parse_claude_json_output(stdout: str) -> dict | None:
-    """Try to parse Claude Code --output-format json output.
-
-    Returns the parsed dict if stdout is a valid Claude Code JSON result
-    (has "type": "result"), otherwise None for backwards compat with
-    non-JSON harnesses.
-    """
-    if not stdout or not stdout.strip().startswith("{"):
-        return None
-    try:
-        data = json.loads(stdout)
-    except (json.JSONDecodeError, ValueError):
-        return None
-    if not isinstance(data, dict) or data.get("type") != "result":
-        return None
-    return data
-
-
-async def run_harness_task(task: Task) -> None:
-    """Execute a harness task: run the subprocess, store result, dispatch to output channel."""
-    logger.info("Running harness task %s", task.id)
-    now = datetime.now(timezone.utc)
-
-    async with async_session() as db:
-        t = await db.get(Task, task.id)
-        if t is None:
-            return
-        t.status = "running"
-        t.run_at = now
-        await db.commit()
-
-    # Read execution params from execution_config (new) with fallback to callback_config (legacy)
-    ecfg = task.execution_config or task.callback_config or {}
-    cfg = task.callback_config or {}
-    harness_name = ecfg.get("harness_name", "")
-    working_directory = ecfg.get("working_directory")
-    output_dispatch_type = ecfg.get("output_dispatch_type", task.dispatch_type or "none")
-    output_dispatch_config = ecfg.get("output_dispatch_config") or dict(task.dispatch_config or {})
-    source_correlation_id = _harness_source_correlation(ecfg)
-    sandbox_instance_id = _harness_sandbox_instance(ecfg)
-
-    try:
-        from app.agent.bots import get_bot
-        from app.agent.recording import schedule_harness_completion_record
-        from app.services.harness import harness_service, HarnessError
-        bot = get_bot(task.bot_id)
-
-        # Resolve latest content from linked template or workspace file (if any)
-        from app.services.prompt_resolution import resolve_prompt
-        async with async_session() as resolve_db:
-            prompt = await resolve_prompt(
-                workspace_id=str(task.workspace_id) if task.workspace_id else None,
-                workspace_file_path=task.workspace_file_path,
-                template_id=str(task.prompt_template_id) if task.prompt_template_id else None,
-                inline_prompt=task.prompt,
-                db=resolve_db,
-            )
-
-        # Pass extra_args from execution_config (used for --resume on retry)
-        resume_extra_args: list[str] | None = ecfg.get("resume_extra_args")
-
-        # Resolve timeout
-        _harness_timeout = resolve_task_timeout(task)
-
-        result = await asyncio.wait_for(
-            harness_service.run(
-                harness_name=harness_name,
-                prompt=prompt,
-                working_directory=working_directory,
-                bot=bot,
-                sandbox_instance_id=sandbox_instance_id,
-                extra_args=resume_extra_args,
-            ),
-            timeout=_harness_timeout,
-        )
-
-        # Attempt to parse Claude Code JSON output
-        claude_data = _parse_claude_json_output(result.stdout)
-        claude_session_id: str | None = None
-
-        if claude_data is not None:
-            claude_session_id = claude_data.get("session_id")
-            cc_result = claude_data.get("result", "")
-            cc_is_error = claude_data.get("is_error", False)
-            cc_cost = claude_data.get("cost_usd")
-            cc_turns = claude_data.get("num_turns")
-
-            parts = []
-            if cc_result:
-                parts.append(cc_result)
-            if cc_is_error:
-                parts.append("[claude-code reported error]")
-            if result.stderr:
-                parts.append(f"[stderr]\n{result.stderr}")
-            if result.truncated:
-                parts.append("[output truncated]")
-            meta_parts = []
-            if cc_turns is not None:
-                meta_parts.append(f"turns={cc_turns}")
-            if cc_cost is not None:
-                meta_parts.append(f"cost=${cc_cost:.2f}")
-            meta_parts.append(f"{result.duration_ms}ms")
-            meta_parts.append(f"exit={result.exit_code}")
-            parts.append(f"[{', '.join(meta_parts)}]")
-            result_text = "\n".join(parts)
-        else:
-            # Non-JSON fallback (cursor, other harnesses)
-            parts = []
-            if result.stdout:
-                parts.append(result.stdout)
-            if result.stderr:
-                parts.append(f"[stderr]\n{result.stderr}")
-            if result.truncated:
-                parts.append("[output truncated]")
-            parts.append(f"[exit {result.exit_code}, {result.duration_ms}ms]")
-            result_text = "\n".join(parts)
-
-        # Store claude_session_id on execution_config for potential resume
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "complete"
-                t.result = result_text
-                t.completed_at = datetime.now(timezone.utc)
-                if claude_session_id:
-                    merged_ecfg = dict(t.execution_config or t.callback_config or {})
-                    merged_ecfg["claude_session_id"] = claude_session_id
-                    if claude_data:
-                        if claude_data.get("cost_usd") is not None:
-                            merged_ecfg["claude_cost_usd"] = claude_data["cost_usd"]
-                        if claude_data.get("num_turns") is not None:
-                            merged_ecfg["claude_num_turns"] = claude_data["num_turns"]
-                    t.execution_config = merged_ecfg
-                await db.commit()
-
-        await _fire_task_complete(task, "complete")
-
-        _h_err: str | None = None
-        if result.exit_code != 0:
-            _h_err = ((result.stderr or "").strip()[:500] or f"non-zero exit {result.exit_code}")
-        schedule_harness_completion_record(
-            harness_name=harness_name or "unknown",
-            task_id=task.id,
-            session_id=task.session_id,
-            client_id=task.client_id,
-            bot_id=task.bot_id,
-            correlation_id=source_correlation_id,
-            exit_code=result.exit_code,
-            duration_ms=result.duration_ms,
-            truncated=result.truncated,
-            result_text=result_text,
-            error=_h_err,
-        )
-        await asyncio.sleep(0)
-
-        # Build a synthetic task for delivery with the output dispatch config
-        output_task = Task(
-            id=task.id,
-            bot_id=task.bot_id,
-            dispatch_type=output_dispatch_type,
-            dispatch_config=output_dispatch_config,
-        )
-        dispatcher = dispatchers.get(output_dispatch_type)
-        await dispatcher.deliver(output_task, result_text)
-
-        # Notify parent bot: create a callback task so the parent can react to harness output.
-        if cfg.get("notify_parent") and result_text:
-            _parent_bot_id = cfg.get("parent_bot_id")
-            _parent_session_str = cfg.get("parent_session_id")
-            _parent_client_id = cfg.get("parent_client_id")
-            if _parent_bot_id and _parent_session_str:
-                try:
-                    _parent_session_id = uuid.UUID(_parent_session_str)
-                    # Build enriched prompt with metadata when structured data is available
-                    _cb_header = f"[Harness {harness_name} completed"
-                    if claude_data is not None:
-                        _meta = []
-                        if claude_data.get("num_turns") is not None:
-                            _meta.append(f"turns={claude_data['num_turns']}")
-                        if claude_data.get("cost_usd") is not None:
-                            _meta.append(f"cost=${claude_data['cost_usd']:.2f}")
-                        if claude_data.get("is_error"):
-                            _meta.append("error=true")
-                        if _meta:
-                            _cb_header += f" ({', '.join(_meta)})"
-                    _cb_header += "]"
-                    # Propagate parent's model override so callback runs on the same model
-                    _cb_exec_cfg: dict = {}
-                    if cfg.get("parent_model_override"):
-                        _cb_exec_cfg["model_override"] = cfg["parent_model_override"]
-                    if cfg.get("parent_provider_id_override"):
-                        _cb_exec_cfg["model_provider_id_override"] = cfg["parent_provider_id_override"]
-                    _cb_task = Task(
-                        bot_id=_parent_bot_id,
-                        client_id=_parent_client_id,
-                        session_id=_parent_session_id,
-                        channel_id=task.channel_id,
-                        prompt=f"{_cb_header}\n\n{result_text}",
-                        status="pending",
-                        task_type="callback",
-                        dispatch_type=output_dispatch_type,
-                        dispatch_config=dict(output_dispatch_config),
-                        execution_config=_cb_exec_cfg or None,
-                        parent_task_id=task.id,
-                        created_at=datetime.now(timezone.utc),
-                    )
-                    async with async_session() as db:
-                        db.add(_cb_task)
-                        await db.commit()
-                        await db.refresh(_cb_task)
-                    logger.info(
-                        "Harness task %s: created parent callback task %s (bot=%s, session=%s)",
-                        task.id, _cb_task.id, _parent_bot_id, _parent_session_id,
-                    )
-                except Exception:
-                    logger.exception("Failed to create parent callback task for harness task %s", task.id)
-
-    except asyncio.TimeoutError:
-        logger.error("Harness task %s timed out after %ds", task.id, _harness_timeout)
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "failed"
-                t.error = f"Timed out after {_harness_timeout}s"
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
-        await _fire_task_complete(task, "failed")
-        # Dispatch timeout error to integration
-        try:
-            _err_text = f"[Error: Harness task timed out after {_harness_timeout}s]"
-            output_task = Task(
-                id=task.id, bot_id=task.bot_id,
-                dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
-            )
-            dispatcher = dispatchers.get(output_dispatch_type)
-            await dispatcher.deliver(output_task, _err_text)
-        except Exception:
-            logger.warning("Failed to dispatch timeout error for harness task %s", task.id)
-
-    except Exception as exc:
-        logger.exception("Harness task %s failed", task.id)
-
-        # Resume retry: check for a session_id we can resume from.
-        # Sources: local variable from this run's JSON parse, prior run stored on DB, or prior resume args.
-        _resume_session_id = locals().get("claude_session_id") or ecfg.get("claude_session_id")
-        _resume_retries = ecfg.get("resume_retries", 0)
-        _can_resume = (
-            _resume_session_id
-            and _resume_retries < settings.HARNESS_MAX_RESUME_RETRIES
-        )
-
-        if _can_resume:
-            logger.info(
-                "Harness task %s: scheduling resume (session=%s, attempt %d/%d)",
-                task.id, _resume_session_id, _resume_retries + 1, settings.HARNESS_MAX_RESUME_RETRIES,
-            )
-            async with async_session() as db:
-                t = await db.get(Task, task.id)
-                if t:
-                    merged_ecfg = dict(t.execution_config or t.callback_config or {})
-                    merged_ecfg["resume_extra_args"] = ["--resume", str(_resume_session_id)]
-                    merged_ecfg["resume_retries"] = _resume_retries + 1
-                    t.execution_config = merged_ecfg
-                    t.status = "pending"
-                    t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=10)
-                    t.error = f"resuming (attempt {_resume_retries + 1}): {str(exc)[:200]}"
-                    t.prompt = "continue from where you left off"
-                    await db.commit()
-        else:
-            async with async_session() as db:
-                t = await db.get(Task, task.id)
-                if t:
-                    t.status = "failed"
-                    t.error = str(exc)[:4000]
-                    t.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
-            await _fire_task_complete(task, "failed")
-
-        try:
-            from app.agent.recording import schedule_harness_completion_record
-
-            schedule_harness_completion_record(
-                harness_name=harness_name or "unknown",
-                task_id=task.id,
-                session_id=task.session_id,
-                client_id=task.client_id,
-                bot_id=task.bot_id,
-                correlation_id=source_correlation_id,
-                exit_code=-1,
-                duration_ms=0,
-                truncated=False,
-                result_text="",
-                error=str(exc)[:4000],
-            )
-            await asyncio.sleep(0)
-        except Exception:
-            logger.exception("Failed to schedule harness failure record for task %s", task.id)
-
 
 async def run_exec_task(task: Task) -> None:
     """Execute a raw exec task: run command in sandbox, store result, dispatch."""
@@ -528,8 +219,8 @@ async def run_exec_task(task: Task) -> None:
     stream_to = ecfg.get("stream_to")
     output_dispatch_type = ecfg.get("output_dispatch_type", task.dispatch_type or "none")
     output_dispatch_config = ecfg.get("output_dispatch_config") or dict(task.dispatch_config or {})
-    source_correlation_id = _harness_source_correlation(ecfg)
-    sandbox_instance_id = _harness_sandbox_instance(ecfg)
+    source_correlation_id = _parse_uuid_opt(ecfg, "source_correlation_id")
+    sandbox_instance_id = _parse_uuid_opt(ecfg, "sandbox_instance_id")
 
     try:
         from app.agent.bots import get_bot
@@ -705,9 +396,6 @@ async def run_exec_task(task: Task) -> None:
 async def run_task(task: Task) -> None:
     """Execute a single task: run the agent, store result, dispatch."""
     # Route on task_type (preferred) with fallback to dispatch_type for legacy rows
-    if task.task_type == "harness" or (task.task_type == "agent" and task.dispatch_type == "harness"):
-        await run_harness_task(task)
-        return
     if task.task_type == "exec" or (task.task_type == "agent" and task.dispatch_type == "exec"):
         await run_exec_task(task)
         return
@@ -954,18 +642,14 @@ async def run_task(task: Task) -> None:
             if task.parent_task_id:
                 _task_meta["schedule_id"] = str(task.parent_task_id)
         elif task.task_type == "callback":
-            # Callback tasks (e.g. harness results) should identify themselves
+            # Callback tasks should identify themselves
             # so the UI can display them properly instead of showing "You".
             _task_meta = {"trigger": "callback", "task_id": str(task.id), "sender_type": "bot", "sender_display_name": bot.name}
-            # Check if the parent was a harness or delegation task for richer metadata
+            # Check if the parent was a delegation task for richer metadata
             if task.parent_task_id:
                 async with async_session() as _cb_db:
                     _cb_parent = await _cb_db.get(Task, task.parent_task_id)
-                    if _cb_parent and _cb_parent.task_type == "harness":
-                        _harness_name = (_cb_parent.execution_config or {}).get("harness_name", "harness")
-                        _task_meta["trigger"] = "harness_callback"
-                        _task_meta["harness_name"] = _harness_name
-                    elif _cb_parent and _cb_parent.task_type == "delegation":
+                    if _cb_parent and _cb_parent.task_type == "delegation":
                         _task_meta["trigger"] = "delegation_callback"
                         _task_meta["delegation_child_bot_id"] = _cb_parent.bot_id
                         try:

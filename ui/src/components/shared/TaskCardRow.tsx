@@ -53,6 +53,16 @@ export function TaskCardRow({
           <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>{task.bot_id}</span>
         )}
         {task.task_type && <TypeBadge type={task.task_type} />}
+        {task.workflow_run_id && (
+          <span style={{
+            display: "inline-block", fontFamily: "monospace",
+            background: t.codeBg, border: `1px solid ${t.codeBorder}`,
+            color: t.textDim, padding: "1px 5px", borderRadius: 3,
+            fontSize: 9, flexShrink: 0,
+          }}>
+            run:{task.workflow_run_id.slice(0, 6)}
+          </span>
+        )}
         {task.recurrence && (
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 3,

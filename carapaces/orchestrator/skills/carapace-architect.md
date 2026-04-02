@@ -57,7 +57,7 @@ carapaces/orchestrator/
 ├── carapace.yaml                              # includes: [mission-control]
 └── skills/
     ├── workspace-orchestrator.md   (pinned)   # Concise core: environment, filesystem, key capabilities
-    ├── workspace-delegation.md     (on_demand) # Delegation patterns, harness reference
+    ├── workspace-delegation.md     (on_demand) # Delegation patterns, Claude Code reference
     ├── workspace-api-reference.md  (on_demand) # Server API endpoints, permissions, agent CLI
     ├── workspace-management.md     (on_demand) # Channels, memory patterns, workspace skills
     ├── carapace-architect.md       (on_demand) # This file — carapace design guide

@@ -379,11 +379,6 @@ async def lifespan(application: FastAPI):
     # Index filesystem directories + start watchers in background (doesn't block startup)
     asyncio.create_task(_index_filesystems_and_start_watchers())
 
-    if settings.HARNESS_CONFIG_FILE and Path(settings.HARNESS_CONFIG_FILE).exists():
-        logger.info("Loading harness configs from %s...", settings.HARNESS_CONFIG_FILE)
-        from app.services.harness import harness_service
-        harness_service.load(settings.HARNESS_CONFIG_FILE)
-
     if settings.STT_PROVIDER:
         logger.info("Warming up STT provider (%s)...", settings.STT_PROVIDER)
         from app.stt import warm_up as stt_warm_up

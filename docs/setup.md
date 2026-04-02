@@ -320,7 +320,7 @@ agent-server/
 │   ├── frigate/           # Frigate NVR
 │   ├── mission_control/   # Dashboard + project management
 │   ├── arr/               # Sonarr/Radarr media management
-│   ├── claude_code/       # Claude Code CLI harness
+│   ├── claude_code/       # Claude Code CLI integration
 │   ├── bluebubbles/       # iMessage via BlueBubbles
 │   ├── ingestion/         # Document ingestion pipeline
 │   └── example/           # Template for new integrations

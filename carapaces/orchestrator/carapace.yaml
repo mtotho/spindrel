@@ -80,8 +80,8 @@ local_tools:
   - manage_integration
   - manage_carapace
   - delegate_to_agent
-  - delegate_to_harness
   - delegate_to_exec
+  - run_claude_code
   - search_bot_memory
   - list_workspace_channels
   - search_channel_workspace
@@ -124,7 +124,7 @@ system_prompt_fragment: |
 
   ### Delegation & Workflows
   Prefer delegation over doing everything yourself. Use `delegate_to_agent` for
-  one-off bot work, `delegate_to_harness` for CLI agents (Claude Code, Cursor),
+  one-off bot work, `run_claude_code` for code editing tasks (via the Claude Code integration),
   and `manage_workflow(action="trigger")` for repeatable multi-step processes.
   Use `exec_command` only for orchestrator-level operations (file placement, coordination).
 
@@ -144,7 +144,7 @@ system_prompt_fragment: |
   **Orchestration:**
   | When you need... | Fetch this skill |
   |---|---|
-  | Delegation patterns, harness usage, fan-out/pipeline workflows | `get_skill('carapaces/orchestrator/workspace-delegation')` |
+  | Delegation patterns, Claude Code usage, fan-out/pipeline workflows | `get_skill('carapaces/orchestrator/workspace-delegation')` |
   | Server API endpoints, permissions, scopes, `agent` CLI | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
   | Channels, workspace skills, memory patterns, base template, checklists | `get_skill('carapaces/orchestrator/workspace-management')` |
   | Designing new carapaces (fragment-as-index architecture) | `get_skill('carapaces/orchestrator/carapace-architect')` |

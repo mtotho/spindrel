@@ -18,21 +18,15 @@ import { formatTime, formatDate } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { CronJobsView } from "./CronJobsView";
 import {
-  type TaskItem,
+  type TaskItem, type TasksResponse,
   TYPE_BADGE_COLORS, STATUS_CFG, BOT_COLORS,
   botColor, displayTitle,
   TypeBadge, TaskStatusBadge as StatusBadge, BotDot,
 } from "@/src/components/shared/TaskConstants";
 import { TaskCardRow } from "@/src/components/shared/TaskCardRow";
 
-interface TasksResponse {
-  tasks: TaskItem[];
-  schedules: TaskItem[];
-  total: number;
-}
-
 type ViewMode = "schedule" | "day" | "week" | "list" | "cron";
-type TaskTypeFilter = "all" | "scheduled" | "delegation" | "harness" | "exec" | "api" | "workflow";
+type TaskTypeFilter = "all" | "scheduled" | "delegation" | "exec" | "api" | "workflow";
 type StatusFilter = "active" | "all" | "cancelled" | "failed";
 
 type EditorState =
@@ -45,7 +39,6 @@ const TASK_TYPE_FILTERS: { key: TaskTypeFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "scheduled", label: "Scheduled" },
   { key: "delegation", label: "Delegation" },
-  { key: "harness", label: "Harness" },
   { key: "exec", label: "Exec" },
   { key: "api", label: "API" },
   { key: "workflow", label: "Workflow" },

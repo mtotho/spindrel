@@ -26,8 +26,19 @@ export interface TaskItem {
   completed_at?: string;
   is_schedule?: boolean;
   is_virtual?: boolean;
+  workflow_run_id?: string | null;
+  workflow_step_index?: number | null;
   /** For virtual entries, the real schedule ID to open in editor */
   _schedule_id?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Tasks API response
+// ---------------------------------------------------------------------------
+export interface TasksResponse {
+  tasks: TaskItem[];
+  schedules: TaskItem[];
+  total: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,7 +48,6 @@ export const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
   scheduled: { bg: "rgba(59,130,246,0.12)", fg: "#3b82f6" },
   heartbeat: { bg: "rgba(234,179,8,0.12)", fg: "#ca8a04" },
   delegation: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea" },
-  harness: { bg: "rgba(20,184,166,0.12)", fg: "#0d9488" },
   exec: { bg: "rgba(107,114,128,0.12)", fg: "#6b7280" },
   callback: { bg: "rgba(239,68,68,0.12)", fg: "#dc2626" },
   api: { bg: "rgba(34,197,94,0.12)", fg: "#16a34a" },

@@ -125,10 +125,6 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
     Bot-to-bot delegation — immediate and deferred.
 
--   [:material-console: **Harnesses**](guides/harnesses.md)
-
-    External CLI tools (Claude Code, Cursor) as agent subprocesses.
-
 -   [:material-shield-lock-outline: **Secrets & Redaction**](guides/secrets.md)
 
     Secret vault, automatic redaction, and user input detection.

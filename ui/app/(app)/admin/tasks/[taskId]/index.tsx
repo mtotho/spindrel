@@ -31,7 +31,6 @@ const TASK_TYPE_OPTIONS = [
   { label: "Scheduled", value: "scheduled" },
   { label: "Heartbeat", value: "heartbeat" },
   { label: "Delegation", value: "delegation" },
-  { label: "Harness", value: "harness" },
   { label: "Exec", value: "exec" },
   { label: "Callback", value: "callback" },
   { label: "API", value: "api" },

@@ -62,7 +62,6 @@ class BotOut(BaseModel):
     knowledge: KnowledgeConfigOut = KnowledgeConfigOut()
     knowledge_max_inject_chars: Optional[int] = None
     delegate_bots: list[str] = []
-    harness_access: list[str] = []
     model_provider_id: Optional[str] = None
     fallback_models: list[dict] = []
     integration_config: dict = {}

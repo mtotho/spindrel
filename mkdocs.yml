@@ -47,7 +47,6 @@ nav:
     - Gmail Integration: guides/gmail.md
     - Agent Client: guides/clients.md
     - Delegation: guides/delegation.md
-    - Harnesses: guides/harnesses.md
     - Secrets & Redaction: guides/secrets.md
     - Content Ingestion: guides/ingestion.md
     - Chat History: guides/chat-history.md

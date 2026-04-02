@@ -193,7 +193,7 @@ Before starting a workflow:
 - [ ] Shared resources placed in `/workspace/common/` before delegating
 - [ ] Each delegation prompt is self-contained (bot has no access to your conversation)
 - [ ] `notify_parent=true` set for tasks you need to track
-- [ ] Harness tasks have appropriate `working_directory` set
+- [ ] Claude Code tasks have appropriate `working_directory` set
 - [ ] Write-protected paths won't block your operations (check `write_access`)
 - [ ] Workspace skills re-indexed after changes (`reindex-skills`)
 
@@ -202,7 +202,7 @@ During execution:
 - [ ] Monitor task status via `agent tasks` or wait for callbacks
 - [ ] Check member bot output files before synthesizing
 - [ ] Use `search_bot_memory` to verify what bots have learned
-- [ ] Handle failures gracefully — resume harnesses, re-delegate with refined prompts
+- [ ] Handle failures gracefully — retry Claude Code with refined prompts, re-delegate as needed
 
 After completion:
 

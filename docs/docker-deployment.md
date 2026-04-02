@@ -7,7 +7,7 @@ By default the server runs on the host with Python directly. This guide covers r
 1. Add two lines to `.env`:
 
 ```bash
-WORKSPACE_HOST_DIR=/home/mtoth/.agent-workspaces
+WORKSPACE_HOST_DIR=/home/you/.agent-workspaces
 WORKSPACE_LOCAL_DIR=/workspace-data
 ```
 
@@ -24,7 +24,7 @@ That's it. Your existing workspace data at `~/.agent-workspaces/` is mounted int
 - The host Docker socket is mounted into the server container (`/var/run/docker.sock`)
 - The server container has the Docker CLI installed (not the daemon)
 - `WORKSPACE_LOCAL_DIR` (`/workspace-data`) is where the server reads/writes workspace files inside its own container
-- `WORKSPACE_HOST_DIR` (`/home/mtoth/.agent-workspaces`) is what gets passed to `docker -v` for child containers, since those mounts are resolved by the host daemon
+- `WORKSPACE_HOST_DIR` (`/home/you/.agent-workspaces`) is what gets passed to `docker -v` for child containers, since those mounts are resolved by the host daemon
 - When both vars are empty (default), the path translation is a no-op — identical to running on the host
 
 ## Switching Back to Host Mode

@@ -75,7 +75,7 @@ Delegation can be enabled at two levels:
 
 ### Bot-level (recommended)
 
-Set `delegate_bots` (or `harness_access`) on the bot. A non-empty list is sufficient — no global flag required.
+Set `delegate_bots` on the bot. A non-empty list is sufficient — no global flag required.
 
 ```yaml
 delegate_bots:
@@ -122,50 +122,6 @@ delegate_bots:
 ```
 
 **Fuzzy bot ID resolution:** The bot ID is resolved flexibly — you can pass a partial ID, display name, or alias. Resolution order: exact ID → case-insensitive ID → exact name → substring of ID → substring of name → word overlap on name tokens.
-
-### `delegate_to_harness`
-
-Runs an external CLI tool (e.g. `claude`, `cursor`) as a subprocess. Requires a `harnesses.yaml` configuration file.
-
-| Parameter | Type | Description |
-|---|---|---|
-| `harness` | string | Harness name as defined in `harnesses.yaml` |
-| `prompt` | string | Prompt/instruction to pass to the harness |
-| `working_directory` | string | Working directory for the subprocess. Must be in server allowlist. |
-| `mode` | `"sync"` \| `"deferred"` | How to run. Default: `"sync"` |
-| `reply_in_thread` | boolean | Deferred only. Post result as a Slack thread reply (`true`) or channel-level message (`false`, default). |
-
-**Bot config required:**
-
-```yaml
-local_tools:
-  - delegate_to_harness
-harness_access:
-  - claude-code
-```
-
-**harnesses.yaml example:**
-
-```yaml
-harnesses:
-  claude-code:
-    command: claude
-    args: ["--print", "{prompt}"]
-    working_directory: "{working_directory}"
-    timeout: 300
-
-  cursor:
-    command: cursor
-    args: ["--agent", "{prompt}"]
-    timeout: 600
-```
-
-**Server config:**
-
-```
-HARNESS_CONFIG_FILE=harnesses.yaml
-HARNESS_WORKING_DIR_ALLOWLIST=/home/user/projects,/tmp
-```
 
 ---
 
@@ -265,20 +221,14 @@ User (Slack #ops)
 ```yaml
 local_tools:
   - delegate_to_agent      # enables orchestration
-  - delegate_to_harness    # enables external CLI tools
 
 delegate_bots:             # allowlist of bot IDs this bot can delegate to
   - researcher_bot
   - code_bot
-
-harness_access:            # allowlist of harness names from harnesses.yaml
-  - claude-code
 ```
 
 ### .env
 
 ```
 DELEGATION_MAX_DEPTH=3          # max chain depth before DelegationDepthError
-HARNESS_CONFIG_FILE=harnesses.yaml
-HARNESS_WORKING_DIR_ALLOWLIST=  # comma-separated paths; empty = all allowed
 ```

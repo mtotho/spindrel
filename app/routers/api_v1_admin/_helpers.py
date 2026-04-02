@@ -77,7 +77,6 @@ def _bot_to_out(
         knowledge=KnowledgeConfigOut(enabled=bot.knowledge.enabled),
         knowledge_max_inject_chars=getattr(bot, "knowledge_max_inject_chars", None),
         delegate_bots=bot.delegate_bots,
-        harness_access=bot.harness_access,
         model_provider_id=bot.model_provider_id,
         fallback_models=getattr(bot, "fallback_models", []),
         integration_config=getattr(bot, "integration_config", {}),
@@ -93,7 +92,6 @@ def _bot_to_out(
         model_params=getattr(bot, "model_params", {}),
         delegation_config={
             "delegate_bots": bot.delegate_bots or [],
-            "harness_access": bot.harness_access or [],
             "cross_workspace_access": bot.cross_workspace_access,
         },
         user_id=getattr(bot, "user_id", None),

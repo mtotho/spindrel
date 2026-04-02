@@ -209,9 +209,6 @@ The admin UI's bot edit page has a Slack subsection under Display for `icon_emoj
 - Delegation bookkeeping (`notify_parent`, `parent_session_id`, `parent_bot_id`,
   `parent_client_id`) — moved to `Task.callback_config` JSONB (migrations 039+040).
 
-- Harness execution config (`harness_name`, `working_directory`, `sandbox_instance_id`) —
-  moved to `Task.callback_config` JSONB.
-
 - Webhook prompt injection (`system_preamble`, `skills`, `tools`) — lives in
   `Task.execution_config` JSONB. Set by integrations via `inject_message(execution_config=...)`.
   See [Creating an Integration](index.md#webhook-prompt-injection-execution_config) for details.

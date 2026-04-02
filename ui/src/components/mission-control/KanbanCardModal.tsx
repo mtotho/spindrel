@@ -4,17 +4,29 @@
  */
 import { useState, useEffect } from "react";
 import { View, Text, Pressable, TextInput } from "react-native";
-import { X, Tag, User, Calendar, ArrowRight, Pencil, Check, Clock, Link2 } from "lucide-react";
+import { useRouter } from "expo-router";
+import {
+  X,
+  Tag,
+  User,
+  Calendar,
+  ArrowRight,
+  Pencil,
+  Check,
+  Clock,
+  Link2,
+  ExternalLink,
+} from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { channelColor } from "./botColors";
 import { useMCCardHistory } from "@/src/api/hooks/useMissionControl";
 import type { MCKanbanCard, MCKanbanColumn } from "@/src/api/hooks/useMissionControl";
 
-const PRIORITY_COLORS: Record<string, { bg: string; fg: string }> = {
-  critical: { bg: "rgba(239,68,68,0.15)", fg: "#ef4444" },
-  high: { bg: "rgba(249,115,22,0.15)", fg: "#f97316" },
-  medium: { bg: "rgba(99,102,241,0.12)", fg: "#6366f1" },
-  low: { bg: "rgba(107,114,128,0.10)", fg: "#9ca3af" },
+const PRIORITY_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
+  critical: { bg: "rgba(239,68,68,0.10)", fg: "#ef4444", border: "rgba(239,68,68,0.25)" },
+  high: { bg: "rgba(249,115,22,0.10)", fg: "#f97316", border: "rgba(249,115,22,0.25)" },
+  medium: { bg: "rgba(99,102,241,0.08)", fg: "#6366f1", border: "rgba(99,102,241,0.2)" },
+  low: { bg: "rgba(107,114,128,0.06)", fg: "#9ca3af", border: "rgba(107,114,128,0.15)" },
 };
 
 const PRIORITY_CYCLE = ["low", "medium", "high", "critical"];
@@ -39,6 +51,7 @@ export function KanbanCardModal({
   moveDisabled,
 }: Props) {
   const t = useThemeTokens();
+  const router = useRouter();
   const priority = card.meta.priority || "medium";
   const pc = PRIORITY_COLORS[priority] || PRIORITY_COLORS.medium;
   const cc = channelColor(card.channel_id);
@@ -116,7 +129,7 @@ export function KanbanCardModal({
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -50%)",
-          width: 520,
+          width: 540,
           maxWidth: "92vw",
           maxHeight: "85vh",
           overflowY: "auto",
@@ -128,160 +141,217 @@ export function KanbanCardModal({
         }}
       >
         {/* Header */}
-        <View
+        <div
           style={{
-            flexDirection: "row",
+            display: "flex",
             justifyContent: "space-between",
             alignItems: "flex-start",
             padding: 20,
             paddingBottom: 0,
           }}
         >
-          <View style={{ flex: 1, gap: 6 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
             {editingTitle ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <TextInput
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="text"
                   value={titleDraft}
-                  onChangeText={setTitleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
                   onBlur={handleSaveTitle}
-                  onSubmitEditing={handleSaveTitle}
+                  onKeyDown={(e) => e.key === "Enter" && handleSaveTitle()}
                   autoFocus
                   style={{
                     fontSize: 17,
-                    fontWeight: "700",
+                    fontWeight: 700,
                     color: t.text,
                     flex: 1,
-                    borderBottomWidth: 2,
-                    borderBottomColor: t.accent,
-                    paddingVertical: 2,
-                    backgroundColor: "transparent",
-                    outlineStyle: "none",
-                  } as any}
+                    background: "transparent",
+                    border: "none",
+                    borderBottom: `2px solid ${t.accent}`,
+                    padding: "2px 0",
+                    outline: "none",
+                    fontFamily: "inherit",
+                  }}
                 />
-                <Pressable onPress={handleSaveTitle}>
-                  <Check size={16} color={t.accent} />
-                </Pressable>
-              </View>
-            ) : (
-              <Pressable onPress={() => onUpdate && setEditingTitle(true)}>
-                <Text
+                <button
+                  onClick={handleSaveTitle}
                   style={{
-                    fontSize: 17,
-                    fontWeight: "700",
-                    color: t.text,
-                    lineHeight: 22,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 2,
                   }}
                 >
-                  {card.title}
-                </Text>
-              </Pressable>
+                  <Check size={16} color={t.accent} />
+                </button>
+              </div>
+            ) : (
+              <div
+                onClick={() => onUpdate && setEditingTitle(true)}
+                style={{
+                  fontSize: 17,
+                  fontWeight: 700,
+                  color: t.text,
+                  lineHeight: 1.3,
+                  cursor: onUpdate ? "pointer" : "default",
+                }}
+              >
+                {card.title}
+              </div>
             )}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginTop: 6,
+              }}
+            >
+              <div
                 style={{
                   width: 7,
                   height: 7,
                   borderRadius: 3.5,
                   backgroundColor: cc,
+                  flexShrink: 0,
                 }}
               />
-              <Text style={{ fontSize: 12, color: t.textDim }}>
+              <span style={{ fontSize: 12, color: t.textDim }}>
                 {card.channel_name}
-              </Text>
+              </span>
               {card.meta.id && (
-                <Text
+                <span
                   style={{
-                    fontSize: 11,
+                    fontSize: 10,
                     color: t.textDim,
                     fontFamily: "monospace",
                     opacity: 0.7,
                   }}
                 >
                   {card.meta.id}
-                </Text>
+                </span>
               )}
-            </View>
-          </View>
-          <Pressable
-            onPress={onClose}
-            hitSlop={8}
-            style={{ padding: 4, marginLeft: 8 }}
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 4,
+              marginLeft: 8,
+            }}
           >
             <X size={18} color={t.textDim} />
-          </Pressable>
-        </View>
+          </button>
+        </div>
 
         {/* Body */}
-        <View style={{ padding: 20, gap: 16 }}>
-          {/* Status + Priority row */}
-          <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ padding: 20, display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Status + Priority + Meta in codeBg panel */}
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 16,
+              padding: 14,
+              borderRadius: 8,
+              background: t.codeBg,
+              border: `1px solid ${t.surfaceBorder}`,
+            }}
+          >
             {/* Current column badge */}
-            <View style={{ gap: 4 }}>
-              <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                Status
-              </Text>
-              <View
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span
                 style={{
-                  paddingHorizontal: 10,
-                  paddingVertical: 4,
-                  borderRadius: 6,
-                  backgroundColor: t.accent + "18",
-                  borderWidth: 1,
-                  borderColor: t.accent + "40",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: t.textMuted,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
                 }}
               >
-                <Text style={{ fontSize: 12, fontWeight: "600", color: t.accent }}>
-                  {currentColumn}
-                </Text>
-              </View>
-            </View>
+                Status
+              </span>
+              <span
+                style={{
+                  display: "inline-flex",
+                  padding: "3px 8px",
+                  borderRadius: 5,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: `${t.accent}18`,
+                  border: `1px solid ${t.accent}40`,
+                  color: t.accent,
+                }}
+              >
+                {currentColumn}
+              </span>
+            </div>
 
-            {/* Priority badge — clickable to cycle */}
-            <View style={{ gap: 4 }}>
-              <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            {/* Priority — clickable to cycle */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: t.textMuted,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
+              >
                 Priority
-              </Text>
-              <Pressable onPress={handleCyclePriority} disabled={!onUpdate}>
-                <View
-                  style={{
-                    paddingHorizontal: 10,
-                    paddingVertical: 4,
-                    borderRadius: 6,
-                    backgroundColor: pc.bg,
-                    borderWidth: 1,
-                    borderColor: pc.fg + "40",
-                    cursor: onUpdate ? "pointer" : "default",
-                  } as any}
-                >
-                  <Text style={{ fontSize: 12, fontWeight: "600", color: pc.fg, textTransform: "capitalize" }}>
-                    {priority}
-                  </Text>
-                </View>
-              </Pressable>
-            </View>
+              </span>
+              <span
+                onClick={handleCyclePriority}
+                style={{
+                  display: "inline-flex",
+                  padding: "3px 8px",
+                  borderRadius: 5,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: pc.bg,
+                  border: `1px solid ${pc.border}`,
+                  color: pc.fg,
+                  textTransform: "capitalize",
+                  cursor: onUpdate ? "pointer" : "default",
+                }}
+              >
+                {priority}
+              </span>
+            </div>
 
             {/* Assigned */}
             {card.meta.assigned && (
-              <View style={{ gap: 4 }}>
-                <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: t.textMuted,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                  }}
+                >
                   Assigned
-                </Text>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 }}>
-                  <User size={12} color={t.textMuted} />
-                  <Text style={{ fontSize: 12, color: t.text }}>{card.meta.assigned}</Text>
-                </View>
-              </View>
+                </span>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 12,
+                    color: t.text,
+                  }}
+                >
+                  <User size={11} color={t.textMuted} />
+                  {card.meta.assigned}
+                </span>
+              </div>
             )}
-          </View>
 
-          {/* Metadata grid */}
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 12,
-            }}
-          >
+            {/* Date fields */}
             {card.meta.created && (
               <MetaField icon={Calendar} label="Created" value={card.meta.created} t={t} />
             )}
@@ -297,101 +367,163 @@ export function KanbanCardModal({
             {card.meta.tags && (
               <MetaField icon={Tag} label="Tags" value={card.meta.tags} t={t} />
             )}
-          </View>
+          </div>
 
           {/* Description — inline edit */}
-          <View style={{ gap: 6 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: t.textMuted,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
+              >
                 Description
-              </Text>
+              </span>
               {!editingDesc && onUpdate && (
-                <Pressable
-                  onPress={() => setEditingDesc(true)}
-                  className="flex-row items-center gap-1"
+                <button
+                  onClick={() => setEditingDesc(true)}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 3,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: 0,
+                    fontSize: 10,
+                    color: t.textDim,
+                  }}
                 >
-                  <Pencil size={10} color={t.textDim} />
-                  <Text style={{ fontSize: 10, color: t.textDim }}>Edit</Text>
-                </Pressable>
+                  <Pencil size={10} />
+                  Edit
+                </button>
               )}
-            </View>
+            </div>
             {editingDesc ? (
-              <View style={{ gap: 8 }}>
-                <TextInput
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <textarea
                   value={descDraft}
-                  onChangeText={setDescDraft}
-                  multiline
+                  onChange={(e) => setDescDraft(e.target.value)}
                   autoFocus
+                  rows={4}
                   style={{
                     fontSize: 13,
                     color: t.text,
-                    lineHeight: 20,
-                    backgroundColor: t.surfaceOverlay,
+                    lineHeight: 1.5,
+                    backgroundColor: t.codeBg,
                     borderRadius: 8,
                     padding: 12,
-                    borderWidth: 1,
-                    borderColor: t.accent,
+                    border: `1px solid ${t.accent}`,
                     minHeight: 80,
-                    outlineStyle: "none",
-                  } as any}
+                    outline: "none",
+                    fontFamily: "inherit",
+                    resize: "vertical",
+                  }}
                 />
-                <View style={{ flexDirection: "row", gap: 8 }}>
-                  <Pressable
-                    onPress={handleSaveDesc}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={handleSaveDesc}
                     style={{
-                      paddingHorizontal: 12,
-                      paddingVertical: 6,
+                      padding: "5px 12px",
                       borderRadius: 6,
-                      backgroundColor: t.accent + "18",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      background: `${t.accent}18`,
+                      border: "none",
+                      color: t.accent,
+                      cursor: "pointer",
                     }}
                   >
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: t.accent }}>Save</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
+                    Save
+                  </button>
+                  <button
+                    onClick={() => {
                       setEditingDesc(false);
                       setDescDraft(card.description || "");
                     }}
-                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6 }}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: 6,
+                      fontSize: 12,
+                      background: "none",
+                      border: "none",
+                      color: t.textDim,
+                      cursor: "pointer",
+                    }}
                   >
-                    <Text style={{ fontSize: 12, color: t.textDim }}>Cancel</Text>
-                  </Pressable>
-                </View>
-              </View>
+                    Cancel
+                  </button>
+                </div>
+              </div>
             ) : card.description ? (
-              <View
+              <div
                 style={{
-                  backgroundColor: t.surfaceOverlay,
+                  backgroundColor: t.codeBg,
                   borderRadius: 8,
                   padding: 12,
-                  borderWidth: 1,
-                  borderColor: t.surfaceBorder,
+                  border: `1px solid ${t.surfaceBorder}`,
                 }}
               >
-                <Text style={{ fontSize: 13, color: t.text, lineHeight: 20 }}>
+                <span style={{ fontSize: 13, color: t.text, lineHeight: 1.5, whiteSpace: "pre-wrap" }}>
                   {card.description}
-                </Text>
-              </View>
+                </span>
+              </div>
             ) : (
-              <Text style={{ fontSize: 12, color: t.textDim, fontStyle: "italic" }}>
+              <span style={{ fontSize: 12, color: t.textDim, fontStyle: "italic" }}>
                 No description
-              </Text>
+              </span>
             )}
-          </View>
+          </div>
 
-          {/* Plan link */}
+          {/* Linked plan */}
           {card.plan_id && (
-            <View style={{ gap: 4 }}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <Link2 size={10} color={t.textDim} />
-                <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: t.textMuted,
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                  }}
+                >
                   Linked Plan
-                </Text>
-              </View>
-              <Text style={{ fontSize: 12, color: t.accent, fontFamily: "monospace" }}>
-                {card.plan_id}{card.plan_step_position ? ` (step ${card.plan_step_position})` : ""}
-              </Text>
-            </View>
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  onClose();
+                  router.push(
+                    `/mission-control/plans/${card.channel_id}/${card.plan_id}` as any
+                  );
+                }}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  background: t.accentSubtle,
+                  border: `1px solid ${t.accentBorder}`,
+                  color: t.accent,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  fontFamily: "monospace",
+                  cursor: "pointer",
+                  alignSelf: "flex-start",
+                }}
+              >
+                <ExternalLink size={11} />
+                {card.plan_id.slice(0, 12)}
+                {card.plan_step_position ? ` — Step ${card.plan_step_position}` : ""}
+              </button>
+            </div>
           )}
 
           {/* History */}
@@ -399,41 +531,57 @@ export function KanbanCardModal({
 
           {/* Move actions */}
           {otherColumns.length > 0 && (
-            <View style={{ gap: 6 }}>
-              <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: t.textMuted,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
+              >
                 Move to
-              </Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              </span>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {otherColumns.map((col) => (
-                  <Pressable
+                  <button
                     key={col.name}
-                    onPress={() => {
+                    onClick={() => {
                       onMove(card.meta.id, card.channel_id, currentColumn, col.name);
                       onClose();
                     }}
                     disabled={moveDisabled}
                     style={{
-                      flexDirection: "row",
+                      display: "inline-flex",
                       alignItems: "center",
                       gap: 6,
-                      paddingHorizontal: 12,
-                      paddingVertical: 7,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: t.surfaceBorder,
+                      padding: "6px 12px",
+                      borderRadius: 6,
+                      border: `1px solid ${t.surfaceBorder}`,
+                      background: "transparent",
+                      color: t.text,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: moveDisabled ? "default" : "pointer",
                       opacity: moveDisabled ? 0.5 : 1,
+                      transition: "border-color 0.15s",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = t.textDim;
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.borderColor = t.surfaceBorder;
                     }}
                   >
                     <ArrowRight size={12} color={t.textMuted} />
-                    <Text style={{ fontSize: 12, fontWeight: "500", color: t.text }}>
-                      {col.name}
-                    </Text>
-                  </Pressable>
+                    {col.name}
+                  </button>
                 ))}
-              </View>
-            </View>
+              </div>
+            </div>
           )}
-        </View>
+        </div>
       </div>
     </>,
     document.body
@@ -452,13 +600,26 @@ function MetaField({
   t: ReturnType<typeof useThemeTokens>;
 }) {
   return (
-    <View style={{ gap: 2 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-        <Icon size={10} color={t.textDim} />
-        <Text style={{ fontSize: 10, color: t.textDim, fontWeight: "500" }}>{label}</Text>
-      </View>
-      <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace" }}>{value}</Text>
-    </View>
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 3,
+          fontSize: 10,
+          fontWeight: 600,
+          color: t.textMuted,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+        }}
+      >
+        <Icon size={9} color={t.textDim} />
+        {label}
+      </span>
+      <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace" }}>
+        {value}
+      </span>
+    </div>
   );
 }
 
@@ -477,34 +638,58 @@ function CardHistorySection({
   if (!events || events.length === 0) return null;
 
   return (
-    <View style={{ gap: 6 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         <Clock size={10} color={t.textDim} />
-        <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            color: t.textMuted,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+          }}
+        >
           History
-        </Text>
-      </View>
-      <View
+        </span>
+      </div>
+      <div
         style={{
-          backgroundColor: t.surfaceOverlay,
+          backgroundColor: t.codeBg,
           borderRadius: 8,
           padding: 10,
-          borderWidth: 1,
-          borderColor: t.surfaceBorder,
-          gap: 6,
+          border: `1px solid ${t.surfaceBorder}`,
+          display: "flex",
+          flexDirection: "column",
+          gap: 5,
         }}
       >
         {events.slice(0, 5).map((ev, i) => (
-          <View key={i} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
-            <Text style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace", minWidth: 36, flexShrink: 0 }}>
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+            }}
+          >
+            <span
+              style={{
+                fontSize: 10,
+                color: t.textDim,
+                fontFamily: "monospace",
+                minWidth: 36,
+                flexShrink: 0,
+              }}
+            >
               {ev.time}
-            </Text>
-            <Text style={{ fontSize: 11, color: t.text, lineHeight: 16, flex: 1 }}>
+            </span>
+            <span style={{ fontSize: 11, color: t.text, lineHeight: 1.4, flex: 1 }}>
               {ev.event}
-            </Text>
-          </View>
+            </span>
+          </div>
         ))}
-      </View>
-    </View>
+      </div>
+    </div>
   );
 }

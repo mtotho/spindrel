@@ -116,8 +116,8 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
         const isDenied = tc.status === "denied";
         const isDeciding = tc.approvalId ? decidingIds.has(tc.approvalId) : false;
 
-        const iconColor = isDenied ? t.danger : isAwaiting ? "#f59e0b" : tc.status === "running" ? t.purple : t.success;
-        const borderColor = isAwaiting ? "#f59e0b" : isDenied ? t.danger : t.overlayBorder;
+        const iconColor = isDenied ? t.danger : isAwaiting ? t.warning : tc.status === "running" ? t.purple : t.success;
+        const borderColor = isAwaiting ? t.warningBorder : isDenied ? t.dangerBorder : t.overlayBorder;
 
         return (
           <div
@@ -145,7 +145,7 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
               {tc.status === "done" && <Check size={10} color={t.success} />}
               {isDenied && <XCircle size={10} color={t.danger} />}
               {isAwaiting && (
-                <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: 500 }}>
+                <span style={{ fontSize: 11, color: t.warning, fontWeight: 500 }}>
                   Waiting for approval…
                 </span>
               )}
@@ -165,11 +165,9 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
                   flexWrap: "wrap",
                 }}
               >
-                {tc.approvalReason && (
-                  <span style={{ fontSize: 11, color: t.textMuted, flex: 1, minWidth: 100 }}>
-                    {tc.approvalReason}
-                  </span>
-                )}
+                <span style={{ fontSize: 11, color: t.textMuted, flex: 1, minWidth: 100 }}>
+                  {tc.approvalReason || "Tool policy requires approval before execution"}
+                </span>
                 <button
                   disabled={isDeciding}
                   onClick={() => handleDecide(tc.approvalId!, true)}
@@ -335,11 +333,11 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
                   borderRadius: 6,
                   backgroundColor: t.overlayLight,
                   borderWidth: 1,
-                  borderColor: tc.status === "awaiting_approval" ? "#f59e0b" : tc.status === "denied" ? t.danger : t.overlayBorder,
+                  borderColor: tc.status === "awaiting_approval" ? t.warningBorder : tc.status === "denied" ? t.dangerBorder : t.overlayBorder,
                   alignSelf: "flex-start",
                 }}
               >
-                <Wrench size={12} color={tc.status === "denied" ? t.danger : tc.status === "awaiting_approval" ? "#f59e0b" : tc.status === "running" ? t.purple : t.success} />
+                <Wrench size={12} color={tc.status === "denied" ? t.danger : tc.status === "awaiting_approval" ? t.warning : tc.status === "running" ? t.purple : t.success} />
                 <Text style={{ fontSize: 12, color: t.textMuted }}>
                   {tc.name}
                 </Text>
@@ -350,7 +348,7 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
                   <Text style={{ fontSize: 11, color: t.success }}>done</Text>
                 )}
                 {tc.status === "awaiting_approval" && (
-                  <Text style={{ fontSize: 11, color: "#f59e0b" }}>awaiting approval</Text>
+                  <Text style={{ fontSize: 11, color: t.warning }}>awaiting approval</Text>
                 )}
                 {tc.status === "denied" && (
                   <Text style={{ fontSize: 11, color: t.danger }}>denied</Text>

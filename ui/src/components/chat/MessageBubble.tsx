@@ -688,15 +688,13 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
     : trigger === "scheduled_task"
       ? { label: meta.task_title || "scheduled", icon: "🔁", color: "#8b5cf6" }
-      : trigger === "harness_callback"
-        ? { label: meta.harness_name || "harness", icon: "⚡", color: "#06b6d4" }
-        : trigger === "delegation_callback"
-          ? { label: meta.delegation_child_display || "delegation", icon: "↩", color: "#8b5cf6" }
-          : trigger === "callback"
-            ? { label: "callback", icon: "↩", color: "#8b5cf6" }
-            : meta.is_heartbeat
-              ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
-              : null;
+      : trigger === "delegation_callback"
+        ? { label: meta.delegation_child_display || "delegation", icon: "↩", color: "#8b5cf6" }
+        : trigger === "callback"
+          ? { label: "callback", icon: "↩", color: "#8b5cf6" }
+          : meta.is_heartbeat
+            ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
+            : null;
 
   // Collapsed non-dispatched heartbeat messages
   const isNonDispatchedHeartbeat = (trigger === "heartbeat" || meta.is_heartbeat) && meta.dispatched === false;

@@ -1,6 +1,5 @@
-import { View, Text, Pressable } from "react-native";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { ShieldAlert, ArrowUp, ArrowDown, X, Plus } from "lucide-react";
+import { ShieldAlert, ArrowUp, ArrowDown, X, Plus, GripVertical } from "lucide-react";
 
 export interface StepDraft {
   key: string;
@@ -46,95 +45,186 @@ export function StepListEditor({ steps, onChange }: StepListEditorProps) {
   };
 
   return (
-    <View style={{ gap: 6 }}>
-      {steps.map((step, i) => (
-        <View
-          key={step.key}
-          className="flex-row items-center gap-2"
-          style={{ minHeight: 36 }}
-        >
-          <Text
-            style={{
-              fontSize: 12,
-              color: t.textDim,
-              width: 20,
-              textAlign: "right",
-              fontFamily: "monospace",
-            }}
-          >
-            {i + 1}
-          </Text>
-          <input
-            type="text"
-            value={step.content}
-            onChange={(e) => updateStep(step.key, { content: e.target.value })}
-            placeholder="Step description..."
-            style={{
-              flex: 1,
-              fontSize: 13,
-              color: t.text,
-              backgroundColor: t.surfaceOverlay,
-              border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 6,
-              padding: "6px 10px",
-              outline: "none",
-              fontFamily: "inherit",
-            }}
-          />
-          <Pressable
-            onPress={() =>
-              updateStep(step.key, {
-                requires_approval: !step.requires_approval,
-              })
-            }
-            style={{ padding: 4, opacity: step.requires_approval ? 1 : 0.3 }}
-            accessibilityLabel="Toggle approval gate"
-          >
-            <ShieldAlert
-              size={14}
-              color={step.requires_approval ? "#a855f7" : t.textDim}
-            />
-          </Pressable>
-          <Pressable
-            onPress={() => moveStep(i, -1)}
-            disabled={i === 0}
-            style={{ padding: 4, opacity: i === 0 ? 0.2 : 0.6 }}
-          >
-            <ArrowUp size={13} color={t.textDim} />
-          </Pressable>
-          <Pressable
-            onPress={() => moveStep(i, 1)}
-            disabled={i === steps.length - 1}
-            style={{
-              padding: 4,
-              opacity: i === steps.length - 1 ? 0.2 : 0.6,
-            }}
-          >
-            <ArrowDown size={13} color={t.textDim} />
-          </Pressable>
-          <Pressable
-            onPress={() => removeStep(step.key)}
-            disabled={steps.length <= 1}
-            style={{ padding: 4, opacity: steps.length <= 1 ? 0.2 : 0.6 }}
-          >
-            <X size={13} color="#ef4444" />
-          </Pressable>
-        </View>
-      ))}
-
-      <Pressable
-        onPress={addStep}
-        className="flex-row items-center gap-1.5 self-start rounded-lg px-3 py-1.5"
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div
         style={{
-          backgroundColor: t.surfaceOverlay,
-          borderWidth: 1,
-          borderColor: t.surfaceBorder,
-          marginTop: 2,
+          borderRadius: 8,
+          border: `1px solid ${t.surfaceBorder}`,
+          background: t.codeBg,
+          overflow: "hidden",
         }}
       >
-        <Plus size={12} color={t.textDim} />
-        <Text style={{ fontSize: 12, color: t.textDim }}>Add Step</Text>
-      </Pressable>
-    </View>
+        {steps.map((step, i) => (
+          <div
+            key={step.key}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 12px",
+              borderBottom: i < steps.length - 1 ? `1px solid ${t.surfaceBorder}` : "none",
+            }}
+          >
+            {/* Grip + number */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 2,
+                flexShrink: 0,
+              }}
+            >
+              <GripVertical size={11} color={t.textDim} style={{ opacity: 0.4 }} />
+              <span
+                style={{
+                  fontSize: 11,
+                  color: t.textDim,
+                  fontFamily: "monospace",
+                  width: 16,
+                  textAlign: "right",
+                }}
+              >
+                {i + 1}
+              </span>
+            </div>
+
+            {/* Content input */}
+            <input
+              type="text"
+              value={step.content}
+              onChange={(e) => updateStep(step.key, { content: e.target.value })}
+              placeholder="Describe this step..."
+              style={{
+                flex: 1,
+                fontSize: 13,
+                color: t.text,
+                backgroundColor: "transparent",
+                border: "none",
+                borderBottom: `1px solid transparent`,
+                padding: "4px 0",
+                outline: "none",
+                fontFamily: "inherit",
+                lineHeight: 1.4,
+              }}
+              onFocus={(e) => {
+                (e.target as HTMLInputElement).style.borderBottomColor = t.accent;
+              }}
+              onBlur={(e) => {
+                (e.target as HTMLInputElement).style.borderBottomColor = "transparent";
+              }}
+            />
+
+            {/* Approval gate toggle */}
+            <button
+              onClick={() =>
+                updateStep(step.key, {
+                  requires_approval: !step.requires_approval,
+                })
+              }
+              title={step.requires_approval ? "Approval gate enabled" : "Add approval gate"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 3,
+                padding: "2px 6px",
+                borderRadius: 4,
+                border: "none",
+                background: step.requires_approval ? "rgba(168,85,247,0.08)" : "transparent",
+                cursor: "pointer",
+                opacity: step.requires_approval ? 1 : 0.3,
+                transition: "opacity 0.15s, background 0.15s",
+              }}
+            >
+              <ShieldAlert
+                size={13}
+                color={step.requires_approval ? "#a855f7" : t.textDim}
+              />
+              {step.requires_approval && (
+                <span style={{ fontSize: 10, fontWeight: 600, color: "#a855f7" }}>Gate</span>
+              )}
+            </button>
+
+            {/* Reorder buttons */}
+            <div style={{ display: "flex", gap: 0 }}>
+              <button
+                onClick={() => moveStep(i, -1)}
+                disabled={i === 0}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: i === 0 ? "default" : "pointer",
+                  padding: 3,
+                  opacity: i === 0 ? 0.15 : 0.5,
+                  display: "flex",
+                }}
+              >
+                <ArrowUp size={12} color={t.textDim} />
+              </button>
+              <button
+                onClick={() => moveStep(i, 1)}
+                disabled={i === steps.length - 1}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: i === steps.length - 1 ? "default" : "pointer",
+                  padding: 3,
+                  opacity: i === steps.length - 1 ? 0.15 : 0.5,
+                  display: "flex",
+                }}
+              >
+                <ArrowDown size={12} color={t.textDim} />
+              </button>
+            </div>
+
+            {/* Delete */}
+            <button
+              onClick={() => removeStep(step.key)}
+              disabled={steps.length <= 1}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: steps.length <= 1 ? "default" : "pointer",
+                padding: 3,
+                opacity: steps.length <= 1 ? 0.15 : 0.5,
+                display: "flex",
+              }}
+            >
+              <X size={12} color="#ef4444" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Add step button */}
+      <button
+        onClick={addStep}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 5,
+          alignSelf: "flex-start",
+          padding: "5px 12px",
+          borderRadius: 6,
+          border: `1px dashed ${t.surfaceBorder}`,
+          background: "transparent",
+          color: t.textDim,
+          fontSize: 12,
+          cursor: "pointer",
+          marginTop: 2,
+          transition: "border-color 0.15s, color 0.15s",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.borderColor = t.textDim;
+          (e.currentTarget as HTMLButtonElement).style.color = t.text;
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.borderColor = t.surfaceBorder;
+          (e.currentTarget as HTMLButtonElement).style.color = t.textDim;
+        }}
+      >
+        <Plus size={12} />
+        Add Step
+      </button>
+    </div>
   );
 }

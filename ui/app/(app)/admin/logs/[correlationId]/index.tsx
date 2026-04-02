@@ -20,7 +20,6 @@ const DOT_COLORS: Record<string, string> = {
   context_breakdown:    "#0891b2",
   token_usage:          "#999",
   error:                "#dc2626",
-  harness:              "#d97706",
   response:             "#16a34a",
   message:              "#4f46e5",
 };
@@ -35,7 +34,6 @@ const BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
   context_breakdown:    { bg: "rgba(6,182,212,0.12)",   fg: "#0891b2" },
   token_usage:          { bg: "rgba(107,114,128,0.12)", fg: "#6b7280" },
   error:                { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626" },
-  harness:              { bg: "rgba(234,179,8,0.12)",   fg: "#b45309" },
   response:             { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a" },
   message:              { bg: "rgba(99,102,241,0.12)",  fg: "#4f46e5" },
 };

@@ -148,13 +148,6 @@ def format_tool_status(tool: str, raw_args: str | None = None) -> str:
         if cmd:
             return f":wrench: {tool} \u2192 `{_truncate(cmd, 100)}`"
 
-    if tool == "delegate_to_harness":
-        harness = parsed.get("harness", "harness")
-        prompt = (parsed.get("prompt") or "").split("\n", 1)[0]
-        if prompt:
-            return f":robot: {harness} \u2192 {_truncate(prompt, 80)}"
-        return f":robot: {harness}"
-
     if tool == "delegate_to_agent":
         bot_id = parsed.get("bot_id", "agent")
         prompt = (parsed.get("prompt") or "").split("\n", 1)[0]

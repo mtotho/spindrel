@@ -59,7 +59,6 @@ export interface BotConfig {
   knowledge?: KnowledgeConfig;
   knowledge_max_inject_chars?: number | null;
   delegate_bots?: string[];
-  harness_access?: string[];
   integration_config?: Record<string, any>;
   workspace?: Record<string, any>;
   docker_sandbox_profiles?: string[];
@@ -218,7 +217,6 @@ export interface BotEditorData {
   all_skills: SkillOption[];
   workspace_skills: WorkspaceSkill[];
   all_bots: { id: string; name: string }[];
-  all_harnesses: string[];
   all_sandbox_profiles: { name: string; description?: string }[];
   model_param_definitions: ModelParamDefinition[];
   model_param_support: Record<string, string[]>;

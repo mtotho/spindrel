@@ -50,7 +50,7 @@ async def test_check_update_detects_new_version(client):
         ctx = AsyncMock()
         ctx.get = AsyncMock(return_value=_mock_httpx_response(200, {
             "tag_name": "v99.0.0",
-            "html_url": "https://github.com/mtotho/spindrel/releases/tag/v99.0.0",
+            "html_url": "https://github.com/test-org/test-repo/releases/tag/v99.0.0",
             "published_at": "2026-03-01T00:00:00Z",
         }))
         MockClient.return_value.__aenter__ = AsyncMock(return_value=ctx)
@@ -65,7 +65,7 @@ async def test_check_update_detects_new_version(client):
     data = resp.json()
     assert data["latest"] == "99.0.0"
     assert data["update_available"] is True
-    assert data["latest_url"] == "https://github.com/mtotho/spindrel/releases/tag/v99.0.0"
+    assert data["latest_url"] == "https://github.com/test-org/test-repo/releases/tag/v99.0.0"
     assert data["published_at"] == "2026-03-01T00:00:00Z"
 
 
@@ -77,7 +77,7 @@ async def test_check_update_up_to_date(client):
         ctx = AsyncMock()
         ctx.get = AsyncMock(return_value=_mock_httpx_response(200, {
             "tag_name": f"v{VERSION}",
-            "html_url": f"https://github.com/mtotho/spindrel/releases/tag/v{VERSION}",
+            "html_url": f"https://github.com/test-org/test-repo/releases/tag/v{VERSION}",
             "published_at": "2026-01-01T00:00:00Z",
         }))
         MockClient.return_value.__aenter__ = AsyncMock(return_value=ctx)
