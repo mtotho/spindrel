@@ -1,6 +1,7 @@
 """Workspace service — unified execution layer wrapping sandbox + host_exec + shared workspaces."""
 import logging
 import os
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -150,7 +151,7 @@ class WorkspaceService:
             working_dir = "/workspace"
         # Prefix the command with cd to working_dir if it's not /workspace
         if working_dir != "/workspace":
-            command = f"cd {working_dir} && {command}"
+            command = f"cd {shlex.quote(working_dir)} && {command}"
         elif working_dir == "/workspace":
             command = f"cd /workspace && {command}"
 

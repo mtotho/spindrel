@@ -13,7 +13,13 @@ def validate_signature(payload: bytes, signature_header: str | None) -> bool:
     Returns True if valid. When no secret is configured, skips validation (dev mode).
     """
     if not settings.GITHUB_WEBHOOK_SECRET:
-        return True
+        # No secret configured — fail-secure (reject webhook)
+        import logging
+        logging.getLogger(__name__).warning(
+            "GITHUB_WEBHOOK_SECRET not configured — rejecting webhook. "
+            "Set the secret to enable webhook processing."
+        )
+        return False
 
     if not signature_header or not signature_header.startswith("sha256="):
         return False

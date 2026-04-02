@@ -4,6 +4,7 @@ import fnmatch
 import logging
 import os
 import re
+import shlex
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -322,7 +323,7 @@ class SharedWorkspaceService:
         # Enforce write protection
         self._check_write_protection(bot_id, ws, swb, command, working_dir)
 
-        full_cmd = f"umask 0000 && cd {working_dir} && {command}"
+        full_cmd = f"umask 0000 && cd {shlex.quote(working_dir)} && {command}"
         _timeout = timeout or 30
         _max_bytes = max_bytes or 65536
 
@@ -440,14 +441,15 @@ class SharedWorkspaceService:
     async def _run_startup_script(self, container_name: str, script_path: str) -> None:
         """Run a startup script inside the container. Logs output, warns on failure."""
         # Check if the script exists
-        rc, _ = await self._docker_exec(container_name, f"test -f {script_path}")
+        quoted = shlex.quote(script_path)
+        rc, _ = await self._docker_exec(container_name, f"test -f {quoted}")
         if rc != 0:
             logger.info("Startup script %s not found in %s, skipping", script_path, container_name)
             return
 
         logger.info("Running startup script %s in %s", script_path, container_name)
         rc, output = await self._docker_exec(
-            container_name, f"chmod +x {script_path} && {script_path}"
+            container_name, f"chmod +x {quoted} && {quoted}"
         )
         if rc != 0:
             logger.warning(
