@@ -7,7 +7,7 @@ import { useLocalSearchParams, Link } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
-import { ArrowLeft, Check, ExternalLink, Zap, ChevronRight } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, Zap, ChevronDown } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelSettings,
@@ -87,8 +87,6 @@ export default function ChannelSettingsScreen() {
 
   // Auto-expand advanced section when navigating to an advanced tab
   const isAdvancedTab = ADVANCED_KEYS.has(tab);
-  const visibleTabs = showAdvanced || isAdvancedTab ? ALL_TABS : PRIMARY_TABS;
-
   useEffect(() => {
     if (settings) {
       setForm({
@@ -229,69 +227,45 @@ export default function ChannelSettingsScreen() {
         </View>
       </View>
 
-      {/* Tabs — with gradient fade hints for scrollability */}
-      <View style={{ flexShrink: 0, position: "relative" }}>
+      {/* Tabs */}
+      <View style={{ flexShrink: 0 }}>
         <View className="px-3 pt-2 pb-1">
-          <TabBar
-            tabs={visibleTabs}
-            active={tab}
-            onChange={setTab}
-            suffix={!isAdvancedTab ? (
-              <button
-                onClick={() => setShowAdvanced(!showAdvanced)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 3,
-                  padding: "6px 10px",
-                  fontSize: 11,
-                  fontWeight: 500,
-                  border: `1px dashed ${t.surfaceBorder}`,
-                  borderRadius: 6,
-                  background: "transparent",
-                  color: t.textDim,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                  minHeight: 36,
-                  transition: "all 0.15s",
-                }}
-              >
-                {showAdvanced ? "Less" : "More"}
-                <ChevronRight
-                  size={12}
-                  color={t.textDim}
-                  style={{ transform: showAdvanced ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" } as any}
-                />
-              </button>
-            ) : undefined}
-          />
+          <TabBar tabs={PRIMARY_TABS} active={tab} onChange={setTab} />
         </View>
-        {/* Left fade to hint at scrollable tabs */}
-        <div
+
+        {/* Advanced expander */}
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
           style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            bottom: 0,
-            width: 32,
-            background: `linear-gradient(to left, transparent, ${t.surface})`,
-            pointerEvents: "none",
-            zIndex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            width: "100%",
+            padding: "4px 12px",
+            fontSize: 11,
+            fontWeight: 500,
+            border: "none",
+            borderTop: `1px solid ${t.surfaceBorder}`,
+            background: "transparent",
+            color: t.textDim,
+            cursor: "pointer",
+            transition: "color 0.15s",
           }}
-        />
-        {/* Right fade to hint at scrollable tabs */}
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            right: 0,
-            bottom: 0,
-            width: 32,
-            background: `linear-gradient(to right, transparent, ${t.surface})`,
-            pointerEvents: "none",
-          }}
-        />
+        >
+          <ChevronDown
+            size={11}
+            color={t.textDim}
+            style={{ transform: showAdvanced || isAdvancedTab ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" } as any}
+          />
+          {showAdvanced || isAdvancedTab ? "Less" : "Advanced"}
+        </button>
+
+        {/* Advanced tabs row */}
+        {(showAdvanced || isAdvancedTab) && (
+          <View className="px-3 pb-1">
+            <TabBar tabs={ADVANCED_TABS} active={tab} onChange={setTab} />
+          </View>
+        )}
       </View>
 
       {/* Tab content */}

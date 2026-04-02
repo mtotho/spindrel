@@ -16,26 +16,51 @@ def _is_openai_model(model: str) -> bool:
     return any(t in m for t in ("gpt-image", "dall-e"))
 
 
+def _is_gpt_image_model(model: str) -> bool:
+    """True for GPT Image family (gpt-image-1, gpt-image-1.5, etc.)."""
+    return "gpt-image" in (model or "").lower()
+
+
+def _is_dalle_model(model: str) -> bool:
+    """True for DALL-E family (dall-e-2, dall-e-3)."""
+    return "dall-e" in (model or "").lower()
+
+
 def _is_gemini_model(model: str) -> bool:
     m = (model or "").lower()
     return "gemini" in m or "imagen" in m
 
 
+def _supports_edit(model: str) -> bool:
+    """Whether the model supports the images.edit() endpoint.
+
+    OpenAI models support it; Gemini does not (image editing goes through
+    chat completions, which isn't wired here).
+    """
+    return _is_openai_model(model)
+
+
 def _generate_kwargs(model: str, n: int = 1) -> dict:
     """Build provider-optimal kwargs for images.generate()."""
     kw: dict = {}
-    if _is_openai_model(model):
+    if _is_gpt_image_model(model):
+        # GPT Image family: supports n>1, uses output_format not response_format
         kw["n"] = n
+    elif _is_dalle_model(model):
+        # dall-e-3 only supports n=1; dall-e-2 supports n but is legacy
+        kw["n"] = 1 if "dall-e-3" in model.lower() else n
         kw["response_format"] = "b64_json"
-    # Gemini: no extra params — n, response_format, style all rejected
+    # Gemini / unknown: no extra params — n, response_format, style all rejected
     return kw
 
 
 def _edit_kwargs(model: str, n: int = 1) -> dict:
     """Build provider-optimal kwargs for images.edit()."""
     kw: dict = {}
-    if _is_openai_model(model):
+    if _is_gpt_image_model(model):
         kw["n"] = n
+    elif _is_dalle_model(model):
+        kw["n"] = 1 if "dall-e-3" in model.lower() else n
     return kw
 
 
@@ -167,6 +192,15 @@ async def generate_image_tool(
 
     try:
         if image_files:
+            if not _supports_edit(effective_model):
+                return json.dumps({
+                    "error": (
+                        f"Image editing (attachment_ids) is not supported for {effective_model}. "
+                        "Gemini models do not support the images.edit() endpoint. "
+                        "To edit with Gemini, generate a new image with a detailed prompt "
+                        "describing the desired result instead of passing attachment_ids."
+                    ),
+                })
             # Single image → pass directly; multiple → pass as list
             image_param = image_files[0] if len(image_files) == 1 else image_files
             resp = await client.images.edit(
@@ -198,7 +232,10 @@ async def generate_image_tool(
 
     results: list[dict] = []
     for idx, item in enumerate(resp.data):
-        b64: str | None = getattr(item, "b64_json", None)
+        # GPT Image family returns base64 directly in .b64_json or .b64
+        # DALL-E returns .b64_json or .url
+        # Gemini via LiteLLM returns .b64_json
+        b64: str | None = getattr(item, "b64_json", None) or getattr(item, "b64", None)
         if not b64 and getattr(item, "url", None):
             try:
                 async with httpx.AsyncClient(timeout=60.0) as ac:
