@@ -361,8 +361,12 @@ async def create_channel(
         channel.workspace_schema_template_id = tpl_uuid
 
     if body.category is not None:
+        cat = body.category.strip() if body.category else ""
         meta = dict(channel.metadata_ or {})
-        meta["category"] = body.category
+        if cat:
+            meta["category"] = cat
+        else:
+            meta.pop("category", None)
         channel.metadata_ = meta
 
     # Activation warnings (collected but don't fail creation)
@@ -388,14 +392,25 @@ async def create_channel(
             )).scalar_one_or_none()
             if existing:
                 continue
-            # Activate
-            ci = ChannelIntegration(
-                channel_id=channel.id,
-                integration_type=int_type,
-                client_id=f"mc-activated:{channel.id}",
-                activated=True,
-            )
-            db.add(ci)
+            # Re-activate existing deactivated row if present
+            inactive = (await db.execute(
+                select(ChannelIntegration).where(
+                    ChannelIntegration.channel_id == channel.id,
+                    ChannelIntegration.integration_type == int_type,
+                    ChannelIntegration.activated == False,  # noqa: E712
+                )
+            )).scalar_one_or_none()
+            if inactive:
+                inactive.activated = True
+                db.add(inactive)
+            else:
+                ci = ChannelIntegration(
+                    channel_id=channel.id,
+                    integration_type=int_type,
+                    client_id=f"mc-activated:{channel.id}",
+                    activated=True,
+                )
+                db.add(ci)
 
     await db.commit()
     await db.refresh(channel, ["integrations"])

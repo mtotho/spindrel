@@ -261,6 +261,7 @@ class Settings(BaseSettings):
     LITELLM_API_KEY: str = ""
     # Image generation (OpenAI-compatible `images/generations` via LiteLLM)
     IMAGE_GENERATION_MODEL: str = "gemini/gemini-2.5-flash-image"
+    IMAGE_GENERATION_PROVIDER_ID: str = ""  # provider_id for image generation; empty = bot's provider or .env default
 
     # Prompt generation (AI-assisted prompt authoring in admin UI)
     PROMPT_GENERATION_MODEL: str = ""  # empty = uses default LiteLLM model

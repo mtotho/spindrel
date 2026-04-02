@@ -1,85 +1,130 @@
-import { useState } from "react";
-import { View, Text, Pressable, Switch } from "react-native";
+import { useState, useMemo } from "react";
+import { View, Text, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useModelGroups } from "@/src/api/hooks/useModels";
+import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import {
   useCreateChannel,
-  useAvailableIntegrations,
-  useBindIntegration,
+  useGlobalActivatableIntegrations,
+  useChannelCategories,
 } from "@/src/api/hooks/useChannels";
-import { Section, FormRow, SelectInput, TextInput } from "@/src/components/shared/FormControls";
+import { Section, SelectInput, TextInput, Toggle } from "@/src/components/shared/FormControls";
+import { TemplateCardGrid } from "@/src/components/channels/TemplateCardGrid";
+import { IntegrationActivationList } from "@/src/components/channels/IntegrationActivationList";
+
+type WizardStep = "basics" | "template" | "integrations";
 
 export default function NewChannelScreen() {
   const router = useRouter();
   const goBack = useGoBack("/");
-  const t = useThemeTokens();
+  const theme = useThemeTokens();
   const { data: bots } = useBots();
+  const { data: modelGroups } = useModelGroups();
+  const { data: templates } = usePromptTemplates(undefined, "workspace_schema");
+  const { data: activatableIntegrations } = useGlobalActivatableIntegrations();
+  const { data: existingCategories } = useChannelCategories();
   const createChannel = useCreateChannel();
-  const { data: availableIntegrations } = useAvailableIntegrations();
 
+  // Form state
+  const [step, setStep] = useState<WizardStep>("basics");
   const [name, setName] = useState("");
+  const [selectedModel, setSelectedModel] = useState("");
+  const [useBotMode, setUseBotMode] = useState(false);
   const [botId, setBotId] = useState("default");
+  const [category, setCategory] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
+  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [enabledIntegrations, setEnabledIntegrations] = useState<string[]>([]);
 
-  // Integration binding (optional)
-  const [integrationType, setIntegrationType] = useState("");
-  const [integrationClientId, setIntegrationClientId] = useState("");
-  const [integrationDisplayName, setIntegrationDisplayName] = useState("");
+  const workspaceEnabled = templateId !== null;
 
-  const botOptions = (bots ?? []).map((b) => ({ label: b.name, value: b.id }));
-  const integrationOptions = [
-    { label: "None", value: "" },
-    ...(availableIntegrations ?? []).map((i) => ({ label: i.type, value: i.type })),
-  ];
+  // Build model options from groups
+  const modelOptions = useMemo(() => {
+    if (!modelGroups) return [];
+    const opts: { label: string; value: string }[] = [];
+    for (const group of modelGroups) {
+      for (const model of group.models) {
+        opts.push({
+          label: `${model.display || model.id}`,
+          value: model.id,
+        });
+      }
+    }
+    return opts;
+  }, [modelGroups]);
 
-  const selectedIntegration = (availableIntegrations ?? []).find(
-    (i) => i.type === integrationType
+  const botOptions = useMemo(
+    () => (bots ?? []).map((b) => ({ label: b.name, value: b.id })),
+    [bots],
   );
-  const binding = selectedIntegration?.binding;
 
-  const handleIntegrationTypeChange = (newType: string) => {
-    setIntegrationType(newType);
-    setIntegrationClientId("");
-    setIntegrationDisplayName("");
+  // Category autocomplete suggestions
+  const categorySuggestions = useMemo(() => {
+    if (!existingCategories || !category) return [];
+    return existingCategories.filter(
+      (c) => c.toLowerCase().includes(category.toLowerCase()) && c !== category,
+    );
+  }, [existingCategories, category]);
+
+  const hasActivatable = (activatableIntegrations?.length ?? 0) > 0;
+
+  const handleToggleIntegration = (intType: string) => {
+    setEnabledIntegrations((prev) =>
+      prev.includes(intType)
+        ? prev.filter((x) => x !== intType)
+        : [...prev, intType],
+    );
   };
 
-  // We need the channelId to bind, so we use a ref to the bind mutation
-  // after create. But useBindIntegration needs channelId upfront.
-  // Instead, just pass integration/client_id to the create API.
-  const handleCreate = async () => {
-    if (!name.trim()) return;
+  /** Build shared request body from common fields */
+  const buildBody = () => {
+    const body: Parameters<typeof createChannel.mutateAsync>[0] = {
+      name: name.trim(),
+      bot_id: useBotMode ? botId : "default",
+      private: isPrivate,
+    };
+    if (!useBotMode && selectedModel) {
+      body.model_override = selectedModel;
+    }
+    if (category.trim()) {
+      body.category = category.trim();
+    }
+    return body;
+  };
+
+  const handleQuickCreate = async () => {
+    if (!name.trim() || createChannel.isPending) return;
     try {
-      const channel = await createChannel.mutateAsync({
-        name: name.trim(),
-        bot_id: botId,
-        private: isPrivate,
-      });
-
-      // If integration selected, bind it after creation
-      if (integrationType && integrationClientId.trim()) {
-        try {
-          const { apiFetch } = await import("@/src/api/client");
-          await apiFetch(`/api/v1/channels/${channel.id}/integrations`, {
-            method: "POST",
-            body: JSON.stringify({
-              integration_type: integrationType,
-              client_id: integrationClientId.trim(),
-              display_name: integrationDisplayName.trim() || undefined,
-            }),
-          });
-        } catch {
-          // Channel created but binding failed — user can add it later
-        }
-      }
-
+      const channel = await createChannel.mutateAsync(buildBody());
       router.push(`/channels/${channel.id}` as any);
     } catch {
       // mutation error handled by react-query
     }
   };
+
+  const handleSubmit = async () => {
+    if (!name.trim() || createChannel.isPending) return;
+    try {
+      const body = buildBody();
+      if (templateId) {
+        body.channel_workspace_enabled = true;
+        body.workspace_schema_template_id = templateId;
+      }
+      if (enabledIntegrations.length > 0) {
+        body.activate_integrations = enabledIntegrations;
+      }
+      const channel = await createChannel.mutateAsync(body);
+      router.push(`/channels/${channel.id}` as any);
+    } catch {
+      // mutation error handled by react-query
+    }
+  };
+
+  const canProceed = name.trim().length > 0;
 
   return (
     <View className="flex-1 bg-surface">
@@ -90,98 +135,297 @@ export default function NewChannelScreen() {
           className="items-center justify-center rounded-md hover:bg-surface-overlay"
           style={{ width: 44, height: 44 }}
         >
-          <ArrowLeft size={20} color={t.textMuted} />
+          <ArrowLeft size={20} color={theme.textMuted} />
         </Pressable>
-        <Text className="text-text font-semibold text-sm">New Channel</Text>
+        <Text className="text-text font-semibold text-sm flex-1">New Channel</Text>
+        {/* Step indicator */}
+        <View className="flex-row items-center gap-1.5">
+          {(["basics", "template", "integrations"] as WizardStep[])
+            .filter((s) => s !== "integrations" || hasActivatable)
+            .map((s) => (
+              <View
+                key={s}
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: step === s ? theme.accent : theme.surfaceBorder,
+                }}
+              />
+            ))}
+        </View>
       </View>
 
-      {/* Form */}
-      <View style={{ padding: 20, gap: 16, maxWidth: 480 }}>
-        <Section title="Channel Name">
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="my-channel"
-          />
-        </Section>
-
-        <Section title="Bot">
-          <SelectInput
-            value={botId}
-            onChange={setBotId}
-            options={botOptions}
-          />
-        </Section>
-
-        <View className="flex-row items-center justify-between">
-          <View>
-            <Text className="text-text text-sm font-medium">Private</Text>
-            <Text className="text-text-muted text-xs">Only visible to you</Text>
-          </View>
-          <Switch
-            value={isPrivate}
-            onValueChange={setIsPrivate}
-            trackColor={{ false: t.surfaceBorder, true: t.accent }}
-          />
-        </View>
-
-        {/* Integration binding */}
-        <Section title="Integration (optional)" description="Bind an external integration to this channel">
-          <View className="gap-3">
-            <FormRow label="Type">
-              <SelectInput
-                value={integrationType}
-                onChange={handleIntegrationTypeChange}
-                options={integrationOptions}
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ padding: 20, maxWidth: 520 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Step 1: Basics */}
+        {step === "basics" && (
+          <View style={{ gap: 16 }}>
+            <Section title="Channel Name">
+              <TextInput
+                value={name}
+                onChangeText={setName}
+                placeholder="my-channel"
               />
-            </FormRow>
-            {integrationType !== "" && (
-              <>
-                <FormRow
-                  label="Client ID"
-                  description={binding?.client_id_description}
-                >
-                  <TextInput
-                    value={integrationClientId}
-                    onChangeText={setIntegrationClientId}
-                    placeholder={binding?.client_id_placeholder ?? `${integrationType}:...`}
-                  />
-                </FormRow>
-                <FormRow label="Display Name (optional)">
-                  <TextInput
-                    value={integrationDisplayName}
-                    onChangeText={setIntegrationDisplayName}
-                    placeholder={binding?.display_name_placeholder ?? ""}
-                  />
-                </FormRow>
-              </>
-            )}
-          </View>
-        </Section>
+            </Section>
 
-        <Pressable
-          onPress={handleCreate}
-          disabled={!name.trim() || createChannel.isPending}
-          style={{
-            backgroundColor: name.trim() ? t.accent : t.surfaceBorder,
-            paddingHorizontal: 20,
-            paddingVertical: 10,
-            borderRadius: 8,
-            alignItems: "center",
-            marginTop: 8,
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
-            {createChannel.isPending ? "Creating..." : "Create Channel"}
-          </Text>
-        </Pressable>
+            {/* Model picker */}
+            {!useBotMode && (
+              <Section title="Model">
+                <SelectInput
+                  value={selectedModel}
+                  onChange={setSelectedModel}
+                  options={[
+                    { label: "Default (from bot)", value: "" },
+                    ...modelOptions,
+                  ]}
+                />
+              </Section>
+            )}
+
+            {/* Bot mode toggle */}
+            <Pressable
+              onPress={() => setUseBotMode(!useBotMode)}
+              className="flex-row items-center gap-2"
+            >
+              <Text className="text-text-muted text-xs underline">
+                {useBotMode ? "Pick a model instead" : "Or use an existing bot"}
+              </Text>
+            </Pressable>
+
+            {useBotMode && (
+              <Section title="Bot">
+                <SelectInput
+                  value={botId}
+                  onChange={setBotId}
+                  options={botOptions}
+                />
+              </Section>
+            )}
+
+            {/* Category */}
+            <Section title="Category (optional)">
+              <TextInput
+                value={category}
+                onChangeText={setCategory}
+                placeholder="e.g. Work, Personal, Projects"
+              />
+              {categorySuggestions.length > 0 && (
+                <View className="flex-row flex-wrap gap-1.5" style={{ marginTop: 6 }}>
+                  {categorySuggestions.slice(0, 5).map((cat) => (
+                    <Pressable
+                      key={cat}
+                      onPress={() => setCategory(cat)}
+                      style={{
+                        backgroundColor: theme.surfaceBorder,
+                        paddingHorizontal: 8,
+                        paddingVertical: 3,
+                        borderRadius: 4,
+                      }}
+                    >
+                      <Text style={{ fontSize: 11, color: theme.textMuted }}>{cat}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </Section>
+
+            <Toggle
+              value={isPrivate}
+              onChange={setIsPrivate}
+              label="Private"
+              description="Only visible to you"
+            />
+
+            {/* Action buttons */}
+            <View style={{ gap: 10, marginTop: 8 }}>
+              <Pressable
+                onPress={() => canProceed && setStep("template")}
+                disabled={!canProceed}
+                style={{
+                  backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  gap: 8,
+                  opacity: canProceed ? 1 : 0.5,
+                }}
+              >
+                <Text style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: "600" }}>
+                  Continue
+                </Text>
+                <ArrowRight size={16} color={canProceed ? "#fff" : theme.textDim} />
+              </Pressable>
+
+              <Pressable
+                onPress={handleQuickCreate}
+                disabled={!canProceed || createChannel.isPending}
+                style={{
+                  borderWidth: 1,
+                  borderColor: theme.surfaceBorder,
+                  paddingHorizontal: 20,
+                  paddingVertical: 10,
+                  borderRadius: 8,
+                  alignItems: "center",
+                }}
+              >
+                <Text className="text-text-muted text-sm">
+                  {createChannel.isPending ? "Creating..." : "Quick Create (skip wizard)"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* Step 2: Template */}
+        {step === "template" && (
+          <View style={{ gap: 16 }}>
+            <View>
+              <Text className="text-text font-semibold text-sm">Choose a Template</Text>
+              <Text className="text-text-muted text-xs" style={{ marginTop: 4 }}>
+                Templates organize your workspace with structured files and schemas.
+                Selecting a template enables the channel workspace.
+              </Text>
+            </View>
+
+            <TemplateCardGrid
+              templates={templates ?? []}
+              selectedId={templateId}
+              onSelect={setTemplateId}
+              highlightIntegrations={enabledIntegrations}
+            />
+
+            {/* Navigation */}
+            <View className="flex-row" style={{ gap: 10, marginTop: 8 }}>
+              <Pressable
+                onPress={() => setStep("basics")}
+                style={{
+                  borderWidth: 1,
+                  borderColor: theme.surfaceBorder,
+                  paddingHorizontal: 20,
+                  paddingVertical: 10,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  flex: 1,
+                }}
+              >
+                <Text className="text-text-muted text-sm">Back</Text>
+              </Pressable>
+
+              {hasActivatable ? (
+                <Pressable
+                  onPress={() => setStep("integrations")}
+                  style={{
+                    backgroundColor: theme.accent,
+                    paddingHorizontal: 20,
+                    paddingVertical: 12,
+                    borderRadius: 8,
+                    alignItems: "center",
+                    flexDirection: "row",
+                    justifyContent: "center",
+                    gap: 8,
+                    flex: 1,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Continue</Text>
+                  <ArrowRight size={16} color="#fff" />
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={handleSubmit}
+                  disabled={createChannel.isPending}
+                  style={{
+                    backgroundColor: theme.accent,
+                    paddingHorizontal: 20,
+                    paddingVertical: 12,
+                    borderRadius: 8,
+                    alignItems: "center",
+                    flexDirection: "row",
+                    justifyContent: "center",
+                    gap: 8,
+                    flex: 1,
+                  }}
+                >
+                  <Check size={16} color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
+                    {createChannel.isPending ? "Creating..." : "Create Channel"}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Step 3: Integrations */}
+        {step === "integrations" && (
+          <View style={{ gap: 16 }}>
+            <View>
+              <Text className="text-text font-semibold text-sm">Activate Integrations</Text>
+              <Text className="text-text-muted text-xs" style={{ marginTop: 4 }}>
+                Integrations inject specialized tools and skills into your channel.
+              </Text>
+            </View>
+
+            <IntegrationActivationList
+              integrations={activatableIntegrations ?? []}
+              enabled={enabledIntegrations}
+              onToggle={handleToggleIntegration}
+              workspaceEnabled={workspaceEnabled}
+            />
+
+            {/* Navigation */}
+            <View className="flex-row" style={{ gap: 10, marginTop: 8 }}>
+              <Pressable
+                onPress={() => setStep("template")}
+                style={{
+                  borderWidth: 1,
+                  borderColor: theme.surfaceBorder,
+                  paddingHorizontal: 20,
+                  paddingVertical: 10,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  flex: 1,
+                }}
+              >
+                <Text className="text-text-muted text-sm">Back</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={handleSubmit}
+                disabled={createChannel.isPending}
+                style={{
+                  backgroundColor: theme.accent,
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  gap: 8,
+                  flex: 1,
+                }}
+              >
+                <Check size={16} color="#fff" />
+                <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
+                  {createChannel.isPending ? "Creating..." : "Create Channel"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
 
         {createChannel.isError && (
-          <Text className="text-red-400 text-xs">
+          <Text className="text-red-400 text-xs" style={{ marginTop: 8 }}>
             {createChannel.error instanceof Error ? createChannel.error.message : "Failed to create channel"}
           </Text>
         )}
-      </View>
+      </ScrollView>
     </View>
   );
 }

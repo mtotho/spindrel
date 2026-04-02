@@ -35,13 +35,23 @@ export function useChannel(channelId: string | undefined) {
 export function useCreateChannel() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { name: string; bot_id: string; private?: boolean }) =>
+    mutationFn: (body: {
+      name: string;
+      bot_id: string;
+      private?: boolean;
+      model_override?: string;
+      channel_workspace_enabled?: boolean;
+      workspace_schema_template_id?: string;
+      category?: string;
+      activate_integrations?: string[];
+    }) =>
       apiFetch<Channel>("/api/v1/channels", {
         method: "POST",
         body: JSON.stringify(body),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channels"] });
+      queryClient.invalidateQueries({ queryKey: ["channel-categories"] });
     },
   });
 }
@@ -231,6 +241,23 @@ export function useDeactivateIntegration(channelId: string) {
       qc.invalidateQueries({ queryKey: ["channel-integrations", channelId] });
       qc.invalidateQueries({ queryKey: ["channel-effective-tools", channelId] });
     },
+  });
+}
+
+export function useGlobalActivatableIntegrations() {
+  return useQuery({
+    queryKey: ["activatable-integrations-global"],
+    queryFn: () =>
+      apiFetch<ActivatableIntegration[]>(
+        "/api/v1/admin/integrations/activatable"
+      ),
+  });
+}
+
+export function useChannelCategories() {
+  return useQuery({
+    queryKey: ["channel-categories"],
+    queryFn: () => apiFetch<string[]>("/api/v1/admin/channels/categories"),
   });
 }
 

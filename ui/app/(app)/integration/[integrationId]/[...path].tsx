@@ -4,21 +4,26 @@ import { useAuthStore } from "@/src/stores/auth";
 import { IntegrationFrame } from "@/src/components/integration/IntegrationFrame";
 
 /**
- * Catch-all page for integration web UIs.
+ * Catch-all page for integration web UI sub-paths.
  *
  * Builds the iframe src from the integration ID and remaining path segments,
  * pointing at the FastAPI-served static build:
  *   /integrations/{integrationId}/ui/{path}
  */
 export default function IntegrationCatchAll() {
-  const { integrationId, path } = useLocalSearchParams<{
-    integrationId: string;
-    path: string[];
-  }>();
+  const params = useLocalSearchParams();
+  const integrationId = params.integrationId as string;
   const serverUrl = useAuthStore((s) => s.serverUrl);
 
-  // Build the iframe src URL
-  const subPath = Array.isArray(path) ? path.join("/") : path || "";
+  // path can be string, string[], or undefined depending on Expo Router
+  const rawPath = params.path;
+  let subPath = "";
+  if (Array.isArray(rawPath)) {
+    subPath = rawPath.join("/");
+  } else if (typeof rawPath === "string") {
+    subPath = rawPath;
+  }
+
   const src = `${serverUrl}/integrations/${integrationId}/ui/${subPath}`;
 
   return (

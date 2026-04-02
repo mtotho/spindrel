@@ -3,18 +3,12 @@ import json
 import logging
 
 import httpx
-from openai import AsyncOpenAI
 
 from app.config import settings
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
 
-_client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
-    timeout=120.0,
-)
 
 def _is_openai_model(model: str) -> bool:
     """True for OpenAI-native image models (gpt-image, dall-e)."""
@@ -44,6 +38,34 @@ def _edit_kwargs(model: str, n: int = 1) -> dict:
         kw["n"] = n
     return kw
 
+
+def _resolve_image_client(provider_id: str | None = None):
+    """Get an AsyncOpenAI-compatible client for image generation.
+
+    Resolution order:
+    1. Explicit provider_id parameter (from tool call)
+    2. IMAGE_GENERATION_PROVIDER_ID config setting
+    3. Current bot's model_provider_id (from context)
+    4. .env fallback (LITELLM_BASE_URL / LITELLM_API_KEY)
+    """
+    from app.services.providers import get_llm_client
+
+    effective_pid = provider_id or settings.IMAGE_GENERATION_PROVIDER_ID or None
+
+    if not effective_pid:
+        # Try to inherit from the current bot's provider
+        try:
+            from app.agent.bots import get_bot
+            from app.agent.context import current_bot_id
+            bot_id = current_bot_id.get()
+            if bot_id:
+                bot = get_bot(bot_id)
+                if bot and bot.model_provider_id:
+                    effective_pid = bot.model_provider_id
+        except Exception:
+            pass
+
+    return get_llm_client(effective_pid)
 
 
 async def _resolve_attachment_images(attachment_ids: list[str]) -> tuple[list[bytes], str | None]:
@@ -82,6 +104,21 @@ async def _resolve_attachment_images(attachment_ids: list[str]) -> tuple[list[by
                     "type": "string",
                     "description": "Detailed description of the image to generate, or the changes to apply when editing.",
                 },
+                "model": {
+                    "type": "string",
+                    "description": (
+                        "Image model to use (e.g. 'gpt-image-1', 'dall-e-3', 'gemini/gemini-2.5-flash-image'). "
+                        "Omit to use the server default."
+                    ),
+                },
+                "provider_id": {
+                    "type": "string",
+                    "description": (
+                        "Provider to route the request to (e.g. 'openai-prod', 'gemini'). "
+                        "Required when two providers serve models with the same name. "
+                        "Omit to use the default provider."
+                    ),
+                },
                 "n": {
                     "type": "integer",
                     "description": "Number of images to generate (1-10). Only supported by OpenAI models (gpt-image, dall-e). Ignored for Gemini.",
@@ -103,6 +140,8 @@ async def _resolve_attachment_images(attachment_ids: list[str]) -> tuple[list[by
 })
 async def generate_image_tool(
     prompt: str,
+    model: str | None = None,
+    provider_id: str | None = None,
     n: int = 1,
     attachment_ids: list[str] | None = None,
     source_image_b64: str | None = None,
@@ -123,23 +162,24 @@ async def generate_image_tool(
         image_files.append(("image.png", base64.b64decode(source_image_b64), "image/png"))
 
     n = max(1, min(n, 10))
-    model = settings.IMAGE_GENERATION_MODEL
+    effective_model = model or settings.IMAGE_GENERATION_MODEL
+    client = _resolve_image_client(provider_id)
 
     try:
         if image_files:
             # Single image → pass directly; multiple → pass as list
             image_param = image_files[0] if len(image_files) == 1 else image_files
-            resp = await _client.images.edit(
-                model=model,
+            resp = await client.images.edit(
+                model=effective_model,
                 image=image_param,
                 prompt=prompt,
-                **_edit_kwargs(model, n),
+                **_edit_kwargs(effective_model, n),
             )
         else:
-            resp = await _client.images.generate(
-                model=model,
+            resp = await client.images.generate(
+                model=effective_model,
                 prompt=prompt,
-                **_generate_kwargs(model, n),
+                **_generate_kwargs(effective_model, n),
             )
     except Exception as e:
         logger.exception("Image generation/edit failed")

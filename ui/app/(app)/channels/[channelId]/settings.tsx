@@ -7,7 +7,7 @@ import { useLocalSearchParams, Link } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
-import { ArrowLeft, Check, ExternalLink, Zap } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, Zap, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelSettings,
@@ -38,7 +38,7 @@ import { WorkflowsTab } from "./WorkflowsTab";
 // Tab definitions — ordered by importance / frequency of use.
 // Diagnostic tabs (Context, Tasks, Logs) pushed to the end.
 // ---------------------------------------------------------------------------
-const TABS = [
+const PRIMARY_TABS = [
   { key: "general", label: "General" },
   { key: "workspace", label: "Workspace" },
   { key: "heartbeat", label: "Heartbeat" },
@@ -46,12 +46,16 @@ const TABS = [
   { key: "tools", label: "Tools" },
   { key: "integrations", label: "Integrations" },
   { key: "attachments", label: "Attachments" },
+];
+const ADVANCED_TABS = [
   { key: "sessions", label: "Sessions" },
   { key: "context", label: "Context" },
   { key: "workflows", label: "Workflows" },
   { key: "tasks", label: "Tasks" },
   { key: "logs", label: "Logs" },
 ];
+const ALL_TABS = [...PRIMARY_TABS, ...ADVANCED_TABS];
+const ADVANCED_KEYS = new Set(ADVANCED_TABS.map((t) => t.key));
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -75,10 +79,15 @@ export default function ChannelSettingsScreen() {
   const resolvedWorkspaceId = settings?.resolved_workspace_id ?? currentBot?.shared_workspace_id;
   const hasWorkspace = !!resolvedWorkspaceId;
 
-  const tabKeys = TABS.map((t) => t.key);
+  const tabKeys = ALL_TABS.map((tab) => tab.key);
   const [tab, setTab] = useHashTab("general", tabKeys);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
+
+  // Auto-expand advanced section when navigating to an advanced tab
+  const isAdvancedTab = ADVANCED_KEYS.has(tab);
+  const visibleTabs = showAdvanced || isAdvancedTab ? ALL_TABS : PRIMARY_TABS;
 
   useEffect(() => {
     if (settings) {
@@ -119,6 +128,7 @@ export default function ChannelSettingsScreen() {
         workspace_schema_content: settings.workspace_schema_content,
         index_segments: settings.index_segments ?? [],
         tags: settings.tags ?? [],
+        category: settings.category ?? null,
       });
     }
   }, [settings]);
@@ -222,7 +232,40 @@ export default function ChannelSettingsScreen() {
       {/* Tabs — with gradient fade hints for scrollability */}
       <View style={{ flexShrink: 0, position: "relative" }}>
         <View className="px-3 pt-2 pb-1">
-          <TabBar tabs={TABS} active={tab} onChange={setTab} />
+          <TabBar
+            tabs={visibleTabs}
+            active={tab}
+            onChange={setTab}
+            suffix={!isAdvancedTab ? (
+              <button
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 3,
+                  padding: "6px 10px",
+                  fontSize: 11,
+                  fontWeight: 500,
+                  border: `1px dashed ${t.surfaceBorder}`,
+                  borderRadius: 6,
+                  background: "transparent",
+                  color: t.textDim,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                  minHeight: 36,
+                  transition: "all 0.15s",
+                }}
+              >
+                {showAdvanced ? "Less" : "More"}
+                <ChevronRight
+                  size={12}
+                  color={t.textDim}
+                  style={{ transform: showAdvanced ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" } as any}
+                />
+              </button>
+            ) : undefined}
+          />
         </View>
         {/* Left fade to hint at scrollable tabs */}
         <div

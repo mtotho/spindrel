@@ -26,6 +26,7 @@ import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
+import { ActiveBadgeBar } from "./ActiveBadgeBar";
 import type { Message, ChatAttachment, ChatFileMetadata, ChatRequest } from "@/src/types/api";
 
 interface MessagePage {
@@ -796,6 +797,9 @@ export default function ChatScreen() {
           </Link>
         )}
       </View>
+
+      {/* What's active badge bar */}
+      {channelId && <ActiveBadgeBar channelId={channelId} />}
 
       {/* Protected channel warning */}
       {channel?.client_id === "orchestrator:home" && (

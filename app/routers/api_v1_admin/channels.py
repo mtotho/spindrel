@@ -528,6 +528,21 @@ async def admin_channels_list(
     )
 
 
+@router.get("/channels/categories")
+async def list_channel_categories(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """List distinct channel categories (for autocomplete)."""
+    from sqlalchemy import func, text
+    result = await db.execute(
+        select(func.distinct(Channel.metadata_["category"].astext))
+        .where(Channel.metadata_["category"].astext.isnot(None))
+        .where(Channel.metadata_["category"].astext != "")
+    )
+    return sorted(row[0] for row in result.all())
+
+
 @router.get("/channels/{channel_id}", response_model=ChannelDetailOut)
 async def admin_channel_detail(
     channel_id: uuid.UUID,
@@ -621,21 +636,20 @@ async def admin_channel_settings_update(
         except HTTPException:
             raise HTTPException(status_code=400, detail=f"Unknown bot: {updates['bot_id']}")
 
-    # Handle category — stored in metadata_ JSONB, not a column
+    # Handle metadata_ fields (category, tags) — share single dict to avoid race
+    meta_dirty = False
+    meta = dict(channel.metadata_ or {})
     if "category" in updates:
-        cat_value = updates.pop("category")
-        meta = dict(channel.metadata_ or {})
+        cat_value = (updates.pop("category") or "").strip()
         if cat_value:
             meta["category"] = cat_value
         else:
             meta.pop("category", None)
-        channel.metadata_ = meta
-
-    # Handle tags separately — stored in metadata_ JSONB, not a column
+        meta_dirty = True
     if "tags" in updates:
-        tags_value = updates.pop("tags")
-        meta = dict(channel.metadata_ or {})
-        meta["tags"] = tags_value or []
+        meta["tags"] = updates.pop("tags") or []
+        meta_dirty = True
+    if meta_dirty:
         channel.metadata_ = meta
 
     # Handle workspace_id — convert string to UUID or clear
@@ -2103,25 +2117,6 @@ async def admin_channels_enriched(
         page=page,
         page_size=page_size,
     )
-
-
-# ---------------------------------------------------------------------------
-# Channel categories
-# ---------------------------------------------------------------------------
-
-@router.get("/channels/categories")
-async def list_channel_categories(
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
-):
-    """List distinct channel categories (for autocomplete)."""
-    rows = (await db.execute(select(Channel))).scalars().all()
-    categories = set()
-    for ch in rows:
-        cat = (ch.metadata_ or {}).get("category")
-        if cat:
-            categories.add(cat)
-    return sorted(categories)
 
 
 # ---------------------------------------------------------------------------

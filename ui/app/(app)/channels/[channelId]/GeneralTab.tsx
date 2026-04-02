@@ -4,7 +4,7 @@ import { View, Text, Pressable } from "react-native";
 import { useRouter } from "expo-router";
 import { Trash2, AlertTriangle, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useDeleteChannel } from "@/src/api/hooks/useChannels";
+import { useDeleteChannel, useChannelCategories } from "@/src/api/hooks/useChannels";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
   Row, Col,
@@ -227,8 +227,14 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
   const isMobile = useIsMobile();
   const router = useRouter();
   const deleteMutation = useDeleteChannel();
+  const { data: existingCategories } = useChannelCategories();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+
+  const categoryValue = (form.category as string | undefined | null) ?? "";
+  const categorySuggestions = (existingCategories ?? []).filter(
+    (c) => c.toLowerCase().includes(categoryValue.toLowerCase()) && c !== categoryValue,
+  );
 
   const handleDelete = useCallback(async () => {
     await deleteMutation.mutateAsync(channelId);
@@ -258,12 +264,45 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
             </FormRow>
           </Col>
         </Row>
-        <FormRow label="Tags" description="Categorize channels with tags. Press Enter or comma to add.">
-          <TagEditor
-            tags={(form.tags as string[]) ?? []}
-            onChange={(v) => patch("tags", v)}
-          />
-        </FormRow>
+        <Row stack={isMobile}>
+          <Col minWidth={isMobile ? 0 : 200}>
+            <FormRow label="Tags" description="Categorize with tags. Press Enter or comma to add.">
+              <TagEditor
+                tags={(form.tags as string[]) ?? []}
+                onChange={(v) => patch("tags", v)}
+              />
+            </FormRow>
+          </Col>
+          <Col minWidth={isMobile ? 0 : 200}>
+            <FormRow label="Category" description="Groups channels in the sidebar.">
+              <TextInput
+                value={categoryValue}
+                onChangeText={(v) => patch("category", v || undefined)}
+                placeholder="e.g. Work, Personal"
+              />
+              {categorySuggestions.length > 0 && categoryValue.length > 0 && (
+                <View className="flex-row flex-wrap gap-1" style={{ marginTop: 4 }}>
+                  {categorySuggestions.slice(0, 4).map((cat) => (
+                    <Pressable
+                      key={cat}
+                      onPress={() => patch("category", cat)}
+                      style={{
+                        backgroundColor: t.surfaceOverlay,
+                        paddingHorizontal: 6,
+                        paddingVertical: 2,
+                        borderRadius: 4,
+                        borderWidth: 1,
+                        borderColor: t.surfaceBorder,
+                      }}
+                    >
+                      <Text style={{ fontSize: 10, color: t.textMuted }}>{cat}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </FormRow>
+          </Col>
+        </Row>
         {form.bot_id && settings.bot_id && form.bot_id !== settings.bot_id && (
           <InfoBanner variant="warning" icon={<AlertTriangle size={14} color="#f59e0b" />}>
             <strong>Switching bots.</strong> Existing conversation history sections (transcripts on disk)

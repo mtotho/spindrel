@@ -3,6 +3,7 @@
  * All use raw HTML elements for web compat (no RN TextInput issues).
  */
 
+import type { ReactNode } from "react";
 import { View, Text, Pressable } from "react-native";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 
@@ -242,54 +243,60 @@ export function Col({ children, flex = 1, minWidth = 200 }: { children: React.Re
 // ---------------------------------------------------------------------------
 // Tab bar (horizontally scrollable for many tabs on mobile)
 // ---------------------------------------------------------------------------
-export function TabBar({ tabs, active, onChange }: {
+export function TabBar({ tabs, active, onChange, suffix }: {
   tabs: { key: string; label: string }[];
   active: string;
   onChange: (key: string) => void;
+  suffix?: ReactNode;
 }) {
   const t = useThemeTokens();
   return (
-    <div
-      style={{
-        display: "flex",
-        gap: 4,
-        overflowX: "auto",
-        WebkitOverflowScrolling: "touch",
-        scrollbarWidth: "none",
-        paddingBottom: 4,
-        paddingRight: 24, // extra space so last tab isn't under fade gradient
-        scrollSnapType: "x mandatory",
-      }}
-      className="hide-scrollbar"
-    >
-      {tabs.map((tab) => {
-        const isActive = tab.key === active;
-        return (
-          <button
-            key={tab.key}
-            onClick={() => onChange(tab.key)}
-            style={{
-              padding: "6px 10px",
-              fontSize: 12,
-              fontWeight: isActive ? 600 : 500,
-              border: "1px solid",
-              borderColor: isActive ? t.accent : t.surfaceBorder,
-              borderRadius: 6,
-              background: isActive ? t.accent : "transparent",
-              color: isActive ? "#fff" : t.textMuted,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              transition: "all 0.15s",
-              flexShrink: 0,
-              scrollSnapAlign: "start",
-              // Touch-friendly min tap target
-              minHeight: 36,
-            }}
-          >
-            {tab.label}
-          </button>
-        );
-      })}
+    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 4,
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+          scrollbarWidth: "none",
+          paddingBottom: 4,
+          paddingRight: suffix ? 4 : 24, // less right padding when suffix present
+          scrollSnapType: "x mandatory",
+          flex: 1,
+          minWidth: 0,
+        }}
+        className="hide-scrollbar"
+      >
+        {tabs.map((tab) => {
+          const isActive = tab.key === active;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => onChange(tab.key)}
+              style={{
+                padding: "6px 10px",
+                fontSize: 12,
+                fontWeight: isActive ? 600 : 500,
+                border: "1px solid",
+                borderColor: isActive ? t.accent : t.surfaceBorder,
+                borderRadius: 6,
+                background: isActive ? t.accent : "transparent",
+                color: isActive ? "#fff" : t.textMuted,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s",
+                flexShrink: 0,
+                scrollSnapAlign: "start",
+                // Touch-friendly min tap target
+                minHeight: 36,
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+      {suffix && <div style={{ flexShrink: 0, paddingBottom: 4 }}>{suffix}</div>}
     </div>
   );
 }

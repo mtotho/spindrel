@@ -277,6 +277,7 @@ export interface Channel {
   channel_workspace_enabled?: boolean;
   workspace_id?: string | null;
   resolved_workspace_id?: string | null;
+  category?: string | null;
   tags?: string[];
   created_at: string;
   updated_at: string;
@@ -356,6 +357,7 @@ export interface ChannelSettings {
   carapaces_disabled?: string[] | null;
   workspace_id?: string | null;
   resolved_workspace_id?: string | null;
+  category?: string | null;
   tags?: string[];
 }
 
