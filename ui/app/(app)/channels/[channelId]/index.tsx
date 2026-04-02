@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { Settings, Menu, ArrowLeft, Hash, ChevronDown, FolderOpen, Code, PanelLeft } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, ChevronDown, FolderOpen, Code, PanelLeft, Shield } from "lucide-react";
 import { ChannelFileExplorer } from "./ChannelFileExplorer";
 import { ChannelFileViewer } from "./ChannelFileViewer";
 import { MessageBubble, extractDisplayText } from "@/src/components/chat/MessageBubble";
@@ -812,6 +812,19 @@ export default function ChatScreen() {
           </Link>
         )}
       </View>
+
+      {/* Protected channel warning */}
+      {channel?.client_id === "orchestrator:home" && (
+        <View
+          className="flex-row items-center gap-2 px-4 py-1.5 border-b border-amber-500/20"
+          style={{ backgroundColor: "rgba(245,158,11,0.08)" }}
+        >
+          <Shield size={13} color="#d97706" />
+          <Text style={{ fontSize: 12, color: "#d97706" }}>
+            System admin channel — this bot has unrestricted tool access and can delegate to all bots.
+          </Text>
+        </View>
+      )}
 
       {/* Content area — explorer + chat/file viewer */}
       {isMobile ? (

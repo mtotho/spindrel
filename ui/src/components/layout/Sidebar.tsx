@@ -592,8 +592,9 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                     }`}
                     numberOfLines={1}
                   >
-                    Home
+                    Orchestrator
                   </Text>
+                  <Shield size={12} color={t.textDim} style={{ opacity: 0.6, flexShrink: 0 }} />
                   {unread && (
                     <View
                       style={{

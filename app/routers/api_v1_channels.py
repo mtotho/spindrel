@@ -25,6 +25,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/channels", tags=["Channels"])
 
 
+def _check_protected(channel: Channel, auth) -> None:
+    """Raise 403 if the channel is protected and auth is a non-admin API key."""
+    if not channel.protected:
+        return
+    if isinstance(auth, ApiKeyAuth) and "admin" not in auth.scopes:
+        raise HTTPException(
+            status_code=403,
+            detail="Protected channel — admin scope required",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -61,6 +72,7 @@ class ChannelOut(BaseModel):
     require_mention: bool
     passive_memory: bool
     private: bool = False
+    protected: bool = False
     user_id: Optional[uuid.UUID] = None
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
@@ -655,6 +667,7 @@ async def inject_channel_message(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    _check_protected(channel, _auth)
 
     session_id = await ensure_active_session(db, channel)
     await db.commit()
@@ -707,6 +720,7 @@ async def reset_channel(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    _check_protected(channel, _auth)
 
     previous = channel.active_session_id
     new_session_id = await reset_channel_session(db, channel)
@@ -734,6 +748,7 @@ async def compact_channel(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    _check_protected(channel, _auth)
     if not channel.active_session_id:
         raise HTTPException(status_code=400, detail="Channel has no active session")
 

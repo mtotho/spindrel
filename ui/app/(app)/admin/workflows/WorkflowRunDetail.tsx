@@ -60,6 +60,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
       const newRun = await triggerMut.mutateAsync({
         params: run.params,
         bot_id: run.bot_id,
+        session_mode: run.session_mode || undefined,
       });
       onNavigateToRun(newRun.id);
     } catch {

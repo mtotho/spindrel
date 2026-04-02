@@ -208,7 +208,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                       const firstWf = workflows?.[0];
                       setHbForm((f: any) => ({ ...f, workflow_id: firstWf?.id ?? "" }));
                     } else if (tab.key === "prompt" && isWorkflowMode) {
-                      setHbForm((f: any) => ({ ...f, workflow_id: null }));
+                      setHbForm((f: any) => ({ ...f, workflow_id: null, workflow_session_mode: null }));
                     }
                   }}
                   style={{

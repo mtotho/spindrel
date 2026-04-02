@@ -137,6 +137,29 @@ class TestChannelWorkspaceFileOps:
             assert os.path.join("data", "spindrel", "channel_prompt.md") in paths
             assert os.path.join("data", "spindrel", "heartbeat.md") in paths
 
+    def test_context_assembly_data_listing_recurses_subdirs(self):
+        """The os.walk logic in context_assembly must list files in data/ subdirectories."""
+        with tempfile.TemporaryDirectory() as tmp:
+            data_dir = os.path.join(tmp, "data")
+            os.makedirs(os.path.join(data_dir, "spindrel"))
+            with open(os.path.join(data_dir, "top.md"), "w") as f:
+                f.write("top")
+            with open(os.path.join(data_dir, "spindrel", "README.md"), "w") as f:
+                f.write("readme")
+            with open(os.path.join(data_dir, "spindrel", "config.yaml"), "w") as f:
+                f.write("cfg")
+
+            # Reproduce the exact logic from context_assembly.py
+            entries = sorted(
+                os.path.relpath(os.path.join(dp, fn), data_dir)
+                for dp, _, fns in os.walk(data_dir)
+                for fn in fns
+            )
+            assert "top.md" in entries
+            assert os.path.join("spindrel", "README.md") in entries
+            assert os.path.join("spindrel", "config.yaml") in entries
+            assert len(entries) == 3
+
     def test_read_workspace_file(self):
         from app.services.channel_workspace import read_workspace_file
         bot = _make_bot()

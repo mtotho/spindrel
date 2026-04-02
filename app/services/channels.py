@@ -499,12 +499,22 @@ async def ensure_orchestrator_channel() -> None:
             db,
             client_id="orchestrator:home",
             bot_id="orchestrator",
-            name="Home",
+            name="Orchestrator",
             private=True,
         )
         # Ensure admin-only visibility (no user_id + private)
+        changed = False
         if not ch.private:
             ch.private = True
+            changed = True
+        if not ch.protected:
+            ch.protected = True
+            changed = True
+        # Rename legacy "Home" label
+        if ch.name == "Home":
+            ch.name = "Orchestrator"
+            changed = True
+        if changed:
             ch.updated_at = datetime.now(timezone.utc)
         await ensure_active_session(db, ch)
         # Auto-apply orchestrator carapace if not already present

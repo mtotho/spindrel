@@ -266,6 +266,7 @@ export interface Channel {
   require_mention: boolean;
   passive_memory: boolean;
   private: boolean;
+  protected?: boolean;
   user_id?: string;
   display_name?: string;
   model_override?: string | null;
@@ -292,6 +293,7 @@ export interface ChannelSettings {
   require_mention: boolean;
   passive_memory: boolean;
   private: boolean;
+  protected?: boolean;
   user_id?: string | null;
   allow_bot_messages: boolean;
   workspace_rag: boolean;

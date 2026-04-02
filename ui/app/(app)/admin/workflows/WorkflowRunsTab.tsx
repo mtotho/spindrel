@@ -135,6 +135,15 @@ function RunCard({ run, t, onSelect }: { run: WorkflowRun; t: ThemeTokens; onSel
             via {run.triggered_by}
           </span>
         )}
+        {run.session_mode === "shared" && (
+          <span style={{
+            fontSize: 10, color: t.purple, background: t.purpleSubtle,
+            border: `1px solid ${t.purpleBorder}`, borderRadius: 4,
+            padding: "0 5px",
+          }}>
+            shared
+          </span>
+        )}
         <span style={{ fontSize: 11, color: t.textDim }}>
           {fmtTime(run.created_at)}
         </span>
