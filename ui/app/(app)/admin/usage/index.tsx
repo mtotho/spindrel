@@ -18,8 +18,7 @@ import {
 } from "@/src/api/hooks/useUsage";
 import { BarChart, LineChart } from "@/src/components/shared/SimpleCharts";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useUsageForecast } from "@/src/api/hooks/useUsageForecast";
-import { LimitAlerts, ForecastCards, ForecastBreakdown, ForecastBarChart } from "./ForecastSection";
+import { ForecastTab } from "./ForecastSection";
 import { LimitsTab } from "./LimitsTab";
 import { useUsageHudStore } from "@/src/stores/usageHud";
 
@@ -35,7 +34,7 @@ const TIME_PRESETS: { label: string; value: string }[] = [
   { label: "30d", value: "30d" },
 ];
 
-const TABS = ["Overview", "Logs", "Charts", "Limits"] as const;
+const TABS = ["Overview", "Forecast", "Logs", "Charts", "Limits"] as const;
 type Tab = (typeof TABS)[number];
 
 function fmtCost(v: number | null | undefined): string {
@@ -214,11 +213,9 @@ function CostTable({
 function OverviewTab({
   params,
   onDrillDown,
-  forecast,
 }: {
   params: UsageParams;
   onDrillDown: (filter: { model?: string; bot_id?: string; provider_id?: string }) => void;
-  forecast: ReturnType<typeof useUsageForecast>;
 }) {
   const t = useThemeTokens();
   const { data, isLoading } = useUsageSummary(params);
@@ -239,12 +236,6 @@ function OverviewTab({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Forecast: limit warnings */}
-      {forecast.data && <LimitAlerts limits={forecast.data.limits} />}
-
-      {/* Forecast: today + month cards */}
-      {forecast.data && <ForecastCards forecast={forecast.data} />}
-
       {/* Stat cards */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <StatCard label="Total Calls" value={fmtTokens(data.total_calls)} />
@@ -256,9 +247,6 @@ function OverviewTab({
         <StatCard label="Total Cost" value={fmtCost(data.total_cost)} />
         <StatCard label="Avg Cost/Call" value={fmtCost(avgCost)} />
       </div>
-
-      {/* Forecast: component breakdown */}
-      {forecast.data && <ForecastBreakdown components={forecast.data.components} />}
 
       {/* Missing cost warning */}
       {data.models_without_cost_data.length > 0 && (
@@ -819,7 +807,7 @@ function LogsTab({ params }: { params: UsageParams }) {
 // ---------------------------------------------------------------------------
 // Charts tab
 // ---------------------------------------------------------------------------
-function ChartsTab({ params, forecast }: { params: UsageParams; forecast: ReturnType<typeof useUsageForecast> }) {
+function ChartsTab({ params }: { params: UsageParams }) {
   const t = useThemeTokens();
   const { data: breakdown, isLoading: breakdownLoading } = useUsageBreakdown({
     ...params,
@@ -837,9 +825,6 @@ function ChartsTab({ params, forecast }: { params: UsageParams; forecast: Return
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* Forecast bar chart */}
-      {forecast.data && <ForecastBarChart components={forecast.data.components} />}
-
       {/* Cost by Model bar chart */}
       <div>
         <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 12 }}>
@@ -849,7 +834,7 @@ function ChartsTab({ params, forecast }: { params: UsageParams; forecast: Return
           items={(breakdown?.groups || [])
             .filter((g) => g.cost != null && g.cost > 0)
             .map((g) => ({ label: g.label, value: g.cost! }))}
-          formatValue={(v) => `$${v.toFixed(4)}`}
+          formatValue={fmtCost}
         />
       </div>
 
@@ -863,7 +848,7 @@ function ChartsTab({ params, forecast }: { params: UsageParams; forecast: Return
             label: fmtBucketLabel(p.bucket),
             value: p.cost || 0,
           }))}
-          formatValue={(v) => `$${v.toFixed(4)}`}
+          formatValue={fmtCost}
         />
       </div>
 
@@ -941,7 +926,6 @@ export default function UsageScreen() {
   };
 
   const { data: bots } = useBots();
-  const forecast = useUsageForecast();
 
   // Fetch unfiltered summary for the time range to populate filter dropdowns
   const { data: summaryForFilters } = useUsageSummary({ after: timePreset });
@@ -1104,9 +1088,10 @@ export default function UsageScreen() {
       {/* Tab content */}
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
         <div style={{ padding: isMobile ? 12 : 20 }}>
-          {tab === "Overview" && <OverviewTab params={params} onDrillDown={handleDrillDown} forecast={forecast} />}
+          {tab === "Overview" && <OverviewTab params={params} onDrillDown={handleDrillDown} />}
+          {tab === "Forecast" && <ForecastTab />}
           {tab === "Logs" && <LogsTab params={params} />}
-          {tab === "Charts" && <ChartsTab params={params} forecast={forecast} />}
+          {tab === "Charts" && <ChartsTab params={params} />}
           {tab === "Limits" && <LimitsTab knownModels={modelNames} />}
         </div>
       </RefreshableScrollView>

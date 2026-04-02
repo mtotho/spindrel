@@ -256,7 +256,7 @@ export default function ChannelSettingsScreen() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         className="flex-1"
-        contentContainerStyle={{ padding: isMobile ? 12 : 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: isMobile ? 16 : 20, maxWidth: (["logs", "tasks", "context"] as string[]).includes(tab) ? 1200 : 680, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
+        contentContainerStyle={{ padding: isMobile ? 12 : 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: isMobile ? 16 : 20, maxWidth: (["logs", "tasks", "context"] as string[]).includes(tab) ? 1200 : (["tools", "workflows"] as string[]).includes(tab) ? 960 : 680, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
         key={tab}
       >
         {tab === "general" && (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, Platform } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import { useShallow } from "zustand/react/shallow";
@@ -35,6 +35,14 @@ export function StreamingToast() {
 
   const displayName = channel?.display_name || channel?.name || channel?.client_id;
 
+  // Preserve last valid values so exit animation doesn't flash to fallback text
+  const lastRef = useRef({ id: backgroundStreamId, name: displayName });
+  if (backgroundStreamId) {
+    lastRef.current = { id: backgroundStreamId, name: displayName };
+  }
+  const shownId = backgroundStreamId ?? lastRef.current.id;
+  const shownName = backgroundStreamId ? displayName : lastRef.current.name;
+
   // Mount/unmount with transition
   useEffect(() => {
     if (backgroundStreamId) {
@@ -63,8 +71,8 @@ export function StreamingToast() {
     >
       <Pressable
         onPress={() => {
-          if (backgroundStreamId) {
-            router.push(`/channels/${backgroundStreamId}` as any);
+          if (shownId) {
+            router.push(`/channels/${shownId}` as any);
           }
         }}
         style={{
@@ -93,7 +101,7 @@ export function StreamingToast() {
         <Text style={{ fontSize: 13, color: t.textMuted }}>
           Processing in{" "}
           <Text style={{ color: t.accent, fontWeight: "600" }}>
-            #{displayName ?? "channel"}
+            #{shownName ?? "channel"}
           </Text>
           ...
         </Text>
