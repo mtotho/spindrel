@@ -147,7 +147,7 @@ export default function KanbanSwimlane({
       >
         {/* Header row */}
         <div className="sticky top-0 left-0 z-30 bg-surface-1 border-r border-b border-surface-3 p-2 flex items-center">
-          <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">Channel</span>
+          <span className="text-[10px] font-semibold text-content-dim uppercase tracking-wider">Channel</span>
         </div>
         {columns.map((col, ci) => (
           <div
@@ -155,8 +155,8 @@ export default function KanbanSwimlane({
             className="sticky top-0 z-20 bg-surface-1 border-r border-b border-surface-3 px-2.5 py-2 flex items-center gap-2"
             style={{ borderTopWidth: 2, borderTopColor: columnColor(col.name) }}
           >
-            <span className="text-xs font-semibold text-gray-200 flex-1">{col.name}</span>
-            <span className="text-[10px] font-semibold text-gray-500 bg-surface-3/50 rounded-full px-1.5 py-px">
+            <span className="text-xs font-semibold text-content flex-1">{col.name}</span>
+            <span className="text-[10px] font-semibold text-content-dim bg-surface-3/50 rounded-full px-1.5 py-px">
               {colCounts[ci]}
             </span>
           </div>
@@ -183,7 +183,7 @@ export default function KanbanSwimlane({
         })}
 
         {swimlanes.length === 0 && (
-          <div className="border-r border-b border-surface-3 p-8 text-center text-gray-500 text-sm" style={{ gridColumn: "1 / -1" }}>
+          <div className="border-r border-b border-surface-3 p-8 text-center text-content-dim text-sm" style={{ gridColumn: "1 / -1" }}>
             No cards to display
           </div>
         )}
@@ -237,8 +237,8 @@ function SwimlaneRowCells({
       <div className="sticky left-0 z-10 bg-surface-0 border-r border-b border-surface-3 px-2.5 py-2 flex items-start gap-1.5" style={{ minHeight: 60 }}>
         <span className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-1" style={{ backgroundColor: channelDotColor }} />
         <div className="overflow-hidden">
-          <div className="text-xs font-semibold text-gray-200 truncate">{row.channelName}</div>
-          <div className="text-[10px] text-gray-500 mt-0.5">{row.totalCards} card{row.totalCards !== 1 ? "s" : ""}</div>
+          <div className="text-xs font-semibold text-content truncate">{row.channelName}</div>
+          <div className="text-[10px] text-content-dim mt-0.5">{row.totalCards} card{row.totalCards !== 1 ? "s" : ""}</div>
         </div>
       </div>
 
@@ -319,16 +319,16 @@ function SwimlaneCard({
       style={{ opacity: isDragging ? 0.4 : 1 }}
     >
       <div className="px-2 py-1.5">
-        <div className="text-xs text-gray-200 truncate">{card.title}</div>
+        <div className="text-xs text-content truncate">{card.title}</div>
         <div className="flex items-center gap-2 mt-0.5">
           {card.meta?.priority && (
             <>
               <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: pc.fg }} />
-              <span className="text-[9px] text-gray-400">{card.meta.priority}</span>
+              <span className="text-[9px] text-content-muted">{card.meta.priority}</span>
             </>
           )}
           {card.meta?.due && (
-            <span className="text-[9px] text-gray-500">{card.meta.due}</span>
+            <span className="text-[9px] text-content-dim">{card.meta.due}</span>
           )}
         </div>
       </div>
@@ -401,7 +401,7 @@ function CardModal({
     onClose();
   };
 
-  const inputClass = "w-full bg-surface-0 border border-surface-4 rounded px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:border-accent";
+  const inputClass = "w-full bg-surface-0 border border-surface-4 rounded px-2 py-1.5 text-xs text-content focus:outline-none focus:border-accent";
 
   return ReactDOM.createPortal(
     <div
@@ -424,13 +424,13 @@ function CardModal({
               className={inputClass + " text-sm font-semibold"}
             />
           ) : (
-            <h2 className="text-sm font-semibold text-gray-100 pr-8">{card.title}</h2>
+            <h2 className="text-sm font-semibold text-content pr-8">{card.title}</h2>
           )}
 
           {/* Description */}
           {editing ? (
             <div>
-              <label className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 block">Description</label>
+              <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Description</label>
               <textarea
                 value={editDesc}
                 onChange={(e) => setEditDesc(e.target.value)}
@@ -440,8 +440,8 @@ function CardModal({
             </div>
           ) : card.description ? (
             <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">Description</p>
-              <pre className="text-xs text-gray-300 whitespace-pre-wrap font-sans">{card.description}</pre>
+              <p className="text-[10px] text-content-dim uppercase tracking-wider mb-1">Description</p>
+              <pre className="text-xs text-content-muted whitespace-pre-wrap font-sans">{card.description}</pre>
             </div>
           ) : null}
 
@@ -449,7 +449,7 @@ function CardModal({
           {editing ? (
             <div className="space-y-3">
               <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 block">Priority</label>
+                <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Priority</label>
                 <select
                   value={editPriority}
                   onChange={(e) => setEditPriority(e.target.value)}
@@ -461,45 +461,45 @@ function CardModal({
                 </select>
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 block">Assigned</label>
+                <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Assigned</label>
                 <input type="text" value={editAssigned} onChange={(e) => setEditAssigned(e.target.value)} className={inputClass} />
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 block">Tags (comma-separated)</label>
+                <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Tags (comma-separated)</label>
                 <input type="text" value={editTags} onChange={(e) => setEditTags(e.target.value)} className={inputClass} />
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 block">Due date</label>
+                <label className="text-[10px] text-content-dim uppercase tracking-wider mb-1 block">Due date</label>
                 <input type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)} className={inputClass} />
               </div>
             </div>
           ) : (
             <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
-              <div className="text-gray-500">Status</div>
-              <div className="text-gray-200">{currentColumn}</div>
-              <div className="text-gray-500">Channel</div>
-              <div className="text-gray-200">{card.channel_name}</div>
-              <div className="text-gray-500">Priority</div>
+              <div className="text-content-dim">Status</div>
+              <div className="text-content">{currentColumn}</div>
+              <div className="text-content-dim">Channel</div>
+              <div className="text-content">{card.channel_name}</div>
+              <div className="text-content-dim">Priority</div>
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: pc.fg }} />
                 <span style={{ color: pc.fg }}>{priority}</span>
               </div>
               {card.meta?.assigned && (
                 <>
-                  <div className="text-gray-500">Assigned</div>
-                  <div className="text-gray-200">{card.meta.assigned}</div>
+                  <div className="text-content-dim">Assigned</div>
+                  <div className="text-content">{card.meta.assigned}</div>
                 </>
               )}
               {card.meta?.due && (
                 <>
-                  <div className="text-gray-500">Due</div>
-                  <div className="text-gray-200">{card.meta.due}</div>
+                  <div className="text-content-dim">Due</div>
+                  <div className="text-content">{card.meta.due}</div>
                 </>
               )}
               {card.meta?.tags && (
                 <>
-                  <div className="text-gray-500">Tags</div>
-                  <div className="text-gray-200">{card.meta.tags}</div>
+                  <div className="text-content-dim">Tags</div>
+                  <div className="text-content">{card.meta.tags}</div>
                 </>
               )}
             </div>
@@ -516,7 +516,7 @@ function CardModal({
               </button>
               <button
                 onClick={handleCancel}
-                className="px-3 py-1.5 text-xs rounded-md border border-surface-3 text-gray-400 hover:text-gray-200 transition-colors"
+                className="px-3 py-1.5 text-xs rounded-md border border-surface-3 text-content-muted hover:text-content transition-colors"
               >
                 Cancel
               </button>
@@ -524,7 +524,7 @@ function CardModal({
           ) : onUpdate ? (
             <button
               onClick={() => setEditing(true)}
-              className="px-3 py-1.5 text-xs rounded-md border border-surface-3 text-gray-400 hover:text-gray-200 transition-colors"
+              className="px-3 py-1.5 text-xs rounded-md border border-surface-3 text-content-muted hover:text-content transition-colors"
             >
               Edit
             </button>
@@ -533,7 +533,7 @@ function CardModal({
           {/* Move buttons */}
           {!editing && (
             <div>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">Move to</p>
+              <p className="text-[10px] text-content-dim uppercase tracking-wider mb-1.5">Move to</p>
               <div className="flex flex-wrap gap-1">
                 {columns.map((col) => (
                   <button
@@ -543,7 +543,7 @@ function CardModal({
                     className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
                       col.name === currentColumn
                         ? "bg-accent/15 text-accent-hover cursor-default"
-                        : "border border-surface-3 text-gray-400 hover:text-gray-200"
+                        : "border border-surface-3 text-content-muted hover:text-content"
                     }`}
                   >
                     {col.name}
@@ -557,7 +557,7 @@ function CardModal({
         {/* Close */}
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 text-gray-500 hover:text-gray-300 transition-colors"
+          className="absolute top-3 right-3 text-content-dim hover:text-content-muted transition-colors"
         >
           <X size={16} />
         </button>

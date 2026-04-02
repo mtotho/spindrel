@@ -40,7 +40,7 @@ export function ProgressBar({ steps }: { steps: PlanStep[] }) {
           }}
         />
       </div>
-      <span className="text-[10px] text-gray-500 w-12">
+      <span className="text-[10px] text-content-dim w-12">
         {done}/{total} ({pct}%)
       </span>
     </div>

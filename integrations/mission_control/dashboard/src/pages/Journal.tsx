@@ -51,8 +51,8 @@ export default function Journal() {
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100">Journal</h1>
-          <p className="text-sm text-gray-500 mt-1">Daily logs from your bots</p>
+          <h1 className="text-2xl font-bold text-content">Journal</h1>
+          <p className="text-sm text-content-dim mt-1">Daily logs from your bots</p>
         </div>
         <ScopeToggle />
       </div>
@@ -77,7 +77,7 @@ export default function Journal() {
               className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
                 days === d
                   ? "border-accent bg-accent text-white"
-                  : "border-surface-3 text-gray-400 hover:text-gray-200"
+                  : "border-surface-3 text-content-muted hover:text-content"
               }`}
             >
               {d}d
@@ -90,7 +90,7 @@ export default function Journal() {
         {/* Group toggle — single icon button */}
         <button
           onClick={() => setGroupBy(groupBy === "date" ? "bot" : "date")}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border border-surface-3 text-gray-400 hover:text-gray-200 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border border-surface-3 text-content-muted hover:text-content transition-colors"
           title={`Group by ${groupBy === "date" ? "bot" : "date"}`}
         >
           {groupBy === "date" ? <LayoutList size={13} /> : <Users size={13} />}
@@ -104,7 +104,7 @@ export default function Journal() {
             <button
               onClick={() => setBotFilter(null)}
               className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
-                !botFilter ? "bg-accent/15 text-accent-hover" : "text-gray-500 hover:text-gray-300"
+                !botFilter ? "bg-accent/15 text-accent-hover" : "text-content-dim hover:text-content-muted"
               }`}
             >
               All
@@ -114,7 +114,7 @@ export default function Journal() {
                 key={b.id}
                 onClick={() => setBotFilter(b.id)}
                 className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full transition-colors ${
-                  botFilter === b.id ? "bg-accent/15 text-accent-hover" : "text-gray-500 hover:text-gray-300"
+                  botFilter === b.id ? "bg-accent/15 text-accent-hover" : "text-content-dim hover:text-content-muted"
                 }`}
               >
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: botDotColor(b.id) }} />
@@ -150,13 +150,13 @@ export default function Journal() {
             return (
               <div key={key}>
                 <div className="flex items-center gap-2 mb-3 sticky top-0 bg-surface-0 py-1 z-10">
-                  <h2 className="text-sm font-semibold text-gray-300">{label}</h2>
+                  <h2 className="text-sm font-semibold text-content-muted">{label}</h2>
                   {isToday && (
                     <span className="px-1.5 py-px text-[10px] font-semibold rounded-full bg-accent/15 text-accent-hover">
                       Today
                     </span>
                   )}
-                  <span className="text-[10px] text-gray-500">{items.length} {items.length === 1 ? "entry" : "entries"}</span>
+                  <span className="text-[10px] text-content-dim">{items.length} {items.length === 1 ? "entry" : "entries"}</span>
                 </div>
                 <div className="space-y-3">
                   {items.map((entry, idx) => (
@@ -201,14 +201,14 @@ function CollapsibleEntry({
           </>
         )}
         {groupBy === "bot" && (
-          <span className="text-xs text-gray-500">{entry.date}</span>
+          <span className="text-xs text-content-dim">{entry.date}</span>
         )}
       </div>
       <MarkdownViewer content={previewContent} />
       {isLong && !expanded && (
         <button
           onClick={() => setExpanded(true)}
-          className="mt-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          className="mt-2 text-xs text-content-dim hover:text-content-muted transition-colors"
         >
           {remaining} more line{remaining !== 1 ? "s" : ""}... ▾
         </button>
@@ -216,7 +216,7 @@ function CollapsibleEntry({
       {isLong && expanded && (
         <button
           onClick={() => setExpanded(false)}
-          className="mt-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          className="mt-2 text-xs text-content-dim hover:text-content-muted transition-colors"
         >
           Collapse ▴
         </button>

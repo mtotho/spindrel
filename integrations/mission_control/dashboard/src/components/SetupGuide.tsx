@@ -84,8 +84,8 @@ export default function SetupGuide({ hasServer, hasChannels, hasBots }: SetupGui
   return (
     <div className="bg-surface-1 rounded-xl border border-surface-3 overflow-hidden">
       <div className="p-4 border-b border-surface-3">
-        <h2 className="text-base font-semibold text-gray-100">Getting Started</h2>
-        <p className="text-xs text-gray-500 mt-0.5">
+        <h2 className="text-base font-semibold text-content">Getting Started</h2>
+        <p className="text-xs text-content-dim mt-0.5">
           {steps.filter((s) => s.done).length} of {steps.length} steps complete
         </p>
       </div>
@@ -100,24 +100,24 @@ export default function SetupGuide({ hasServer, hasChannels, hasBots }: SetupGui
                 className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${
                   step.done
                     ? "bg-status-green/20 text-status-green"
-                    : "bg-surface-3 text-gray-400"
+                    : "bg-surface-3 text-content-muted"
                 }`}
               >
                 {step.done ? "✓" : step.number}
               </span>
               <div className="min-w-0">
-                <p className={`text-sm font-medium ${step.done ? "text-gray-500" : "text-gray-200"}`}>
+                <p className={`text-sm font-medium ${step.done ? "text-content-dim" : "text-content"}`}>
                   {step.title}
                 </p>
-                <p className="text-xs text-gray-500 truncate">{step.description}</p>
+                <p className="text-xs text-content-dim truncate">{step.description}</p>
               </div>
-              <span className="flex-shrink-0 text-gray-600 text-xs ml-auto">
+              <span className="flex-shrink-0 text-content-dim text-xs ml-auto">
                 {expanded === step.number ? "▾" : "▸"}
               </span>
             </button>
             {expanded === step.number && (
               <div className="px-4 pb-3 ml-9">
-                <pre className="text-xs text-gray-400 whitespace-pre-wrap font-sans leading-relaxed">
+                <pre className="text-xs text-content-muted whitespace-pre-wrap font-sans leading-relaxed">
                   {step.detail}
                 </pre>
               </div>

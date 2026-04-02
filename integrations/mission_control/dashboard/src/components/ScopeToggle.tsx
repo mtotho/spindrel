@@ -15,7 +15,7 @@ export default function ScopeToggle() {
           className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${
             scope === opt.value
               ? "border-accent bg-accent text-white"
-              : "border-surface-3 text-gray-400 hover:text-gray-200"
+              : "border-surface-3 text-content-muted hover:text-content"
           }`}
         >
           {opt.label}

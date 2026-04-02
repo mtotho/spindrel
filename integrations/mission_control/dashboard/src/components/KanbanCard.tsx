@@ -6,7 +6,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   critical: "bg-red-500/20 text-red-400",
   high: "bg-orange-500/20 text-orange-400",
   medium: "bg-blue-500/20 text-blue-400",
-  low: "bg-gray-500/20 text-gray-400",
+  low: "bg-surface-4/40 text-content-muted",
 };
 
 interface KanbanCardProps {
@@ -56,12 +56,12 @@ export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
           isDragging ? "shadow-xl shadow-accent/10 opacity-90" : "hover:border-surface-4"
         }`}
       >
-        <h4 className="text-sm font-medium text-gray-100 leading-snug">
+        <h4 className="text-sm font-medium text-content leading-snug">
           {card.title}
         </h4>
 
         {card.description && (
-          <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+          <p className="text-xs text-content-dim mt-1 line-clamp-2">
             {card.description}
           </p>
         )}
@@ -75,7 +75,7 @@ export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
           {tags.map((tag) => (
             <span
               key={tag}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-surface-3 text-gray-400"
+              className="text-[10px] px-1.5 py-0.5 rounded bg-surface-3 text-content-muted"
             >
               {tag}
             </span>
@@ -83,7 +83,7 @@ export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
         </div>
 
         {card.meta.assigned && (
-          <p className="text-[10px] text-gray-600 mt-1.5">
+          <p className="text-[10px] text-content-dim mt-1.5">
             {card.meta.assigned}
           </p>
         )}
@@ -100,12 +100,12 @@ export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between mb-3">
-              <h3 className="text-lg font-semibold text-gray-100 pr-4">
+              <h3 className="text-lg font-semibold text-content pr-4">
                 {card.title}
               </h3>
               <button
                 onClick={() => setExpanded(false)}
-                className="text-gray-500 hover:text-gray-300 text-lg leading-none flex-shrink-0"
+                className="text-content-dim hover:text-content-muted text-lg leading-none flex-shrink-0"
               >
                 ✕
               </button>
@@ -115,8 +115,8 @@ export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
             <div className="grid grid-cols-2 gap-2 mb-4">
               {Object.entries(card.meta).map(([key, value]) => (
                 <div key={key}>
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wider">{key}</p>
-                  <p className="text-sm text-gray-300">{value}</p>
+                  <p className="text-[10px] text-content-dim uppercase tracking-wider">{key}</p>
+                  <p className="text-sm text-content-muted">{value}</p>
                 </div>
               ))}
             </div>
@@ -127,7 +127,7 @@ export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
                 {tags.map((tag) => (
                   <span
                     key={tag}
-                    className="text-xs px-2 py-0.5 rounded bg-surface-3 text-gray-400"
+                    className="text-xs px-2 py-0.5 rounded bg-surface-3 text-content-muted"
                   >
                     {tag}
                   </span>
@@ -138,8 +138,8 @@ export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
             {/* Description */}
             {card.description && (
               <div className="bg-surface-0 rounded-lg p-3 border border-surface-3">
-                <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Description</p>
-                <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
+                <p className="text-xs text-content-dim uppercase tracking-wider mb-1">Description</p>
+                <p className="text-sm text-content-muted whitespace-pre-wrap leading-relaxed">
                   {card.description}
                 </p>
               </div>

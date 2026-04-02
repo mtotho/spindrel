@@ -35,20 +35,20 @@ export default function NewCardForm({ columnName, onSubmit, onCancel }: NewCardF
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Task title..."
         autoFocus
-        className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent/50"
+        className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1.5 text-sm text-content placeholder-gray-600 focus:outline-none focus:border-accent/50"
       />
       <textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder="Description (optional)"
         rows={2}
-        className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-accent/50 resize-none"
+        className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1.5 text-xs text-content-muted placeholder-gray-600 focus:outline-none focus:border-accent/50 resize-none"
       />
       <div className="flex items-center gap-2">
         <select
           value={priority}
           onChange={(e) => setPriority(e.target.value)}
-          className="bg-surface-0 border border-surface-4 rounded px-2 py-1 text-xs text-gray-300 focus:outline-none"
+          className="bg-surface-0 border border-surface-4 rounded px-2 py-1 text-xs text-content-muted focus:outline-none"
         >
           <option value="low">Low</option>
           <option value="medium">Medium</option>
@@ -59,7 +59,7 @@ export default function NewCardForm({ columnName, onSubmit, onCancel }: NewCardF
         <button
           type="button"
           onClick={onCancel}
-          className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1"
+          className="text-xs text-content-dim hover:text-content-muted px-2 py-1"
         >
           Cancel
         </button>

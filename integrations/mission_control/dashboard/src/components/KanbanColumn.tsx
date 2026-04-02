@@ -5,7 +5,7 @@ import KanbanCardView from "./KanbanCard";
 import NewCardForm from "./NewCardForm";
 
 const COLUMN_COLORS: Record<string, string> = {
-  backlog: "border-gray-600",
+  backlog: "border-surface-4",
   "in progress": "border-status-blue",
   review: "border-status-yellow",
   done: "border-status-green",
@@ -29,8 +29,8 @@ export default function KanbanColumnView({ column, onAddCard }: KanbanColumnView
       }`}
     >
       <div className="p-3 border-b border-surface-3 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-200">{column.name}</h3>
-        <span className="text-xs text-gray-500 bg-surface-3 px-1.5 py-0.5 rounded">
+        <h3 className="text-sm font-medium text-content">{column.name}</h3>
+        <span className="text-xs text-content-dim bg-surface-3 px-1.5 py-0.5 rounded">
           {column.cards.length}
         </span>
       </div>
@@ -39,7 +39,7 @@ export default function KanbanColumnView({ column, onAddCard }: KanbanColumnView
           <KanbanCardView key={card.meta.id || card.title} card={card} />
         ))}
         {column.cards.length === 0 && !showForm && (
-          <p className="text-xs text-gray-600 text-center py-4">Drop tasks here</p>
+          <p className="text-xs text-content-dim text-center py-4">Drop tasks here</p>
         )}
       </div>
       {/* Add card section */}
@@ -60,7 +60,7 @@ export default function KanbanColumnView({ column, onAddCard }: KanbanColumnView
         ) : (
           <button
             onClick={() => setShowForm(true)}
-            className="w-full text-left px-2 py-1.5 text-xs text-gray-500 hover:text-gray-300 hover:bg-surface-2 rounded transition-colors"
+            className="w-full text-left px-2 py-1.5 text-xs text-content-dim hover:text-content-muted hover:bg-surface-2 rounded transition-colors"
           >
             + Add card
           </button>

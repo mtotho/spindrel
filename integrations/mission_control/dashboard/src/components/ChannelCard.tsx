@@ -21,11 +21,11 @@ export default function ChannelCard({ channel }: { channel: ChannelSummary }) {
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0">
-          <h3 className="text-sm font-medium text-gray-100 truncate group-hover:text-accent-hover transition-colors">
+          <h3 className="text-sm font-medium text-content truncate group-hover:text-accent-hover transition-colors">
             {channel.name || channel.id.slice(0, 8)}
           </h3>
           {(channel.bot_name || channel.bot_id) && (
-            <p className="text-xs text-gray-500 mt-0.5 truncate">
+            <p className="text-xs text-content-dim mt-0.5 truncate">
               {channel.bot_name || channel.bot_id}
             </p>
           )}
@@ -38,19 +38,19 @@ export default function ChannelCard({ channel }: { channel: ChannelSummary }) {
       {(channel.task_count > 0 || channel.template_name) && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {channel.task_count > 0 && (
-            <span className="text-[10px] text-gray-400 bg-surface-3 rounded-full px-2 py-px">
+            <span className="text-[10px] text-content-muted bg-surface-3 rounded-full px-2 py-px">
               {channel.task_count} task{channel.task_count !== 1 ? "s" : ""}
             </span>
           )}
           {channel.template_name && (
-            <span className="text-[10px] text-gray-400 bg-surface-3 rounded-full px-2 py-px truncate max-w-[120px]">
+            <span className="text-[10px] text-content-muted bg-surface-3 rounded-full px-2 py-px truncate max-w-[120px]">
               {channel.template_name}
             </span>
           )}
         </div>
       )}
       {channel.updated_at && (
-        <p className="text-xs text-gray-600 mt-1.5">
+        <p className="text-xs text-content-dim mt-1.5">
           {timeAgo(channel.updated_at)}
         </p>
       )}

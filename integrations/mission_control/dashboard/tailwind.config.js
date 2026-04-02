@@ -12,6 +12,11 @@ export default {
           3: "var(--color-surface-3)",
           4: "var(--color-surface-4)",
         },
+        content: {
+          DEFAULT: "var(--color-text)",
+          muted: "var(--color-text-muted)",
+          dim: "var(--color-text-dim)",
+        },
         accent: {
           DEFAULT: "var(--color-accent)",
           hover: "var(--color-accent-hover)",

@@ -70,7 +70,7 @@ function SidebarLink({ item }: { item: NavItem }) {
         `flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
           isActive
             ? "bg-accent/15 text-accent-hover"
-            : "text-gray-400 hover:text-gray-200 hover:bg-surface-3"
+            : "text-content-muted hover:text-content hover:bg-surface-3"
         }`
       }
     >
@@ -114,7 +114,7 @@ function MobileBottomNav() {
                     to={item.to}
                     onClick={() => setMoreOpen(false)}
                     className={`flex flex-col items-center gap-1 py-2.5 rounded-lg transition-colors ${
-                      isActive ? "text-accent-hover bg-accent/10" : "text-gray-400"
+                      isActive ? "text-accent-hover bg-accent/10" : "text-content-muted"
                     }`}
                   >
                     <Icon size={18} />
@@ -140,7 +140,7 @@ function MobileBottomNav() {
                 onClick={() => setMoreOpen(false)}
                 className={({ isActive }) =>
                   `flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-lg transition-colors min-w-0 ${
-                    isActive ? "text-accent-hover" : "text-gray-500"
+                    isActive ? "text-accent-hover" : "text-content-dim"
                   }`
                 }
               >
@@ -152,7 +152,7 @@ function MobileBottomNav() {
           <button
             onClick={() => setMoreOpen(!moreOpen)}
             className={`flex flex-col items-center gap-0.5 py-1.5 px-2 rounded-lg transition-colors min-w-0 ${
-              moreOpen || isMoreActive ? "text-accent-hover" : "text-gray-500"
+              moreOpen || isMoreActive ? "text-accent-hover" : "text-content-dim"
             }`}
           >
             {moreOpen ? <X size={20} /> : <MoreHorizontal size={20} />}
@@ -187,8 +187,8 @@ export default function Shell() {
       {/* Desktop sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-56 flex-shrink-0 bg-surface-1 border-r border-surface-3 flex-col">
         <div className="p-4 border-b border-surface-3">
-          <h1 className="text-lg font-semibold text-gray-100">Mission Control</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Agent Dashboard</p>
+          <h1 className="text-lg font-semibold text-content">Mission Control</h1>
+          <p className="text-xs text-content-dim mt-0.5">Agent Dashboard</p>
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
@@ -197,7 +197,7 @@ export default function Shell() {
           ))}
 
           <div className="mt-4 pt-3 border-t border-surface-3">
-            <p className="px-3 text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+            <p className="px-3 text-xs font-medium text-content-dim uppercase tracking-wider mb-2">
               Channels
             </p>
             <ChannelNavList />
@@ -205,7 +205,7 @@ export default function Shell() {
         </nav>
 
         <div className="p-3 border-t border-surface-3">
-          <p className="text-xs text-gray-600 text-center">v0.2.0</p>
+          <p className="text-xs text-content-dim text-center">v0.2.0</p>
         </div>
       </aside>
 
@@ -237,7 +237,7 @@ function ChannelNavList() {
   }, [data]);
 
   if (allChannels.length === 0) {
-    return <p className="px-3 text-xs text-gray-600">No workspace channels yet.</p>;
+    return <p className="px-3 text-xs text-content-dim">No workspace channels yet.</p>;
   }
 
   const filtered = search
@@ -258,7 +258,7 @@ function ChannelNavList() {
           value={search}
           onChange={(e) => { setSearch(e.target.value); setShowAll(false); }}
           placeholder="Search..."
-          className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1 text-xs text-gray-300 placeholder-gray-600 focus:outline-none focus:border-accent/40 mb-1"
+          className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1 text-xs text-content-muted placeholder-gray-600 focus:outline-none focus:border-accent/40 mb-1"
         />
       )}
 
@@ -272,7 +272,7 @@ function ChannelNavList() {
               `flex items-center gap-2 px-3 py-1.5 rounded text-sm truncate transition-colors ${
                 isActive
                   ? "bg-accent/15 text-accent-hover"
-                  : "text-gray-400 hover:text-gray-200 hover:bg-surface-3"
+                  : "text-content-muted hover:text-content hover:bg-surface-3"
               }`
             }
           >
@@ -288,14 +288,14 @@ function ChannelNavList() {
       {hasMore && (
         <button
           onClick={() => setShowAll(true)}
-          className="w-full text-left px-3 py-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          className="w-full text-left px-3 py-1 text-xs text-content-dim hover:text-content-muted transition-colors"
         >
           Show all {filtered.length} channels
         </button>
       )}
 
       {search && filtered.length === 0 && (
-        <p className="px-3 text-xs text-gray-600">No matches</p>
+        <p className="px-3 text-xs text-content-dim">No matches</p>
       )}
     </div>
   );

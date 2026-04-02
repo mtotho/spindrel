@@ -42,8 +42,8 @@ export default function Kanban() {
     <div className="p-6 h-screen flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-lg font-bold text-gray-100">Kanban</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Cross-channel task board</p>
+          <h1 className="text-lg font-bold text-content">Kanban</h1>
+          <p className="text-xs text-content-dim mt-0.5">Cross-channel task board</p>
         </div>
         <ScopeToggle />
       </div>

@@ -33,24 +33,24 @@ export default function PlanDetail() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
-      <Link to="/plans" className="text-xs text-gray-500 hover:text-gray-400 transition-colors">
+      <Link to="/plans" className="text-xs text-content-dim hover:text-content-muted transition-colors">
         &larr; All Plans
       </Link>
 
       {/* Header */}
       <div className="mt-2 mb-6">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold text-gray-100">{plan.title}</h1>
+          <h1 className="text-2xl font-bold text-content">{plan.title}</h1>
           <StatusBadge status={plan.status} />
         </div>
         <div className="flex items-center gap-3 mt-1">
           <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: channelColor(plan.channel_id) }} />
-          <span className="text-sm text-gray-500">{plan.channel_name}</span>
+          <span className="text-sm text-content-dim">{plan.channel_name}</span>
           {plan.created_at && (
-            <span className="text-xs text-gray-600">Created {new Date(plan.created_at).toLocaleString()}</span>
+            <span className="text-xs text-content-dim">Created {new Date(plan.created_at).toLocaleString()}</span>
           )}
           {plan.updated_at && (
-            <span className="text-xs text-gray-600">Updated {new Date(plan.updated_at).toLocaleString()}</span>
+            <span className="text-xs text-content-dim">Updated {new Date(plan.updated_at).toLocaleString()}</span>
           )}
         </div>
         <PlanIdCopy planId={plan.id} />
@@ -67,7 +67,7 @@ export default function PlanDetail() {
       {/* Notes */}
       {plan.notes && (
         <div className="mb-6 bg-surface-2 rounded-xl border border-surface-3 p-4">
-          <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Notes</h3>
+          <h3 className="text-xs font-medium text-content-muted uppercase tracking-wider mb-2">Notes</h3>
           <MarkdownViewer content={plan.notes} />
         </div>
       )}
@@ -79,7 +79,7 @@ export default function PlanDetail() {
 
       {/* Steps timeline */}
       <div className="mb-6">
-        <h3 className="text-sm font-semibold text-gray-200 mb-3">
+        <h3 className="text-sm font-semibold text-content mb-3">
           Steps ({plan.steps.filter((s) => s.status === "complete" || s.status === "skipped").length}/{plan.steps.length})
         </h3>
         <div className="space-y-2">
@@ -95,12 +95,12 @@ export default function PlanDetail() {
       {/* Meta */}
       {Object.keys(plan.meta).length > 0 && (
         <div className="bg-surface-2 rounded-xl border border-surface-3 p-4">
-          <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">Metadata</h3>
+          <h3 className="text-xs font-medium text-content-muted uppercase tracking-wider mb-2">Metadata</h3>
           <div className="space-y-1">
             {Object.entries(plan.meta).map(([k, v]) => (
               <div key={k} className="flex gap-2 text-xs">
-                <span className="text-gray-500 w-24 flex-shrink-0">{k}</span>
-                <span className="text-gray-300">{v}</span>
+                <span className="text-content-dim w-24 flex-shrink-0">{k}</span>
+                <span className="text-content-muted">{v}</span>
               </div>
             ))}
           </div>
@@ -123,8 +123,8 @@ function PlanIdCopy({ planId }: { planId: string }) {
   };
   return (
     <div className="flex items-center gap-1.5 mt-1">
-      <span className="text-[10px] text-gray-600 font-mono">{planId}</span>
-      <button onClick={copyId} className="text-gray-500 hover:text-gray-300 transition-colors">
+      <span className="text-[10px] text-content-dim font-mono">{planId}</span>
+      <button onClick={copyId} className="text-content-dim hover:text-content-muted transition-colors">
         {copied ? <Check size={11} /> : <Copy size={11} />}
       </button>
     </div>
@@ -208,7 +208,7 @@ function stepBorderColor(status: string): string {
   switch (status) {
     case "complete": return "border-green-500 bg-green-500/10";
     case "in_progress": return "border-yellow-500 bg-yellow-500/10";
-    case "skipped": return "border-gray-600 bg-surface-1";
+    case "skipped": return "border-surface-4 bg-surface-1";
     case "failed": return "border-red-500 bg-red-500/10";
     case "awaiting_approval": return "border-purple-500 bg-purple-500/10";
     default: return "border-surface-3 bg-surface-1";
@@ -229,7 +229,7 @@ function StepCard({ step, plan, isNext }: { step: PlanStep; plan: Plan; isNext: 
         <span className="mt-0.5 flex-shrink-0"><StepIcon status={step.status} /></span>
         <div className="flex-1 min-w-0">
           <button onClick={() => setExpanded(!expanded)} className="text-left w-full">
-            <p className="text-sm text-gray-200">{step.content}</p>
+            <p className="text-sm text-content">{step.content}</p>
           </button>
 
           {/* Inline meta */}
@@ -240,17 +240,17 @@ function StepCard({ step, plan, isNext }: { step: PlanStep; plan: Plan; isNext: 
               </span>
             )}
             {step.started_at && step.completed_at && (
-              <span className="text-[10px] text-gray-500">{formatDuration(step.started_at, step.completed_at)}</span>
+              <span className="text-[10px] text-content-dim">{formatDuration(step.started_at, step.completed_at)}</span>
             )}
             {step.started_at && !step.completed_at && (
-              <span className="text-[10px] text-gray-500">started {timeAgo(step.started_at)}</span>
+              <span className="text-[10px] text-content-dim">started {timeAgo(step.started_at)}</span>
             )}
             {step.task_id && (
               <a
                 href={`/admin/tasks`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[10px] text-gray-600 font-mono hover:text-accent transition-colors"
+                className="text-[10px] text-content-dim font-mono hover:text-accent transition-colors"
               >
                 task:{step.task_id.slice(0, 8)}
               </a>
@@ -259,9 +259,9 @@ function StepCard({ step, plan, isNext }: { step: PlanStep; plan: Plan; isNext: 
 
           {expanded && (
             <div className="mt-2 space-y-1 text-xs">
-              <p className="text-gray-500">Status: {step.status}</p>
-              {step.started_at && <p className="text-gray-600">Started: {new Date(step.started_at).toLocaleString()}</p>}
-              {step.completed_at && <p className="text-gray-600">Completed: {new Date(step.completed_at).toLocaleString()}</p>}
+              <p className="text-content-dim">Status: {step.status}</p>
+              {step.started_at && <p className="text-content-dim">Started: {new Date(step.started_at).toLocaleString()}</p>}
+              {step.completed_at && <p className="text-content-dim">Completed: {new Date(step.completed_at).toLocaleString()}</p>}
               {step.result_summary && (
                 <div
                   className="mt-2 rounded p-2"
@@ -282,12 +282,12 @@ function StepCard({ step, plan, isNext }: { step: PlanStep; plan: Plan; isNext: 
               <button onClick={() => approveStep.mutate({ channelId: plan.channel_id, planId: plan.id, position: step.position })}
                 className="px-2 py-0.5 text-[10px] rounded bg-green-500/20 text-green-300 hover:bg-green-500/30">Approve</button>
               <button onClick={() => skipStep.mutate({ channelId: plan.channel_id, planId: plan.id, position: step.position })}
-                className="px-2 py-0.5 text-[10px] rounded bg-gray-500/20 text-gray-400 hover:bg-gray-500/30">Skip</button>
+                className="px-2 py-0.5 text-[10px] rounded bg-surface-4/40 text-content-muted hover:bg-surface-4/60">Skip</button>
             </>
           )}
           {step.status === "pending" && (plan.status === "executing" || plan.status === "awaiting_approval") && (
             <button onClick={() => skipStep.mutate({ channelId: plan.channel_id, planId: plan.id, position: step.position })}
-              className="px-2 py-0.5 text-[10px] rounded bg-gray-500/20 text-gray-400 hover:bg-gray-500/30">Skip</button>
+              className="px-2 py-0.5 text-[10px] rounded bg-surface-4/40 text-content-muted hover:bg-surface-4/60">Skip</button>
           )}
         </div>
       </div>
@@ -333,17 +333,17 @@ function PlanEditForm({ plan, onDone }: { plan: Plan; onDone: () => void }) {
         type="text"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-gray-200"
+        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content"
       />
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes"
         rows={2}
-        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 resize-none"
+        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content placeholder-gray-600 resize-none"
       />
       <div>
-        <label className="text-xs text-gray-400 mb-1 block">Steps</label>
+        <label className="text-xs text-content-muted mb-1 block">Steps</label>
         <StepListEditor steps={steps} onChange={setSteps} />
       </div>
       <div className="flex gap-2">
@@ -351,7 +351,7 @@ function PlanEditForm({ plan, onDone }: { plan: Plan; onDone: () => void }) {
           className="px-3 py-1.5 text-xs rounded-md bg-accent text-white hover:bg-accent-hover disabled:opacity-50">
           {update.isPending ? "Saving..." : "Save"}
         </button>
-        <button onClick={onDone} className="px-3 py-1.5 text-xs rounded-md border border-surface-3 text-gray-400 hover:text-gray-200">
+        <button onClick={onDone} className="px-3 py-1.5 text-xs rounded-md border border-surface-3 text-content-muted hover:text-content">
           Cancel
         </button>
       </div>

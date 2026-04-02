@@ -62,8 +62,8 @@ export default function Settings() {
     <div className="p-6 max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100">Settings</h1>
-          <p className="text-sm text-gray-500 mt-1">Configure tracked channels and bots</p>
+          <h1 className="text-2xl font-bold text-content">Settings</h1>
+          <p className="text-sm text-content-dim mt-1">Configure tracked channels and bots</p>
         </div>
         <div className="flex items-center gap-3">
           {dirty && (
@@ -90,8 +90,8 @@ export default function Settings() {
 
       {/* Tracked Channels */}
       <div className="bg-surface-2 rounded-xl border border-surface-3 p-4 mb-6">
-        <h2 className="text-sm font-semibold text-gray-200 mb-1">Tracked Channels</h2>
-        <p className="text-xs text-gray-500 mb-3">
+        <h2 className="text-sm font-semibold text-content mb-1">Tracked Channels</h2>
+        <p className="text-xs text-content-dim mb-3">
           {trackedChannels.length === 0
             ? "All channels are tracked (default)"
             : `${trackedChannels.length} channel${trackedChannels.length !== 1 ? "s" : ""} selected`}
@@ -106,8 +106,8 @@ export default function Settings() {
               >
                 <input type="checkbox" checked={checked} onChange={() => toggleChannel(ch.id)} className="rounded border-surface-3" />
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm text-gray-200 truncate block">{ch.name || ch.id.slice(0, 8)}</span>
-                  {ch.bot_name && <span className="text-xs text-gray-500">{ch.bot_name}</span>}
+                  <span className="text-sm text-content truncate block">{ch.name || ch.id.slice(0, 8)}</span>
+                  {ch.bot_name && <span className="text-xs text-content-dim">{ch.bot_name}</span>}
                 </div>
                 {ch.workspace_enabled && <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />}
               </label>
@@ -118,8 +118,8 @@ export default function Settings() {
 
       {/* Tracked Bots */}
       <div className="bg-surface-2 rounded-xl border border-surface-3 p-4">
-        <h2 className="text-sm font-semibold text-gray-200 mb-1">Tracked Bots</h2>
-        <p className="text-xs text-gray-500 mb-3">
+        <h2 className="text-sm font-semibold text-content mb-1">Tracked Bots</h2>
+        <p className="text-xs text-content-dim mb-3">
           {trackedBots.length === 0
             ? "All bots are tracked (default)"
             : `${trackedBots.length} bot${trackedBots.length !== 1 ? "s" : ""} selected`}
@@ -134,10 +134,10 @@ export default function Settings() {
               >
                 <input type="checkbox" checked={checked} onChange={() => toggleBot(bot.id)} className="rounded border-surface-3" />
                 <div className="flex-1 min-w-0">
-                  <span className="text-sm text-gray-200">{bot.name}</span>
-                  {bot.model && <span className="text-xs text-gray-500 ml-2">{bot.model}</span>}
+                  <span className="text-sm text-content">{bot.name}</span>
+                  {bot.model && <span className="text-xs text-content-dim ml-2">{bot.model}</span>}
                 </div>
-                <span className="text-xs text-gray-600">{bot.channel_count} ch</span>
+                <span className="text-xs text-content-dim">{bot.channel_count} ch</span>
               </label>
             );
           })}

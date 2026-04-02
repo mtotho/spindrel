@@ -46,13 +46,13 @@ export default function StepListEditor({ steps, onChange }: StepListEditorProps)
     <div className="space-y-1.5">
       {steps.map((step, i) => (
         <div key={step.key} className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 w-5 text-right font-mono">{i + 1}</span>
+          <span className="text-xs text-content-dim w-5 text-right font-mono">{i + 1}</span>
           <input
             type="text"
             value={step.content}
             onChange={(e) => updateStep(step.key, { content: e.target.value })}
             placeholder="Step description..."
-            className="flex-1 bg-surface-1 border border-surface-3 rounded-md px-2.5 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-accent/40"
+            className="flex-1 bg-surface-1 border border-surface-3 rounded-md px-2.5 py-1.5 text-xs text-content placeholder-gray-600 focus:outline-none focus:border-accent/40"
           />
           <button
             onClick={() => updateStep(step.key, { requires_approval: !step.requires_approval })}
@@ -67,14 +67,14 @@ export default function StepListEditor({ steps, onChange }: StepListEditorProps)
             disabled={i === 0}
             className="p-1 disabled:opacity-20 opacity-60 hover:opacity-100 transition-opacity"
           >
-            <ArrowUp size={13} className="text-gray-400" />
+            <ArrowUp size={13} className="text-content-muted" />
           </button>
           <button
             onClick={() => moveStep(i, 1)}
             disabled={i === steps.length - 1}
             className="p-1 disabled:opacity-20 opacity-60 hover:opacity-100 transition-opacity"
           >
-            <ArrowDown size={13} className="text-gray-400" />
+            <ArrowDown size={13} className="text-content-muted" />
           </button>
           <button
             onClick={() => removeStep(step.key)}
@@ -87,7 +87,7 @@ export default function StepListEditor({ steps, onChange }: StepListEditorProps)
       ))}
       <button
         onClick={addStep}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-400 bg-surface-1 border border-surface-3 rounded-md hover:text-gray-200 transition-colors mt-1"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-content-muted bg-surface-1 border border-surface-3 rounded-md hover:text-content transition-colors mt-1"
       >
         <Plus size={12} />
         Add Step

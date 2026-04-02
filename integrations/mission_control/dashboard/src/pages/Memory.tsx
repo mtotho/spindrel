@@ -49,8 +49,8 @@ export default function Memory() {
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100">Memory</h1>
-          <p className="text-sm text-gray-500 mt-1">MEMORY.md and reference files from bots</p>
+          <h1 className="text-2xl font-bold text-content">Memory</h1>
+          <p className="text-sm text-content-dim mt-1">MEMORY.md and reference files from bots</p>
         </div>
         <ScopeToggle />
       </div>
@@ -67,16 +67,16 @@ export default function Memory() {
 
       {/* Search input */}
       <div className="relative mb-6">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-dim" />
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => handleSearchChange(e.target.value)}
           placeholder="Search memory files..."
-          className="w-full bg-surface-1 border border-surface-3 rounded-md pl-8 pr-8 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-accent/40"
+          className="w-full bg-surface-1 border border-surface-3 rounded-md pl-8 pr-8 py-2 text-sm text-content placeholder-gray-600 focus:outline-none focus:border-accent/40"
         />
         {searchQuery && (
-          <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300">
+          <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-content-dim hover:text-content-muted">
             <X size={14} />
           </button>
         )}
@@ -86,36 +86,36 @@ export default function Memory() {
       {debouncedQuery && (
         <div className="mb-6">
           {search.isPending ? (
-            <div className="flex items-center gap-2 text-xs text-gray-500 py-4">
+            <div className="flex items-center gap-2 text-xs text-content-dim py-4">
               <LoadingSpinner /> Searching...
             </div>
           ) : search.data && search.data.length > 0 ? (
             <div className="space-y-2">
-              <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">
+              <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wider">
                 Search Results ({search.data.length})
               </h3>
               {search.data.map((r, i) => (
                 <div key={i} className="bg-surface-2 rounded-lg border border-surface-3 p-3">
                   <div className="flex items-center gap-2 mb-1.5">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: botDotColor(r.bot_id) }} />
-                    <span className="text-xs font-medium text-gray-200">{r.bot_name}</span>
-                    <span className="text-[10px] text-gray-500 font-mono">{r.file_path}</span>
+                    <span className="text-xs font-medium text-content">{r.bot_name}</span>
+                    <span className="text-[10px] text-content-dim font-mono">{r.file_path}</span>
                   </div>
                   {/* Similarity score bar */}
                   <div className="flex items-center gap-2 mb-2">
                     <div className="w-16 h-1 bg-surface-3 rounded-full overflow-hidden">
                       <div className="h-full bg-accent rounded-full" style={{ width: `${Math.min(r.score * 100, 100)}%` }} />
                     </div>
-                    <span className="text-[10px] text-gray-500">{(r.score * 100).toFixed(0)}%</span>
+                    <span className="text-[10px] text-content-dim">{(r.score * 100).toFixed(0)}%</span>
                   </div>
-                  <pre className="text-xs text-gray-400 whitespace-pre-wrap max-h-32 overflow-y-auto leading-relaxed">
+                  <pre className="text-xs text-content-muted whitespace-pre-wrap max-h-32 overflow-y-auto leading-relaxed">
                     {r.content.split("\n").slice(0, 6).join("\n")}
                   </pre>
                 </div>
               ))}
             </div>
           ) : search.data ? (
-            <p className="text-xs text-gray-500 py-2">No results found for &ldquo;{debouncedQuery}&rdquo;</p>
+            <p className="text-xs text-content-dim py-2">No results found for &ldquo;{debouncedQuery}&rdquo;</p>
           ) : null}
         </div>
       )}
@@ -166,34 +166,34 @@ function MemorySectionView({
       >
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: bc.dot }} />
-          <span className="text-sm font-medium text-gray-100">{section.bot_name}</span>
-          <span className="text-xs text-gray-500">{section.bot_id.slice(0, 8)}</span>
+          <span className="text-sm font-medium text-content">{section.bot_name}</span>
+          <span className="text-xs text-content-dim">{section.bot_id.slice(0, 8)}</span>
           {section.reference_files.length > 0 && (
-            <span className="flex items-center gap-1 text-[10px] text-gray-500 bg-surface-3/50 rounded-full px-1.5 py-px">
+            <span className="flex items-center gap-1 text-[10px] text-content-dim bg-surface-3/50 rounded-full px-1.5 py-px">
               <FileText size={10} />
               {section.reference_files.length} ref
             </span>
           )}
         </div>
-        <span className="text-xs text-gray-500">{expanded ? "▲" : "▼"}</span>
+        <span className="text-xs text-content-dim">{expanded ? "▲" : "▼"}</span>
       </button>
 
       {expanded && (
         <div className="px-4 pb-4 space-y-4">
           {section.memory_content ? (
             <div>
-              <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">MEMORY.md</h3>
+              <h3 className="text-xs font-medium text-content-muted uppercase tracking-wider mb-2">MEMORY.md</h3>
               <div className="bg-surface-1 rounded-lg border border-surface-3 p-4 max-h-96 overflow-y-auto">
                 <MarkdownViewer content={section.memory_content} />
               </div>
             </div>
           ) : (
-            <p className="text-xs text-gray-500 italic">No MEMORY.md file</p>
+            <p className="text-xs text-content-dim italic">No MEMORY.md file</p>
           )}
 
           {section.reference_files.length > 0 && (
             <div>
-              <h3 className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+              <h3 className="text-xs font-medium text-content-muted uppercase tracking-wider mb-2">
                 Reference Files ({section.reference_files.length})
               </h3>
               <div className="flex flex-wrap gap-1.5 mb-3">
@@ -204,7 +204,7 @@ function MemorySectionView({
                     className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${
                       selectedRef === f
                         ? "border-accent bg-accent/15 text-accent-hover"
-                        : "border-surface-3 text-gray-400 hover:text-gray-200"
+                        : "border-surface-3 text-content-muted hover:text-content"
                     }`}
                   >
                     {f}

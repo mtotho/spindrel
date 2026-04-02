@@ -24,7 +24,7 @@ export default function ChannelFilterBar({ channels, value, onChange }: ChannelF
       <select
         value={value || ""}
         onChange={(e) => onChange(e.target.value || null)}
-        className="bg-surface-1 border border-surface-3 rounded-md px-2.5 py-1 text-xs text-gray-300"
+        className="bg-surface-1 border border-surface-3 rounded-md px-2.5 py-1 text-xs text-content-muted"
       >
         <option value="">All channels</option>
         {channels.map((ch) => (
@@ -42,7 +42,7 @@ export default function ChannelFilterBar({ channels, value, onChange }: ChannelF
       <button
         onClick={() => onChange(null)}
         className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
-          !value ? "bg-accent/15 text-accent-hover" : "text-gray-500 hover:text-gray-300"
+          !value ? "bg-accent/15 text-accent-hover" : "text-content-dim hover:text-content-muted"
         }`}
       >
         All
@@ -52,7 +52,7 @@ export default function ChannelFilterBar({ channels, value, onChange }: ChannelF
           key={ch.id}
           onClick={() => onChange(ch.id)}
           className={`flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-full transition-colors ${
-            value === ch.id ? "bg-accent/15 text-accent-hover" : "text-gray-500 hover:text-gray-300"
+            value === ch.id ? "bg-accent/15 text-accent-hover" : "text-content-dim hover:text-content-muted"
           }`}
         >
           <span

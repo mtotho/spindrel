@@ -38,8 +38,8 @@ export default function Overview() {
     return (
       <div className="p-6 max-w-7xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-100">Mission Control</h1>
-          <p className="text-sm text-gray-500 mt-1">Agent workspace dashboard</p>
+          <h1 className="text-2xl font-bold text-content">Mission Control</h1>
+          <p className="text-sm text-content-dim mt-1">Agent workspace dashboard</p>
         </div>
         <ErrorBanner message={error.message} onRetry={() => refetch()} />
         <div className="mt-6">
@@ -57,8 +57,8 @@ export default function Overview() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100">Overview</h1>
-          <p className="text-sm text-gray-500 mt-1">Global status across all channels and bots</p>
+          <h1 className="text-2xl font-bold text-content">Overview</h1>
+          <p className="text-sm text-content-dim mt-1">Global status across all channels and bots</p>
         </div>
         <ScopeToggle />
       </div>
@@ -86,7 +86,7 @@ export default function Overview() {
         <StatCard
           label="Tasks"
           value={data.total_tasks}
-          color={data.total_tasks > 0 ? "text-status-yellow" : "text-gray-100"}
+          color={data.total_tasks > 0 ? "text-status-yellow" : "text-content"}
         />
         <StatCard label="Tracked" value={data.total_channels} sub="channels in scope" />
       </div>
@@ -100,7 +100,7 @@ export default function Overview() {
 
           {/* Channel grid */}
           <div>
-            <h2 className="text-lg font-semibold text-gray-200 mb-3">Channels</h2>
+            <h2 className="text-lg font-semibold text-content mb-3">Channels</h2>
             {workspaceChannels.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {workspaceChannels.map((ch) => (
@@ -130,7 +130,7 @@ export default function Overview() {
 
           {/* Bots grid */}
           <div>
-            <h2 className="text-sm font-semibold text-gray-200 mb-2">Bots</h2>
+            <h2 className="text-sm font-semibold text-content mb-2">Bots</h2>
             {data.bots.length > 0 ? (
               <div className="space-y-1.5">
                 {data.bots.map((bot) => {
@@ -142,13 +142,13 @@ export default function Overview() {
                     >
                       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: bc.dot }} />
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs font-medium text-gray-100">{bot.name}</span>
+                        <span className="text-xs font-medium text-content">{bot.name}</span>
                         {bot.model && (
-                          <span className="text-[10px] text-gray-500 ml-2 truncate">{bot.model}</span>
+                          <span className="text-[10px] text-content-dim ml-2 truncate">{bot.model}</span>
                         )}
                       </div>
                       {bot.channel_count > 0 && (
-                        <span className="text-[10px] text-gray-600">{bot.channel_count} ch</span>
+                        <span className="text-[10px] text-content-dim">{bot.channel_count} ch</span>
                       )}
                     </div>
                   );
@@ -185,7 +185,7 @@ function TaskProgressBar({ scope }: { scope: string | undefined }) {
 
   return (
     <div className="bg-surface-2 rounded-xl border border-surface-3 p-4">
-      <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-2">Task Distribution</h3>
+      <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wider mb-2">Task Distribution</h3>
       <div className="h-3 rounded-full overflow-hidden flex">
         {segments.map((seg) =>
           seg.count > 0 ? (
@@ -202,7 +202,7 @@ function TaskProgressBar({ scope }: { scope: string | undefined }) {
         {segments.map((seg) => (
           <div key={seg.name} className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: seg.color }} />
-            <span className="text-[10px] text-gray-400">{seg.name} ({seg.count})</span>
+            <span className="text-[10px] text-content-muted">{seg.name} ({seg.count})</span>
           </div>
         ))}
       </div>
@@ -222,7 +222,7 @@ function ActivityFeed({ scope }: { scope: string | undefined }) {
   return (
     <div className="bg-surface-2 rounded-xl border border-surface-3 p-4">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Recent Activity</h3>
+        <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wider">Recent Activity</h3>
         <Link to="/timeline" className="text-[10px] text-accent-hover hover:underline">View all &rarr;</Link>
       </div>
       <div className="space-y-1.5">
@@ -230,10 +230,10 @@ function ActivityFeed({ scope }: { scope: string | undefined }) {
           <div key={i} className="flex items-start gap-2">
             <span className="w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style={{ backgroundColor: channelColor(ev.channel_id) }} />
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-gray-300 truncate">
+              <p className="text-xs text-content-muted truncate">
                 <InlineBold text={ev.event} />
               </p>
-              <p className="text-[10px] text-gray-500">{ev.time}</p>
+              <p className="text-[10px] text-content-dim">{ev.time}</p>
             </div>
           </div>
         ))}
@@ -266,25 +266,25 @@ function PlansSummary({ scope }: { scope: string | undefined }) {
   return (
     <div className="bg-surface-2 rounded-xl border border-surface-3 p-4">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">Plans</h3>
+        <h3 className="text-xs font-semibold text-content-muted uppercase tracking-wider">Plans</h3>
         <Link to="/plans" className="text-[10px] text-accent-hover hover:underline">View plans &rarr;</Link>
       </div>
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-green-400" />
-          <span className="text-gray-400">Executing: {counts.executing}</span>
+          <span className="text-content-muted">Executing: {counts.executing}</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-gray-400" />
-          <span className="text-gray-400">Complete: {counts.complete}</span>
+          <span className="w-2 h-2 rounded-full bg-surface-4" />
+          <span className="text-content-muted">Complete: {counts.complete}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-yellow-400" />
-          <span className="text-gray-400">Draft: {counts.draft}</span>
+          <span className="text-content-muted">Draft: {counts.draft}</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="w-2 h-2 rounded-full bg-purple-400" />
-          <span className="text-gray-400">Awaiting: {counts.awaiting}</span>
+          <span className="text-content-muted">Awaiting: {counts.awaiting}</span>
         </div>
       </div>
       {counts.awaiting > 0 && (
@@ -324,7 +324,7 @@ function QuickNav() {
               className="flex flex-col items-center gap-1 py-2 px-1 rounded-lg hover:bg-surface-3 transition-colors group"
             >
               <div className="relative">
-                <Icon size={18} className="text-gray-400 group-hover:text-gray-200 transition-colors" />
+                <Icon size={18} className="text-content-muted group-hover:text-content transition-colors" />
                 {ready !== undefined && (
                   <span
                     className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full"
@@ -332,7 +332,7 @@ function QuickNav() {
                   />
                 )}
               </div>
-              <span className="text-[10px] text-gray-500 group-hover:text-gray-300">{l.label}</span>
+              <span className="text-[10px] text-content-dim group-hover:text-content-muted">{l.label}</span>
               {ready === false && (
                 <Link to="/setup" className="text-[9px] text-yellow-500/80 hover:text-yellow-400 leading-none" onClick={(e) => e.stopPropagation()}>
                   Setup needed
@@ -356,7 +356,7 @@ function InlineBold({ text }: { text: string }) {
     <>
       {parts.map((p, i) =>
         p.startsWith("**") && p.endsWith("**") ? (
-          <strong key={i} className="font-semibold text-gray-200">
+          <strong key={i} className="font-semibold text-content">
             {p.slice(2, -2)}
           </strong>
         ) : (

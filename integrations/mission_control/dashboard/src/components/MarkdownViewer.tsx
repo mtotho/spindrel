@@ -19,25 +19,25 @@ export default function MarkdownViewer({ content, className = "" }: MarkdownView
 
     if (line.startsWith("# ")) {
       elements.push(
-        <h1 key={i} className="text-xl font-bold text-gray-100 mt-4 mb-2 first:mt-0">
+        <h1 key={i} className="text-xl font-bold text-content mt-4 mb-2 first:mt-0">
           {line.slice(2)}
         </h1>,
       );
     } else if (line.startsWith("## ")) {
       elements.push(
-        <h2 key={i} className="text-lg font-semibold text-gray-200 mt-3 mb-1.5">
+        <h2 key={i} className="text-lg font-semibold text-content mt-3 mb-1.5">
           {line.slice(3)}
         </h2>,
       );
     } else if (line.startsWith("### ")) {
       elements.push(
-        <h3 key={i} className="text-base font-medium text-gray-200 mt-2 mb-1">
+        <h3 key={i} className="text-base font-medium text-content mt-2 mb-1">
           {line.slice(4)}
         </h3>,
       );
     } else if (line.startsWith("- ")) {
       elements.push(
-        <li key={i} className="text-sm text-gray-300 ml-4 list-disc">
+        <li key={i} className="text-sm text-content-muted ml-4 list-disc">
           <InlineMarkdown text={line.slice(2)} />
         </li>,
       );
@@ -52,7 +52,7 @@ export default function MarkdownViewer({ content, className = "" }: MarkdownView
       elements.push(
         <pre
           key={`code-${i}`}
-          className="bg-surface-0 rounded-lg p-3 my-2 text-xs text-gray-300 overflow-x-auto border border-surface-3"
+          className="bg-surface-0 rounded-lg p-3 my-2 text-xs text-content-muted overflow-x-auto border border-surface-3"
         >
           {codeLines.join("\n")}
         </pre>,
@@ -61,7 +61,7 @@ export default function MarkdownViewer({ content, className = "" }: MarkdownView
       elements.push(<div key={i} className="h-2" />);
     } else {
       elements.push(
-        <p key={i} className="text-sm text-gray-300 leading-relaxed">
+        <p key={i} className="text-sm text-content-muted leading-relaxed">
           <InlineMarkdown text={line} />
         </p>,
       );
@@ -81,7 +81,7 @@ function InlineMarkdown({ text }: { text: string }) {
       {parts.map((part, idx) => {
         if (part.startsWith("**") && part.endsWith("**")) {
           return (
-            <strong key={idx} className="font-semibold text-gray-100">
+            <strong key={idx} className="font-semibold text-content">
               {part.slice(2, -2)}
             </strong>
           );

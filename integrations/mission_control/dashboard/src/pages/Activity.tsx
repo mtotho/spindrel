@@ -50,8 +50,8 @@ export default function Activity() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-100">Activity</h1>
-        <p className="text-sm text-gray-500 mt-1">Recent activity across all channels</p>
+        <h1 className="text-2xl font-bold text-content">Activity</h1>
+        <p className="text-sm text-content-dim mt-1">Recent activity across all channels</p>
       </div>
 
       {!data?.length ? (
@@ -68,10 +68,10 @@ export default function Activity() {
               className="bg-surface-1 rounded-xl border border-surface-3 p-4"
             >
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-sm font-medium text-gray-200">
+                <span className="text-sm font-medium text-content">
                   {log.date}
                 </span>
-                <span className="text-xs text-gray-500 bg-surface-3 px-2 py-0.5 rounded">
+                <span className="text-xs text-content-dim bg-surface-3 px-2 py-0.5 rounded">
                   {log.channelName}
                 </span>
               </div>

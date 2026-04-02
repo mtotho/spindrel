@@ -55,8 +55,8 @@ export default function Plans() {
     <div className="p-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-100">Plans</h1>
-          <p className="text-sm text-gray-500 mt-1">Structured execution plans</p>
+          <h1 className="text-2xl font-bold text-content">Plans</h1>
+          <p className="text-sm text-content-dim mt-1">Structured execution plans</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -90,7 +90,7 @@ export default function Plans() {
               className={`px-2.5 py-1 text-xs rounded-md border capitalize transition-colors ${
                 statusFilter === s
                   ? "border-accent bg-accent text-white"
-                  : "border-surface-3 text-gray-400 hover:text-gray-200"
+                  : "border-surface-3 text-content-muted hover:text-content"
               }`}
             >
               {s.replace(/_/g, " ")}
@@ -174,7 +174,7 @@ function PlanCard({ plan }: { plan: Plan }) {
         <div className="flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-100 truncate">{plan.title}</span>
+              <span className="text-sm font-medium text-content truncate">{plan.title}</span>
               <StatusBadge status={plan.status} />
             </div>
             <div className="flex items-center gap-2 mt-1">
@@ -182,14 +182,14 @@ function PlanCard({ plan }: { plan: Plan }) {
                 className="w-1.5 h-1.5 rounded-full flex-shrink-0"
                 style={{ backgroundColor: channelColor(plan.channel_id) }}
               />
-              <span className="text-xs text-gray-500">{plan.channel_name}</span>
+              <span className="text-xs text-content-dim">{plan.channel_name}</span>
               {plan.created_at && (
-                <span className="text-xs text-gray-600">{new Date(plan.created_at).toLocaleDateString()}</span>
+                <span className="text-xs text-content-dim">{new Date(plan.created_at).toLocaleDateString()}</span>
               )}
             </div>
           </div>
           <ProgressBar steps={plan.steps} />
-          <span className="text-xs text-gray-500">{expanded ? "▲" : "▼"}</span>
+          <span className="text-xs text-content-dim">{expanded ? "▲" : "▼"}</span>
         </div>
       </button>
 
@@ -197,8 +197,8 @@ function PlanCard({ plan }: { plan: Plan }) {
         <div className="px-4 pb-4 space-y-3 border-t border-surface-3 pt-3">
           {/* Plan ID */}
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-gray-600 font-mono">{plan.id}</span>
-            <button onClick={copyId} className="text-gray-500 hover:text-gray-300 transition-colors">
+            <span className="text-[10px] text-content-dim font-mono">{plan.id}</span>
+            <button onClick={copyId} className="text-content-dim hover:text-content-muted transition-colors">
               {copied ? <Check size={11} /> : <Copy size={11} />}
             </button>
           </div>
@@ -249,13 +249,13 @@ function PlanCard({ plan }: { plan: Plan }) {
             )}
             <Link
               to={`/plans/${plan.channel_id}/${plan.id}`}
-              className="px-2.5 py-1 text-xs rounded-md border border-surface-3 text-gray-400 hover:text-gray-200 transition-colors"
+              className="px-2.5 py-1 text-xs rounded-md border border-surface-3 text-content-muted hover:text-content transition-colors"
             >
               Full detail &rarr;
             </Link>
           </div>
 
-          {plan.notes && <p className="text-xs text-gray-400 italic">{plan.notes}</p>}
+          {plan.notes && <p className="text-xs text-content-muted italic">{plan.notes}</p>}
 
           {/* Steps */}
           {plan.steps.length > 0 && (
@@ -304,7 +304,7 @@ function StepRow({
     >
       <span className="mt-0.5 flex-shrink-0"><StepIcon status={step.status} /></span>
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-gray-200">{step.content}</p>
+        <p className="text-xs text-content">{step.content}</p>
         <div className="flex items-center gap-2 mt-0.5">
           {step.requires_approval && step.status !== "complete" && step.status !== "skipped" && (
             <span className="flex items-center gap-0.5 text-[10px] text-purple-400">
@@ -312,17 +312,17 @@ function StepRow({
             </span>
           )}
           {step.started_at && step.completed_at && (
-            <span className="text-[10px] text-gray-500">{formatDuration(step.started_at, step.completed_at)}</span>
+            <span className="text-[10px] text-content-dim">{formatDuration(step.started_at, step.completed_at)}</span>
           )}
           {step.started_at && !step.completed_at && (
-            <span className="text-[10px] text-gray-500">started {timeAgo(step.started_at)}</span>
+            <span className="text-[10px] text-content-dim">started {timeAgo(step.started_at)}</span>
           )}
           {step.task_id && (
             <a
               href="/admin/tasks"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[10px] text-gray-600 font-mono hover:text-accent transition-colors"
+              className="text-[10px] text-content-dim font-mono hover:text-accent transition-colors"
             >
               task:{step.task_id.slice(0, 8)}
             </a>
@@ -346,13 +346,13 @@ function StepRow({
             <button onClick={onApprove} className="px-2 py-0.5 text-[10px] rounded bg-green-500/20 text-green-300 hover:bg-green-500/30 transition-colors">
               Approve
             </button>
-            <button onClick={onSkip} className="px-2 py-0.5 text-[10px] rounded bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 transition-colors">
+            <button onClick={onSkip} className="px-2 py-0.5 text-[10px] rounded bg-surface-4/40 text-content-muted hover:bg-surface-4/60 transition-colors">
               Skip
             </button>
           </>
         )}
         {step.status === "pending" && (plan.status === "executing" || plan.status === "awaiting_approval") && (
-          <button onClick={onSkip} className="px-2 py-0.5 text-[10px] rounded bg-gray-500/20 text-gray-400 hover:bg-gray-500/30 transition-colors flex-shrink-0">
+          <button onClick={onSkip} className="px-2 py-0.5 text-[10px] rounded bg-surface-4/40 text-content-muted hover:bg-surface-4/60 transition-colors flex-shrink-0">
             Skip
           </button>
         )}
@@ -431,14 +431,14 @@ function PlanCreateForm({
   return (
     <div className="bg-surface-2 rounded-xl border border-surface-3 p-4 mb-6 space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-100">New Plan</h3>
-        <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-300">Cancel</button>
+        <h3 className="text-sm font-medium text-content">New Plan</h3>
+        <button onClick={onClose} className="text-xs text-content-dim hover:text-content-muted">Cancel</button>
       </div>
 
       <select
         value={channelId}
         onChange={(e) => setChannelId(e.target.value)}
-        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-gray-200"
+        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content"
       >
         {channels.map((ch) => (
           <option key={ch.id} value={ch.id}>{ch.name || ch.id.slice(0, 8)}</option>
@@ -450,7 +450,7 @@ function PlanCreateForm({
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Plan title"
-        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600"
+        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content placeholder-gray-600"
       />
 
       <textarea
@@ -458,11 +458,11 @@ function PlanCreateForm({
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes (optional)"
         rows={2}
-        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-gray-200 placeholder-gray-600 resize-none"
+        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content placeholder-gray-600 resize-none"
       />
 
       <div>
-        <label className="text-xs text-gray-400 mb-1 block">Steps</label>
+        <label className="text-xs text-content-muted mb-1 block">Steps</label>
         <StepListEditor steps={steps} onChange={setSteps} />
       </div>
 

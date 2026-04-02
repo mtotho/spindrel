@@ -27,11 +27,11 @@ export default function InfoPanel({ id, description, tips, links }: InfoPanelPro
   return (
     <div className="bg-accent/5 border border-accent/10 rounded-lg px-4 py-2.5 mb-5">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs text-gray-400">{description}</p>
+        <p className="text-xs text-content-muted">{description}</p>
         {hasExtra && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+            className="text-content-dim hover:text-content-muted transition-colors flex-shrink-0"
           >
             {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
           </button>
@@ -42,7 +42,7 @@ export default function InfoPanel({ id, description, tips, links }: InfoPanelPro
           {hasTips && (
             <ul className="space-y-1">
               {tips.map((tip, i) => (
-                <li key={i} className="text-[11px] text-gray-500 flex items-start gap-1.5">
+                <li key={i} className="text-[11px] text-content-dim flex items-start gap-1.5">
                   <span className="mt-0.5 flex-shrink-0">&#8226;</span>
                   <span>{tip}</span>
                 </li>

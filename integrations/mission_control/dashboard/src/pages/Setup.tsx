@@ -19,10 +19,10 @@ function ReadinessRow({ name, feature }: { name: string; feature: FeatureReadine
       <ReadinessIcon ready={feature.ready} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-200 capitalize">{name}</span>
-          <span className="text-xs text-gray-500">{feature.count}/{feature.total}</span>
+          <span className="text-sm font-medium text-content capitalize">{name}</span>
+          <span className="text-xs text-content-dim">{feature.count}/{feature.total}</span>
         </div>
-        <p className="text-xs text-gray-400 mt-0.5">{feature.detail}</p>
+        <p className="text-xs text-content-muted mt-0.5">{feature.detail}</p>
         {feature.issues.length > 0 && (
           <ul className="mt-1.5 space-y-0.5">
             {feature.issues.map((issue, idx) => (
@@ -42,17 +42,17 @@ export default function Setup() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-100">Setup</h1>
-        <p className="text-sm text-gray-500 mt-1">Feature readiness and configuration guide</p>
+        <h1 className="text-2xl font-bold text-content">Setup</h1>
+        <p className="text-sm text-content-dim mt-1">Feature readiness and configuration guide</p>
       </div>
 
       <div className="bg-surface-2 rounded-xl border border-surface-3 p-4 mb-6">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-200">Feature Readiness</h2>
+          <h2 className="text-sm font-semibold text-content">Feature Readiness</h2>
           <button
             onClick={() => refetchReadiness()}
             disabled={fetchingReadiness}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-surface-3 text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-surface-3 text-content-muted hover:text-content transition-colors disabled:opacity-50"
           >
             <RefreshCw size={12} className={fetchingReadiness ? "animate-spin" : ""} />
             Re-check
@@ -72,13 +72,13 @@ export default function Setup() {
       </div>
 
       <div className="bg-surface-2 rounded-xl border border-surface-3 p-4">
-        <h2 className="text-sm font-semibold text-gray-200 mb-3">Setup Guide</h2>
+        <h2 className="text-sm font-semibold text-content mb-3">Setup Guide</h2>
         {loadingGuide ? (
           <LoadingSpinner />
         ) : guide ? (
           <MarkdownViewer content={guide} />
         ) : (
-          <p className="text-xs text-gray-500 italic">No setup guide available.</p>
+          <p className="text-xs text-content-dim italic">No setup guide available.</p>
         )}
       </div>
     </div>
