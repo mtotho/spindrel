@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
@@ -79,12 +79,23 @@ export default function ChannelSettingsScreen() {
 
   const tabKeys = ALL_TABS.map((tab) => tab.key);
   const [tab, setTab] = useHashTab("general", tabKeys);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
 
-  // Auto-expand advanced section when navigating to an advanced tab
   const isAdvancedTab = ADVANCED_KEYS.has(tab);
+
+  // Close "More" dropdown on click-outside
+  useEffect(() => {
+    if (!moreOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [moreOpen]);
+
   useEffect(() => {
     if (settings) {
       setForm({
@@ -225,45 +236,118 @@ export default function ChannelSettingsScreen() {
         </View>
       </View>
 
-      {/* Tabs */}
-      <View style={{ flexShrink: 0 }}>
-        <View className="px-3 pt-2 pb-1">
-          <TabBar tabs={PRIMARY_TABS} active={tab} onChange={setTab} />
-        </View>
-
-        {/* Advanced expander */}
-        <button
-          onClick={() => setShowAdvanced(!showAdvanced)}
+      {/* Tabs — single row with overflow dropdown for advanced */}
+      <View style={{ flexShrink: 0 }} className="px-3 pt-2 pb-1">
+        <div
           style={{
             display: "flex",
-            alignItems: "center",
             gap: 4,
-            width: "100%",
-            padding: "4px 12px",
-            fontSize: 11,
-            fontWeight: 500,
-            border: "none",
-            borderTop: `1px solid ${t.surfaceBorder}`,
-            background: "transparent",
-            color: t.textDim,
-            cursor: "pointer",
-            transition: "color 0.15s",
+            overflowX: "auto",
+            WebkitOverflowScrolling: "touch",
+            scrollbarWidth: "none",
+            paddingBottom: 4,
+            paddingRight: 24,
+            scrollSnapType: "x mandatory",
           }}
+          className="hide-scrollbar"
         >
-          <ChevronDown
-            size={11}
-            color={t.textDim}
-            style={{ transform: showAdvanced || isAdvancedTab ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" } as any}
-          />
-          {showAdvanced || isAdvancedTab ? "Less" : "Advanced"}
-        </button>
+          {PRIMARY_TABS.map((tb) => {
+            const isActive = tb.key === tab;
+            return (
+              <button
+                key={tb.key}
+                onClick={() => setTab(tb.key)}
+                style={{
+                  padding: "6px 10px",
+                  fontSize: 12,
+                  fontWeight: isActive ? 600 : 500,
+                  border: "1px solid",
+                  borderColor: isActive ? t.accent : t.surfaceBorder,
+                  borderRadius: 6,
+                  background: isActive ? t.accent : "transparent",
+                  color: isActive ? "#fff" : t.textMuted,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  transition: "all 0.15s",
+                  flexShrink: 0,
+                  scrollSnapAlign: "start",
+                  minHeight: 36,
+                }}
+              >
+                {tb.label}
+              </button>
+            );
+          })}
 
-        {/* Advanced tabs row */}
-        {(showAdvanced || isAdvancedTab) && (
-          <View className="px-3 pb-1">
-            <TabBar tabs={ADVANCED_TABS} active={tab} onChange={setTab} />
-          </View>
-        )}
+          {/* "More" dropdown for advanced tabs */}
+          <div ref={moreRef as any} style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              onClick={() => setMoreOpen((v) => !v)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 3,
+                padding: "6px 10px",
+                fontSize: 12,
+                fontWeight: isAdvancedTab ? 600 : 500,
+                border: "1px solid",
+                borderColor: isAdvancedTab ? t.accent : t.surfaceBorder,
+                borderRadius: 6,
+                background: isAdvancedTab ? t.accent : "transparent",
+                color: isAdvancedTab ? "#fff" : t.textMuted,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s",
+                minHeight: 36,
+              }}
+            >
+              {isAdvancedTab ? ADVANCED_TABS.find((at) => at.key === tab)?.label : "More"}
+              <ChevronDown
+                size={10}
+                color={isAdvancedTab ? "#fff" : t.textMuted}
+                style={{ transform: moreOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" } as any}
+              />
+            </button>
+            {moreOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  zIndex: 50,
+                  background: t.surfaceOverlay,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  borderRadius: 8,
+                  padding: 4,
+                  minWidth: 140,
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                }}
+              >
+                {ADVANCED_TABS.map((at) => (
+                  <button
+                    key={at.key}
+                    onClick={() => { setTab(at.key); setMoreOpen(false); }}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "8px 10px",
+                      fontSize: 12,
+                      fontWeight: at.key === tab ? 600 : 400,
+                      color: at.key === tab ? t.accent : t.text,
+                      background: "transparent",
+                      border: "none",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {at.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </View>
 
       {/* Tab content */}
