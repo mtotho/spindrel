@@ -162,10 +162,27 @@ Emails that fail any layer are quarantined in a local SQLite database (`~/.agent
 
 ## Bot Tools
 
-Two tools are available to bots with the `gmail-feeds` carapace:
+Three tools are available to bots with the `gmail-feeds` carapace:
 
 - **`check_gmail_status`** — Test IMAP connectivity, show email and folder count
 - **`trigger_gmail_poll`** — Run a poll cycle immediately and see what was fetched
+- **`query_feed_store`** — Query feed health stats, recent deliveries, and quarantined items from the ingestion SQLite store
+
+### Feed Store Queries
+
+```
+# Check feed health (24h stats, quarantine counts, cursor position)
+query_feed_store(action="stats", store="gmail", source="gmail")
+
+# List recently delivered emails
+query_feed_store(action="recent", store="gmail", limit=10)
+
+# Review quarantined emails (blocked by security pipeline)
+query_feed_store(action="quarantine", store="gmail")
+
+# Discover all feed stores on the server
+query_feed_store(action="sources")
+```
 
 ## Carapace Composition
 
@@ -186,6 +203,32 @@ All endpoints require authentication.
 | `GET` | `/integrations/gmail/ping` | Health check |
 | `GET` | `/integrations/gmail/status` | Test IMAP connectivity |
 | `POST` | `/integrations/gmail/trigger` | Manual poll cycle (returns results) |
+
+## Email Triage Template
+
+The Gmail integration ships an **Email Triage & Digest** workspace template (`email-digest`) that teaches bots a structured email processing protocol:
+
+- **Triage categories**: Urgent, Action Required, Projects/Threads, FYI, Low Priority
+- **Workspace files**: `triage.md` (categorized log), `actions.md` (extracted items), `digest.md` (summary), `feeds.md` (sender rules)
+- **Action extraction**: Automatic detection of deadlines, reply requests, approvals, assignments
+- **MC integration**: Creates task cards from actionable emails, logs triage events to timeline
+- **Heartbeat-ready**: Suggested config for automated digest generation
+
+Activate Gmail on a channel and select the "Email Triage & Digest" template to enable the full protocol.
+
+## Cursor Format
+
+The Gmail poller tracks its position using per-folder IMAP UID cursors stored in the ingestion SQLite database. Cursor keys follow the format `gmail:{FOLDER}` (e.g., `gmail:INBOX`). You can inspect them via:
+
+```bash
+sqlite3 ~/.agent-workspaces/.ingestion/gmail.db "SELECT key, value, updated_at FROM cursors"
+```
+
+Or programmatically via `query_feed_store(action="stats", store="gmail", source="gmail")`.
+
+## Authentication
+
+Gmail requires an **App Password** for IMAP access. OAuth2 is **not supported** — only App Passwords work. This requires 2-Step Verification to be enabled on the Google account. If 2FA is later disabled, the app password is revoked and the poller will fail silently.
 
 ## Troubleshooting
 

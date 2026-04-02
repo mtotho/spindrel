@@ -7,14 +7,12 @@ from __future__ import annotations
 
 import os
 
-from integrations.ingestion.config import IngestionConfig
+from integrations.ingestion.config import INGESTION_DB_DIR, IngestionConfig
 from integrations.ingestion.pipeline import IngestionPipeline
 from integrations.ingestion.store import IngestionStore
 
 from integrations.gmail.config import settings
 from integrations.gmail.feed import GmailFeed
-
-_DB_DIR = os.path.expanduser("~/.agent-workspaces/.ingestion")
 
 
 def create_feed() -> tuple[GmailFeed, IngestionStore]:
@@ -22,8 +20,8 @@ def create_feed() -> tuple[GmailFeed, IngestionStore]:
 
     Returns (feed, store) — caller should call store.close() when done.
     """
-    os.makedirs(_DB_DIR, exist_ok=True)
-    store = IngestionStore(os.path.join(_DB_DIR, "gmail.db"))
+    os.makedirs(INGESTION_DB_DIR, exist_ok=True)
+    store = IngestionStore(os.path.join(INGESTION_DB_DIR, "gmail.db"))
 
     config = IngestionConfig(
         agent_base_url=settings.AGENT_BASE_URL,

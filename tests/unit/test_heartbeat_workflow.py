@@ -39,6 +39,17 @@ def _make_channel(bot_id="test-bot"):
     return ch
 
 
+def _make_dedup_db(has_active_run: bool = False):
+    """Create a mock DB session for the dedup check at the top of _fire_heartbeat_workflow."""
+    mock_db = AsyncMock()
+    mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+    mock_db.__aexit__ = AsyncMock(return_value=False)
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = uuid.uuid4() if has_active_run else None
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    return mock_db
+
+
 class TestFireHeartbeatDelegatesToWorkflow:
     """When workflow_id is set, fire_heartbeat should call _fire_heartbeat_workflow."""
 
@@ -95,9 +106,13 @@ class TestFireHeartbeatWorkflow:
         mock_heartbeat_obj.run_count = 5
 
         # Build a mock DB that handles different get() calls
-        call_count = {"session": 0}
+        session_idx = [0]
 
         def make_mock_db():
+            session_idx[0] += 1
+            if session_idx[0] == 1:
+                return _make_dedup_db(has_active_run=False)
+
             mock_db = AsyncMock()
             mock_db.__aenter__ = AsyncMock(return_value=mock_db)
             mock_db.__aexit__ = AsyncMock(return_value=False)
@@ -156,7 +171,13 @@ class TestFireHeartbeatWorkflow:
         mock_heartbeat_obj.timezone = None
         mock_heartbeat_obj.run_count = 0
 
+        session_idx = [0]
+
         def make_mock_db():
+            session_idx[0] += 1
+            if session_idx[0] == 1:
+                return _make_dedup_db(has_active_run=False)
+
             mock_db = AsyncMock()
             mock_db.__aenter__ = AsyncMock(return_value=mock_db)
             mock_db.__aexit__ = AsyncMock(return_value=False)
@@ -214,7 +235,13 @@ class TestFireHeartbeatWorkflow:
         mock_heartbeat_obj.timezone = None
         mock_heartbeat_obj.run_count = 3
 
+        session_idx = [0]
+
         def make_mock_db():
+            session_idx[0] += 1
+            if session_idx[0] == 1:
+                return _make_dedup_db(has_active_run=False)
+
             mock_db = AsyncMock()
             mock_db.__aenter__ = AsyncMock(return_value=mock_db)
             mock_db.__aexit__ = AsyncMock(return_value=False)
@@ -251,13 +278,21 @@ class TestFireHeartbeatWorkflow:
         hb = _make_heartbeat(workflow_id="test-wf")
         now = datetime.now(timezone.utc)
 
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.get = AsyncMock(return_value=None)
+        session_idx = [0]
+
+        def make_mock_db():
+            session_idx[0] += 1
+            if session_idx[0] == 1:
+                return _make_dedup_db(has_active_run=False)
+
+            mock_db = AsyncMock()
+            mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_db.__aexit__ = AsyncMock(return_value=False)
+            mock_db.get = AsyncMock(return_value=None)
+            return mock_db
 
         with (
-            patch("app.services.heartbeat.async_session", return_value=mock_db),
+            patch("app.services.heartbeat.async_session", side_effect=lambda: make_mock_db()),
             patch("app.services.workflow_executor.trigger_workflow", new_callable=AsyncMock) as mock_trigger,
         ):
             await _fire_heartbeat_workflow(hb, now)
@@ -285,7 +320,13 @@ class TestFireHeartbeatWorkflow:
         mock_heartbeat_obj.timezone = None
         mock_heartbeat_obj.run_count = 0
 
+        session_idx = [0]
+
         def make_mock_db():
+            session_idx[0] += 1
+            if session_idx[0] == 1:
+                return _make_dedup_db(has_active_run=False)
+
             mock_db = AsyncMock()
             mock_db.__aenter__ = AsyncMock(return_value=mock_db)
             mock_db.__aexit__ = AsyncMock(return_value=False)
@@ -319,3 +360,76 @@ class TestFireHeartbeatWorkflow:
             assert "thread_ts" not in call_kwargs["dispatch_config"]
             assert call_kwargs["dispatch_config"]["reply_in_thread"] is False
             assert call_kwargs["dispatch_config"]["channel"] == "C123"
+
+
+# ---------------------------------------------------------------------------
+# Test: Heartbeat workflow dedup — skip when active run exists
+# ---------------------------------------------------------------------------
+
+class TestHeartbeatWorkflowDedup:
+    """Heartbeat should NOT trigger a workflow if there's already an active run."""
+
+    @pytest.mark.asyncio
+    async def test_skips_when_active_run_exists(self):
+        hb = _make_heartbeat(workflow_id="test-wf")
+        now = datetime.now(timezone.utc)
+
+        with (
+            patch("app.services.heartbeat.async_session", return_value=_make_dedup_db(has_active_run=True)),
+            patch("app.services.workflow_executor.trigger_workflow", new_callable=AsyncMock) as mock_trigger,
+        ):
+            await _fire_heartbeat_workflow(hb, now)
+            mock_trigger.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_triggers_when_no_active_run(self):
+        hb = _make_heartbeat(workflow_id="test-wf")
+        channel = _make_channel()
+        now = datetime.now(timezone.utc)
+
+        mock_wf_run = MagicMock()
+        mock_wf_run.id = uuid.uuid4()
+
+        mock_run_record = MagicMock()
+        mock_run_record.id = uuid.uuid4()
+
+        mock_heartbeat_obj = MagicMock()
+        mock_heartbeat_obj.interval_minutes = 60
+        mock_heartbeat_obj.quiet_start = None
+        mock_heartbeat_obj.quiet_end = None
+        mock_heartbeat_obj.timezone = None
+        mock_heartbeat_obj.run_count = 0
+
+        session_idx = [0]
+
+        def make_mock_db():
+            session_idx[0] += 1
+            if session_idx[0] == 1:
+                return _make_dedup_db(has_active_run=False)
+
+            mock_db = AsyncMock()
+            mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_db.__aexit__ = AsyncMock(return_value=False)
+
+            async def mock_get(model, id_):
+                name = model.__name__ if hasattr(model, "__name__") else str(model)
+                if name == "Channel":
+                    return channel
+                if name == "ChannelHeartbeat":
+                    return mock_heartbeat_obj
+                if name == "HeartbeatRun":
+                    return mock_run_record
+                return None
+
+            mock_db.get = AsyncMock(side_effect=mock_get)
+            mock_db.add = MagicMock()
+            mock_db.commit = AsyncMock()
+            mock_db.refresh = AsyncMock()
+            return mock_db
+
+        with (
+            patch("app.services.heartbeat.async_session", side_effect=lambda: make_mock_db()),
+            patch("app.services.workflow_executor.trigger_workflow", new_callable=AsyncMock, return_value=mock_wf_run) as mock_trigger,
+        ):
+            await _fire_heartbeat_workflow(hb, now)
+            mock_trigger.assert_called_once()

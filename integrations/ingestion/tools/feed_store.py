@@ -4,21 +4,19 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sqlite3
 from pathlib import Path
 
 from integrations import _register as reg
+from integrations.ingestion.config import INGESTION_DB_DIR
 from integrations.ingestion.store import IngestionStore
 
 logger = logging.getLogger(__name__)
 
-_INGESTION_DIR = os.path.expanduser("~/.agent-workspaces/.ingestion")
-
 
 def _discover_stores() -> dict[str, Path]:
     """Scan the ingestion directory for *.db files. Returns {name: path}."""
-    base = Path(_INGESTION_DIR)
+    base = Path(INGESTION_DB_DIR)
     if not base.is_dir():
         return {}
     return {p.stem: p for p in sorted(base.glob("*.db"))}
@@ -125,7 +123,7 @@ def _handle_sources() -> str:
             sources = db.list_sources()
             db.close()
             result.append({"store": name, "sources": sources, "path": str(path)})
-        except Exception as e:
+        except (sqlite3.Error, OSError) as e:
             result.append({"store": name, "error": str(e), "path": str(path)})
 
     return json.dumps(result, indent=2)

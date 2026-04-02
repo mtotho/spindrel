@@ -1,6 +1,11 @@
 """Pipeline configuration via environment variables (INGESTION_ prefix)."""
 
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Shared path for all ingestion SQLite databases (one per feed type).
+INGESTION_DB_DIR = os.path.expanduser("~/.agent-workspaces/.ingestion")
 
 
 class IngestionConfig(BaseSettings):

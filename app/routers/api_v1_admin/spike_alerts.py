@@ -202,7 +202,10 @@ async def spike_status():
 
 @router.get("/targets/available")
 async def available_targets(db: AsyncSession = Depends(get_db)):
-    """List channels with dispatchers + integration bindings as target options."""
+    """List channels + integration bindings + available integration types as target options."""
+    from app.agent.hooks import get_integration_meta, _meta_registry
+    from app.agent import dispatchers as dispatcher_registry
+
     options: list[dict] = []
 
     # Channels with integration dispatchers
@@ -220,16 +223,21 @@ async def available_targets(db: AsyncSession = Depends(get_db)):
             "integration_type": ch.integration,
         })
 
-    # Integration bindings (from channel_integrations)
+    # Integration bindings (from channel_integrations with dispatch_config or resolve_dispatch_config)
     bindings = (await db.execute(
         select(ChannelIntegration)
-        .where(ChannelIntegration.dispatch_config.isnot(None))
         .order_by(ChannelIntegration.integration_type)
     )).scalars().all()
 
     seen_clients: set[str] = set()
     for b in bindings:
         if b.client_id in seen_clients:
+            continue
+        # Include if it has stored dispatch_config OR the integration has resolve_dispatch_config
+        has_stored = b.dispatch_config is not None
+        meta = get_integration_meta(b.integration_type)
+        has_resolver = meta is not None and meta.resolve_dispatch_config is not None
+        if not has_stored and not has_resolver:
             continue
         seen_clients.add(b.client_id)
         options.append({
@@ -239,4 +247,13 @@ async def available_targets(db: AsyncSession = Depends(get_db)):
             "label": b.display_name or b.client_id,
         })
 
-    return options
+    # Available integration types (for adding new arbitrary targets)
+    available_integrations: list[dict] = []
+    for itype, meta in _meta_registry.items():
+        if meta.resolve_dispatch_config is not None:
+            available_integrations.append({
+                "integration_type": itype,
+                "client_id_prefix": meta.client_id_prefix,
+            })
+
+    return {"options": options, "integrations": available_integrations}

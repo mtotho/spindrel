@@ -800,6 +800,16 @@ export interface TargetOption {
   label: string;
 }
 
+export interface AvailableIntegration {
+  integration_type: string;
+  client_id_prefix: string;
+}
+
+export interface AvailableTargetsResponse {
+  options: TargetOption[];
+  integrations: AvailableIntegration[];
+}
+
 // Admin types
 export interface AdminStats {
   sessions: number;

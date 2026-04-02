@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.services.workflow_executor import on_step_task_completed, _create_step_task
+from app.services.workflow_executor import on_step_task_completed, _build_step_task
 
 
 # ---------------------------------------------------------------------------
@@ -221,13 +221,10 @@ class TestTaskWorkerPeriodicRecovery:
 # ---------------------------------------------------------------------------
 
 class TestPriorResultInjection:
-    """Tests for inject_prior_results in _create_step_task."""
+    """Tests for inject_prior_results in _build_step_task."""
 
-    @pytest.mark.asyncio
-    async def test_prior_results_injected_when_enabled(self):
+    def test_prior_results_injected_when_enabled(self):
         """When inject_prior_results is True, preamble should contain prior results."""
-        from app.db.models import Task as TaskModel
-
         run = MagicMock()
         run.id = uuid.uuid4()
         run.bot_id = "test-bot"
@@ -235,6 +232,7 @@ class TestPriorResultInjection:
         run.session_id = None
         run.session_mode = "isolated"
         run.params = {"name": "Test"}
+        run.workflow_snapshot = None
         run.step_states = [
             {"status": "done", "result": "Step 1 completed successfully", "task_id": "t1",
              "error": None, "started_at": None, "completed_at": "2025-01-01T00:00:00"},
@@ -255,26 +253,13 @@ class TestPriorResultInjection:
 
         step_def = workflow.steps[1]
 
-        created_tasks = []
-        mock_db = AsyncMock()
-        mock_db.add = lambda obj: created_tasks.append(obj)
-        mock_db.commit = AsyncMock()
+        task = _build_step_task(run, workflow, step_def, 1)
 
-        with patch("app.services.workflow_executor.async_session") as mock_session:
-            ctx = AsyncMock()
-            ctx.__aenter__ = AsyncMock(return_value=mock_db)
-            ctx.__aexit__ = AsyncMock()
-            mock_session.return_value = ctx
-            await _create_step_task(run, workflow, step_def, 1)
-
-        assert len(created_tasks) == 1
-        ecfg = created_tasks[0].execution_config
-        preamble = ecfg["system_preamble"]
+        preamble = task.execution_config["system_preamble"]
         assert "Previous step results:" in preamble
         assert "step1 (done): Step 1 completed successfully" in preamble
 
-    @pytest.mark.asyncio
-    async def test_prior_results_not_injected_by_default(self):
+    def test_prior_results_not_injected_by_default(self):
         """When inject_prior_results is not set (default False), preamble should not contain prior results."""
         run = MagicMock()
         run.id = uuid.uuid4()
@@ -282,6 +267,7 @@ class TestPriorResultInjection:
         run.channel_id = None
         run.session_id = None
         run.session_mode = "isolated"
+        run.workflow_snapshot = None
         run.params = {}
         run.step_states = [
             {"status": "done", "result": "Done", "task_id": "t1",
@@ -301,23 +287,12 @@ class TestPriorResultInjection:
         workflow.secrets = []
         workflow.session_mode = "isolated"
 
-        created_tasks = []
-        mock_db = AsyncMock()
-        mock_db.add = lambda obj: created_tasks.append(obj)
-        mock_db.commit = AsyncMock()
+        task = _build_step_task(run, workflow, workflow.steps[1], 1)
 
-        with patch("app.services.workflow_executor.async_session") as mock_session:
-            ctx = AsyncMock()
-            ctx.__aenter__ = AsyncMock(return_value=mock_db)
-            ctx.__aexit__ = AsyncMock()
-            mock_session.return_value = ctx
-            await _create_step_task(run, workflow, workflow.steps[1], 1)
-
-        preamble = created_tasks[0].execution_config["system_preamble"]
+        preamble = task.execution_config["system_preamble"]
         assert "Previous step results:" not in preamble
 
-    @pytest.mark.asyncio
-    async def test_prior_results_skipped_for_shared_session(self):
+    def test_prior_results_skipped_for_shared_session(self):
         """When session_mode is shared, prior results should not be injected."""
         run = MagicMock()
         run.id = uuid.uuid4()
@@ -325,6 +300,7 @@ class TestPriorResultInjection:
         run.channel_id = None
         run.session_id = uuid.uuid4()
         run.session_mode = "shared"
+        run.workflow_snapshot = None
         run.params = {}
         run.step_states = [
             {"status": "done", "result": "Done", "task_id": "t1",
@@ -344,23 +320,12 @@ class TestPriorResultInjection:
         workflow.secrets = []
         workflow.session_mode = "shared"
 
-        created_tasks = []
-        mock_db = AsyncMock()
-        mock_db.add = lambda obj: created_tasks.append(obj)
-        mock_db.commit = AsyncMock()
+        task = _build_step_task(run, workflow, workflow.steps[1], 1)
 
-        with patch("app.services.workflow_executor.async_session") as mock_session:
-            ctx = AsyncMock()
-            ctx.__aenter__ = AsyncMock(return_value=mock_db)
-            ctx.__aexit__ = AsyncMock()
-            mock_session.return_value = ctx
-            await _create_step_task(run, workflow, workflow.steps[1], 1)
-
-        preamble = created_tasks[0].execution_config["system_preamble"]
+        preamble = task.execution_config["system_preamble"]
         assert "Previous step results:" not in preamble
 
-    @pytest.mark.asyncio
-    async def test_prior_result_truncation(self):
+    def test_prior_result_truncation(self):
         """Prior results should be truncated to prior_result_max_chars."""
         run = MagicMock()
         run.id = uuid.uuid4()
@@ -368,6 +333,7 @@ class TestPriorResultInjection:
         run.channel_id = None
         run.session_id = None
         run.session_mode = "isolated"
+        run.workflow_snapshot = None
         run.params = {}
         run.step_states = [
             {"status": "done", "result": "A" * 1000, "task_id": "t1",
@@ -387,19 +353,9 @@ class TestPriorResultInjection:
         workflow.secrets = []
         workflow.session_mode = "isolated"
 
-        created_tasks = []
-        mock_db = AsyncMock()
-        mock_db.add = lambda obj: created_tasks.append(obj)
-        mock_db.commit = AsyncMock()
+        task = _build_step_task(run, workflow, workflow.steps[1], 1)
 
-        with patch("app.services.workflow_executor.async_session") as mock_session:
-            ctx = AsyncMock()
-            ctx.__aenter__ = AsyncMock(return_value=mock_db)
-            ctx.__aexit__ = AsyncMock()
-            mock_session.return_value = ctx
-            await _create_step_task(run, workflow, workflow.steps[1], 1)
-
-        preamble = created_tasks[0].execution_config["system_preamble"]
+        preamble = task.execution_config["system_preamble"]
         assert "Previous step results:" in preamble
         # The result should be truncated to 50 chars
         assert "A" * 50 in preamble
@@ -794,17 +750,20 @@ class TestApproveStep:
         mock_db.commit = AsyncMock()
         mock_db.add = MagicMock()
 
+        mock_task = MagicMock()
+        mock_task.id = uuid.uuid4()
+
         with (
             patch("app.services.workflow_executor.async_session") as mock_session,
             patch("app.services.workflows.get_workflow", return_value=workflow),
-            patch("app.services.workflow_executor._create_step_task", new_callable=AsyncMock) as mock_create,
+            patch("app.services.workflow_executor._build_step_task", return_value=mock_task) as mock_build,
         ):
             mock_session.return_value = _mock_session_ctx(mock_db)
 
             result = await approve_step(run_id, 0)
 
         assert result == run
-        mock_create.assert_called_once()
+        mock_build.assert_called_once()
         # Run status should be set to "running"
         assert run.status == "running"
 
@@ -1121,10 +1080,9 @@ class TestOnStepFailurePolicies:
 # ---------------------------------------------------------------------------
 
 class TestEphemeralSessionId:
-    """Tests for ephemeral session_id generation in _create_step_task."""
+    """Tests for ephemeral session_id generation in _build_step_task."""
 
-    @pytest.mark.asyncio
-    async def test_isolated_mode_generates_ephemeral_session(self):
+    def test_isolated_mode_generates_ephemeral_session(self):
         """Isolated mode (session_id=None) should generate a new UUID session."""
         run = MagicMock()
         run.id = uuid.uuid4()
@@ -1132,6 +1090,7 @@ class TestEphemeralSessionId:
         run.channel_id = uuid.uuid4()
         run.session_id = None  # Isolated mode
         run.session_mode = "isolated"
+        run.workflow_snapshot = None
         run.params = {}
         run.step_states = [
             {"status": "pending", "result": None, "task_id": None,
@@ -1146,28 +1105,15 @@ class TestEphemeralSessionId:
         workflow.secrets = []
         workflow.session_mode = "isolated"
 
-        created_tasks = []
-        mock_db = AsyncMock()
-        mock_db.add = lambda obj: created_tasks.append(obj)
-        mock_db.commit = AsyncMock()
+        task = _build_step_task(run, workflow, workflow.steps[0], 0)
 
-        with patch("app.services.workflow_executor.async_session") as mock_session:
-            ctx = AsyncMock()
-            ctx.__aenter__ = AsyncMock(return_value=mock_db)
-            ctx.__aexit__ = AsyncMock()
-            mock_session.return_value = ctx
-            await _create_step_task(run, workflow, workflow.steps[0], 0)
-
-        assert len(created_tasks) == 1
-        task = created_tasks[0]
         # session_id should be a new UUID, NOT None
         assert task.session_id is not None
         assert isinstance(task.session_id, uuid.UUID)
         # And it should NOT be the channel's active session (it's a fresh UUID)
         assert task.session_id != run.channel_id
 
-    @pytest.mark.asyncio
-    async def test_shared_mode_uses_run_session_id(self):
+    def test_shared_mode_uses_run_session_id(self):
         """Shared mode should reuse the run's session_id."""
         shared_session = uuid.uuid4()
         run = MagicMock()
@@ -1176,6 +1122,7 @@ class TestEphemeralSessionId:
         run.channel_id = uuid.uuid4()
         run.session_id = shared_session
         run.session_mode = "shared"
+        run.workflow_snapshot = None
         run.params = {}
         run.step_states = [
             {"status": "pending", "result": None, "task_id": None,
@@ -1190,20 +1137,8 @@ class TestEphemeralSessionId:
         workflow.secrets = []
         workflow.session_mode = "shared"
 
-        created_tasks = []
-        mock_db = AsyncMock()
-        mock_db.add = lambda obj: created_tasks.append(obj)
-        mock_db.commit = AsyncMock()
+        task = _build_step_task(run, workflow, workflow.steps[0], 0)
 
-        with patch("app.services.workflow_executor.async_session") as mock_session:
-            ctx = AsyncMock()
-            ctx.__aenter__ = AsyncMock(return_value=mock_db)
-            ctx.__aexit__ = AsyncMock()
-            mock_session.return_value = ctx
-            await _create_step_task(run, workflow, workflow.steps[0], 0)
-
-        assert len(created_tasks) == 1
-        task = created_tasks[0]
         assert task.session_id == shared_session
 
 
@@ -1212,11 +1147,11 @@ class TestEphemeralSessionId:
 # ---------------------------------------------------------------------------
 
 class TestAdvanceWorkflowTaskCreationFailure:
-    """advance_workflow should handle _create_step_task failures gracefully."""
+    """advance_workflow should handle _build_step_task failures gracefully."""
 
     @pytest.mark.asyncio
     async def test_task_creation_failure_marks_step_failed(self):
-        """If _create_step_task raises, step should be marked failed, not stuck at running."""
+        """If _build_step_task raises, step should be marked failed, not stuck at running."""
         from app.services.workflow_executor import advance_workflow
 
         run_id = uuid.uuid4()
@@ -1244,10 +1179,10 @@ class TestAdvanceWorkflowTaskCreationFailure:
 
         with (
             patch("app.services.workflow_executor.async_session") as mock_session,
-            patch("app.services.workflow_executor._create_step_task", new_callable=AsyncMock) as mock_create,
+            patch("app.services.workflow_executor._build_step_task") as mock_build,
         ):
             mock_session.return_value = _mock_session_ctx(mock_db)
-            mock_create.side_effect = RuntimeError("DB connection failed")
+            mock_build.side_effect = RuntimeError("DB connection failed")
 
             await advance_workflow(run_id)
 
@@ -1288,13 +1223,17 @@ class TestAdvanceWorkflowTaskCreationFailure:
         mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw:
             run if model.__name__ == "WorkflowRun" else workflow)
         mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
+
+        mock_task = MagicMock()
+        mock_task.id = task_id
 
         with (
             patch("app.services.workflow_executor.async_session") as mock_session,
-            patch("app.services.workflow_executor._create_step_task", new_callable=AsyncMock) as mock_create,
+            patch("app.services.workflow_executor._build_step_task") as mock_build,
         ):
             mock_session.return_value = _mock_session_ctx(mock_db)
-            mock_create.return_value = task_id
+            mock_build.return_value = mock_task
 
             await advance_workflow(run_id)
 
@@ -1304,6 +1243,8 @@ class TestAdvanceWorkflowTaskCreationFailure:
         assert run.step_states[0]["started_at"] is not None
         # Run should still be running (waiting for task)
         assert run.current_step_index == 0
+        # Task should have been added to the session
+        mock_db.add.assert_called_once_with(mock_task)
 
     @pytest.mark.asyncio
     async def test_task_creation_failure_does_not_leave_step_running(self):
@@ -1340,10 +1281,10 @@ class TestAdvanceWorkflowTaskCreationFailure:
 
         with (
             patch("app.services.workflow_executor.async_session") as mock_session,
-            patch("app.services.workflow_executor._create_step_task", new_callable=AsyncMock) as mock_create,
+            patch("app.services.workflow_executor._build_step_task") as mock_build,
         ):
             mock_session.return_value = _mock_session_ctx(mock_db)
-            mock_create.side_effect = Exception("network error")
+            mock_build.side_effect = Exception("network error")
 
             await advance_workflow(run_id)
 
@@ -1355,21 +1296,23 @@ class TestAdvanceWorkflowTaskCreationFailure:
 
 
 # ---------------------------------------------------------------------------
-# _create_step_task returns task ID
+# _build_step_task returns Task object
 # ---------------------------------------------------------------------------
 
-class TestCreateStepTaskReturnValue:
-    """_create_step_task should return the task UUID."""
+class TestBuildStepTaskReturnValue:
+    """_build_step_task should return a Task object."""
 
-    @pytest.mark.asyncio
-    async def test_returns_task_uuid(self):
-        """_create_step_task should return the UUID of the created task."""
+    def test_returns_task_object(self):
+        """_build_step_task should return a Task with a UUID id."""
+        from app.db.models import Task as TaskModel
+
         run = MagicMock()
         run.id = uuid.uuid4()
         run.bot_id = "test-bot"
         run.channel_id = uuid.uuid4()
         run.session_id = None
         run.session_mode = "isolated"
+        run.workflow_snapshot = None
         run.params = {"x": "1"}
         run.step_states = [
             {"status": "pending", "result": None, "task_id": None,
@@ -1384,18 +1327,7 @@ class TestCreateStepTaskReturnValue:
         workflow.secrets = []
         workflow.session_mode = "isolated"
 
-        created_tasks = []
-        mock_db = AsyncMock()
-        mock_db.add = lambda obj: created_tasks.append(obj)
-        mock_db.commit = AsyncMock()
+        result = _build_step_task(run, workflow, workflow.steps[0], 0)
 
-        with patch("app.services.workflow_executor.async_session") as mock_session:
-            ctx = AsyncMock()
-            ctx.__aenter__ = AsyncMock(return_value=mock_db)
-            ctx.__aexit__ = AsyncMock()
-            mock_session.return_value = ctx
-            result = await _create_step_task(run, workflow, workflow.steps[0], 0)
-
-        assert isinstance(result, uuid.UUID)
-        assert len(created_tasks) == 1
-        assert result == created_tasks[0].id
+        assert isinstance(result, TaskModel)
+        assert isinstance(result.id, uuid.UUID)

@@ -932,9 +932,11 @@ class TestWorkflowSnapshot:
 
         created_task_prompts = []
 
-        async def mock_create_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+        def mock_build_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
             created_task_prompts.append(step_def_["prompt"])
-            return uuid.uuid4()
+            mock_task = MagicMock()
+            mock_task.id = uuid.uuid4()
+            return mock_task
 
         async def mock_get(model, id_, **kwargs):
             name = model.__name__ if hasattr(model, "__name__") else str(model)
@@ -949,10 +951,11 @@ class TestWorkflowSnapshot:
         mock_db.__aexit__ = AsyncMock(return_value=False)
         mock_db.get = AsyncMock(side_effect=mock_get)
         mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
 
         with (
             patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._create_step_task", new=mock_create_step_task),
+            patch("app.services.workflow_executor._build_step_task", new=mock_build_step_task),
         ):
             await _advance_workflow_inner(run_id)
 
@@ -969,7 +972,7 @@ class TestExecStepType:
     @pytest.mark.asyncio
     async def test_exec_step_creates_exec_task(self):
         """Step with type: exec should create task_type='exec' with command in execution_config."""
-        from app.services.workflow_executor import _create_step_task
+        from app.services.workflow_executor import _build_step_task
 
         run = _make_workflow_run()
         run.workflow_snapshot = None
@@ -977,28 +980,13 @@ class TestExecStepType:
             {"id": "backup", "type": "exec", "prompt": "pg_dump mydb", "timeout": 120},
         ])
 
-        created_tasks = []
-
-        mock_db = AsyncMock()
-        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_db.__aexit__ = AsyncMock(return_value=False)
-        mock_db.commit = AsyncMock()
-
-        def capture_add(task):
-            created_tasks.append(task)
-
-        mock_db.add = MagicMock(side_effect=capture_add)
-
         step_def = {"id": "backup", "type": "exec", "prompt": "pg_dump mydb", "timeout": 120}
 
-        with patch("app.services.workflow_executor.async_session", return_value=mock_db):
-            task_id = await _create_step_task(
-                run, workflow, step_def, 0,
-                workflow.steps, workflow.defaults or {},
-            )
+        task = _build_step_task(
+            run, workflow, step_def, 0,
+            workflow.steps, workflow.defaults or {},
+        )
 
-        assert len(created_tasks) == 1
-        task = created_tasks[0]
         assert task.task_type == "exec"
         assert task.execution_config["command"] == "pg_dump mydb"
         assert task.max_run_seconds == 120
@@ -1039,13 +1027,17 @@ class TestToolStepType:
 
         create_task_calls = []
 
-        async def mock_create_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+        def mock_build_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
             create_task_calls.append(step_def_)
-            return uuid.uuid4()
+            mock_task = MagicMock()
+            mock_task.id = uuid.uuid4()
+            return mock_task
+
+        mock_db.add = MagicMock()
 
         with (
             patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._create_step_task", new=mock_create_step_task),
+            patch("app.services.workflow_executor._build_step_task", new=mock_build_step_task),
             patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, return_value='{"results": ["found"]}'),
         ):
             await _advance_workflow_inner(run_id)
@@ -1126,13 +1118,17 @@ class TestToolStepType:
 
         create_task_calls = []
 
-        async def mock_create_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+        def mock_build_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
             create_task_calls.append(step_def_["id"])
-            return uuid.uuid4()
+            mock_task = MagicMock()
+            mock_task.id = uuid.uuid4()
+            return mock_task
+
+        mock_db.add = MagicMock()
 
         with (
             patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._create_step_task", new=mock_create_step_task),
+            patch("app.services.workflow_executor._build_step_task", new=mock_build_step_task),
             patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, side_effect=RuntimeError("tool exploded")),
         ):
             await _advance_workflow_inner(run_id)
@@ -1220,13 +1216,17 @@ class TestToolStepType:
 
         created_tasks = []
 
-        async def mock_create_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+        def mock_build_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
             created_tasks.append({"id": step_def_["id"], "type": step_def_.get("type", "agent")})
-            return uuid.uuid4()
+            mock_task = MagicMock()
+            mock_task.id = uuid.uuid4()
+            return mock_task
+
+        mock_db.add = MagicMock()
 
         with (
             patch("app.services.workflow_executor.async_session", return_value=mock_db),
-            patch("app.services.workflow_executor._create_step_task", new=mock_create_step_task),
+            patch("app.services.workflow_executor._build_step_task", new=mock_build_step_task),
             patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'),
         ):
             await _advance_workflow_inner(run_id)
@@ -1235,3 +1235,79 @@ class TestToolStepType:
         assert run.step_states[0]["status"] == "done"
         assert len(created_tasks) == 1
         assert created_tasks[0] == {"id": "exec_step", "type": "exec"}
+
+
+# ---------------------------------------------------------------------------
+# Tests: Atomic task creation (race condition fix)
+# ---------------------------------------------------------------------------
+
+class TestAtomicTaskCreation:
+    """Task creation and step state update must be atomic (single transaction).
+
+    Before the fix, _create_step_task committed the task in its own session,
+    then the outer session committed the step state. This race condition
+    allowed the task worker to pick up and complete a task while the step
+    was still "pending", causing duplicate task creation.
+    """
+
+    @pytest.mark.asyncio
+    async def test_task_added_to_same_session_as_step_state(self):
+        """db.add(task) must happen on the same session that commits step_states."""
+        from app.services.workflow_executor import _advance_workflow_inner
+
+        run_id = uuid.uuid4()
+        steps = [{"id": "s1", "prompt": "Do work"}]
+        run = _make_workflow_run(id=run_id, step_count=1)
+        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
+        workflow = _make_workflow(steps=steps)
+
+        mock_task = MagicMock()
+        mock_task.id = uuid.uuid4()
+
+        async def mock_get(model, id_, **kwargs):
+            name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if name == "WorkflowRun":
+                return run
+            if name == "Workflow":
+                return workflow
+            return None
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.services.workflow_executor._build_step_task", return_value=mock_task),
+        ):
+            await _advance_workflow_inner(run_id)
+
+        # Task must be added to the SAME session as the step state update
+        mock_db.add.assert_called_once_with(mock_task)
+
+        # Step state must be "running" at the time of commit (not after)
+        assert run.step_states[0]["status"] == "running"
+        assert run.step_states[0]["task_id"] == str(mock_task.id)
+
+        # Only ONE commit should happen (atomic: task + step state together)
+        assert mock_db.commit.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_separate_session_for_task_creation(self):
+        """_build_step_task should NOT open its own DB session."""
+        from app.services.workflow_executor import _build_step_task
+
+        run = _make_workflow_run()
+        run.workflow_snapshot = None
+        workflow = _make_workflow(steps=[{"id": "s1", "prompt": "Do."}])
+
+        # _build_step_task is synchronous — no DB session needed
+        task = _build_step_task(run, workflow, workflow.steps[0], 0)
+
+        # Verify it returns a real Task object, not a UUID
+        from app.db.models import Task as TaskModel
+        assert isinstance(task, TaskModel)
+        assert isinstance(task.id, uuid.UUID)

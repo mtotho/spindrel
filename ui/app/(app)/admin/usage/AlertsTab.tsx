@@ -10,7 +10,7 @@ import {
   useTestSpikeAlert,
   useAvailableTargets,
 } from "@/src/api/hooks/useSpikeAlerts";
-import type { SpikeAlert, TargetOption } from "@/src/types/api";
+import type { SpikeAlert, TargetOption, AvailableIntegration } from "@/src/types/api";
 
 function fmtCost(v: number | null | undefined): string {
   if (v == null) return "--";
@@ -186,8 +186,10 @@ function ConfigForm() {
   const t = useThemeTokens();
   const { data: config, isLoading } = useSpikeConfig();
   const updateConfig = useUpdateSpikeConfig();
-  const { data: availableTargets } = useAvailableTargets();
+  const { data: targetsData } = useAvailableTargets();
   const testAlert = useTestSpikeAlert();
+  const [addingIntegration, setAddingIntegration] = useState<AvailableIntegration | null>(null);
+  const [newClientId, setNewClientId] = useState("");
 
   if (isLoading || !config) {
     return (
@@ -196,6 +198,9 @@ function ConfigForm() {
       </View>
     );
   }
+
+  const availableOptions = targetsData?.options ?? [];
+  const availableIntegrations = targetsData?.integrations ?? [];
 
   const inputStyle: React.CSSProperties = {
     background: t.inputBg,
@@ -250,6 +255,34 @@ function ConfigForm() {
       }
       handleUpdate("targets", [...current, newTarget]);
     }
+  };
+
+  const removeTarget = (idx: number) => {
+    const current = config.targets || [];
+    handleUpdate("targets", current.filter((_, i) => i !== idx));
+  };
+
+  const addCustomTarget = () => {
+    if (!addingIntegration || !newClientId.trim()) return;
+    const clientId = newClientId.trim().startsWith(addingIntegration.client_id_prefix)
+      ? newClientId.trim()
+      : addingIntegration.client_id_prefix + newClientId.trim();
+    const current = config.targets || [];
+    // Don't add duplicates
+    if (current.some((tgt) => tgt.type === "integration" && tgt.client_id === clientId)) {
+      setAddingIntegration(null);
+      setNewClientId("");
+      return;
+    }
+    const newTarget = {
+      type: "integration" as const,
+      integration_type: addingIntegration.integration_type,
+      client_id: clientId,
+      label: clientId,
+    };
+    handleUpdate("targets", [...current, newTarget]);
+    setAddingIntegration(null);
+    setNewClientId("");
   };
 
   return (
@@ -346,33 +379,157 @@ function ConfigForm() {
           {/* Target picker */}
           <div>
             <div style={labelStyle}>Alert Targets</div>
-            {(!availableTargets || availableTargets.length === 0) ? (
-              <div style={{ fontSize: 12, color: t.textDim }}>
-                No channels with dispatchers found. Set up a Slack, Discord, or other integration channel first.
+
+            {/* Currently configured targets */}
+            {(config.targets || []).length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                {(config.targets || []).map((tgt, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      background: t.accentSubtle,
+                      color: t.accent,
+                      border: `1px solid ${t.accent}`,
+                      borderRadius: 6,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {tgt.label || tgt.channel_id || tgt.client_id || "unknown"}
+                    <button
+                      onClick={() => removeTarget(i)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: t.accent,
+                        cursor: "pointer",
+                        padding: 0,
+                        fontSize: 14,
+                        lineHeight: 1,
+                        marginLeft: 2,
+                      }}
+                    >
+                      &times;
+                    </button>
+                  </span>
+                ))}
               </div>
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {availableTargets.map((opt, i) => {
-                  const selected = isTargetSelected(opt);
-                  return (
+            )}
+
+            {/* Available targets from channels/bindings */}
+            {availableOptions.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                {availableOptions
+                  .filter((opt) => !isTargetSelected(opt))
+                  .map((opt, i) => (
                     <button
                       key={i}
                       onClick={() => toggleTarget(opt)}
                       style={{
                         padding: "5px 12px",
                         fontSize: 12,
-                        background: selected ? t.accentSubtle : t.surfaceOverlay,
-                        color: selected ? t.accent : t.textMuted,
-                        border: `1px solid ${selected ? t.accent : t.surfaceBorder}`,
+                        background: t.surfaceOverlay,
+                        color: t.textMuted,
+                        border: `1px solid ${t.surfaceBorder}`,
                         borderRadius: 6,
                         cursor: "pointer",
-                        fontWeight: selected ? 600 : 400,
+                        fontWeight: 400,
                       }}
                     >
-                      {opt.label}
+                      + {opt.label}
                     </button>
-                  );
-                })}
+                  ))}
+              </div>
+            )}
+
+            {/* Add custom integration target */}
+            {availableIntegrations.length > 0 && !addingIntegration && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {availableIntegrations.map((integ) => (
+                  <button
+                    key={integ.integration_type}
+                    onClick={() => {
+                      setAddingIntegration(integ);
+                      setNewClientId("");
+                    }}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: 11,
+                      background: "none",
+                      color: t.textDim,
+                      border: `1px dashed ${t.surfaceBorder}`,
+                      borderRadius: 6,
+                      cursor: "pointer",
+                    }}
+                  >
+                    + Add {integ.integration_type} target
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Custom target input */}
+            {addingIntegration && (
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 4 }}>
+                <span style={{ fontSize: 12, color: t.textMuted, fontWeight: 600 }}>
+                  {addingIntegration.integration_type}:
+                </span>
+                <input
+                  type="text"
+                  placeholder={`${addingIntegration.client_id_prefix}...`}
+                  value={newClientId}
+                  onChange={(e) => setNewClientId(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") addCustomTarget();
+                    if (e.key === "Escape") { setAddingIntegration(null); setNewClientId(""); }
+                  }}
+                  autoFocus
+                  style={{
+                    ...inputStyle,
+                    width: 240,
+                  }}
+                />
+                <button
+                  onClick={addCustomTarget}
+                  disabled={!newClientId.trim()}
+                  style={{
+                    padding: "6px 12px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: t.accent,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 6,
+                    cursor: newClientId.trim() ? "pointer" : "not-allowed",
+                    opacity: newClientId.trim() ? 1 : 0.5,
+                  }}
+                >
+                  Add
+                </button>
+                <button
+                  onClick={() => { setAddingIntegration(null); setNewClientId(""); }}
+                  style={{
+                    padding: "6px 10px",
+                    fontSize: 12,
+                    background: "none",
+                    color: t.textDim,
+                    border: `1px solid ${t.surfaceBorder}`,
+                    borderRadius: 6,
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {availableOptions.length === 0 && availableIntegrations.length === 0 && (config.targets || []).length === 0 && (
+              <div style={{ fontSize: 12, color: t.textDim }}>
+                No integrations with dispatch support found. Set up a Slack, Discord, or other integration first.
               </div>
             )}
           </div>

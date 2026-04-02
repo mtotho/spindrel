@@ -220,11 +220,12 @@ class TestStatus:
 
 class TestAvailableTargets:
     async def test_empty_when_no_channels(self, client):
-        """GET /targets/available should return empty list when no channels with dispatchers."""
+        """GET /targets/available should return options and integrations."""
         r = await client.get("/admin/spike-alerts/targets/available", headers=AUTH_HEADERS)
         assert r.status_code == 200
         data = r.json()
-        assert data == []
+        assert data["options"] == []
+        assert isinstance(data["integrations"], list)
 
     async def test_includes_channels_with_integration(self, client, db_session):
         """GET /targets/available should include channels with integration set."""
@@ -242,10 +243,11 @@ class TestAvailableTargets:
         r = await client.get("/admin/spike-alerts/targets/available", headers=AUTH_HEADERS)
         assert r.status_code == 200
         data = r.json()
-        assert len(data) >= 1
-        assert data[0]["type"] == "channel"
-        assert data[0]["channel_id"] == str(ch_id)
-        assert "slack" in data[0]["label"]
+        options = data["options"]
+        assert len(options) >= 1
+        assert options[0]["type"] == "channel"
+        assert options[0]["channel_id"] == str(ch_id)
+        assert "slack" in options[0]["label"]
 
 
 class TestTestAlert:

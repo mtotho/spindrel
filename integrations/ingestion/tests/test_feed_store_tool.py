@@ -1,9 +1,6 @@
 """Tests for query_feed_store tool."""
 
 import json
-import os
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -45,7 +42,7 @@ def ingestion_dir(tmp_path):
 @pytest.fixture
 def mock_ingestion_dir(ingestion_dir):
     """Patch the ingestion directory for tool functions."""
-    with patch("integrations.ingestion.tools.feed_store._INGESTION_DIR", str(ingestion_dir)):
+    with patch("integrations.ingestion.tools.feed_store.INGESTION_DB_DIR", str(ingestion_dir)):
         yield ingestion_dir
 
 
@@ -59,12 +56,12 @@ class TestDiscoverStores:
     def test_empty_dir(self, tmp_path):
         empty = tmp_path / "empty"
         empty.mkdir()
-        with patch("integrations.ingestion.tools.feed_store._INGESTION_DIR", str(empty)):
+        with patch("integrations.ingestion.tools.feed_store.INGESTION_DB_DIR", str(empty)):
             stores = _discover_stores()
         assert stores == {}
 
     def test_missing_dir(self, tmp_path):
-        with patch("integrations.ingestion.tools.feed_store._INGESTION_DIR", str(tmp_path / "nonexistent")):
+        with patch("integrations.ingestion.tools.feed_store.INGESTION_DB_DIR", str(tmp_path / "nonexistent")):
             stores = _discover_stores()
         assert stores == {}
 
@@ -90,7 +87,7 @@ class TestQueryFeedStoreActions:
 
     @pytest.mark.asyncio
     async def test_sources_no_stores(self, tmp_path):
-        with patch("integrations.ingestion.tools.feed_store._INGESTION_DIR", str(tmp_path / "nope")):
+        with patch("integrations.ingestion.tools.feed_store.INGESTION_DB_DIR", str(tmp_path / "nope")):
             result = await query_feed_store(action="sources")
         assert "No feed stores found" in result
 

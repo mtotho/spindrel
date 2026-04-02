@@ -282,11 +282,42 @@ async def _on_audit_tool_call(ctx: HookContext, **kwargs) -> None:
 # Register at import time
 # ---------------------------------------------------------------------------
 
+def _resolve_dispatch_config(client_id: str) -> dict | None:
+    """Build Slack dispatch_config from a slack: client_id.
+
+    Extracts the Slack channel ID and looks up the bot token from
+    IntegrationSetting DB cache or environment variables.
+    """
+    import os
+
+    if not client_id.startswith("slack:"):
+        return None
+    channel_id = client_id.removeprefix("slack:")
+    if not channel_id:
+        return None
+
+    token = None
+    try:
+        from app.services.integration_settings import get_value
+        token = get_value("slack", "SLACK_BOT_TOKEN")
+    except Exception:
+        pass
+    if not token:
+        token = os.environ.get("SLACK_BOT_TOKEN")
+
+    if not token:
+        logger.debug("Cannot resolve Slack dispatch_config: missing SLACK_BOT_TOKEN")
+        return None
+
+    return {"channel_id": channel_id, "token": token}
+
+
 register_integration(IntegrationMeta(
     integration_type="slack",
     client_id_prefix="slack:",
     user_attribution=_user_attribution,
     resolve_display_names=_resolve_display_names,
+    resolve_dispatch_config=_resolve_dispatch_config,
 ))
 
 register_hook("after_tool_call", _on_after_tool_call)

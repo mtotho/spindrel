@@ -529,11 +529,15 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                     continue  # Loop to next step
 
                 # Create task for this step (agent or exec)
+                # CRITICAL: task INSERT + step state UPDATE must be atomic.
+                # If committed separately, the task worker can pick up and
+                # complete the task before the step is marked "running",
+                # causing duplicate task creation.
                 now = datetime.now(timezone.utc)
                 try:
-                    task_id = await _create_step_task(run, workflow, step_def, i, steps, defaults)
+                    task = _build_step_task(run, workflow, step_def, i, steps, defaults)
                 except Exception as e:
-                    logger.exception("Failed to create step task for run %s step %d", run_id, i)
+                    logger.exception("Failed to build step task for run %s step %d", run_id, i)
                     state["status"] = "failed"
                     state["error"] = f"Task creation failed: {e}"
                     state["completed_at"] = now.isoformat()
@@ -546,10 +550,11 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
 
                 state["status"] = "running"
                 state["started_at"] = now.isoformat()
-                state["task_id"] = str(task_id)
+                state["task_id"] = str(task.id)
                 run.current_step_index = i
                 run.step_states = step_states
-                await db.commit()
+                db.add(task)  # Add to same session as run state update
+                await db.commit()  # Atomic: task + step state committed together
                 return  # Wait for task completion callback
 
             # No more pending steps — check terminal state
@@ -599,15 +604,19 @@ def _build_condition_context(steps: list[dict], step_states: list[dict], params:
 # Step task creation
 # ---------------------------------------------------------------------------
 
-async def _create_step_task(
+def _build_step_task(
     run: WorkflowRun,
     workflow: Workflow,
     step_def: dict,
     step_index: int,
     steps: list[dict] | None = None,
     defaults: dict | None = None,
-) -> uuid.UUID:
-    """Create a Task for the given workflow step and enqueue it. Returns the task ID.
+) -> Task:
+    """Build a Task object for the given workflow step WITHOUT committing.
+
+    The caller is responsible for adding the task to their session and committing
+    atomically with the step state update — this prevents the race where the task
+    worker picks up and completes a task before the step is marked "running".
 
     ``steps`` and ``defaults`` come from ``_get_run_definition`` (snapshot-aware).
     When not provided (backward compat from approve_step), falls back to live workflow.
@@ -725,15 +734,11 @@ async def _create_step_task(
         created_at=datetime.now(timezone.utc),
     )
 
-    async with async_session() as db:
-        db.add(task)
-        await db.commit()
-
     logger.info(
-        "Created task %s (type=%s) for workflow run %s step %d (%s)",
+        "Built task %s (type=%s) for workflow run %s step %d (%s)",
         task.id, task_type, run.id, step_index, step_def.get("id", "?"),
     )
-    return task.id
+    return task
 
 
 # ---------------------------------------------------------------------------
@@ -893,27 +898,23 @@ async def approve_step(run_id: uuid.UUID, step_index: int) -> WorkflowRun:
         if step_states[step_index]["status"] != "pending":
             raise ValueError(f"Step {step_index} is not pending")
 
-        # Clear the approval gate — mark as running and create task
+        from app.services.workflows import get_workflow
+        workflow = get_workflow(run.workflow_id)
+        if not workflow:
+            raise ValueError(f"Workflow '{run.workflow_id}' not found")
+
+        steps, defaults, _secrets = _get_run_definition(run, workflow)
+        step_def = steps[step_index]
+
+        task = _build_step_task(run, workflow, step_def, step_index, steps, defaults)
+
+        # Atomic: task INSERT + step state + run status committed together
         run.status = "running"
-        await db.commit()
-
-    from app.services.workflows import get_workflow
-    workflow = get_workflow(run.workflow_id)
-    if not workflow:
-        raise ValueError(f"Workflow '{run.workflow_id}' not found")
-
-    steps, defaults, _secrets = _get_run_definition(run, workflow)
-    step_def = steps[step_index]
-
-    task_id = await _create_step_task(run, workflow, step_def, step_index, steps, defaults)
-
-    async with async_session() as db:
-        run = await db.get(WorkflowRun, run_id)
-        step_states = list(run.step_states)
         step_states[step_index]["status"] = "running"
         step_states[step_index]["started_at"] = datetime.now(timezone.utc).isoformat()
-        step_states[step_index]["task_id"] = str(task_id)
+        step_states[step_index]["task_id"] = str(task.id)
         run.step_states = step_states
+        db.add(task)
         await db.commit()
         await db.refresh(run)
 

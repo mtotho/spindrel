@@ -222,9 +222,21 @@ async def _dispatch_alert(
                     details.append(detail)
                     continue
 
+                # Resolve dispatch_config: prefer stored config, fall back to
+                # integration's resolve_dispatch_config using the channel's client_id
+                dispatch_config = channel.dispatch_config
+                if not dispatch_config and channel.client_id:
+                    meta = get_integration_meta(channel.integration)
+                    if meta and meta.resolve_dispatch_config:
+                        dispatch_config = meta.resolve_dispatch_config(channel.client_id)
+                if not dispatch_config:
+                    detail["error"] = "could not resolve dispatch_config for channel"
+                    details.append(detail)
+                    continue
+
                 dispatcher = dispatchers.get(channel.integration)
                 ok = await dispatcher.post_message(
-                    channel.dispatch_config or {},
+                    dispatch_config,
                     message,
                     username="Spike Alert",
                     reply_in_thread=False,

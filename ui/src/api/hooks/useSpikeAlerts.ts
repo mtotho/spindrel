@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { SpikeConfig, SpikeStatus, SpikeAlertList, TargetOption } from "../../types/api";
+import type { SpikeConfig, SpikeStatus, SpikeAlertList, AvailableTargetsResponse } from "../../types/api";
 
 export function useSpikeConfig() {
   return useQuery({
@@ -61,6 +61,6 @@ export function useTestSpikeAlert() {
 export function useAvailableTargets() {
   return useQuery({
     queryKey: ["spike-available-targets"],
-    queryFn: () => apiFetch<TargetOption[]>("/api/v1/admin/spike-alerts/targets/available"),
+    queryFn: () => apiFetch<AvailableTargetsResponse>("/api/v1/admin/spike-alerts/targets/available"),
   });
 }

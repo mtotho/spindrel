@@ -224,6 +224,21 @@ async def _fire_heartbeat_workflow(hb: ChannelHeartbeat, now: datetime) -> None:
     from app.services.workflow_executor import trigger_workflow
     from app.db.models import WorkflowRun
 
+    # Dedup: skip if there's already an active run for this workflow
+    async with async_session() as db:
+        active_run = (await db.execute(
+            select(WorkflowRun.id)
+            .where(WorkflowRun.workflow_id == hb.workflow_id)
+            .where(WorkflowRun.status.in_(["running", "awaiting_approval"]))
+            .limit(1)
+        )).scalar_one_or_none()
+        if active_run:
+            logger.info(
+                "Heartbeat %s: skipping workflow %s — active run %s already exists",
+                hb.id, hb.workflow_id, active_run,
+            )
+            return
+
     async with async_session() as db:
         channel = await db.get(Channel, hb.channel_id)
         if not channel:

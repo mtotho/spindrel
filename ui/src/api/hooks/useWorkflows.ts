@@ -119,7 +119,7 @@ export function useWorkflowRun(runId?: string) {
     enabled: !!runId,
     refetchInterval: (query) => {
       const run = query.state.data;
-      if (run && (run.status === "running" || run.status === "awaiting_approval")) return 3000;
+      if (run && (run.status === "running" || run.status === "awaiting_approval")) return 1000;
       return false;
     },
   });
@@ -135,6 +135,8 @@ export function useTriggerWorkflow(workflowId: string) {
         body: JSON.stringify(data),
       }),
     onSuccess: (run) => {
+      // Seed the run cache so navigating to the new run shows data immediately
+      qc.setQueryData(["workflow-run", run.id], run);
       qc.invalidateQueries({ queryKey: ["workflow-runs", workflowId] });
       qc.invalidateQueries({ queryKey: ["workflow-runs-active"] });
       qc.invalidateQueries({ queryKey: ["workflow-runs-recent"] });

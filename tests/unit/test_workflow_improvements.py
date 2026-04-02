@@ -270,8 +270,10 @@ class TestApproveStepTaskId:
 
         with patch("app.services.workflow_executor.async_session", side_effect=lambda: make_ctx()):
             with patch("app.services.workflows.get_workflow", return_value=workflow):
-                with patch("app.services.workflow_executor._create_step_task",
-                           new_callable=AsyncMock, return_value=task_id):
+                mock_task = MagicMock()
+                mock_task.id = task_id
+                with patch("app.services.workflow_executor._build_step_task",
+                           return_value=mock_task):
                     result = await approve_step(run_id, 0)
 
         # Verify task_id was stored
@@ -335,8 +337,11 @@ class TestAdvanceWorkflowLoop:
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_session.return_value.__aexit__ = AsyncMock()
 
-            with patch("app.services.workflow_executor._create_step_task",
-                       new_callable=AsyncMock, return_value=task_id):
+            mock_task = MagicMock()
+            mock_task.id = task_id
+            mock_db.add = MagicMock()
+            with patch("app.services.workflow_executor._build_step_task",
+                       return_value=mock_task):
                 await advance_workflow(run_id)
 
         # First two steps should be skipped, third should be running

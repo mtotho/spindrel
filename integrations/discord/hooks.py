@@ -273,11 +273,42 @@ async def _on_audit_tool_call(ctx: HookContext, **kwargs) -> None:
 # Register at import time
 # ---------------------------------------------------------------------------
 
+def _resolve_dispatch_config(client_id: str) -> dict | None:
+    """Build Discord dispatch_config from a discord: client_id.
+
+    Extracts the Discord channel ID and looks up the bot token from
+    IntegrationSetting DB cache or environment variables.
+    """
+    import os
+
+    if not client_id.startswith("discord:"):
+        return None
+    channel_id = client_id.removeprefix("discord:")
+    if not channel_id:
+        return None
+
+    token = None
+    try:
+        from app.services.integration_settings import get_value
+        token = get_value("discord", "DISCORD_TOKEN")
+    except Exception:
+        pass
+    if not token:
+        token = os.environ.get("DISCORD_TOKEN")
+
+    if not token:
+        logger.debug("Cannot resolve Discord dispatch_config: missing DISCORD_TOKEN")
+        return None
+
+    return {"channel_id": channel_id, "token": token}
+
+
 register_integration(IntegrationMeta(
     integration_type="discord",
     client_id_prefix="discord:",
     user_attribution=_user_attribution,
     resolve_display_names=_resolve_display_names,
+    resolve_dispatch_config=_resolve_dispatch_config,
 ))
 
 register_hook("after_tool_call", _on_after_tool_call)
