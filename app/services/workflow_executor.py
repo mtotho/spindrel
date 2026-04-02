@@ -23,6 +23,47 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Event dispatch — notify integrations (Slack, webhooks, etc.) of progress
+# ---------------------------------------------------------------------------
+
+async def _dispatch_workflow_event(
+    run: WorkflowRun,
+    workflow_name: str,
+    event: str,
+    detail: str = "",
+) -> None:
+    """Dispatch a workflow event to the run's integration channel.
+
+    Events: started, step_done, step_failed, completed, failed
+    Dispatch failures are swallowed — never block workflow execution.
+    """
+    if run.dispatch_type in ("none", None) or not run.dispatch_config:
+        return
+    try:
+        from app.agent import dispatchers
+        dispatcher = dispatchers.get(run.dispatch_type)
+        run_short = str(run.id)[:8]
+        text = f"[Workflow] {workflow_name} — {event}"
+        if detail:
+            text += f": {detail}"
+        text += f" (run {run_short})"
+        await dispatcher.post_message(
+            run.dispatch_config, text, bot_id=run.bot_id,
+        )
+    except Exception:
+        logger.debug("Workflow event dispatch failed (event=%s, run=%s)", event, run.id, exc_info=True)
+
+
+async def _fire_after_workflow_complete(run: WorkflowRun, workflow: Workflow) -> None:
+    """Fire the after_workflow_complete lifecycle hook."""
+    try:
+        from app.agent.hooks import fire_hook
+        await fire_hook("after_workflow_complete", run=run, workflow=workflow)
+    except Exception:
+        logger.debug("after_workflow_complete hook failed for run %s", run.id, exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Condition evaluator (Phase 4) — pure function, no side effects
 # ---------------------------------------------------------------------------
 
@@ -264,6 +305,12 @@ async def trigger_workflow(
 
     logger.info("Workflow run %s created for workflow '%s' (bot=%s)", run.id, workflow_id, effective_bot_id)
 
+    # Dispatch "started" event to integration channel
+    await _dispatch_workflow_event(
+        run, workflow.name, "started",
+        f"{len(workflow.steps)} steps",
+    )
+
     # Start advancement
     await advance_workflow(run.id)
     return run
@@ -361,6 +408,17 @@ async def advance_workflow(run_id: uuid.UUID) -> None:
                     run.completed_at = datetime.now(timezone.utc)
                     logger.info("Workflow run %s completed with status '%s'", run_id, run.status)
                 await db.commit()
+
+        if all_terminal and run:
+            done_ct = sum(1 for s in step_states if s["status"] == "done")
+            fail_ct = sum(1 for s in step_states if s["status"] == "failed")
+            skip_ct = sum(1 for s in step_states if s["status"] == "skipped")
+            event = "failed" if run.status == "failed" else "completed"
+            await _dispatch_workflow_event(
+                run, workflow.name, event,
+                f"{done_ct} done, {fail_ct} failed, {skip_ct} skipped",
+            )
+            await _fire_after_workflow_complete(run, workflow)
 
         # Re-check if there are more steps after skips
         if not all_terminal:
@@ -545,6 +603,17 @@ async def on_step_task_completed(
         if fresh_task and fresh_task.correlation_id:
             state["correlation_id"] = str(fresh_task.correlation_id)
 
+        # Dispatch step event
+        step_id = step_def.get("id", f"step_{step_index}")
+        done_ct = sum(1 for s in step_states if s["status"] in ("done", "failed", "skipped"))
+        total_ct = len(step_states)
+        step_event = "step_done" if state["status"] == "done" else "step_failed"
+        preview = (state.get("result") or state.get("error") or "")[:100]
+        await _dispatch_workflow_event(
+            run, workflow.name, step_event,
+            f"{step_id} ({done_ct}/{total_ct})" + (f" — {preview}" if preview else ""),
+        )
+
         # Handle on_failure policy
         on_failure = step_def.get("on_failure", "abort")
 
@@ -556,6 +625,12 @@ async def on_step_task_completed(
                 run.completed_at = datetime.now(timezone.utc)
                 await db.commit()
                 logger.info("Workflow run %s aborted at step %d", run_id, step_index)
+                # Dispatch abort event
+                await _dispatch_workflow_event(
+                    run, workflow.name, "failed",
+                    f"aborted at {step_id}: {state.get('error', '')[:100]}",
+                )
+                await _fire_after_workflow_complete(run, workflow)
                 return
             elif on_failure.startswith("retry:"):
                 try:

@@ -10,6 +10,7 @@ import {
   useDeleteUsageLimit,
   type UsageLimitStatus,
 } from "@/src/api/hooks/useUsageLimits";
+import { useUsageForecast, type LimitForecast } from "@/src/api/hooks/useUsageForecast";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 
@@ -45,9 +46,12 @@ function useInputStyle(): React.CSSProperties {
 // Status cards
 // ---------------------------------------------------------------------------
 
-function LimitStatusCard({ s }: { s: UsageLimitStatus }) {
+function LimitStatusCard({ s, forecast }: { s: UsageLimitStatus; forecast?: LimitForecast }) {
   const t = useThemeTokens();
   const color = progressColor(s.percentage, t);
+  const projPct = forecast?.projected_percentage;
+  const projColor = projPct != null ? progressColor(projPct, t) : undefined;
+
   return (
     <div
       style={{
@@ -63,25 +67,55 @@ function LimitStatusCard({ s }: { s: UsageLimitStatus }) {
         <div style={{ fontSize: 11, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>
           {s.scope_type} &middot; {s.period}
         </div>
-        <span style={{ fontSize: 11, fontWeight: 600, color }}>{s.percentage}%</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color }}>{s.percentage}%</span>
+          {projPct != null && projPct > s.percentage && (
+            <span style={{ fontSize: 10, color: projColor }}>
+              → {projPct.toFixed(0)}%
+            </span>
+          )}
+        </div>
       </div>
       <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8 }}>
         {s.scope_value}
       </div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: "monospace", marginBottom: 8 }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: "monospace", marginBottom: 2 }}>
         {fmtCost(s.current_spend)}
         <span style={{ fontSize: 12, fontWeight: 400, color: t.textMuted }}> / {fmtCost(s.limit_usd)}</span>
       </div>
+      {forecast && (
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 6 }}>
+          Projected: {fmtCost(forecast.projected_spend)}
+        </div>
+      )}
+      {/* Dual progress bar: solid for current, striped extension for projected */}
       <div
         style={{
           height: 4,
           borderRadius: 2,
           background: t.surfaceBorder,
           overflow: "hidden",
+          position: "relative",
         }}
       >
+        {/* Projected extension (behind, wider) */}
+        {projPct != null && projPct > s.percentage && (
+          <div
+            style={{
+              position: "absolute",
+              height: "100%",
+              width: `${Math.min(projPct, 100)}%`,
+              background: projColor,
+              borderRadius: 2,
+              opacity: 0.3,
+              transition: "width 0.3s ease",
+            }}
+          />
+        )}
+        {/* Current (solid, on top) */}
         <div
           style={{
+            position: "relative",
             height: "100%",
             width: `${Math.min(s.percentage, 100)}%`,
             background: color,
@@ -333,6 +367,13 @@ function LimitsTable() {
 export function LimitsTab({ knownModels }: { knownModels: string[] }) {
   const t = useThemeTokens();
   const { data: statuses, isLoading } = useUsageLimitsStatus();
+  const { data: forecast } = useUsageForecast();
+
+  // Match forecast limits to status cards by scope_type + scope_value + period
+  const findForecast = (s: UsageLimitStatus): LimitForecast | undefined =>
+    forecast?.limits.find(
+      (lf) => lf.scope_type === s.scope_type && lf.scope_value === s.scope_value && lf.period === s.period,
+    );
 
   return (
     <View>
@@ -342,7 +383,7 @@ export function LimitsTab({ knownModels }: { knownModels: string[] }) {
       ) : statuses && statuses.length > 0 ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
           {statuses.map((s) => (
-            <LimitStatusCard key={s.id} s={s} />
+            <LimitStatusCard key={s.id} s={s} forecast={findForecast(s)} />
           ))}
         </div>
       ) : null}

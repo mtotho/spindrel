@@ -25,6 +25,7 @@ import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
+import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import type { Message, ChatAttachment, ChatFileMetadata, ChatRequest } from "@/src/types/api";
 
 interface MessagePage {
@@ -823,6 +824,7 @@ export default function ChatScreen() {
             {chatState.error && (
               <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
             )}
+            <ActiveWorkflowStrip channelId={channelId!} />
             <MessageInput
               onSend={handleSend}
               onSendAudio={handleSendAudio}
@@ -894,10 +896,11 @@ export default function ChatScreen() {
             )}
           </View>
 
-          {/* Error + Input — always visible on desktop */}
+          {/* Error + Workflow strip + Input — always visible on desktop */}
           {chatState.error && (
             <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
           )}
+          <ActiveWorkflowStrip channelId={channelId!} />
           <MessageInput
             onSend={handleSend}
             onSendAudio={handleSendAudio}

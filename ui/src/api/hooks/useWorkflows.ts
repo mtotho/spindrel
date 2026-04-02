@@ -148,6 +148,21 @@ export function useRetryWorkflowStep() {
   });
 }
 
+// --- Channel Workflow Runs (active runs for chat strip) ---
+
+export function useChannelWorkflowRuns(channelId?: string) {
+  return useQuery({
+    queryKey: ["channel-workflow-runs", channelId],
+    queryFn: () => apiFetch<WorkflowRun[]>(`/api/v1/admin/channels/${channelId}/workflow-runs`),
+    enabled: !!channelId,
+    refetchInterval: (query) => {
+      const runs = query.state.data;
+      if (runs && runs.length > 0) return 3000;
+      return false;
+    },
+  });
+}
+
 // --- Workflow Export ---
 
 export function useExportWorkflow(workflowId: string) {
