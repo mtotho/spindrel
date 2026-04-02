@@ -398,7 +398,7 @@ async def get_available_models_grouped() -> list[dict]:
             for mid in raw_ids:
                 fallback_models.append(_enrich(mid, _model_info_cache[None].get(mid, {})))
         except Exception:
-            pass
+            logger.warning("Failed to list models from .env fallback (%s)", fallback_base_url, exc_info=True)
 
     fallback_group = {
         "provider_id": None,
@@ -413,47 +413,56 @@ async def get_available_models_grouped() -> list[dict]:
         return groups
 
     for provider in _registry.values():
-        ptype = provider.provider_type
-        raw_models = await list_models_for_provider(provider.id)
-        model_info_map: dict[str, dict] = {}
+        try:
+            ptype = provider.provider_type
+            raw_models = await list_models_for_provider(provider.id)
+            model_info_map: dict[str, dict] = {}
 
-        # Check if models came from DB (API returned empty/failed)
-        db_models = await _get_db_models_for_provider(provider.id)
-        db_model_map = {m["id"]: m for m in db_models}
-        api_succeeded = bool(raw_models) and not all(mid in db_model_map for mid in raw_models)
+            # Check if models came from DB (API returned empty/failed)
+            db_models = await _get_db_models_for_provider(provider.id)
+            db_model_map = {m["id"]: m for m in db_models}
+            api_succeeded = bool(raw_models) and not all(mid in db_model_map for mid in raw_models)
 
-        if api_succeeded and ptype == "litellm":
-            base = provider.base_url or settings.LITELLM_BASE_URL
-            key = provider.api_key or settings.LITELLM_API_KEY or "dummy"
-            if base:
-                model_info_map = await _fetch_litellm_model_info(base, key)
-                _model_info_cache[provider.id] = model_info_map  # cache for bots list badge
+            if api_succeeded and ptype == "litellm":
+                base = provider.base_url or settings.LITELLM_BASE_URL
+                key = provider.api_key or settings.LITELLM_API_KEY or "dummy"
+                if base:
+                    model_info_map = await _fetch_litellm_model_info(base, key)
+                    _model_info_cache[provider.id] = model_info_map  # cache for bots list badge
 
-        enriched: list[dict] = []
-        for mid in raw_models:
-            if mid in db_model_map:
-                # Use DB enrichment directly (already formatted)
-                entry = db_model_map[mid]
-                enriched.append({
-                    "id": entry["id"], "display": entry["display"],
-                    "max_tokens": entry["max_tokens"],
-                    "input_cost_per_1m": entry["input_cost_per_1m"],
-                    "output_cost_per_1m": entry["output_cost_per_1m"],
-                })
-                # Populate model info cache so context estimate badges work
-                _model_info_cache.setdefault(provider.id, {})[mid] = {
-                    "max_tokens": entry["max_tokens"],
-                    "input_cost_per_1m": entry["input_cost_per_1m"],
-                    "output_cost_per_1m": entry["output_cost_per_1m"],
-                }
-            else:
-                enriched.append(_enrich(mid, model_info_map.get(mid, {})))
-        groups.append({
-            "provider_id": provider.id,
-            "provider_name": provider.display_name,
-            "provider_type": provider.provider_type,
-            "models": enriched,
-        })
+            enriched: list[dict] = []
+            for mid in raw_models:
+                if mid in db_model_map:
+                    # Use DB enrichment directly (already formatted)
+                    entry = db_model_map[mid]
+                    enriched.append({
+                        "id": entry["id"], "display": entry["display"],
+                        "max_tokens": entry["max_tokens"],
+                        "input_cost_per_1m": entry["input_cost_per_1m"],
+                        "output_cost_per_1m": entry["output_cost_per_1m"],
+                    })
+                    # Populate model info cache so context estimate badges work
+                    _model_info_cache.setdefault(provider.id, {})[mid] = {
+                        "max_tokens": entry["max_tokens"],
+                        "input_cost_per_1m": entry["input_cost_per_1m"],
+                        "output_cost_per_1m": entry["output_cost_per_1m"],
+                    }
+                else:
+                    enriched.append(_enrich(mid, model_info_map.get(mid, {})))
+            groups.append({
+                "provider_id": provider.id,
+                "provider_name": provider.display_name,
+                "provider_type": provider.provider_type,
+                "models": enriched,
+            })
+        except Exception:
+            logger.exception("Failed to list models for provider %s (%s)", provider.id, provider.provider_type)
+            groups.append({
+                "provider_id": provider.id,
+                "provider_name": provider.display_name,
+                "provider_type": provider.provider_type,
+                "models": [],
+            })
 
     # Always show .env LiteLLM if the URL is configured, even alongside other DB providers.
     if has_env_litellm:
