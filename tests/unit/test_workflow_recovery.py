@@ -632,6 +632,35 @@ class TestWorkflowEventDispatch:
         from app.services.workflow_executor import _fire_after_workflow_complete
         assert callable(_fire_after_workflow_complete)
 
+    @pytest.mark.asyncio
+    async def test_fire_after_workflow_complete_passes_hook_context(self):
+        """_fire_after_workflow_complete should pass HookContext with bot/channel/run info."""
+        run = MagicMock()
+        run.id = uuid.uuid4()
+        run.bot_id = "test-bot"
+        run.channel_id = uuid.uuid4()
+        run.workflow_id = "test-wf"
+        run.status = "complete"
+
+        workflow = MagicMock()
+
+        with patch("app.agent.hooks.fire_hook", new_callable=AsyncMock) as mock_fire:
+            from app.services.workflow_executor import _fire_after_workflow_complete
+            await _fire_after_workflow_complete(run, workflow)
+
+        mock_fire.assert_called_once()
+        args, kwargs = mock_fire.call_args
+        assert args[0] == "after_workflow_complete"
+        # Second arg should be a HookContext
+        ctx = args[1]
+        from app.agent.hooks import HookContext
+        assert isinstance(ctx, HookContext)
+        assert ctx.bot_id == "test-bot"
+        assert ctx.channel_id == run.channel_id
+        assert ctx.extra["run_id"] == str(run.id)
+        assert kwargs["run"] == run
+        assert kwargs["workflow"] == workflow
+
     def test_trigger_uses_channel_integration_not_dispatch_type(self):
         """trigger_workflow should use channel.integration, not channel.dispatch_type."""
         import inspect
@@ -639,3 +668,527 @@ class TestWorkflowEventDispatch:
         source = inspect.getsource(trigger_workflow)
         assert "ch.integration" in source, "Should use ch.integration for dispatch_type"
         assert "ch.dispatch_type" not in source, "Channel model has no dispatch_type attr"
+
+
+# ---------------------------------------------------------------------------
+# approve_step / skip_step / retry_step helpers
+# ---------------------------------------------------------------------------
+
+def _mock_session_ctx(mock_db):
+    """Create a properly configured async context manager mock for async_session."""
+    ctx = AsyncMock()
+    ctx.__aenter__ = AsyncMock(return_value=mock_db)
+    ctx.__aexit__ = AsyncMock(return_value=False)  # Must be False to propagate exceptions
+    return ctx
+
+
+class TestApproveStep:
+    """Tests for approve_step helper."""
+
+    @pytest.mark.asyncio
+    async def test_approve_step_not_found(self):
+        """approve_step raises ValueError when run not found."""
+        from app.services.workflow_executor import approve_step
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=None)
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            with pytest.raises(ValueError, match="not found"):
+                await approve_step(uuid.uuid4(), 0)
+
+    @pytest.mark.asyncio
+    async def test_approve_step_wrong_status(self):
+        """approve_step raises ValueError when run is not awaiting approval."""
+        from app.services.workflow_executor import approve_step
+
+        run = MagicMock()
+        run.status = "running"
+        run.step_states = [{"status": "pending"}]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            with pytest.raises(ValueError, match="not awaiting approval"):
+                await approve_step(uuid.uuid4(), 0)
+
+    @pytest.mark.asyncio
+    async def test_approve_step_out_of_bounds(self):
+        """approve_step raises ValueError when step_index out of bounds."""
+        from app.services.workflow_executor import approve_step
+
+        run = MagicMock()
+        run.status = "awaiting_approval"
+        run.step_states = [{"status": "pending"}]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            with pytest.raises(ValueError, match="out of bounds"):
+                await approve_step(uuid.uuid4(), 5)
+
+    @pytest.mark.asyncio
+    async def test_approve_step_not_pending(self):
+        """approve_step raises ValueError when step is not pending."""
+        from app.services.workflow_executor import approve_step
+
+        run = MagicMock()
+        run.status = "awaiting_approval"
+        run.step_states = [{"status": "done"}]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            with pytest.raises(ValueError, match="not pending"):
+                await approve_step(uuid.uuid4(), 0)
+
+    @pytest.mark.asyncio
+    async def test_approve_step_success(self):
+        """approve_step clears gate, creates task, and returns run."""
+        from app.services.workflow_executor import approve_step
+
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.status = "awaiting_approval"
+        run.workflow_id = "test-wf"
+        run.bot_id = "test-bot"
+        run.channel_id = None
+        run.session_id = None
+        run.params = {}
+        run.step_states = [
+            {"status": "pending", "result": None, "task_id": None,
+             "error": None, "started_at": None, "completed_at": None},
+        ]
+
+        workflow = MagicMock()
+        workflow.id = "test-wf"
+        workflow.name = "Test"
+        workflow.steps = [{"id": "s1", "prompt": "Do approved work.", "requires_approval": True}]
+        workflow.defaults = {}
+        workflow.secrets = []
+        workflow.session_mode = "isolated"
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+        mock_db.commit = AsyncMock()
+        mock_db.add = MagicMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflows.get_workflow", return_value=workflow),
+            patch("app.services.workflow_executor._create_step_task", new_callable=AsyncMock) as mock_create,
+        ):
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            result = await approve_step(run_id, 0)
+
+        assert result == run
+        mock_create.assert_called_once()
+        # Run status should be set to "running"
+        assert run.status == "running"
+
+
+class TestSkipStep:
+    """Tests for skip_step helper."""
+
+    @pytest.mark.asyncio
+    async def test_skip_step_not_found(self):
+        """skip_step raises ValueError when run not found."""
+        from app.services.workflow_executor import skip_step
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=None)
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            with pytest.raises(ValueError, match="not found"):
+                await skip_step(uuid.uuid4(), 0)
+
+    @pytest.mark.asyncio
+    async def test_skip_step_wrong_status(self):
+        """skip_step raises ValueError when run is not awaiting approval."""
+        from app.services.workflow_executor import skip_step
+
+        run = MagicMock()
+        run.status = "complete"
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            with pytest.raises(ValueError, match="not awaiting approval"):
+                await skip_step(uuid.uuid4(), 0)
+
+    @pytest.mark.asyncio
+    async def test_skip_step_success(self):
+        """skip_step marks step skipped and advances workflow."""
+        from app.services.workflow_executor import skip_step
+
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.status = "awaiting_approval"
+        run.step_states = [
+            {"status": "pending", "result": None, "task_id": None,
+             "error": None, "started_at": None, "completed_at": None},
+        ]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
+        ):
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            result = await skip_step(run_id, 0)
+
+        assert run.status == "running"
+        mock_advance.assert_called_once_with(run_id)
+
+
+class TestRetryStep:
+    """Tests for retry_step helper."""
+
+    @pytest.mark.asyncio
+    async def test_retry_step_not_found(self):
+        """retry_step raises ValueError when run not found."""
+        from app.services.workflow_executor import retry_step
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=None)
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            with pytest.raises(ValueError, match="not found"):
+                await retry_step(uuid.uuid4(), 0)
+
+    @pytest.mark.asyncio
+    async def test_retry_step_not_failed(self):
+        """retry_step raises ValueError when step is not failed."""
+        from app.services.workflow_executor import retry_step
+
+        run = MagicMock()
+        run.step_states = [{"status": "done"}]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            with pytest.raises(ValueError, match="not failed"):
+                await retry_step(uuid.uuid4(), 0)
+
+    @pytest.mark.asyncio
+    async def test_retry_step_resets_to_pending_and_advances(self):
+        """retry_step should reset step to pending, clear error, and advance."""
+        from app.services.workflow_executor import retry_step
+
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.status = "failed"
+        run.error = "Step failed"
+        run.completed_at = datetime.now(timezone.utc)
+        run.step_states = [
+            {"status": "failed", "error": "Something went wrong", "result": None,
+             "task_id": "t1", "started_at": None, "completed_at": None},
+        ]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
+        ):
+            mock_session.return_value = _mock_session_ctx(mock_db)
+
+            result = await retry_step(run_id, 0)
+
+        # Step should be reset
+        assert run.step_states[0]["status"] == "pending"
+        assert run.step_states[0]["error"] is None
+        # Run should be re-opened
+        assert run.status == "running"
+        assert run.error is None
+        assert run.completed_at is None
+        mock_advance.assert_called_once_with(run_id)
+
+
+# ---------------------------------------------------------------------------
+# on_step_task_completed: retry/continue policies
+# ---------------------------------------------------------------------------
+
+class TestOnStepFailurePolicies:
+    """Tests for on_failure retry and continue policies in on_step_task_completed."""
+
+    def _make_mocks(self, step_states, steps, on_failure="abort"):
+        """Helper to create standard mock objects for on_step_task_completed tests."""
+        run_id = str(uuid.uuid4())
+        run = MagicMock()
+        run.id = uuid.UUID(run_id)
+        run.workflow_id = "test-wf"
+        run.status = "running"
+        run.dispatch_type = "none"
+        run.dispatch_config = None
+        run.bot_id = "test-bot"
+        run.step_states = step_states
+
+        # Apply on_failure to steps
+        for s in steps:
+            if "on_failure" not in s:
+                s["on_failure"] = on_failure
+
+        workflow = MagicMock()
+        workflow.name = "Test WF"
+        workflow.steps = steps
+        workflow.defaults = {}
+
+        task = MagicMock()
+        task.id = uuid.uuid4()
+        task.result = None
+        task.error = "Boom"
+        task.status = "failed"
+        task.correlation_id = None
+
+        fresh_task = MagicMock()
+        fresh_task.correlation_id = None
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(side_effect=lambda model, id_: {
+            "WorkflowRun": run, "Workflow": workflow, "Task": fresh_task,
+        }.get(model.__name__, None))
+        mock_db.commit = AsyncMock()
+
+        return run_id, run, workflow, task, mock_db
+
+    @pytest.mark.asyncio
+    async def test_retry_policy_resets_step_and_advances(self):
+        """on_failure='retry:2' should reset step to pending and call advance_workflow."""
+        step_states = [
+            {"status": "running", "result": None, "task_id": None,
+             "error": None, "started_at": "2025-01-01T00:00:00",
+             "completed_at": None, "retry_count": 0},
+        ]
+        steps = [{"id": "s1", "prompt": "Do.", "on_failure": "retry:2"}]
+        run_id, run, workflow, task, mock_db = self._make_mocks(step_states, steps, "retry:2")
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
+        ):
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            await on_step_task_completed(run_id, 0, "failed", task)
+
+        # Step should be reset to pending for retry
+        assert run.step_states[0]["status"] == "pending"
+        assert run.step_states[0]["error"] is None
+        assert run.step_states[0]["retry_count"] == 1
+        mock_advance.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retry_policy_exhausted_falls_through(self):
+        """When retry count reaches max, should fall through (not reset)."""
+        step_states = [
+            {"status": "running", "result": None, "task_id": None,
+             "error": None, "started_at": "2025-01-01T00:00:00",
+             "completed_at": None, "retry_count": 2},  # already at max
+        ]
+        steps = [{"id": "s1", "prompt": "Do.", "on_failure": "retry:2"}]
+        run_id, run, workflow, task, mock_db = self._make_mocks(step_states, steps, "retry:2")
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
+        ):
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            await on_step_task_completed(run_id, 0, "failed", task)
+
+        # Step should remain failed (retries exhausted), advance to next step
+        assert run.step_states[0]["status"] == "failed"
+        mock_advance.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_continue_policy_advances_to_next_step(self):
+        """on_failure='continue' should keep step as failed but advance to next."""
+        step_states = [
+            {"status": "running", "result": None, "task_id": None,
+             "error": None, "started_at": "2025-01-01T00:00:00", "completed_at": None},
+            {"status": "pending", "result": None, "task_id": None,
+             "error": None, "started_at": None, "completed_at": None},
+        ]
+        steps = [
+            {"id": "s1", "prompt": "Do.", "on_failure": "continue"},
+            {"id": "s2", "prompt": "Next."},
+        ]
+        run_id, run, workflow, task, mock_db = self._make_mocks(step_states, steps, "continue")
+        # Only s1 has on_failure=continue
+        steps[0]["on_failure"] = "continue"
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
+        ):
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            await on_step_task_completed(run_id, 0, "failed", task)
+
+        # Step stays failed but run is NOT aborted
+        assert run.step_states[0]["status"] == "failed"
+        assert run.status == "running"  # Not set to "failed"
+        # advance_workflow called to proceed to next step
+        mock_advance.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_abort_policy_marks_run_failed(self):
+        """on_failure='abort' (default) should mark run as failed and NOT advance."""
+        step_states = [
+            {"status": "running", "result": None, "task_id": None,
+             "error": None, "started_at": "2025-01-01T00:00:00", "completed_at": None},
+        ]
+        steps = [{"id": "s1", "prompt": "Do.", "on_failure": "abort"}]
+        run_id, run, workflow, task, mock_db = self._make_mocks(step_states, steps, "abort")
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
+            patch("app.services.workflow_executor._fire_after_workflow_complete", new_callable=AsyncMock),
+        ):
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            await on_step_task_completed(run_id, 0, "failed", task)
+
+        # Run should be marked failed
+        assert run.status == "failed"
+        assert run.error is not None
+        assert run.completed_at is not None
+        # advance_workflow should NOT be called — abort terminates
+        mock_advance.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Ephemeral session ID for isolated mode
+# ---------------------------------------------------------------------------
+
+class TestEphemeralSessionId:
+    """Tests for ephemeral session_id generation in _create_step_task."""
+
+    @pytest.mark.asyncio
+    async def test_isolated_mode_generates_ephemeral_session(self):
+        """Isolated mode (session_id=None) should generate a new UUID session."""
+        run = MagicMock()
+        run.id = uuid.uuid4()
+        run.bot_id = "test-bot"
+        run.channel_id = uuid.uuid4()
+        run.session_id = None  # Isolated mode
+        run.params = {}
+        run.step_states = [
+            {"status": "pending", "result": None, "task_id": None,
+             "error": None, "started_at": None, "completed_at": None},
+        ]
+
+        workflow = MagicMock()
+        workflow.id = "test-wf"
+        workflow.name = "Test"
+        workflow.steps = [{"id": "s1", "prompt": "Do."}]
+        workflow.defaults = {}
+        workflow.secrets = []
+        workflow.session_mode = "isolated"
+
+        created_tasks = []
+        mock_db = AsyncMock()
+        mock_db.add = lambda obj: created_tasks.append(obj)
+        mock_db.commit = AsyncMock()
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+            await _create_step_task(run, workflow, workflow.steps[0], 0)
+
+        assert len(created_tasks) == 1
+        task = created_tasks[0]
+        # session_id should be a new UUID, NOT None
+        assert task.session_id is not None
+        assert isinstance(task.session_id, uuid.UUID)
+        # And it should NOT be the channel's active session (it's a fresh UUID)
+        assert task.session_id != run.channel_id
+
+    @pytest.mark.asyncio
+    async def test_shared_mode_uses_run_session_id(self):
+        """Shared mode should reuse the run's session_id."""
+        shared_session = uuid.uuid4()
+        run = MagicMock()
+        run.id = uuid.uuid4()
+        run.bot_id = "test-bot"
+        run.channel_id = uuid.uuid4()
+        run.session_id = shared_session
+        run.params = {}
+        run.step_states = [
+            {"status": "pending", "result": None, "task_id": None,
+             "error": None, "started_at": None, "completed_at": None},
+        ]
+
+        workflow = MagicMock()
+        workflow.id = "test-wf"
+        workflow.name = "Test"
+        workflow.steps = [{"id": "s1", "prompt": "Do."}]
+        workflow.defaults = {}
+        workflow.secrets = []
+        workflow.session_mode = "shared"
+
+        created_tasks = []
+        mock_db = AsyncMock()
+        mock_db.add = lambda obj: created_tasks.append(obj)
+        mock_db.commit = AsyncMock()
+
+        with patch("app.services.workflow_executor.async_session") as mock_session:
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+            await _create_step_task(run, workflow, workflow.steps[0], 0)
+
+        assert len(created_tasks) == 1
+        task = created_tasks[0]
+        assert task.session_id == shared_session

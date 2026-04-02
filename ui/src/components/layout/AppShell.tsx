@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { View, Pressable } from "react-native";
+import { View, Pressable, Platform } from "react-native";
 import { Slot } from "expo-router";
 import { Sidebar } from "./Sidebar";
 import { DetailPanel } from "./DetailPanel";
 import { SystemPauseBanner } from "./SystemPauseBanner";
+import { StreamingToast } from "./StreamingToast";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
+import { useChatStore } from "../../stores/chat";
 import { useSystemStatus } from "../../api/hooks/useSystemStatus";
 
 export function AppShell() {
@@ -14,6 +16,19 @@ export function AppShell() {
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
   const { data: status } = useSystemStatus();
+  const anyStreaming = useChatStore(
+    (s) => Object.values(s.channels).some((ch) => ch.isStreaming),
+  );
+
+  // Warn on tab close / refresh when a stream is active (web only)
+  useEffect(() => {
+    if (Platform.OS !== "web" || !anyStreaming) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [anyStreaming]);
 
   // Keep the overlay mounted during the exit animation, then unmount
   const [mounted, setMounted] = useState(false);
@@ -46,6 +61,9 @@ export function AppShell() {
 
         {/* Detail panel — only on triple column when active */}
         {columns === "triple" && hasDetail && <DetailPanel />}
+
+        {/* Streaming toast — shows when a background channel is processing */}
+        <StreamingToast />
 
         {/* Mobile sidebar drawer — always mounted during animation for smooth exit */}
         {columns === "single" && mounted && (

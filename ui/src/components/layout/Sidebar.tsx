@@ -52,6 +52,8 @@ import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
 import { useWorkspaces } from "../../api/hooks/useWorkspaces";
 import { useChannelReadStore } from "../../stores/channelRead";
+import { useChatStore } from "../../stores/chat";
+import { useShallow } from "zustand/react/shallow";
 import { useUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useThemeTokens } from "../../theme/tokens";
 import { UsageHudBadge } from "./UsageHudBadge";
@@ -386,6 +388,14 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const t = useThemeTokens();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
   const isUnread = useChannelReadStore((s) => s.isUnread);
+  const streamingChannelIds = useChatStore(
+    useShallow((s) =>
+      Object.entries(s.channels)
+        .filter(([, ch]) => ch.isStreaming)
+        .map(([id]) => id),
+    ),
+  );
+  const streamingSet = new Set(streamingChannelIds);
 
   // Orchestrator channel — always included by server regardless of workspace filter
   const orchestratorChannel = channels?.find((ch) => ch.client_id === "orchestrator:home");
@@ -675,7 +685,19 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                           </Text>
                         )}
                       </View>
-                      {channel.heartbeat_enabled && !channel.heartbeat_in_quiet_hours && (
+                      {streamingSet.has(channel.id) && (
+                        <View
+                          className="animate-pulse"
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: 4,
+                            backgroundColor: t.accent,
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      {channel.heartbeat_enabled && !channel.heartbeat_in_quiet_hours && !streamingSet.has(channel.id) && (
                         <View
                           style={{
                             width: 6,
@@ -687,10 +709,10 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                           }}
                         />
                       )}
-                      {channel.heartbeat_in_quiet_hours && (
+                      {channel.heartbeat_in_quiet_hours && !streamingSet.has(channel.id) && (
                         <Moon size={12} color={t.textDim} style={{ flexShrink: 0, opacity: 0.5 }} />
                       )}
-                      {unread && (
+                      {unread && !streamingSet.has(channel.id) && (
                         <View
                           style={{
                             width: 8,

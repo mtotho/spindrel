@@ -14,6 +14,7 @@ interface ChatChannelState {
 interface ChatState {
   channels: Record<string, ChatChannelState>;
   getChannel: (channelId: string) => ChatChannelState;
+  getStreamingChannelIds: () => string[];
   addMessage: (channelId: string, message: Message) => void;
   setMessages: (channelId: string, messages: Message[]) => void;
   startStreaming: (channelId: string) => void;
@@ -36,6 +37,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   channels: {},
 
   getChannel: (channelId) => get().channels[channelId] ?? emptyChannel,
+
+  getStreamingChannelIds: () =>
+    Object.entries(get().channels)
+      .filter(([, ch]) => ch.isStreaming)
+      .map(([id]) => id),
 
   setMessages: (channelId, messages) =>
     set((s) => ({

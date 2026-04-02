@@ -286,6 +286,22 @@ async def list_workflow_runs(
     return [WorkflowRunOut.model_validate(r) for r in rows]
 
 
+@router.get("/workflow-runs/recent", response_model=list[WorkflowRunOut])
+async def recent_workflow_runs(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workflows:read")),
+    limit: int = 50,
+):
+    """Return recent workflow runs across all workflows (for dashboard/list views)."""
+    stmt = (
+        select(WorkflowRun)
+        .order_by(desc(WorkflowRun.created_at))
+        .limit(limit)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [WorkflowRunOut.model_validate(r) for r in rows]
+
+
 @router.get("/workflow-runs/{run_id}", response_model=WorkflowRunOut)
 async def get_workflow_run(
     run_id: uuid.UUID,

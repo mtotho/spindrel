@@ -65,6 +65,7 @@ function RunStrip({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
   let statusLabel = "running";
   if (run.status === "complete") { StatusIcon = CheckCircle2; statusColor = t.success; statusLabel = "complete"; }
   else if (run.status === "failed") { StatusIcon = XCircle; statusColor = t.danger; statusLabel = "failed"; }
+  else if (run.status === "cancelled") { StatusIcon = XCircle; statusColor = t.textDim; statusLabel = "cancelled"; }
   else if (isApproval) { StatusIcon = ShieldCheck; statusColor = t.warning; statusLabel = "needs approval"; }
 
   return (
