@@ -177,6 +177,7 @@ function TriggerForm({
 
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
   const [botId, setBotId] = useState("");
+  const [sessionMode, setSessionMode] = useState("");
 
   useEffect(() => {
     if (!workflow) return;
@@ -208,6 +209,7 @@ function TriggerForm({
       const run = await triggerMut.mutateAsync({
         params,
         bot_id: botId || defaultBot || undefined,
+        session_mode: sessionMode || undefined,
       });
       onTriggered(run.id);
     } catch {
@@ -276,6 +278,21 @@ function TriggerForm({
           {bots?.map((b) => (
             <option key={b.id} value={b.id}>{b.name || b.id}</option>
           ))}
+        </select>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <label style={{ fontSize: 12, color: t.textMuted }}>
+          Session Mode <span style={{ color: t.textDim }}>(default: {workflow?.session_mode || "isolated"})</span>
+        </label>
+        <select
+          value={sessionMode}
+          onChange={(e) => setSessionMode(e.target.value)}
+          style={{ ...inputStyle, padding: "6px 8px" }}
+        >
+          <option value="">Default ({workflow?.session_mode || "isolated"})</option>
+          <option value="isolated">Isolated (separate context per step)</option>
+          <option value="shared">Shared (visible in chat)</option>
         </select>
       </div>
 

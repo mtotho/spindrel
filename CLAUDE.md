@@ -89,9 +89,9 @@ cd ui && npx tsc --noEmit
 | Debug a production issue            | Read the code paths — don't query the DB directly      |
 
 **Gitignored user directories** (not checked in — users create their own):
-`bots/`, `skills/`, `tools/*.py`, `workflows/`
+`bots/`, `skills/`, `tools/*.py`
 
-**Checked-in examples**: `carapaces/*.yaml`
+**Checked-in examples**: `carapaces/*.yaml`, `workflows/*.yaml`
 
 ## Project Architecture
 

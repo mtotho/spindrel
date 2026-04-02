@@ -272,6 +272,7 @@ async def _fire_heartbeat_workflow(hb: ChannelHeartbeat, now: datetime) -> None:
             triggered_by="heartbeat",
             dispatch_type=dispatch_type,
             dispatch_config=dispatch_config,
+            session_mode=hb.workflow_session_mode,
         )
         workflow_run_id = str(wf_run.id)
         logger.info(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from openai import AsyncOpenAI
@@ -9,6 +10,8 @@ from openai import AsyncOpenAI
 from app.config import settings
 
 from .base import ProviderCapabilities, ProviderDriver
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from app.db.models import ProviderConfig as ProviderConfigRow
@@ -96,4 +99,5 @@ class AnthropicCompatibleDriver(ProviderDriver):
             models = await client.models.list()
             return sorted(m.id for m in models.data)
         except Exception:
+            logger.warning("Failed to list models for anthropic-compatible provider %s", config.id, exc_info=True)
             return []

@@ -187,6 +187,7 @@ class HeartbeatConfigOut(BaseModel):
     previous_result_max_chars: Optional[int] = None
     repetition_detection: Optional[bool] = None
     workflow_id: Optional[str] = None
+    workflow_session_mode: Optional[str] = None
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
@@ -202,7 +203,7 @@ class HeartbeatConfigOut(BaseModel):
             "workspace_file_path", "workspace_id",
             "dispatch_results", "dispatch_mode", "trigger_response",
             "timezone", "max_run_seconds", "previous_result_max_chars", "repetition_detection",
-            "workflow_id",
+            "workflow_id", "workflow_session_mode",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -260,6 +261,7 @@ class HeartbeatUpdate(BaseModel):
     previous_result_max_chars: Optional[int] = None
     repetition_detection: Optional[bool] = None
     workflow_id: Optional[str] = None
+    workflow_session_mode: Optional[str] = None
 
 
 class TaskOut(BaseModel):
@@ -1056,6 +1058,9 @@ async def admin_channel_heartbeat_update(
             if not get_workflow(wf_id):
                 raise HTTPException(status_code=400, detail=f"Workflow '{wf_id}' not found")
         heartbeat.workflow_id = wf_id
+    if "workflow_session_mode" in updates:
+        val = updates["workflow_session_mode"]
+        heartbeat.workflow_session_mode = val if val in ("shared", "isolated") else None
     heartbeat.updated_at = now
 
     if heartbeat.enabled:
