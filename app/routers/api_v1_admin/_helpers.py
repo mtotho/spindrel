@@ -107,6 +107,7 @@ def _bot_to_out(
         workspace_only=getattr(bot, "workspace_only", False),
         system_prompt_workspace_file=getattr(bot, "system_prompt_workspace_file", False),
         system_prompt_write_protected=getattr(bot, "system_prompt_write_protected", False),
+        source_type=getattr(bot, "source_type", "manual"),
     )
 
 

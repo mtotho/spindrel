@@ -224,6 +224,8 @@ class BotConfig:
     # System prompt from workspace file
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False
+    # Source type: "system" (app/data/system_bots/), "file" (bots/), "manual" (API-created)
+    source_type: str = "manual"
     # Cached for three-tier indexing resolution (populated by load_bots)
     _workspace_raw: dict = field(default_factory=dict)
     _ws_indexing_config: dict | None = None
@@ -430,6 +432,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         memory_scheme=getattr(row, "memory_scheme", None),
         system_prompt_workspace_file=getattr(row, "system_prompt_workspace_file", False),
         system_prompt_write_protected=getattr(row, "system_prompt_write_protected", False),
+        source_type=getattr(row, "source_type", "manual"),
         shared_workspace_cwd=_sw_cwd,
         _workspace_raw=ws_raw,
     )
@@ -520,12 +523,13 @@ async def seed_bots_from_yaml(bots_dir: Path = BOTS_DIR) -> None:
     user bots directory (bots/).
     """
     source_dirs = [SYSTEM_BOTS_DIR, bots_dir]
-    yaml_files: list[Path] = []
+    yaml_files: list[tuple[Path, str]] = []  # (path, source_type)
     for d in source_dirs:
         if d.exists():
             found = list(d.glob("*.yaml"))
+            src_type = "system" if d == SYSTEM_BOTS_DIR else "file"
             logger.info("Bot seed scan: %s → %d YAML file(s)", d, len(found))
-            yaml_files.extend(found)
+            yaml_files.extend((f, src_type) for f in found)
         else:
             logger.warning("Bot seed scan: directory does not exist: %s", d)
 
@@ -534,16 +538,17 @@ async def seed_bots_from_yaml(bots_dir: Path = BOTS_DIR) -> None:
         return
 
     async with async_session() as db:
-        for path in yaml_files:
+        for path, source_type in yaml_files:
             try:
                 with open(path) as f:
                     data = yaml.safe_load(f)
                 if not data or "id" not in data:
                     continue
                 row_dict = _yaml_data_to_row_dict(data)
+                row_dict["source_type"] = source_type
                 stmt = pg_insert(BotRow).values(**row_dict).on_conflict_do_nothing(index_elements=["id"])
                 await db.execute(stmt)
-                logger.info("Seeded bot '%s' from %s", data["id"], path.name)
+                logger.info("Seeded bot '%s' from %s (source_type=%s)", data["id"], path.name, source_type)
             except Exception:
                 logger.error("Failed to seed bot from %s", path, exc_info=True)
         await db.commit()

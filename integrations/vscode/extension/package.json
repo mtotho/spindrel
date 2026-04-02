@@ -1,0 +1,73 @@
+{
+  "name": "spindrel-chat",
+  "displayName": "Spindrel Chat",
+  "description": "Chat with your Spindrel agent from the VS Code sidebar",
+  "version": "0.1.0",
+  "publisher": "spindrel",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Chat"
+  ],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "spindrel-chat",
+          "title": "Spindrel Chat",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "spindrel-chat": [
+        {
+          "type": "webview",
+          "id": "spindrel-chat.sidebar",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "spindrel-chat.newChat",
+        "title": "Spindrel: New Chat"
+      },
+      {
+        "command": "spindrel-chat.attachContext",
+        "title": "Spindrel: Attach Current File"
+      },
+      {
+        "command": "spindrel-chat.cancel",
+        "title": "Spindrel: Cancel Request"
+      }
+    ],
+    "configuration": {
+      "title": "Spindrel Chat",
+      "properties": {
+        "spindrel.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Agent server URL (auto-detected from config file)"
+        },
+        "spindrel.botId": {
+          "type": "string",
+          "default": "default",
+          "description": "Bot ID to chat with"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}

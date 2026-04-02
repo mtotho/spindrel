@@ -79,6 +79,7 @@ export interface BotConfig {
   workspace_only?: boolean;
   system_prompt_workspace_file?: boolean;
   system_prompt_write_protected?: boolean;
+  source_type?: string;  // "system"|"file"|"manual"
   created_at?: string;
   updated_at?: string;
 }

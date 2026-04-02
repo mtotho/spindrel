@@ -22,6 +22,7 @@ from starlette.responses import RedirectResponse
 from app.config import settings
 from app.db.models import SharedWorkspace
 from app.dependencies import get_db, verify_auth_or_user
+from app.services.workspace_editor import write_chat_config
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,19 @@ async def proxy_editor_http(
     if tkn:
         if not await _validate_token(tkn, db):
             raise HTTPException(401, "Invalid token")
+
+        # Write chat extension config into the container (best-effort)
+        ws = await _get_ws_for_editor(workspace_id, db)
+        if ws.container_name:
+            try:
+                server_url = str(request.base_url).rstrip("/")
+                await write_chat_config(
+                    container_name=ws.container_name,
+                    server_url=server_url,
+                    token=tkn,
+                )
+            except Exception as exc:
+                logger.debug("Failed to write chat config to container: %s", exc)
 
         # Build redirect URL without the tkn param
         params = dict(request.query_params)

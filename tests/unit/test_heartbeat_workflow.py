@@ -23,6 +23,7 @@ def _make_heartbeat(**overrides):
     hb.quiet_end = None
     hb.timezone = None
     hb.max_run_seconds = None
+    hb.workflow_session_mode = overrides.get("workflow_session_mode", None)
     return hb
 
 
@@ -132,6 +133,7 @@ class TestFireHeartbeatWorkflow:
                 triggered_by="heartbeat",
                 dispatch_type="none",
                 dispatch_config=None,
+                session_mode=None,
             )
 
     @pytest.mark.asyncio

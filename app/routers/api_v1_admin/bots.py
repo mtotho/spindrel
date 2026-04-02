@@ -24,7 +24,7 @@ from app.db.models import (
     Skill as SkillRow,
     ToolEmbedding,
 )
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 from ._helpers import _bot_to_out
 from ._schemas import BotListOut, BotOut, MemoryListOut, MemoryOut
@@ -38,7 +38,7 @@ router = APIRouter()
 
 @router.get("/bots", response_model=BotListOut)
 async def admin_bots_list(
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("bots:read")),
 ):
     """List all bots with full config."""
     from app.agent.persona import resolve_workspace_persona
@@ -59,7 +59,7 @@ async def admin_bots_list(
 async def admin_bot_detail(
     bot_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("bots:read")),
 ):
     """Get a single bot's full config."""
     from app.agent.persona import get_persona, resolve_workspace_persona
@@ -136,7 +136,7 @@ class BotEditorDataOut(BaseModel):
 async def admin_bot_editor_data(
     bot_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("bots:read")),
 ):
     """Get bot config + all available options for the editor UI.
 
@@ -400,7 +400,7 @@ async def admin_bot_update(
     bot_id: str,
     data: BotUpdateIn = Body(...),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("bots:write")),
 ):
     """Update a bot's config via JSON."""
     from app.agent.bots import reload_bots
@@ -532,7 +532,7 @@ class BotCreateIn(BaseModel):
 async def admin_bot_create(
     data: BotCreateIn = Body(...),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("bots:write")),
 ):
     """Create a new bot."""
     import re
@@ -590,6 +590,136 @@ async def admin_bot_create(
 
 
 # ---------------------------------------------------------------------------
+# Bot delete
+# ---------------------------------------------------------------------------
+
+@router.delete("/bots/{bot_id}", status_code=204)
+async def admin_bot_delete(
+    bot_id: str,
+    force: bool = Query(False, description="Force delete even if bot has active channels"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:delete")),
+):
+    """Delete a bot and optionally its associated data."""
+    from app.agent.bots import reload_bots
+    from app.db.models import (
+        BotPersona,
+        Channel,
+        SandboxBotAccess,
+        Session,
+        Task,
+        ToolCall,
+        ToolPolicyRule,
+        TraceEvent,
+    )
+
+    row = await db.get(BotRow, bot_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    if getattr(row, "source_type", "manual") == "system":
+        raise HTTPException(status_code=403, detail="Cannot delete system bot")
+
+    # Check for active channels
+    channel_count = (await db.execute(
+        select(func.count()).select_from(Channel).where(Channel.bot_id == bot_id)
+    )).scalar() or 0
+
+    if channel_count > 0 and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Bot has {channel_count} active channel(s) — delete or reassign them first, or use ?force=true",
+        )
+
+    # Force delete: cascade through associated data
+    if force and channel_count > 0:
+        # Get channel IDs for this bot
+        channel_ids = (await db.execute(
+            select(Channel.id).where(Channel.bot_id == bot_id)
+        )).scalars().all()
+
+        if channel_ids:
+            # Get session IDs for these channels
+            session_ids = (await db.execute(
+                select(Session.id).where(Session.channel_id.in_(channel_ids))
+            )).scalars().all()
+
+            if session_ids:
+                # Delete tool calls, trace events for sessions
+                await db.execute(
+                    ToolCall.__table__.delete().where(ToolCall.session_id.in_(session_ids))
+                )
+                await db.execute(
+                    TraceEvent.__table__.delete().where(TraceEvent.session_id.in_(session_ids))
+                )
+                # Delete sessions
+                await db.execute(
+                    Session.__table__.delete().where(Session.id.in_(session_ids))
+                )
+
+            # Delete heartbeat configs + runs
+            from app.db.models import ChannelHeartbeat, HeartbeatRun
+            hb_ids = (await db.execute(
+                select(ChannelHeartbeat.id).where(ChannelHeartbeat.channel_id.in_(channel_ids))
+            )).scalars().all()
+            if hb_ids:
+                await db.execute(
+                    HeartbeatRun.__table__.delete().where(HeartbeatRun.heartbeat_id.in_(hb_ids))
+                )
+                await db.execute(
+                    ChannelHeartbeat.__table__.delete().where(ChannelHeartbeat.channel_id.in_(channel_ids))
+                )
+
+            # Delete channel integrations
+            from app.db.models import ChannelIntegration
+            await db.execute(
+                ChannelIntegration.__table__.delete().where(ChannelIntegration.channel_id.in_(channel_ids))
+            )
+
+            # Null out active_session_id before deleting channels (FK constraint)
+            await db.execute(
+                Channel.__table__.update().where(Channel.id.in_(channel_ids)).values(active_session_id=None)
+            )
+
+            # Delete channels
+            await db.execute(
+                Channel.__table__.delete().where(Channel.id.in_(channel_ids))
+            )
+
+    # Delete bot-level associated data
+    await db.execute(
+        Task.__table__.delete().where(Task.bot_id == bot_id)
+    )
+    await db.execute(
+        BotPersona.__table__.delete().where(BotPersona.bot_id == bot_id)
+    )
+    await db.execute(
+        ToolPolicyRule.__table__.delete().where(ToolPolicyRule.bot_id == bot_id)
+    )
+    await db.execute(
+        SandboxBotAccess.__table__.delete().where(SandboxBotAccess.bot_id == bot_id)
+    )
+
+    # Delete shared workspace bot enrollment
+    await db.execute(
+        SharedWorkspaceBot.__table__.delete().where(SharedWorkspaceBot.bot_id == bot_id)
+    )
+
+    # Delete filesystem chunks associated with this bot
+    from app.db.models import FilesystemChunk
+    await db.execute(
+        FilesystemChunk.__table__.delete().where(FilesystemChunk.bot_id == bot_id)
+    )
+
+    # Delete the bot row
+    await db.delete(row)
+    await db.commit()
+
+    await reload_bots()
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Bot API key management helpers
 # ---------------------------------------------------------------------------
 
@@ -640,7 +770,7 @@ async def _get_bot_api_permissions(db: AsyncSession, bot_row: BotRow) -> list[st
 async def admin_bot_enable_memory_scheme(
     bot_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("bots:write")),
 ):
     """Enable the workspace-files memory scheme on an existing bot.
 
@@ -692,7 +822,7 @@ class SandboxStatusOut(BaseModel):
 async def admin_bot_sandbox_status(
     bot_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("bots:read")),
 ):
     """Get the status of a bot's local sandbox container."""
     from app.db.models import SandboxInstance
@@ -722,7 +852,7 @@ async def admin_bot_sandbox_status(
 @router.post("/bots/{bot_id}/sandbox/recreate")
 async def admin_bot_sandbox_recreate(
     bot_id: str,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("bots:write")),
 ):
     """Recreate the bot's local sandbox container.
 
@@ -749,7 +879,7 @@ async def admin_bot_memories(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("bots:read")),
 ):
     """List memories for a specific bot."""
     memories = (await db.execute(

@@ -5,6 +5,7 @@ Operations: read, write, append, edit, list, delete, mkdir.
 """
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import os
@@ -300,6 +301,52 @@ def _op_append(path: str, content: str | None) -> str:
     return json.dumps({"ok": True, "bytes": size})
 
 
+def _whitespace_flex_pattern(find: str) -> re.Pattern | None:
+    """Build a regex matching *find* with flexible whitespace.
+
+    Non-whitespace tokens must appear in order and match exactly;
+    any whitespace between them is allowed to differ in amount or type
+    (spaces, tabs, newlines).  Returns None if *find* has no tokens.
+    """
+    parts = find.split()
+    if not parts:
+        return None
+    pattern = r"\s+".join(re.escape(p) for p in parts)
+    return re.compile(pattern, re.DOTALL)
+
+
+def _find_closest_hint(find: str, text: str) -> str:
+    """Return a hint showing the most similar block in *text*."""
+    find_lines = [l.strip() for l in find.strip().splitlines() if l.strip()]
+    text_lines = text.splitlines()
+    if not find_lines or not text_lines:
+        return ""
+
+    target = find_lines[0]
+    best_ratio = 0.0
+    best_idx = 0
+    for i, line in enumerate(text_lines):
+        ratio = difflib.SequenceMatcher(None, target, line.strip()).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_idx = i
+
+    if best_ratio < 0.4:
+        return ""
+
+    window = max(len(find_lines) + 2, 5)
+    start = max(0, best_idx - 1)
+    end = min(len(text_lines), start + window)
+    snippet = "\n".join(text_lines[start:end])
+    if len(snippet) > 500:
+        snippet = snippet[:500] + "..."
+
+    return (
+        " The closest matching text in the file is:\n"
+        f'"""\n{snippet}\n"""'
+    )
+
+
 def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool) -> str:
     if find is None:
         return _error("find is required for edit.")
@@ -310,23 +357,45 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
 
     text = Path(path).read_text()
 
-    if find not in text:
-        # Provide a hint: show a snippet around closest partial match
-        hint = ""
-        find_stripped = find.strip()
-        if find_stripped and find_stripped in text:
-            hint = " Hint: the text exists but with different leading/trailing whitespace. Try with exact whitespace."
-        return _error(f"find string not found in file.{hint}")
+    # 1. Exact match — fastest, safest
+    if find in text:
+        if replace_all:
+            count = text.count(find)
+            new_text = text.replace(find, replace)
+        else:
+            count = 1
+            new_text = text.replace(find, replace, 1)
+        Path(path).write_text(new_text)
+        return json.dumps({"ok": True, "replacements": count})
 
-    if replace_all:
-        count = text.count(find)
-        new_text = text.replace(find, replace)
-    else:
-        count = 1
-        new_text = text.replace(find, replace, 1)
+    # 2. Whitespace-normalized match — handles LLM whitespace drift
+    pat = _whitespace_flex_pattern(find)
+    if pat:
+        # Cap accepted span at 2x the find length to prevent runaway matches
+        # bridging distant tokens across many blank lines.
+        max_span = max(len(find) * 2, 200)
+        matches = [m for m in pat.finditer(text) if m.end() - m.start() <= max_span]
+        if matches:
+            if replace_all:
+                count = len(matches)
+                new_text = text
+                for m in reversed(matches):
+                    new_text = new_text[:m.start()] + replace + new_text[m.end():]
+            else:
+                count = 1
+                m = matches[0]
+                new_text = text[:m.start()] + replace + text[m.end():]
+            Path(path).write_text(new_text)
+            logger.info("edit: whitespace-flex match on %s (%d replacement(s))", path, count)
+            return json.dumps({
+                "ok": True,
+                "replacements": count,
+                "matched": "whitespace-normalized",
+            })
 
-    Path(path).write_text(new_text)
-    return json.dumps({"ok": True, "replacements": count})
+    # 3. No match — provide helpful error with closest text
+    hint = _find_closest_hint(find, text)
+    return _error(f"find string not found in file.{hint}")
 
 
 def _op_list(path: str, ws_root: str) -> str:

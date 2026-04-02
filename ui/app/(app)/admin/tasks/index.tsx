@@ -1023,11 +1023,22 @@ export default function TasksScreen() {
 
   const conflictCount = scheduleConflicts.size;
 
+  const activeScheduleCount = (data?.schedules ?? []).filter(s => s.status === "active").length;
+  const disabledScheduleCount = (data?.schedules ?? []).filter(s => s.status === "cancelled").length;
+
+  const subtitle = data
+    ? [
+        activeScheduleCount > 0 && `${activeScheduleCount} schedule${activeScheduleCount !== 1 ? "s" : ""}`,
+        disabledScheduleCount > 0 && `${disabledScheduleCount} disabled`,
+        data.total > 0 && `${data.total} task run${data.total !== 1 ? "s" : ""}`,
+      ].filter(Boolean).join(" · ") || "No schedules"
+    : undefined;
+
   return (
     <View className="flex-1 bg-surface">
       <MobileHeader
         title="Tasks"
-        subtitle={data ? `${data.total} total` : undefined}
+        subtitle={subtitle}
         right={
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <button
@@ -1158,6 +1169,25 @@ export default function TasksScreen() {
             </button>
           ))}
         </div>
+
+        {/* Disabled schedules indicator (clickable → switch to cancelled filter) */}
+        {disabledScheduleCount > 0 && statusFilter !== "cancelled" && (
+          <>
+            <div style={{ width: 1, height: 20, background: t.surfaceOverlay, margin: "0 4px" }} />
+            <button
+              onClick={() => setStatusFilter("cancelled")}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                fontSize: 11, fontWeight: 600, color: t.textDim,
+                background: t.surfaceRaised, padding: "3px 10px", borderRadius: 12,
+                border: "none", cursor: "pointer",
+              }}
+            >
+              <XCircle size={11} color={t.textDim} />
+              {disabledScheduleCount} disabled
+            </button>
+          </>
+        )}
 
         {/* Conflict indicator */}
         {conflictCount > 0 && (

@@ -1,8 +1,8 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Save, Search, X, Zap } from "lucide-react";
-import { useBotEditorData, useUpdateBot, useCreateBot } from "@/src/api/hooks/useBots";
+import { AlertTriangle, ArrowLeft, Save, Search, Trash2, X, Zap } from "lucide-react";
+import { useBotEditorData, useUpdateBot, useCreateBot, useDeleteBot } from "@/src/api/hooks/useBots";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { useCarapaces } from "@/src/api/hooks/useCarapaces";
@@ -52,6 +52,9 @@ export default function BotEditorScreen() {
   const [draft, setDraft] = useState<BotConfig | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const deleteMutation = useDeleteBot();
 
   useEffect(() => {
     if (editorData?.bot && !draft) {
@@ -687,6 +690,123 @@ export default function BotEditorScreen() {
                 />
               </FormRow>
               <HistoryModeSection draft={draft} update={update} />
+            </div>
+          )}
+
+          {/* Danger Zone — only for existing non-system bots */}
+          {!isNew && draft.source_type !== "system" && (
+            <div style={{
+              marginTop: 32,
+              border: `1px solid ${t.dangerBorder}`,
+              borderRadius: 8,
+              overflow: "hidden",
+            }}>
+              <div style={{
+                padding: "10px 14px",
+                background: t.dangerSubtle,
+                borderBottom: `1px solid ${t.dangerBorder}`,
+              }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: t.danger }}>Danger Zone</div>
+              </div>
+              <div style={{ padding: 16 }}>
+                {!showDeleteConfirm ? (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <div style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>Delete this bot</div>
+                      <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
+                        Permanently removes the bot and its associated data (persona, tasks, tool policies, filesystem index).
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        padding: "8px 16px", fontSize: 12, fontWeight: 600,
+                        border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+                        background: "transparent", color: t.danger, cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Trash2 size={13} color={t.danger} />
+                      Delete Bot
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "10px 14px", background: t.dangerSubtle, borderRadius: 6,
+                    }}>
+                      <AlertTriangle size={16} color={t.danger} />
+                      <div style={{ fontSize: 12, color: t.danger, fontWeight: 600 }}>
+                        This action cannot be undone.
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 12, color: t.textMuted }}>
+                      Type <span style={{ fontFamily: "monospace", color: t.danger, fontWeight: 600 }}>delete</span> to confirm:
+                    </div>
+                    <input
+                      type="text"
+                      value={deleteConfirmText}
+                      onChange={(e: any) => setDeleteConfirmText(e.target.value)}
+                      placeholder="delete"
+                      style={{
+                        padding: "8px 12px", fontSize: 13,
+                        background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                        color: t.text, outline: "none",
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await deleteMutation.mutateAsync({ botId: botId!, force: true });
+                            router.replace("/admin/bots" as any);
+                          } catch (_) { /* handled by mutation state */ }
+                        }}
+                        disabled={deleteConfirmText !== "delete" || deleteMutation.isPending}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 6,
+                          padding: "8px 20px", fontSize: 12, fontWeight: 700,
+                          border: "none", borderRadius: 6, cursor: "pointer",
+                          background: deleteConfirmText === "delete" ? t.danger : t.surfaceBorder,
+                          color: deleteConfirmText === "delete" ? "#fff" : t.textDim,
+                          opacity: deleteMutation.isPending ? 0.6 : 1,
+                        }}
+                      >
+                        <Trash2 size={13} />
+                        {deleteMutation.isPending ? "Deleting..." : "Permanently Delete"}
+                      </button>
+                      <button
+                        onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(""); }}
+                        style={{
+                          padding: "8px 16px", fontSize: 12, fontWeight: 500,
+                          border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                          background: "transparent", color: t.textMuted, cursor: "pointer",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {deleteMutation.isError && (
+                      <div style={{ fontSize: 11, color: t.danger }}>
+                        {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to delete bot"}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {!isNew && draft.source_type === "system" && (
+            <div style={{
+              marginTop: 32, padding: "10px 14px",
+              background: t.surfaceOverlay, borderRadius: 8,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <div style={{ fontSize: 11, color: t.textDim, fontWeight: 600 }}>
+                System bot — cannot be deleted
+              </div>
             </div>
           )}
 

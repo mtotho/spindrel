@@ -24,7 +24,14 @@ async def _on_task_complete(ctx, task=None, status=None, **kw):
                 task.id, status, run_id, step_idx)
 
     from app.services.workflow_executor import on_step_task_completed
-    await on_step_task_completed(run_id, step_idx, status, task)
+    try:
+        await on_step_task_completed(run_id, step_idx, status, task)
+    except Exception:
+        logger.error(
+            "on_step_task_completed failed for run %s step %d (task %s)",
+            run_id, step_idx, task.id, exc_info=True,
+        )
+        raise
 
 
 def register_workflow_hooks():

@@ -79,6 +79,20 @@ export function useCreateBot() {
   });
 }
 
+export function useDeleteBot() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, force }: { botId: string; force?: boolean }) =>
+      apiFetch(`/api/v1/admin/bots/${botId}${force ? "?force=true" : ""}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bots"] });
+      qc.invalidateQueries({ queryKey: ["admin-bots"] });
+    },
+  });
+}
+
 export function useBotSandboxStatus(botId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: ["bot-sandbox", botId],

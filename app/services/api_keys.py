@@ -29,7 +29,7 @@ ALL_SCOPES = [
     # Sessions
     "sessions:read", "sessions:write",
     # Bots
-    "bots:read", "bots:write",
+    "bots:read", "bots:write", "bots:delete",
     # Tasks
     "tasks:read", "tasks:write",
     # Workspaces (broad)
@@ -84,6 +84,7 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "sessions:write": "Create sessions, inject messages into sessions",
     "bots:read": "List bots and get bot configuration",
     "bots:write": "Create and update bot configuration",
+    "bots:delete": "Delete bots (destructive — separate from write)",
     "tasks:read": "List and poll task status",
     "tasks:write": "Create and delete tasks",
     "workspaces:read": "List workspaces, get status, logs, and bot config",
@@ -146,7 +147,7 @@ SCOPE_GROUPS: dict[str, dict] = {
     },
     "Bots": {
         "description": "Read and manage bot configurations",
-        "scopes": ["bots:read", "bots:write"],
+        "scopes": ["bots:read", "bots:write", "bots:delete"],
     },
     "Tasks": {
         "description": "Async task polling and creation",
@@ -438,6 +439,39 @@ ENDPOINT_CATALOG: list[dict] = [
         "scope": "bots:read", "method": "GET", "path": "/bots",
         "description": "List available bots with id, name, and model",
         "response": "[{id, name, model, audio_input?}]",
+    },
+    {
+        "scope": "bots:read", "method": "GET", "path": "/api/v1/admin/bots",
+        "description": "List all bots with full configuration",
+        "response": "{bots: [{id, name, model, system_prompt, ...}], total: int}",
+    },
+    {
+        "scope": "bots:read", "method": "GET", "path": "/api/v1/admin/bots/{id}",
+        "description": "Get a single bot's full configuration",
+        "response": "{id, name, model, system_prompt, source_type, ...}",
+    },
+    {
+        "scope": "bots:read", "method": "GET", "path": "/api/v1/admin/bots/{id}/editor-data",
+        "description": "Get bot config plus all available options for the editor UI",
+        "response": "{bot, tool_groups, mcp_servers, client_tools, all_skills, ...}",
+    },
+    {
+        "scope": "bots:write", "method": "POST", "path": "/api/v1/admin/bots",
+        "description": "Create a new bot",
+        "body": '{"id": "str", "name": "str", "model": "str", "system_prompt?": "str", ...}',
+        "response": "{id, name, model, ...}",
+    },
+    {
+        "scope": "bots:write", "method": "PUT", "path": "/api/v1/admin/bots/{id}",
+        "description": "Update a bot's configuration",
+        "body": '{"name?": "str", "model?": "str", "system_prompt?": "str", ...}',
+        "response": "{id, name, model, ...}",
+    },
+    {
+        "scope": "bots:delete", "method": "DELETE", "path": "/api/v1/admin/bots/{id}",
+        "description": "Delete a bot (rejects system bots; use ?force=true to cascade-delete channels)",
+        "params": "?force=false",
+        "notes": "Returns 204 on success. 403 if system bot. 409 if bot has active channels without force.",
     },
     # Sessions
     {

@@ -17,6 +17,8 @@ from app.tools.local.file_ops import (
     _op_list,
     _op_delete,
     _op_mkdir,
+    _whitespace_flex_pattern,
+    _find_closest_hint,
     file as file_tool,
     MAX_CONTENT_BYTES,
     MAX_READ_LINES,
@@ -429,13 +431,6 @@ class TestOpEdit:
         assert "error" in result
         assert "not found" in result["error"]
 
-    def test_edit_whitespace_hint(self, ws):
-        """If text exists but with different whitespace, provide a hint."""
-        path = str(ws / "hello.txt")
-        result = json.loads(_op_edit(path, "  Hello world  ", "x", False))
-        assert "error" in result
-        assert "whitespace" in result["error"].lower()
-
     def test_edit_file_not_found(self, ws):
         result = json.loads(_op_edit(str(ws / "nope.txt"), "a", "b", False))
         assert "error" in result
@@ -447,6 +442,142 @@ class TestOpEdit:
     def test_edit_no_replace(self, ws):
         result = json.loads(_op_edit(str(ws / "hello.txt"), "Hello", None, False))
         assert "error" in result
+
+    # --- Whitespace-normalized matching ---
+
+    def test_edit_ws_flex_leading_trailing_spaces(self, ws):
+        """Extra leading/trailing whitespace in find still matches."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, "  Hello world  ", "Goodbye", False))
+        assert result["ok"] is True
+        assert result["matched"] == "whitespace-normalized"
+        assert "Goodbye" in Path(path).read_text()
+
+    def test_edit_ws_flex_extra_spaces(self, ws):
+        """Multiple spaces collapsed to single space in matching."""
+        path = str(ws / "multi.txt")
+        Path(path).write_text("key:   value   here\n")
+        result = json.loads(_op_edit(path, "key: value here", "replaced", False))
+        assert result["ok"] is True
+        assert result["matched"] == "whitespace-normalized"
+        assert Path(path).read_text() == "replaced\n"
+
+    def test_edit_ws_flex_tabs_vs_spaces(self, ws):
+        """Tab characters match spaces."""
+        path = str(ws / "tabs.txt")
+        Path(path).write_text("col1\tcol2\tcol3\n")
+        result = json.loads(_op_edit(path, "col1 col2 col3", "replaced", False))
+        assert result["ok"] is True
+        assert result["matched"] == "whitespace-normalized"
+
+    def test_edit_ws_flex_newline_differences(self, ws):
+        """Find with newlines matches text with different whitespace."""
+        path = str(ws / "lines.txt")
+        Path(path).write_text("line one\nline two\nline three\n")
+        # LLM sends find with extra space instead of newline
+        result = json.loads(_op_edit(path, "line one line two", "merged", False))
+        assert result["ok"] is True
+        assert result["matched"] == "whitespace-normalized"
+        assert Path(path).read_text() == "merged\nline three\n"
+
+    def test_edit_ws_flex_replace_all(self, ws):
+        """Whitespace-flex works with replace_all."""
+        path = str(ws / "rall.txt")
+        Path(path).write_text("a  b\nc  d\na  b\n")
+        result = json.loads(_op_edit(path, "a b", "X", replace_all=True))
+        assert result["ok"] is True
+        assert result["replacements"] == 2
+        assert result["matched"] == "whitespace-normalized"
+
+    def test_edit_ws_flex_exact_preferred(self, ws):
+        """Exact match is used when available (no 'matched' key)."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, "Hello world", "Goodbye", False))
+        assert result["ok"] is True
+        assert "matched" not in result
+
+    def test_edit_ws_flex_preserves_non_ws_precision(self, ws):
+        """Whitespace-flex does NOT match different words."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, "Hello earth", "x", False))
+        assert "error" in result
+
+    def test_edit_ws_flex_rejects_runaway_span(self, ws):
+        """Whitespace-flex rejects matches that span far more text than find."""
+        path = str(ws / "spread.txt")
+        # Tokens "alpha" and "beta" appear but separated by tons of blank lines
+        Path(path).write_text("alpha" + "\n" * 500 + "beta\n")
+        result = json.loads(_op_edit(path, "alpha beta", "x", False))
+        assert "error" in result
+
+    # --- Closest-match hints ---
+
+    def test_edit_closest_match_hint(self, ws):
+        """When nothing matches, error shows closest text from file."""
+        path = str(ws / "plants.txt")
+        Path(path).write_text(
+            "- First germination: chamomile and thyme have emerged.\n"
+            "- Seedlings look healthy.\n"
+        )
+        result = json.loads(_op_edit(
+            path,
+            "- First germination: chamomile and thyme have appeared.",
+            "replaced",
+            False,
+        ))
+        assert "error" in result
+        assert "closest matching text" in result["error"].lower()
+        # The hint should contain the actual file text
+        assert "emerged" in result["error"]
+
+    def test_edit_no_hint_for_unrelated_text(self, ws):
+        """No hint when find is completely unrelated to file content."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, "quantum flux capacitor", "x", False))
+        assert "error" in result
+        assert "closest" not in result["error"].lower()
+
+
+class TestWhitespaceFlexPattern:
+    def test_basic_pattern(self):
+        pat = _whitespace_flex_pattern("hello world")
+        assert pat is not None
+        assert pat.search("hello  world") is not None
+        assert pat.search("hello\tworld") is not None
+        assert pat.search("hello\nworld") is not None
+
+    def test_empty_string(self):
+        assert _whitespace_flex_pattern("") is None
+        assert _whitespace_flex_pattern("   ") is None
+
+    def test_single_token(self):
+        pat = _whitespace_flex_pattern("hello")
+        assert pat is not None
+        assert pat.search("hello") is not None
+
+    def test_regex_chars_escaped(self):
+        """Special regex characters in find are escaped."""
+        pat = _whitespace_flex_pattern("price: $10.00 (USD)")
+        assert pat is not None
+        assert pat.search("price:  $10.00  (USD)") is not None
+        # Should NOT match different text
+        assert pat.search("price: X10Y00 ZUSDZ") is None
+
+
+class TestFindClosestHint:
+    def test_similar_line(self):
+        text = "The quick brown fox jumps over the lazy dog\n"
+        hint = _find_closest_hint("The quick brown fox jumps over the lazy cat", text)
+        assert "quick brown fox" in hint
+
+    def test_no_match(self):
+        text = "Hello world\n"
+        hint = _find_closest_hint("quantum flux capacitor", text)
+        assert hint == ""
+
+    def test_empty_inputs(self):
+        assert _find_closest_hint("", "hello") == ""
+        assert _find_closest_hint("hello", "") == ""
 
 
 # ---------------------------------------------------------------------------

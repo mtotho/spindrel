@@ -63,10 +63,11 @@ file(operation="edit", path="memory/MEMORY.md", find="status: pending", replace=
 
 ## Edit Safety
 
-1. **Always read before editing.** Use `file(read, path)` first to see exact content and whitespace.
-2. **Use exact match strings.** The `find` parameter matches literally — copy the exact text from your read.
+1. **Read before editing** when you need to be precise. Use `file(read, path)` first to see exact content.
+2. **Try to use exact match strings.** The tool has whitespace flexibility (extra spaces, tabs, newlines are forgiven), but exact matches are fastest and most reliable.
 3. **Use `replace_all` only when you're sure.** Default is first-occurrence only.
 4. **For complex restructuring**, read the file, construct the full new content, and use `write`.
+5. **If edit fails**, the error will show the closest matching text from the file — use it to retry with the correct string.
 
 ---
 

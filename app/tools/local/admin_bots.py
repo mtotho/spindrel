@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "manage_bot",
         "description": (
-            "Create, update, list, or get bot configuration. "
-            "Actions: list, get, create, update. "
+            "Create, update, delete, list, or get bot configuration. "
+            "Actions: list, get, create, update, delete. "
             "For create/update, pass config with keys like: name, model, "
             "system_prompt, skills, local_tools, workspace, memory_scheme, "
             "delegate_bots, context_compaction, tool_retrieval, etc."
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list", "get", "create", "update"],
+                    "enum": ["list", "get", "create", "update", "delete"],
                     "description": "The action to perform.",
                 },
                 "bot_id": {
@@ -163,5 +163,48 @@ async def manage_bot(
 
         await load_bots()
         return json.dumps({"ok": True, "bot_id": bot_id, "message": f"Bot '{bot_id}' updated"})
+
+    if action == "delete":
+        if not bot_id:
+            return json.dumps({"error": "bot_id is required for delete"})
+
+        async with async_session() as db:
+            row = await db.get(BotRow, bot_id)
+            if not row:
+                return json.dumps({"error": f"Bot '{bot_id}' not found"})
+
+            if getattr(row, "source_type", "manual") == "system":
+                return json.dumps({"error": "Cannot delete system bot"})
+
+            # Check for active channels
+            from app.db.models import Channel
+            from sqlalchemy import func
+            channel_count = (await db.execute(
+                select(func.count()).select_from(Channel).where(Channel.bot_id == bot_id)
+            )).scalar() or 0
+
+            if channel_count > 0:
+                return json.dumps({
+                    "error": f"Bot '{bot_id}' has {channel_count} active channel(s). "
+                    "Delete or reassign them first, or use the admin API with ?force=true."
+                })
+
+            # Delete associated data
+            from app.db.models import (
+                BotPersona, FilesystemChunk, SandboxBotAccess,
+                SharedWorkspaceBot, Task, ToolPolicyRule,
+            )
+            await db.execute(Task.__table__.delete().where(Task.bot_id == bot_id))
+            await db.execute(BotPersona.__table__.delete().where(BotPersona.bot_id == bot_id))
+            await db.execute(ToolPolicyRule.__table__.delete().where(ToolPolicyRule.bot_id == bot_id))
+            await db.execute(SandboxBotAccess.__table__.delete().where(SandboxBotAccess.bot_id == bot_id))
+            await db.execute(SharedWorkspaceBot.__table__.delete().where(SharedWorkspaceBot.bot_id == bot_id))
+            await db.execute(FilesystemChunk.__table__.delete().where(FilesystemChunk.bot_id == bot_id))
+
+            await db.delete(row)
+            await db.commit()
+
+        await load_bots()
+        return json.dumps({"ok": True, "bot_id": bot_id, "message": f"Bot '{bot_id}' deleted"})
 
     return json.dumps({"error": f"Unknown action: {action}"})

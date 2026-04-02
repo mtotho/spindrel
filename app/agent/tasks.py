@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 async def _fire_task_complete(task: Task, status: str) -> None:
     """Fire the generic after_task_complete hook. Any integration can listen."""
+    logger.info("Firing after_task_complete hook for task %s (type=%s, status=%s)", task.id, task.task_type, status)
     try:
         from app.agent.hooks import HookContext, fire_hook
         ctx = HookContext(
@@ -34,7 +35,7 @@ async def _fire_task_complete(task: Task, status: str) -> None:
         )
         await fire_hook("after_task_complete", ctx, task=task, status=status)
     except Exception:
-        logger.debug("after_task_complete hook error", exc_info=True)
+        logger.error("after_task_complete hook error (workflow advancement may have failed)", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -710,8 +711,10 @@ async def run_task(task: Task) -> None:
     # (Heartbeats already do this in fire_heartbeat; tasks created by bots via
     # create_task or _schedule_next_occurrence can hold an outdated session_id
     # after a channel session reset.)
+    # Skip for workflow tasks — they use dedicated per-step sessions to avoid
+    # polluting chat and to prevent session lock contention.
     _task_channel: Channel | None = None
-    if task.channel_id:
+    if task.channel_id and task.task_type != "workflow":
         async with async_session() as db:
             channel = await db.get(Channel, task.channel_id)
             if channel:
@@ -1210,6 +1213,29 @@ async def recover_stalled_workflow_runs() -> None:
                 break
 
         if running_step_idx is None:
+            # Scenario 3: run is "running" but ALL steps are still "pending".
+            # This happens when advance_workflow fails before setting step 0 to
+            # "running" (e.g. exception in _create_step_task that wasn't caught,
+            # or the hook chain failed silently).
+            if (
+                run.status == "running"
+                and step_states
+                and all(s.get("status") == "pending" for s in step_states)
+            ):
+                created_at = run.created_at
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                if created_at and (now - created_at).total_seconds() > 300:
+                    logger.warning(
+                        "Recovering stalled workflow run %s — all %d steps still pending after %ds",
+                        run.id, len(step_states), int((now - created_at).total_seconds()),
+                    )
+                    try:
+                        from app.services.workflow_executor import advance_workflow
+                        await advance_workflow(run.id)
+                        recovered += 1
+                    except Exception:
+                        logger.exception("Recovery advance_workflow failed for run %s", run.id)
             continue
 
         state = step_states[running_step_idx]
@@ -1241,7 +1267,6 @@ async def recover_stalled_workflow_runs() -> None:
                     run.id, running_step_idx, task.id, task.status,
                 )
                 from app.services.workflow_executor import on_step_task_completed
-                cb = task.callback_config or {}
                 await on_step_task_completed(
                     str(run.id), running_step_idx, task.status, task,
                 )

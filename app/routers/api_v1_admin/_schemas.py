@@ -86,6 +86,7 @@ class BotOut(BaseModel):
     workspace_only: bool = False
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False
+    source_type: str = "manual"
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

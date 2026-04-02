@@ -818,6 +818,7 @@ class Bot(Base):
     context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     carapaces: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     workspace_only: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))  # "system"|"file"|"manual"
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

@@ -9,7 +9,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, field_validator, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 # Task types allowed to be created/updated via the admin API.
 # Internal types like 'exec', 'harness', 'claude_code', 'delegation' are only
@@ -169,17 +169,21 @@ async def admin_list_tasks(
     (always returned, not filtered by date range — the frontend expands them into virtual entries).
     By default, child tasks (callbacks with parent_task_id set) are hidden. Use include_children=true to show them.
     """
-    # Concrete tasks query (excludes active schedule templates)
-    stmt = select(Task).where(Task.status != "active").order_by(Task.scheduled_at.asc().nullslast(), Task.created_at.asc())
-    count_stmt = select(func.count()).select_from(Task).where(Task.status != "active")
+    # Schedule templates include both active and cancelled/disabled (so disabled
+    # schedules don't vanish from the UI).
+    is_schedule_template = and_(Task.recurrence.isnot(None), Task.status.in_(["active", "cancelled"]))
+
+    # Concrete tasks query (excludes schedule templates — both active and disabled)
+    stmt = select(Task).where(~is_schedule_template).order_by(Task.scheduled_at.asc().nullslast(), Task.created_at.asc())
+    count_stmt = select(func.count()).select_from(Task).where(~is_schedule_template)
 
     # By default, hide child tasks (callbacks/concrete schedule runs with parent_task_id)
     if not include_children:
         stmt = stmt.where(Task.parent_task_id.is_(None))
         count_stmt = count_stmt.where(Task.parent_task_id.is_(None))
 
-    # Schedule templates query (always returned)
-    sched_stmt = select(Task).where(Task.status == "active", Task.recurrence.isnot(None))
+    # Schedule templates query (always returned — both active and disabled)
+    sched_stmt = select(Task).where(is_schedule_template)
 
     if status and status != "active":
         stmt = stmt.where(Task.status == status)

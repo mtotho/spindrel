@@ -524,6 +524,7 @@ class TestWorkflowEventDispatch:
         run = MagicMock()
         run.id = uuid.UUID(run_id)
         run.workflow_id = "test-wf"
+        run.status = "running"
         run.dispatch_type = "slack"
         run.dispatch_config = {"channel": "C123"}
         run.bot_id = "test-bot"
@@ -545,6 +546,8 @@ class TestWorkflowEventDispatch:
         task.correlation_id = None
 
         fresh_task = MagicMock()
+        fresh_task.result = "All good"
+        fresh_task.error = None
         fresh_task.correlation_id = None
 
         mock_db = AsyncMock()
@@ -597,6 +600,8 @@ class TestWorkflowEventDispatch:
         task.correlation_id = None
 
         fresh_task = MagicMock()
+        fresh_task.result = None
+        fresh_task.error = "Boom"
         fresh_task.correlation_id = None
 
         mock_db = AsyncMock()
@@ -977,6 +982,8 @@ class TestOnStepFailurePolicies:
         task.correlation_id = None
 
         fresh_task = MagicMock()
+        fresh_task.result = None
+        fresh_task.error = "Boom"
         fresh_task.correlation_id = None
 
         mock_db = AsyncMock()

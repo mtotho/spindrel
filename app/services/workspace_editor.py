@@ -18,6 +18,12 @@ CODE_SERVER_VERSION = "4.96.4"
 CACHE_DIR = os.path.expanduser("~/.agent-workspaces/.cache/code-server")
 CONTAINER_INSTALL_DIR = "/usr/local/lib/code-server"
 
+CHAT_EXTENSION_SRC = os.path.join(
+    os.path.dirname(__file__), "..", "..", "integrations", "vscode", "extension"
+)
+CHAT_EXTENSION_CACHE = os.path.expanduser("~/.agent-workspaces/.cache/spindrel-chat")
+CONTAINER_EXTENSION_DIR = "/home/agent/.local/share/code-server/extensions/spindrel-chat"
+
 _download_lock = asyncio.Lock()
 
 
@@ -273,6 +279,9 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
     if not await is_code_server_installed(ws.container_name):
         await install_code_server(ws.container_name)
 
+    # 3b. Install chat extension alongside code-server
+    await install_chat_extension(ws.container_name)
+
     # 4. Start code-server if not running
     if not await is_code_server_running(ws.container_name):
         await start_code_server(ws.container_name, str(ws.id))
@@ -288,6 +297,137 @@ async def ensure_editor(ws: SharedWorkspace) -> dict:
         "editor_port": ws.editor_port,
         "editor_enabled": True,
     }
+
+
+async def _build_chat_extension() -> str | None:
+    """Build the VS Code chat extension if source exists. Returns path to built extension or None."""
+    src = os.path.normpath(CHAT_EXTENSION_SRC)
+    pkg_json = os.path.join(src, "package.json")
+    if not os.path.isfile(pkg_json):
+        logger.debug("Chat extension source not found at %s", src)
+        return None
+
+    marker = os.path.join(CHAT_EXTENSION_CACHE, ".built")
+    src_ts = os.path.join(src, "src")
+
+    # Check if rebuild needed — compare source mtime to marker
+    if os.path.isfile(marker):
+        marker_mtime = os.path.getmtime(marker)
+        needs_rebuild = False
+        for root, _, files in os.walk(src_ts):
+            for f in files:
+                if os.path.getmtime(os.path.join(root, f)) > marker_mtime:
+                    needs_rebuild = True
+                    break
+            if needs_rebuild:
+                break
+        # Also check package.json
+        if os.path.getmtime(pkg_json) > marker_mtime:
+            needs_rebuild = True
+        if not needs_rebuild:
+            return CHAT_EXTENSION_CACHE
+
+    logger.info("Building chat extension from %s", src)
+    os.makedirs(CHAT_EXTENSION_CACHE, exist_ok=True)
+
+    # npm install (if node_modules missing)
+    node_modules = os.path.join(src, "node_modules")
+    if not os.path.isdir(node_modules):
+        proc = await asyncio.create_subprocess_exec(
+            "npm", "ci", "--ignore-scripts",
+            cwd=src,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            logger.error("npm ci failed for chat extension: %s", stderr.decode())
+            return None
+
+    # Compile TypeScript
+    proc = await asyncio.create_subprocess_exec(
+        "npx", "tsc", "-p", "./",
+        cwd=src,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.error("tsc failed for chat extension: %s", stderr.decode())
+        return None
+
+    # Copy built artifacts to cache
+    out_dir = os.path.join(src, "out")
+    media_dir = os.path.join(src, "media")
+    cache_out = os.path.join(CHAT_EXTENSION_CACHE, "out")
+    cache_media = os.path.join(CHAT_EXTENSION_CACHE, "media")
+
+    if os.path.isdir(cache_out):
+        shutil.rmtree(cache_out)
+    shutil.copytree(out_dir, cache_out)
+
+    if os.path.isdir(media_dir):
+        if os.path.isdir(cache_media):
+            shutil.rmtree(cache_media)
+        shutil.copytree(media_dir, cache_media)
+
+    shutil.copy2(pkg_json, os.path.join(CHAT_EXTENSION_CACHE, "package.json"))
+
+    with open(marker, "w") as f:
+        f.write("ok")
+
+    logger.info("Chat extension built successfully")
+    return CHAT_EXTENSION_CACHE
+
+
+async def install_chat_extension(container_name: str) -> None:
+    """Build and install the Spindrel chat extension into a workspace container."""
+    ext_path = await _build_chat_extension()
+    if not ext_path:
+        logger.debug("Skipping chat extension install — not built")
+        return
+
+    # Create extension directory in container
+    await _docker_exec(container_name, f"mkdir -p {CONTAINER_EXTENSION_DIR}")
+
+    # docker cp the built extension
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "cp", f"{ext_path}/.", f"{container_name}:{CONTAINER_EXTENSION_DIR}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.error("Failed to install chat extension: %s", stderr.decode())
+        return
+
+    logger.info("Chat extension installed in %s", container_name)
+
+
+async def write_chat_config(
+    container_name: str,
+    server_url: str,
+    token: str,
+    user_id: str | None = None,
+    user_email: str | None = None,
+) -> None:
+    """Write the chat extension config file into a workspace container."""
+    import json
+
+    config = {"serverUrl": server_url, "token": token}
+    if user_id:
+        config["userId"] = user_id
+    if user_email:
+        config["userEmail"] = user_email
+
+    config_json = json.dumps(config)
+    # Escape for shell
+    escaped = config_json.replace("'", "'\\''")
+
+    await _docker_exec(
+        container_name,
+        f"mkdir -p /home/agent/.spindrel-chat && echo '{escaped}' > /home/agent/.spindrel-chat/config.json",
+    )
 
 
 async def disable_editor(ws: SharedWorkspace) -> None:

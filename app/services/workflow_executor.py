@@ -354,6 +354,8 @@ async def advance_workflow(run_id: uuid.UUID) -> None:
     - Creates tasks for runnable steps
     - Marks run complete when all steps are terminal
     """
+    logger.info("advance_workflow called for run %s", run_id)
+
     # Deferred event dispatch — collected inside the loop, fired after session closes
     pending_events: list[tuple[WorkflowRun, str, str, str]] = []
     fire_completion = False
@@ -608,6 +610,11 @@ async def on_step_task_completed(
             logger.warning("WorkflowRun %s not found for task completion", run_id)
             return
 
+        # Skip processing if run is no longer active (e.g. cancelled while task was in-flight)
+        if run.status not in ("running", "awaiting_approval"):
+            logger.debug("Skipping step completion for run %s (status=%s)", run_id, run.status)
+            return
+
         workflow = await db.get(Workflow, run.workflow_id)
         if not workflow:
             logger.warning("Workflow %s not found for run %s", run.workflow_id, run_id)
@@ -626,23 +633,25 @@ async def on_step_task_completed(
             return
 
         # Map task status to step status
+        # Use fresh_task from DB for result/error — the `task` object passed
+        # into the hook was loaded before execution and has stale result=None.
         defaults = workflow.defaults or {}
         step_def = workflow.steps[step_index] if step_index < len(workflow.steps) else {}
+        fresh_task = await db.get(Task, task.id)
+        result_source = fresh_task if fresh_task else task
         if status == "complete":
             state["status"] = "done"
             max_chars = step_def.get("result_max_chars", defaults.get("result_max_chars", 2000))
-            state["result"] = (task.result or "")[:max_chars]
+            state["result"] = (result_source.result or "")[:max_chars]
         else:
             state["status"] = "failed"
-            state["error"] = task.error or f"Task {status}"
+            state["error"] = result_source.error or f"Task {status}"
 
         state["task_id"] = str(task.id)
         state["completed_at"] = datetime.now(timezone.utc).isoformat()
 
         # Store correlation_id for token usage tracking.
-        # Re-fetch from DB because the task object passed to the hook is from
-        # before execution — correlation_id is set during task execution.
-        fresh_task = await db.get(Task, task.id)
+        # fresh_task was already loaded above for result/error.
         if fresh_task and fresh_task.correlation_id:
             state["correlation_id"] = str(fresh_task.correlation_id)
 
