@@ -23,8 +23,11 @@ SAFE_STREAM_PREFIXES = ("/tmp/",)
 
 def _validate_stream_to(path: str) -> str | None:
     """Return an error message if stream_to path is unsafe, else None."""
-    if not any(path.startswith(p) for p in SAFE_STREAM_PREFIXES):
-        return f"stream_to must start with one of {SAFE_STREAM_PREFIXES}"
+    import os
+    # Normalize to prevent traversal (e.g. /tmp/../../etc/passwd)
+    real = os.path.realpath(path)
+    if not any(real.startswith(p.rstrip("/") + "/") or real == p.rstrip("/") for p in SAFE_STREAM_PREFIXES):
+        return f"stream_to must resolve within one of {SAFE_STREAM_PREFIXES} (got {real})"
     if "\n" in path or "\x00" in path:
         return "stream_to contains invalid characters"
     return None

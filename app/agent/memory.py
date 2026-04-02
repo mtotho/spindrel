@@ -87,7 +87,10 @@ def memory_scope_where(
         user_bot_ids = _get_user_bot_ids(user_id)
         if user_bot_ids is not None:
             return Memory.bot_id.in_(user_bot_ids)
-        return None  # no user_id = see everything (old behavior)
+        # Fail-secure: no user_id means no cross-bot access (prevents leaking all memories)
+        logger.warning("cross_channel+cross_client+cross_bot with no user_id — blocking all memories")
+        from sqlalchemy import false as sa_false
+        return sa_false()
     # Fallback
     if channel_id is not None:
         return and_(Memory.channel_id == channel_id, Memory.bot_id == bot_id)
