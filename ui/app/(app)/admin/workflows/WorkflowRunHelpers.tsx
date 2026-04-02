@@ -1,12 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
-import { Pressable } from "react-native";
+import { useState, useEffect, useRef } from "react";
+import { ScrollView, Pressable } from "react-native";
 import { type ThemeTokens } from "@/src/theme/tokens";
 import {
-  X, Check, SkipForward, RotateCcw, Clock,
+  Clock,
   CheckCircle2, XCircle, Loader2, ShieldCheck, CircleDot, Minus,
-  ChevronDown, ChevronRight, ExternalLink, AlertTriangle,
+  X,
 } from "lucide-react";
-import { Link } from "expo-router";
 import type { WorkflowStepState } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
@@ -51,7 +50,7 @@ export function StatusBadge({ status, t }: { status: string; t: ThemeTokens }) {
 }
 
 // ---------------------------------------------------------------------------
-// Condition → human-readable explanation
+// Condition -> human-readable explanation
 // ---------------------------------------------------------------------------
 
 export function describeCondition(when: any): string {
@@ -114,308 +113,133 @@ export function MetaItem({ label, value, t, mono }: { label: string; value: stri
   );
 }
 
+export function formatStepDuration(startedAt?: string | null, completedAt?: string | null): string | null {
+  if (!startedAt) return null;
+  const start = new Date(startedAt).getTime();
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+  const secs = Math.floor((end - start) / 1000);
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+}
+
 // ---------------------------------------------------------------------------
-// Step card with expand/collapse
+// Step nav item (left sidebar)
 // ---------------------------------------------------------------------------
 
-export function StepCard({
-  index, state, stepDef, runStatus, runParams, runId, t,
-  onApprove, onSkip, onRetry,
-  isApproving, isSkipping, isRetrying,
+const STATUS_DOT_COLORS: Record<string, (t: ThemeTokens) => string> = {
+  done: (t) => t.success,
+  complete: (t) => t.success,
+  running: (t) => t.accent,
+  failed: (t) => t.danger,
+  awaiting_approval: (t) => t.warning,
+  skipped: (t) => t.textDim,
+  pending: (t) => t.inputBorder,
+};
+
+function dotColor(status: string, t: ThemeTokens): string {
+  return (STATUS_DOT_COLORS[status] || STATUS_DOT_COLORS.pending)(t);
+}
+
+export function StepNavItem({
+  stepId, state, isActive, onPress, t,
 }: {
-  index: number;
+  stepId: string;
   state: WorkflowStepState;
-  stepDef?: { id?: string; prompt?: string; requires_approval?: boolean; on_failure?: string; when?: any };
-  runStatus: string;
-  runParams: Record<string, any>;
-  runId: string;
+  isActive: boolean;
+  onPress: () => void;
   t: ThemeTokens;
-  onApprove: () => void;
-  onSkip: () => void;
-  onRetry: () => void;
-  isApproving: boolean;
-  isSkipping: boolean;
-  isRetrying: boolean;
 }) {
-  const [expanded, setExpanded] = useState(
-    state.status === "running" || state.status === "failed" ||
-    (runStatus === "awaiting_approval" && state.status === "pending")
-  );
-  const s = getStatusStyle(state.status, t);
-  const Icon = s.icon;
-  const stepId = stepDef?.id || `step_${index}`;
-  const isStepRunning = state.status === "running";
-  const elapsed = useElapsed(state.started_at, isStepRunning);
-
-  const isAwaitingApproval = runStatus === "awaiting_approval" &&
-    state.status === "pending" && stepDef?.requires_approval;
-  const canRetry = state.status === "failed";
-
-  const renderedPrompt = useMemo(() => {
-    if (!stepDef?.prompt) return null;
-    let p = stepDef.prompt;
-    for (const [k, v] of Object.entries(runParams)) {
-      p = p.replaceAll(`{{${k}}}`, String(v));
-    }
-    return p.slice(0, 800);
-  }, [stepDef?.prompt, runParams]);
-
-  const skipReason = useMemo(() => {
-    if (state.status !== "skipped" || !stepDef?.when) return null;
-    return describeCondition(stepDef.when);
-  }, [state.status, stepDef?.when]);
+  const isRunning = state.status === "running";
+  const duration = formatStepDuration(state.started_at, state.completed_at);
+  const color = dotColor(state.status, t);
 
   return (
-    <div style={{
-      borderRadius: 8, overflow: "hidden",
-      border: `1px solid ${s.border}`, background: t.codeBg,
-    }}>
-      {/* Header (always visible) */}
-      <Pressable
-        onPress={() => setExpanded(!expanded)}
-        style={{
-          flexDirection: "row", alignItems: "center", gap: 8,
-          padding: 10,
-        }}
-      >
+    <Pressable
+      onPress={onPress}
+      style={{
+        flexDirection: "row", alignItems: "center", gap: 8,
+        paddingVertical: 6, paddingHorizontal: 10,
+        borderLeftWidth: 2,
+        borderLeftColor: isActive ? t.accent : "transparent",
+        backgroundColor: isActive ? t.accentSubtle : "transparent",
+      }}
+    >
+      {/* Status dot */}
+      <div style={{
+        width: 8, height: 8, borderRadius: 4, flexShrink: 0,
+        background: color,
+        animation: isRunning ? "pulse 1.5s ease-in-out infinite" : undefined,
+      }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          width: 24, height: 24, borderRadius: 12, flexShrink: 0,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          background: s.bg, border: `1px solid ${s.border}`,
+          fontSize: 12, color: isActive ? t.text : t.textDim,
+          fontWeight: isActive ? 600 : 400,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>
-          <Icon size={13} color={s.text} />
+          {stepId}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
+        {duration && (
+          <div style={{ fontSize: 10, color: t.textMuted, marginTop: 1 }}>
+            {duration}
+          </div>
+        )}
+      </div>
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step nav strip (mobile horizontal)
+// ---------------------------------------------------------------------------
+
+export function StepNavStrip({
+  steps, stepStates, activeIndex, onSelect, t,
+}: {
+  steps: { id?: string }[];
+  stepStates: WorkflowStepState[];
+  activeIndex: number;
+  onSelect: (i: number) => void;
+  t: ThemeTokens;
+}) {
+  const scrollRef = useRef<ScrollView>(null);
+
+  return (
+    <ScrollView
+      ref={scrollRef}
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={{ flexShrink: 0 }}
+      contentContainerStyle={{ gap: 4, paddingHorizontal: 4, paddingVertical: 6 }}
+    >
+      {stepStates.map((state, i) => {
+        const stepId = steps[i]?.id || `step_${i}`;
+        const isActive = i === activeIndex;
+        const color = dotColor(state.status, t);
+        return (
+          <Pressable
+            key={i}
+            onPress={() => onSelect(i)}
+            style={{
+              flexDirection: "row", alignItems: "center", gap: 5,
+              paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12,
+              backgroundColor: isActive ? t.accentSubtle : t.codeBg,
+              borderWidth: 1, borderColor: isActive ? t.accentBorder : t.surfaceBorder,
+            }}
+          >
+            <div style={{
+              width: 6, height: 6, borderRadius: 3,
+              background: color,
+            }} />
+            <span style={{
+              fontSize: 11, color: isActive ? t.text : t.textDim,
+              fontWeight: isActive ? 600 : 400, whiteSpace: "nowrap",
+            }}>
               {stepId}
             </span>
-            <StatusBadge status={state.status} t={t} />
-            {isStepRunning && elapsed && (
-              <span style={{ fontSize: 11, color: t.textDim }}>{elapsed}</span>
-            )}
-          </div>
-          {!expanded && skipReason && (
-            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
-              Skipped: {skipReason}
-            </div>
-          )}
-          {!expanded && state.result && (
-            <div style={{
-              fontSize: 11, color: t.success, marginTop: 2,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>
-              {state.result.slice(0, 120)}
-            </div>
-          )}
-          {!expanded && state.error && !state.result && (
-            <div style={{
-              fontSize: 11, color: t.danger, marginTop: 2,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>
-              {state.error.slice(0, 120)}
-            </div>
-          )}
-        </div>
-        {expanded ? <ChevronDown size={14} color={t.textDim} /> : <ChevronRight size={14} color={t.textDim} />}
-      </Pressable>
-
-      {/* Expanded content */}
-      {expanded && (
-        <div style={{
-          padding: "0 10px 10px 10px",
-          borderTop: `1px solid ${t.surfaceBorder}`,
-        }}>
-          {skipReason && (
-            <div style={{
-              display: "flex", alignItems: "flex-start", gap: 6,
-              marginTop: 8, padding: 8, borderRadius: 6,
-              background: t.warningSubtle, border: `1px solid ${t.warningBorder}`,
-            }}>
-              <AlertTriangle size={13} color={t.warning} style={{ flexShrink: 0, marginTop: 1 }} />
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: t.warning }}>
-                  Condition not met
-                </div>
-                <div style={{ fontSize: 11, color: t.text, marginTop: 2 }}>
-                  {skipReason}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {isStepRunning && elapsed && parseInt(elapsed) > 0 && (
-            (() => {
-              const startMs = new Date(state.started_at!).getTime();
-              const elapsedMs = Date.now() - startMs;
-              if (elapsedMs > 300000) {
-                return (
-                  <div style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    marginTop: 8, padding: 8, borderRadius: 6,
-                    background: t.warningSubtle, border: `1px solid ${t.warningBorder}`,
-                  }}>
-                    <AlertTriangle size={13} color={t.warning} />
-                    <span style={{ fontSize: 11, color: t.warning, fontWeight: 600 }}>
-                      Running for {elapsed} — this step may be stuck. Check the linked task for details.
-                    </span>
-                  </div>
-                );
-              }
-              return null;
-            })()
-          )}
-
-          <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
-            {state.started_at && (
-              <span style={{ fontSize: 11, color: t.textDim }}>
-                Started: {fmtTime(state.started_at)}
-              </span>
-            )}
-            {state.completed_at && (
-              <span style={{ fontSize: 11, color: t.textDim }}>
-                Completed: {fmtTime(state.completed_at)}
-              </span>
-            )}
-            {isStepRunning && elapsed && (
-              <span style={{ fontSize: 11, color: t.accent, fontWeight: 600 }}>
-                Elapsed: {elapsed}
-              </span>
-            )}
-            {state.retry_count != null && state.retry_count > 0 && (
-              <span style={{ fontSize: 11, color: t.warning }}>
-                Retries: {state.retry_count}
-              </span>
-            )}
-            {state.task_id && (
-              <Link href={`/admin/tasks/${state.task_id}` as any}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
-                  <ExternalLink size={10} />
-                  Task: {state.task_id.slice(0, 8)}...
-                </span>
-              </Link>
-            )}
-            {state.correlation_id && (
-              <Link href={`/admin/logs/${state.correlation_id}` as any}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
-                  <ExternalLink size={10} />
-                  Trace
-                </span>
-              </Link>
-            )}
-          </div>
-
-          {stepDef?.when && state.status !== "skipped" && (
-            <div style={{
-              marginTop: 8, padding: 6, borderRadius: 4,
-              fontSize: 11, color: t.textDim, fontStyle: "italic",
-              background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-            }}>
-              Condition: {describeCondition(stepDef.when)}
-            </div>
-          )}
-
-          {renderedPrompt && (
-            <details style={{ marginTop: 8 }}>
-              <summary style={{
-                fontSize: 11, color: t.textDim, cursor: "pointer",
-                userSelect: "none",
-              }}>
-                Prompt
-              </summary>
-              <div style={{
-                marginTop: 4, padding: 8, borderRadius: 6,
-                background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-                fontSize: 12, color: t.textMuted,
-                fontFamily: "monospace", whiteSpace: "pre-wrap",
-                maxHeight: 200, overflow: "auto",
-                lineHeight: 1.5,
-              }}>
-                {renderedPrompt}
-              </div>
-            </details>
-          )}
-
-          {state.result && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.success, marginBottom: 4 }}>Result</div>
-              <div style={{
-                padding: 8, borderRadius: 6,
-                background: t.successSubtle, border: `1px solid ${t.successBorder}`,
-                fontSize: 12, color: t.text, whiteSpace: "pre-wrap", maxHeight: 300, overflow: "auto",
-              }}>
-                {state.result}
-              </div>
-            </div>
-          )}
-
-          {state.error && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.danger, marginBottom: 4 }}>Error</div>
-              <div style={{
-                padding: 8, borderRadius: 6,
-                background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
-                fontSize: 12, color: t.danger, fontFamily: "monospace", whiteSpace: "pre-wrap",
-              }}>
-                {state.error}
-              </div>
-            </div>
-          )}
-
-          {(isAwaitingApproval || canRetry) && (
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              {isAwaitingApproval && (
-                <>
-                  <button
-                    onClick={onApprove}
-                    disabled={isApproving}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 4,
-                      padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                      border: "none", borderRadius: 6,
-                      background: t.success, color: "#fff", cursor: "pointer",
-                      opacity: isApproving ? 0.6 : 1,
-                    }}
-                  >
-                    <Check size={13} />
-                    Approve
-                  </button>
-                  <button
-                    onClick={onSkip}
-                    disabled={isSkipping}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 4,
-                      padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                      border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-                      background: "transparent", color: t.textMuted, cursor: "pointer",
-                      opacity: isSkipping ? 0.6 : 1,
-                    }}
-                  >
-                    <SkipForward size={13} />
-                    Skip
-                  </button>
-                </>
-              )}
-              {canRetry && (
-                <button
-                  onClick={onRetry}
-                  disabled={isRetrying}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 4,
-                    padding: "5px 12px", fontSize: 12, fontWeight: 600,
-                    border: `1px solid ${t.accentBorder}`, borderRadius: 6,
-                    background: t.accentSubtle, color: t.accent, cursor: "pointer",
-                    opacity: isRetrying ? 0.6 : 1,
-                  }}
-                >
-                  <RotateCcw size={13} />
-                  Retry
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
   );
 }

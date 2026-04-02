@@ -157,16 +157,19 @@ export default function WorkflowDetailPage() {
   };
 
   const isYaml = activeTab === "yaml";
+  const isRuns = activeTab === "runs";
+  const needsFlex = isYaml || isRuns;
 
   return (
     <div style={{ overflow: "auto", flex: 1, display: "flex", flexDirection: "column", background: t.surface }}>
       <MobileHeader title={isNew ? "New Workflow" : draft.name || "Workflow"} />
       <div style={{
         padding: 16,
-        maxWidth: isYaml ? 1200 : 800,
-        flex: isYaml ? 1 : undefined,
-        display: isYaml ? "flex" : undefined,
-        flexDirection: isYaml ? "column" : undefined,
+        maxWidth: isRuns ? 1100 : isYaml ? 1200 : 800,
+        flex: needsFlex ? 1 : undefined,
+        minHeight: needsFlex ? 0 : undefined,
+        display: needsFlex ? "flex" : undefined,
+        flexDirection: needsFlex ? "column" : undefined,
       }}>
         {/* Top bar: back + actions */}
         <div style={{

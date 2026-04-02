@@ -4,24 +4,17 @@ import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
   useWorkflow,
   useWorkflowRuns,
-  useWorkflowRun,
   useTriggerWorkflow,
-  useCancelWorkflowRun,
-  useApproveWorkflowStep,
-  useSkipWorkflowStep,
-  useRetryWorkflowStep,
 } from "@/src/api/hooks/useWorkflows";
 import { useBots } from "@/src/api/hooks/useBots";
 import {
-  Play, X,
-  ChevronRight, ArrowLeft,
-  RefreshCw,
+  Play,
+  ChevronRight,
 } from "lucide-react";
 import type { WorkflowRun } from "@/src/types/api";
 
-import {
-  getStatusStyle, StatusBadge, fmtTime, MetaItem, StepCard,
-} from "./WorkflowRunHelpers";
+import { StatusBadge, fmtTime } from "./WorkflowRunHelpers";
+import WorkflowRunDetail from "./WorkflowRunDetail";
 
 // ---------------------------------------------------------------------------
 // Main tab
@@ -35,7 +28,7 @@ export default function WorkflowRunsTab({ workflowId, initialRunId }: { workflow
 
   if (selectedRunId) {
     return (
-      <RunDetail
+      <WorkflowRunDetail
         runId={selectedRunId}
         workflowId={workflowId}
         onBack={() => setSelectedRunId(null)}
@@ -159,168 +152,6 @@ function RunCard({ run, t, onSelect }: { run: WorkflowRun; t: ThemeTokens; onSel
         })}
       </div>
     </Pressable>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Run detail (step-by-step viewer)
-// ---------------------------------------------------------------------------
-
-function RunDetail({ runId, workflowId, onBack, onNavigateToRun }: {
-  runId: string;
-  workflowId: string;
-  onBack: () => void;
-  onNavigateToRun: (id: string) => void;
-}) {
-  const t = useThemeTokens();
-  const { data: run, isLoading } = useWorkflowRun(runId);
-  const { data: workflow } = useWorkflow(workflowId);
-  const cancelMut = useCancelWorkflowRun();
-  const triggerMut = useTriggerWorkflow(workflowId);
-  const approveMut = useApproveWorkflowStep();
-  const skipMut = useSkipWorkflowStep();
-  const retryMut = useRetryWorkflowStep();
-
-  if (isLoading || !run) {
-    return (
-      <View style={{ alignItems: "center", padding: 24 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
-    );
-  }
-
-  const steps = workflow?.steps || [];
-  const isActive = run.status === "running" || run.status === "awaiting_approval";
-
-  const handleRunAgain = async () => {
-    try {
-      const newRun = await triggerMut.mutateAsync({
-        params: run.params,
-        bot_id: run.bot_id,
-      });
-      onNavigateToRun(newRun.id);
-    } catch {
-      // handled by mutation
-    }
-  };
-
-  return (
-    <View style={{ gap: 16 }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <Pressable
-          onPress={onBack}
-          style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-        >
-          <ArrowLeft size={16} color={t.textMuted} />
-          <Text style={{ color: t.textMuted, fontSize: 13 }}>All runs</Text>
-        </Pressable>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <StatusBadge status={run.status} t={t} />
-          {!isActive && (
-            <button
-              onClick={handleRunAgain}
-              disabled={triggerMut.isPending}
-              style={{
-                display: "flex", alignItems: "center", gap: 4,
-                padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                border: `1px solid ${t.accentBorder}`, borderRadius: 5,
-                background: t.accentSubtle, color: t.accent, cursor: "pointer",
-                opacity: triggerMut.isPending ? 0.6 : 1,
-              }}
-            >
-              <RefreshCw size={12} />
-              Run Again
-            </button>
-          )}
-          {isActive && (
-            <button
-              onClick={() => cancelMut.mutate(runId)}
-              disabled={cancelMut.isPending}
-              style={{
-                display: "flex", alignItems: "center", gap: 4,
-                padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                border: `1px solid ${t.dangerBorder}`, borderRadius: 5,
-                background: t.dangerSubtle, color: t.danger, cursor: "pointer",
-              }}
-            >
-              <X size={12} />
-              Cancel
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Run metadata */}
-      <div style={{
-        display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-        gap: 8, padding: 12, borderRadius: 8,
-        background: t.codeBg, border: `1px solid ${t.surfaceBorder}`,
-      }}>
-        <MetaItem label="Run ID" value={run.id.slice(0, 8)} t={t} mono />
-        <MetaItem label="Bot" value={run.bot_id} t={t} />
-        <MetaItem label="Triggered by" value={run.triggered_by || "\u2014"} t={t} />
-        <MetaItem label="Started" value={fmtTime(run.created_at)} t={t} />
-        {run.completed_at && <MetaItem label="Completed" value={fmtTime(run.completed_at)} t={t} />}
-        {run.session_id && <MetaItem label="Session" value={run.session_id.slice(0, 8)} t={t} mono />}
-      </div>
-
-      {/* Error */}
-      {run.error && (
-        <div style={{
-          padding: 10, borderRadius: 8,
-          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
-          color: t.danger, fontSize: 12, fontFamily: "monospace", whiteSpace: "pre-wrap",
-        }}>
-          {run.error}
-        </div>
-      )}
-
-      {/* Params */}
-      {Object.keys(run.params).length > 0 && (
-        <div style={{
-          padding: 10, borderRadius: 8,
-          background: t.codeBg, border: `1px solid ${t.surfaceBorder}`,
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            Parameters
-          </div>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            {Object.entries(run.params).map(([k, v]) => (
-              <span key={k} style={{ fontSize: 12, color: t.text }}>
-                <span style={{ color: t.textDim }}>{k}:</span>{" "}
-                <span style={{ fontFamily: "monospace" }}>{String(v)}</span>
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Step timeline */}
-      <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
-        Steps
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {run.step_states.map((state, i) => (
-          <StepCard
-            key={i}
-            index={i}
-            state={state}
-            stepDef={steps[i]}
-            runStatus={run.status}
-            runParams={run.params}
-            runId={runId}
-            t={t}
-            onApprove={() => approveMut.mutate({ runId, stepIndex: i })}
-            onSkip={() => skipMut.mutate({ runId, stepIndex: i })}
-            onRetry={() => retryMut.mutate({ runId, stepIndex: i })}
-            isApproving={approveMut.isPending}
-            isSkipping={skipMut.isPending}
-            isRetrying={retryMut.isPending}
-          />
-        ))}
-      </div>
-    </View>
   );
 }
 
