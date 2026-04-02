@@ -2,15 +2,18 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { View, Text, Pressable, ActivityIndicator, ScrollView, Platform } from "react-native";
 import {
   FileText, Archive, Database, ChevronDown, ChevronRight,
-  X, Trash2, Plus, GripVertical,
+  X, Trash2, Plus, GripVertical, Folder, Upload,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useChannelWorkspaceFiles,
+  useChannelWorkspaceDataFolder,
   useDeleteChannelWorkspaceFile,
   useWriteChannelWorkspaceFile,
   useMoveChannelWorkspaceFile,
+  useUploadChannelWorkspaceFile,
+  type ChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
 import { useChatStore } from "@/src/stores/chat";
 
@@ -20,6 +23,8 @@ type WorkspaceFile = {
   size: number;
   modified_at: number;
   section: string;
+  type?: "folder";
+  count?: number;
 };
 
 type Section = "active" | "archive" | "data";
@@ -41,7 +46,8 @@ function computeMovePath(file: WorkspaceFile, targetSection: Section): string {
 }
 
 /** Format bytes as human-readable size */
-function formatSize(bytes: number): string {
+function formatSize(bytes: number | null | undefined): string {
+  if (bytes == null || isNaN(bytes)) return "";
   if (bytes < 1024) return `${bytes} B`;
   const kb = bytes / 1024;
   if (kb < 100) return `${kb.toFixed(1)} KB`;
@@ -77,7 +83,10 @@ function FileRow({
     file.section === "data" ? <Database size={13} color={t.textMuted} /> :
     <FileText size={13} color={t.accent} />;
 
-  const sizeKb = (file.size / 1024).toFixed(1);
+  const sizeStr = formatSize(file.size);
+  const displayName = file.name.includes("/")
+    ? file.name.substring(file.name.lastIndexOf("/") + 1)
+    : file.name;
 
   // HTML5 drag-and-drop (web only)
   const dragProps = Platform.OS === "web" ? {
@@ -114,9 +123,9 @@ function FileRow({
           style={{ color: t.text, fontSize: 12, fontWeight: selected ? "600" : "400" }}
           numberOfLines={1}
         >
-          {file.name}
+          {displayName}
         </Text>
-        <Text style={{ color: t.textDim, fontSize: 10 }}>{sizeKb} KB</Text>
+        {sizeStr ? <Text style={{ color: t.textDim, fontSize: 10 }}>{sizeStr}</Text> : null}
       </View>
       <Pressable
         onPress={(e) => {
@@ -235,6 +244,280 @@ function FileSection({
         <Text style={{ color: t.textDim, fontSize: 11, paddingHorizontal: 12, paddingBottom: 6, fontStyle: "italic" }}>
           Drop files here
         </Text>
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Lazy-loading data folder row
+// ---------------------------------------------------------------------------
+function DataFolderRow({
+  folder,
+  channelId,
+  activeFile,
+  onSelectFile,
+}: {
+  folder: WorkspaceFile;
+  channelId: string;
+  activeFile: string | null;
+  onSelectFile: (path: string) => void;
+}) {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useChannelWorkspaceDataFolder(
+    open ? channelId : undefined,
+    open ? folder.name : null,
+  );
+
+  const children = data?.files?.filter((f) => f.section === "data") ?? [];
+  const childFiles = children.filter((f) => f.type !== "folder");
+  const childFolders = children.filter((f) => f.type === "folder");
+  const basename = folder.name.includes("/")
+    ? folder.name.substring(folder.name.lastIndexOf("/") + 1)
+    : folder.name;
+
+  return (
+    <View>
+      <Pressable
+        onPress={() => setOpen(!open)}
+        className="hover:bg-surface-overlay active:bg-surface-overlay"
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: 6,
+          paddingHorizontal: 10,
+          borderRadius: 5,
+        }}
+      >
+        {open
+          ? <ChevronDown size={10} color={t.textDim} />
+          : <ChevronRight size={10} color={t.textDim} />}
+        <Folder size={13} color={t.textMuted} />
+        <Text style={{ flex: 1, color: t.text, fontSize: 12, fontWeight: "500" }} numberOfLines={1}>
+          {basename}
+        </Text>
+        {folder.count != null && (
+          <Text style={{ color: t.textDim, fontSize: 10 }}>
+            {folder.count}
+          </Text>
+        )}
+      </Pressable>
+      {open && (
+        <View style={{ paddingLeft: 16 }}>
+          {isLoading && <ActivityIndicator color={t.accent} size="small" style={{ padding: 8 }} />}
+          {childFiles.map((f) => (
+            <FileRow
+              key={f.path}
+              file={f}
+              channelId={channelId}
+              selected={activeFile === f.path}
+              onSelect={onSelectFile}
+            />
+          ))}
+          {childFolders.map((f) => (
+            <DataFolderRow
+              key={f.name}
+              folder={f as WorkspaceFile}
+              channelId={channelId}
+              activeFile={activeFile}
+              onSelectFile={onSelectFile}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Data section with folder support + OS drag-and-drop upload
+// ---------------------------------------------------------------------------
+function DataSection({
+  files,
+  channelId,
+  activeFile,
+  onSelectFile,
+  onFileMoved,
+  defaultOpen = false,
+}: {
+  files: WorkspaceFile[];
+  channelId: string;
+  activeFile: string | null;
+  onSelectFile: (path: string) => void;
+  onFileMoved?: (file: WorkspaceFile, targetSection: Section) => void;
+  defaultOpen?: boolean;
+}) {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(defaultOpen);
+  const [internalDragOver, setInternalDragOver] = useState(false);
+  const [osDragging, setOsDragging] = useState(false);
+  const dragCounter = useRef(0);
+  const [uploadStatus, setUploadStatus] = useState<{ current: number; total: number } | null>(null);
+  const uploadMutation = useUploadChannelWorkspaceFile(channelId);
+
+  const rootFiles = files.filter((f) => f.type !== "folder");
+  const folders = files.filter((f) => f.type === "folder");
+  const totalCount = rootFiles.length + folders.reduce((sum, f) => sum + (f.count ?? 0), 0);
+
+  // Internal workspace file drag (move between sections)
+  const internalDropProps = Platform.OS === "web" ? {
+    onDragOver: (e: any) => {
+      e.preventDefault();
+      // Check if this is an internal file move or OS file drop
+      if (e.dataTransfer.types.includes("application/x-workspace-file")) {
+        e.dataTransfer.dropEffect = "move";
+        setInternalDragOver(true);
+      } else if (e.dataTransfer.types.includes("Files")) {
+        e.dataTransfer.dropEffect = "copy";
+      }
+    },
+    onDragEnter: (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter.current++;
+      if (e.dataTransfer.types.includes("Files") && !e.dataTransfer.types.includes("application/x-workspace-file")) {
+        setOsDragging(true);
+      }
+    },
+    onDragLeave: (e: any) => {
+      e.preventDefault();
+      e.stopPropagation();
+      dragCounter.current--;
+      if (dragCounter.current === 0) {
+        setInternalDragOver(false);
+        setOsDragging(false);
+      }
+    },
+    onDrop: async (e: any) => {
+      e.preventDefault();
+      dragCounter.current = 0;
+      setInternalDragOver(false);
+      setOsDragging(false);
+
+      // Check for internal workspace file move first
+      try {
+        const fileData = e.dataTransfer.getData("application/x-workspace-file");
+        if (fileData) {
+          const file: WorkspaceFile = JSON.parse(fileData);
+          if (file.section !== "data") {
+            onFileMoved?.(file, "data");
+          }
+          return;
+        }
+      } catch { /* not an internal drag */ }
+
+      // OS file drop — upload to data/
+      const droppedFiles: File[] = Array.from(e.dataTransfer?.files ?? []);
+      if (droppedFiles.length === 0) return;
+
+      // Auto-expand if closed
+      if (!open) setOpen(true);
+
+      setUploadStatus({ current: 0, total: droppedFiles.length });
+      for (let i = 0; i < droppedFiles.length; i++) {
+        setUploadStatus({ current: i + 1, total: droppedFiles.length });
+        try {
+          await uploadMutation.mutateAsync({ file: droppedFiles[i], targetDir: "data" });
+        } catch (err) {
+          console.error("Upload failed:", (err as Error).message);
+        }
+      }
+      setUploadStatus(null);
+    },
+  } : {};
+
+  return (
+    <View
+      style={{
+        marginBottom: 4,
+        borderRadius: 6,
+        borderWidth: (internalDragOver || osDragging) ? 2 : 0,
+        borderColor: (internalDragOver || osDragging) ? t.accent : "transparent",
+        borderStyle: "dashed" as any,
+        backgroundColor: (internalDragOver || osDragging) ? `${t.accent}11` : "transparent",
+      }}
+      {...internalDropProps as any}
+    >
+      <Pressable
+        onPress={() => setOpen(!open)}
+        className="hover:bg-surface-overlay active:bg-surface-overlay"
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          paddingVertical: 6,
+          paddingHorizontal: 8,
+          borderRadius: 4,
+        }}
+      >
+        {open
+          ? <ChevronDown size={12} color={t.textDim} />
+          : <ChevronRight size={12} color={t.textDim} />}
+        <Database size={11} color={t.textMuted} />
+        <Text style={{ color: t.textMuted, fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Data
+        </Text>
+        <Text style={{ color: t.textDim, fontSize: 10 }}>
+          ({totalCount})
+        </Text>
+      </Pressable>
+      {open && (
+        <View style={{ paddingLeft: 4, minHeight: 28 }}>
+          {rootFiles.map((f) => (
+            <FileRow
+              key={f.path}
+              file={f}
+              channelId={channelId}
+              selected={activeFile === f.path}
+              onSelect={onSelectFile}
+            />
+          ))}
+          {folders.map((f) => (
+            <DataFolderRow
+              key={f.name}
+              folder={f}
+              channelId={channelId}
+              activeFile={activeFile}
+              onSelectFile={onSelectFile}
+            />
+          ))}
+          {uploadStatus && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
+              <ActivityIndicator color={t.accent} size="small" />
+              <Text style={{ color: t.textMuted, fontSize: 10 }}>
+                Uploading {uploadStatus.current}/{uploadStatus.total}...
+              </Text>
+            </View>
+          )}
+          {files.length === 0 && !uploadStatus && (
+            <Text style={{ color: t.textDim, fontSize: 11, paddingHorizontal: 12, paddingBottom: 6, fontStyle: "italic" }}>
+              Drop files here to upload
+            </Text>
+          )}
+        </View>
+      )}
+
+      {/* Drop overlay when dragging OS files */}
+      {osDragging && (
+        <View
+          style={{
+            position: "absolute",
+            left: 2,
+            right: 2,
+            top: open ? 30 : 2,
+            bottom: 2,
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none" as any,
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Upload size={12} color={t.accent} />
+            <Text style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>Drop to upload</Text>
+          </View>
+        </View>
       )}
     </View>
   );
@@ -484,10 +767,7 @@ export function ChannelFileExplorer({
               onFileMoved={handleFileMoved}
               defaultOpen={false}
             />
-            <FileSection
-              title="Data"
-              sectionKey="data"
-              icon={<Database size={11} color={t.textMuted} />}
+            <DataSection
               files={dataFiles}
               channelId={channelId}
               activeFile={activeFile}

@@ -10,6 +10,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Composable expertise (carapaces)** — Snap-on skillsets that bundle tools, skills, and behavioral instructions. Give a bot `carapaces: [qa, code-review]` and it instantly knows how to test and review code. Carapaces compose via `includes`.
 - **Workspace-driven memory** — Bots maintain `MEMORY.md`, daily logs, and reference documents on disk — all indexed for RAG retrieval. No opaque vector-only memory.
 - **Channel workspaces** — Per-channel file stores with schema-guided organization. 7 built-in templates (Software Dev, Research, QA, PM Hub, etc.) or custom schemas. Active files auto-inject into context.
+- **Conversation continuity** — Conversations are automatically archived into titled, searchable sections. Bots can browse, search, and read full transcripts across fresh starts. No history is ever lost.
 - **Workflows** — Reusable multi-step automations defined in YAML. Conditions, approval gates, parallel branches, cross-bot delegation, and scoped secrets. Trigger via API, bot tool, or heartbeat schedule.
 - **Heartbeats + task scheduling** — Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks. Bots can self-schedule.
 - **Integration activation + templates** — Activate an integration on a channel and it instantly gets the right tools, skills, and behavioral instructions. Pick a compatible workspace template and the bot knows how to organize files. One click from blank channel to structured project.
@@ -91,6 +92,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | [Harnesses](docs/guides/harnesses.md) | External CLI tools (Claude Code, Cursor) |
 | [Secrets & Redaction](docs/guides/secrets.md) | Secret vault and automatic redaction |
 | [Content Ingestion](docs/guides/ingestion.md) | Document ingestion pipeline |
+| [Chat History](docs/guides/chat-history.md) | Conversation archival, searchable sections, continuity |
 | [Agent Client](docs/guides/clients.md) | Remote voice assistant + local tool executor |
 | [Usage & Billing](docs/guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting |
 | [Creating Integrations](docs/integrations/index.md) | Build custom integrations |

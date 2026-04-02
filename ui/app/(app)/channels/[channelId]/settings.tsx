@@ -26,7 +26,6 @@ import { HistoryTab } from "./HistoryTab";
 import { ContextTab } from "./ContextTab";
 import { ToolsOverrideTab } from "./ToolsOverrideTab";
 import { IntegrationsTab } from "./IntegrationsTab";
-import { SessionsTab } from "./SessionsTab";
 import { HeartbeatTab } from "./HeartbeatTab";
 import { TasksTab } from "./TasksTab";
 import { LogsTab } from "./LogsTab";
@@ -48,7 +47,6 @@ const PRIMARY_TABS = [
   { key: "attachments", label: "Attachments" },
 ];
 const ADVANCED_TABS = [
-  { key: "sessions", label: "Sessions" },
   { key: "context", label: "Context" },
   { key: "workflows", label: "Workflows" },
   { key: "tasks", label: "Tasks" },
@@ -297,7 +295,6 @@ export default function ChannelSettingsScreen() {
         {tab === "tools" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "integrations" && <IntegrationsTab channelId={channelId!} workspaceEnabled={!!form.channel_workspace_enabled} />}
         {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
-        {tab === "sessions" && <SessionsTab channelId={channelId!} />}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "workflows" && <WorkflowsTab channelId={channelId!} />}
         {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}

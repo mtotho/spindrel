@@ -28,11 +28,11 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
     Snap-on skillsets that bundle tools, knowledge, and behavioral instructions. Give a bot `carapaces: [qa, code-review]` and it instantly knows how to test and review code. Carapaces compose via `includes` for layered expertise.
 
--   :material-file-document-outline:{ .lg .middle } **Workspace Memory + Channel Workspaces**
+-   :material-file-document-outline:{ .lg .middle } **Workspace Memory + Conversation Continuity**
 
     ---
 
-    Bots maintain `MEMORY.md`, daily logs, and reference docs — all on disk, all indexed for RAG. Per-channel file stores with 7 built-in schema templates keep project context structured and searchable.
+    Bots maintain `MEMORY.md`, daily logs, and reference docs — all on disk, all indexed for RAG. Conversations are automatically archived into searchable sections that persist across fresh starts. Per-channel file stores with schema templates keep project context structured.
 
 -   :material-sitemap:{ .lg .middle } **Workflows**
 
@@ -140,6 +140,10 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 -   [:material-puzzle-edit-outline: **Creating Integrations**](integrations/index.md)
 
     Build custom integrations with routers, dispatchers, and hooks.
+
+-   [:material-history: **Chat History**](guides/chat-history.md)
+
+    Conversation archival, searchable sections, and cross-session continuity.
 
 -   [:material-cellphone-link: **Agent Client**](guides/clients.md)
 

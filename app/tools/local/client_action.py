@@ -5,12 +5,12 @@ from sqlalchemy import select
 from app.tools.registry import register
 
 CLIENT_ACTIONS = {
-    "new_session": "Start a fresh conversation session, clearing all history.",
+    "new_session": "Start a fresh conversation, clearing the current chat.",
     "switch_bot": "Switch to a different bot/assistant. Requires 'bot_id' in params.",
-    "switch_session": "Switch to an existing session by UUID. Requires 'session_id' in params.",
+    "switch_session": "Switch to a previous conversation by UUID. Requires 'session_id' in params.",
     "toggle_tts": "Toggle text-to-speech output on or off.",
-    "list_sessions": "List sessions and display them. If the user wants to switch "
-                     "to a specific session, follow up with switch_session using the "
+    "list_sessions": "List previous conversations and display them. If the user wants to switch "
+                     "to a specific conversation, follow up with switch_session using the "
                      "session_id from the results.",
     "list_bots": "Display all available bots/assistants to the user.",
     "show_history": "Display the conversation history. You should then summarize "
@@ -50,7 +50,7 @@ async def _list_sessions_result() -> str:
         "status": "ok",
         "action": "list_sessions",
         "params": {},
-        "result": "Sessions displayed to user. Data below for your reference.",
+        "result": "Conversations displayed to user. Data below for your reference.",
         "sessions": entries,
     })
 
@@ -62,7 +62,7 @@ async def _list_sessions_result() -> str:
         "description": (
             "Request an action on the user's client device. "
             "Use this when the user asks to perform a client-side operation "
-            "like starting a new session, switching bots, listing sessions, "
+            "like starting a fresh conversation, switching bots, listing past conversations, "
             "or showing conversation history. "
             f"Available actions:\n{_DESCRIPTIONS}"
         ),
