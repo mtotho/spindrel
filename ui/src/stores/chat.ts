@@ -11,6 +11,7 @@ interface ChatChannelState {
   toolCalls: { name: string; args?: string; status: "running" | "done" }[];
   correlationId: string | null;
   error: string | null;
+  secretWarning: { patterns: { type: string }[] } | null;
 }
 
 interface ChatState {
@@ -35,6 +36,7 @@ const emptyChannel: ChatChannelState = {
   toolCalls: [],
   correlationId: null,
   error: null,
+  secretWarning: null,
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -101,6 +103,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             toolCalls: [],
             correlationId: null,
             error: null,
+            secretWarning: null,
           },
         },
       };
@@ -238,6 +241,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             channels: {
               ...s.channels,
               [channelId]: { ...ch, error: data.message ?? data.detail ?? "Unknown error" },
+            },
+          };
+        }
+        case "secret_warning": {
+          const data = event.data as { patterns?: { type: string }[] };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: { ...ch, secretWarning: { patterns: data.patterns ?? [] } },
             },
           };
         }

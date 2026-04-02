@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, verify_auth_or_user
 from integrations.mission_control.helpers import get_bot, get_mc_prefs, get_user, tracked_channels
 from integrations.mission_control.schemas import MemoryResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -121,3 +125,62 @@ async def read_reference_file(
     except UnicodeDecodeError:
         raise HTTPException(400, "File is not a text file")
     return {"content": content}
+
+
+class MemorySearchRequest(BaseModel):
+    query: str
+    top_k: int = 10
+
+
+@router.post("/memory/search")
+async def memory_search(
+    body: MemorySearchRequest,
+    scope: Literal["fleet", "personal"] = "fleet",
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Semantic search over bot memory files (proxy to core search, filtered by tracked bots)."""
+    from app.agent.bots import get_bot as get_bot_config, list_bots
+    from app.services.memory_scheme import get_memory_index_prefix
+    from app.services.memory_search import hybrid_memory_search
+    from app.services.workspace import workspace_service
+
+    if not body.query.strip():
+        return {"results": []}
+
+    user = get_user(auth)
+    prefs = await get_mc_prefs(db, user)
+    channels = await tracked_channels(db, user, prefs, scope=scope)
+
+    bot_ids = list({ch.bot_id for ch in channels})
+    if prefs.get("tracked_bot_ids"):
+        tracked = set(prefs["tracked_bot_ids"])
+        bot_ids = [bid for bid in bot_ids if bid in tracked]
+
+    results: list[dict] = []
+    for bot_id in bot_ids:
+        try:
+            bot = get_bot_config(bot_id)
+        except Exception:
+            continue
+        if bot.memory_scheme != "workspace-files":
+            continue
+        try:
+            ws_root = workspace_service.get_workspace_root(bot.id, bot)
+            prefix = get_memory_index_prefix(bot)
+            hits = await hybrid_memory_search(
+                body.query, bot.id, root=ws_root, memory_prefix=prefix, top_k=body.top_k,
+            )
+            for h in hits:
+                results.append({
+                    "file_path": h.file_path,
+                    "content": h.content,
+                    "score": h.score,
+                    "bot_id": bot.id,
+                    "bot_name": bot.name,
+                })
+        except Exception:
+            logger.debug("Memory search failed for bot %s", bot_id, exc_info=True)
+
+    results.sort(key=lambda r: r["score"], reverse=True)
+    return {"results": results[: body.top_k]}

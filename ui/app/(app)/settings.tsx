@@ -35,6 +35,7 @@ import { ChatHistoryExtras } from "@/src/components/settings/ChatHistoryExtras";
 import { BotOverridesList } from "@/src/components/settings/BotOverridesList";
 import { FlushPromptOverrideWarning } from "@/src/components/settings/FlushPromptOverrideWarning";
 import { FileModeOnlyBanner } from "@/src/components/settings/FileModeOnlyBanner";
+import { BackupSection } from "@/src/components/settings/BackupSection";
 
 // ---------------------------------------------------------------------------
 // Field renderers
@@ -401,6 +402,7 @@ function useUpdateGlobalFallbackModels() {
 // ---------------------------------------------------------------------------
 
 const GLOBAL_GROUP = "Global";
+const BACKUP_GROUP = "Backup";
 
 function AppearanceSection() {
   const mode = useThemeStore((s) => s.mode);
@@ -482,7 +484,11 @@ export default function SettingsScreen() {
   // Settings state
   const groups = data?.groups ?? [];
   const allGroups = useMemo(
-    () => [{ group: GLOBAL_GROUP, settings: [] as SettingItem[] }, ...groups],
+    () => [
+      { group: GLOBAL_GROUP, settings: [] as SettingItem[] },
+      ...groups,
+      { group: BACKUP_GROUP, settings: [] as SettingItem[] },
+    ],
     [groups]
   );
   const groupNames = useMemo(() => allGroups.map((g) => g.group), [allGroups]);
@@ -565,6 +571,7 @@ export default function SettingsScreen() {
   );
 
   const isGlobal = activeGroup === GLOBAL_GROUP;
+  const isBackup = activeGroup === BACKUP_GROUP;
   const activeSettings = groups.find((g) => g.group === activeGroup)?.settings ?? [];
 
   if (isLoading) {
@@ -690,8 +697,11 @@ export default function SettingsScreen() {
             />
           )}
 
+          {/* Backup section */}
+          {isBackup && <BackupSection />}
+
           {/* Settings */}
-          {!isGlobal && activeSettings.filter((s: any) => !s.ui_hidden).map((item, idx) => {
+          {!isGlobal && !isBackup && activeSettings.filter((s: any) => !s.ui_hidden).map((item, idx) => {
             const FILE_MODE_KEYS = new Set(["SECTION_INDEX_COUNT", "SECTION_INDEX_VERBOSITY"]);
             const historyMode = String(localValues["DEFAULT_HISTORY_MODE"] ?? "file");
             const isFileModeOnly = FILE_MODE_KEYS.has(item.key);

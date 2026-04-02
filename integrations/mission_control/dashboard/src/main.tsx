@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { ScopeProvider } from "./lib/ScopeContext";
 import { getTheme, onThemeChange } from "./lib/auth-bridge";
 import "./index.css";
 
@@ -29,7 +30,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter basename="/integrations/mission_control/ui">
-          <App />
+          <ScopeProvider>
+            <App />
+          </ScopeProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </ErrorBoundary>

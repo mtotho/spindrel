@@ -430,6 +430,23 @@ async def chat(
     if not req.dispatch_config:
         await _mirror_to_integration(channel, message, is_user_message=True, user=user)
 
+    # Detect secret-like patterns in user message and register for redaction
+    _detected_secrets = False
+    if message:
+        from app.services.secret_registry import (
+            detect_patterns as _detect_patterns,
+            extract_pattern_values as _extract_values,
+            register_runtime_secrets as _register_secrets,
+            is_enabled as _secrets_enabled,
+        )
+        if _secrets_enabled():
+            _pattern_hits = _detect_patterns(message)
+            if _pattern_hits:
+                _detected_secrets = True
+                _secret_vals = _extract_values(message)
+                if _secret_vals:
+                    _register_secrets(_secret_vals)
+
     try:
         result = await run(
             messages, bot, message,
@@ -463,10 +480,14 @@ async def chat(
         dispatch_config=req.dispatch_config,
     )
 
-    # Mirror response to integration
+    # Mirror response to integration (redact if secrets detected)
     if not req.dispatch_config and result.response:
+        _mirror_text = result.response
+        if _detected_secrets:
+            from app.services.secret_registry import redact as _redact
+            _mirror_text = _redact(_mirror_text)
         await _mirror_to_integration(
-            channel, result.response,
+            channel, _mirror_text,
             bot_id=req.bot_id, client_actions=result.client_actions,
         )
 
@@ -690,6 +711,25 @@ async def chat_stream(
             if not req.dispatch_config:
                 await _mirror_to_integration(channel, message, is_user_message=True, user=user)
 
+            # Detect secret-like patterns in user message and emit warning
+            _detected_secrets = False
+            if message:
+                from app.services.secret_registry import (
+                    detect_patterns as _detect_patterns,
+                    extract_pattern_values as _extract_values,
+                    register_runtime_secrets as _register_secrets,
+                    is_enabled as _secrets_enabled,
+                )
+                if _secrets_enabled():
+                    _pattern_hits = _detect_patterns(message)
+                    if _pattern_hits:
+                        _detected_secrets = True
+                        # Register matched values so they're redacted in tool results, traces, etc.
+                        _secret_vals = _extract_values(message)
+                        if _secret_vals:
+                            _register_secrets(_secret_vals)
+                        yield f"data: {json.dumps({'type': 'secret_warning', 'patterns': [{'type': p['type']} for p in _pattern_hits]})}\n\n"
+
             response_text = ""
             response_actions = None
             was_cancelled = False
@@ -761,9 +801,14 @@ async def chat_stream(
                                 break
 
             # Mirror response to integration (skip if cancelled)
+            # If secrets were detected in user input, redact the mirrored response
             if not was_cancelled and not req.dispatch_config and response_text:
+                _mirror_text = response_text
+                if _detected_secrets:
+                    from app.services.secret_registry import redact as _redact
+                    _mirror_text = _redact(_mirror_text)
                 await _mirror_to_integration(
-                    channel, response_text,
+                    channel, _mirror_text,
                     bot_id=req.bot_id, client_actions=response_actions,
                 )
 

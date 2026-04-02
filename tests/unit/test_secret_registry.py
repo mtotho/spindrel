@@ -398,3 +398,132 @@ async def test_rebuild_disabled():
         assert secret_registry._built
         assert secret_registry._pattern is None
         assert len(secret_registry._known_secrets) == 0
+
+
+# ---------------------------------------------------------------------------
+# detect_patterns — Stripe keys
+# ---------------------------------------------------------------------------
+
+def test_detect_patterns_stripe_live_key():
+    text = "sk_live_dhjcEWcbfwybVYD8Ga0IjmTzMwpacvXR"
+    results = secret_registry.detect_patterns(text)
+    types = [r["type"] for r in results]
+    assert "Stripe live key" in types
+
+
+def test_detect_patterns_stripe_test_key():
+    text = "sk_test_4eC39HqLyjWDarjtT1zdp7dc"
+    results = secret_registry.detect_patterns(text)
+    types = [r["type"] for r in results]
+    assert "Stripe test key" in types
+
+
+def test_detect_patterns_stripe_restricted_key():
+    text = "rk_live_abc123def456ghi789jkl012mno"
+    results = secret_registry.detect_patterns(text)
+    types = [r["type"] for r in results]
+    assert "Stripe restricted key" in types
+
+
+def test_detect_patterns_sendgrid_key():
+    text = "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"
+    results = secret_registry.detect_patterns(text)
+    types = [r["type"] for r in results]
+    assert "SendGrid API key" in types
+
+
+def test_detect_patterns_google_api_key():
+    text = "AIzaSyDaGmWKa4JsXZ-HjGw7ISLn_3namBGewQe"
+    results = secret_registry.detect_patterns(text)
+    types = [r["type"] for r in results]
+    assert "Google API key" in types
+
+
+# ---------------------------------------------------------------------------
+# extract_pattern_values — full match extraction
+# ---------------------------------------------------------------------------
+
+def test_extract_pattern_values_returns_full_values():
+    text = "My key is sk_live_dhjcEWcbfwybVYD8Ga0IjmTzMwpacvXR and token ghp_ABCDEFghijklmnopqrstuvwxyz123456"
+    values = secret_registry.extract_pattern_values(text)
+    assert "sk_live_dhjcEWcbfwybVYD8Ga0IjmTzMwpacvXR" in values
+    assert "ghp_ABCDEFghijklmnopqrstuvwxyz123456" in values
+
+
+def test_extract_pattern_values_no_duplicates():
+    text = "sk_live_abc123def456ghi789jkl sk_live_abc123def456ghi789jkl"
+    values = secret_registry.extract_pattern_values(text)
+    assert len(values) == 1
+
+
+def test_extract_pattern_values_empty_for_clean_text():
+    values = secret_registry.extract_pattern_values("Hello, how are you?")
+    assert values == []
+
+
+# ---------------------------------------------------------------------------
+# register_runtime_secrets — dynamic registration
+# ---------------------------------------------------------------------------
+
+def test_register_runtime_secrets_adds_to_known():
+    with patch("app.services.secret_registry.settings", _fake_settings()):
+        secret_registry._known_secrets = set()
+        secret_registry._pattern = None
+        count = secret_registry.register_runtime_secrets(["sk_live_dhjcEWcbfwybVYD8Ga0IjmTzMwpacvXR"])
+        assert count == 1
+        assert "sk_live_dhjcEWcbfwybVYD8Ga0IjmTzMwpacvXR" in secret_registry._known_secrets
+        assert secret_registry._pattern is not None
+
+
+def test_register_runtime_secrets_rebuilds_pattern():
+    with patch("app.services.secret_registry.settings", _fake_settings()):
+        secret_registry._known_secrets = {"existing-secret-abc"}
+        secret_registry._pattern = secret_registry._build_pattern(secret_registry._known_secrets)
+        secret_registry.register_runtime_secrets(["new-runtime-secret-xyz"])
+        # Both old and new should be redactable
+        result = secret_registry.redact("existing-secret-abc and new-runtime-secret-xyz")
+        assert result == "[REDACTED] and [REDACTED]"
+
+
+def test_register_runtime_secrets_skips_duplicates():
+    with patch("app.services.secret_registry.settings", _fake_settings()):
+        secret_registry._known_secrets = {"already-known-secret"}
+        secret_registry._pattern = secret_registry._build_pattern(secret_registry._known_secrets)
+        count = secret_registry.register_runtime_secrets(["already-known-secret"])
+        assert count == 0
+
+
+def test_register_runtime_secrets_skips_short():
+    with patch("app.services.secret_registry.settings", _fake_settings()):
+        secret_registry._known_secrets = set()
+        secret_registry._pattern = None
+        count = secret_registry.register_runtime_secrets(["ab"])
+        assert count == 0
+
+
+def test_register_runtime_secrets_disabled():
+    with patch("app.services.secret_registry.settings", _fake_settings(SECRET_REDACTION_ENABLED=False)):
+        secret_registry._known_secrets = set()
+        count = secret_registry.register_runtime_secrets(["some-secret-value"])
+        assert count == 0
+
+
+def test_register_then_redact_end_to_end():
+    """Full flow: detect patterns, extract values, register, then redact."""
+    with patch("app.services.secret_registry.settings", _fake_settings()):
+        secret_registry._known_secrets = set()
+        secret_registry._pattern = None
+        message = "Use this Stripe key: sk_live_dhjcEWcbfwybVYD8Ga0IjmTzMwpacvXR"
+        # Detect
+        hits = secret_registry.detect_patterns(message)
+        assert len(hits) >= 1
+        # Extract full values
+        values = secret_registry.extract_pattern_values(message)
+        assert len(values) >= 1
+        # Register
+        secret_registry.register_runtime_secrets(values)
+        # Now redact should work
+        response = "Your Stripe key sk_live_dhjcEWcbfwybVYD8Ga0IjmTzMwpacvXR has been noted."
+        redacted = secret_registry.redact(response)
+        assert "sk_live_dhjcEWcbfwybVYD8Ga0IjmTzMwpacvXR" not in redacted
+        assert "[REDACTED]" in redacted

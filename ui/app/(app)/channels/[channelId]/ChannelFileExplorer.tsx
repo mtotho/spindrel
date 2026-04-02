@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { View, Text, Pressable, ActivityIndicator, ScrollView, Platform } from "react-native";
 import {
   FileText, Archive, ChevronDown, ChevronRight,
-  X, Plus, GripVertical,
+  X, Plus, Trash2,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,6 +10,7 @@ import {
   useChannelWorkspaceFiles,
   useWriteChannelWorkspaceFile,
   useMoveChannelWorkspaceFile,
+  useDeleteChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
 import { useChatStore } from "@/src/stores/chat";
 import {
@@ -33,7 +34,7 @@ interface ChannelFileExplorerProps {
 }
 
 // ---------------------------------------------------------------------------
-// Draggable file item row with context menu + inline rename
+// File row — VS Code-style compact row
 // ---------------------------------------------------------------------------
 function FileRow({
   file,
@@ -47,18 +48,19 @@ function FileRow({
   onSelect: (path: string) => void;
 }) {
   const t = useThemeTokens();
+  const [hovered, setHovered] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState("");
   const moveMutation = useMoveChannelWorkspaceFile(channelId);
+  const deleteMutation = useDeleteChannelWorkspaceFile(channelId);
 
-  const icon = getFileIcon(file.name, file.section, t.textMuted, t.accent);
+  const icon = getFileIcon(file.name, file.section, t.textDim, t.accent);
   const sizeStr = formatSize(file.size);
   const displayName = file.name.includes("/")
     ? file.name.substring(file.name.lastIndexOf("/") + 1)
     : file.name;
 
-  // HTML5 drag-and-drop (web only)
   const dragProps = Platform.OS === "web" ? {
     draggable: true,
     onDragStart: (e: any) => {
@@ -84,7 +86,6 @@ function FileRow({
       setRenaming(false);
       return;
     }
-    // Build new path preserving the directory prefix
     const dirPrefix = file.path.includes("/")
       ? file.path.substring(0, file.path.lastIndexOf("/") + 1)
       : "";
@@ -97,30 +98,39 @@ function FileRow({
     );
   }, [renameName, displayName, file.path, moveMutation]);
 
+  const handleDelete = useCallback((e: any) => {
+    e.stopPropagation();
+    const basename = displayName;
+    if (confirm(`Delete ${basename}?`)) deleteMutation.mutate(file.path);
+  }, [displayName, file.path, deleteMutation]);
+
   return (
     <>
       <Pressable
         onPress={() => onSelect(file.path)}
-        className="hover:bg-surface-overlay active:bg-surface-overlay"
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 6,
-          paddingVertical: 6,
-          paddingHorizontal: 10,
-          borderRadius: 5,
-          backgroundColor: selected ? t.surfaceOverlay : "transparent",
-        }}
+          height: 22,
+          paddingLeft: selected ? 9 : 10,
+          paddingRight: 6,
+          gap: 5,
+          backgroundColor: selected
+            ? t.accentSubtle
+            : hovered
+              ? t.surfaceOverlay
+              : "transparent",
+          borderLeftWidth: selected ? 2 : 0,
+          borderLeftColor: selected ? t.accent : "transparent",
+          cursor: "pointer",
+        } as any}
         {...dragProps as any}
         {...(handleContextMenu ? { onContextMenu: handleContextMenu } as any : {})}
       >
-        {Platform.OS === "web" && (
-          <View style={{ cursor: "grab", opacity: 0.3, marginRight: -2 } as any}>
-            <GripVertical size={11} color={t.textDim} />
-          </View>
-        )}
         {icon}
-        <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" }}>
           {renaming ? (
             <input
               autoFocus
@@ -133,26 +143,47 @@ function FileRow({
               onBlur={handleRenameSubmit}
               onClick={(e: any) => e.stopPropagation()}
               style={{
-                background: t.surfaceOverlay,
+                background: t.inputBg,
                 border: `1px solid ${t.accent}`,
-                borderRadius: 3,
-                padding: "1px 4px",
+                borderRadius: 2,
+                padding: "0px 4px",
                 fontSize: 12,
                 color: t.text,
                 outline: "none",
                 width: "100%",
+                height: 18,
                 fontFamily: "inherit",
               }}
             />
           ) : (
-            <Text
-              style={{ color: t.text, fontSize: 12, fontWeight: selected ? "600" : "400" }}
-              numberOfLines={1}
-            >
-              {displayName}
-            </Text>
+            <>
+              <Text
+                style={{
+                  color: t.text,
+                  fontSize: 12,
+                  fontWeight: selected ? "500" : "400",
+                  lineHeight: 22,
+                }}
+                numberOfLines={1}
+              >
+                {displayName}
+              </Text>
+              <View style={{ flex: 1 }} />
+              {hovered ? (
+                <Pressable
+                  onPress={handleDelete}
+                  style={{ padding: 2, opacity: 0.6 }}
+                  {...(Platform.OS === "web" ? { title: "Delete" } as any : {})}
+                >
+                  <Trash2 size={11} color={t.textDim} />
+                </Pressable>
+              ) : sizeStr ? (
+                <Text style={{ color: t.textDim, fontSize: 10, marginLeft: 6, flexShrink: 0 }}>
+                  {sizeStr}
+                </Text>
+              ) : null}
+            </>
           )}
-          {!renaming && sizeStr ? <Text style={{ color: t.textDim, fontSize: 10 }}>{sizeStr}</Text> : null}
         </View>
       </Pressable>
       {contextMenu && (
@@ -170,7 +201,7 @@ function FileRow({
 }
 
 // ---------------------------------------------------------------------------
-// Droppable collapsible section (Active / Archive)
+// Section header — VS Code-style collapsible with separator
 // ---------------------------------------------------------------------------
 function FileSection({
   title,
@@ -182,6 +213,7 @@ function FileSection({
   onSelectFile,
   onFileMoved,
   defaultOpen = true,
+  children,
 }: {
   title: string;
   sectionKey: Section;
@@ -192,12 +224,12 @@ function FileSection({
   onSelectFile: (path: string) => void;
   onFileMoved?: (file: WorkspaceFile, targetSection: Section) => void;
   defaultOpen?: boolean;
+  children?: React.ReactNode;
 }) {
   const t = useThemeTokens();
   const [open, setOpen] = useState(defaultOpen);
   const [dragOver, setDragOver] = useState(false);
 
-  // HTML5 drop zone (web only)
   const dropProps = Platform.OS === "web" ? {
     onDragOver: (e: any) => {
       e.preventDefault();
@@ -213,47 +245,55 @@ function FileSection({
         if (file.section !== sectionKey) {
           onFileMoved?.(file, sectionKey);
         }
-      } catch { /* ignore bad data */ }
+      } catch { /* ignore */ }
     },
   } : {};
 
   return (
     <View
       style={{
-        marginBottom: 4,
-        borderRadius: 6,
-        borderWidth: dragOver ? 2 : 0,
-        borderColor: dragOver ? t.accent : "transparent",
-        borderStyle: "dashed" as any,
-        backgroundColor: dragOver ? `${t.accent}11` : "transparent",
+        backgroundColor: dragOver ? `${t.accent}08` : "transparent",
+        borderLeftWidth: dragOver ? 2 : 0,
+        borderLeftColor: dragOver ? t.accent : "transparent",
       }}
       {...dropProps as any}
     >
+      {/* Section header */}
       <Pressable
         onPress={() => setOpen(!open)}
-        className="hover:bg-surface-overlay active:bg-surface-overlay"
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 6,
-          paddingVertical: 6,
-          paddingHorizontal: 8,
-          borderRadius: 4,
-        }}
+          height: 22,
+          paddingHorizontal: 6,
+          gap: 4,
+          borderBottomWidth: 1,
+          borderBottomColor: t.surfaceBorder,
+          cursor: "pointer",
+        } as any}
       >
         {open
-          ? <ChevronDown size={12} color={t.textDim} />
-          : <ChevronRight size={12} color={t.textDim} />}
+          ? <ChevronDown size={10} color={t.textDim} />
+          : <ChevronRight size={10} color={t.textDim} />}
         {icon}
-        <Text style={{ color: t.textMuted, fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>
+        <Text style={{
+          color: t.textMuted,
+          fontSize: 11,
+          fontWeight: "700",
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          flex: 1,
+        }}>
           {title}
         </Text>
         <Text style={{ color: t.textDim, fontSize: 10 }}>
-          ({files.length})
+          {files.length}
         </Text>
       </Pressable>
-      {open && files.length > 0 && (
-        <View style={{ paddingLeft: 4 }}>
+
+      {/* File list */}
+      {open && (
+        <View>
           {files.map((f) => (
             <FileRow
               key={f.path}
@@ -263,19 +303,20 @@ function FileSection({
               onSelect={onSelectFile}
             />
           ))}
+          {children}
+          {files.length === 0 && !children && (
+            <Text style={{ color: t.textDim, fontSize: 11, paddingHorizontal: 10, paddingVertical: 4, fontStyle: "italic" }}>
+              No files
+            </Text>
+          )}
         </View>
-      )}
-      {open && files.length === 0 && (
-        <Text style={{ color: t.textDim, fontSize: 11, paddingHorizontal: 12, paddingBottom: 6, fontStyle: "italic" }}>
-          Drop files here
-        </Text>
       )}
     </View>
   );
 }
 
 // ---------------------------------------------------------------------------
-// New file creator (toggle-friendly)
+// Inline new file input — appears inside Active section
 // ---------------------------------------------------------------------------
 function NewFileInput({
   channelId,
@@ -302,18 +343,18 @@ function NewFileInput({
     return (
       <Pressable
         onPress={() => setCreating(true)}
-        className="hover:opacity-100"
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 6,
-          paddingVertical: 6,
+          height: 22,
           paddingHorizontal: 10,
-          opacity: 0.7,
-        }}
+          gap: 5,
+          opacity: 0.6,
+          cursor: "pointer",
+        } as any}
       >
-        <Plus size={12} color={t.accent} />
-        <Text style={{ color: t.accent, fontSize: 11, fontWeight: "500" }}>New file</Text>
+        <Plus size={11} color={t.accent} />
+        <Text style={{ color: t.accent, fontSize: 11 }}>New file</Text>
       </Pressable>
     );
   }
@@ -334,7 +375,7 @@ function NewFileInput({
   };
 
   return (
-    <View style={{ paddingHorizontal: 8, paddingVertical: 4, gap: 4 }}>
+    <View style={{ paddingHorizontal: 6, paddingVertical: 2 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
         <input
           autoFocus
@@ -347,27 +388,24 @@ function NewFileInput({
           placeholder="filename.md"
           style={{
             flex: 1,
-            background: t.surfaceOverlay,
-            border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 4,
-            padding: "4px 8px",
+            background: t.inputBg,
+            border: `1px solid ${t.inputBorderFocus}`,
+            borderRadius: 2,
+            padding: "1px 6px",
             fontSize: 12,
             color: t.text,
             outline: "none",
-            fontFamily: "monospace",
+            height: 20,
+            fontFamily: "inherit",
           }}
         />
-        <Pressable
-          onPress={handleClose}
-          style={{ padding: 4 }}
-          {...(Platform.OS === "web" ? { title: "Cancel" } as any : {})}
-        >
-          <X size={12} color={t.textMuted} />
+        <Pressable onPress={handleClose} style={{ padding: 2 }}>
+          <X size={11} color={t.textMuted} />
         </Pressable>
       </View>
       {writeMutation.isError && (
-        <Text style={{ color: t.danger, fontSize: 10, paddingHorizontal: 2 }}>
-          Failed: {(writeMutation.error as Error)?.message || "Unknown error"}
+        <Text style={{ color: t.danger, fontSize: 10, paddingHorizontal: 2, paddingTop: 2 }}>
+          {(writeMutation.error as Error)?.message || "Failed"}
         </Text>
       )}
     </View>
@@ -393,7 +431,7 @@ export function ChannelFileExplorer({
     includeData: true,
   });
 
-  // Auto-refresh file list while the bot is streaming (agent may be creating files)
+  // Auto-refresh while bot is streaming
   const queryClient = useQueryClient();
   const isStreaming = useChatStore((s) => s.getChannel(channelId).isStreaming);
   const wasStreamingRef = useRef(false);
@@ -405,7 +443,6 @@ export function ChannelFileExplorer({
       }, 3000);
       return () => clearInterval(interval);
     }
-    // Streaming just ended — do one final refresh to catch any last files
     if (wasStreamingRef.current) {
       queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
     }
@@ -425,14 +462,11 @@ export function ChannelFileExplorer({
 
   const handleFileMoved = useCallback((file: WorkspaceFile, targetSection: Section) => {
     const newPath = computeMovePath(file, targetSection);
-
-    // Warn when moving to active since those files are auto-injected
     if (targetSection === "active") {
       if (!confirm(
         `Move "${file.name}" to Active?\n\nActive files are automatically injected into every request context.`,
       )) return;
     }
-
     moveMutation.mutate(
       { old_path: file.path, new_path: newPath },
       {
@@ -452,41 +486,44 @@ export function ChannelFileExplorer({
         backgroundColor: t.surface,
       }}
     >
-      {/* Header */}
+      {/* Header bar */}
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
           justifyContent: "space-between",
-          paddingHorizontal: 12,
-          paddingVertical: 10,
+          paddingHorizontal: 8,
+          height: 32,
           borderBottomWidth: 1,
           borderBottomColor: t.surfaceBorder,
-          minHeight: 42,
         }}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={{ color: t.text, fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>
-            Files
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text style={{
+            color: t.textMuted,
+            fontSize: 11,
+            fontWeight: "600",
+            textTransform: "uppercase",
+            letterSpacing: 0.8,
+          }}>
+            Explorer
           </Text>
           {totalActiveSize > 0 && (
-            <Text style={{ color: t.textDim, fontSize: 10 }}>
-              {formatSize(totalActiveSize)} &middot; {estimateTokens(totalActiveSize)} tokens
+            <Text style={{ color: t.textDim, fontSize: 9 }}>
+              {formatSize(totalActiveSize)} &middot; {estimateTokens(totalActiveSize)} tok
             </Text>
           )}
         </View>
         <Pressable
           onPress={onClose}
-          className="hover:bg-surface-overlay active:bg-surface-overlay"
-          style={{ padding: 4, borderRadius: 4 }}
-          {...(Platform.OS === "web" ? { title: "Close explorer" } as any : {})}
+          style={{ padding: 4, borderRadius: 3, cursor: "pointer" } as any}
         >
-          <X size={14} color={t.textMuted} />
+          <X size={13} color={t.textDim} />
         </Pressable>
       </View>
 
       {/* File tree */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: 4 }}>
+      <ScrollView style={{ flex: 1 }}>
         {isLoading ? (
           <ActivityIndicator color={t.accent} style={{ padding: 20 }} />
         ) : (
@@ -494,23 +531,24 @@ export function ChannelFileExplorer({
             <FileSection
               title="Active"
               sectionKey="active"
-              icon={<FileText size={11} color={t.accent} />}
+              icon={<FileText size={10} color={t.accent} />}
               files={activeFiles}
               channelId={channelId}
               activeFile={activeFile}
               onSelectFile={onSelectFile}
               onFileMoved={handleFileMoved}
-            />
-            <NewFileInput
-              channelId={channelId}
-              onCreated={onSelectFile}
-              creating={newFileCreating}
-              setCreating={setNewFileCreating}
-            />
+            >
+              <NewFileInput
+                channelId={channelId}
+                onCreated={onSelectFile}
+                creating={newFileCreating}
+                setCreating={setNewFileCreating}
+              />
+            </FileSection>
             <FileSection
               title="Archive"
               sectionKey="archive"
-              icon={<Archive size={11} color={t.textMuted} />}
+              icon={<Archive size={10} color={t.textDim} />}
               files={archivedFiles}
               channelId={channelId}
               activeFile={activeFile}
@@ -528,7 +566,7 @@ export function ChannelFileExplorer({
               FileRowComponent={FileRow}
             />
             {activeFiles.length === 0 && archivedFiles.length === 0 && dataFiles.length === 0 && (
-              <Text style={{ color: t.textDim, fontSize: 12, padding: 16, textAlign: "center" }}>
+              <Text style={{ color: t.textDim, fontSize: 11, padding: 12, textAlign: "center" }}>
                 No workspace files yet
               </Text>
             )}
@@ -536,10 +574,10 @@ export function ChannelFileExplorer({
         )}
       </ScrollView>
 
-      {/* Move status */}
+      {/* Status bar */}
       {moveMutation.isPending && (
-        <View style={{ paddingHorizontal: 12, paddingVertical: 6, borderTopWidth: 1, borderTopColor: t.surfaceBorder }}>
-          <Text style={{ color: t.textMuted, fontSize: 10 }}>Moving file...</Text>
+        <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: t.surfaceBorder }}>
+          <Text style={{ color: t.textDim, fontSize: 10 }}>Moving...</Text>
         </View>
       )}
     </View>

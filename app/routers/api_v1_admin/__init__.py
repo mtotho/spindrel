@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 
 from app.dependencies import verify_admin_auth
 
-from . import api_keys, attachments, bots, carapaces, channels, config_state, diagnostics, fallbacks, integrations, limits, logs, mcp_servers, memories, models, operations, prompts, providers, secret_values, settings, skills, stats, tasks, tools, turns, upcoming, usage, workflows
+from . import api_keys, attachments, bots, carapaces, channels, config_state, diagnostics, fallbacks, health, integrations, limits, logs, mcp_servers, memories, models, operations, prompts, providers, secret_values, settings, skills, stats, tasks, tools, turns, upcoming, usage, workflows
 
 router = APIRouter(prefix="/admin", tags=["Admin API"], dependencies=[Depends(verify_admin_auth)])
 
@@ -35,6 +35,7 @@ router.include_router(fallbacks.router)
 router.include_router(logs.router)
 router.include_router(turns.router)
 router.include_router(upcoming.router)
+router.include_router(health.router)
 router.include_router(operations.router)
 router.include_router(secret_values.router)
 router.include_router(workflows.router)

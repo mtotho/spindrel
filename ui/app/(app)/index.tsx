@@ -1,12 +1,15 @@
+import { useMemo } from "react";
 import { View, Text, Pressable } from "react-native";
 import { Link, useRouter } from "expo-router";
 import { useChannels, useEnsureOrchestrator } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
+import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { prettyIntegrationName } from "@/src/utils/format";
 import { useAuthStore } from "@/src/stores/auth";
 import {
   Hash,
@@ -15,8 +18,10 @@ import {
   Plus,
   Home,
   ChevronRight,
+  FileText,
+  Sparkles,
 } from "lucide-react";
-import type { Channel } from "@/src/types/api";
+import type { Channel, PromptTemplate } from "@/src/types/api";
 
 function isOrchestratorChannel(channel: Channel): boolean {
   return channel.client_id === "orchestrator:home";
@@ -66,12 +71,12 @@ function ChannelCard({ channel, bot, t, isOrchestrator }: {
                 {(channel.integrations?.length ?? 0) > 0 ? (
                   channel.integrations!.map((b) => (
                     <Text key={b.id} className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
-                      {b.integration_type}
+                      {prettyIntegrationName(b.integration_type)}
                     </Text>
                   ))
                 ) : channel.integration ? (
                   <Text className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
-                    {channel.integration}
+                    {prettyIntegrationName(channel.integration)}
                   </Text>
                 ) : null}
               </>
@@ -80,6 +85,111 @@ function ChannelCard({ channel, bot, t, isOrchestrator }: {
         </View>
       </Pressable>
     </Link>
+  );
+}
+
+/** Shown when the user has no channels — surfaces templates as quick-start cards. */
+function OnboardingCards({ templates, t }: { templates: PromptTemplate[]; t: ReturnType<typeof useThemeTokens> }) {
+  // Show up to 6 templates, sorted with those having integration tags first
+  const sorted = [...templates].sort((a, b) => {
+    const aInt = (a.tags ?? []).some((tag) => tag.startsWith("integration:"));
+    const bInt = (b.tags ?? []).some((tag) => tag.startsWith("integration:"));
+    if (aInt && !bInt) return -1;
+    if (!aInt && bInt) return 1;
+    return 0;
+  });
+  const shown = sorted.slice(0, 6);
+
+  return (
+    <View style={{ gap: 16 }}>
+      <View style={{ gap: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Sparkles size={18} color={t.accent} />
+          <Text style={{ fontSize: 17, fontWeight: "700", color: t.text }}>
+            Create your first channel
+          </Text>
+        </View>
+        <Text style={{ fontSize: 13, color: t.textMuted, lineHeight: 19 }}>
+          Pick a template to start with structured files and the right tools, or create a blank channel.
+        </Text>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        {shown.length === 0 && (
+          <View style={{ paddingVertical: 8 }}>
+            <Activity size={16} color={t.textDim} />
+          </View>
+        )}
+        {shown.map((tpl) => {
+          const integrationTags = (tpl.tags ?? []).filter((tag) => tag.startsWith("integration:"));
+          return (
+            <Link key={tpl.id} href={`/channels/new?templateId=${tpl.id}` as any} asChild>
+              <Pressable
+                className="border rounded-lg hover:border-accent/40 active:bg-surface-overlay cursor-pointer"
+                style={{
+                  padding: 14,
+                  borderColor: t.surfaceBorder,
+                  gap: 4,
+                }}
+              >
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <FileText size={16} color={t.accent} />
+                  <Text style={{ fontSize: 14, fontWeight: "600", color: t.text, flex: 1 }} numberOfLines={1}>
+                    {tpl.name}
+                  </Text>
+                  {integrationTags.length > 0 && (
+                    <View style={{ flexDirection: "row", gap: 4 }}>
+                      {integrationTags.slice(0, 2).map((tag) => (
+                        <View
+                          key={tag}
+                          style={{
+                            backgroundColor: t.success + "15",
+                            paddingHorizontal: 6,
+                            paddingVertical: 1,
+                            borderRadius: 3,
+                          }}
+                        >
+                          <Text style={{ fontSize: 10, color: t.success, fontWeight: "500" }}>
+                            {prettyIntegrationName(tag.replace("integration:", ""))}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  <ChevronRight size={14} color={t.textDim} />
+                </View>
+                {tpl.description && (
+                  <Text style={{ fontSize: 12, color: t.textMuted, marginLeft: 24 }} numberOfLines={1}>
+                    {tpl.description}
+                  </Text>
+                )}
+              </Pressable>
+            </Link>
+          );
+        })}
+
+        {/* Blank channel option */}
+        <Link href={"/channels/new" as any} asChild>
+          <Pressable
+            className="border rounded-lg hover:border-accent/40 active:bg-surface-overlay cursor-pointer"
+            style={{
+              padding: 14,
+              borderColor: t.surfaceBorder,
+              borderStyle: "dashed" as any,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <Plus size={16} color={t.textDim} />
+            <Text style={{ fontSize: 14, color: t.textMuted, flex: 1 }}>
+              Start from scratch
+            </Text>
+            <ChevronRight size={14} color={t.textDim} />
+          </Pressable>
+        </Link>
+      </View>
+    </View>
   );
 }
 
@@ -92,7 +202,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const ensureOrchestrator = useEnsureOrchestrator();
-  const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
+  const botMap = useMemo(() => new Map(bots?.map((b) => [b.id, b]) ?? []), [bots]);
+
+  const { data: templates } = usePromptTemplates(undefined, "workspace_schema");
 
   // Separate orchestrator channel from the rest, pin it at top
   const orchestratorChannel = channels?.find(isOrchestratorChannel);
@@ -210,17 +322,9 @@ export default function HomeScreen() {
           <View className="items-center py-12">
             <Activity size={24} color={t.textDim} className="animate-spin" />
           </View>
-        ) : !hasChannels ? (
-          <View className="items-center py-16 gap-3">
-            <Hash size={36} color={t.textDim} />
-            <Text className="text-text-muted text-base">
-              No channels yet
-            </Text>
-            <Text className="text-text-dim text-sm">
-              Create a channel to get started
-            </Text>
-          </View>
-        ) : otherChannels.length > 0 ? (
+        ) : !hasChannels || otherChannels.length === 0 ? (
+          <OnboardingCards templates={templates ?? []} t={t} />
+        ) : (
           <View className="gap-1">
             <Text style={{ fontSize: 13, fontWeight: "600", color: t.textDim, letterSpacing: 0.5, marginBottom: 4 }}>
               CHANNELS
@@ -235,7 +339,7 @@ export default function HomeScreen() {
               />
             ))}
           </View>
-        ) : null}
+        )}
         </View>
       </RefreshableScrollView>
     </View>

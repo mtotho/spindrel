@@ -245,6 +245,8 @@ async def admin_trace_detail(
     time_range_start = merged[0]["created_at"] if merged else None
     time_range_end = merged[-1]["created_at"] if merged else None
 
+    from app.services.secret_registry import redact as _redact_secrets
+
     events: list[TraceEventOut] = []
     for item in merged:
         obj = item["obj"]
@@ -254,8 +256,8 @@ async def admin_trace_detail(
                 tool_name=obj.tool_name,
                 tool_type=obj.tool_type,
                 arguments=obj.arguments,
-                result=obj.result,
-                error=obj.error,
+                result=_redact_secrets(obj.result) if obj.result else obj.result,
+                error=_redact_secrets(obj.error) if obj.error else obj.error,
                 duration_ms=obj.duration_ms,
                 created_at=obj.created_at.isoformat() if obj.created_at else None,
             ))
@@ -281,6 +283,9 @@ async def admin_trace_detail(
                         ) or "[multimodal]"
                 except Exception:
                     pass
+            # Redact known secrets from message content in traces
+            from app.services.secret_registry import redact as _redact_secrets
+            content = _redact_secrets(content)
             events.append(TraceEventOut(
                 kind="message",
                 role=obj.role,

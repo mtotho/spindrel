@@ -1,34 +1,47 @@
 /**
  * App shell — sidebar + main content area.
  *
- * Designed for extensibility: the sidebar nav is data-driven so future
- * sub-modules (per-user homepages, per-bot dashboards, project pages)
- * can register their own nav items via the NAV_ITEMS array.
+ * When embedded inside the main app's iframe, the sidebar is hidden
+ * because the parent app's sidebar handles navigation.
  */
 
 import { useState, useMemo } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import {
+  LayoutDashboard,
+  BookOpen,
+  Clock,
+  Brain,
+  ListChecks,
+  Settings,
+  Wrench,
+  LayoutGrid,
+} from "lucide-react";
 import { useOverview } from "../hooks/useOverview";
 import { isEmbedded } from "../lib/auth-bridge";
+import { channelColor } from "../lib/colors";
 import type { ChannelSummary } from "../lib/types";
+import type { LucideIcon } from "lucide-react";
 
 interface NavItem {
   label: string;
   to: string;
-  icon: string;
-  /** Optional: only show if this returns true */
-  show?: () => boolean;
+  Icon: LucideIcon;
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Overview", to: "/", icon: "◈" },
-  { label: "Activity", to: "/activity", icon: "◉" },
-  // Future sub-module routes:
-  // { label: "My Board", to: "/users/me", icon: "◎" },
-  // { label: "Projects", to: "/projects", icon: "◆" },
+  { label: "Overview", to: "/", Icon: LayoutDashboard },
+  { label: "Kanban", to: "/kanban", Icon: LayoutGrid },
+  { label: "Journal", to: "/journal", Icon: BookOpen },
+  { label: "Timeline", to: "/timeline", Icon: Clock },
+  { label: "Memory", to: "/memory", Icon: Brain },
+  { label: "Plans", to: "/plans", Icon: ListChecks },
+  { label: "Settings", to: "/settings", Icon: Settings },
+  { label: "Setup", to: "/setup", Icon: Wrench },
 ];
 
 function SidebarLink({ item }: { item: NavItem }) {
+  const { Icon } = item;
   return (
     <NavLink
       to={item.to}
@@ -41,7 +54,7 @@ function SidebarLink({ item }: { item: NavItem }) {
         }`
       }
     >
-      <span className="text-base">{item.icon}</span>
+      <Icon size={16} className="flex-shrink-0" />
       {item.label}
     </NavLink>
   );
@@ -49,10 +62,7 @@ function SidebarLink({ item }: { item: NavItem }) {
 
 export default function Shell() {
   const embedded = isEmbedded();
-  const visibleItems = NAV_ITEMS.filter((item) => !item.show || item.show());
 
-  // When embedded in the main app's iframe, hide the sidebar chrome —
-  // the parent app's sidebar handles navigation.
   if (embedded) {
     return (
       <div className="h-screen overflow-y-auto">
@@ -63,21 +73,17 @@ export default function Shell() {
 
   return (
     <div className="flex h-screen">
-      {/* Sidebar */}
       <aside className="w-56 flex-shrink-0 bg-surface-1 border-r border-surface-3 flex flex-col">
         <div className="p-4 border-b border-surface-3">
-          <h1 className="text-lg font-semibold text-gray-100">
-            Mission Control
-          </h1>
+          <h1 className="text-lg font-semibold text-gray-100">Mission Control</h1>
           <p className="text-xs text-gray-500 mt-0.5">Agent Dashboard</p>
         </div>
 
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {visibleItems.map((item) => (
+          {NAV_ITEMS.map((item) => (
             <SidebarLink key={item.to} item={item} />
           ))}
 
-          {/* Channels section */}
           <div className="mt-4 pt-3 border-t border-surface-3">
             <p className="px-3 text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
               Channels
@@ -87,11 +93,10 @@ export default function Shell() {
         </nav>
 
         <div className="p-3 border-t border-surface-3">
-          <p className="text-xs text-gray-600 text-center">v0.1.0</p>
+          <p className="text-xs text-gray-600 text-center">v0.2.0</p>
         </div>
       </aside>
 
-      {/* Main content */}
       <main className="flex-1 overflow-y-auto">
         <Outlet />
       </main>
@@ -101,7 +106,6 @@ export default function Shell() {
 
 const INITIAL_SHOW = 10;
 
-/** Sidebar channel list with search and "show more". */
 function ChannelNavList() {
   const { data } = useOverview();
   const [search, setSearch] = useState("");
@@ -113,11 +117,7 @@ function ChannelNavList() {
   }, [data]);
 
   if (allChannels.length === 0) {
-    return (
-      <p className="px-3 text-xs text-gray-600">
-        No workspace channels yet.
-      </p>
-    );
+    return <p className="px-3 text-xs text-gray-600">No workspace channels yet.</p>;
   }
 
   const filtered = search
@@ -132,7 +132,6 @@ function ChannelNavList() {
 
   return (
     <div className="space-y-1">
-      {/* Search — only show if enough channels to warrant it */}
       {allChannels.length > 5 && (
         <input
           type="text"
@@ -150,13 +149,17 @@ function ChannelNavList() {
             to={`/channels/${ch.id}`}
             title={ch.name || ch.id}
             className={({ isActive }) =>
-              `block px-3 py-1.5 rounded text-sm truncate transition-colors ${
+              `flex items-center gap-2 px-3 py-1.5 rounded text-sm truncate transition-colors ${
                 isActive
                   ? "bg-accent/15 text-accent-hover"
                   : "text-gray-400 hover:text-gray-200 hover:bg-surface-3"
               }`
             }
           >
+            <span
+              className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: channelColor(ch.id) }}
+            />
             {ch.name || ch.id.slice(0, 8)}
           </NavLink>
         ))}

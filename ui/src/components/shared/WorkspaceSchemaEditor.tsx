@@ -1,16 +1,25 @@
 import { useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
-import { FileText, Pencil, RotateCcw, Save, BookTemplate, X, Sparkles } from "lucide-react";
+import { FileText, File, Pencil, RotateCcw, Save, BookTemplate, X, Sparkles, Plug } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
+import { prettyIntegrationName } from "../../utils/format";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
 import { PromptTemplateLink } from "./PromptTemplateLink";
 import { SaveAsTemplateModal } from "./SaveAsTemplateModal";
 
-function getIntegrationLabel(sourcePath?: string | null): string | null {
+/** Extract workspace file names from template content (e.g., `**repos.md**`). */
+function parseFiles(content: string): string[] {
+  const matches = content.match(/\*\*(\w[\w-]*\.md)\*\*/g);
+  if (!matches) return [];
+  return matches
+    .map((m) => m.replace(/\*\*/g, ""))
+    .filter((f) => f !== "notes.md");
+}
+
+function getIntegrationSlug(sourcePath?: string | null): string | null {
   if (!sourcePath) return null;
   const match = sourcePath.match(/integrations\/([^/]+)\//);
-  if (!match) return null;
-  return match[1].replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return match?.[1] ?? null;
 }
 
 interface Props {
@@ -102,7 +111,7 @@ export function WorkspaceSchemaEditor({
         {suggested.length > 0 && (
           <View style={{ marginBottom: 8 }}>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 }}>
-              <Sparkles size={12} color="#22c55e" />
+              <Sparkles size={12} color={t.success} />
               <Text style={{ fontSize: 11, fontWeight: "600", color: t.textDim }}>
                 {activeIntegrationName
                   ? `Compatible with ${activeIntegrationName}`
@@ -111,65 +120,91 @@ export function WorkspaceSchemaEditor({
             </View>
             <View style={{ gap: 6 }}>
               {suggested.map((tpl) => {
-                const provenance = getIntegrationLabel(tpl.source_path);
+                const slug = getIntegrationSlug(tpl.source_path);
+                const files = parseFiles(tpl.content);
                 return (
                   <Pressable
                     key={tpl.id}
                     onPress={() => handleTemplateLink(tpl.id)}
                     style={{
                       borderWidth: 1,
-                      borderColor: t.surfaceBorder,
+                      borderColor: t.success + "40",
                       borderLeftWidth: 3,
-                      borderLeftColor: "#22c55e",
+                      borderLeftColor: t.success,
                       borderRadius: 6,
                       padding: 10,
-                      backgroundColor: t.surfaceOverlay,
+                      backgroundColor: t.success + "06",
                     }}
                   >
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <FileText size={14} color={t.success} />
                       <Text style={{ fontSize: 12, fontWeight: "600", color: t.text, flex: 1 }}>
                         {tpl.name}
                       </Text>
                       {activeIntegrationName && (
-                        <Text
-                          style={{
-                            fontSize: 9,
-                            fontWeight: "700",
-                            textTransform: "uppercase",
-                            letterSpacing: 0.5,
-                            paddingHorizontal: 5,
-                            paddingVertical: 1,
-                            borderRadius: 3,
-                            backgroundColor: "rgba(34,197,94,0.12)",
-                            color: "#22c55e",
-                          }}
-                        >
-                          {activeIntegrationName}
-                        </Text>
+                        <View style={{
+                          backgroundColor: t.success + "18",
+                          paddingHorizontal: 6,
+                          paddingVertical: 2,
+                          borderRadius: 3,
+                        }}>
+                          <Text style={{ fontSize: 9, fontWeight: "600", color: t.success }}>
+                            Recommended
+                          </Text>
+                        </View>
                       )}
                     </View>
                     {tpl.description && (
                       <Text
                         numberOfLines={2}
-                        style={{ fontSize: 11, color: t.textDim, marginTop: 2, lineHeight: 16 }}
+                        style={{ fontSize: 11, color: t.textMuted, marginTop: 3, lineHeight: 16 }}
                       >
                         {tpl.description}
                       </Text>
                     )}
-                    {provenance && (
-                      <Text
-                        style={{
-                          fontSize: 9,
-                          fontWeight: "700",
-                          color: t.textDim,
-                          textTransform: "uppercase",
-                          letterSpacing: 0.5,
-                          marginTop: 4,
-                          textAlign: "right",
-                        }}
-                      >
-                        {provenance}
-                      </Text>
+                    {/* File preview chips + provenance */}
+                    {(files.length > 0 || slug) && (
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                        {files.slice(0, 4).map((f) => (
+                          <View
+                            key={f}
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 3,
+                              backgroundColor: t.surfaceOverlay,
+                              paddingHorizontal: 5,
+                              paddingVertical: 2,
+                              borderRadius: 3,
+                            }}
+                          >
+                            <File size={8} color={t.textDim} />
+                            <Text style={{ fontSize: 9, color: t.textDim }}>{f.replace(".md", "")}</Text>
+                          </View>
+                        ))}
+                        {files.length > 4 && (
+                          <Text style={{ fontSize: 9, color: t.textDim, alignSelf: "center" }}>
+                            +{files.length - 4}
+                          </Text>
+                        )}
+                        {slug && (
+                          <View style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 3,
+                            backgroundColor: t.success + "12",
+                            paddingHorizontal: 5,
+                            paddingVertical: 2,
+                            borderRadius: 3,
+                            marginLeft: "auto",
+                          }}>
+                            <Plug size={8} color={t.success} />
+                            <Text style={{ fontSize: 9, color: t.success, fontWeight: "500" }}>
+                              {prettyIntegrationName(slug)}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                     )}
                   </Pressable>
                 );
@@ -215,7 +250,7 @@ export function WorkspaceSchemaEditor({
       {hasTemplate && activeIntegrationName && highlightTag && (
         linkedTemplate.tags?.includes(highlightTag) ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
-            <Text style={{ fontSize: 10, color: "#22c55e", fontWeight: "600" }}>
+            <Text style={{ fontSize: 10, color: t.success, fontWeight: "600" }}>
               {"✓"} Compatible with {activeIntegrationName}
             </Text>
           </View>
@@ -234,6 +269,38 @@ export function WorkspaceSchemaEditor({
           {linkedTemplate.description}
         </Text>
       )}
+
+      {/* File preview chips for linked template */}
+      {hasTemplate && !hasOverride && (() => {
+        const files = parseFiles(linkedTemplate.content);
+        if (files.length === 0) return null;
+        return (
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+            {files.slice(0, 5).map((f) => (
+              <View
+                key={f}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 3,
+                  backgroundColor: t.surfaceOverlay,
+                  paddingHorizontal: 5,
+                  paddingVertical: 2,
+                  borderRadius: 3,
+                }}
+              >
+                <File size={8} color={t.textDim} />
+                <Text style={{ fontSize: 9, color: t.textDim }}>{f.replace(".md", "")}</Text>
+              </View>
+            ))}
+            {files.length > 5 && (
+              <Text style={{ fontSize: 9, color: t.textDim, alignSelf: "center" }}>
+                +{files.length - 5} more
+              </Text>
+            )}
+          </View>
+        );
+      })()}
 
       {hasOverride && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2, marginBottom: 4 }}>

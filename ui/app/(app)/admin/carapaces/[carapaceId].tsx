@@ -141,7 +141,7 @@ export default function CarapaceDetailPage() {
   const textareaStyle = makeTextareaStyle(t, isFileBased);
 
   return (
-    <div style={{ overflow: "auto", flex: 1 }}>
+    <div style={{ overflow: "auto", flex: 1, background: t.surface }}>
       <MobileHeader title={isNew ? "New Carapace" : draft.name || "Carapace"} />
       <div style={{ padding: 16, maxWidth: 720 }}>
         {/* Top actions */}

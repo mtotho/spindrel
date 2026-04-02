@@ -2,12 +2,13 @@ import { useState, useRef } from "react";
 import { Link2, Unlink, Pencil } from "lucide-react";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
 import { useThemeTokens } from "../../theme/tokens";
+import { prettyIntegrationName } from "../../utils/format";
 
 function getIntegrationLabel(sourcePath?: string | null): string | null {
   if (!sourcePath) return null;
   const match = sourcePath.match(/integrations\/([^/]+)\//);
   if (!match) return null;
-  return match[1].replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return prettyIntegrationName(match[1]);
 }
 
 interface Props {

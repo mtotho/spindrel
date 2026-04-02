@@ -4,13 +4,15 @@ Metadata (registered at import):
   - user_attribution, resolve_display_names, client_id_prefix
 
 Lifecycle hooks:
-  - after_tool_call: Unicode emoji reactions
+  - after_tool_call: Unicode emoji reactions + audit channel logging
   - after_response: remove working reaction, add checkmark
 """
 from __future__ import annotations
 
+import json
 import logging
 import time as _time
+from pathlib import Path
 
 import httpx
 
@@ -216,6 +218,58 @@ async def _on_after_response(ctx: HookContext, **kwargs) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Lifecycle hooks: Audit channel logging
+# ---------------------------------------------------------------------------
+
+_STATE_FILE = Path(__file__).parent / "discord_state.json"
+_audit_channel_cache: tuple[str | None, float] = (None, 0.0)
+_AUDIT_CACHE_TTL = 30.0  # re-read file every 30s
+
+
+def _get_audit_channel() -> str | None:
+    """Read audit_channel from discord_state.json. Cached with TTL."""
+    global _audit_channel_cache
+    now = _time.monotonic()
+    if now - _audit_channel_cache[1] < _AUDIT_CACHE_TTL:
+        return _audit_channel_cache[0]
+    try:
+        data = json.loads(_STATE_FILE.read_text())
+        val = data.get("__settings__", {}).get("audit_channel")
+    except Exception:
+        val = None
+    _audit_channel_cache = (val, now)
+    return val
+
+
+async def _on_audit_tool_call(ctx: HookContext, **kwargs) -> None:
+    """Post tool usage to the configured audit Discord channel."""
+    audit_channel = _get_audit_channel()
+    if not audit_channel:
+        return
+    # Get token from dispatch context or env
+    _, _, token = _get_discord_ref()
+    if not token:
+        import os
+        token = os.environ.get("DISCORD_TOKEN", "")
+    if not token:
+        return
+
+    tool = ctx.extra.get("tool_name", "?")
+    ms = ctx.extra.get("duration_ms") or 0
+    bot = ctx.bot_id or "?"
+    text = f"`{tool}` by `{bot}` ({ms}ms)"
+
+    try:
+        await _react_http.post(
+            f"https://discord.com/api/v10/channels/{audit_channel}/messages",
+            json={"content": text},
+            headers={"Authorization": f"Bot {token}"},
+        )
+    except Exception:
+        logger.debug("Audit post failed", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
 # Register at import time
 # ---------------------------------------------------------------------------
 
@@ -227,4 +281,5 @@ register_integration(IntegrationMeta(
 ))
 
 register_hook("after_tool_call", _on_after_tool_call)
+register_hook("after_tool_call", _on_audit_tool_call)
 register_hook("after_response", _on_after_response)

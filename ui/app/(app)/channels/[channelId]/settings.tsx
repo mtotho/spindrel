@@ -16,8 +16,7 @@ import {
   useActivatableIntegrations,
 } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
-import { TabBar } from "@/src/components/shared/FormControls";
-import { useQueryClient } from "@tanstack/react-query";
+import { prettyIntegrationName } from "@/src/utils/format";
 import type { ChannelSettings } from "@/src/types/api";
 
 // Tab components
@@ -64,7 +63,6 @@ export default function ChannelSettingsScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const insets = useSafeAreaInsets();
   const goBack = useGoBack(`/channels/${channelId}`);
-  const queryClient = useQueryClient();
   const { refreshing, onRefresh } = usePageRefresh();
   const { data: channel } = useChannel(channelId);
   const { data: settings, isLoading } = useChannelSettings(channelId);
@@ -86,14 +84,21 @@ export default function ChannelSettingsScreen() {
 
   const isAdvancedTab = ADVANCED_KEYS.has(tab);
 
-  // Close "More" dropdown on click-outside
+  // Close "More" dropdown on click-outside or Escape
   useEffect(() => {
     if (!moreOpen) return;
-    const handler = (e: MouseEvent) => {
+    const handleClick = (e: MouseEvent) => {
       if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMoreOpen(false);
+    };
+    document.addEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
   }, [moreOpen]);
 
   useEffect(() => {
@@ -149,9 +154,13 @@ export default function ChannelSettingsScreen() {
   );
 
   const handleSave = useCallback(async () => {
-    await updateMutation.mutateAsync(form);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    try {
+      await updateMutation.mutateAsync(form);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch {
+      // Error state handled by updateMutation.isError
+    }
   }, [form, updateMutation]);
 
   if (isLoading || !settings) {
@@ -199,7 +208,7 @@ export default function ChannelSettingsScreen() {
                 <View key={ig.integration_type} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
                   <Zap size={10} color={t.success} fill={t.success} />
                   <Text style={{ fontSize: 11, color: t.success }}>
-                    {ig.integration_type.replace(/_/g, " ")}
+                    {prettyIntegrationName(ig.integration_type)}
                   </Text>
                 </View>
               ))}
@@ -217,7 +226,7 @@ export default function ChannelSettingsScreen() {
                 paddingHorizontal: 12,
                 minHeight: 36,
                 borderRadius: 8,
-                backgroundColor: saved ? t.successSubtle : t.accent,
+                backgroundColor: saved ? t.successSubtle : updateMutation.isError ? "#ef4444" : t.accent,
                 flexShrink: 0,
               }}
             >
@@ -226,6 +235,10 @@ export default function ChannelSettingsScreen() {
                   <Check size={14} color={t.success} />
                   <Text style={{ color: t.success, fontSize: 12, fontWeight: "600" }}>Saved</Text>
                 </>
+              ) : updateMutation.isError ? (
+                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
+                  Retry
+                </Text>
               ) : (
                 <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
                   {updateMutation.isPending ? "..." : "Save"}
@@ -238,49 +251,53 @@ export default function ChannelSettingsScreen() {
 
       {/* Tabs — single row with overflow dropdown for advanced */}
       <View style={{ flexShrink: 0 }} className="px-3 pt-2 pb-1">
-        <div
-          style={{
-            display: "flex",
-            gap: 4,
-            overflowX: "auto",
-            WebkitOverflowScrolling: "touch",
-            scrollbarWidth: "none",
-            paddingBottom: 4,
-            paddingRight: 24,
-            scrollSnapType: "x mandatory",
-          }}
-          className="hide-scrollbar"
-        >
-          {PRIMARY_TABS.map((tb) => {
-            const isActive = tb.key === tab;
-            return (
-              <button
-                key={tb.key}
-                onClick={() => setTab(tb.key)}
-                style={{
-                  padding: "6px 10px",
-                  fontSize: 12,
-                  fontWeight: isActive ? 600 : 500,
-                  border: "1px solid",
-                  borderColor: isActive ? t.accent : t.surfaceBorder,
-                  borderRadius: 6,
-                  background: isActive ? t.accent : "transparent",
-                  color: isActive ? "#fff" : t.textMuted,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  transition: "all 0.15s",
-                  flexShrink: 0,
-                  scrollSnapAlign: "start",
-                  minHeight: 36,
-                }}
-              >
-                {tb.label}
-              </button>
-            );
-          })}
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {/* Scrollable primary tabs */}
+          <div
+            style={{
+              display: "flex",
+              gap: 4,
+              overflowX: "auto",
+              WebkitOverflowScrolling: "touch",
+              scrollbarWidth: "none",
+              paddingBottom: 4,
+              scrollSnapType: "x mandatory",
+              flex: 1,
+              minWidth: 0,
+            }}
+            className="hide-scrollbar"
+          >
+            {PRIMARY_TABS.map((tb) => {
+              const isActive = tb.key === tab;
+              return (
+                <button
+                  key={tb.key}
+                  onClick={() => setTab(tb.key)}
+                  style={{
+                    padding: "6px 10px",
+                    fontSize: 12,
+                    fontWeight: isActive ? 600 : 500,
+                    border: "1px solid",
+                    borderColor: isActive ? t.accent : t.surfaceBorder,
+                    borderRadius: 6,
+                    background: isActive ? t.accent : "transparent",
+                    color: isActive ? "#fff" : t.textMuted,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    transition: "all 0.15s",
+                    flexShrink: 0,
+                    scrollSnapAlign: "start",
+                    minHeight: 36,
+                  }}
+                >
+                  {tb.label}
+                </button>
+              );
+            })}
+          </div>
 
-          {/* "More" dropdown for advanced tabs */}
-          <div ref={moreRef as any} style={{ position: "relative", flexShrink: 0 }}>
+          {/* "More" dropdown — outside scroll container so it isn't clipped */}
+          <div ref={moreRef as any} style={{ position: "relative", flexShrink: 0, paddingBottom: 4 }}>
             <button
               onClick={() => setMoreOpen((v) => !v)}
               style={{
@@ -313,7 +330,7 @@ export default function ChannelSettingsScreen() {
                 style={{
                   position: "absolute",
                   top: "calc(100% + 4px)",
-                  left: 0,
+                  right: 0,
                   zIndex: 50,
                   background: t.surfaceOverlay,
                   border: `1px solid ${t.surfaceBorder}`,

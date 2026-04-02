@@ -31,13 +31,30 @@ _built = False
 # ---------------------------------------------------------------------------
 
 _SECRET_PATTERNS: list[tuple[str, re.Pattern]] = [
+    # OpenAI
     ("OpenAI API key", re.compile(r"sk-[A-Za-z0-9]{20,}")),
     ("OpenAI project key", re.compile(r"sk-proj-[A-Za-z0-9_-]{20,}")),
+    # Anthropic
     ("Anthropic API key", re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}")),
+    # Stripe
+    ("Stripe live key", re.compile(r"sk_live_[A-Za-z0-9]{20,}")),
+    ("Stripe test key", re.compile(r"sk_test_[A-Za-z0-9]{20,}")),
+    ("Stripe restricted key", re.compile(r"rk_live_[A-Za-z0-9]{20,}")),
+    ("Stripe publishable key", re.compile(r"pk_live_[A-Za-z0-9]{20,}")),
+    # GitHub
     ("GitHub token", re.compile(r"gh[pso]_[A-Za-z0-9]{20,}")),
     ("GitHub fine-grained token", re.compile(r"github_pat_[A-Za-z0-9_]{20,}")),
+    # Slack
     ("Slack token", re.compile(r"xox[bpas]-[A-Za-z0-9-]+")),
+    # AWS
     ("AWS access key", re.compile(r"AKIA[0-9A-Z]{16}")),
+    # SendGrid
+    ("SendGrid API key", re.compile(r"SG\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}")),
+    # Twilio
+    ("Twilio API key", re.compile(r"SK[0-9a-f]{32}")),
+    # Google
+    ("Google API key", re.compile(r"AIza[A-Za-z0-9_-]{35}")),
+    # Generic
     ("Generic token prefix", re.compile(r"token_[A-Za-z0-9]{16,}")),
     ("JWT", re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+")),
     ("Private key header", re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")),
@@ -212,6 +229,39 @@ def check_user_input(text: str) -> dict[str, Any] | None:
         "exact_matches": exact_count,
         "pattern_matches": pattern_matches,
     }
+
+
+def extract_pattern_values(text: str) -> list[str]:
+    """Extract full matched secret values from text (for registration, not display)."""
+    values: list[str] = []
+    seen: set[str] = set()
+    for _label, pat in _SECRET_PATTERNS:
+        for m in pat.finditer(text):
+            val = m.group()
+            if val not in seen and len(val) >= MIN_SECRET_LENGTH:
+                seen.add(val)
+                values.append(val)
+    return values
+
+
+def register_runtime_secrets(values: list[str]) -> int:
+    """Register secrets detected at runtime (e.g., from user input).
+
+    Adds values to the known-secret set and rebuilds the regex pattern.
+    Returns the number of newly added secrets.
+    """
+    global _pattern, _known_secrets
+    if not is_enabled():
+        return 0
+    added = 0
+    for val in values:
+        if val and len(val) >= MIN_SECRET_LENGTH and val not in _known_secrets:
+            _known_secrets.add(val)
+            added += 1
+    if added:
+        _pattern = _build_pattern(_known_secrets)
+        logger.info("Registered %d runtime secret(s) from user input", added)
+    return added
 
 
 def is_enabled() -> bool:

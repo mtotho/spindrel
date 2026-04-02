@@ -5,6 +5,7 @@ integrations/__init__.py can auto-discover it alongside router.py.
 """
 from __future__ import annotations
 
+import base64
 import json as _json
 import logging
 
@@ -13,6 +14,23 @@ from integrations.discord.client import bot_attribution, post_message, edit_mess
 from integrations.discord.formatting import format_response_for_discord, split_for_discord
 
 logger = logging.getLogger(__name__)
+
+
+async def _upload_client_actions(token: str, channel_id: str, actions: list[dict] | None) -> None:
+    """Upload images/files from client_actions to a Discord channel."""
+    for action in (actions or []):
+        if action.get("type") not in ("upload_image", "upload_file"):
+            continue
+        raw = action.get("data")
+        if not raw:
+            continue
+        try:
+            img_bytes = base64.b64decode(raw)
+        except Exception:
+            continue
+        filename = action.get("filename") or "generated.png"
+        caption = action.get("caption")
+        await upload_file(token, channel_id, img_bytes, filename, content=caption)
 
 
 class DiscordDispatcher:
@@ -80,23 +98,7 @@ class DiscordDispatcher:
             extra_metadata=extra_metadata,
         )
 
-        # Upload any images generated during the task
-        import base64
-        for action in (client_actions or []):
-            if action.get("type") in ("upload_image", "upload_file"):
-                raw = action.get("data")
-                if not raw:
-                    continue
-                try:
-                    img_bytes = base64.b64decode(raw)
-                except Exception:
-                    continue
-                filename = action.get("filename") or "generated.png"
-                caption = action.get("caption")
-                await upload_file(
-                    token, channel_id, img_bytes, filename,
-                    content=caption,
-                )
+        await _upload_client_actions(token, channel_id, client_actions)
 
     async def post_message(self, dispatch_config: dict, text: str, *,
                            bot_id: str | None = None, reply_in_thread: bool = True,
@@ -120,24 +122,8 @@ class DiscordDispatcher:
                 ok = False
                 break
 
-        # Upload any images
         if ok and client_actions:
-            import base64
-            for action in client_actions:
-                if action.get("type") in ("upload_image", "upload_file"):
-                    raw = action.get("data")
-                    if not raw:
-                        continue
-                    try:
-                        img_bytes = base64.b64decode(raw)
-                    except Exception:
-                        continue
-                    filename = action.get("filename") or "generated.png"
-                    caption = action.get("caption")
-                    await upload_file(
-                        token, channel_id, img_bytes, filename,
-                        content=caption,
-                    )
+            await _upload_client_actions(token, channel_id, client_actions)
 
         return ok
 

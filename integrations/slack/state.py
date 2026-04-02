@@ -1,5 +1,6 @@
 """Per-channel bot preferences persisted to slack_state.json."""
 import json
+import tempfile
 from pathlib import Path
 
 from slack_settings import STATE_PATH, _get_channel_map, _get_default_bot
@@ -22,7 +23,15 @@ def _load_state() -> None:
 
 def _save_state() -> None:
     try:
-        Path(STATE_PATH).write_text(json.dumps(_channel_state, indent=2))
+        path = Path(STATE_PATH)
+        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+        try:
+            with open(fd, "w") as f:
+                json.dump(_channel_state, f, indent=2)
+            Path(tmp).replace(path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
     except OSError:
         pass
 

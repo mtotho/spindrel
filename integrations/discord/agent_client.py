@@ -257,6 +257,20 @@ async def update_channel_settings(channel_id: str, updates: dict) -> dict:
     return r.json()
 
 
+async def fetch_server_health() -> dict:
+    """Fetch server-side health from /api/v1/admin/health."""
+    try:
+        r = await http.get(
+            f"{AGENT_BASE_URL}/api/v1/admin/health",
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return {"healthy": False, "issues": [f"Server unreachable: {e}"]}
+
+
 async def stream_chat(
     *,
     message: str,

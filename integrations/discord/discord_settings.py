@@ -35,8 +35,8 @@ _config_cache_ts: float = 0.0
 _CONFIG_TTL = 60.0
 
 
-def _fetch_discord_config() -> dict:
-    """Synchronously fetch Discord config from agent server API."""
+def _fetch_discord_config_sync() -> dict:
+    """Synchronously fetch Discord config — only used as cold-start fallback."""
     url = f"{AGENT_BASE_URL}/integrations/discord/config"
     headers = {}
     if API_KEY:
@@ -49,22 +49,48 @@ def _fetch_discord_config() -> dict:
         return {}
 
 
+async def _fetch_discord_config_async() -> dict:
+    """Async fetch — avoids blocking the event loop."""
+    url = f"{AGENT_BASE_URL}/integrations/discord/config"
+    headers = {}
+    if API_KEY:
+        headers["X-API-Key"] = API_KEY
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(url, headers=headers)
+            r.raise_for_status()
+            return r.json()
+    except Exception:
+        return {}
+
+
+def _apply_fresh_config(fresh: dict) -> None:
+    """Store fetched config in cache, with YAML fallback on empty."""
+    global _config_cache, _config_cache_ts
+    if fresh:
+        _config_cache = fresh
+        _config_cache_ts = time.monotonic()
+    elif not _config_cache:
+        _config_cache = {
+            "default_bot": _yaml_default_bot,
+            "channels": _yaml_channel_map,
+        }
+        _config_cache_ts = time.monotonic()
+
+
+async def ensure_config_fresh() -> None:
+    """Call from async contexts to refresh config without blocking the event loop."""
+    now = time.monotonic()
+    if now - _config_cache_ts > _CONFIG_TTL:
+        _apply_fresh_config(await _fetch_discord_config_async())
+
+
 def get_discord_config() -> dict:
-    """Return cached Discord config, refreshing if TTL expired."""
+    """Return cached Discord config, falling back to sync fetch if cache is cold."""
     global _config_cache, _config_cache_ts
     now = time.monotonic()
     if now - _config_cache_ts > _CONFIG_TTL:
-        fresh = _fetch_discord_config()
-        if fresh:
-            _config_cache = fresh
-            _config_cache_ts = now
-        elif not _config_cache:
-            # First call failed — use YAML fallback
-            _config_cache = {
-                "default_bot": _yaml_default_bot,
-                "channels": _yaml_channel_map,
-            }
-            _config_cache_ts = now
+        _apply_fresh_config(_fetch_discord_config_sync())
     return _config_cache
 
 

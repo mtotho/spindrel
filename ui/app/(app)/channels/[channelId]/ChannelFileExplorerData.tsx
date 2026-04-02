@@ -1,8 +1,8 @@
 /**
- * Data section components for the channel file explorer sidebar.
- * Extracted from ChannelFileExplorer.tsx to keep files under 1000 lines.
+ * Shared types, helpers, and data-section components for ChannelFileExplorer.
+ * Extracted to keep individual files under 1000 lines.
  */
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
 import {
   Archive, Database, ChevronDown, ChevronRight,
@@ -17,7 +17,9 @@ import {
   useUploadChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
 
-// Re-export shared types so the main file can import from one place
+// ---------------------------------------------------------------------------
+// Shared types
+// ---------------------------------------------------------------------------
 export type WorkspaceFile = {
   name: string;
   path: string;
@@ -30,14 +32,15 @@ export type WorkspaceFile = {
 
 export type Section = "active" | "archive" | "data";
 
-/** Compute the new path when moving a file to a different section */
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 export function computeMovePath(file: WorkspaceFile, targetSection: Section): string {
   const filename = file.name;
   if (targetSection === "active") return filename;
   return `${targetSection}/${filename}`;
 }
 
-/** Format bytes as human-readable size */
 export function formatSize(bytes: number | null | undefined): string {
   if (bytes == null || isNaN(bytes)) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -46,17 +49,14 @@ export function formatSize(bytes: number | null | undefined): string {
   return `${Math.round(kb)} KB`;
 }
 
-/** Rough token estimate (~4 chars/token for English markdown) */
 export function estimateTokens(bytes: number): string {
   const tokens = Math.round(bytes / 4);
   if (tokens < 1000) return `~${tokens}`;
   return `~${(tokens / 1000).toFixed(1)}k`;
 }
 
-/** Get an appropriate icon for a file based on its extension and section */
 export function getFileIcon(name: string, section: string, color: string, accentColor: string) {
   if (section === "archive") return <Archive size={13} color={color} />;
-
   const ext = name.includes(".") ? name.substring(name.lastIndexOf(".")).toLowerCase() : "";
   switch (ext) {
     case ".md": case ".txt": case ".rst":
@@ -86,7 +86,7 @@ export function getFileIcon(name: string, section: string, color: string, accent
 }
 
 // ---------------------------------------------------------------------------
-// Context menu for file rows
+// Context menu
 // ---------------------------------------------------------------------------
 export function FileContextMenu({
   x,
@@ -116,23 +116,23 @@ export function FileContextMenu({
     return () => document.removeEventListener("mousedown", handler);
   }, [onClose]);
 
-  const items: { label: string; danger?: boolean; action: () => void }[] = [];
+  const basename = (n: string) => n.includes("/") ? n.substring(n.lastIndexOf("/") + 1) : n;
+  const items: { label: string; danger?: boolean; separator?: boolean; action: () => void }[] = [];
 
   items.push({ label: "Rename...", action: onRename });
-
   items.push({
     label: "Copy path",
     action: () => { navigator.clipboard?.writeText(file.path); onClose(); },
   });
 
-  // Move to section options
+  // Section moves
   if (file.section !== "active") {
     items.push({
       label: "Move to Active",
+      separator: true,
       action: () => {
-        const basename = file.name.includes("/") ? file.name.substring(file.name.lastIndexOf("/") + 1) : file.name;
-        if (confirm(`Move "${basename}" to Active?\n\nActive files are injected into every request.`)) {
-          moveMutation.mutate({ old_path: file.path, new_path: basename });
+        if (confirm(`Move "${basename(file.name)}" to Active?\n\nActive files are injected into every request.`)) {
+          moveMutation.mutate({ old_path: file.path, new_path: basename(file.name) });
         }
         onClose();
       },
@@ -141,9 +141,9 @@ export function FileContextMenu({
   if (file.section !== "archive") {
     items.push({
       label: "Move to Archive",
+      separator: !items.some((i) => i.separator),
       action: () => {
-        const basename = file.name.includes("/") ? file.name.substring(file.name.lastIndexOf("/") + 1) : file.name;
-        moveMutation.mutate({ old_path: file.path, new_path: `archive/${basename}` });
+        moveMutation.mutate({ old_path: file.path, new_path: `archive/${basename(file.name)}` });
         onClose();
       },
     });
@@ -152,16 +152,15 @@ export function FileContextMenu({
     items.push({
       label: "Move to Data",
       action: () => {
-        const basename = file.name.includes("/") ? file.name.substring(file.name.lastIndexOf("/") + 1) : file.name;
-        moveMutation.mutate({ old_path: file.path, new_path: `data/${basename}` });
+        moveMutation.mutate({ old_path: file.path, new_path: `data/${basename(file.name)}` });
         onClose();
       },
     });
   }
 
-  // Download
   items.push({
     label: "Download",
+    separator: true,
     action: async () => {
       try {
         const { useAuthStore, getAuthToken } = await import("@/src/stores/auth");
@@ -173,7 +172,7 @@ export function FileContextMenu({
         const blob = new Blob([data.content], { type: "text/plain" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = file.name.includes("/") ? file.name.substring(file.name.lastIndexOf("/") + 1) : file.name;
+        a.download = basename(file.name);
         a.click();
         URL.revokeObjectURL(a.href);
       } catch { /* ignore */ }
@@ -184,9 +183,9 @@ export function FileContextMenu({
   items.push({
     label: "Delete",
     danger: true,
+    separator: true,
     action: () => {
-      const basename = file.name.includes("/") ? file.name.substring(file.name.lastIndexOf("/") + 1) : file.name;
-      if (confirm(`Delete ${basename}?`)) deleteMutation.mutate(file.path);
+      if (confirm(`Delete ${basename(file.name)}?`)) deleteMutation.mutate(file.path);
       onClose();
     },
   });
@@ -199,12 +198,12 @@ export function FileContextMenu({
         left: x,
         top: y,
         zIndex: 9999,
-        minWidth: 160,
+        minWidth: 170,
         background: t.surfaceRaised,
         border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: 6,
-        padding: "4px 0",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+        borderRadius: 4,
+        padding: "3px 0",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
       }}
     >
       {items.map((item, i) => (
@@ -212,14 +211,15 @@ export function FileContextMenu({
           key={i}
           onClick={item.action}
           style={{
-            padding: "6px 12px",
+            padding: "4px 12px",
             fontSize: 12,
             color: item.danger ? t.danger : t.text,
             cursor: "pointer",
-            borderTop: item.danger ? `1px solid ${t.surfaceBorder}` : undefined,
-            marginTop: item.danger ? 4 : 0,
+            borderTop: item.separator ? `1px solid ${t.surfaceBorder}` : undefined,
+            marginTop: item.separator ? 3 : 0,
+            paddingTop: item.separator ? 7 : 4,
           }}
-          onMouseEnter={(e) => { (e.target as HTMLDivElement).style.background = t.surfaceOverlay; }}
+          onMouseEnter={(e) => { (e.target as HTMLDivElement).style.background = t.accentSubtle; }}
           onMouseLeave={(e) => { (e.target as HTMLDivElement).style.background = "transparent"; }}
         >
           {item.label}
@@ -230,7 +230,7 @@ export function FileContextMenu({
 }
 
 // ---------------------------------------------------------------------------
-// Lazy-loading data folder row
+// Lazy-loading data folder row — compact VS Code style
 // ---------------------------------------------------------------------------
 export function DataFolderRow({
   folder,
@@ -238,6 +238,7 @@ export function DataFolderRow({
   activeFile,
   onSelectFile,
   FileRowComponent,
+  depth = 0,
 }: {
   folder: WorkspaceFile;
   channelId: string;
@@ -249,9 +250,11 @@ export function DataFolderRow({
     selected: boolean;
     onSelect: (path: string) => void;
   }>;
+  depth?: number;
 }) {
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const [osDragOver, setOsDragOver] = useState(false);
   const folderDragCounter = useRef(0);
   const [uploadStatus, setUploadStatus] = useState<{ current: number; total: number } | null>(null);
@@ -268,7 +271,6 @@ export function DataFolderRow({
     ? folder.name.substring(folder.name.lastIndexOf("/") + 1)
     : folder.name;
 
-  // OS file drop onto this folder
   const folderDropProps = Platform.OS === "web" ? {
     onDragOver: (e: any) => {
       e.preventDefault();
@@ -296,13 +298,9 @@ export function DataFolderRow({
       e.stopPropagation();
       folderDragCounter.current = 0;
       setOsDragOver(false);
-
-      // Only handle OS file drops, not internal file moves
       if (e.dataTransfer.types.includes("application/x-workspace-file")) return;
-
       const droppedFiles: File[] = Array.from(e.dataTransfer?.files ?? []);
       if (droppedFiles.length === 0) return;
-
       if (!open) setOpen(true);
       const targetDir = `data/${folder.name}`;
       setUploadStatus({ current: 0, total: droppedFiles.length });
@@ -318,45 +316,68 @@ export function DataFolderRow({
     },
   } : {};
 
+  const indent = 10 + depth * 12;
+
   return (
     <View {...folderDropProps as any}>
       <Pressable
         onPress={() => setOpen(!open)}
-        className="hover:bg-surface-overlay active:bg-surface-overlay"
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 6,
-          paddingVertical: 6,
-          paddingHorizontal: 10,
-          borderRadius: 5,
-          backgroundColor: osDragOver ? `${t.accent}18` : "transparent",
-          borderWidth: osDragOver ? 1 : 0,
-          borderColor: osDragOver ? t.accent : "transparent",
-          borderStyle: "dashed" as any,
-        }}
+          height: 22,
+          paddingLeft: indent,
+          paddingRight: 6,
+          gap: 4,
+          backgroundColor: osDragOver
+            ? `${t.accent}15`
+            : hovered
+              ? t.surfaceOverlay
+              : "transparent",
+          borderLeftWidth: osDragOver ? 2 : 0,
+          borderLeftColor: osDragOver ? t.accent : "transparent",
+          cursor: "pointer",
+        } as any}
       >
         {open
           ? <ChevronDown size={10} color={t.textDim} />
           : <ChevronRight size={10} color={t.textDim} />}
         <Folder size={13} color={osDragOver ? t.accent : t.textMuted} />
-        <Text style={{ flex: 1, color: osDragOver ? t.accent : t.text, fontSize: 12, fontWeight: "500" }} numberOfLines={1}>
+        <Text
+          style={{
+            flex: 1,
+            color: osDragOver ? t.accent : t.text,
+            fontSize: 12,
+            fontWeight: "400",
+            lineHeight: 22,
+          }}
+          numberOfLines={1}
+        >
           {basename}
         </Text>
         {uploadStatus ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <ActivityIndicator color={t.accent} size="small" />
-            <Text style={{ color: t.textMuted, fontSize: 10 }}>{uploadStatus.current}/{uploadStatus.total}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+            <ActivityIndicator color={t.accent} size={10 as any} />
+            <Text style={{ color: t.textDim, fontSize: 9 }}>{uploadStatus.current}/{uploadStatus.total}</Text>
           </View>
         ) : folder.count != null ? (
-          <Text style={{ color: t.textDim, fontSize: 10 }}>
-            {folder.count}
-          </Text>
+          <Text style={{ color: t.textDim, fontSize: 10 }}>{folder.count}</Text>
         ) : null}
       </Pressable>
       {open && (
-        <View style={{ paddingLeft: 16 }}>
-          {isLoading && <ActivityIndicator color={t.accent} size="small" style={{ padding: 8 }} />}
+        <View style={{ position: "relative" }}>
+          {/* Indent guide */}
+          <View style={{
+            position: "absolute",
+            left: indent + 5,
+            top: 0,
+            bottom: 0,
+            width: 1,
+            backgroundColor: t.surfaceBorder,
+          }} />
+          {isLoading && <ActivityIndicator color={t.accent} size="small" style={{ padding: 6 }} />}
           {childFiles.map((f) => (
             <FileRowComponent
               key={f.path}
@@ -374,6 +395,7 @@ export function DataFolderRow({
               activeFile={activeFile}
               onSelectFile={onSelectFile}
               FileRowComponent={FileRowComponent}
+              depth={depth + 1}
             />
           ))}
         </View>
@@ -383,7 +405,7 @@ export function DataFolderRow({
 }
 
 // ---------------------------------------------------------------------------
-// Data section with folder support + OS drag-and-drop upload
+// Data section — VS Code-style header + OS drag-and-drop upload
 // ---------------------------------------------------------------------------
 export function DataSection({
   files,
@@ -419,7 +441,8 @@ export function DataSection({
   const folders = files.filter((f) => f.type === "folder");
   const totalCount = rootFiles.length + folders.reduce((sum, f) => sum + (f.count ?? 0), 0);
 
-  // Internal workspace file drag (move between sections)
+  const isDragActive = internalDragOver || osDragging;
+
   const internalDropProps = Platform.OS === "web" ? {
     onDragOver: (e: any) => {
       e.preventDefault();
@@ -453,22 +476,17 @@ export function DataSection({
       setInternalDragOver(false);
       setOsDragging(false);
 
-      // Check for internal workspace file move first
       try {
         const fileData = e.dataTransfer.getData("application/x-workspace-file");
         if (fileData) {
           const file: WorkspaceFile = JSON.parse(fileData);
-          if (file.section !== "data") {
-            onFileMoved?.(file, "data");
-          }
+          if (file.section !== "data") onFileMoved?.(file, "data");
           return;
         }
-      } catch { /* not an internal drag */ }
+      } catch { /* not internal */ }
 
-      // OS file drop — upload to data/
       const droppedFiles: File[] = Array.from(e.dataTransfer?.files ?? []);
       if (droppedFiles.length === 0) return;
-
       if (!open) setOpen(true);
 
       setUploadStatus({ current: 0, total: droppedFiles.length });
@@ -487,40 +505,45 @@ export function DataSection({
   return (
     <View
       style={{
-        marginBottom: 4,
-        borderRadius: 6,
-        borderWidth: (internalDragOver || osDragging) ? 2 : 0,
-        borderColor: (internalDragOver || osDragging) ? t.accent : "transparent",
-        borderStyle: "dashed" as any,
-        backgroundColor: (internalDragOver || osDragging) ? `${t.accent}11` : "transparent",
+        backgroundColor: isDragActive ? `${t.accent}08` : "transparent",
+        borderLeftWidth: isDragActive ? 2 : 0,
+        borderLeftColor: isDragActive ? t.accent : "transparent",
       }}
       {...internalDropProps as any}
     >
+      {/* Section header */}
       <Pressable
         onPress={() => setOpen(!open)}
-        className="hover:bg-surface-overlay active:bg-surface-overlay"
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 6,
-          paddingVertical: 6,
-          paddingHorizontal: 8,
-          borderRadius: 4,
-        }}
+          height: 22,
+          paddingHorizontal: 6,
+          gap: 4,
+          borderBottomWidth: 1,
+          borderBottomColor: t.surfaceBorder,
+          cursor: "pointer",
+        } as any}
       >
         {open
-          ? <ChevronDown size={12} color={t.textDim} />
-          : <ChevronRight size={12} color={t.textDim} />}
-        <Database size={11} color={t.textMuted} />
-        <Text style={{ color: t.textMuted, fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          ? <ChevronDown size={10} color={t.textDim} />
+          : <ChevronRight size={10} color={t.textDim} />}
+        <Database size={10} color={t.textDim} />
+        <Text style={{
+          color: t.textMuted,
+          fontSize: 11,
+          fontWeight: "700",
+          textTransform: "uppercase",
+          letterSpacing: 0.8,
+          flex: 1,
+        }}>
           Data
         </Text>
-        <Text style={{ color: t.textDim, fontSize: 10 }}>
-          ({totalCount})
-        </Text>
+        <Text style={{ color: t.textDim, fontSize: 10 }}>{totalCount}</Text>
       </Pressable>
+
       {open && (
-        <View style={{ paddingLeft: 4, minHeight: 28 }}>
+        <View style={{ minHeight: 22, position: "relative" }}>
           {rootFiles.map((f) => (
             <FileRowComponent
               key={f.path}
@@ -541,39 +564,40 @@ export function DataSection({
             />
           ))}
           {uploadStatus && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}>
-              <ActivityIndicator color={t.accent} size="small" />
-              <Text style={{ color: t.textMuted, fontSize: 10 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, height: 22 }}>
+              <ActivityIndicator color={t.accent} size={10 as any} />
+              <Text style={{ color: t.textDim, fontSize: 10 }}>
                 Uploading {uploadStatus.current}/{uploadStatus.total}...
               </Text>
             </View>
           )}
           {files.length === 0 && !uploadStatus && (
-            <Text style={{ color: t.textDim, fontSize: 11, paddingHorizontal: 12, paddingBottom: 6, fontStyle: "italic" }}>
+            <Text style={{ color: t.textDim, fontSize: 11, paddingHorizontal: 10, height: 22, lineHeight: 22, fontStyle: "italic" }}>
               Drop files here to upload
             </Text>
           )}
-        </View>
-      )}
 
-      {/* Drop overlay when dragging OS files */}
-      {osDragging && (
-        <View
-          style={{
-            position: "absolute",
-            left: 2,
-            right: 2,
-            top: open ? 30 : 2,
-            bottom: 2,
-            alignItems: "center",
-            justifyContent: "center",
-            pointerEvents: "none" as any,
-          }}
-        >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Upload size={12} color={t.accent} />
-            <Text style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>Drop to upload</Text>
-          </View>
+          {/* Drop overlay */}
+          {osDragging && (
+            <View
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: `${t.accent}10`,
+                pointerEvents: "none" as any,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Upload size={11} color={t.accent} />
+                <Text style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>Drop to upload</Text>
+              </View>
+            </View>
+          )}
         </View>
       )}
     </View>

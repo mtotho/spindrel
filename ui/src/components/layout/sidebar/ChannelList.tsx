@@ -397,7 +397,25 @@ export function ChannelList({
               />
             ))}
             {regularChannels.length === 0 && (
-              <Text className="text-text-dim text-xs px-3 py-2">No channels yet</Text>
+              <Link href={"/channels/new" as any} asChild>
+                <Pressable
+                  className="mx-2 my-1 rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    paddingHorizontal: 8,
+                    paddingVertical: 6,
+                    borderWidth: 1,
+                    borderStyle: "dashed" as any,
+                    borderColor: t.surfaceBorder,
+                    borderRadius: 6,
+                  }}
+                >
+                  <Plus size={12} color={t.textDim} />
+                  <Text style={{ fontSize: 11, color: t.textDim }}>Create a channel</Text>
+                </Pressable>
+              </Link>
             )}
           </>
         )}

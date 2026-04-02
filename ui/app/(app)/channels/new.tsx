@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -22,6 +22,7 @@ export default function NewChannelScreen() {
   const router = useRouter();
   const goBack = useGoBack("/");
   const theme = useThemeTokens();
+  const params = useLocalSearchParams<{ templateId?: string }>();
   const { data: bots } = useBots();
   const { data: modelGroups } = useModelGroups();
   const { data: templates } = usePromptTemplates(undefined, "workspace_schema");
@@ -39,6 +40,13 @@ export default function NewChannelScreen() {
   const [isPrivate, setIsPrivate] = useState(false);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [enabledIntegrations, setEnabledIntegrations] = useState<string[]>([]);
+
+  // Pre-select template from query param (e.g., from home page onboarding)
+  useEffect(() => {
+    if (params.templateId && templates?.some((tpl) => tpl.id === params.templateId)) {
+      setTemplateId(params.templateId);
+    }
+  }, [params.templateId, templates]);
 
   const workspaceEnabled = templateId !== null;
 

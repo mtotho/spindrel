@@ -1,100 +1,82 @@
 /**
- * Full-page kanban view for a channel.
- * Uses the same KanbanBoard component as the channel detail tab,
- * but with more screen space.
+ * Aggregated cross-channel kanban view using swimlane board.
+ * The per-channel kanban is in ChannelDetail's kanban tab.
  */
-
-import { useParams, Link } from "react-router-dom";
-import { useKanban } from "../hooks/useKanban";
+import { useState, useMemo } from "react";
+import { useAggregatedKanban, useKanbanMove, useKanbanCreate, useKanbanUpdate } from "../hooks/useMC";
 import { useOverview } from "../hooks/useOverview";
-import KanbanBoard from "../components/KanbanBoard";
-import EmptyState from "../components/EmptyState";
+import { useScope } from "../lib/ScopeContext";
+import KanbanSwimlane from "../components/KanbanSwimlane";
+import ChannelFilterBar from "../components/ChannelFilterBar";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ErrorBanner from "../components/ErrorBanner";
-import { generateCardId } from "../lib/parser";
-import type { KanbanColumn } from "../lib/types";
+import EmptyState from "../components/EmptyState";
+import ScopeToggle from "../components/ScopeToggle";
 
 export default function Kanban() {
-  const { channelId } = useParams<{ channelId: string }>();
-  const { data: columns, isLoading, error, saveColumns, isSaving } = useKanban(channelId);
-  const { data: overview } = useOverview();
-  const channel = overview?.channels.find((ch) => ch.id === channelId);
+  const { scope } = useScope();
+  const { data: columns, isLoading, error, refetch } = useAggregatedKanban(scope);
+  const { data: overview } = useOverview(scope);
+  const move = useKanbanMove();
+  const update = useKanbanUpdate();
+  const [channelFilter, setChannelFilter] = useState<string | null>(null);
+
+  const channels = useMemo(() => {
+    if (!overview?.channels) return [];
+    return overview.channels.filter((ch) => ch.workspace_enabled);
+  }, [overview]);
+
+  const handleMove = (cardId: string, channelId: string, fromColumn: string, toColumn: string) => {
+    move.mutate({ card_id: cardId, channel_id: channelId, from_column: fromColumn, to_column: toColumn });
+  };
+
+  const handleUpdate = (cardId: string, channelId: string, fields: Record<string, string>) => {
+    update.mutate({ card_id: cardId, channel_id: channelId, ...fields });
+  };
 
   if (isLoading) return <LoadingSpinner />;
-  if (error) {
-    if (error.message.includes("404")) {
-      return (
-        <div className="p-6">
-          <EmptyState
-            icon="▦"
-            title="No kanban board yet"
-            description="This channel doesn't have a tasks.md file. Ask your bot to create one, or use the create_task_card tool."
-          />
-        </div>
-      );
-    }
-    return <div className="p-6"><ErrorBanner message={error.message} /></div>;
-  }
-  if (!columns) return null;
-
-  const handleMove = async (cardId: string, fromCol: string, toCol: string) => {
-    const movedCard = columns
-      .find((c) => c.name === fromCol)
-      ?.cards.find((c) => (c.meta.id || c.title) === cardId);
-    if (!movedCard) return;
-
-    const updated: KanbanColumn[] = columns.map((col) => {
-      if (col.name === fromCol) {
-        return { ...col, cards: col.cards.filter((c) => (c.meta.id || c.title) !== cardId) };
-      }
-      if (col.name === toCol) {
-        return { ...col, cards: [...col.cards, movedCard] };
-      }
-      return col;
-    });
-    await saveColumns(updated);
-  };
-
-  const handleAddCard = async (
-    columnName: string,
-    card: { title: string; priority: string; description: string },
-  ) => {
-    const today = new Date().toISOString().slice(0, 10);
-    const newCard = {
-      title: card.title,
-      meta: {
-        id: generateCardId(),
-        priority: card.priority,
-        created: today,
-      },
-      description: card.description,
-    };
-
-    const updated: KanbanColumn[] = columns.map((col) => {
-      if (col.name === columnName) {
-        return { ...col, cards: [...col.cards, newCard] };
-      }
-      return col;
-    });
-    await saveColumns(updated);
-  };
+  if (error) return <div className="p-6"><ErrorBanner message={error.message} onRetry={() => refetch()} /></div>;
 
   return (
     <div className="p-6 h-screen flex flex-col">
-      <div className="mb-4 flex items-center gap-3">
-        <Link
-          to={`/channels/${channelId}`}
-          className="text-xs text-gray-500 hover:text-gray-400 transition-colors"
-        >
-          &larr; Channel
-        </Link>
-        <h1 className="text-lg font-bold text-gray-100" title={channelId}>
-          {channel?.name || channelId?.slice(0, 8)} — Kanban
-        </h1>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h1 className="text-lg font-bold text-gray-100">Kanban</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Cross-channel task board</p>
+        </div>
+        <ScopeToggle />
       </div>
-      <div className="flex-1 overflow-hidden">
-        <KanbanBoard columns={columns} onMove={handleMove} onAddCard={handleAddCard} isSaving={isSaving} />
-      </div>
+
+      {/* Channel filter */}
+      {channels.length > 1 && (
+        <div className="mb-3">
+          <ChannelFilterBar channels={channels} value={channelFilter} onChange={setChannelFilter} />
+        </div>
+      )}
+
+      {/* Error banner for move failures */}
+      {move.isError && (
+        <div className="mb-3">
+          <ErrorBanner message="Failed to move card. Please try again." onRetry={() => move.reset()} />
+        </div>
+      )}
+
+      {/* Swimlane board */}
+      {columns && columns.length > 0 ? (
+        <KanbanSwimlane
+          columns={columns}
+          onMove={handleMove}
+          onUpdate={handleUpdate}
+          moveDisabled={move.isPending}
+          channelFilter={channelFilter}
+        />
+      ) : (
+        <EmptyState
+          icon="▦"
+          title="No kanban data"
+          description="Channels need tasks.md files. Ask your bots to create task cards or use the kanban tools."
+        />
+      )}
     </div>
   );
 }

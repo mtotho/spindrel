@@ -1,11 +1,8 @@
 import { useState, useEffect } from "react";
 import { View, ActivityIndicator } from "react-native";
 import { Play, Save, Archive, FolderOpen } from "lucide-react";
-import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
-import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { OperationsPanel } from "../diagnostics/OperationsPanel";
+import { OperationsPanel } from "@/app/(app)/admin/diagnostics/OperationsPanel";
 import {
   useBackupConfig,
   useUpdateBackupConfig,
@@ -29,7 +26,7 @@ function formatDate(iso: string): string {
 // Backup Config Form
 // ---------------------------------------------------------------------------
 
-function BackupConfigSection() {
+function BackupConfigForm() {
   const t = useThemeTokens();
   const { data, isLoading } = useBackupConfig();
   const updateMut = useUpdateBackupConfig();
@@ -49,10 +46,7 @@ function BackupConfigSection() {
   }, [data]);
 
   const handleChange = (field: keyof BackupConfig, value: string) => {
-    setForm((prev) => ({
-      ...prev,
-      [field]: field === "local_keep" ? value : value,
-    }));
+    setForm((prev) => ({ ...prev, [field]: value }));
     setDirty(true);
   };
 
@@ -91,7 +85,7 @@ function BackupConfigSection() {
         textTransform: "uppercase", letterSpacing: 1,
       }}>
         <FolderOpen size={14} />
-        Backup Configuration
+        Configuration
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -147,7 +141,7 @@ function BackupConfigSection() {
 // Backup Actions
 // ---------------------------------------------------------------------------
 
-function BackupActionsSection() {
+function BackupActions() {
   const t = useThemeTokens();
   const triggerMut = useTriggerBackup();
 
@@ -162,7 +156,7 @@ function BackupActionsSection() {
         textTransform: "uppercase", letterSpacing: 1,
       }}>
         <Play size={14} />
-        Backup Actions
+        Run Backup
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -193,7 +187,6 @@ function BackupActionsSection() {
         )}
       </div>
 
-      {/* Active operations */}
       <div style={{ marginTop: 14 }}>
         <OperationsPanel />
       </div>
@@ -205,7 +198,7 @@ function BackupActionsSection() {
 // Backup History
 // ---------------------------------------------------------------------------
 
-function BackupHistorySection() {
+function BackupHistory() {
   const t = useThemeTokens();
   const { data, isLoading } = useBackupHistory();
 
@@ -220,7 +213,7 @@ function BackupHistorySection() {
         textTransform: "uppercase", letterSpacing: 1,
       }}>
         <Archive size={14} />
-        Backup History
+        History
       </div>
 
       {isLoading && (
@@ -277,27 +270,15 @@ function BackupHistorySection() {
 }
 
 // ---------------------------------------------------------------------------
-// Page
+// Exported section — dropped into settings page
 // ---------------------------------------------------------------------------
 
-export default function OperationsScreen() {
-  const t = useThemeTokens();
-  const { refreshing, onRefresh } = usePageRefresh();
-
+export function BackupSection() {
   return (
-    <View className="flex-1 bg-surface">
-      <MobileHeader title="Operations" subtitle="Backup & system operations" />
-
-      <RefreshableScrollView
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: 16, gap: 16, maxWidth: 900 }}
-      >
-        <BackupConfigSection />
-        <BackupActionsSection />
-        <BackupHistorySection />
-      </RefreshableScrollView>
+    <View style={{ gap: 16 }}>
+      <BackupConfigForm />
+      <BackupActions />
+      <BackupHistory />
     </View>
   );
 }

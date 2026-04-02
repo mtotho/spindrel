@@ -6,7 +6,7 @@ import time
 from agent_client import http, ensure_channel, store_passive_message_http, stream_chat, cancel_session
 from formatting import format_response_for_slack, format_thinking_for_slack, format_tool_status, split_for_slack
 from session_helpers import slack_client_id
-from slack_settings import BOT_TOKEN, get_bot_display_info, get_channel_config
+from slack_settings import BOT_TOKEN, ensure_config_fresh, get_bot_display_info, get_channel_config
 from state import get_channel_state
 
 logger = logging.getLogger(__name__)
@@ -125,9 +125,10 @@ class SlackStreamBuffer:
         content_text = "".join(self._content).lstrip()
         if not content_text:
             return ""
-        result = content_text + " ..."
-        if len(result) > _STREAM_MAX_CHARS:
-            result = result[-_STREAM_MAX_CHARS:]
+        if len(content_text) > _STREAM_MAX_CHARS - 4:
+            result = content_text[:_STREAM_MAX_CHARS - 4] + " ..."
+        else:
+            result = content_text + " ..."
         return result
 
 
@@ -630,6 +631,7 @@ async def dispatch(
     mentioned: bool = False,
     message_ts: str | None = None,
 ):
+    await ensure_config_fresh()
     text = (text or "").strip()
 
     config = get_channel_config(channel)

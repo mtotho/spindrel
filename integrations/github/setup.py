@@ -12,6 +12,12 @@ SETUP = {
         "path": "/integrations/github/webhook",
         "description": "GitHub webhook receiver (push, PR, issue events)",
     },
+    "activation": {
+        "carapaces": ["github"],
+        "requires_workspace": False,
+        "description": "GitHub repository management — PR reviews, issue tracking, code push events, and release monitoring",
+        "compatible_templates": ["devops"],
+    },
     "instructions_url": None,
     "binding": {
         "client_id_prefix": "github:",

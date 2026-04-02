@@ -1,4 +1,4 @@
-"""Discord application commands: /bot, /bots, /ask, /context, /compact, /plan, /model, /health."""
+"""Discord application commands: /bot, /bots, /ask, /context, /compact, /plan, /model, /health, /audit."""
 import asyncio
 import logging
 
@@ -8,6 +8,7 @@ from discord import app_commands
 from agent_client import (
     compact_session,
     ensure_channel,
+    fetch_server_health,
     fetch_session_plans,
     fetch_session_context,
     fetch_session_context_compressed,
@@ -26,7 +27,7 @@ from agent_client import (
 from formatting import format_last_active, format_response_for_discord, format_tool_status, split_for_discord
 from session_helpers import discord_client_id
 from discord_settings import DISCORD_TOKEN, get_bot_display_info
-from state import get_channel_state, set_channel_state
+from state import get_channel_state, get_global_setting, set_channel_state, set_global_setting
 
 logger = logging.getLogger(__name__)
 
@@ -482,17 +483,39 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
             except Exception as e:
                 return f"\u26a0\ufe0f {e}"
 
-        results = await asyncio.gather(
-            _run("systemctl is-active spindrel spindrel-discord 2>/dev/null || echo 'unknown'"),
-            _run("docker ps --format '{{.Names}}\\t{{.Status}}' 2>/dev/null | grep -E 'postgres|searxng|playwright' || echo 'none running'"),
-            _run("df -h / | tail -1"),
-            _run("tail -1 ~/logs/backup.log 2>/dev/null || echo 'no log'"),
-            _run("git log --oneline -1 2>/dev/null || echo 'unknown'"),
+        host_results, server_health = await asyncio.gather(
+            asyncio.gather(
+                _run("systemctl is-active spindrel spindrel-discord 2>/dev/null || echo 'unknown'"),
+                _run("docker ps --format '{{.Names}}\\t{{.Status}}' 2>/dev/null | grep -E 'postgres|searxng|playwright' || echo 'none running'"),
+                _run("df -h / | tail -1"),
+                _run("tail -1 ~/logs/backup.log 2>/dev/null || echo 'no log'"),
+            ),
+            fetch_server_health(),
         )
-        svc_raw, docker_raw, disk_raw, backup_raw, git_raw = results
+        svc_raw, docker_raw, disk_raw, backup_raw = host_results
 
         lines: list[str] = ["**Server Status**", ""]
 
+        # Server health (from API)
+        srv_icon = "\u2705" if server_health.get("healthy") else "\U0001f6a8"
+        lines.append(f"**Agent Server** {srv_icon}")
+        if server_health.get("database") is not None:
+            db_icon = "\u2705" if server_health["database"] else "\U0001f6a8"
+            lines.append(f"  {db_icon} Database")
+        uptime = server_health.get("uptime_seconds")
+        if uptime is not None:
+            h, m = divmod(uptime // 60, 60)
+            lines.append(f"  Uptime: {h}h {m}m")
+        bots_count = server_health.get("bot_count")
+        if bots_count is not None:
+            lines.append(f"  Bots: {bots_count}")
+        version = server_health.get("version")
+        if version:
+            lines.append(f"  Version: `{version[:120]}`")
+        for issue in server_health.get("issues", []):
+            lines.append(f"  \U0001f6a8 {issue}")
+
+        # Host services
         svc_lines = svc_raw.splitlines()
         svc_names = ["spindrel", "spindrel-discord"]
         svc_parts: list[str] = []
@@ -500,7 +523,7 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
             status = svc_lines[i].strip() if i < len(svc_lines) else "unknown"
             icon = "\u2705" if status == "active" else "\U0001f6a8"
             svc_parts.append(f"{icon} `{name}`: {status}")
-        lines.append("**Services**")
+        lines.append("\n**Services**")
         lines.extend(f"  {s}" for s in svc_parts)
 
         lines.append("\n**Containers**")
@@ -525,8 +548,6 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
 
         lines.append("\n**Last Backup**")
         lines.append(f"  {backup_raw[:200]}")
-        lines.append("\n**Deploy**")
-        lines.append(f"  `{git_raw[:120]}`")
 
         await _send_chunks(interaction, "\n".join(lines))
 
@@ -629,3 +650,29 @@ def register_slash_commands(tree: app_commands.CommandTree) -> None:
             await interaction.followup.send(f"Error: {e}")
             return
         await interaction.followup.send(f"Model override set to `{match}`.\nUse `/model clear` to revert to bot default.")
+
+    @tree.command(name="audit", description="Set or clear the audit channel for tool call logging")
+    @app_commands.describe(arg="Channel mention or ID to log to, or 'off' to disable")
+    async def cmd_audit(interaction: discord.Interaction, arg: str | None = None):
+        await interaction.response.defer(ephemeral=True)
+
+        if not arg:
+            current = get_global_setting("audit_channel")
+            if current:
+                await interaction.followup.send(f"Audit channel: <#{current}>\nUse `/audit off` to disable.")
+            else:
+                await interaction.followup.send("No audit channel set.\nUsage: `/audit #channel` or `/audit off`")
+            return
+
+        if arg.lower() == "off":
+            set_global_setting("audit_channel", None)
+            await interaction.followup.send("Audit logging disabled.")
+            return
+
+        # Accept <#123456> mention format or raw channel ID
+        channel_id = arg.strip()
+        if channel_id.startswith("<#") and channel_id.endswith(">"):
+            channel_id = channel_id.strip("<#>")
+
+        set_global_setting("audit_channel", channel_id)
+        await interaction.followup.send(f"Audit channel set to <#{channel_id}>.\nTool calls across all bots will be logged there.")

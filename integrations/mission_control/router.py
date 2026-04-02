@@ -547,13 +547,13 @@ async def _require_channel(channel_id: uuid.UUID, db: AsyncSession) -> Channel:
     return channel
 
 
-@router.get("/channels/{channel_id}/workspace/files")
+@router.get("/channels/{channel_id}/workspace/files", dependencies=[Depends(require_scopes("mission_control:read"))])
 async def list_workspace_files(
     channel_id: uuid.UUID,
     include_archive: bool = Query(False),
     include_data: bool = Query(False),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """List files in a channel's workspace."""
     channel = await _require_channel(channel_id, db)
@@ -569,12 +569,12 @@ async def list_workspace_files(
     return {"files": files}
 
 
-@router.get("/channels/{channel_id}/workspace/files/content")
+@router.get("/channels/{channel_id}/workspace/files/content", dependencies=[Depends(require_scopes("mission_control:read"))])
 async def read_workspace_file(
     channel_id: uuid.UUID,
     path: str = Query(..., description="File path within workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Read a file from a channel's workspace."""
     channel = await _require_channel(channel_id, db)
@@ -588,13 +588,13 @@ async def read_workspace_file(
     return {"path": path, "content": content}
 
 
-@router.put("/channels/{channel_id}/workspace/files/content")
+@router.put("/channels/{channel_id}/workspace/files/content", dependencies=[Depends(require_scopes("mission_control:write"))])
 async def write_workspace_file(
     channel_id: uuid.UUID,
     body: FileWriteBody,
     path: str = Query(..., description="File path within workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ):
     """Write a file to a channel's workspace (write-back from dashboard)."""
     channel = await _require_channel(channel_id, db)

@@ -1,11 +1,12 @@
+import { useState, useEffect } from "react";
 import { View, Text, Pressable } from "react-native";
 import { Link } from "expo-router";
 import {
   Bot,
   BookOpen,
   ClipboardList,
-
   FileText,
+  ScrollText,
   Settings,
   Users,
   Key,
@@ -22,8 +23,8 @@ import {
   Layers,
   Zap,
   Cable,
-  Database,
   FileCode,
+  ChevronRight,
 } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
 import { useThemeTokens } from "../../../theme/tokens";
@@ -34,9 +35,17 @@ interface NavItem {
   icon: React.ComponentType<{ size: number; color: string }>;
 }
 
-export const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
+interface SectionDef {
+  title: string;
+  items: NavItem[];
+  /** If true, section starts expanded even if no item is active. */
+  defaultOpen?: boolean;
+}
+
+export const ADMIN_SECTIONS: SectionDef[] = [
   {
     title: "CONFIGURE",
+    defaultOpen: true,
     items: [
       { label: "Bots", href: "/admin/bots", icon: Bot },
       { label: "Integrations", href: "/admin/integrations", icon: Plug },
@@ -70,9 +79,8 @@ export const ADMIN_SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: "Usage", href: "/admin/usage", icon: BarChart3 },
       { label: "Tool Calls", href: "/admin/tool-calls", icon: Activity },
       { label: "Users", href: "/admin/users", icon: Users },
-      { label: "Logs", href: "/admin/logs", icon: FileText },
+      { label: "Logs", href: "/admin/logs", icon: ScrollText },
       { label: "Diagnostics", href: "/admin/diagnostics", icon: HardDrive },
-      { label: "Operations", href: "/admin/operations", icon: Database },
       { label: "API Docs", href: "/admin/api-docs", icon: FileCode },
       { label: "Config", href: "/admin/config-state", icon: Code2 },
       { label: "Settings", href: "/settings", icon: Settings },
@@ -127,24 +135,113 @@ export function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
+/** Check if any item in a section matches the current pathname. */
+function sectionHasActive(section: SectionDef, pathname: string): boolean {
+  return section.items.some((item) => pathname.startsWith(item.href));
+}
+
+const STORAGE_KEY = "admin-nav-collapsed";
+
+function loadCollapsed(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCollapsed(state: Record<string, boolean>) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
 export function AdminSections({ pathname, mobile }: { pathname: string; mobile?: boolean }) {
+  const t = useThemeTokens();
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+    const saved = loadCollapsed();
+    // Default: sections without defaultOpen start collapsed (unless they have the active page)
+    const initial: Record<string, boolean> = {};
+    for (const section of ADMIN_SECTIONS) {
+      if (saved[section.title] !== undefined) {
+        // Respect saved preference, but always expand if active page is in section
+        initial[section.title] = sectionHasActive(section, pathname) ? false : saved[section.title];
+      } else {
+        // First load: defaultOpen sections start expanded, others collapsed unless active
+        initial[section.title] = section.defaultOpen ? false : !sectionHasActive(section, pathname);
+      }
+    }
+    return initial;
+  });
+
+  // Auto-expand when navigating to a page in a collapsed section
+  useEffect(() => {
+    setCollapsed((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const section of ADMIN_SECTIONS) {
+        if (next[section.title] && sectionHasActive(section, pathname)) {
+          next[section.title] = false;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [pathname]);
+
+  const toggle = (title: string) => {
+    setCollapsed((prev) => {
+      const next = { ...prev, [title]: !prev[title] };
+      saveCollapsed(next);
+      return next;
+    });
+  };
+
   return (
     <>
-      {ADMIN_SECTIONS.map((section) => (
-        <View key={section.title} className="px-2 py-1.5">
-          <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider px-3 py-1.5`}>
-            {section.title}
-          </Text>
-          {section.items.map((item) => (
-            <NavLink
-              key={item.href}
-              item={item}
-              active={pathname.startsWith(item.href)}
-              mobile={mobile}
-            />
-          ))}
-        </View>
-      ))}
+      {ADMIN_SECTIONS.map((section) => {
+        const isCollapsed = collapsed[section.title] ?? false;
+        const hasActive = sectionHasActive(section, pathname);
+        return (
+          <View key={section.title} className="px-2 py-1.5">
+            <Pressable
+              onPress={() => toggle(section.title)}
+              className="flex-row items-center px-3 py-1.5 rounded hover:bg-surface-overlay"
+              style={{ gap: 4 }}
+            >
+              <ChevronRight
+                size={10}
+                color={hasActive ? t.accent : t.textDim}
+                style={{
+                  transform: [{ rotate: isCollapsed ? "0deg" : "90deg" }],
+                  transition: "transform 0.15s",
+                } as any}
+              />
+              <Text
+                className={`${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider`}
+                style={{ flex: 1, color: hasActive ? t.accent : t.textDim }}
+              >
+                {section.title}
+              </Text>
+              {isCollapsed && hasActive && (
+                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: t.accent }} />
+              )}
+            </Pressable>
+            {!isCollapsed &&
+              section.items.map((item) => (
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  active={pathname.startsWith(item.href)}
+                  mobile={mobile}
+                />
+              ))}
+          </View>
+        );
+      })}
     </>
   );
 }

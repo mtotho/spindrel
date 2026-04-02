@@ -513,7 +513,8 @@ export type SSEEventType =
   | "error"
   | "queued"
   | "cancelled"
-  | "passive_stored";
+  | "passive_stored"
+  | "secret_warning";
 
 export interface SSEEvent {
   event: SSEEventType;

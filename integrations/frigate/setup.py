@@ -20,6 +20,12 @@ SETUP = {
         "path": "/integrations/frigate/webhook",
         "description": "Frigate event receiver (MQTT listener posts here for channel fan-out)",
     },
+    "activation": {
+        "carapaces": ["frigate"],
+        "requires_workspace": False,
+        "description": "Security camera monitoring with Frigate NVR — live events, clip management, detection alerts, and camera status",
+        "compatible_templates": ["home-automation"],
+    },
     "instructions_url": None,
     "binding": {
         "client_id_prefix": "frigate:",

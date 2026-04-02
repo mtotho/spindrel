@@ -8,7 +8,7 @@ import discord
 from agent_client import ensure_channel, store_passive_message_http, stream_chat, cancel_session
 from formatting import format_response_for_discord, format_thinking_for_discord, format_tool_status, split_for_discord
 from session_helpers import discord_client_id
-from discord_settings import DISCORD_TOKEN, get_bot_display_info, get_channel_config
+from discord_settings import DISCORD_TOKEN, ensure_config_fresh, get_bot_display_info, get_channel_config
 from state import get_channel_state
 
 logger = logging.getLogger(__name__)
@@ -379,6 +379,7 @@ async def dispatch(
     mentioned: bool = False,
 ):
     """Main entry point for processing a Discord message."""
+    await ensure_config_fresh()
     channel = message.channel
     user = str(message.author.id)
     text = (message.content or "").strip()

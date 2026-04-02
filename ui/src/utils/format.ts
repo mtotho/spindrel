@@ -1,3 +1,20 @@
+/** Pretty-print an integration type slug (e.g., "mission_control" → "Mission Control"). */
+export function prettyIntegrationName(slug: string): string {
+  const names: Record<string, string> = {
+    slack: "Slack",
+    github: "GitHub",
+    discord: "Discord",
+    gmail: "Gmail",
+    frigate: "Frigate",
+    mission_control: "Mission Control",
+    arr: "Media Stack",
+    claude_code: "Claude Code",
+    bluebubbles: "BlueBubbles",
+    ingestion: "Ingestion",
+  };
+  return names[slug] ?? slug.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];

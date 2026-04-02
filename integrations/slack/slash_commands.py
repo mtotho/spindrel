@@ -6,6 +6,7 @@ import logging
 from agent_client import (
     compact_session,
     ensure_channel,
+    fetch_server_health,
     fetch_session_plans,
     fetch_session_context,
     fetch_session_context_compressed,
@@ -605,7 +606,7 @@ def register_slash_commands(app):
 
     @app.command("/health")
     async def cmd_status(ack, command, respond):
-        """Quick server health check — runs host commands directly, no bot interaction."""
+        """Quick server health check — host services + agent server API health."""
         await ack()
 
         async def _run(cmd: str, timeout: float = 5.0) -> str:
@@ -622,19 +623,40 @@ def register_slash_commands(app):
             except Exception as e:
                 return f"⚠️ {e}"
 
-        # Run all checks concurrently.
-        results = await asyncio.gather(
-            _run("systemctl is-active spindrel spindrel-slack 2>/dev/null || echo 'unknown'"),
-            _run("docker ps --format '{{.Names}}\\t{{.Status}}' 2>/dev/null | grep -E 'postgres|searxng|playwright' || echo 'none running'"),
-            _run("df -h / | tail -1"),
-            _run("tail -1 ~/logs/backup.log 2>/dev/null || echo 'no log'"),
-            _run("git log --oneline -1 2>/dev/null || echo 'unknown'"),
+        # Run host checks and server health concurrently.
+        host_results, server_health = await asyncio.gather(
+            asyncio.gather(
+                _run("systemctl is-active spindrel spindrel-slack 2>/dev/null || echo 'unknown'"),
+                _run("docker ps --format '{{.Names}}\\t{{.Status}}' 2>/dev/null | grep -E 'postgres|searxng|playwright' || echo 'none running'"),
+                _run("df -h / | tail -1"),
+                _run("tail -1 ~/logs/backup.log 2>/dev/null || echo 'no log'"),
+            ),
+            fetch_server_health(),
         )
-        svc_raw, docker_raw, disk_raw, backup_raw, git_raw = results
+        svc_raw, docker_raw, disk_raw, backup_raw = host_results
 
         lines: list[str] = ["*Server Status*", ""]
 
-        # Services
+        # Server health (from API)
+        srv_icon = "✅" if server_health.get("healthy") else "🚨"
+        lines.append(f"*Agent Server* {srv_icon}")
+        if server_health.get("database") is not None:
+            db_icon = "✅" if server_health["database"] else "🚨"
+            lines.append(f"  {db_icon} Database")
+        uptime = server_health.get("uptime_seconds")
+        if uptime is not None:
+            h, m = divmod(uptime // 60, 60)
+            lines.append(f"  Uptime: {h}h {m}m")
+        bots_count = server_health.get("bot_count")
+        if bots_count is not None:
+            lines.append(f"  Bots: {bots_count}")
+        version = server_health.get("version")
+        if version:
+            lines.append(f"  Version: `{version[:120]}`")
+        for issue in server_health.get("issues", []):
+            lines.append(f"  🚨 {issue}")
+
+        # Host services
         svc_lines = svc_raw.splitlines()
         svc_names = ["spindrel", "spindrel-slack"]
         svc_parts: list[str] = []
@@ -642,7 +664,7 @@ def register_slash_commands(app):
             status = svc_lines[i].strip() if i < len(svc_lines) else "unknown"
             icon = "✅" if status == "active" else "🚨"
             svc_parts.append(f"{icon} `{name}`: {status}")
-        lines.append("*Services*")
+        lines.append("\n*Services*")
         lines.extend(f"  {s}" for s in svc_parts)
 
         # Docker containers
@@ -670,10 +692,6 @@ def register_slash_commands(app):
         # Backup
         lines.append("\n*Last Backup*")
         lines.append(f"  {backup_raw[:200]}")
-
-        # Git
-        lines.append("\n*Deploy*")
-        lines.append(f"  `{git_raw[:120]}`")
 
         await respond("\n".join(lines))
 
