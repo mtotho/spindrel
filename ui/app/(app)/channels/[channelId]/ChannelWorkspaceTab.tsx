@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import {
-  FileText, Archive, Trash2, ChevronDown, ChevronRight,
+  FileText, Archive, Trash2, ChevronDown, ChevronRight, Folder,
   ExternalLink, Code, Database, Plus, X, RefreshCw, FolderSearch, RotateCw,
 } from "lucide-react";
 import { Link } from "expo-router";
@@ -70,7 +70,10 @@ function FileItem({
       {icon}
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={{ color: t.text, fontSize: 13, fontWeight: "500" }} numberOfLines={1}>
-          {file.name}
+          {file.name.includes("/") && (
+            <Text style={{ color: t.textDim }}>{file.name.substring(0, file.name.lastIndexOf("/") + 1)}</Text>
+          )}
+          {file.name.includes("/") ? file.name.substring(file.name.lastIndexOf("/") + 1) : file.name}
         </Text>
         <Text style={{ color: t.textDim, fontSize: 11 }}>
           {sizeKb} KB &middot; {modified.toLocaleDateString()}
@@ -244,6 +247,140 @@ function CollapsibleFileSection({
               channelId={channelId}
               onSelect={onSelect}
               selected={selectedPath === f.path}
+            />
+          ))}
+        </View>
+      )}
+    </Section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Folder group within a section (collapsible, shows file count)
+// ---------------------------------------------------------------------------
+function FolderGroup({
+  folder,
+  files,
+  channelId,
+  selectedPath,
+  onSelect,
+}: {
+  folder: string;
+  files: { name: string; path: string; size: number; modified_at: number; section: string }[];
+  channelId: string;
+  selectedPath: string | null;
+  onSelect: (path: string) => void;
+}) {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <View>
+      <Pressable
+        onPress={() => setOpen(!open)}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          paddingVertical: 6,
+          paddingHorizontal: 12,
+          borderRadius: 6,
+        }}
+      >
+        {open ? <ChevronDown size={12} color={t.textMuted} /> : <ChevronRight size={12} color={t.textMuted} />}
+        <Folder size={14} color={t.textMuted} />
+        <Text style={{ color: t.text, fontSize: 13, fontWeight: "500" }}>{folder}/</Text>
+        <Text style={{ color: t.textDim, fontSize: 11 }}>({files.length})</Text>
+      </Pressable>
+      {open && (
+        <View style={{ gap: 2, paddingLeft: 20 }}>
+          {files.map((f) => (
+            <FileItem
+              key={f.path}
+              file={{ ...f, name: f.name.slice(folder.length + 1) }}
+              channelId={channelId}
+              onSelect={onSelect}
+              selected={selectedPath === f.path}
+            />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Grouped file section — groups files by top-level folder
+// ---------------------------------------------------------------------------
+function GroupedFileSection({
+  title,
+  files,
+  channelId,
+  selectedPath,
+  onSelect,
+  defaultOpen = false,
+}: {
+  title: string;
+  files: { name: string; path: string; size: number; modified_at: number; section: string }[];
+  channelId: string;
+  selectedPath: string | null;
+  onSelect: (path: string) => void;
+  defaultOpen?: boolean;
+}) {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(defaultOpen);
+
+  if (files.length === 0) return null;
+
+  // Group by top-level folder; root files have no slash
+  const rootFiles: typeof files = [];
+  const folderMap = new Map<string, typeof files>();
+  for (const f of files) {
+    const slashIdx = f.name.indexOf("/");
+    if (slashIdx === -1) {
+      rootFiles.push(f);
+    } else {
+      const folder = f.name.slice(0, slashIdx);
+      let arr = folderMap.get(folder);
+      if (!arr) { arr = []; folderMap.set(folder, arr); }
+      arr.push(f);
+    }
+  }
+  const folders = Array.from(folderMap.entries()).sort(([a], [b]) => a.localeCompare(b));
+
+  return (
+    <Section
+      title={
+        <Pressable
+          onPress={() => setOpen(!open)}
+          style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+        >
+          {open ? <ChevronDown size={14} color={t.textMuted} /> : <ChevronRight size={14} color={t.textMuted} />}
+          <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>
+            {title} ({files.length})
+          </Text>
+        </Pressable> as any
+      }
+    >
+      {open && (
+        <View style={{ gap: 2 }}>
+          {rootFiles.map((f) => (
+            <FileItem
+              key={f.path}
+              file={f}
+              channelId={channelId}
+              onSelect={onSelect}
+              selected={selectedPath === f.path}
+            />
+          ))}
+          {folders.map(([folder, folderFiles]) => (
+            <FolderGroup
+              key={folder}
+              folder={folder}
+              files={folderFiles}
+              channelId={channelId}
+              selectedPath={selectedPath}
+              onSelect={onSelect}
             />
           ))}
         </View>
@@ -640,7 +777,7 @@ export function ChannelWorkspaceTab({
             onSelect={setSelectedPath}
           />
 
-          <CollapsibleFileSection
+          <GroupedFileSection
             title="Data Files"
             files={dataFiles}
             channelId={channelId}

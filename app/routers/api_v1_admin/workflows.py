@@ -91,7 +91,7 @@ class TriggerWorkflowIn(BaseModel):
     bot_id: str | None = None
     channel_id: uuid.UUID | None = None
     triggered_by: str = "api"
-    session_mode: str | None = None
+    session_mode: str | None = None  # "isolated" or "shared"; None = use workflow default
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +254,8 @@ async def trigger_workflow_run(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("workflows:write")),
 ):
+    if body.session_mode and body.session_mode not in ("isolated", "shared"):
+        raise HTTPException(status_code=422, detail="session_mode must be 'isolated' or 'shared'")
     from app.services.workflow_executor import trigger_workflow
     try:
         run = await trigger_workflow(

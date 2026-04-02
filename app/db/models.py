@@ -117,6 +117,7 @@ class Channel(Base):
         nullable=True,
         index=True,
     )
+    protected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")

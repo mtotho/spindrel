@@ -136,6 +136,8 @@ async def manage_workflow(
     if action == "trigger":
         if not id:
             return json.dumps({"error": "id is required for trigger"})
+        if session_mode and session_mode not in ("isolated", "shared"):
+            return json.dumps({"error": "session_mode must be 'isolated' or 'shared'"})
 
         # Default bot_id/channel_id from context (follows schedule_task pattern)
         from app.agent.context import current_bot_id, current_channel_id
