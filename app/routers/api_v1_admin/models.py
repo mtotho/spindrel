@@ -55,6 +55,7 @@ async def admin_models(
     try:
         groups = await get_available_models_grouped()
     except Exception:
+        logger.exception("Failed to fetch model groups")
         groups = []
     return [
         ModelGroupOut(
@@ -85,6 +86,7 @@ async def admin_embedding_models(
     try:
         llm_groups = await get_available_models_grouped()
     except Exception:
+        logger.exception("Failed to fetch model groups for embedding models endpoint")
         llm_groups = []
     for g in llm_groups:
         groups.append(ModelGroupOut(
