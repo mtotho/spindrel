@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
@@ -11,10 +11,12 @@ import {
   useSkipWorkflowStep,
   useRetryWorkflowStep,
 } from "@/src/api/hooks/useWorkflows";
+import { useBots } from "@/src/api/hooks/useBots";
 import {
   Play, X, Check, SkipForward, RotateCcw, Clock,
   CheckCircle2, XCircle, Loader2, ShieldCheck, CircleDot, Minus,
-  ChevronDown, ChevronRight, ArrowLeft, ExternalLink,
+  ChevronDown, ChevronRight, ArrowLeft, ExternalLink, AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { Link } from "expo-router";
 import type { WorkflowRun, WorkflowStepState } from "@/src/types/api";
@@ -58,6 +60,43 @@ function StatusBadge({ status, t }: { status: string; t: ThemeTokens }) {
       {status.replace(/_/g, " ")}
     </span>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Condition → human-readable explanation
+// ---------------------------------------------------------------------------
+
+function describeCondition(when: any): string {
+  if (!when) return "";
+  if (when.step && when.status) return `Requires step "${when.step}" to be ${when.status}`;
+  if (when.step && when.output_contains) return `Requires "${when.step}" output to contain "${when.output_contains}"`;
+  if (when.step && when.output_not_contains) return `Requires "${when.step}" output to NOT contain "${when.output_not_contains}"`;
+  if (when.param) return `Requires param "${when.param}" ${when.equals != null ? `= "${when.equals}"` : when.not_equals != null ? `!= "${when.not_equals}"` : "to be set"}`;
+  if (when.all) return (when.all as any[]).map(describeCondition).join(" AND ");
+  if (when.any) return (when.any as any[]).map(describeCondition).join(" OR ");
+  if (when.not) return `NOT (${describeCondition(when.not)})`;
+  return JSON.stringify(when);
+}
+
+// ---------------------------------------------------------------------------
+// Elapsed time for running steps
+// ---------------------------------------------------------------------------
+
+function useElapsed(startedAt?: string | null, isRunning?: boolean) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!isRunning || !startedAt) return;
+    const iv = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(iv);
+  }, [isRunning, startedAt]);
+
+  if (!startedAt) return null;
+  const start = new Date(startedAt).getTime();
+  const end = isRunning ? now : Date.now();
+  const secs = Math.floor((end - start) / 1000);
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,6 +250,7 @@ function RunDetail({ runId, workflowId, onBack }: {
   const { data: run, isLoading } = useWorkflowRun(runId);
   const { data: workflow } = useWorkflow(workflowId);
   const cancelMut = useCancelWorkflowRun();
+  const triggerMut = useTriggerWorkflow(workflowId);
   const approveMut = useApproveWorkflowStep();
   const skipMut = useSkipWorkflowStep();
   const retryMut = useRetryWorkflowStep();
@@ -226,6 +266,20 @@ function RunDetail({ runId, workflowId, onBack }: {
   const steps = workflow?.steps || [];
   const isActive = run.status === "running" || run.status === "awaiting_approval";
 
+  const handleRunAgain = async () => {
+    try {
+      const newRun = await triggerMut.mutateAsync({
+        params: run.params,
+        bot_id: run.bot_id,
+      });
+      // Navigate to the new run — use onBack then ... actually just reload with new ID
+      // We can't easily change selectedRunId from here, so use window location
+      window.location.href = `/admin/workflows/${workflowId}?tab=runs&run=${newRun.id}`;
+    } catch {
+      // handled by mutation
+    }
+  };
+
   return (
     <View style={{ gap: 16 }}>
       {/* Header */}
@@ -239,6 +293,23 @@ function RunDetail({ runId, workflowId, onBack }: {
         </Pressable>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <StatusBadge status={run.status} t={t} />
+          {/* Run Again button for terminal runs */}
+          {!isActive && (
+            <button
+              onClick={handleRunAgain}
+              disabled={triggerMut.isPending}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                border: `1px solid ${t.accentBorder}`, borderRadius: 5,
+                background: t.accentSubtle, color: t.accent, cursor: "pointer",
+                opacity: triggerMut.isPending ? 0.6 : 1,
+              }}
+            >
+              <RefreshCw size={12} />
+              Run Again
+            </button>
+          )}
           {isActive && (
             <button
               onClick={() => cancelMut.mutate(runId)}
@@ -291,8 +362,13 @@ function RunDetail({ runId, workflowId, onBack }: {
           <div style={{ fontSize: 11, fontWeight: 600, color: t.textDim, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Parameters
           </div>
-          <div style={{ fontFamily: "monospace", fontSize: 12, color: t.text, whiteSpace: "pre-wrap" }}>
-            {JSON.stringify(run.params, null, 2)}
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {Object.entries(run.params).map(([k, v]) => (
+              <span key={k} style={{ fontSize: 12, color: t.text }}>
+                <span style={{ color: t.textDim }}>{k}:</span>{" "}
+                <span style={{ fontFamily: "monospace" }}>{String(v)}</span>
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -309,6 +385,7 @@ function RunDetail({ runId, workflowId, onBack }: {
             state={state}
             stepDef={steps[i]}
             runStatus={run.status}
+            runParams={run.params}
             runId={runId}
             t={t}
             onApprove={() => approveMut.mutate({ runId, stepIndex: i })}
@@ -329,7 +406,7 @@ function RunDetail({ runId, workflowId, onBack }: {
 // ---------------------------------------------------------------------------
 
 function StepCard({
-  index, state, stepDef, runStatus, runId, t,
+  index, state, stepDef, runStatus, runParams, runId, t,
   onApprove, onSkip, onRetry,
   isApproving, isSkipping, isRetrying,
 }: {
@@ -337,6 +414,7 @@ function StepCard({
   state: WorkflowStepState;
   stepDef?: { id?: string; prompt?: string; requires_approval?: boolean; on_failure?: string; when?: any };
   runStatus: string;
+  runParams: Record<string, any>;
   runId: string;
   t: ThemeTokens;
   onApprove: () => void;
@@ -353,10 +431,28 @@ function StepCard({
   const s = getStatusStyle(state.status, t);
   const Icon = s.icon;
   const stepId = stepDef?.id || `step_${index}`;
+  const isStepRunning = state.status === "running";
+  const elapsed = useElapsed(state.started_at, isStepRunning);
 
   const isAwaitingApproval = runStatus === "awaiting_approval" &&
     state.status === "pending" && stepDef?.requires_approval;
   const canRetry = state.status === "failed";
+
+  // Render the prompt with params substituted for readability
+  const renderedPrompt = useMemo(() => {
+    if (!stepDef?.prompt) return null;
+    let p = stepDef.prompt;
+    for (const [k, v] of Object.entries(runParams)) {
+      p = p.replaceAll(`{{${k}}}`, String(v));
+    }
+    return p.slice(0, 800);
+  }, [stepDef?.prompt, runParams]);
+
+  // Explain why step was skipped
+  const skipReason = useMemo(() => {
+    if (state.status !== "skipped" || !stepDef?.when) return null;
+    return describeCondition(stepDef.when);
+  }, [state.status, stepDef?.when]);
 
   return (
     <div style={{
@@ -378,13 +474,40 @@ function StepCard({
         }}>
           <Icon size={13} color={s.text} />
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
               {stepId}
             </span>
             <StatusBadge status={state.status} t={t} />
+            {isStepRunning && elapsed && (
+              <span style={{ fontSize: 11, color: t.textDim }}>{elapsed}</span>
+            )}
           </div>
+          {/* Inline skip reason on collapsed card */}
+          {!expanded && skipReason && (
+            <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
+              Skipped: {skipReason}
+            </div>
+          )}
+          {/* Inline result preview on collapsed card */}
+          {!expanded && state.result && (
+            <div style={{
+              fontSize: 11, color: t.success, marginTop: 2,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {state.result.slice(0, 120)}
+            </div>
+          )}
+          {/* Inline error preview on collapsed card */}
+          {!expanded && state.error && !state.result && (
+            <div style={{
+              fontSize: 11, color: t.danger, marginTop: 2,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}>
+              {state.error.slice(0, 120)}
+            </div>
+          )}
         </div>
         {expanded ? <ChevronDown size={14} color={t.textDim} /> : <ChevronRight size={14} color={t.textDim} />}
       </Pressable>
@@ -395,7 +518,49 @@ function StepCard({
           padding: "0 10px 10px 10px",
           borderTop: `1px solid ${t.surfaceBorder}`,
         }}>
-          {/* Timing info */}
+          {/* Skip reason banner */}
+          {skipReason && (
+            <div style={{
+              display: "flex", alignItems: "flex-start", gap: 6,
+              marginTop: 8, padding: 8, borderRadius: 6,
+              background: t.warningSubtle, border: `1px solid ${t.warningBorder}`,
+            }}>
+              <AlertTriangle size={13} color={t.warning} style={{ flexShrink: 0, marginTop: 1 }} />
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: t.warning }}>
+                  Condition not met
+                </div>
+                <div style={{ fontSize: 11, color: t.text, marginTop: 2 }}>
+                  {skipReason}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Running too long warning */}
+          {isStepRunning && elapsed && parseInt(elapsed) > 0 && (
+            (() => {
+              const startMs = new Date(state.started_at!).getTime();
+              const elapsedMs = Date.now() - startMs;
+              if (elapsedMs > 300000) { // 5 min
+                return (
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    marginTop: 8, padding: 8, borderRadius: 6,
+                    background: t.warningSubtle, border: `1px solid ${t.warningBorder}`,
+                  }}>
+                    <AlertTriangle size={13} color={t.warning} />
+                    <span style={{ fontSize: 11, color: t.warning, fontWeight: 600 }}>
+                      Running for {elapsed} — this step may be stuck. Check the linked task for details.
+                    </span>
+                  </div>
+                );
+              }
+              return null;
+            })()
+          )}
+
+          {/* Timing + links */}
           <div style={{ display: "flex", gap: 12, marginTop: 8, flexWrap: "wrap" }}>
             {state.started_at && (
               <span style={{ fontSize: 11, color: t.textDim }}>
@@ -405,6 +570,11 @@ function StepCard({
             {state.completed_at && (
               <span style={{ fontSize: 11, color: t.textDim }}>
                 Completed: {fmtTime(state.completed_at)}
+              </span>
+            )}
+            {isStepRunning && elapsed && (
+              <span style={{ fontSize: 11, color: t.accent, fontWeight: 600 }}>
+                Elapsed: {elapsed}
               </span>
             )}
             {state.retry_count != null && state.retry_count > 0 && (
@@ -430,25 +600,47 @@ function StepCard({
             )}
           </div>
 
-          {/* Step prompt */}
-          {stepDef?.prompt && (
+          {/* Condition (when clause) — show what this step requires */}
+          {stepDef?.when && state.status !== "skipped" && (
             <div style={{
-              marginTop: 8, padding: 8, borderRadius: 6,
-              background: t.surfaceOverlay, fontSize: 12, color: t.textMuted,
-              fontFamily: "monospace", whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto",
+              marginTop: 8, padding: 6, borderRadius: 4,
+              fontSize: 11, color: t.textDim, fontStyle: "italic",
+              background: `${t.surfaceOverlay}80`,
             }}>
-              {stepDef.prompt.slice(0, 500)}
+              Condition: {describeCondition(stepDef.when)}
             </div>
+          )}
+
+          {/* Step prompt (rendered with params) */}
+          {renderedPrompt && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{
+                fontSize: 11, color: t.textDim, cursor: "pointer",
+                userSelect: "none",
+              }}>
+                Prompt
+              </summary>
+              <div style={{
+                marginTop: 4, padding: 8, borderRadius: 6,
+                background: `${t.surfaceOverlay}80`,
+                fontSize: 12, color: t.textMuted,
+                fontFamily: "monospace", whiteSpace: "pre-wrap",
+                maxHeight: 200, overflow: "auto",
+                lineHeight: 1.5,
+              }}>
+                {renderedPrompt}
+              </div>
+            </details>
           )}
 
           {/* Result */}
           {state.result && (
             <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.textDim, marginBottom: 4 }}>Result</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.success, marginBottom: 4 }}>Result</div>
               <div style={{
                 padding: 8, borderRadius: 6,
                 background: t.successSubtle, border: `1px solid ${t.successBorder}`,
-                fontSize: 12, color: t.text, whiteSpace: "pre-wrap", maxHeight: 200, overflow: "auto",
+                fontSize: 12, color: t.text, whiteSpace: "pre-wrap", maxHeight: 300, overflow: "auto",
               }}>
                 {state.result}
               </div>
@@ -529,7 +721,7 @@ function StepCard({
 }
 
 // ---------------------------------------------------------------------------
-// Trigger form
+// Trigger form with proper param fields + bot dropdown
 // ---------------------------------------------------------------------------
 
 function TriggerForm({
@@ -541,20 +733,45 @@ function TriggerForm({
   onCancel: () => void;
 }) {
   const { data: workflow } = useWorkflow(workflowId);
+  const { data: bots } = useBots();
   const triggerMut = useTriggerWorkflow(workflowId);
-  const [paramsText, setParamsText] = useState("{}");
-  const [botId, setBotId] = useState("");
 
   const paramDefs = workflow?.params || {};
   const defaultBot = workflow?.defaults?.bot_id || "";
+  const hasParams = Object.keys(paramDefs).length > 0;
 
-  // Build initial params from defaults
-  const handleTrigger = async () => {
-    let params: Record<string, any>;
-    try { params = JSON.parse(paramsText); } catch {
-      alert("Invalid JSON in parameters");
-      return;
+  // Build param state from definitions
+  const [paramValues, setParamValues] = useState<Record<string, string>>({});
+  const [botId, setBotId] = useState("");
+
+  // Initialize defaults when workflow loads
+  useEffect(() => {
+    if (!workflow) return;
+    const defaults: Record<string, string> = {};
+    for (const [k, v] of Object.entries(workflow.params || {})) {
+      const def = v as any;
+      if (def.default != null) defaults[k] = String(def.default);
     }
+    setParamValues((prev) => ({ ...defaults, ...prev }));
+  }, [workflow]);
+
+  const handleTrigger = async () => {
+    // Build params with type coercion
+    const params: Record<string, any> = {};
+    for (const [k, v] of Object.entries(paramDefs)) {
+      const def = v as any;
+      const val = paramValues[k];
+      if (def.required && (!val || val.trim() === "")) {
+        alert(`Parameter "${k}" is required`);
+        return;
+      }
+      if (val !== undefined && val !== "") {
+        if (def.type === "number") params[k] = Number(val);
+        else if (def.type === "boolean") params[k] = val === "true";
+        else params[k] = val;
+      }
+    }
+
     try {
       const run = await triggerMut.mutateAsync({
         params,
@@ -566,6 +783,12 @@ function TriggerForm({
     }
   };
 
+  const inputStyle: React.CSSProperties = {
+    background: t.inputBg, border: `1px solid ${t.inputBorder}`,
+    borderRadius: 6, padding: "6px 10px", color: t.inputText,
+    fontSize: 12, outline: "none", width: "100%",
+  };
+
   return (
     <div style={{
       padding: 12, borderRadius: 8,
@@ -574,48 +797,56 @@ function TriggerForm({
     }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Trigger Workflow</div>
 
-      {/* Param hints */}
-      {Object.keys(paramDefs).length > 0 && (
-        <div style={{ fontSize: 11, color: t.textDim }}>
-          Parameters: {Object.entries(paramDefs).map(([k, v]: [string, any]) => (
-            <span key={k} style={{ marginRight: 8 }}>
-              <strong>{k}</strong>
-              {v.required ? " (required)" : ""}
-              {v.default != null ? ` = ${v.default}` : ""}
-            </span>
+      {/* Param fields generated from definitions */}
+      {hasParams && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {Object.entries(paramDefs).map(([name, def]: [string, any]) => (
+            <div key={name} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <label style={{ fontSize: 12, color: t.textMuted }}>
+                {name}
+                {def.required && <span style={{ color: t.danger }}> *</span>}
+                {def.description && (
+                  <span style={{ color: t.textDim, fontWeight: "normal" }}> — {def.description}</span>
+                )}
+              </label>
+              {def.type === "boolean" ? (
+                <select
+                  value={paramValues[name] || ""}
+                  onChange={(e) => setParamValues((p) => ({ ...p, [name]: e.target.value }))}
+                  style={{ ...inputStyle, padding: "6px 8px" }}
+                >
+                  <option value="">— select —</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              ) : (
+                <input
+                  value={paramValues[name] || ""}
+                  onChange={(e) => setParamValues((p) => ({ ...p, [name]: e.target.value }))}
+                  placeholder={def.default != null ? `default: ${def.default}` : def.required ? "required" : "optional"}
+                  style={inputStyle}
+                />
+              )}
+            </div>
           ))}
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <label style={{ fontSize: 12, color: t.textMuted }}>Parameters (JSON)</label>
-        <textarea
-          value={paramsText}
-          onChange={(e) => setParamsText(e.target.value)}
-          style={{
-            background: t.inputBg, border: `1px solid ${t.inputBorder}`,
-            borderRadius: 6, padding: "6px 10px", color: t.inputText,
-            fontSize: 12, fontFamily: "monospace", minHeight: 60, resize: "vertical",
-            outline: "none", width: "100%",
-          }}
-          spellCheck={false}
-        />
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {/* Bot selector dropdown */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         <label style={{ fontSize: 12, color: t.textMuted }}>
-          Bot ID {defaultBot ? `(default: ${defaultBot})` : ""}
+          Bot {defaultBot && <span style={{ color: t.textDim }}>(default: {defaultBot})</span>}
         </label>
-        <input
+        <select
           value={botId}
           onChange={(e) => setBotId(e.target.value)}
-          placeholder={defaultBot || "required"}
-          style={{
-            background: t.inputBg, border: `1px solid ${t.inputBorder}`,
-            borderRadius: 6, padding: "6px 10px", color: t.inputText,
-            fontSize: 12, outline: "none",
-          }}
-        />
+          style={{ ...inputStyle, padding: "6px 8px" }}
+        >
+          <option value="">{defaultBot ? `Default (${defaultBot})` : "— select bot —"}</option>
+          {bots?.map((b) => (
+            <option key={b.id} value={b.id}>{b.name || b.id}</option>
+          ))}
+        </select>
       </div>
 
       {triggerMut.isError && (
