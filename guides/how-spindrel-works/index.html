@@ -1,0 +1,2066 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hosted LLM agent server">
+      
+      
+      
+        <link rel="canonical" href="https://spindrel.dev/guides/how-spindrel-works/">
+      
+      
+        <link rel="prev" href="../../backup/">
+      
+      
+        <link rel="next" href="../templates-and-activation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>How Spindrel Works - Spindrel</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#how-spindrel-works" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Spindrel" class="md-header__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Spindrel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              How Spindrel Works
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Spindrel" class="md-nav__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Spindrel
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docker-deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup & Restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Spindrel Works
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Spindrel Works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-core-idea" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Core Idea
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Templates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integration-activation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Activation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Integration Activation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#current-integrations-with-activation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current Integrations with Activation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#carapaces-expertise-bundles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Carapaces (Expertise Bundles)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Carapaces (Expertise Bundles)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-the-bot-finds-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the Bot Finds Skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#static-vs-dynamic-carapaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Static vs Dynamic Carapaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composition
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-full-picture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Full Picture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Full Picture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-create-a-channel-assign-a-bot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Create a channel, assign a bot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-activate-integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Activate integrations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-pick-a-compatible-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Pick a compatible template
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-start-chatting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Start chatting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-concepts-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Concepts Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#i-want-a-project-management-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want a project management channel"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#i-want-a-media-request-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want a media request channel"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#i-want-an-email-digest-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want an email digest channel"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#i-want-a-code-review-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want a code review channel"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#i-want-to-add-my-own-tools-and-carapaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want to add my own tools and carapaces"
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../templates-and-activation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates & Activation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heartbeats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heartbeats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../custom-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Tools & Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slack Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../discord/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gmail/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gmail Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../clients/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delegation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delegation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../harnesses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harnesses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../secrets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secrets & Redaction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Content Ingestion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chat-history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat History
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage-and-billing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage & Billing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../integrations/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/activation-and-templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Activation & Templates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-core-idea" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Core Idea
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Templates
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integration-activation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Activation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Integration Activation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#current-integrations-with-activation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Current Integrations with Activation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#carapaces-expertise-bundles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Carapaces (Expertise Bundles)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Carapaces (Expertise Bundles)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-the-bot-finds-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the Bot Finds Skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#static-vs-dynamic-carapaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Static vs Dynamic Carapaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Composition
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-full-picture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Full Picture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Full Picture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-create-a-channel-assign-a-bot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Create a channel, assign a bot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-activate-integrations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Activate integrations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-pick-a-compatible-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Pick a compatible template
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-start-chatting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Start chatting
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-concepts-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Concepts Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#common-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Common Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#i-want-a-project-management-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want a project management channel"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#i-want-a-media-request-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want a media request channel"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#i-want-an-email-digest-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want an email digest channel"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#i-want-a-code-review-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want a code review channel"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#i-want-to-add-my-own-tools-and-carapaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        "I want to add my own tools and carapaces"
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="how-spindrel-works">How Spindrel Works<a class="headerlink" href="#how-spindrel-works" title="Permanent link">&para;</a></h1>
+<p>This guide explains the mental model — how the pieces fit together, not API details.</p>
+<hr />
+<h2 id="the-core-idea">The Core Idea<a class="headerlink" href="#the-core-idea" title="Permanent link">&para;</a></h2>
+<p>A <strong>channel</strong> is a conversation with a bot. What makes that bot useful depends on what's plugged into it: tools, skills, behavioral instructions, and workspace files. Spindrel's job is composing those pieces so the right capabilities show up at the right time, without manual configuration for every channel.</p>
+<p>The composition chain:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>Channel → Template + Integration Activation → Carapace → Skills + Tools + Behavior
+</code></pre></div>
+<hr />
+<h2 id="channels">Channels<a class="headerlink" href="#channels" title="Permanent link">&para;</a></h2>
+<p>A channel is where a user talks to a bot. Each channel has:</p>
+<ul>
+<li>A <strong>bot</strong> assignment (which LLM, which personality)</li>
+<li>A <strong>workspace</strong> (a directory of <code>.md</code> files the bot reads and writes)</li>
+<li>Zero or more <strong>integration bindings</strong> (Slack, GitHub, Mission Control, etc.)</li>
+<li>Optional <strong>overrides</strong> (extra tools, disabled carapaces, custom prompt)</li>
+</ul>
+<p>Channels are lightweight. Create one per project, topic, or workflow. The bot's base configuration comes from its YAML definition, but the channel can layer on top.</p>
+<hr />
+<h2 id="templates">Templates<a class="headerlink" href="#templates" title="Permanent link">&para;</a></h2>
+<p>A template defines <strong>how the workspace should be organized</strong> — which files to create, what each file is for, and how they relate.</p>
+<p>For example, the <strong>Software Development</strong> template says:</p>
+<blockquote>
+<p>Create <code>project.md</code> for goals and scope, <code>architecture.md</code> for design, <code>tasks.md</code> for tracking, <code>decisions.md</code> for ADRs.</p>
+</blockquote>
+<p>The <strong>Media Management</strong> template says:</p>
+<blockquote>
+<p>Create <code>requests.md</code> for pending media requests, <code>library.md</code> for collection overview, <code>issues.md</code> for download problems.</p>
+</blockquote>
+<p>Templates are suggestions, not constraints. The bot follows the structure when creating files but adapts if the conversation goes in a different direction.</p>
+<p><strong>Picking a template</strong> happens in the channel's Workspace tab. If an integration is activated, compatible templates are highlighted — pick the green one for the best experience.</p>
+<hr />
+<h2 id="integration-activation">Integration Activation<a class="headerlink" href="#integration-activation" title="Permanent link">&para;</a></h2>
+<p>Integrations connect Spindrel to external services (Slack, GitHub, Gmail, your media stack). <strong>Binding</strong> an integration to a channel means messages can flow in and out. <strong>Activating</strong> it means the bot gains the integration's full capabilities.</p>
+<p>When you activate an integration on a channel:</p>
+<ol>
+<li>The integration's <strong>carapace</strong> is automatically injected</li>
+<li>The carapace brings in <strong>tools</strong> (function calls the bot can make), <strong>skills</strong> (domain knowledge), and <strong>behavioral instructions</strong> (how to use them)</li>
+<li>No manual tool configuration needed</li>
+</ol>
+<p><strong>Example:</strong> Activate the Arr integration on a channel, and the bot instantly knows how to search Sonarr for TV shows, add movies to Radarr, check download status in qBittorrent, and browse your Jellyfin library. Pair it with the <strong>Media Management</strong> template and the bot also knows to track requests in <code>requests.md</code> and log issues in <code>issues.md</code>.</p>
+<h3 id="current-integrations-with-activation">Current Integrations with Activation<a class="headerlink" href="#current-integrations-with-activation" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Integration</th>
+<th>What it provides</th>
+<th>Compatible template</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Mission Control</strong></td>
+<td>Task boards, plans, timelines, project management</td>
+<td>Mission Control, Software Dev, PM Hub</td>
+</tr>
+<tr>
+<td><strong>Arr (Media Stack)</strong></td>
+<td>Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, Bazarr</td>
+<td>Media Management</td>
+</tr>
+<tr>
+<td><strong>Gmail</strong></td>
+<td>Email ingestion, digest management, feed rules</td>
+<td>Email Digest</td>
+</tr>
+</tbody>
+</table>
+<p>Other integrations (Slack, GitHub, Discord, Frigate) provide channel binding and tools but don't yet have activation manifests. Their tools are available when configured on the bot directly.</p>
+<hr />
+<h2 id="carapaces-expertise-bundles">Carapaces (Expertise Bundles)<a class="headerlink" href="#carapaces-expertise-bundles" title="Permanent link">&para;</a></h2>
+<p>Carapaces are the mechanism that makes activation work — but they're useful beyond integrations too.</p>
+<p>A carapace bundles:</p>
+<ul>
+<li><strong>Tools</strong> — Functions the bot can call (e.g., <code>create_task_card</code>, <code>sonarr_search</code>)</li>
+<li><strong>Skills</strong> — Markdown knowledge documents with domain expertise (e.g., how to run a code review, how to manage a sourdough starter)</li>
+<li><strong>System prompt fragment</strong> — Behavioral instructions injected into every message ("when the user asks about X, fetch skill Y and use tool Z")</li>
+<li><strong>Includes</strong> — Other carapaces to compose with (e.g., <code>qa</code> includes <code>code-review</code>)</li>
+</ul>
+<h3 id="how-the-bot-finds-skills">How the Bot Finds Skills<a class="headerlink" href="#how-the-bot-finds-skills" title="Permanent link">&para;</a></h3>
+<p>Carapaces use a <strong>fragment-as-index</strong> pattern. The system prompt fragment acts as a routing table:</p>
+<blockquote>
+<p>"When the user asks about task management or project status, fetch <code>get_skill('mission_control')</code> for the full reference."</p>
+</blockquote>
+<p>Skills aren't all loaded at once (that would blow the context window). Instead, the system prompt tells the bot <em>when</em> to load each skill, and the bot fetches them on demand via <code>get_skill()</code>. This means a bot can have access to thousands of pages of domain knowledge without any of it consuming context until it's actually needed.</p>
+<h3 id="static-vs-dynamic-carapaces">Static vs Dynamic Carapaces<a class="headerlink" href="#static-vs-dynamic-carapaces" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Static</strong> — Declared in the bot's YAML: <code>carapaces: [qa, code-review]</code>. Always active.</li>
+<li><strong>Dynamic</strong> — Injected via integration activation. Only active on channels where the integration is activated. Can be disabled per-channel.</li>
+</ul>
+<h3 id="composition">Composition<a class="headerlink" href="#composition" title="Permanent link">&para;</a></h3>
+<p>Carapaces can include other carapaces. The <code>orchestrator</code> carapace includes <code>mission-control</code>. The <code>qa</code> carapace includes <code>code-review</code>. Resolution is depth-first with cycle detection, max 5 levels deep.</p>
+<hr />
+<h2 id="the-full-picture">The Full Picture<a class="headerlink" href="#the-full-picture" title="Permanent link">&para;</a></h2>
+<p>Here's how it all comes together when you set up a channel:</p>
+<h3 id="1-create-a-channel-assign-a-bot">1. Create a channel, assign a bot<a class="headerlink" href="#1-create-a-channel-assign-a-bot" title="Permanent link">&para;</a></h3>
+<p>The bot brings its base personality, model, and any static carapaces from its YAML config.</p>
+<h3 id="2-activate-integrations">2. Activate integrations<a class="headerlink" href="#2-activate-integrations" title="Permanent link">&para;</a></h3>
+<p>Each activated integration injects its carapace(s). The bot gains tools and skills without any manual configuration.</p>
+<h3 id="3-pick-a-compatible-template">3. Pick a compatible template<a class="headerlink" href="#3-pick-a-compatible-template" title="Permanent link">&para;</a></h3>
+<p>The template tells the bot how to organize workspace files. Compatible templates are designed to match the activated integration's tools — e.g., the Media Management template's <code>requests.md</code> aligns with how <code>sonarr_search</code> and <code>radarr_search</code> report results.</p>
+<h3 id="4-start-chatting">4. Start chatting<a class="headerlink" href="#4-start-chatting" title="Permanent link">&para;</a></h3>
+<p>On every message, Spindrel's context assembly pipeline runs:</p>
+<ol>
+<li><strong>Carapace resolution</strong> — Collects all carapaces (static + activated), resolves includes, merges tools and skills</li>
+<li><strong>Template injection</strong> — The workspace schema is injected so the bot knows the file structure</li>
+<li><strong>Workspace files</strong> — Active <code>.md</code> files in the workspace root are injected into context (the bot "sees" project state)</li>
+<li><strong>Tool retrieval</strong> — Relevant tools are selected via embedding similarity (not all tools are sent every time)</li>
+<li><strong>Skill routing</strong> — The system prompt fragments tell the bot when to load on-demand skills</li>
+</ol>
+<p>The result: the bot has exactly the right tools, knowledge, and context for this channel's purpose — assembled fresh on every request.</p>
+<hr />
+<h2 id="key-concepts-summary">Key Concepts Summary<a class="headerlink" href="#key-concepts-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Concept</th>
+<th>What it is</th>
+<th>Where it lives</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Channel</strong></td>
+<td>A conversation with a bot</td>
+<td>UI sidebar, database</td>
+</tr>
+<tr>
+<td><strong>Template</strong></td>
+<td>Workspace file organization guide</td>
+<td><code>prompts/*.md</code> or Admin &gt; Templates</td>
+</tr>
+<tr>
+<td><strong>Integration</strong></td>
+<td>Connection to an external service</td>
+<td><code>integrations/*/</code> directory</td>
+</tr>
+<tr>
+<td><strong>Activation</strong></td>
+<td>Enabling an integration's full capabilities on a channel</td>
+<td>Channel &gt; Integrations tab</td>
+</tr>
+<tr>
+<td><strong>Carapace</strong></td>
+<td>Bundle of tools + skills + behavior</td>
+<td><code>carapaces/*/carapace.yaml</code></td>
+</tr>
+<tr>
+<td><strong>Skill</strong></td>
+<td>Markdown knowledge document</td>
+<td><code>skills/*.md</code> or carapace subdirectory</td>
+</tr>
+<tr>
+<td><strong>Workspace</strong></td>
+<td>Per-channel file store</td>
+<td><code>~/.agent-workspaces/</code> on disk</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="common-patterns">Common Patterns<a class="headerlink" href="#common-patterns" title="Permanent link">&para;</a></h2>
+<h3 id="i-want-a-project-management-channel">"I want a project management channel"<a class="headerlink" href="#i-want-a-project-management-channel" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Create channel → Activate Mission Control → Pick "Software Dev" or "Mission Control" template</li>
+<li>Bot can now create task boards, draft plans, track timelines, and organize files</li>
+</ol>
+<h3 id="i-want-a-media-request-channel">"I want a media request channel"<a class="headerlink" href="#i-want-a-media-request-channel" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Create channel → Activate Arr → Pick "Media Management" template</li>
+<li>Bot can search and add media, monitor downloads, track requests</li>
+</ol>
+<h3 id="i-want-an-email-digest-channel">"I want an email digest channel"<a class="headerlink" href="#i-want-an-email-digest-channel" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Create channel → Bind Gmail → Activate Gmail → Pick "Email Digest" template</li>
+<li>Bot processes incoming emails, builds digests, tracks action items</li>
+</ol>
+<h3 id="i-want-a-code-review-channel">"I want a code review channel"<a class="headerlink" href="#i-want-a-code-review-channel" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Create channel → Give the bot <code>carapaces: [code-review]</code> (or <code>qa</code> for full QA)</li>
+<li>No activation needed — code review is a static carapace, not integration-bound</li>
+</ol>
+<h3 id="i-want-to-add-my-own-tools-and-carapaces">"I want to add my own tools and carapaces"<a class="headerlink" href="#i-want-to-add-my-own-tools-and-carapaces" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Drop a <code>.py</code> file in <code>tools/</code> with a <code>@register</code> decorator → tool is available on next restart</li>
+<li>Or keep a personal extensions repo and load it via <code>INTEGRATION_DIRS</code> — see the <a href="../custom-tools/">Custom Tools &amp; Extensions guide</a></li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.suggest", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

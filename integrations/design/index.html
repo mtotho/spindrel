@@ -1,0 +1,2066 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hosted LLM agent server">
+      
+      
+      
+        <link rel="canonical" href="https://spindrel.dev/integrations/design/">
+      
+      
+        <link rel="prev" href="../activation-and-templates/">
+      
+      
+        <link rel="next" href="../../reference/architecture/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Design Philosophy - Spindrel</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#integration-system-design" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Spindrel" class="md-header__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Spindrel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Design Philosophy
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Spindrel" class="md-nav__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Spindrel
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docker-deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup & Restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/how-spindrel-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Spindrel Works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/templates-and-activation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates & Activation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/heartbeats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heartbeats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/custom-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Tools & Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/slack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slack Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/discord/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/gmail/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gmail Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/clients/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/delegation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delegation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/harnesses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harnesses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/secrets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secrets & Redaction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Content Ingestion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/chat-history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat History
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/usage-and-billing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage & Billing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../activation-and-templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Activation & Templates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Philosophy
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#core-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dispatcher-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dispatcher Registry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dispatcher Registry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#core-dispatchers-always-available" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core dispatchers (always available)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#integration-dispatchers-pluggable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration dispatchers (pluggable)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hook-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hook Registry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hook Registry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-hooks-replaced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What hooks replaced
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-slack-hooks-integrationsslackhookspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Slack hooks (integrations/slack/hooks.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integration-process-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Process Discovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrationsslackclientpy-and-integrationsslackuploadspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        integrations/slack/client.py and integrations/slack/uploads.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bot-display-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bot Display Config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dispatch_config-jsonb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dispatch_config JSONB
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#channel-config-single-source-of-truth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel Config — Single Source of Truth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integration-debt-resolved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Debt — Resolved
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#external-integrations-plugin-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        External Integrations (Plugin Model)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#things-that-are-fine-dont-touch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Things That Are Fine — Don't Touch
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#core-boundary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core Boundary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dispatcher-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dispatcher Registry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dispatcher Registry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#core-dispatchers-always-available" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core dispatchers (always available)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#integration-dispatchers-pluggable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration dispatchers (pluggable)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hook-registry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hook Registry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hook Registry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-hooks-replaced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What hooks replaced
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-slack-hooks-integrationsslackhookspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: Slack hooks (integrations/slack/hooks.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integration-process-discovery" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Process Discovery
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integrationsslackclientpy-and-integrationsslackuploadspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        integrations/slack/client.py and integrations/slack/uploads.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bot-display-config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bot Display Config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dispatch_config-jsonb" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        dispatch_config JSONB
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#channel-config-single-source-of-truth" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel Config — Single Source of Truth
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#integration-debt-resolved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Debt — Resolved
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#external-integrations-plugin-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        External Integrations (Plugin Model)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#things-that-are-fine-dont-touch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Things That Are Fine — Don't Touch
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="integration-system-design">Integration System Design<a class="headerlink" href="#integration-system-design" title="Permanent link">&para;</a></h1>
+<p>This document captures the architectural decisions, design philosophy, known issues, and
+remaining debt for the integration layer. It exists so future Claude sessions and contributors
+don't re-litigate these decisions or re-introduce the same slop.</p>
+<hr />
+<h2 id="core-boundary">Core Boundary<a class="headerlink" href="#core-boundary" title="Permanent link">&para;</a></h2>
+<p><strong><code>/app</code> is core. <code>/integrations</code> (root-level) is extending code.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Belongs in <code>/app</code></th>
+<th>Belongs in <code>/integrations</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agent loop, RAG, tool system</td>
+<td>Slack Bolt app, channel config logic</td>
+</tr>
+<tr>
+<td>Task worker, scheduler</td>
+<td>Slack-specific message formatting</td>
+</tr>
+<tr>
+<td>Dispatcher registry + core dispatchers</td>
+<td>Integration-specific dispatchers</td>
+</tr>
+<tr>
+<td>DB models (generic)</td>
+<td>Integration-specific config tables</td>
+</tr>
+<tr>
+<td><code>/api/v1/</code> public REST API</td>
+<td><code>/integrations/&lt;name&gt;/</code> routers</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Rule</strong>: <code>/app</code> must not import from <code>/integrations</code>. <code>/app</code> must not contain integration
+brand names (like "slack") in business logic. The word "slack" is allowed only in:
+- <code>app/config.py</code> — <code>SLACK_BOT_TOKEN</code>/<code>SLACK_DEFAULT_BOT</code> env var config (used by admin)</p>
+<hr />
+<h2 id="dispatcher-registry">Dispatcher Registry<a class="headerlink" href="#dispatcher-registry" title="Permanent link">&para;</a></h2>
+<p>Dispatchers answer one question: <strong>"Given a completed task result, where and how do I send it?"</strong></p>
+<h3 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
+<p><code>app/agent/dispatchers.py</code> is the registry:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">app.agent.dispatchers</span><span class="w"> </span><span class="kn">import</span> <span class="n">register</span><span class="p">,</span> <span class="n">get</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># Register a dispatcher for a dispatch_type</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="n">register</span><span class="p">(</span><span class="s2">&quot;mytype&quot;</span><span class="p">,</span> <span class="n">MyDispatcher</span><span class="p">())</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># Look up a dispatcher (falls back to &quot;none&quot; if unknown)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">dispatcher</span> <span class="o">=</span> <span class="n">get</span><span class="p">(</span><span class="n">task</span><span class="o">.</span><span class="n">dispatch_type</span><span class="p">)</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="k">await</span> <span class="n">dispatcher</span><span class="o">.</span><span class="n">deliver</span><span class="p">(</span><span class="n">task</span><span class="p">,</span> <span class="n">result_text</span><span class="p">,</span> <span class="n">client_actions</span><span class="o">=...</span><span class="p">)</span>
+</code></pre></div>
+<p><code>tasks.py</code> uses <code>dispatchers.get()</code> — it has no knowledge of individual dispatchers.</p>
+<h3 id="core-dispatchers-always-available">Core dispatchers (always available)<a class="headerlink" href="#core-dispatchers-always-available" title="Permanent link">&para;</a></h3>
+<p>Registered in <code>app/agent/dispatchers.py</code> at import time:</p>
+<table>
+<thead>
+<tr>
+<th><code>dispatch_type</code></th>
+<th>Class</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>"none"</code></td>
+<td><code>_NoneDispatcher</code></td>
+<td>Result stays in DB only; caller polls <code>get_task</code></td>
+</tr>
+<tr>
+<td><code>"webhook"</code></td>
+<td><code>_WebhookDispatcher</code></td>
+<td>HTTP POST <code>{task_id, result}</code> to <code>dispatch_config.url</code></td>
+</tr>
+<tr>
+<td><code>"internal"</code></td>
+<td><code>_InternalDispatcher</code></td>
+<td>Injects result into a parent session as a user message</td>
+</tr>
+</tbody>
+</table>
+<h3 id="integration-dispatchers-pluggable">Integration dispatchers (pluggable)<a class="headerlink" href="#integration-dispatchers-pluggable" title="Permanent link">&para;</a></h3>
+<p>An integration registers its dispatcher by placing <code>dispatcher.py</code> in its folder.
+<code>integrations/__init__.py</code> auto-imports it during <code>discover_integrations()</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>integrations/
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>└── slack/
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    └── dispatcher.py   ← calls register(&quot;slack&quot;, SlackDispatcher()) at import time
+</code></pre></div>
+<p>The <code>SlackDispatcher</code> handles <code>chat.postMessage</code> + file uploads for the task path.
+It is allowed to know about Slack — it's explicitly scoped to <code>dispatch_type="slack"</code>.
+All its HTTP calls go through <code>integrations/slack/client.py</code> (for messages) and
+<code>integrations/slack/uploads.py</code> (for files).</p>
+<hr />
+<h2 id="hook-registry">Hook Registry<a class="headerlink" href="#hook-registry" title="Permanent link">&para;</a></h2>
+<p>Hooks answer two questions: <strong>"What metadata does this integration provide?"</strong> and
+<strong>"What should happen when the agent does X?"</strong></p>
+<h3 id="how-it-works_1">How it works<a class="headerlink" href="#how-it-works_1" title="Permanent link">&para;</a></h3>
+<p><code>app/agent/hooks.py</code> has two registries:</p>
+<p><strong>Registry A — Integration metadata</strong> (keyed by integration type):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">app.agent.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntegrationMeta</span><span class="p">,</span> <span class="n">register_integration</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">register_integration</span><span class="p">(</span><span class="n">IntegrationMeta</span><span class="p">(</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>    <span class="n">integration_type</span><span class="o">=</span><span class="s2">&quot;slack&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>    <span class="n">client_id_prefix</span><span class="o">=</span><span class="s2">&quot;slack:&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>    <span class="n">user_attribution</span><span class="o">=</span><span class="n">_user_attribution</span><span class="p">,</span>       <span class="c1"># returns {username, icon_emoji, icon_url}</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>    <span class="n">resolve_display_names</span><span class="o">=</span><span class="n">_resolve_display_names</span><span class="p">,</span>  <span class="c1"># returns {channel_id: &quot;#name&quot;}</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="p">))</span>
+</code></pre></div>
+<p>Core code queries this registry dynamically instead of hardcoding integration-specific
+logic. For example, <code>app/services/channels.py:is_integration_client_id()</code> calls
+<code>get_all_client_id_prefixes()</code> instead of maintaining a hardcoded tuple.</p>
+<p><strong>Registry B — Lifecycle hooks</strong> (broadcast, fire-and-forget):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">app.agent.hooks</span><span class="w"> </span><span class="kn">import</span> <span class="n">HookContext</span><span class="p">,</span> <span class="n">register_hook</span><span class="p">,</span> <span class="n">fire_hook</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="n">register_hook</span><span class="p">(</span><span class="s2">&quot;after_tool_call&quot;</span><span class="p">,</span> <span class="n">my_callback</span><span class="p">)</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># Core fires the event (in loop.py, context_assembly.py, etc.)</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="k">await</span> <span class="n">fire_hook</span><span class="p">(</span><span class="s2">&quot;after_tool_call&quot;</span><span class="p">,</span> <span class="n">HookContext</span><span class="p">(</span><span class="n">bot_id</span><span class="o">=</span><span class="n">bot_id</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="o">...</span><span class="p">}))</span>
+</code></pre></div>
+<p>Events: <code>after_tool_call</code>, <code>after_response</code>, <code>before_context_assembly</code>. All errors
+are swallowed and logged. Both sync and async callbacks work. Hooks run via
+<code>asyncio.create_task</code> so they don't block the agent loop.</p>
+<h3 id="what-hooks-replaced">What hooks replaced<a class="headerlink" href="#what-hooks-replaced" title="Permanent link">&para;</a></h3>
+<p>Three places in core had hardcoded Slack imports:
+- <code>app/routers/chat.py</code> — user attribution for message mirroring → now uses <code>get_user_attribution()</code>
+- <code>app/services/channels.py</code> — client ID prefix detection → now uses <code>get_all_client_id_prefixes()</code>
+- <code>app/routers/api_v1_admin/channels.py</code> — display name resolution → now uses <code>resolve_all_display_names()</code></p>
+<h3 id="example-slack-hooks-integrationsslackhookspy">Example: Slack hooks (<code>integrations/slack/hooks.py</code>)<a class="headerlink" href="#example-slack-hooks-integrationsslackhookspy" title="Permanent link">&para;</a></h3>
+<p>Registers metadata (prefix, user attribution, channel name resolution) and
+subscribes to lifecycle events:
+- <code>after_tool_call</code> — adds emoji reactions on Slack messages (hourglass + tool-specific emoji)
+- <code>after_tool_call</code> — posts tool usage to an audit channel (configured via <code>/audit</code> slash command)
+- <code>after_response</code> — removes hourglass, adds checkmark</p>
+<hr />
+<h2 id="integration-process-discovery">Integration Process Discovery<a class="headerlink" href="#integration-process-discovery" title="Permanent link">&para;</a></h2>
+<p>Integrations that need a background process (e.g. Slack Bolt runs as a separate Python
+process in socket mode) declare it in <code>process.py</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># integrations/slack/process.py</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">DESCRIPTION</span> <span class="o">=</span> <span class="s2">&quot;Slack Bolt bot (socket mode)&quot;</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">CMD</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;python&quot;</span><span class="p">,</span> <span class="s2">&quot;integrations/slack/slack_bot.py&quot;</span><span class="p">]</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">REQUIRED_ENV</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;SLACK_BOT_TOKEN&quot;</span><span class="p">,</span> <span class="s2">&quot;SLACK_APP_TOKEN&quot;</span><span class="p">]</span>
+</code></pre></div>
+<p><code>integrations/__init__.py</code> exposes <code>discover_processes()</code> which returns only processes
+whose <code>REQUIRED_ENV</code> vars are all set. <code>scripts/dev-server.sh</code> calls
+<code>scripts/list_integration_processes.py</code> to auto-start all declared processes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># In dev-server.sh — no hardcoded integration names</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">while</span><span class="w"> </span><span class="nv">IFS</span><span class="o">=</span><span class="w"> </span><span class="nb">read</span><span class="w"> </span>-r<span class="w"> </span>cmd<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="o">[[</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$cmd</span><span class="s2">&quot;</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="se">\#</span>*<span class="w"> </span><span class="o">]]</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="k">continue</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nb">eval</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$cmd</span><span class="s2">&quot;</span><span class="w"> </span><span class="p">&amp;</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nv">PIDS</span><span class="o">+=(</span><span class="nv">$!</span><span class="o">)</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="k">done</span><span class="w"> </span>&lt;<span class="w"> </span>&lt;<span class="o">(</span>python<span class="w"> </span>scripts/list_integration_processes.py<span class="o">)</span>
+</code></pre></div>
+<hr />
+<h2 id="integrationsslackclientpy-and-integrationsslackuploadspy"><code>integrations/slack/client.py</code> and <code>integrations/slack/uploads.py</code><a class="headerlink" href="#integrationsslackclientpy-and-integrationsslackuploadspy" title="Permanent link">&para;</a></h2>
+<p>All Slack HTTP calls live in <code>integrations/slack/</code>:</p>
+<ul>
+<li><strong><code>client.py</code></strong> — <code>post_message()</code> and <code>bot_attribution()</code>: single source of truth for
+  <code>chat.postMessage</code>. Used by <code>SlackDispatcher.deliver()</code>, <code>SlackDispatcher.post_message()</code>,
+  and indirectly by <code>_fanout()</code> and <code>delegation.post_child_response()</code> via the dispatcher registry.</li>
+<li><strong><code>uploads.py</code></strong> — file upload flow (files.getUploadURLExternal → upload →
+  completeUploadExternal). Called by <code>SlackDispatcher.deliver()</code>.</li>
+</ul>
+<p><strong>Known bug that was fixed</strong>: <code>files.getUploadURLExternal</code> requires form-encoded body
+(<code>data=</code>), NOT JSON (<code>json=</code>). Using <code>json=</code> silently fails with <code>missing_filename</code>.</p>
+<hr />
+<h2 id="bot-display-config">Bot Display Config<a class="headerlink" href="#bot-display-config" title="Permanent link">&para;</a></h2>
+<p>Bots have a <strong>generic</strong> display identity usable by any integration:</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>display_name</code></td>
+<td>How the bot signs its messages ("Aria", "DevBot")</td>
+</tr>
+<tr>
+<td><code>avatar_url</code></td>
+<td>URL to the bot's profile image (any integration can use this)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Slack emoji shortcodes</strong> (<code>:robot_face:</code>) are Slack-specific. They live in
+<code>Bot.integration_config JSONB</code> under <code>{"slack": {"icon_emoji": ":robot_face:"}}</code>.</p>
+<p>The admin UI's bot edit page has a Slack subsection under Display for <code>icon_emoji</code>.</p>
+<hr />
+<h2 id="dispatch_config-jsonb"><code>dispatch_config</code> JSONB<a class="headerlink" href="#dispatch_config-jsonb" title="Permanent link">&para;</a></h2>
+<p><code>dispatch_config</code> on <code>Task</code> holds the <strong>delivery target</strong> only — where to send the result:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1">// Slack</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="p">{</span><span class="nt">&quot;channel_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;C123&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;token&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;xoxb-...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;thread_ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;1234.56&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;reply_in_thread&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1">// Webhook</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="p">{</span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;https://example.com/hook&quot;</span><span class="p">}</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="c1">// Internal</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="p">{</span><span class="nt">&quot;session_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;uuid&quot;</span><span class="p">}</span>
+</code></pre></div>
+<p><strong>What does NOT belong in <code>dispatch_config</code></strong> (resolved):</p>
+<ul>
+<li>
+<p>Delegation bookkeeping (<code>notify_parent</code>, <code>parent_session_id</code>, <code>parent_bot_id</code>,
+  <code>parent_client_id</code>) — moved to <code>Task.callback_config</code> JSONB (migrations 039+040).</p>
+</li>
+<li>
+<p>Harness execution config (<code>harness_name</code>, <code>working_directory</code>, <code>sandbox_instance_id</code>) —
+  moved to <code>Task.callback_config</code> JSONB.</p>
+</li>
+<li>
+<p>Webhook prompt injection (<code>system_preamble</code>, <code>skills</code>, <code>tools</code>) — lives in
+  <code>Task.execution_config</code> JSONB. Set by integrations via <code>inject_message(execution_config=...)</code>.
+  See <a href="../#webhook-prompt-injection-execution_config">Creating an Integration</a> for details.</p>
+</li>
+</ul>
+<hr />
+<h2 id="channel-config-single-source-of-truth">Channel Config — Single Source of Truth<a class="headerlink" href="#channel-config-single-source-of-truth" title="Permanent link">&para;</a></h2>
+<p><strong>Use <code>Channel</code> (<code>channels</code> table, migration 043).</strong> <code>IntegrationChannelConfig</code> is a legacy
+table kept for backwards compatibility but no longer read by core code.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>id</code></td>
+<td>UUID primary key (derived from <code>client_id</code> via <code>derive_channel_id()</code>)</td>
+</tr>
+<tr>
+<td><code>client_id</code></td>
+<td>Format: <code>"slack:C123456"</code></td>
+</tr>
+<tr>
+<td><code>integration</code></td>
+<td><code>"slack"</code> (allows future: <code>"teams"</code>, <code>"discord"</code>)</td>
+</tr>
+<tr>
+<td><code>bot_id</code></td>
+<td>Which bot handles this channel</td>
+</tr>
+<tr>
+<td><code>require_mention</code></td>
+<td>Whether bot needs <code>@mention</code> to respond</td>
+</tr>
+<tr>
+<td><code>passive_memory</code></td>
+<td>Whether bot silently reads all messages for memory</td>
+</tr>
+<tr>
+<td><code>dispatch_config</code></td>
+<td>JSONB delivery target (channel_id, token, thread_ts)</td>
+</tr>
+</tbody>
+</table>
+<p>The Slack integration reads channel config via <code>/integrations/slack/config</code> (60s TTL cache),
+served by <code>integrations/slack/router.py</code>. It does NOT query the DB directly.</p>
+<hr />
+<h2 id="integration-debt-resolved">Integration Debt — Resolved<a class="headerlink" href="#integration-debt-resolved" title="Permanent link">&para;</a></h2>
+<p>All known integration boundary violations have been resolved. Key completed items:</p>
+<ul>
+<li>Dispatcher registry is pluggable — <code>app/agent/dispatchers.py</code> + integration-level <code>dispatcher.py</code></li>
+<li>Hook registry is pluggable — <code>app/agent/hooks.py</code> + integration-level <code>hooks.py</code></li>
+<li>All Slack HTTP calls consolidated in <code>integrations/slack/</code></li>
+<li>No <code>from integrations.slack</code> imports remain in <code>app/</code> — user attribution, client ID prefixes, and display name resolution all go through the hook registry</li>
+<li>Bot display config uses generic <code>display_name</code>/<code>avatar_url</code> (Slack-specific in <code>integration_config</code> JSONB)</li>
+<li><code>dispatch_config</code> on Task is delivery-only; orchestration state lives in <code>callback_config</code></li>
+<li>Channel config reads from <code>channels</code> table (single source of truth)</li>
+</ul>
+<hr />
+<h2 id="external-integrations-plugin-model">External Integrations (Plugin Model)<a class="headerlink" href="#external-integrations-plugin-model" title="Permanent link">&para;</a></h2>
+<p>Integrations can live <strong>outside</strong> the agent-server repo. Set <code>INTEGRATION_DIRS</code> (colon-separated
+paths) in <code>.env</code> to point to directories containing integration folders. Each directory is
+scanned the same way as the in-repo <code>integrations/</code> — any subfolder with <code>router.py</code>,
+<code>dispatcher.py</code>, <code>tools/*.py</code>, <code>skills/*.md</code>, or <code>process.py</code> is auto-discovered.</p>
+<p>This enables:
+- <strong>Private integrations</strong> — keep personal/proprietary integrations in a separate repo
+- <strong>Shared plugins</strong> — publish reusable integrations independently
+- <strong>Clean separation</strong> — the agent-server repo ships only core integrations (slack, example)</p>
+<p>For Docker deployments, mount external integration directories as volumes and set
+<code>INTEGRATION_DIRS</code> to the mount path. See <a href="../">Creating an Integration</a> for examples.</p>
+<hr />
+<h2 id="things-that-are-fine-dont-touch">Things That Are Fine — Don't Touch<a class="headerlink" href="#things-that-are-fine-dont-touch" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Agent loop (<code>app/agent/loop.py</code>) — clean, no integration coupling</li>
+<li>RAG system — clean</li>
+<li>Tool registry + discovery — clean</li>
+<li>Delegation framework (<code>app/services/delegation.py</code>) — clean, routes through dispatcher registry</li>
+<li>Provider abstraction — clean</li>
+<li><code>/api/v1/</code> public API — reasonable</li>
+<li><code>app/agent/dispatchers.py</code> — clean registry pattern</li>
+<li><code>app/agent/hooks.py</code> — clean registry pattern (metadata + lifecycle)</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.suggest", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,2897 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hosted LLM agent server">
+      
+      
+      
+        <link rel="canonical" href="https://spindrel.dev/guides/usage-and-billing/">
+      
+      
+        <link rel="prev" href="../chat-history/">
+      
+      
+        <link rel="next" href="../../integrations/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Usage & Billing - Spindrel</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#usage-tracking-cost-budgeting" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Spindrel" class="md-header__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Spindrel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Usage & Billing
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Spindrel" class="md-nav__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Spindrel
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docker-deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup & Restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-spindrel-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Spindrel Works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../templates-and-activation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates & Activation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heartbeats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heartbeats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../custom-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Tools & Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slack Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../discord/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gmail/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gmail Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../clients/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delegation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delegation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../harnesses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harnesses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../secrets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secrets & Redaction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Content Ingestion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chat-history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat History
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage & Billing
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage & Billing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-cost-tracking-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Cost Tracking Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How Cost Tracking Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prompt-caching-discounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prompt Caching Discounts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plan-billed-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan-Billed Providers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage Dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Usage Dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#charts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Charts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alerts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#filters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Filters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#budget-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget Limits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Budget Limits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-a-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a Limit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-enforcement-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Enforcement Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#projected-spend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Projected Spend
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spend-forecasting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spend Forecasting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Spend Forecasting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#heartbeats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Heartbeats
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recurring-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recurring Tasks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed-plans" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed Plans
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trajectory-current-pace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trajectory (Current Pace)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#projection-formula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Projection Formula
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spike-alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spike Alerts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Spike Alerts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuring-alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring Alerts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#notification-targets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notification Targets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alert-content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alert Content
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Alerts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hud-indicator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HUD Indicator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alert-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alert History
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provider-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-provider-env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default Provider (.env)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#additional-providers-admin-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional Providers (Admin UI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#assigning-providers-to-bots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Assigning Providers to Bots
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-pricing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Pricing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#usage-analytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage Analytics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#budget-limits_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget Limits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spike-alerts_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spike Alerts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Providers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sidebar-hud" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sidebar HUD
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../integrations/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/activation-and-templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Activation & Templates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-cost-tracking-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Cost Tracking Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How Cost Tracking Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prompt-caching-discounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prompt Caching Discounts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plan-billed-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan-Billed Providers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage Dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Usage Dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#charts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Charts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Limits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alerts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#filters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Filters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#budget-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget Limits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Budget Limits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-a-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a Limit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-enforcement-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Enforcement Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#projected-spend" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Projected Spend
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spend-forecasting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spend Forecasting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Spend Forecasting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#heartbeats" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Heartbeats
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recurring-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recurring Tasks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixed-plans" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixed Plans
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trajectory-current-pace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trajectory (Current Pace)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#projection-formula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Projection Formula
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spike-alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spike Alerts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Spike Alerts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuring-alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuring Alerts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#notification-targets" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notification Targets
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alert-content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alert Content
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#test-alerts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Test Alerts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hud-indicator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HUD Indicator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alert-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alert History
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#provider-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provider Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#default-provider-env" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Default Provider (.env)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#additional-providers-admin-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Additional Providers (Admin UI)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#assigning-providers-to-bots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Assigning Providers to Bots
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-pricing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Pricing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#usage-analytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage Analytics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#budget-limits_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Budget Limits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spike-alerts_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Spike Alerts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Providers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sidebar-hud" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sidebar HUD
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="usage-tracking-cost-budgeting">Usage Tracking &amp; Cost Budgeting<a class="headerlink" href="#usage-tracking-cost-budgeting" title="Permanent link">&para;</a></h1>
+<p>Spindrel tracks every LLM call — tokens, latency, cost — and provides analytics, budget limits, and spend forecasting from the admin UI.</p>
+<div class="admonition danger">
+<p class="admonition-title">Do not rely on Spindrel for billing accuracy</p>
+<p>Cost data is <strong>best-effort</strong> — it depends on correct pricing configuration, provider-reported token counts, and cached model metadata that can drift. <strong>Always cross-check against your LLM provider's billing dashboard</strong> before making spending decisions. Treat Spindrel's numbers as directional estimates until you've verified they match your provider invoices.</p>
+</div>
+<h2 id="how-cost-tracking-works">How Cost Tracking Works<a class="headerlink" href="#how-cost-tracking-works" title="Permanent link">&para;</a></h2>
+<p>Every LLM call generates a <code>TraceEvent</code> with token counts, model name, provider, and duration. Cost is computed per-call using one of these sources (in priority order):</p>
+<ol>
+<li><strong>Provider-reported cost</strong> — some APIs return cost directly in the response</li>
+<li><strong>DB pricing data</strong> — per-model input/output rates from <strong>Admin &gt; Providers &gt; Models</strong></li>
+<li><strong>LiteLLM pricing cache</strong> — auto-fetched from LiteLLM proxy <code>/model/info</code> at startup</li>
+<li><strong>Cross-provider lookup</strong> — matches model names across providers</li>
+</ol>
+<p>If no pricing source matches, the call is tracked but cost shows as <code>--</code> with a "no pricing" badge.</p>
+<div class="admonition tip">
+<p class="admonition-title">LiteLLM bonus</p>
+<p>When using a LiteLLM proxy, Spindrel automatically fetches pricing data for all available models at startup. This is the easiest path to full cost tracking without manual configuration.</p>
+</div>
+<h3 id="prompt-caching-discounts">Prompt Caching Discounts<a class="headerlink" href="#prompt-caching-discounts" title="Permanent link">&para;</a></h3>
+<p>Cached input tokens are priced at a discount:</p>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th>Cache Discount</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Anthropic</td>
+<td>90% (cached tokens at 10% of input price)</td>
+</tr>
+<tr>
+<td>OpenAI</td>
+<td>50%</td>
+</tr>
+<tr>
+<td>Other</td>
+<td>50% (default)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="plan-billed-providers">Plan-Billed Providers<a class="headerlink" href="#plan-billed-providers" title="Permanent link">&para;</a></h3>
+<p>Providers with <code>billing_type: "plan"</code> (e.g., a flat monthly subscription) report $0 per-call cost. The fixed plan cost appears in the forecast breakdown instead.</p>
+<h2 id="usage-dashboard">Usage Dashboard<a class="headerlink" href="#usage-dashboard" title="Permanent link">&para;</a></h2>
+<p>Navigate to <strong>Admin &gt; Usage</strong> to access five tabs:</p>
+<h3 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Forecast cards</strong> — Today's spend and this month's spend with projected end-of-period totals</li>
+<li><strong>Limit warnings</strong> — Orange/red banners when any budget limit is approaching or exceeded</li>
+<li><strong>Summary stats</strong> — Total calls, tokens, cost, and average cost per call for the selected time window</li>
+<li><strong>Forecast breakdown</strong> — Table showing projected daily/monthly cost by component (heartbeats, recurring tasks, trajectory, fixed plans)</li>
+<li><strong>Cost tables</strong> — Breakdown by model, bot, and provider (click to drill into Logs)</li>
+</ul>
+<h3 id="logs">Logs<a class="headerlink" href="#logs" title="Permanent link">&para;</a></h3>
+<p>Two view modes:</p>
+<ul>
+<li><strong>By Trace</strong> — Groups related LLM calls by correlation ID (one agent run = one trace). Shows iteration count, total tokens, cost, and latency. Expand to see individual calls.</li>
+<li><strong>Raw Calls</strong> — Flat list of every LLM call with model, bot, channel, tokens, cost, and duration.</li>
+</ul>
+<p>Click any trace to view the full trace detail page.</p>
+<h3 id="charts">Charts<a class="headerlink" href="#charts" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Daily Forecast by Component</strong> — Horizontal bar chart of projected daily cost (heartbeats, tasks, trajectory, fixed plans)</li>
+<li><strong>Cost by Model</strong> — Horizontal bar chart of actual spend per model</li>
+<li><strong>Cost over Time</strong> — Line chart of cost across time buckets</li>
+<li><strong>Calls over Time</strong> — Line chart of call count</li>
+</ul>
+<h3 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h3>
+<p>Create and manage budget caps. See <a href="#budget-limits">Budget Limits</a> below.</p>
+<h3 id="alerts">Alerts<a class="headerlink" href="#alerts" title="Permanent link">&para;</a></h3>
+<p>Configure spike detection to get notified when spend rate jumps unexpectedly. See <a href="#spike-alerts">Spike Alerts</a> below.</p>
+<h3 id="filters">Filters<a class="headerlink" href="#filters" title="Permanent link">&para;</a></h3>
+<p>All tabs share a filter bar:</p>
+<ul>
+<li><strong>Time presets</strong> — 1h, 12h, 24h, 48h, 7d, 30d</li>
+<li><strong>Bot</strong> — Filter by bot</li>
+<li><strong>Model</strong> — Filter by model (populated from data in the selected time range)</li>
+<li><strong>Provider</strong> — Filter by provider</li>
+</ul>
+<h2 id="budget-limits">Budget Limits<a class="headerlink" href="#budget-limits" title="Permanent link">&para;</a></h2>
+<p>Budget limits cap spending by scope and period. When a limit is exceeded, further LLM calls for that scope are blocked until the period resets.</p>
+<h3 id="creating-a-limit">Creating a Limit<a class="headerlink" href="#creating-a-limit" title="Permanent link">&para;</a></h3>
+<p>In <strong>Admin &gt; Usage &gt; Limits</strong>, click <strong>Add Limit</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Options</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Type</td>
+<td><code>model</code>, <code>bot</code></td>
+<td>What to cap</td>
+</tr>
+<tr>
+<td>Value</td>
+<td>Model name or bot ID</td>
+<td>The specific model or bot</td>
+</tr>
+<tr>
+<td>Period</td>
+<td><code>daily</code>, <code>monthly</code></td>
+<td>Reset cycle</td>
+</tr>
+<tr>
+<td>Limit ($)</td>
+<td>Any positive number</td>
+<td>Dollar cap</td>
+</tr>
+</tbody>
+</table>
+<h3 id="how-enforcement-works">How Enforcement Works<a class="headerlink" href="#how-enforcement-works" title="Permanent link">&para;</a></h3>
+<p>Before every agent run, Spindrel checks all enabled limits:</p>
+<ol>
+<li>Computes spend since the current period start (midnight or 1st of month, in server timezone)</li>
+<li>If spend &gt;= limit, the run is blocked with a <code>UsageLimitExceeded</code> error</li>
+<li>The client receives a message explaining which limit was hit</li>
+</ol>
+<p>Limits are cached in memory and refreshed every 60 seconds.</p>
+<div class="admonition note">
+<p class="admonition-title">Timezone</p>
+<p>Period boundaries (midnight, 1st of month) use the <code>TIMEZONE</code> setting from <code>.env</code> (default: <code>America/New_York</code>).</p>
+</div>
+<h3 id="projected-spend">Projected Spend<a class="headerlink" href="#projected-spend" title="Permanent link">&para;</a></h3>
+<p>Each limit card shows:</p>
+<ul>
+<li><strong>Current spend</strong> — Actual spend so far in the period (solid progress bar)</li>
+<li><strong>Projected spend</strong> — Extrapolated to end of period based on current pace (translucent extension)</li>
+<li><strong>Warning colors</strong> — Green (&lt;70%), orange (70-90%), red (&gt;90%)</li>
+</ul>
+<h2 id="spend-forecasting">Spend Forecasting<a class="headerlink" href="#spend-forecasting" title="Permanent link">&para;</a></h2>
+<p>The forecast system projects future spend by analyzing four components:</p>
+<h3 id="heartbeats">Heartbeats<a class="headerlink" href="#heartbeats" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Looks at enabled heartbeats with recent execution history (7 days)</li>
+<li>Computes average cost per heartbeat run</li>
+<li>Factors in quiet hours to reduce daily run count</li>
+<li>Formula: <code>runs_per_day * avg_cost_per_run</code></li>
+</ul>
+<h3 id="recurring-tasks">Recurring Tasks<a class="headerlink" href="#recurring-tasks" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Queries active tasks with recurrence schedules (<code>+30m</code>, <code>+1h</code>, <code>+1d</code>, etc.)</li>
+<li>Estimates cost from recent execution history, falling back to the bot's model average</li>
+<li>Formula: <code>runs_per_day * avg_cost_per_run</code></li>
+</ul>
+<h3 id="fixed-plans">Fixed Plans<a class="headerlink" href="#fixed-plans" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Sums daily cost of all plan-billed providers</li>
+<li>Weekly plans: <code>plan_cost / 7</code> per day</li>
+<li>Monthly plans: <code>plan_cost / 30</code> per day</li>
+</ul>
+<h3 id="trajectory-current-pace">Trajectory (Current Pace)<a class="headerlink" href="#trajectory-current-pace" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Extrapolates from actual spend so far today/this month</li>
+<li>Only computed when at least 1 hour has elapsed today</li>
+<li>Daily: <code>spend_today / hours_elapsed * 24</code></li>
+<li>Monthly: <code>spend_this_month / days_elapsed * 30</code></li>
+</ul>
+<h3 id="projection-formula">Projection Formula<a class="headerlink" href="#projection-formula" title="Permanent link">&para;</a></h3>
+<p>The final projection takes the <strong>higher</strong> of trajectory vs. scheduled costs (heartbeats + recurring tasks), then <strong>adds</strong> fixed plan costs:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>projected = max(trajectory, scheduled_variable) + fixed_plans
+</code></pre></div>
+<p>This ensures the forecast isn't underestimated when scheduled events haven't fired yet today.</p>
+<h2 id="spike-alerts">Spike Alerts<a class="headerlink" href="#spike-alerts" title="Permanent link">&para;</a></h2>
+<p>Spike alerts monitor your spend <em>rate</em> and push notifications when it exceeds a baseline — catching runaway loops and unexpected traffic before a hard budget limit is hit.</p>
+<h3 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
+<p>A background worker checks every 60 seconds:</p>
+<ol>
+<li>Computes the <strong>window rate</strong> — cost per hour over the last N minutes (default: 30)</li>
+<li>Computes the <strong>baseline rate</strong> — cost per hour over the last N hours (default: 24), excluding the window</li>
+<li>Fires an alert if either threshold is exceeded:<ul>
+<li><strong>Relative threshold</strong> — window rate ÷ baseline rate ≥ multiplier (default: 2.0x)</li>
+<li><strong>Absolute threshold</strong> — window rate ≥ fixed $/hr (default: disabled)</li>
+</ul>
+</li>
+</ol>
+<p>After firing, a <strong>cooldown</strong> period (default: 60 minutes) prevents repeat alerts.</p>
+<h3 id="configuring-alerts">Configuring Alerts<a class="headerlink" href="#configuring-alerts" title="Permanent link">&para;</a></h3>
+<p>In <strong>Admin &gt; Usage &gt; Alerts</strong>:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Enabled</td>
+<td>Off</td>
+<td>Master toggle</td>
+</tr>
+<tr>
+<td>Window (min)</td>
+<td>30</td>
+<td>How far back to measure current rate</td>
+</tr>
+<tr>
+<td>Baseline (hrs)</td>
+<td>24</td>
+<td>How far back for the comparison average</td>
+</tr>
+<tr>
+<td>Relative threshold</td>
+<td>2.0x</td>
+<td>Fire when current rate is this many times the baseline</td>
+</tr>
+<tr>
+<td>Absolute threshold</td>
+<td>$0/hr</td>
+<td>Fire when current rate exceeds this (0 = disabled)</td>
+</tr>
+<tr>
+<td>Cooldown (min)</td>
+<td>60</td>
+<td>Minimum gap between alerts</td>
+</tr>
+</tbody>
+</table>
+<h3 id="notification-targets">Notification Targets<a class="headerlink" href="#notification-targets" title="Permanent link">&para;</a></h3>
+<p>Alerts are delivered via the same dispatcher system used for bot messages. You can add multiple targets:</p>
+<ul>
+<li><strong>Channel</strong> — Any channel with a configured integration (Slack, Discord, BlueBubbles, etc.)</li>
+<li><strong>Integration binding</strong> — A specific integration client ID (e.g., a particular Slack channel or iMessage contact)</li>
+</ul>
+<p>Each target is dispatched independently — one failure doesn't block others.</p>
+<h3 id="alert-content">Alert Content<a class="headerlink" href="#alert-content" title="Permanent link">&para;</a></h3>
+<p>Notifications include:</p>
+<ul>
+<li>Current rate vs. baseline rate ($/hr)</li>
+<li>Spike ratio (e.g., 3.2x)</li>
+<li>Top models by cost (with call counts)</li>
+<li>Top bots by cost</li>
+<li>Most expensive recent traces</li>
+</ul>
+<h3 id="test-alerts">Test Alerts<a class="headerlink" href="#test-alerts" title="Permanent link">&para;</a></h3>
+<p>Click <strong>Send Test Alert</strong> to fire a notification that bypasses thresholds and cooldown. Useful for verifying targets are configured correctly.</p>
+<h3 id="hud-indicator">HUD Indicator<a class="headerlink" href="#hud-indicator" title="Permanent link">&para;</a></h3>
+<p>When spike alerts are enabled, the sidebar usage badge shows a status indicator:</p>
+<ul>
+<li><strong>Green dot</strong> — Normal (with current ratio if available)</li>
+<li><strong>Red pulsing dot</strong> — Spike active</li>
+<li><strong>Gray dot</strong> — Alerts disabled</li>
+</ul>
+<h3 id="alert-history">Alert History<a class="headerlink" href="#alert-history" title="Permanent link">&para;</a></h3>
+<p>The Alerts tab shows a paginated log of all fired alerts with trigger details, delivery results, and context snapshots.</p>
+<h2 id="provider-configuration">Provider Configuration<a class="headerlink" href="#provider-configuration" title="Permanent link">&para;</a></h2>
+<p>Providers are configured in two ways:</p>
+<h3 id="default-provider-env">Default Provider (<code>.env</code>)<a class="headerlink" href="#default-provider-env" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">LITELLM_BASE_URL</span><span class="o">=</span>http://litellm:4000/v1<span class="w">  </span><span class="c1"># Any OpenAI-compatible endpoint</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nv">LITELLM_API_KEY</span><span class="o">=</span>your-key
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Provider</th>
+<th><code>LITELLM_BASE_URL</code></th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>LiteLLM proxy</td>
+<td><code>http://litellm:4000/v1</code></td>
+<td>Self-hosted, 100+ models, auto pricing</td>
+</tr>
+<tr>
+<td>OpenAI</td>
+<td><code>https://api.openai.com/v1</code></td>
+<td>Direct API</td>
+</tr>
+<tr>
+<td>Gemini</td>
+<td><code>https://generativelanguage.googleapis.com/v1beta/openai/</code></td>
+<td>OpenAI-compatible</td>
+</tr>
+<tr>
+<td>OpenRouter</td>
+<td><code>https://openrouter.ai/api/v1</code></td>
+<td>Multi-provider</td>
+</tr>
+<tr>
+<td>Ollama</td>
+<td><code>http://localhost:11434/v1</code></td>
+<td>Local models</td>
+</tr>
+</tbody>
+</table>
+<h3 id="additional-providers-admin-ui">Additional Providers (Admin UI)<a class="headerlink" href="#additional-providers-admin-ui" title="Permanent link">&para;</a></h3>
+<p>Add providers via <strong>Admin &gt; Providers</strong> with:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Provider type</td>
+<td><code>openai</code>, <code>openai-compatible</code>, <code>anthropic</code>, <code>anthropic-compatible</code>, <code>litellm</code></td>
+</tr>
+<tr>
+<td>API key</td>
+<td>Encrypted at rest</td>
+</tr>
+<tr>
+<td>Base URL</td>
+<td>Custom endpoint (optional for direct API providers)</td>
+</tr>
+<tr>
+<td>TPM / RPM limits</td>
+<td>Rate limiting (tokens/requests per minute)</td>
+</tr>
+<tr>
+<td>Billing type</td>
+<td><code>usage</code> (per-token) or <code>plan</code> (flat rate)</td>
+</tr>
+<tr>
+<td>Plan cost / period</td>
+<td>For plan-billed providers</td>
+</tr>
+</tbody>
+</table>
+<h3 id="assigning-providers-to-bots">Assigning Providers to Bots<a class="headerlink" href="#assigning-providers-to-bots" title="Permanent link">&para;</a></h3>
+<p>In bot YAML:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_bot</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">claude-sonnet-4-20250514</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nt">model_provider_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_anthropic_provider</span><span class="w">  </span><span class="c1"># References provider ID</span>
+</code></pre></div>
+<p>Bots without <code>model_provider_id</code> use the <code>.env</code> default provider.</p>
+<h3 id="model-pricing">Model Pricing<a class="headerlink" href="#model-pricing" title="Permanent link">&para;</a></h3>
+<p>For accurate cost tracking, configure per-model pricing in <strong>Admin &gt; Providers &gt; [Provider] &gt; Models</strong>:</p>
+<ul>
+<li><strong>Sync from provider</strong> — Auto-fetch model list and pricing (works with LiteLLM and Ollama)</li>
+<li><strong>Manual entry</strong> — Set input/output cost per 1M tokens</li>
+</ul>
+<h2 id="api-reference">API Reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h2>
+<p>All endpoints require admin authentication and are prefixed with <code>/api/v1/admin</code>.</p>
+<h3 id="usage-analytics">Usage Analytics<a class="headerlink" href="#usage-analytics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/usage/summary</code></td>
+<td>Aggregate stats (calls, tokens, cost)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/usage/logs</code></td>
+<td>Paginated event log</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/usage/breakdown</code></td>
+<td>Grouped by model/bot/channel/provider</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/usage/timeseries</code></td>
+<td>Cost over time (bucketed)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/usage/forecast</code></td>
+<td>Projected spend + limit forecasts</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Common query parameters</strong>: <code>after</code>, <code>before</code>, <code>bot_id</code>, <code>model</code>, <code>provider_id</code>, <code>channel_id</code></p>
+<h3 id="budget-limits_1">Budget Limits<a class="headerlink" href="#budget-limits_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/limits/</code></td>
+<td>List all limits</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/limits/</code></td>
+<td>Create limit</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/limits/{id}</code></td>
+<td>Update limit (amount, enabled)</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/limits/{id}</code></td>
+<td>Delete limit</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/limits/status</code></td>
+<td>Current spend vs. limit for all</td>
+</tr>
+</tbody>
+</table>
+<h3 id="spike-alerts_1">Spike Alerts<a class="headerlink" href="#spike-alerts_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/spike-alerts/config</code></td>
+<td>Get config (auto-creates default if missing)</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/spike-alerts/config</code></td>
+<td>Update thresholds, targets, enabled</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/spike-alerts/test</code></td>
+<td>Fire test alert (bypasses cooldown)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/spike-alerts/history</code></td>
+<td>Paginated alert history</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/spike-alerts/status</code></td>
+<td>Current rate, baseline, spike ratio</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/spike-alerts/targets/available</code></td>
+<td>List available notification targets</td>
+</tr>
+</tbody>
+</table>
+<h3 id="providers">Providers<a class="headerlink" href="#providers" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/providers</code></td>
+<td>List all providers</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/providers</code></td>
+<td>Create provider</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/providers/{id}</code></td>
+<td>Update provider</td>
+</tr>
+<tr>
+<td>DELETE</td>
+<td><code>/providers/{id}</code></td>
+<td>Delete provider</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/providers/{id}/test</code></td>
+<td>Test connection</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/providers/{id}/models</code></td>
+<td>List model pricing</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/providers/{id}/models</code></td>
+<td>Add model pricing</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/providers/{id}/sync-models</code></td>
+<td>Sync from provider API</td>
+</tr>
+</tbody>
+</table>
+<h2 id="sidebar-hud">Sidebar HUD<a class="headerlink" href="#sidebar-hud" title="Permanent link">&para;</a></h2>
+<p>Toggle the usage badge in the sidebar via the eye icon on the Usage page. The badge shows a compact spend summary with a popover for forecast details — useful for at-a-glance cost monitoring without leaving your current page. When spike alerts are enabled, the popover also shows a spike status indicator.</p>
+<h2 id="environment-variables">Environment Variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LITELLM_BASE_URL</code></td>
+<td>—</td>
+<td>Default LLM endpoint</td>
+</tr>
+<tr>
+<td><code>LITELLM_API_KEY</code></td>
+<td>—</td>
+<td>Default LLM API key</td>
+</tr>
+<tr>
+<td><code>TIMEZONE</code></td>
+<td><code>America/New_York</code></td>
+<td>Period boundaries for limits and forecasts</td>
+</tr>
+<tr>
+<td><code>LLM_TIMEOUT</code></td>
+<td><code>120</code></td>
+<td>HTTP timeout (seconds)</td>
+</tr>
+<tr>
+<td><code>LLM_MAX_RETRIES</code></td>
+<td><code>3</code></td>
+<td>Transient error retries</td>
+</tr>
+<tr>
+<td><code>LLM_RATE_LIMIT_RETRIES</code></td>
+<td><code>3</code></td>
+<td>Rate limit retries</td>
+</tr>
+<tr>
+<td><code>LLM_RATE_LIMIT_INITIAL_WAIT</code></td>
+<td><code>90</code></td>
+<td>Rate limit backoff (seconds)</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.suggest", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

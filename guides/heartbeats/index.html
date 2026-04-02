@@ -1,0 +1,2477 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hosted LLM agent server">
+      
+      
+      
+        <link rel="canonical" href="https://spindrel.dev/guides/heartbeats/">
+      
+      
+        <link rel="prev" href="../workflows/">
+      
+      
+        <link rel="next" href="../custom-tools/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Heartbeats - Spindrel</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#heartbeats" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Spindrel" class="md-header__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Spindrel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Heartbeats
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Spindrel" class="md-nav__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Spindrel
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docker-deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup & Restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-spindrel-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Spindrel Works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../templates-and-activation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates & Activation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heartbeats
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heartbeats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clock-aligned-scheduling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clock-Aligned Scheduling
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prompt-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prompt Resolution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prompt Resolution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workspace-file-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace file prompts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#template-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Template prompts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dispatch-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dispatch Modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dispatch Modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#always-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Always (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#silent-no-dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Silent (no dispatch)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trigger-response" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trigger Response
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quiet-hours" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quiet Hours
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quiet Hours">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#global-quiet-hours" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global quiet hours
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-heartbeat-quiet-hours" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-heartbeat quiet hours
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repetition-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repetition Detection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Repetition Detection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-triggers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Triggers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metadata-injection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata Injection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#heartbeat-settings-per-channel-via-ui-or-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Heartbeat Settings (per-channel, via UI or API)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables-global" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables (global)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prompt-inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prompt inference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#monitoring-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring Channel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#smart-analysis-optional-dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Smart Analysis (Optional Dispatch)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#daily-workflow-trigger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Daily Workflow Trigger
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#business-hours-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Business Hours Only
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../custom-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Tools & Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slack Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../discord/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gmail/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gmail Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../clients/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delegation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delegation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../harnesses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harnesses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../secrets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secrets & Redaction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Content Ingestion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chat-history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat History
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage-and-billing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage & Billing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../integrations/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/activation-and-templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Activation & Templates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#clock-aligned-scheduling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clock-Aligned Scheduling
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prompt-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prompt Resolution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Prompt Resolution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workspace-file-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace file prompts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#template-prompts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Template prompts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dispatch-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dispatch Modes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dispatch Modes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#always-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Always (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#silent-no-dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Silent (no dispatch)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trigger-response" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trigger Response
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quiet-hours" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quiet Hours
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quiet Hours">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#global-quiet-hours" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Global quiet hours
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#per-heartbeat-quiet-hours" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-heartbeat quiet hours
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repetition-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repetition Detection
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Repetition Detection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How it works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workflow-triggers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflow Triggers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metadata-injection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata Injection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#heartbeat-settings-per-channel-via-ui-or-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Heartbeat Settings (per-channel, via UI or API)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variables-global" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables (global)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prompt-inference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prompt inference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#monitoring-channel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring Channel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#smart-analysis-optional-dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Smart Analysis (Optional Dispatch)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#daily-workflow-trigger" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Daily Workflow Trigger
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#business-hours-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Business Hours Only
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="heartbeats">Heartbeats<a class="headerlink" href="#heartbeats" title="Permanent link">&para;</a></h1>
+<p>Heartbeats are periodic autonomous check-ins. Configure a heartbeat on a channel and the bot runs a prompt on a schedule — monitoring, summarizing, alerting, or triggering workflows without human intervention.</p>
+<hr />
+<h2 id="quick-start">Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Open a channel → <strong>Settings</strong> → <strong>Heartbeat</strong> tab</li>
+<li>Toggle <strong>Enabled</strong></li>
+<li>Set an <strong>interval</strong> (e.g., 60 minutes)</li>
+<li>Enter a <strong>prompt</strong> (e.g., "Check system health and report any anomalies")</li>
+<li>Save</li>
+</ol>
+<p>The bot now runs that prompt every 60 minutes and posts the result to the channel.</p>
+<hr />
+<h2 id="how-it-works">How It Works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
+<p>The heartbeat worker polls every 30 seconds for due heartbeats. When one fires:</p>
+<ol>
+<li>The <strong>prompt is resolved</strong> (workspace file → template → inline → global fallback)</li>
+<li><strong>Metadata is injected</strong> — current time, channel activity since last run, previous results</li>
+<li>The bot <strong>runs the prompt</strong> with all its normal tools, skills, and carapaces</li>
+<li>The result is <strong>dispatched</strong> based on dispatch mode (auto-post or LLM decides)</li>
+<li>The <strong>next run is scheduled</strong> using clock-aligned intervals</li>
+</ol>
+<h3 id="clock-aligned-scheduling">Clock-Aligned Scheduling<a class="headerlink" href="#clock-aligned-scheduling" title="Permanent link">&para;</a></h3>
+<p>Heartbeats snap to even multiples of the interval from midnight UTC. A 30-minute heartbeat fires at <code>:00</code> and <code>:30</code> of every hour — not based on when it was created. This makes timing predictable across restarts.</p>
+<hr />
+<h2 id="prompt-resolution">Prompt Resolution<a class="headerlink" href="#prompt-resolution" title="Permanent link">&para;</a></h2>
+<p>Heartbeat prompts are resolved in priority order — first match wins:</p>
+<table>
+<thead>
+<tr>
+<th>Priority</th>
+<th>Source</th>
+<th>When to use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Workspace file</strong> (<code>workspace_file_path</code>)</td>
+<td>Complex prompts that evolve with the project</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Template</strong> (<code>prompt_template_id</code>)</td>
+<td>Reusable prompts shared across channels</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Inline prompt</strong> (<code>prompt</code> field)</td>
+<td>Simple, one-off prompts</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>Global fallback</strong> (<code>HEARTBEAT_DEFAULT_PROMPT</code> env var)</td>
+<td>Fleet-wide default</td>
+</tr>
+</tbody>
+</table>
+<h3 id="workspace-file-prompts">Workspace file prompts<a class="headerlink" href="#workspace-file-prompts" title="Permanent link">&para;</a></h3>
+<p>Point the heartbeat at a <code>.md</code> file in the channel's workspace:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>workspace_file_path: heartbeat.md
+</code></pre></div>
+<p>The file is read fresh on every run, so the bot can update its own heartbeat instructions as the project evolves. This is the recommended approach for complex monitoring setups.</p>
+<h3 id="template-prompts">Template prompts<a class="headerlink" href="#template-prompts" title="Permanent link">&para;</a></h3>
+<p>Select a prompt template in the Heartbeat settings tab. Templates are managed in <strong>Admin &gt; Templates</strong> and can be reused across multiple channel heartbeats.</p>
+<hr />
+<h2 id="dispatch-modes">Dispatch Modes<a class="headerlink" href="#dispatch-modes" title="Permanent link">&para;</a></h2>
+<h3 id="always-default">Always (default)<a class="headerlink" href="#always-default" title="Permanent link">&para;</a></h3>
+<p>The heartbeat result is automatically posted to the channel every time.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>dispatch_mode: always
+</code></pre></div>
+<p>Good for: status updates, monitoring dashboards, regular reports.</p>
+<h3 id="optional">Optional<a class="headerlink" href="#optional" title="Permanent link">&para;</a></h3>
+<p>The result is <strong>not</strong> auto-posted. Instead, the LLM gets a <code>post_heartbeat_to_channel</code> tool and decides whether the result is worth sharing.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>dispatch_mode: optional
+</code></pre></div>
+<p>Good for: analysis heartbeats where most runs find "nothing to report." The bot only posts when something interesting happens, keeping the channel clean.</p>
+<h3 id="silent-no-dispatch">Silent (no dispatch)<a class="headerlink" href="#silent-no-dispatch" title="Permanent link">&para;</a></h3>
+<p>Set <code>dispatch_results: false</code> to save results to the database without posting anywhere. Useful for background monitoring where you only check results when investigating issues.</p>
+<h3 id="trigger-response">Trigger Response<a class="headerlink" href="#trigger-response" title="Permanent link">&para;</a></h3>
+<p>Set <code>trigger_response: true</code> to create a follow-up task after the heartbeat completes. The bot can then react asynchronously — useful for chained automations where the heartbeat detects something and a second agent action handles it.</p>
+<hr />
+<h2 id="quiet-hours">Quiet Hours<a class="headerlink" href="#quiet-hours" title="Permanent link">&para;</a></h2>
+<p>Suppress or slow heartbeats during off-hours.</p>
+<h3 id="global-quiet-hours">Global quiet hours<a class="headerlink" href="#global-quiet-hours" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># .env</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nv">HEARTBEAT_QUIET_HOURS</span><span class="o">=</span><span class="m">23</span>:00-07:00<span class="w">          </span><span class="c1"># Wraps midnight</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nv">HEARTBEAT_QUIET_INTERVAL_MINUTES</span><span class="o">=</span><span class="m">0</span><span class="w">          </span><span class="c1"># 0 = disabled during quiet</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="nv">TIMEZONE</span><span class="o">=</span>America/New_York<span class="w">                   </span><span class="c1"># Timezone for the window</span>
+</code></pre></div>
+<p>Setting <code>HEARTBEAT_QUIET_INTERVAL_MINUTES=0</code> disables heartbeats entirely during quiet hours. A positive value (e.g., <code>240</code>) slows them to that cadence instead.</p>
+<h3 id="per-heartbeat-quiet-hours">Per-heartbeat quiet hours<a class="headerlink" href="#per-heartbeat-quiet-hours" title="Permanent link">&para;</a></h3>
+<p>Override the global window on individual heartbeats:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>quiet_start: 22:00
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>quiet_end: 08:00
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>timezone: America/Chicago
+</code></pre></div>
+<p>Per-heartbeat settings take precedence over the global configuration.</p>
+<hr />
+<h2 id="repetition-detection">Repetition Detection<a class="headerlink" href="#repetition-detection" title="Permanent link">&para;</a></h2>
+<p>If a heartbeat produces nearly identical output 3+ times in a row, the system detects it and intervenes.</p>
+<h3 id="how-it-works_1">How it works<a class="headerlink" href="#how-it-works_1" title="Permanent link">&para;</a></h3>
+<p>The worker compares the last several results using text similarity (SequenceMatcher). If 3 consecutive runs exceed the similarity threshold, the next run gets a forceful preamble:</p>
+<blockquote>
+<p>REPETITION ALERT — Your last several heartbeat outputs are nearly identical. You MUST produce something substantially different, or say "No updates."</p>
+</blockquote>
+<p>The previous results are included so the LLM understands what it's been repeating.</p>
+<h3 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># .env</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nv">HEARTBEAT_REPETITION_DETECTION</span><span class="o">=</span><span class="nb">true</span><span class="w">    </span><span class="c1"># Global on/off (default: true)</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nv">HEARTBEAT_REPETITION_THRESHOLD</span><span class="o">=</span><span class="m">0</span>.8<span class="w">     </span><span class="c1"># Similarity ratio 0–1 (default: 0.8)</span>
+</code></pre></div>
+<p>Per-heartbeat override:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>repetition_detection: true|false
+</code></pre></div></p>
+<hr />
+<h2 id="workflow-triggers">Workflow Triggers<a class="headerlink" href="#workflow-triggers" title="Permanent link">&para;</a></h2>
+<p>Instead of running a prompt, a heartbeat can trigger a workflow on schedule.</p>
+<p>Set <code>workflow_id</code> in the heartbeat config to switch from prompt mode to workflow-trigger mode:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>workflow_id: daily-report
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>workflow_session_mode: isolated
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>interval_minutes: 1440           # Once per day
+</code></pre></div>
+<p>When configured:
+- The heartbeat triggers the workflow instead of running an inline LLM call
+- The workflow handles all steps, tools, and dispatch
+- Duplicate runs are prevented — if the workflow is already running, the trigger is skipped</p>
+<p>See the <a href="../workflows/">Workflows guide</a> for workflow configuration.</p>
+<hr />
+<h2 id="metadata-injection">Metadata Injection<a class="headerlink" href="#metadata-injection" title="Permanent link">&para;</a></h2>
+<p>Every heartbeat run automatically injects context metadata into the system preamble:</p>
+<ul>
+<li><strong>Current time</strong> and timezone</li>
+<li><strong>Channel name</strong> and heartbeat interval</li>
+<li><strong>Run number</strong> (how many times this heartbeat has fired)</li>
+<li><strong>Time since last run</strong> and last run timestamp</li>
+<li><strong>Channel activity</strong> — message counts since last heartbeat, time of last user message</li>
+<li><strong>Previous result</strong> — truncated conclusion from the last run (configurable via <code>previous_result_max_chars</code>)</li>
+<li><strong>Recent run digest</strong> — summary of last 3 runs with tool call info</li>
+</ul>
+<p>This gives the bot situational awareness without consuming prompt space. The metadata is injected as a system preamble, not part of the user message — it doesn't affect RAG retrieval.</p>
+<hr />
+<h2 id="configuration-reference">Configuration Reference<a class="headerlink" href="#configuration-reference" title="Permanent link">&para;</a></h2>
+<h3 id="heartbeat-settings-per-channel-via-ui-or-api">Heartbeat Settings (per-channel, via UI or API)<a class="headerlink" href="#heartbeat-settings-per-channel-via-ui-or-api" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>enabled</code></td>
+<td>bool</td>
+<td>false</td>
+<td>Master on/off switch</td>
+</tr>
+<tr>
+<td><code>interval_minutes</code></td>
+<td>int</td>
+<td>60</td>
+<td>How often to fire (minimum 1)</td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td>string</td>
+<td>—</td>
+<td>Inline prompt text</td>
+</tr>
+<tr>
+<td><code>workspace_file_path</code></td>
+<td>string</td>
+<td>—</td>
+<td>Workspace file to read as prompt</td>
+</tr>
+<tr>
+<td><code>prompt_template_id</code></td>
+<td>uuid</td>
+<td>—</td>
+<td>Template reference</td>
+</tr>
+<tr>
+<td><code>dispatch_mode</code></td>
+<td>string</td>
+<td>"always"</td>
+<td><code>"always"</code> or <code>"optional"</code></td>
+</tr>
+<tr>
+<td><code>dispatch_results</code></td>
+<td>bool</td>
+<td>true</td>
+<td>Post result to channel</td>
+</tr>
+<tr>
+<td><code>trigger_response</code></td>
+<td>bool</td>
+<td>false</td>
+<td>Create follow-up task after completion</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td>string</td>
+<td>—</td>
+<td>Override LLM model</td>
+</tr>
+<tr>
+<td><code>model_provider_id</code></td>
+<td>string</td>
+<td>—</td>
+<td>Override LLM provider</td>
+</tr>
+<tr>
+<td><code>quiet_start</code></td>
+<td>string</td>
+<td>—</td>
+<td>Quiet window start (HH:MM)</td>
+</tr>
+<tr>
+<td><code>quiet_end</code></td>
+<td>string</td>
+<td>—</td>
+<td>Quiet window end (HH:MM)</td>
+</tr>
+<tr>
+<td><code>timezone</code></td>
+<td>string</td>
+<td>—</td>
+<td>Timezone for quiet hours</td>
+</tr>
+<tr>
+<td><code>max_run_seconds</code></td>
+<td>int</td>
+<td>—</td>
+<td>Execution timeout (overrides global)</td>
+</tr>
+<tr>
+<td><code>previous_result_max_chars</code></td>
+<td>int</td>
+<td>500</td>
+<td>How much of last result to inject</td>
+</tr>
+<tr>
+<td><code>repetition_detection</code></td>
+<td>bool</td>
+<td>—</td>
+<td>Override global repetition detection</td>
+</tr>
+<tr>
+<td><code>workflow_id</code></td>
+<td>string</td>
+<td>—</td>
+<td>Trigger this workflow instead of prompt</td>
+</tr>
+<tr>
+<td><code>workflow_session_mode</code></td>
+<td>string</td>
+<td>—</td>
+<td><code>"shared"</code> or <code>"isolated"</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="environment-variables-global">Environment Variables (global)<a class="headerlink" href="#environment-variables-global" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># Quiet hours window (wraps midnight)</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nv">HEARTBEAT_QUIET_HOURS</span><span class="o">=</span><span class="m">23</span>:00-07:00
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="c1"># Behavior during quiet hours: 0 = disabled, &gt;0 = slower cadence (minutes)</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="nv">HEARTBEAT_QUIET_INTERVAL_MINUTES</span><span class="o">=</span><span class="m">0</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>
+<a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="c1"># Fallback prompt when nothing else is configured</span>
+<a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="nv">HEARTBEAT_DEFAULT_PROMPT</span><span class="o">=</span>
+<a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+<a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="c1"># Max chars of previous result injected as context</span>
+<a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="nv">HEARTBEAT_PREVIOUS_CONCLUSION_CHARS</span><span class="o">=</span><span class="m">500</span>
+<a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>
+<a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="c1"># Repetition detection</span>
+<a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="nv">HEARTBEAT_REPETITION_DETECTION</span><span class="o">=</span><span class="nb">true</span>
+<a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="nv">HEARTBEAT_REPETITION_THRESHOLD</span><span class="o">=</span><span class="m">0</span>.8
+<a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>
+<a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a><span class="c1"># Global task timeout</span>
+<a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a><span class="nv">TASK_MAX_RUN_SECONDS</span><span class="o">=</span><span class="m">300</span>
+<a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>
+<a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a><span class="c1"># Timezone for global quiet hours</span>
+<a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a><span class="nv">TIMEZONE</span><span class="o">=</span>UTC
+</code></pre></div>
+<hr />
+<h2 id="api-reference">API Reference<a class="headerlink" href="#api-reference" title="Permanent link">&para;</a></h2>
+<p>All endpoints require <code>Authorization: Bearer $API_KEY</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Path</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/admin/channels/{id}/heartbeat</code></td>
+<td>Get config + recent run history</td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/v1/admin/channels/{id}/heartbeat</code></td>
+<td>Update heartbeat settings</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/admin/channels/{id}/heartbeat/toggle</code></td>
+<td>Toggle enabled on/off</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/admin/channels/{id}/heartbeat/fire</code></td>
+<td>Fire immediately (non-blocking)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/v1/admin/channels/{id}/heartbeat/infer</code></td>
+<td>AI-generate a prompt from channel context</td>
+</tr>
+</tbody>
+</table>
+<h3 id="prompt-inference">Prompt inference<a class="headerlink" href="#prompt-inference" title="Permanent link">&para;</a></h3>
+<p>The <strong>infer</strong> endpoint uses AI to generate a tailored heartbeat prompt based on the channel's bot, workspace schema, and active integrations. Useful for bootstrapping a heartbeat on a new channel.</p>
+<hr />
+<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
+<h3 id="monitoring-channel">Monitoring Channel<a class="headerlink" href="#monitoring-channel" title="Permanent link">&para;</a></h3>
+<p>Post system health updates every hour, quiet at night:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>enabled: true
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>interval_minutes: 60
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>dispatch_mode: always
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>quiet_start: 23:00
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>quiet_end: 06:00
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>timezone: America/New_York
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>prompt: |
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>  Check system health:
+<a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a>  1. Disk usage (flag &gt;80%)
+<a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a>  2. Memory usage
+<a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a>  3. Service status (docker ps)
+<a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>  Report anomalies clearly. If everything is normal, say &quot;All systems nominal.&quot;
+</code></pre></div>
+<h3 id="smart-analysis-optional-dispatch">Smart Analysis (Optional Dispatch)<a class="headerlink" href="#smart-analysis-optional-dispatch" title="Permanent link">&para;</a></h3>
+<p>Run analysis every 2 hours, only post if something is found:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>enabled: true
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>interval_minutes: 120
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>dispatch_mode: optional
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>prompt: |
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>  Review recent channel activity and workspace files.
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>  If there are stale tasks, unresolved questions, or items that need attention,
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>  use post_heartbeat_to_channel to alert the team.
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>  If everything looks fine, do nothing.
+</code></pre></div>
+<h3 id="daily-workflow-trigger">Daily Workflow Trigger<a class="headerlink" href="#daily-workflow-trigger" title="Permanent link">&para;</a></h3>
+<p>Trigger a multi-step workflow once per day:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>enabled: true
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>interval_minutes: 1440
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>workflow_id: daily-report
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>workflow_session_mode: isolated
+<a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>dispatch_results: true
+</code></pre></div>
+<h3 id="business-hours-only">Business Hours Only<a class="headerlink" href="#business-hours-only" title="Permanent link">&para;</a></h3>
+<p>Run during work hours with a per-heartbeat quiet window:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>enabled: true
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>interval_minutes: 30
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>quiet_start: 18:00
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>quiet_end: 09:00
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>timezone: America/Chicago
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>prompt: Monitor the support queue and flag urgent items.
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.suggest", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

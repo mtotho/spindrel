@@ -1,0 +1,2388 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Self-hosted LLM agent server">
+      
+      
+      
+        <link rel="canonical" href="https://spindrel.dev/guides/discord/">
+      
+      
+        <link rel="prev" href="../slack/">
+      
+      
+        <link rel="next" href="../gmail/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Discord Integration - Spindrel</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#discord-integration-guide" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Spindrel" class="md-header__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Spindrel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Discord Integration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Spindrel" class="md-nav__button md-logo" aria-label="Spindrel" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Spindrel
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../docker-deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../migration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../backup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup & Restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-spindrel-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How Spindrel Works
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../templates-and-activation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Templates & Activation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../heartbeats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Heartbeats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../custom-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Custom Tools & Extensions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slack Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Integration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Discord Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-1-create-a-discord-application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Create a Discord Application
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step 1: Create a Discord Application">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configure-the-bot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure the Bot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#set-bot-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set Bot Permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-2-configure-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Configure Environment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-3-start-the-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Start the Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message Routing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Message Routing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#active-vs-passive-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Active vs Passive Messages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cancellation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cancellation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-attachments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Attachments
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#channel-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Channel Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#via-admin-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via Admin UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#via-slash-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via Slash Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-bot-channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Bot Channels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#slash-commands-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slash Commands Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Slash Commands Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bot-bot_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /bot [bot_id]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /bots
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ask-bot_id-message" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /ask &lt;bot_id&gt; &lt;message&gt;
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /context [contents]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plan-args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /plan [args]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /compact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#todos-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /todos [done]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-nameclearlist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /model [name|clear|list]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#health" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /health
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#emoji-reactions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Emoji Reactions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-approval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Approval
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#thinking-display-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thinking Display Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bot-doesnt-respond-to-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bot doesn't respond to messages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slash-commands-dont-appear" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slash commands don't appear
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rate-limiting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate limiting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#messages-are-split-unexpectedly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Messages are split unexpectedly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../gmail/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gmail Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../clients/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Client
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../delegation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Delegation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../harnesses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Harnesses
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../secrets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Secrets & Redaction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ingestion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Content Ingestion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../chat-history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Chat History
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage-and-billing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage & Billing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../integrations/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/example/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/activation-and-templates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Activation & Templates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Philosophy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+          
+        
+        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-1-create-a-discord-application" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 1: Create a Discord Application
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Step 1: Create a Discord Application">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configure-the-bot" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configure the Bot
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#set-bot-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set Bot Permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-2-configure-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 2: Configure Environment
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#step-3-start-the-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Step 3: Start the Integration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message Routing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Message Routing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#active-vs-passive-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Active vs Passive Messages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cancellation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cancellation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-attachments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Attachments
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#channel-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Channel Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Channel Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#via-admin-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via Admin UI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#via-slash-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Via Slash Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-bot-channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Bot Channels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#slash-commands-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slash Commands Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Slash Commands Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bot-bot_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /bot [bot_id]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /bots
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ask-bot_id-message" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /ask &lt;bot_id&gt; &lt;message&gt;
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#context-contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /context [contents]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#plan-args" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /plan [args]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#compact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /compact
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#todos-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /todos [done]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-nameclearlist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /model [name|clear|list]
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#health" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        /health
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#emoji-reactions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Emoji Reactions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tool-approval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Approval
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#thinking-display-modes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Thinking Display Modes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bot-doesnt-respond-to-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bot doesn't respond to messages
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slash-commands-dont-appear" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Slash commands don't appear
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rate-limiting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate limiting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#messages-are-split-unexpectedly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Messages are split unexpectedly
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="discord-integration-guide">Discord Integration Guide<a class="headerlink" href="#discord-integration-guide" title="Permanent link">&para;</a></h1>
+<p>This guide covers setting up and configuring the Discord integration for the agent server.</p>
+<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<ul>
+<li>A Discord account with permission to create applications</li>
+<li>The agent server running (locally or in Docker)</li>
+<li>An <code>AGENT_API_KEY</code> configured in your <code>.env</code></li>
+</ul>
+<h2 id="step-1-create-a-discord-application">Step 1: Create a Discord Application<a class="headerlink" href="#step-1-create-a-discord-application" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Go to the <a href="https://discord.com/developers/applications">Discord Developer Portal</a></li>
+<li>Click <strong>New Application</strong> and give it a name</li>
+<li>Navigate to the <strong>Bot</strong> tab</li>
+</ol>
+<h3 id="configure-the-bot">Configure the Bot<a class="headerlink" href="#configure-the-bot" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Click <strong>Reset Token</strong> and copy the token — this is your <code>DISCORD_TOKEN</code></li>
+<li>Under <strong>Privileged Gateway Intents</strong>, enable:</li>
+<li><strong>Message Content Intent</strong> (required to read message text)</li>
+<li>Optionally disable <strong>Public Bot</strong> if you don't want others to invite it</li>
+</ol>
+<h3 id="set-bot-permissions">Set Bot Permissions<a class="headerlink" href="#set-bot-permissions" title="Permanent link">&para;</a></h3>
+<p>Navigate to <strong>OAuth2 &gt; URL Generator</strong>:</p>
+<ol>
+<li>Under <strong>Scopes</strong>, select:</li>
+<li><code>bot</code></li>
+<li>
+<p><code>applications.commands</code></p>
+</li>
+<li>
+<p>Under <strong>Bot Permissions</strong>, select:</p>
+</li>
+<li>Send Messages</li>
+<li>Send Messages in Threads</li>
+<li>Manage Messages</li>
+<li>Embed Links</li>
+<li>Attach Files</li>
+<li>Read Message History</li>
+<li>Add Reactions</li>
+<li>
+<p>Use Slash Commands</p>
+</li>
+<li>
+<p>Copy the generated URL and open it in your browser to invite the bot to your Discord server</p>
+</li>
+</ol>
+<h2 id="step-2-configure-environment">Step 2: Configure Environment<a class="headerlink" href="#step-2-configure-environment" title="Permanent link">&para;</a></h2>
+<p>Add the following to your <code>.env</code> file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nv">DISCORD_TOKEN</span><span class="o">=</span>your-bot-token-here
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="nv">AGENT_API_KEY</span><span class="o">=</span>your-api-key
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nv">AGENT_BASE_URL</span><span class="o">=</span>http://localhost:8000<span class="w">  </span><span class="c1"># optional, this is the default</span>
+</code></pre></div>
+<h2 id="step-3-start-the-integration">Step 3: Start the Integration<a class="headerlink" href="#step-3-start-the-integration" title="Permanent link">&para;</a></h2>
+<p>The Discord bot starts automatically when the agent server detects <code>DISCORD_TOKEN</code> in the environment.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Start everything via docker compose</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>up
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Or run the server locally (bot auto-starts as subprocess)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>uvicorn<span class="w"> </span>app.main:app<span class="w"> </span>--reload<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8000</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Or run the bot manually (separate terminal)</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>python<span class="w"> </span>integrations/discord/discord_bot.py
+</code></pre></div>
+<p>When the bot connects successfully, you'll see:
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Discord bot ready as BotName#1234 (id=123456789)
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>Connected to 1 guild(s)
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>Synced 9 application commands
+</code></pre></div></p>
+<h2 id="session-model">Session Model<a class="headerlink" href="#session-model" title="Permanent link">&para;</a></h2>
+<p>Each Discord channel maps to one agent session:</p>
+<ul>
+<li><strong>Client ID</strong>: <code>discord:{channel_id}</code> (e.g., <code>discord:123456789012345678</code>)</li>
+<li><strong>Session ID</strong>: Deterministic UUID5 derived from the client ID</li>
+<li><strong>Bot assignment</strong>: Per-channel, configurable via <code>/bot</code> command or admin UI</li>
+</ul>
+<h2 id="message-routing">Message Routing<a class="headerlink" href="#message-routing" title="Permanent link">&para;</a></h2>
+<h3 id="active-vs-passive-messages">Active vs Passive Messages<a class="headerlink" href="#active-vs-passive-messages" title="Permanent link">&para;</a></h3>
+<p>By default (<code>require_mention: true</code>):
+- <strong>@mentioning</strong> the bot triggers the agent (active message)
+- All other messages are stored as passive context
+- The agent can reference passive messages for context</p>
+<p>With <code>require_mention: false</code>:
+- <strong>All messages</strong> trigger the agent
+- Useful for dedicated bot channels</p>
+<h3 id="cancellation">Cancellation<a class="headerlink" href="#cancellation" title="Permanent link">&para;</a></h3>
+<p>Send <strong>STOP</strong> (case-insensitive) to cancel an in-progress agent loop.</p>
+<h3 id="file-attachments">File Attachments<a class="headerlink" href="#file-attachments" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Text files</strong> (<code>.txt</code>, <code>.md</code>, <code>.csv</code>, <code>.json</code>, etc.): Content is inlined in the message</li>
+<li><strong>Images</strong>: Sent as vision attachments to multimodal models</li>
+<li><strong>Other files</strong>: Metadata is tracked for reference</li>
+</ul>
+<h2 id="channel-configuration">Channel Configuration<a class="headerlink" href="#channel-configuration" title="Permanent link">&para;</a></h2>
+<h3 id="via-admin-ui">Via Admin UI<a class="headerlink" href="#via-admin-ui" title="Permanent link">&para;</a></h3>
+<p>Navigate to the admin panel &gt; Channels. Create or edit a channel with:
+- <strong>Client ID</strong>: <code>discord:CHANNEL_ID</code> (right-click channel in Discord &gt; Copy Channel ID)
+- <strong>Integration</strong>: <code>discord</code>
+- <strong>Bot</strong>: Select the bot to use
+- <strong>Require Mention</strong>: Toggle @mention requirement
+- <strong>Passive Memory</strong>: Store non-triggering messages as context</p>
+<h3 id="via-slash-commands">Via Slash Commands<a class="headerlink" href="#via-slash-commands" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>/bot</code> — View current bot</li>
+<li><code>/bot assistant</code> — Switch to the <code>assistant</code> bot</li>
+<li><code>/bots</code> — List all available bots with their models</li>
+</ul>
+<h2 id="multi-bot-channels">Multi-Bot Channels<a class="headerlink" href="#multi-bot-channels" title="Permanent link">&para;</a></h2>
+<p>Multiple bots can serve the same Discord channel:
+- Default bot handles @mentions and passive messages
+- <code>/ask other-bot question</code> routes to a specific bot
+- <code>/bot new-bot</code> switches the default for the channel</p>
+<h2 id="slash-commands-reference">Slash Commands Reference<a class="headerlink" href="#slash-commands-reference" title="Permanent link">&para;</a></h2>
+<h3 id="bot-bot_id"><code>/bot [bot_id]</code><a class="headerlink" href="#bot-bot_id" title="Permanent link">&para;</a></h3>
+<p>View or switch the active bot for the current channel.</p>
+<h3 id="bots"><code>/bots</code><a class="headerlink" href="#bots" title="Permanent link">&para;</a></h3>
+<p>List all available bots with their names and models. The current bot is highlighted.</p>
+<h3 id="ask-bot_id-message"><code>/ask &lt;bot_id&gt; &lt;message&gt;</code><a class="headerlink" href="#ask-bot_id-message" title="Permanent link">&para;</a></h3>
+<p>Send a one-off message to a specific bot without switching the channel default.</p>
+<h3 id="context-contents"><code>/context [contents]</code><a class="headerlink" href="#context-contents" title="Permanent link">&para;</a></h3>
+<p>Show the context breakdown for the current session:
+- Default: Shows character counts per category (system prompt, skills, history, etc.)
+- <code>contents</code>: Dumps the actual messages the model would see</p>
+<h3 id="plan-args"><code>/plan [args]</code><a class="headerlink" href="#plan-args" title="Permanent link">&para;</a></h3>
+<p>Manage plans:
+- <code>/plan</code> or <code>/plan list</code> — List active plans
+- <code>/plan &lt;id&gt;</code> — Show plan detail
+- <code>/plan done &lt;id&gt; &lt;n&gt;</code> — Mark item done
+- <code>/plan complete &lt;id&gt;</code> — Mark plan complete
+- <code>/plan abandon &lt;id&gt;</code> — Abandon plan</p>
+<h3 id="compact"><code>/compact</code><a class="headerlink" href="#compact" title="Permanent link">&para;</a></h3>
+<p>Trigger context compaction for the current session. Creates a summary watermark.</p>
+<h3 id="todos-done"><code>/todos [done]</code><a class="headerlink" href="#todos-done" title="Permanent link">&para;</a></h3>
+<p>Show pending todos. Use <code>done</code> to show completed items.</p>
+<h3 id="model-nameclearlist"><code>/model [name|clear|list]</code><a class="headerlink" href="#model-nameclearlist" title="Permanent link">&para;</a></h3>
+<ul>
+<li>No args: Show current model override</li>
+<li><code>list</code>: Show all available models</li>
+<li><code>&lt;name&gt;</code>: Set model override (supports fuzzy matching)</li>
+<li><code>clear</code>: Remove model override</li>
+</ul>
+<h3 id="health"><code>/health</code><a class="headerlink" href="#health" title="Permanent link">&para;</a></h3>
+<p>Quick server health check showing services, containers, disk usage, and deploy info.</p>
+<h2 id="emoji-reactions">Emoji Reactions<a class="headerlink" href="#emoji-reactions" title="Permanent link">&para;</a></h2>
+<p>During agent processing, the bot adds emoji reactions to your message:</p>
+<table>
+<thead>
+<tr>
+<th>Emoji</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>⏳</td>
+<td>Working (agent loop running)</td>
+</tr>
+<tr>
+<td>🔍</td>
+<td>Search tool running</td>
+</tr>
+<tr>
+<td>💻</td>
+<td>Command execution</td>
+</tr>
+<tr>
+<td>🧠</td>
+<td>Memory operation</td>
+</tr>
+<tr>
+<td>👀</td>
+<td>Reading files</td>
+</tr>
+<tr>
+<td>✏️</td>
+<td>Writing/editing files</td>
+</tr>
+<tr>
+<td>💬</td>
+<td>Delegation to another bot</td>
+</tr>
+<tr>
+<td>⚙️</td>
+<td>Other tool running</td>
+</tr>
+<tr>
+<td>✅</td>
+<td>Done (replaces ⏳)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tool-approval">Tool Approval<a class="headerlink" href="#tool-approval" title="Permanent link">&para;</a></h2>
+<p>When a tool requires approval (configured via approval policies):</p>
+<ol>
+<li>The bot sends an embed with tool details and buttons:</li>
+<li><strong>Allow [tool]</strong> — Create a permanent allow rule</li>
+<li><strong>Approve this run</strong> — Allow once</li>
+<li><strong>Deny</strong> — Reject the tool call</li>
+<li>Smart suggestion buttons may appear for narrower rules</li>
+<li>After clicking, the message updates to show the verdict</li>
+</ol>
+<h2 id="thinking-display-modes">Thinking Display Modes<a class="headerlink" href="#thinking-display-modes" title="Permanent link">&para;</a></h2>
+<p>Configure <code>thinking_display</code> per channel:</p>
+<ul>
+<li><strong>append</strong> (default): Each thinking step is a separate message</li>
+<li><strong>replace</strong>: Thinking overwrites in a single message</li>
+<li><strong>hidden</strong>: Only shows "working..." status, no thought content</li>
+</ul>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="bot-doesnt-respond-to-messages">Bot doesn't respond to messages<a class="headerlink" href="#bot-doesnt-respond-to-messages" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Ensure <strong>Message Content Intent</strong> is enabled in the Developer Portal</li>
+<li>Check that the bot has Send Messages permission in the channel</li>
+<li>Verify <code>require_mention</code> setting — try @mentioning the bot</li>
+</ul>
+<h3 id="slash-commands-dont-appear">Slash commands don't appear<a class="headerlink" href="#slash-commands-dont-appear" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Commands sync on bot startup — wait a few seconds after "ready"</li>
+<li>Discord caches commands; may take up to an hour to propagate globally</li>
+<li>For faster testing, guild-specific sync is used (instant)</li>
+</ul>
+<h3 id="rate-limiting">Rate limiting<a class="headerlink" href="#rate-limiting" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Discord allows ~50 requests/second per guild</li>
+<li>Message edits are limited to 5 per 5 seconds per message</li>
+<li>The stream buffer uses a 1.0s flush interval to stay within limits</li>
+</ul>
+<h3 id="messages-are-split-unexpectedly">Messages are split unexpectedly<a class="headerlink" href="#messages-are-split-unexpectedly" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Discord has a 2000 character limit per message</li>
+<li>Long responses are automatically split at paragraph/line boundaries</li>
+<li>Code blocks are properly re-opened across splits</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.expand", "navigation.indexes", "navigation.top", "search.highlight", "search.suggest", "content.code.copy", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
