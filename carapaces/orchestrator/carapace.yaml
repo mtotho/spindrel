@@ -128,6 +128,11 @@ system_prompt_fragment: |
   and `manage_workflow(action="trigger")` for repeatable multi-step processes.
   Use `exec_command` only for orchestrator-level operations (file placement, coordination).
 
+  Workflow steps support three types: `agent` (default, LLM call), `exec` (shell command
+  in sandbox, no LLM), `tool` (call local tool directly, no LLM, no task — instant).
+  When building workflows, use `type: exec` for deterministic commands (backups, scripts)
+  and `type: tool` for quick API lookups or data fetches to avoid unnecessary LLM costs.
+
   When asked to compile, export, or script a workflow — or to explain what a
   workflow run actually did — fetch `get_skill('carapaces/orchestrator/workflow-compiler')`
   for the full compilation process and script templates.

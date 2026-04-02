@@ -7,6 +7,7 @@ import {
   useTriggerWorkflow,
 } from "@/src/api/hooks/useWorkflows";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useChannels } from "@/src/api/hooks/useChannels";
 import {
   Play,
   ChevronRight,
@@ -197,6 +198,7 @@ function TriggerForm({
 }) {
   const { data: workflow } = useWorkflow(workflowId);
   const { data: bots } = useBots();
+  const { data: channels } = useChannels();
   const triggerMut = useTriggerWorkflow(workflowId);
 
   const paramDefs = workflow?.params || {};
@@ -205,6 +207,7 @@ function TriggerForm({
 
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
   const [botId, setBotId] = useState("");
+  const [channelId, setChannelId] = useState("");
   const [sessionMode, setSessionMode] = useState("");
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
@@ -239,6 +242,7 @@ function TriggerForm({
       const run = await triggerMut.mutateAsync({
         params,
         bot_id: botId || defaultBot || undefined,
+        channel_id: channelId || undefined,
         session_mode: sessionMode || undefined,
       });
       onTriggered(run.id);
@@ -316,6 +320,24 @@ function TriggerForm({
           <option value="">{defaultBot ? `Default (${defaultBot})` : "\u2014 select bot \u2014"}</option>
           {bots?.map((b) => (
             <option key={b.id} value={b.id}>{b.name || b.id}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <label style={{ fontSize: 12, color: t.textMuted }}>
+          Channel <span style={{ color: t.textDim }}>(optional — binds run to a channel for visibility)</span>
+        </label>
+        <select
+          value={channelId}
+          onChange={(e) => setChannelId(e.target.value)}
+          style={{ ...inputStyle, padding: "6px 8px" }}
+        >
+          <option value="">None (headless)</option>
+          {channels?.map((ch) => (
+            <option key={ch.id} value={ch.id}>
+              {ch.display_name || ch.name || ch.client_id} ({ch.bot_id})
+            </option>
           ))}
         </select>
       </div>

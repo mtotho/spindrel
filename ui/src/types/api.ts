@@ -150,6 +150,7 @@ export interface WorkflowRun {
   triggered_by?: string | null;
   session_mode: string;
   error?: string | null;
+  workflow_snapshot?: Record<string, any> | null;
   created_at: string;
   completed_at?: string | null;
 }
@@ -733,6 +734,70 @@ export interface HeartbeatHistoryRun {
   total_tokens: number;
   iterations: number;
   duration_ms?: number | null;
+}
+
+// Spike alert types
+export interface SpikeConfig {
+  id: string;
+  enabled: boolean;
+  window_minutes: number;
+  baseline_hours: number;
+  relative_threshold: number;
+  absolute_threshold_usd: number;
+  cooldown_minutes: number;
+  targets: SpikeTarget[];
+  last_alert_at: string | null;
+  last_check_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface SpikeTarget {
+  type: "channel" | "integration";
+  channel_id?: string;
+  integration_type?: string;
+  client_id?: string;
+  label?: string;
+}
+
+export interface SpikeStatus {
+  enabled: boolean;
+  spiking: boolean;
+  window_rate: number;
+  baseline_rate: number;
+  spike_ratio: number | null;
+  cooldown_active: boolean;
+  cooldown_remaining_seconds: number;
+}
+
+export interface SpikeAlert {
+  id: string;
+  window_rate_usd_per_hour: number;
+  baseline_rate_usd_per_hour: number;
+  spike_ratio: number | null;
+  trigger_reason: string;
+  top_models: { model: string; cost: number; calls: number }[];
+  top_bots: { bot_id: string; cost: number }[];
+  recent_traces: { correlation_id: string; model: string; bot_id: string; cost: number }[];
+  targets_attempted: number;
+  targets_succeeded: number;
+  delivery_details: { target: SpikeTarget; success: boolean; error?: string }[];
+  created_at: string | null;
+}
+
+export interface SpikeAlertList {
+  total: number;
+  page: number;
+  page_size: number;
+  alerts: SpikeAlert[];
+}
+
+export interface TargetOption {
+  type: "channel" | "integration";
+  channel_id?: string;
+  integration_type?: string;
+  client_id?: string;
+  label: string;
 }
 
 // Admin types

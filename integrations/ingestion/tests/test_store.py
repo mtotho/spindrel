@@ -1,16 +1,13 @@
 """Tests for SQLite ingestion store using in-memory DB."""
 
 import json
-import sqlite3
 
 from integrations.ingestion.store import IngestionStore
 
 
 def make_store() -> IngestionStore:
     """Create an in-memory store for testing."""
-    store = IngestionStore(db_path=":memory:")
-    store._conn.row_factory = sqlite3.Row
-    return store
+    return IngestionStore(db_path=":memory:")
 
 
 class TestSchema:
@@ -154,4 +151,135 @@ class TestCursors:
         row = cur.fetchone()
         assert row is not None
         assert row["updated_at"] is not None
+        store.close()
+
+
+def _populate_store(store: IngestionStore) -> None:
+    """Seed a store with audit + quarantine data for query tests."""
+    for i in range(5):
+        store.audit("gmail", f"passed-{i}", "passed", "low")
+    for i in range(3):
+        store.audit("rss", f"rss-{i}", "passed", "low")
+    store.audit("gmail", "q-1", "quarantined", "high")
+    store.quarantine("gmail", "q-1", "bad stuff", "high", ["injection"], "prompt injection")
+    store.quarantine("gmail", "q-2", "more bad", "medium", [], "suspicious links")
+    store.quarantine("rss", "q-rss", "rss bad", "high", ["hidden_chars"], "zero-width")
+    store.set_cursor("gmail", "uid-500")
+    store.set_cursor("rss", "entry-99")
+
+
+class TestFeedStats:
+    def test_stats_all_sources(self):
+        store = make_store()
+        _populate_store(store)
+        stats = store.get_feed_stats()
+        assert stats["total_processed"] == 9  # 5 gmail + 3 rss + 1 quarantine audit
+        assert stats["total_quarantined"] == 3
+        assert stats["last_cursor"] is None  # no source filter → no cursor
+        store.close()
+
+    def test_stats_filtered_by_source(self):
+        store = make_store()
+        _populate_store(store)
+        stats = store.get_feed_stats("gmail")
+        assert stats["total_processed"] == 6  # 5 passed + 1 quarantined
+        assert stats["total_quarantined"] == 2
+        assert stats["last_cursor"]["value"] == "uid-500"
+        store.close()
+
+    def test_stats_24h_counts(self):
+        store = make_store()
+        _populate_store(store)
+        # All items were just inserted, so 24h counts should match totals
+        stats = store.get_feed_stats()
+        assert stats["processed_24h"] == 9
+        assert stats["quarantined_24h"] == 3
+        store.close()
+
+    def test_stats_empty_store(self):
+        store = make_store()
+        stats = store.get_feed_stats()
+        assert stats["total_processed"] == 0
+        assert stats["total_quarantined"] == 0
+        assert stats["processed_24h"] == 0
+        assert stats["quarantined_24h"] == 0
+        store.close()
+
+
+class TestRecentItems:
+    def test_returns_passed_items(self):
+        store = make_store()
+        _populate_store(store)
+        items = store.get_recent_items()
+        assert len(items) == 8  # 5 gmail + 3 rss passed
+        assert all(it["action"] == "passed" for it in items)
+        store.close()
+
+    def test_filtered_by_source(self):
+        store = make_store()
+        _populate_store(store)
+        items = store.get_recent_items("rss")
+        assert len(items) == 3
+        assert all(it["source"] == "rss" for it in items)
+        store.close()
+
+    def test_limit(self):
+        store = make_store()
+        _populate_store(store)
+        items = store.get_recent_items(limit=2)
+        assert len(items) == 2
+        store.close()
+
+    def test_empty_store(self):
+        store = make_store()
+        items = store.get_recent_items()
+        assert items == []
+        store.close()
+
+
+class TestQuarantineItems:
+    def test_returns_quarantined(self):
+        store = make_store()
+        _populate_store(store)
+        items = store.get_quarantine_items()
+        assert len(items) == 3
+        store.close()
+
+    def test_filtered_by_source(self):
+        store = make_store()
+        _populate_store(store)
+        items = store.get_quarantine_items("gmail")
+        assert len(items) == 2
+        assert all(it["source"] == "gmail" for it in items)
+        store.close()
+
+    def test_flags_deserialized(self):
+        store = make_store()
+        _populate_store(store)
+        items = store.get_quarantine_items("gmail")
+        flagged = [it for it in items if it["flags"]]
+        assert len(flagged) >= 1
+        assert isinstance(flagged[0]["flags"], list)
+        store.close()
+
+    def test_limit(self):
+        store = make_store()
+        _populate_store(store)
+        items = store.get_quarantine_items(limit=1)
+        assert len(items) == 1
+        store.close()
+
+
+class TestListSources:
+    def test_lists_distinct_sources(self):
+        store = make_store()
+        _populate_store(store)
+        sources = store.list_sources()
+        assert sources == ["gmail", "rss"]
+        store.close()
+
+    def test_empty_store(self):
+        store = make_store()
+        sources = store.list_sources()
+        assert sources == []
         store.close()

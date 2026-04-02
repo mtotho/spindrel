@@ -54,6 +54,7 @@ export default function BotEditorScreen() {
   const [saved, setSaved] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleteChannelWarning, setDeleteChannelWarning] = useState<string | null>(null);
   const deleteMutation = useDeleteBot();
 
   useEffect(() => {
@@ -760,6 +761,22 @@ export default function BotEditorScreen() {
                       <button
                         onClick={async () => {
                           try {
+                            // Try without force first; if 409, show channel warning and retry with force
+                            if (!deleteChannelWarning) {
+                              try {
+                                await deleteMutation.mutateAsync({ botId: botId! });
+                                router.replace("/admin/bots" as any);
+                                return;
+                              } catch (err: any) {
+                                if (err?.status === 409 || err?.message?.includes("active channel")) {
+                                  let detail = "Bot has active channels.";
+                                  try { detail = JSON.parse(err?.body)?.detail || detail; } catch {}
+                                  setDeleteChannelWarning(detail);
+                                  return;
+                                }
+                                throw err;
+                              }
+                            }
                             await deleteMutation.mutateAsync({ botId: botId!, force: true });
                             router.replace("/admin/bots" as any);
                           } catch (_) { /* handled by mutation state */ }
@@ -775,10 +792,10 @@ export default function BotEditorScreen() {
                         }}
                       >
                         <Trash2 size={13} />
-                        {deleteMutation.isPending ? "Deleting..." : "Permanently Delete"}
+                        {deleteMutation.isPending ? "Deleting..." : deleteChannelWarning ? "Force Delete (including channels)" : "Permanently Delete"}
                       </button>
                       <button
-                        onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(""); }}
+                        onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(""); setDeleteChannelWarning(null); }}
                         style={{
                           padding: "8px 16px", fontSize: 12, fontWeight: 500,
                           border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
@@ -788,7 +805,18 @@ export default function BotEditorScreen() {
                         Cancel
                       </button>
                     </div>
-                    {deleteMutation.isError && (
+                    {deleteChannelWarning && (
+                      <div style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "8px 12px", background: t.dangerSubtle, borderRadius: 6,
+                      }}>
+                        <AlertTriangle size={14} color={t.danger} />
+                        <div style={{ fontSize: 11, color: t.danger }}>
+                          {deleteChannelWarning} Click "Force Delete" to proceed anyway.
+                        </div>
+                      </div>
+                    )}
+                    {deleteMutation.isError && !deleteChannelWarning && (
                       <div style={{ fontSize: 11, color: t.danger }}>
                         {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to delete bot"}
                       </div>

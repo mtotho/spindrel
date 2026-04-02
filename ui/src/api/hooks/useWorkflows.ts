@@ -80,6 +80,23 @@ export function useRecentWorkflowRuns() {
   });
 }
 
+// --- Active Runs (global, for HUD) ---
+
+export function useActiveWorkflowRuns() {
+  return useQuery({
+    queryKey: ["workflow-runs-active"],
+    queryFn: async () => {
+      const runs = await apiFetch<WorkflowRun[]>("/api/v1/admin/workflow-runs/recent?limit=20");
+      return runs.filter((r) => r.status === "running" || r.status === "awaiting_approval");
+    },
+    refetchInterval: (query) => {
+      const runs = query.state.data;
+      if (runs && runs.length > 0) return 3000;
+      return 15000; // Still poll occasionally to catch newly started runs
+    },
+  });
+}
+
 // --- Workflow Runs ---
 
 export function useWorkflowRuns(workflowId?: string) {
@@ -117,8 +134,13 @@ export function useTriggerWorkflow(workflowId: string) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       }),
-    onSuccess: () => {
+    onSuccess: (run) => {
       qc.invalidateQueries({ queryKey: ["workflow-runs", workflowId] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs-active"] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs-recent"] });
+      if (run.channel_id) {
+        qc.invalidateQueries({ queryKey: ["channel-workflow-runs", run.channel_id] });
+      }
     },
   });
 }
@@ -131,6 +153,9 @@ export function useCancelWorkflowRun() {
     onSuccess: (_data, runId) => {
       qc.invalidateQueries({ queryKey: ["workflow-run", runId] });
       qc.invalidateQueries({ queryKey: ["workflow-runs"] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs-active"] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs-recent"] });
+      qc.invalidateQueries({ queryKey: ["channel-workflow-runs"] });
     },
   });
 }

@@ -1,8 +1,8 @@
 id: gmail-feeds
 name: Gmail Feeds
 description: >
-  Email ingestion and digest management via Gmail IMAP.
-  Includes Mission Control tools for workspace organization.
+  Email ingestion, triage, and digest management via Gmail IMAP.
+  Includes Mission Control tools for task tracking and workspace organization.
 
 includes:
   - mission-control
@@ -14,3 +14,25 @@ skills:
 local_tools:
   - check_gmail_status
   - trigger_gmail_poll
+  - query_feed_store
+
+system_prompt_fragment: |
+  ## Email Triage
+
+  You have Gmail email ingestion and feed monitoring capabilities.
+  Emails are delivered to `data/gmail/` after passing through the security pipeline.
+
+  ### When to use each tool
+  | Trigger | Action |
+  |---------|--------|
+  | User asks about inbox, email, triage, or digest | `query_feed_store(action="stats", store="gmail")` for health, then `search_channel_workspace` for content |
+  | User asks about quarantined/blocked emails | `query_feed_store(action="quarantine", store="gmail")` |
+  | User asks to check Gmail connectivity | `check_gmail_status()` |
+  | User asks to fetch new emails now | `trigger_gmail_poll()` |
+  | Creating task cards from emails | `create_task_card` with tags `email,from:{sender}` |
+  | Logging triage activity | `append_timeline_event` with triage summary |
+
+  ### Deep Knowledge
+  | When you need... | Fetch this skill |
+  |---|---|
+  | Full triage protocol, action extraction patterns, digest templates, feed store query examples | `get_skill('integrations/gmail/gmail_feeds')` |

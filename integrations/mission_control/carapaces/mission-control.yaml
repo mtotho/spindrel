@@ -36,6 +36,7 @@ local_tools:
   - draft_plan
   - update_plan_step
   - update_plan_status
+  - query_feed_store
 
 system_prompt_fragment: |
   ## Mission Control
@@ -65,5 +66,5 @@ system_prompt_fragment: |
   | Task board format, card metadata, status.md, kanban conventions | `get_skill('integrations/mission_control/mission_control')` |
   | Plan workflow — drafting, approval gates, automatic execution, progress tracking | `get_skill('integrations/mission_control/planning')` |
   | Cross-channel project tracking, portfolio reports, status dashboards | `get_skill('integrations/mission_control/project-management')` |
-  | Feed content (email, RSS), searching data/ files, creating digests | `get_skill('integrations/mission_control/content_feeds')` |
+  | Feed content (email, RSS), `query_feed_store` usage, quarantine review, cross-feed digests | `get_skill('integrations/mission_control/content_feeds')` |
   | Connecting external services (email, RSS, webhooks, APIs, polling) | `get_skill('integrations/mission_control/integration-builder')` |

@@ -6,10 +6,12 @@ Handles:
 - Workflow triggering (param/secret validation, run creation)
 - Step advancement (condition check, approval gates, task creation)
 - Task completion callbacks (result capture, failure handling, re-advance)
+- Step-level dispatch types: agent (default), exec (shell command), tool (inline local tool call)
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import uuid
@@ -244,6 +246,23 @@ def validate_secrets(declared_secrets: list[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Definition snapshot helper
+# ---------------------------------------------------------------------------
+
+def _get_run_definition(
+    run: WorkflowRun, workflow: Workflow,
+) -> tuple[list[dict], dict, list[str]]:
+    """Return (steps, defaults, secrets) from snapshot if available, else live workflow.
+
+    Provides backward compatibility — old runs without snapshots fall back to the live workflow.
+    """
+    snap = getattr(run, "workflow_snapshot", None)
+    if isinstance(snap, dict):
+        return snap.get("steps", []), snap.get("defaults", {}), snap.get("secrets", [])
+    return workflow.steps, workflow.defaults or {}, workflow.secrets or []
+
+
+# ---------------------------------------------------------------------------
 # Workflow triggering (Phase 5A)
 # ---------------------------------------------------------------------------
 
@@ -298,6 +317,13 @@ async def trigger_workflow(
                 dispatch_type = ch.integration or "none"
                 dispatch_config = dict(ch.dispatch_config or {}) if ch.dispatch_config else None
 
+    # Capture workflow definition snapshot at trigger time
+    workflow_snapshot = {
+        "steps": workflow.steps,
+        "defaults": workflow.defaults or {},
+        "secrets": workflow.secrets or [],
+    }
+
     # Initialize step states
     step_states = [
         {"status": "pending", "task_id": None, "result": None, "error": None,
@@ -327,6 +353,7 @@ async def trigger_workflow(
         dispatch_config=dispatch_config,
         triggered_by=triggered_by,
         session_mode=effective_mode,
+        workflow_snapshot=workflow_snapshot,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -357,9 +384,13 @@ async def advance_workflow(run_id: uuid.UUID) -> None:
     lock = _advance_locks.setdefault(run_id, asyncio.Lock())
     async with lock:
         await _advance_workflow_inner(run_id)
-    # Clean up lock if no one else is waiting
-    if not lock.locked():
-        _advance_locks.pop(run_id, None)
+    # Clean up lock only if we still own the dict entry AND no one is waiting.
+    # Use pop-and-check to avoid the race where another coroutine grabs the
+    # lock between our release and this check.
+    removed = _advance_locks.pop(run_id, None)
+    if removed is not None and removed.locked():
+        # Someone acquired the lock between our release and pop — put it back
+        _advance_locks.setdefault(run_id, removed)
 
 
 async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
@@ -394,7 +425,7 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                 await db.commit()
                 return
 
-            steps = workflow.steps
+            steps, defaults, _secrets = _get_run_definition(run, workflow)
             step_states = list(run.step_states)  # mutable copy
             context = _build_condition_context(steps, step_states, run.params)
 
@@ -425,27 +456,82 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                                 run_id, i, step_def.get("id", "?"))
                     return
 
-                # Execution cap — prevent runaway workflows
-                executed = sum(
-                    1 for s in step_states
-                    if s["status"] in ("running", "done", "failed")
-                )
-                cap = settings.WORKFLOW_MAX_TASK_EXECUTIONS
-                if executed >= cap:
-                    run.status = "failed"
-                    run.error = f"Execution cap reached ({cap} tasks)"
-                    run.completed_at = datetime.now(timezone.utc)
-                    run.step_states = step_states
-                    await db.commit()
-                    logger.error(
-                        "Workflow run %s hit execution cap (%d)", run_id, cap,
+                # Execution cap — prevent runaway workflows (only for task-creating steps)
+                step_type = step_def.get("type", "agent")
+                if step_type != "tool":
+                    executed = sum(
+                        1 for s in step_states
+                        if s["status"] in ("running", "done", "failed")
                     )
-                    return
+                    cap = settings.WORKFLOW_MAX_TASK_EXECUTIONS
+                    if executed >= cap:
+                        run.status = "failed"
+                        run.error = f"Execution cap reached ({cap} tasks)"
+                        run.completed_at = datetime.now(timezone.utc)
+                        run.step_states = step_states
+                        await db.commit()
+                        logger.error(
+                            "Workflow run %s hit execution cap (%d)", run_id, cap,
+                        )
+                        return
 
-                # Create task for this step
+                # Handle tool step type — inline execution, no Task created
+                if step_type == "tool":
+                    tool_name = step_def.get("tool_name")
+                    if not tool_name:
+                        now = datetime.now(timezone.utc)
+                        state["status"] = "failed"
+                        state["error"] = "Step type 'tool' requires 'tool_name'"
+                        state["started_at"] = now.isoformat()
+                        state["completed_at"] = now.isoformat()
+                        run.step_states = step_states
+                        run.status = "failed"
+                        run.error = f"Step '{step_def.get('id', i)}' missing tool_name"
+                        run.completed_at = now
+                        await db.commit()
+                        return
+
+                    # Render template vars in tool_args
+                    raw_args = step_def.get("tool_args", {})
+                    rendered_args = {
+                        k: render_prompt(str(v), run.params, step_states, steps)
+                        for k, v in raw_args.items()
+                    }
+
+                    from app.tools.registry import call_local_tool
+                    now = datetime.now(timezone.utc)
+                    try:
+                        result = await call_local_tool(tool_name, json.dumps(rendered_args))
+                        max_chars = step_def.get("result_max_chars", defaults.get("result_max_chars", 2000))
+                        state["status"] = "done"
+                        state["result"] = result[:max_chars]
+                    except Exception as e:
+                        state["status"] = "failed"
+                        state["error"] = str(e)
+
+                    state["started_at"] = now.isoformat()
+                    state["completed_at"] = now.isoformat()
+                    run.step_states = step_states
+                    context = _build_condition_context(steps, step_states, run.params)
+                    action_taken = True
+
+                    # Apply on_failure for tool steps
+                    if state["status"] == "failed":
+                        on_failure = step_def.get("on_failure", "abort")
+                        if on_failure == "abort":
+                            run.status = "failed"
+                            run.error = f"Tool step '{step_def.get('id', i)}' failed: {state['error']}"
+                            run.completed_at = now
+                            await db.commit()
+                            return
+                        # continue falls through to next step
+                    await db.commit()
+                    continue  # Loop to next step
+
+                # Create task for this step (agent or exec)
                 now = datetime.now(timezone.utc)
                 try:
-                    task_id = await _create_step_task(run, workflow, step_def, i)
+                    task_id = await _create_step_task(run, workflow, step_def, i, steps, defaults)
                 except Exception as e:
                     logger.exception("Failed to create step task for run %s step %d", run_id, i)
                     state["status"] = "failed"
@@ -514,73 +600,95 @@ def _build_condition_context(steps: list[dict], step_states: list[dict], params:
 # ---------------------------------------------------------------------------
 
 async def _create_step_task(
-    run: WorkflowRun, workflow: Workflow, step_def: dict, step_index: int
+    run: WorkflowRun,
+    workflow: Workflow,
+    step_def: dict,
+    step_index: int,
+    steps: list[dict] | None = None,
+    defaults: dict | None = None,
 ) -> uuid.UUID:
-    """Create a Task for the given workflow step and enqueue it. Returns the task ID."""
+    """Create a Task for the given workflow step and enqueue it. Returns the task ID.
+
+    ``steps`` and ``defaults`` come from ``_get_run_definition`` (snapshot-aware).
+    When not provided (backward compat from approve_step), falls back to live workflow.
+    """
+    if steps is None:
+        steps, defaults, _secrets = _get_run_definition(run, workflow)
+    if defaults is None:
+        defaults = workflow.defaults or {}
+
+    step_type = step_def.get("type", "agent")
+
     # Render prompt
     prompt = render_prompt(
         step_def["prompt"],
         run.params,
         run.step_states,
-        workflow.steps,
+        steps,
     )
 
     # Build execution_config from workflow defaults + step overrides
-    defaults = workflow.defaults or {}
     ecfg: dict = {}
 
-    # Model
-    model = step_def.get("model") or defaults.get("model")
-    if model:
-        ecfg["model_override"] = model
+    # For exec steps, the prompt IS the command
+    if step_type == "exec":
+        ecfg["command"] = prompt
+        if step_def.get("args"):
+            ecfg["args"] = step_def["args"]
+        if step_def.get("working_directory"):
+            ecfg["working_directory"] = step_def["working_directory"]
+    else:
+        # Model
+        model = step_def.get("model") or defaults.get("model")
+        if model:
+            ecfg["model_override"] = model
 
-    # System preamble
-    preamble_lines = [
-        f"[WORKFLOW STEP — {workflow.name}]",
-        f"Workflow: {workflow.id} | Run: {run.id} | Step: {step_def.get('id', step_index)}",
-        "Execute the instructions below. Return your result as a clear summary.",
-    ]
+        # System preamble
+        preamble_lines = [
+            f"[WORKFLOW STEP — {workflow.name}]",
+            f"Workflow: {workflow.id} | Run: {run.id} | Step: {step_def.get('id', step_index)}",
+            "Execute the instructions below. Return your result as a clear summary.",
+        ]
 
-    # Prior result injection (skip for shared sessions where full context is already available)
-    inject = step_def.get("inject_prior_results", defaults.get("inject_prior_results", False))
-    if inject and run.session_mode == "shared":
-        inject = False
-    if inject and step_index > 0:
-        max_chars = step_def.get("prior_result_max_chars", defaults.get("prior_result_max_chars", 500))
-        prior_lines = []
-        steps = workflow.steps
-        for i, st in enumerate(run.step_states):
-            if i >= step_index:
-                break
-            if st.get("status") in ("done", "failed"):
-                sid = steps[i].get("id", f"step_{i}") if i < len(steps) else f"step_{i}"
-                text = (st.get("result") or st.get("error") or "")[:max_chars]
-                prior_lines.append(f"- {sid} ({st['status']}): {text}")
-        if prior_lines:
-            preamble_lines.append("")
-            preamble_lines.append("Previous step results:")
-            preamble_lines.extend(prior_lines)
+        # Prior result injection (skip for shared sessions where full context is already available)
+        inject = step_def.get("inject_prior_results", defaults.get("inject_prior_results", False))
+        if inject and run.session_mode == "shared":
+            inject = False
+        if inject and step_index > 0:
+            max_chars = step_def.get("prior_result_max_chars", defaults.get("prior_result_max_chars", 500))
+            prior_lines = []
+            for i, st in enumerate(run.step_states):
+                if i >= step_index:
+                    break
+                if st.get("status") in ("done", "failed"):
+                    sid = steps[i].get("id", f"step_{i}") if i < len(steps) else f"step_{i}"
+                    text = (st.get("result") or st.get("error") or "")[:max_chars]
+                    prior_lines.append(f"- {sid} ({st['status']}): {text}")
+            if prior_lines:
+                preamble_lines.append("")
+                preamble_lines.append("Previous step results:")
+                preamble_lines.extend(prior_lines)
 
-    preamble_lines.append("---")
-    ecfg["system_preamble"] = "\n".join(preamble_lines)
+        preamble_lines.append("---")
+        ecfg["system_preamble"] = "\n".join(preamble_lines)
 
-    # Tools
-    tools = step_def.get("tools") or defaults.get("tools")
-    if tools:
-        ecfg["tools"] = tools
+        # Tools
+        tools = step_def.get("tools") or defaults.get("tools")
+        if tools:
+            ecfg["tools"] = tools
 
-    # Carapaces
-    carapaces = step_def.get("carapaces") or defaults.get("carapaces")
-    if carapaces:
-        ecfg["carapaces"] = carapaces
+        # Carapaces
+        carapaces = step_def.get("carapaces") or defaults.get("carapaces")
+        if carapaces:
+            ecfg["carapaces"] = carapaces
 
     # Scoped secrets — intersection of workflow.secrets and step.secrets
-    workflow_secrets = workflow.secrets or []
+    snap_secrets = (run.workflow_snapshot or {}).get("secrets", []) if run.workflow_snapshot else (workflow.secrets or [])
     step_secrets = step_def.get("secrets")
     if step_secrets:
-        allowed = [s for s in step_secrets if s in workflow_secrets]
+        allowed = [s for s in step_secrets if s in snap_secrets]
     else:
-        allowed = list(workflow_secrets)
+        allowed = list(snap_secrets)
     if allowed:
         ecfg["allowed_secrets"] = allowed
 
@@ -598,6 +706,9 @@ async def _create_step_task(
     # would pollute the chat feed with step prompts.
     step_session_id = run.session_id or uuid.uuid4()
 
+    # Determine task_type based on step type
+    task_type = "exec" if step_type == "exec" else "workflow"
+
     task = Task(
         id=uuid.uuid4(),
         bot_id=run.bot_id,
@@ -606,7 +717,7 @@ async def _create_step_task(
         prompt=prompt,
         title=f"Workflow: {workflow.name} — {step_def.get('id', f'step_{step_index}')}",
         status="pending",
-        task_type="workflow",
+        task_type=task_type,
         dispatch_type="none",  # Workflow manages its own dispatch
         execution_config=ecfg,
         callback_config=callback_config,
@@ -619,8 +730,8 @@ async def _create_step_task(
         await db.commit()
 
     logger.info(
-        "Created task %s for workflow run %s step %d (%s)",
-        task.id, run.id, step_index, step_def.get("id", "?"),
+        "Created task %s (type=%s) for workflow run %s step %d (%s)",
+        task.id, task_type, run.id, step_index, step_def.get("id", "?"),
     )
     return task.id
 
@@ -670,8 +781,8 @@ async def on_step_task_completed(
         # Map task status to step status
         # Use fresh_task from DB for result/error — the `task` object passed
         # into the hook was loaded before execution and has stale result=None.
-        defaults = workflow.defaults or {}
-        step_def = workflow.steps[step_index] if step_index < len(workflow.steps) else {}
+        steps, defaults, _secrets = _get_run_definition(run, workflow)
+        step_def = steps[step_index] if step_index < len(steps) else {}
         fresh_task = await db.get(Task, task.id)
         result_source = fresh_task if fresh_task else task
         if status == "complete":
@@ -791,9 +902,10 @@ async def approve_step(run_id: uuid.UUID, step_index: int) -> WorkflowRun:
     if not workflow:
         raise ValueError(f"Workflow '{run.workflow_id}' not found")
 
-    step_def = workflow.steps[step_index]
+    steps, defaults, _secrets = _get_run_definition(run, workflow)
+    step_def = steps[step_index]
 
-    task_id = await _create_step_task(run, workflow, step_def, step_index)
+    task_id = await _create_step_task(run, workflow, step_def, step_index, steps, defaults)
 
     async with async_session() as db:
         run = await db.get(WorkflowRun, run_id)
@@ -880,7 +992,7 @@ async def cancel_workflow(run_id: uuid.UUID) -> WorkflowRun:
         await db.execute(
             sa_update(Task)
             .where(Task.status.in_(["pending"]))
-            .where(Task.task_type == "workflow")
+            .where(Task.task_type.in_(["workflow", "exec"]))
             .where(Task.callback_config["workflow_run_id"].as_string() == str(run_id))
             .values(status="cancelled", completed_at=now)
         )

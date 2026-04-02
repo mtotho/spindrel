@@ -45,6 +45,7 @@ def _make_workflow_run(step_count=2, **overrides):
     run.session_id = overrides.get("session_id", None)
     run.dispatch_type = overrides.get("dispatch_type", "none")
     run.dispatch_config = overrides.get("dispatch_config", None)
+    run.workflow_snapshot = overrides.get("workflow_snapshot", None)
     run.created_at = overrides.get("created_at", datetime.now(timezone.utc))
     run.completed_at = overrides.get("completed_at", None)
     run.error = overrides.get("run_error", None)
@@ -819,3 +820,418 @@ class TestAdvancementLock:
 
         # Lock should be cleaned up
         assert run_id not in _advance_locks
+
+
+# ---------------------------------------------------------------------------
+# Tests: Workflow Definition Snapshot
+# ---------------------------------------------------------------------------
+
+class TestWorkflowSnapshot:
+    """Tests for workflow definition snapshot at trigger time."""
+
+    @pytest.mark.asyncio
+    async def test_workflow_snapshot_stored_at_trigger(self):
+        """trigger_workflow should populate workflow_snapshot on the run."""
+        from app.services.workflow_executor import trigger_workflow
+
+        wf = _make_workflow(
+            steps=[{"id": "s0", "prompt": "Go"}],
+            defaults={"model": "gpt-4"},
+            secrets=["API_KEY"],
+        )
+        wf.params = {}
+        wf.triggers = {}
+
+        created_run = None
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+
+        def capture_add(obj):
+            nonlocal created_run
+            created_run = obj
+
+        mock_db.add = MagicMock(side_effect=capture_add)
+        mock_db.commit = AsyncMock()
+        mock_db.refresh = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.services.workflows.get_workflow", return_value=wf),
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
+            patch("app.services.workflow_executor.validate_secrets"),
+        ):
+            result = await trigger_workflow("test-wf", {}, bot_id="test-bot")
+
+        assert created_run is not None
+        snap = created_run.workflow_snapshot
+        assert snap is not None
+        assert snap["steps"] == [{"id": "s0", "prompt": "Go"}]
+        assert snap["defaults"] == {"model": "gpt-4"}
+        assert snap["secrets"] == ["API_KEY"]
+
+    def test_get_run_definition_uses_snapshot(self):
+        """_get_run_definition should read from snapshot when available."""
+        from app.services.workflow_executor import _get_run_definition
+
+        run = _make_workflow_run()
+        run.workflow_snapshot = {
+            "steps": [{"id": "snap_step", "prompt": "Snap"}],
+            "defaults": {"timeout": 60},
+            "secrets": ["SECRET1"],
+        }
+
+        workflow = _make_workflow(
+            steps=[{"id": "live_step", "prompt": "Live"}],
+            defaults={"timeout": 120},
+            secrets=["SECRET2"],
+        )
+
+        steps, defaults, secrets = _get_run_definition(run, workflow)
+        assert steps == [{"id": "snap_step", "prompt": "Snap"}]
+        assert defaults == {"timeout": 60}
+        assert secrets == ["SECRET1"]
+
+    def test_get_run_definition_fallback_for_old_runs(self):
+        """Runs with workflow_snapshot=None should fall back to live workflow."""
+        from app.services.workflow_executor import _get_run_definition
+
+        run = _make_workflow_run()
+        run.workflow_snapshot = None
+
+        workflow = _make_workflow(
+            steps=[{"id": "live_step", "prompt": "Live"}],
+            defaults={"timeout": 120},
+            secrets=["SECRET2"],
+        )
+
+        steps, defaults, secrets = _get_run_definition(run, workflow)
+        assert steps == [{"id": "live_step", "prompt": "Live"}]
+        assert defaults == {"timeout": 120}
+        assert secrets == ["SECRET2"]
+
+    @pytest.mark.asyncio
+    async def test_snapshot_used_during_advancement(self):
+        """_advance_workflow_inner should read steps from snapshot, not live workflow."""
+        from app.services.workflow_executor import _advance_workflow_inner
+
+        run_id = uuid.uuid4()
+        snapshot_steps = [{"id": "snap_0", "prompt": "Snapshot step"}]
+        live_steps = [{"id": "live_0", "prompt": "Live step"}]
+
+        run = _make_workflow_run(id=run_id, step_count=1)
+        run.workflow_snapshot = {
+            "steps": snapshot_steps,
+            "defaults": {},
+            "secrets": [],
+        }
+
+        workflow = _make_workflow(steps=live_steps)
+
+        created_task_prompts = []
+
+        async def mock_create_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+            created_task_prompts.append(step_def_["prompt"])
+            return uuid.uuid4()
+
+        async def mock_get(model, id_, **kwargs):
+            name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if name == "WorkflowRun":
+                return run
+            if name == "Workflow":
+                return workflow
+            return None
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.services.workflow_executor._create_step_task", new=mock_create_step_task),
+        ):
+            await _advance_workflow_inner(run_id)
+
+        assert created_task_prompts == ["Snapshot step"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: Step-Level Dispatch Types (exec / tool)
+# ---------------------------------------------------------------------------
+
+class TestExecStepType:
+    """Tests for step type 'exec' — shell command via task."""
+
+    @pytest.mark.asyncio
+    async def test_exec_step_creates_exec_task(self):
+        """Step with type: exec should create task_type='exec' with command in execution_config."""
+        from app.services.workflow_executor import _create_step_task
+
+        run = _make_workflow_run()
+        run.workflow_snapshot = None
+        workflow = _make_workflow(steps=[
+            {"id": "backup", "type": "exec", "prompt": "pg_dump mydb", "timeout": 120},
+        ])
+
+        created_tasks = []
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+        mock_db.commit = AsyncMock()
+
+        def capture_add(task):
+            created_tasks.append(task)
+
+        mock_db.add = MagicMock(side_effect=capture_add)
+
+        step_def = {"id": "backup", "type": "exec", "prompt": "pg_dump mydb", "timeout": 120}
+
+        with patch("app.services.workflow_executor.async_session", return_value=mock_db):
+            task_id = await _create_step_task(
+                run, workflow, step_def, 0,
+                workflow.steps, workflow.defaults or {},
+            )
+
+        assert len(created_tasks) == 1
+        task = created_tasks[0]
+        assert task.task_type == "exec"
+        assert task.execution_config["command"] == "pg_dump mydb"
+        assert task.max_run_seconds == 120
+
+
+class TestToolStepType:
+    """Tests for step type 'tool' — inline local tool call."""
+
+    @pytest.mark.asyncio
+    async def test_tool_step_executes_inline(self):
+        """Step with type: tool should call call_local_tool directly, no Task created."""
+        from app.services.workflow_executor import _advance_workflow_inner
+
+        run_id = uuid.uuid4()
+        steps = [
+            {"id": "search", "type": "tool", "tool_name": "web_search", "tool_args": {"query": "test"}},
+            {"id": "analyze", "prompt": "Analyze results"},
+        ]
+
+        run = _make_workflow_run(id=run_id, step_count=2)
+        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
+
+        workflow = _make_workflow(steps=steps)
+
+        async def mock_get(model, id_, **kwargs):
+            name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if name == "WorkflowRun":
+                return run
+            if name == "Workflow":
+                return workflow
+            return None
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.commit = AsyncMock()
+
+        create_task_calls = []
+
+        async def mock_create_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+            create_task_calls.append(step_def_)
+            return uuid.uuid4()
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.services.workflow_executor._create_step_task", new=mock_create_step_task),
+            patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, return_value='{"results": ["found"]}'),
+        ):
+            await _advance_workflow_inner(run_id)
+
+        # Tool step should have completed inline
+        assert run.step_states[0]["status"] == "done"
+        assert run.step_states[0]["result"] == '{"results": ["found"]}'
+        # Second step (agent) should have triggered task creation
+        assert len(create_task_calls) == 1
+        assert create_task_calls[0]["id"] == "analyze"
+
+    @pytest.mark.asyncio
+    async def test_tool_step_failure_aborts(self):
+        """Tool step failure with on_failure: abort should fail the run."""
+        from app.services.workflow_executor import _advance_workflow_inner
+
+        run_id = uuid.uuid4()
+        steps = [
+            {"id": "fail_tool", "type": "tool", "tool_name": "bad_tool", "tool_args": {}, "on_failure": "abort"},
+        ]
+
+        run = _make_workflow_run(id=run_id, step_count=1)
+        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
+        workflow = _make_workflow(steps=steps)
+
+        async def mock_get(model, id_, **kwargs):
+            name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if name == "WorkflowRun":
+                return run
+            if name == "Workflow":
+                return workflow
+            return None
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, side_effect=RuntimeError("tool exploded")),
+        ):
+            await _advance_workflow_inner(run_id)
+
+        assert run.status == "failed"
+        assert "fail_tool" in run.error
+        assert run.step_states[0]["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_tool_step_failure_continues(self):
+        """Tool step failure with on_failure: continue should advance to next step."""
+        from app.services.workflow_executor import _advance_workflow_inner
+
+        run_id = uuid.uuid4()
+        steps = [
+            {"id": "fail_tool", "type": "tool", "tool_name": "bad_tool", "tool_args": {}, "on_failure": "continue"},
+            {"id": "next", "prompt": "Continue"},
+        ]
+
+        run = _make_workflow_run(id=run_id, step_count=2)
+        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
+        workflow = _make_workflow(steps=steps)
+
+        async def mock_get(model, id_, **kwargs):
+            name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if name == "WorkflowRun":
+                return run
+            if name == "Workflow":
+                return workflow
+            return None
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.commit = AsyncMock()
+
+        create_task_calls = []
+
+        async def mock_create_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+            create_task_calls.append(step_def_["id"])
+            return uuid.uuid4()
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.services.workflow_executor._create_step_task", new=mock_create_step_task),
+            patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, side_effect=RuntimeError("tool exploded")),
+        ):
+            await _advance_workflow_inner(run_id)
+
+        # First step failed but continued
+        assert run.step_states[0]["status"] == "failed"
+        # Second step should have triggered task creation
+        assert create_task_calls == ["next"]
+
+    @pytest.mark.asyncio
+    async def test_tool_step_renders_args(self):
+        """{{param}} in tool_args values should be resolved."""
+        from app.services.workflow_executor import _advance_workflow_inner
+
+        run_id = uuid.uuid4()
+        steps = [
+            {"id": "search", "type": "tool", "tool_name": "web_search",
+             "tool_args": {"query": "{{topic}}", "count": "{{num}}"}},
+        ]
+
+        run = _make_workflow_run(id=run_id, step_count=1)
+        run.params = {"topic": "AI safety", "num": "5"}
+        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
+        workflow = _make_workflow(steps=steps)
+
+        async def mock_get(model, id_, **kwargs):
+            name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if name == "WorkflowRun":
+                return run
+            if name == "Workflow":
+                return workflow
+            return None
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.commit = AsyncMock()
+
+        captured_args = []
+
+        async def mock_call_local_tool(name, arguments):
+            import json
+            captured_args.append(json.loads(arguments))
+            return '{"ok": true}'
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.tools.registry.call_local_tool", new=mock_call_local_tool),
+        ):
+            await _advance_workflow_inner(run_id)
+
+        assert len(captured_args) == 1
+        assert captured_args[0] == {"query": "AI safety", "count": "5"}
+
+    @pytest.mark.asyncio
+    async def test_mixed_step_types(self):
+        """Workflow with agent + exec + tool steps should sequence correctly."""
+        from app.services.workflow_executor import _advance_workflow_inner
+
+        run_id = uuid.uuid4()
+        steps = [
+            {"id": "tool_step", "type": "tool", "tool_name": "web_search", "tool_args": {"q": "test"}},
+            {"id": "exec_step", "type": "exec", "prompt": "echo hello"},
+            {"id": "agent_step", "prompt": "Summarize"},
+        ]
+
+        run = _make_workflow_run(id=run_id, step_count=3)
+        run.workflow_snapshot = {"steps": steps, "defaults": {}, "secrets": []}
+        workflow = _make_workflow(steps=steps)
+
+        async def mock_get(model, id_, **kwargs):
+            name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if name == "WorkflowRun":
+                return run
+            if name == "Workflow":
+                return workflow
+            return None
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.commit = AsyncMock()
+
+        created_tasks = []
+
+        async def mock_create_step_task(run_, wf_, step_def_, idx_, steps_=None, defaults_=None):
+            created_tasks.append({"id": step_def_["id"], "type": step_def_.get("type", "agent")})
+            return uuid.uuid4()
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.services.workflow_executor._create_step_task", new=mock_create_step_task),
+            patch("app.tools.registry.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'),
+        ):
+            await _advance_workflow_inner(run_id)
+
+        # Tool step executes inline (no task), then exec step creates a task and waits
+        assert run.step_states[0]["status"] == "done"
+        assert len(created_tasks) == 1
+        assert created_tasks[0] == {"id": "exec_step", "type": "exec"}

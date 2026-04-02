@@ -4,15 +4,17 @@ export function getWebviewContent(
   webview: vscode.Webview,
   extensionUri: vscode.Uri
 ): string {
-  const nonce = getNonce();
+  // code-server webview iframes mangle nonces, so use 'unsafe-inline' for compatibility.
+  // The webview is already sandboxed in an iframe — this is safe.
+  const cspSource = webview.cspSource;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';">
-  <style nonce="${nonce}">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'unsafe-inline';">
+  <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: var(--vscode-font-family);
@@ -218,7 +220,7 @@ export function getWebviewContent(
     </div>
   </div>
 
-  <script nonce="${nonce}">
+  <script>
     const vscode = acquireVsCodeApi();
     const messagesEl = document.getElementById('messages');
     const statusEl = document.getElementById('status');
@@ -273,6 +275,21 @@ export function getWebviewContent(
       clearContexts();
 
       vscode.postMessage({ type: 'sendMessage', text: fullMessage });
+    }
+
+    function loadHistory(messages) {
+      if (statusEl.parentElement) statusEl.remove();
+      messages.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'message ' + (m.role === 'user' ? 'user' : 'assistant');
+        if (m.role === 'user') {
+          div.appendChild(document.createTextNode(m.content || ''));
+        } else {
+          div.innerHTML = renderMarkdown(m.content || '');
+        }
+        messagesEl.appendChild(div);
+      });
+      scrollToBottom();
     }
 
     function addMessage(role, text, contexts) {
@@ -502,6 +519,9 @@ export function getWebviewContent(
         case 'context':
           addContext(msg.context);
           break;
+        case 'history':
+          loadHistory(msg.messages);
+          break;
       }
     });
 
@@ -510,14 +530,4 @@ export function getWebviewContent(
   </script>
 </body>
 </html>`;
-}
-
-function getNonce(): string {
-  let text = "";
-  const possible =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  for (let i = 0; i < 32; i++) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
 }

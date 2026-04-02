@@ -1350,6 +1350,7 @@ class WorkflowRun(Base):
     triggered_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     session_mode: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'isolated'"))
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workflow_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     completed_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
@@ -1357,4 +1358,44 @@ class WorkflowRun(Base):
         Index("ix_workflow_runs_status", "status"),
         Index("ix_workflow_runs_workflow_id", "workflow_id"),
         Index("ix_workflow_runs_created_at", "created_at"),
+    )
+
+
+class UsageSpikeConfig(Base):
+    """Singleton config for usage spike detection + alerting."""
+    __tablename__ = "usage_spike_config"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    window_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("30"))
+    baseline_hours: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("24"))
+    relative_threshold: Mapped[float] = mapped_column(Float, nullable=False, server_default=text("2.0"))
+    absolute_threshold_usd: Mapped[float] = mapped_column(Float, nullable=False, server_default=text("0"))
+    cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("60"))
+    targets: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    last_alert_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    last_check_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
+class UsageSpikeAlert(Base):
+    """History of fired spike alerts."""
+    __tablename__ = "usage_spike_alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    window_rate_usd_per_hour: Mapped[float] = mapped_column(Float, nullable=False)
+    baseline_rate_usd_per_hour: Mapped[float] = mapped_column(Float, nullable=False)
+    spike_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    trigger_reason: Mapped[str] = mapped_column(Text, nullable=False)  # "relative" | "absolute"
+    top_models: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    top_bots: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    recent_traces: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    targets_attempted: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    targets_succeeded: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    delivery_details: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_usage_spike_alerts_created_at", "created_at"),
     )

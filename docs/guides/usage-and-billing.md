@@ -32,7 +32,7 @@ Providers with `billing_type: "plan"` (e.g., a flat monthly subscription) report
 
 ## Usage Dashboard
 
-Navigate to **Admin > Usage** to access four tabs:
+Navigate to **Admin > Usage** to access five tabs:
 
 ### Overview
 
@@ -61,6 +61,10 @@ Click any trace to view the full trace detail page.
 ### Limits
 
 Create and manage budget caps. See [Budget Limits](#budget-limits) below.
+
+### Alerts
+
+Configure spike detection to get notified when spend rate jumps unexpectedly. See [Spike Alerts](#spike-alerts) below.
 
 ### Filters
 
@@ -147,6 +151,70 @@ projected = max(trajectory, scheduled_variable) + fixed_plans
 
 This ensures the forecast isn't underestimated when scheduled events haven't fired yet today.
 
+## Spike Alerts
+
+Spike alerts monitor your spend *rate* and push notifications when it exceeds a baseline — catching runaway loops and unexpected traffic before a hard budget limit is hit.
+
+### How It Works
+
+A background worker checks every 60 seconds:
+
+1. Computes the **window rate** — cost per hour over the last N minutes (default: 30)
+2. Computes the **baseline rate** — cost per hour over the last N hours (default: 24), excluding the window
+3. Fires an alert if either threshold is exceeded:
+    - **Relative threshold** — window rate ÷ baseline rate ≥ multiplier (default: 2.0x)
+    - **Absolute threshold** — window rate ≥ fixed $/hr (default: disabled)
+
+After firing, a **cooldown** period (default: 60 minutes) prevents repeat alerts.
+
+### Configuring Alerts
+
+In **Admin > Usage > Alerts**:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| Enabled | Off | Master toggle |
+| Window (min) | 30 | How far back to measure current rate |
+| Baseline (hrs) | 24 | How far back for the comparison average |
+| Relative threshold | 2.0x | Fire when current rate is this many times the baseline |
+| Absolute threshold | $0/hr | Fire when current rate exceeds this (0 = disabled) |
+| Cooldown (min) | 60 | Minimum gap between alerts |
+
+### Notification Targets
+
+Alerts are delivered via the same dispatcher system used for bot messages. You can add multiple targets:
+
+- **Channel** — Any channel with a configured integration (Slack, Discord, BlueBubbles, etc.)
+- **Integration binding** — A specific integration client ID (e.g., a particular Slack channel or iMessage contact)
+
+Each target is dispatched independently — one failure doesn't block others.
+
+### Alert Content
+
+Notifications include:
+
+- Current rate vs. baseline rate ($/hr)
+- Spike ratio (e.g., 3.2x)
+- Top models by cost (with call counts)
+- Top bots by cost
+- Most expensive recent traces
+
+### Test Alerts
+
+Click **Send Test Alert** to fire a notification that bypasses thresholds and cooldown. Useful for verifying targets are configured correctly.
+
+### HUD Indicator
+
+When spike alerts are enabled, the sidebar usage badge shows a status indicator:
+
+- **Green dot** — Normal (with current ratio if available)
+- **Red pulsing dot** — Spike active
+- **Gray dot** — Alerts disabled
+
+### Alert History
+
+The Alerts tab shows a paginated log of all fired alerts with trigger details, delivery results, and context snapshots.
+
 ## Provider Configuration
 
 Providers are configured in two ways:
@@ -224,6 +292,17 @@ All endpoints require admin authentication and are prefixed with `/api/v1/admin`
 | DELETE | `/limits/{id}` | Delete limit |
 | GET | `/limits/status` | Current spend vs. limit for all |
 
+### Spike Alerts
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/spike-alerts/config` | Get config (auto-creates default if missing) |
+| PUT | `/spike-alerts/config` | Update thresholds, targets, enabled |
+| POST | `/spike-alerts/test` | Fire test alert (bypasses cooldown) |
+| GET | `/spike-alerts/history` | Paginated alert history |
+| GET | `/spike-alerts/status` | Current rate, baseline, spike ratio |
+| GET | `/spike-alerts/targets/available` | List available notification targets |
+
 ### Providers
 
 | Method | Endpoint | Description |
@@ -239,7 +318,7 @@ All endpoints require admin authentication and are prefixed with `/api/v1/admin`
 
 ## Sidebar HUD
 
-Toggle the usage badge in the sidebar via the eye icon on the Usage page. The badge shows a compact spend summary with a popover for forecast details — useful for at-a-glance cost monitoring without leaving your current page.
+Toggle the usage badge in the sidebar via the eye icon on the Usage page. The badge shows a compact spend summary with a popover for forecast details — useful for at-a-glance cost monitoring without leaving your current page. When spike alerts are enabled, the popover also shows a spike status indicator.
 
 ## Environment Variables
 

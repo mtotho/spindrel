@@ -198,6 +198,10 @@ async def lifespan(application: FastAPI):
     from app.services.usage_limits import load_limits, start_refresh_task
     await load_limits()
     start_refresh_task()
+    logger.info("Loading usage spike config...")
+    from app.services.usage_spike import load_spike_config, start_spike_refresh_task
+    await load_spike_config()
+    start_spike_refresh_task()
     logger.info("Loading server config (global fallback models)...")
     from app.services.server_config import load_server_config
     await load_server_config()
@@ -389,6 +393,8 @@ async def lifespan(application: FastAPI):
     asyncio.create_task(task_worker())
     from app.services.heartbeat import heartbeat_worker
     asyncio.create_task(heartbeat_worker())
+    from app.services.usage_spike import usage_spike_worker
+    asyncio.create_task(usage_spike_worker())
     from app.agent.fs_watcher import periodic_reindex_worker
     asyncio.create_task(periodic_reindex_worker())
     from app.services.attachment_summarizer import attachment_sweep_worker

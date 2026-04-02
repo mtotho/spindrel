@@ -4,6 +4,7 @@ import {
   watchConfig,
   cancelRequest,
   streamChat,
+  fetchRecentMessages,
   ChatConfig,
   SSEEvent,
 } from "./api";
@@ -100,6 +101,8 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
           type: "ready",
           channelId: this._config.channelId,
         });
+        // Load recent messages so the user sees the conversation history
+        await this._loadHistory();
       } else {
         this._postMessage({ type: "noChannel" });
       }
@@ -121,6 +124,24 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
 
   private _getChannelId(): string | null {
     return this._config?.channelId || null;
+  }
+
+  private async _loadHistory(): Promise<void> {
+    if (!this._config) {
+      return;
+    }
+    try {
+      const messages = await fetchRecentMessages(this._config, 20);
+      // Filter to user/assistant messages with content
+      const visible = messages.filter(
+        (m) => (m.role === "user" || m.role === "assistant") && m.content
+      );
+      if (visible.length > 0) {
+        this._postMessage({ type: "history", messages: visible });
+      }
+    } catch {
+      // Non-fatal — history is a nice-to-have
+    }
   }
 
   private async _sendMessage(text: string): Promise<void> {

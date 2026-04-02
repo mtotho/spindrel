@@ -142,15 +142,71 @@ steps:
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `id` | string | required | Unique within workflow, used in `when` refs |
-| `prompt` | string | required | `{{param}}` and `{{steps.id.result}}` substitution |
+| `type` | string | `"agent"` | `"agent"` (LLM call), `"exec"` (shell command), `"tool"` (local tool call) |
+| `prompt` | string | required | `{{param}}` and `{{steps.id.result}}` substitution. For `exec` type, this IS the command. |
 | `when` | dict/null | null (always) | Condition — skip step if false |
 | `requires_approval` | bool | false | Pause for human approval before running |
 | `on_failure` | string | "abort" | `"abort"`, `"continue"`, `"retry:N"` |
 | `secrets` | list | [] | Subset of workflow secrets for this step |
-| `tools` | list | [] | Additional tools to inject |
-| `carapaces` | list | [] | Additional carapaces |
-| `model` | string | null | Override model for this step |
+| `tools` | list | [] | Additional tools to inject (agent type only) |
+| `carapaces` | list | [] | Additional carapaces (agent type only) |
+| `model` | string | null | Override model for this step (agent type only) |
 | `timeout` | int | null | Override timeout (seconds) |
+| `tool_name` | string | — | **Required for `type: tool`**. Name of the local tool to call |
+| `tool_args` | dict | {} | Arguments for the tool call. Values support `{{param}}` substitution |
+| `args` | list | [] | CLI arguments for `type: exec` |
+| `working_directory` | string | null | Working directory for `type: exec` |
+
+## Step Types
+
+Three step types let you skip the LLM for deterministic operations:
+
+| Type | Behavior | Task created? | Use for |
+|---|---|---|---|
+| `agent` (default) | Full LLM agent call with tool access | Yes (`task_type="workflow"`) | Creative work, analysis, decision-making |
+| `exec` | Run shell command in bot's sandbox | Yes (`task_type="exec"`) | Database backups, file operations, scripts |
+| `tool` | Call a local tool directly, inline | No — executes immediately | API lookups, quick data fetches, deterministic operations |
+
+**`exec` steps** — the rendered `prompt` becomes the command. Supports `args` and `working_directory`. Runs through the existing task worker sandbox execution:
+
+```yaml
+- id: backup_db
+  type: exec
+  prompt: "pg_dump -Fc mydb > /tmp/backup.dump"
+  timeout: 120
+```
+
+**`tool` steps** — call any registered local tool with arguments. Executes inline (no task worker delay). Result is captured into step state immediately:
+
+```yaml
+- id: search_files
+  type: tool
+  tool_name: web_search
+  tool_args:
+    query: "{{topic}}"
+    count: "5"
+```
+
+**Mixing types** — combine all three in one workflow:
+
+```yaml
+steps:
+  - id: fetch_data
+    type: tool
+    tool_name: web_search
+    tool_args:
+      query: "{{topic}}"
+
+  - id: save_snapshot
+    type: exec
+    prompt: "curl -o /tmp/data.json '{{steps.fetch_data.result}}'"
+    timeout: 30
+
+  - id: analyze
+    type: agent
+    prompt: "Analyze the data from {{steps.fetch_data.result}} and provide insights."
+    carapaces: [qa]
+```
 
 ## Session Mode
 
@@ -263,14 +319,18 @@ All under `/api/v1/admin/`:
 
 ## Execution Model
 
-1. `trigger_workflow()` validates params + secrets, creates `WorkflowRun` → dispatches "started" event
-2. `advance_workflow()` loops through pending steps:
+1. `trigger_workflow()` validates params + secrets, **snapshots the workflow definition** (steps, defaults, secrets) onto the run → creates `WorkflowRun` → dispatches "started" event
+2. `advance_workflow()` loops through pending steps (reads from **snapshot**, not live definition):
    - Evaluates `when` condition → skip if false
    - Checks `requires_approval` → pause if true
-   - Creates a `Task` (type=`workflow`) → task worker executes it
+   - **`type: tool`** → calls tool inline, captures result, continues to next step (no task created)
+   - **`type: exec`** → creates `Task` (type=`exec`) with command in `execution_config` → task worker runs in sandbox
+   - **`type: agent`** (default) → creates `Task` (type=`workflow`) → task worker runs LLM agent call
 3. Task completes → `after_task_complete` hook fires → `on_step_task_completed()` → dispatches "step_done"/"step_failed"
 4. Step result captured, `on_failure` policy applied, then `advance_workflow()` again
 5. All steps terminal → run marked `complete` or `failed` → dispatches "completed"/"failed" → fires `after_workflow_complete` hook
+
+**Definition snapshot:** Editing a workflow while a run is in progress won't affect that run — it uses the snapshot from trigger time. Old runs without snapshots gracefully fall back to the live definition.
 
 Each step's task gets a `correlation_id` in `step_states` for token/cost tracking.
 

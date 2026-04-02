@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 import { Link } from "expo-router";
 import { DollarSign } from "lucide-react";
 import { useUsageForecast } from "../../api/hooks/useUsageForecast";
+import { useSpikeStatus } from "../../api/hooks/useSpikeAlerts";
 import { useUsageHudStore } from "../../stores/usageHud";
 import { useThemeTokens } from "../../theme/tokens";
 import type { LimitForecast, ForecastComponent } from "../../api/hooks/useUsageForecast";
@@ -416,6 +417,9 @@ const PopoverContent = forwardRef<
         </div>
       ))}
 
+      {/* Spike alert indicator */}
+      <SpikeIndicator t={t} />
+
       {/* Footer link */}
       <div
         style={{
@@ -435,6 +439,46 @@ const PopoverContent = forwardRef<
     </div>
   );
 });
+
+function SpikeIndicator({ t }: { t: ReturnType<typeof useThemeTokens> }) {
+  const { data } = useSpikeStatus();
+  if (!data) return null;
+
+  const dotColor = !data.enabled ? t.textDim : data.spiking ? t.danger : t.success;
+  const label = !data.enabled
+    ? "Spike Alert: Off"
+    : data.spiking
+      ? `Spike Alert: ACTIVE (${data.spike_ratio?.toFixed(1) ?? "?"}x)`
+      : `Spike Alert: OK${data.spike_ratio != null ? ` (${data.spike_ratio.toFixed(1)}x)` : ""}`;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 0",
+        borderTop: `1px solid ${t.surfaceBorder}`,
+        marginTop: 4,
+        paddingTop: 6,
+      }}
+    >
+      <div
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 3,
+          backgroundColor: dotColor,
+          flexShrink: 0,
+          ...(data.spiking ? { boxShadow: `0 0 4px ${t.danger}` } : {}),
+        }}
+      />
+      <span style={{ fontSize: 10, color: data.spiking ? t.danger : t.textDim }}>
+        {label}
+      </span>
+    </div>
+  );
+}
 
 function ForecastRow({
   label,

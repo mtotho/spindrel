@@ -603,14 +603,18 @@ async def admin_bot_delete(
     """Delete a bot and optionally its associated data."""
     from app.agent.bots import reload_bots
     from app.db.models import (
+        ApiKey,
         BotPersona,
         Channel,
+        FilesystemChunk,
         SandboxBotAccess,
+        SandboxInstance,
         Session,
         Task,
         ToolCall,
         ToolPolicyRule,
         TraceEvent,
+        WorkflowRun,
     )
 
     row = await db.get(BotRow, bot_id)
@@ -630,6 +634,13 @@ async def admin_bot_delete(
             status_code=409,
             detail=f"Bot has {channel_count} active channel(s) — delete or reassign them first, or use ?force=true",
         )
+
+    # Cancel any running tasks before deletion (prevents task worker race)
+    await db.execute(
+        Task.__table__.update()
+        .where(Task.bot_id == bot_id, Task.status.in_(["running", "pending"]))
+        .values(status="cancelled")
+    )
 
     # Force delete: cascade through associated data
     if force and channel_count > 0:
@@ -699,6 +710,14 @@ async def admin_bot_delete(
     await db.execute(
         SandboxBotAccess.__table__.delete().where(SandboxBotAccess.bot_id == bot_id)
     )
+    await db.execute(
+        SandboxInstance.__table__.delete().where(
+            SandboxInstance.scope_type == "bot", SandboxInstance.scope_key == bot_id
+        )
+    )
+    await db.execute(
+        WorkflowRun.__table__.delete().where(WorkflowRun.bot_id == bot_id)
+    )
 
     # Delete shared workspace bot enrollment
     await db.execute(
@@ -706,10 +725,15 @@ async def admin_bot_delete(
     )
 
     # Delete filesystem chunks associated with this bot
-    from app.db.models import FilesystemChunk
     await db.execute(
         FilesystemChunk.__table__.delete().where(FilesystemChunk.bot_id == bot_id)
     )
+
+    # Deactivate bot's API key (credential hygiene)
+    if row.api_key_id:
+        api_key = await db.get(ApiKey, row.api_key_id)
+        if api_key:
+            api_key.is_active = False
 
     # Delete the bot row
     await db.delete(row)

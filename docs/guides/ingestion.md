@@ -221,7 +221,27 @@ Each integration gets its own SQLite database (e.g. `~/.agent-workspaces/.ingest
 | `audit_log` | Records every pass/quarantine decision |
 | `cursors` | Key-value store for feed position tracking |
 
-### Querying the Store
+### Bot Tool: `query_feed_store`
+
+Bots can query feed stores directly using the `query_feed_store` tool. This is available when the `gmail-feeds` or `mission-control` carapace is active.
+
+| Action | Description |
+|---|---|
+| `stats` | Aggregate counts — total processed, quarantined, 24h activity, last cursor |
+| `recent` | List recently passed items from the audit log |
+| `quarantine` | List quarantined items with risk level, flags, and reason |
+| `sources` | Discover all feed stores and their sources |
+
+**Examples:**
+```
+query_feed_store(action="stats", store="gmail", source="gmail")
+query_feed_store(action="quarantine", store="gmail", limit=5)
+query_feed_store(action="sources")
+```
+
+The tool discovers stores by scanning `~/.agent-workspaces/.ingestion/*.db`. Each `ContentFeed` subclass gets its own DB file.
+
+### Manual Queries (CLI)
 
 ```bash
 # View recent quarantined items
@@ -238,6 +258,18 @@ sqlite3 ~/.agent-workspaces/.ingestion/myfeed.db \
 
 # Purge old quarantine entries (done programmatically via store.purge_quarantine())
 ```
+
+### Email Triage Template
+
+The Gmail integration ships an **Email Triage & Digest** workspace template (`email-digest`) that teaches bots a structured triage protocol:
+
+- **Triage categories**: Urgent, Action Required, Projects/Threads, FYI, Low Priority
+- **Workspace files**: `triage.md` (categorized log), `actions.md` (extracted action items), `digest.md` (summary), `feeds.md` (rules)
+- **Action extraction**: Automatic detection of deadlines, reply requests, approvals, assignments
+- **MC integration**: Creates task cards from actionable emails, logs triage to timeline
+- **Heartbeat-ready**: Template includes suggested heartbeat config for automated digest generation
+
+Activate Gmail on a channel and select the "Email Triage & Digest" template to get the full protocol.
 
 ## Configuration
 
