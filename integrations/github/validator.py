@@ -12,8 +12,13 @@ def validate_signature(payload: bytes, signature_header: str | None) -> bool:
     Returns True if the signature is valid, False otherwise.
     """
     if not github_config.GITHUB_WEBHOOK_SECRET:
-        # No secret configured — skip validation (dev/testing)
-        return True
+        # No secret configured — fail-secure (reject webhook)
+        import logging
+        logging.getLogger(__name__).warning(
+            "GITHUB_WEBHOOK_SECRET not configured — rejecting webhook. "
+            "Set the secret to enable webhook processing."
+        )
+        return False
 
     if not signature_header:
         return False
