@@ -1,19 +1,20 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
         surface: {
-          0: "#0a0a0f",
-          1: "#12121a",
-          2: "#1a1a25",
-          3: "#222230",
-          4: "#2a2a3a",
+          0: "var(--color-surface-0)",
+          1: "var(--color-surface-1)",
+          2: "var(--color-surface-2)",
+          3: "var(--color-surface-3)",
+          4: "var(--color-surface-4)",
         },
         accent: {
-          DEFAULT: "#6366f1",
-          hover: "#818cf8",
+          DEFAULT: "var(--color-accent)",
+          hover: "var(--color-accent-hover)",
           muted: "#4f46e5",
         },
         status: {

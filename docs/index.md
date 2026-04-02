@@ -46,11 +46,17 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
     Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks with cron-like flexibility. Bots can self-schedule via `schedule_task`. Results dispatch to Slack, webhooks, or the UI.
 
+-   :material-lightning-bolt:{ .lg .middle } **Integration Activation + Templates**
+
+    ---
+
+    Activate an integration on a channel and it instantly gets the right tools, skills, and behavioral instructions — no manual configuration. Pick a compatible workspace template and the bot knows exactly how to organize files. One click to go from blank channel to structured project.
+
 -   :material-plug:{ .lg .middle } **Integration Framework**
 
     ---
 
-    Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Gmail, Frigate, Mission Control, Arr, Claude Code, Ingestion. Each provides routers, dispatchers, tools, and lifecycle hooks. Extend with your own via `INTEGRATION_DIRS`.
+    Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Gmail, Frigate, Mission Control, Arr, Claude Code, BlueBubbles, Ingestion. Each provides routers, dispatchers, tools, and lifecycle hooks. Extend with your own via `INTEGRATION_DIRS`.
 
 -   :material-chart-line:{ .lg .middle } **Usage Tracking + Budgeting**
 
@@ -94,6 +100,10 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 -   [:material-setup: **Setup Guide**](setup.md)
 
     Installation, providers, workspaces, integrations, troubleshooting.
+
+-   [:material-lightning-bolt: **Templates & Activation**](guides/templates-and-activation.md)
+
+    Activate integrations on channels, pick workspace templates, instant project setup.
 
 -   [:material-slack: **Slack Integration**](guides/slack.md)
 

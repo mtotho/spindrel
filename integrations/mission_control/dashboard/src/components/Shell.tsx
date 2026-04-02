@@ -9,6 +9,7 @@
 import { useState, useMemo } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { useOverview } from "../hooks/useOverview";
+import { isEmbedded } from "../lib/auth-bridge";
 import type { ChannelSummary } from "../lib/types";
 
 interface NavItem {
@@ -47,7 +48,18 @@ function SidebarLink({ item }: { item: NavItem }) {
 }
 
 export default function Shell() {
+  const embedded = isEmbedded();
   const visibleItems = NAV_ITEMS.filter((item) => !item.show || item.show());
+
+  // When embedded in the main app's iframe, hide the sidebar chrome —
+  // the parent app's sidebar handles navigation.
+  if (embedded) {
+    return (
+      <div className="h-screen overflow-y-auto">
+        <Outlet />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen">

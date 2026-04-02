@@ -48,6 +48,12 @@ class ChannelCreate(BaseModel):
     integration: Optional[str] = None
     dispatch_config: Optional[dict] = None
     private: bool = False
+    # Wizard fields (all optional for backwards compatibility)
+    channel_workspace_enabled: Optional[bool] = None
+    workspace_schema_template_id: Optional[str] = None  # UUID string
+    category: Optional[str] = None
+    model_override: Optional[str] = None
+    activate_integrations: Optional[list[str]] = None
 
 
 class IntegrationBindingOut(BaseModel):
@@ -81,6 +87,7 @@ class ChannelOut(BaseModel):
     channel_workspace_enabled: Optional[bool] = None
     workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
+    category: Optional[str] = None
     tags: list[str] = []
     created_at: datetime
     updated_at: datetime
@@ -302,9 +309,14 @@ async def create_channel(
     db: AsyncSession = Depends(get_db),
     auth_result=Depends(require_scopes("channels:write")),
 ):
-    """Create or retrieve a channel."""
+    """Create or retrieve a channel.
+
+    Supports optional wizard fields for one-call channel setup:
+    model_override, channel_workspace_enabled, workspace_schema_template_id,
+    category, activate_integrations.
+    """
     from app.agent.bots import get_bot
-    from app.db.models import User
+    from app.db.models import PromptTemplate, User
     try:
         get_bot(body.bot_id)
     except HTTPException:
@@ -323,9 +335,74 @@ async def create_channel(
         user_id=user_id,
     )
     await ensure_active_session(db, channel)
+
+    # --- Wizard post-creation setup ---
+    if body.model_override is not None:
+        channel.model_override = body.model_override
+
+    if body.channel_workspace_enabled is not None:
+        channel.channel_workspace_enabled = body.channel_workspace_enabled
+        if body.channel_workspace_enabled:
+            try:
+                bot = get_bot(channel.bot_id)
+                from app.services.channel_workspace import ensure_channel_workspace
+                ensure_channel_workspace(str(channel.id), bot, display_name=channel.name)
+            except Exception:
+                pass  # non-fatal
+
+    if body.workspace_schema_template_id is not None:
+        try:
+            tpl_uuid = uuid.UUID(body.workspace_schema_template_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid workspace_schema_template_id")
+        tpl = await db.get(PromptTemplate, tpl_uuid)
+        if not tpl:
+            raise HTTPException(status_code=400, detail="Template not found")
+        channel.workspace_schema_template_id = tpl_uuid
+
+    if body.category is not None:
+        meta = dict(channel.metadata_ or {})
+        meta["category"] = body.category
+        channel.metadata_ = meta
+
+    # Activation warnings (collected but don't fail creation)
+    activation_warnings: list[dict] = []
+    if body.activate_integrations:
+        from integrations import get_activation_manifests
+        manifests = get_activation_manifests()
+        for int_type in body.activate_integrations:
+            manifest = manifests.get(int_type)
+            if not manifest:
+                activation_warnings.append({"code": "unknown_integration", "message": f"No activation manifest for '{int_type}'"})
+                continue
+            if manifest.get("requires_workspace") and not channel.channel_workspace_enabled:
+                activation_warnings.append({"code": "requires_workspace", "message": f"Integration '{int_type}' requires workspace — skipped"})
+                continue
+            # Check if already activated
+            existing = (await db.execute(
+                select(ChannelIntegration).where(
+                    ChannelIntegration.channel_id == channel.id,
+                    ChannelIntegration.integration_type == int_type,
+                    ChannelIntegration.activated == True,  # noqa: E712
+                )
+            )).scalar_one_or_none()
+            if existing:
+                continue
+            # Activate
+            ci = ChannelIntegration(
+                channel_id=channel.id,
+                integration_type=int_type,
+                client_id=f"mc-activated:{channel.id}",
+                activated=True,
+            )
+            db.add(ci)
+
     await db.commit()
     await db.refresh(channel, ["integrations"])
-    return ChannelOut.model_validate(channel)
+    out = ChannelOut.model_validate(channel)
+    out.category = (channel.metadata_ or {}).get("category")
+    out.tags = (channel.metadata_ or {}).get("tags", [])
+    return out
 
 
 @router.get("", response_model=Union[list[ChannelListItemOut], list[ChannelOut]])
@@ -354,6 +431,7 @@ async def list_channels(
             out.resolved_workspace_id = ws_id_str or bot.shared_workspace_id
         except Exception:
             out.resolved_workspace_id = ws_id_str
+        out.category = (ch.metadata_ or {}).get("category")
         out.tags = (ch.metadata_ or {}).get("tags", [])
         return out
 
@@ -379,6 +457,7 @@ async def list_channels(
             item.resolved_workspace_id = ws_id_str or _b.shared_workspace_id
         except Exception:
             item.resolved_workspace_id = ws_id_str
+        item.category = (ch.metadata_ or {}).get("category")
         item.tags = (ch.metadata_ or {}).get("tags", [])
         hb = hb_map.get(ch.id)
         item.heartbeat_enabled = hb.enabled if hb else False
@@ -409,6 +488,7 @@ async def get_channel(
     except Exception:
         out.resolved_workspace_id = ws_id_str
         logger.debug("Could not resolve workspace_id for channel %s bot %s", channel.id, channel.bot_id)
+    out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
 

@@ -332,6 +332,40 @@ export function useMoveChannelWorkspaceFile(channelId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Channel workspace file upload (multipart — bypasses apiFetch)
+// ---------------------------------------------------------------------------
+
+export function useUploadChannelWorkspaceFile(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ file, targetDir }: { file: File; targetDir: string }) => {
+      const { useAuthStore, getAuthToken } = await import("../../stores/auth");
+      const { serverUrl } = useAuthStore.getState();
+      if (!serverUrl) throw new Error("Server not configured");
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const token = getAuthToken();
+      const url = `${serverUrl}/api/v1/channels/${channelId}/workspace/files/upload?path=${encodeURIComponent(targetDir)}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => null);
+        throw new Error(`Upload failed (${res.status}): ${body}`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Context breakdown
 // ---------------------------------------------------------------------------
 

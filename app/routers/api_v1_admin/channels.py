@@ -117,6 +117,7 @@ class ChannelOut(BaseModel):
     channel_workspace_enabled: Optional[bool] = None
     workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
+    category: Optional[str] = None
     tags: list[str] = []
     created_at: datetime
     updated_at: datetime
@@ -387,6 +388,7 @@ class ChannelSettingsOut(BaseModel):
     workspace_id: Optional[uuid.UUID] = None
     # Resolved workspace ID from bot config (computed, not stored)
     resolved_workspace_id: Optional[str] = None
+    category: Optional[str] = None
     tags: list[str] = []
 
     model_config = {"from_attributes": True}
@@ -455,6 +457,7 @@ class ChannelSettingsUpdate(BaseModel):
     model_tier_overrides: Optional[dict] = None
     # Workspace scope
     workspace_id: Optional[str] = None
+    category: Optional[str] = None
     tags: Optional[list[str]] = None
 
 
@@ -594,6 +597,7 @@ async def admin_channel_settings(
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
     ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
     out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(channel.bot_id)
+    out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
 
@@ -616,6 +620,16 @@ async def admin_channel_settings_update(
             get_bot(updates["bot_id"])
         except HTTPException:
             raise HTTPException(status_code=400, detail=f"Unknown bot: {updates['bot_id']}")
+
+    # Handle category — stored in metadata_ JSONB, not a column
+    if "category" in updates:
+        cat_value = updates.pop("category")
+        meta = dict(channel.metadata_ or {})
+        if cat_value:
+            meta["category"] = cat_value
+        else:
+            meta.pop("category", None)
+        channel.metadata_ = meta
 
     # Handle tags separately — stored in metadata_ JSONB, not a column
     if "tags" in updates:
@@ -671,6 +685,7 @@ async def admin_channel_settings_update(
     out.index_segment_defaults = _resolve_index_segment_defaults(channel.bot_id)
     ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
     out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(channel.bot_id)
+    out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
     return out
 
@@ -2074,6 +2089,7 @@ async def admin_channels_enriched(
         out.display_name = display_names.get(ch.id)
         ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
         out.resolved_workspace_id = ws_id_str or _resolve_workspace_id(ch.bot_id)
+        out.category = (ch.metadata_ or {}).get("category")
         out.tags = (ch.metadata_ or {}).get("tags", [])
         hb = hb_map.get(ch.id)
         if hb and hb.enabled:
@@ -2087,6 +2103,70 @@ async def admin_channels_enriched(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------------------------------------------------------------------
+# Channel categories
+# ---------------------------------------------------------------------------
+
+@router.get("/channels/categories")
+async def list_channel_categories(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """List distinct channel categories (for autocomplete)."""
+    rows = (await db.execute(select(Channel))).scalars().all()
+    categories = set()
+    for ch in rows:
+        cat = (ch.metadata_ or {}).get("category")
+        if cat:
+            categories.add(cat)
+    return sorted(categories)
+
+
+# ---------------------------------------------------------------------------
+# Global activatable integrations (no channel required — for wizard)
+# ---------------------------------------------------------------------------
+
+@router.get("/integrations/activatable")
+async def list_activatable_integrations_global(
+    _auth=Depends(verify_auth_or_user),
+):
+    """List all integrations with activation manifests (no channel context).
+
+    Used by the channel creation wizard to show what can be activated.
+    All items returned with activated=False since there's no channel yet.
+    """
+    from integrations import get_activation_manifests
+    from app.agent.carapaces import resolve_carapaces
+
+    manifests = get_activation_manifests()
+    result = []
+    for itype, manifest in manifests.items():
+        carapace_ids = manifest.get("carapaces", [])
+        resolved = resolve_carapaces(carapace_ids) if carapace_ids else None
+        tool_names: list[str] = []
+        skill_count = 0
+        has_system_prompt = False
+        if resolved:
+            tool_names = list(resolved.local_tools)
+            skill_count = len(resolved.skills)
+            has_system_prompt = len(resolved.system_prompt_fragments) > 0
+
+        compat_tags = manifest.get("compatible_templates", [])
+        result.append({
+            "integration_type": itype,
+            "description": manifest.get("description", ""),
+            "requires_workspace": manifest.get("requires_workspace", False),
+            "activated": False,
+            "carapaces": carapace_ids,
+            "tools": tool_names,
+            "skill_count": skill_count,
+            "has_system_prompt": has_system_prompt,
+            "version": manifest.get("version"),
+            "compatible_template_tag": compat_tags[0] if compat_tags else None,
+        })
+    return result
 
 
 # ---------------------------------------------------------------------------

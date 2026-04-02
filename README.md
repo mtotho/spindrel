@@ -12,7 +12,8 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Channel workspaces** — Per-channel file stores with schema-guided organization. 7 built-in templates (Software Dev, Research, QA, PM Hub, etc.) or custom schemas. Active files auto-inject into context.
 - **Workflows** — Reusable multi-step automations defined in YAML. Conditions, approval gates, parallel branches, cross-bot delegation, and scoped secrets. Trigger via API, bot tool, or heartbeat schedule.
 - **Heartbeats + task scheduling** — Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks. Bots can self-schedule.
-- **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Gmail, Frigate, Mission Control, Arr (Sonarr/Radarr), Claude Code, Ingestion. Extend with your own.
+- **Integration activation + templates** — Activate an integration on a channel and it instantly gets the right tools, skills, and behavioral instructions. Pick a compatible workspace template and the bot knows how to organize files. One click from blank channel to structured project.
+- **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Gmail, Frigate, Mission Control, Arr (Sonarr/Radarr), Claude Code, BlueBubbles, Ingestion. Extend with your own.
 - **Usage tracking + cost budgeting** — Per-bot token usage, cost tracking (with LiteLLM pricing data), and configurable budget limits.
 - **Smart orchestrator bot** — Ships with an orchestrator that guides you through setup conversationally.
 - **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
@@ -23,11 +24,12 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 ```bash
 git clone https://github.com/mtotho/spindrel.git
 cd spindrel
-bash setup.sh          # interactive wizard: deployment mode, LLM provider, auth
-docker compose up -d   # or: bash scripts/dev-server.sh for local dev
+bash setup.sh          # interactive wizard — provider, model, search, auth
 ```
 
-The wizard configures `.env`, starts services, and creates a default bot. Open the web UI and the Orchestrator bot will guide you through setup conversationally.
+Or as a one-liner: `curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | bash`
+
+The interactive setup wizard checks prerequisites, configures your LLM provider and model, sets up web search, generates an API key, and offers to start Docker for you. Open the web UI and the Orchestrator bot will guide you through the rest conversationally.
 
 See [docs/setup.md](docs/setup.md) for manual configuration, provider options, and troubleshooting.
 
@@ -81,6 +83,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | Guide | Description |
 |-------|-------------|
 | [Setup Guide](docs/setup.md) | Installation, providers, workspaces, integrations |
+| [Templates & Activation](docs/guides/templates-and-activation.md) | Activate integrations on channels, workspace templates |
 | [Slack Integration](docs/guides/slack.md) | Slack bot setup and channel config |
 | [Discord Integration](docs/guides/discord.md) | Discord bot setup |
 | [Gmail Integration](docs/guides/gmail.md) | Gmail integration |

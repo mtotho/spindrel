@@ -2,6 +2,8 @@
 
 ## Quick Start
 
+One command to get started:
+
 ```bash
 # Clone and run the interactive setup wizard
 git clone https://github.com/mtotho/spindrel.git
@@ -9,24 +11,29 @@ cd spindrel
 bash setup.sh
 ```
 
-The wizard will walk you through:
-1. Choosing a deployment mode (Docker or local dev)
-2. Configuring your LLM provider
-3. Selecting a default model
-4. Choosing a web search backend
-5. Setting up authentication
-
-After setup, start the server:
+Or as a one-liner (clones the repo for you):
 
 ```bash
-# Docker (recommended)
-docker compose up -d
-
-# Local development
-bash scripts/dev-server.sh
+curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | bash
 ```
 
-Open the UI and the **Orchestrator** bot will greet you in the Home channel. It will walk you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
+### What the wizard does
+
+The setup wizard is an interactive TUI that checks prerequisites (Python 3.12+, Docker, git), then walks you through:
+
+1. **Deployment mode** — Docker (recommended) or local dev
+2. **LLM provider** — Pick from presets (OpenAI, OpenRouter, Google Gemini, LiteLLM proxy, Ollama/vLLM) or enter a custom OpenAI-compatible endpoint
+3. **Default model** — Provider-specific model list with option for custom model names
+4. **Web search backend** — SearXNG (built-in or external), DuckDuckGo, or disabled
+5. **API authentication** — Auto-generate a random key or enter your own
+
+The wizard generates `.env` and offers to start the server immediately. The whole process takes about 60 seconds.
+
+### After setup
+
+Open the UI and the **Orchestrator** bot will greet you in the Home channel. It walks you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
+
+> **Tip:** You can add more LLM providers later via **Admin UI > Providers** (Anthropic direct, additional OpenAI-compatible endpoints, etc.). The wizard just configures the default.
 
 ## Manual Setup
 
@@ -179,6 +186,8 @@ Integrations are discovered from `integrations/*/` directories. Each can provide
 - **Process** — background service (e.g., Slack bot, MQTT listener)
 - **Tools** — bot-callable functions
 - **Skills** — knowledge documents
+- **Carapaces** — composable expertise bundles
+- **Templates** — workspace schema templates
 
 ### Enabling an Integration
 
@@ -186,6 +195,26 @@ Integrations are discovered from `integrations/*/` directories. Each can provide
 2. Restart the server
 
 Integration processes (Slack bot, Frigate listener, etc.) auto-start when their required env vars are set. Toggle auto-start in Admin UI > Integrations.
+
+### Activating on a Channel
+
+Once an integration is enabled, you can **activate** it on individual channels to inject its tools, skills, and behavioral instructions automatically:
+
+1. Open a channel and go to the **Integrations** tab
+2. Click **Activate** on the integration
+3. The integration's carapace is injected — the bot gains new capabilities for this channel only
+
+For example, activating Mission Control gives the bot task board tools, project management skills, and knowledge of the MC protocol — without manually configuring any of that on the bot.
+
+### Workspace Templates
+
+Integrations can ship workspace templates that define file structures compatible with their tools. After activating an integration:
+
+1. Go to the channel's **Workspace** tab
+2. Compatible templates appear under **Suggested schemas** with a green badge
+3. Pick one — the bot now knows how to organize workspace files in the right format
+
+See the [Templates & Activation guide](guides/templates-and-activation.md) for the full walkthrough.
 
 ### External Integrations
 
@@ -208,12 +237,16 @@ agent-server/
 ├── integrations/           # Integration packages
 │   ├── slack/             # Slack integration
 │   ├── github/            # GitHub webhooks
+│   ├── discord/           # Discord integration
+│   ├── gmail/             # Gmail IMAP polling
 │   ├── frigate/           # Frigate NVR
-│   ├── mission_control/   # Dashboard + task board
+│   ├── mission_control/   # Dashboard + project management
 │   ├── arr/               # Sonarr/Radarr media management
 │   ├── claude_code/       # Claude Code CLI harness
+│   ├── bluebubbles/       # iMessage via BlueBubbles
 │   ├── ingestion/         # Document ingestion pipeline
 │   └── example/           # Template for new integrations
+├── workflows/              # Workflow YAML definitions (multi-step automations)
 ├── migrations/             # Alembic database migrations
 ├── scripts/                # Dev and setup scripts
 ├── ui/                     # React Native/Expo admin UI

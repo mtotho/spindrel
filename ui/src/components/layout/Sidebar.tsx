@@ -295,9 +295,14 @@ function IntegrationSidebarSection({
     (m) => m.integration_id === section.integration_id,
   );
 
-  // Determine the section's URL prefix from first item (segment-based matching)
+  // Determine the section's URL prefix from first item
+  // For /integration/{id}/... paths, use first two segments as prefix
   const sectionHome = items[0]?.href || "/";
-  const sectionPrefix = "/" + (sectionHome.replace(/^\//, "").split("/")[0] || "");
+  const segments = sectionHome.replace(/^\//, "").split("/");
+  const sectionPrefix =
+    segments[0] === "integration" && segments[1]
+      ? `/${segments[0]}/${segments[1]}`
+      : `/${segments[0] || ""}`;
   const isInSection = sectionPrefix !== "/" && (pathname === sectionPrefix || pathname.startsWith(sectionPrefix + "/"));
 
   return (
@@ -313,18 +318,21 @@ function IntegrationSidebarSection({
           mobile={mobile}
         />
       ))}
-      {modules.map((mod) => (
-        <NavLink
-          key={mod.module_id}
-          item={{
-            label: mod.label,
-            href: `/mission-control/module/${mod.module_id}`,
-            icon: resolveIcon(mod.icon),
-          }}
-          active={pathname === `/mission-control/module/${mod.module_id}`}
-          mobile={mobile}
-        />
-      ))}
+      {modules.map((mod) => {
+        const moduleHref = `/integration/${section.integration_id}/module/${mod.module_id}`;
+        return (
+          <NavLink
+            key={mod.module_id}
+            item={{
+              label: mod.label,
+              href: moduleHref,
+              icon: resolveIcon(mod.icon),
+            }}
+            active={pathname === moduleHref}
+            mobile={mobile}
+          />
+        );
+      })}
     </View>
   );
 }
@@ -349,7 +357,11 @@ function IntegrationRailIcons({
         .map((section) => {
           const Icon = resolveIcon(section.icon);
           const homeHref = section.items[0]?.href || "/";
-          const seg = "/" + (homeHref.replace(/^\//, "").split("/")[0] || "");
+          const segs = homeHref.replace(/^\//, "").split("/");
+          const seg =
+            segs[0] === "integration" && segs[1]
+              ? `/${segs[0]}/${segs[1]}`
+              : `/${segs[0] || ""}`;
           const active = seg !== "/" && (pathname === seg || pathname.startsWith(seg + "/"));
           return (
             <Link key={section.id} href={homeHref as any} asChild>

@@ -63,5 +63,7 @@ export interface DailyLog {
 export interface FileChannel {
   id: string;
   display_name?: string;
-  workspace_type: string;
+  name?: string | null;
+  bot_id?: string | null;
+  workspace_enabled?: boolean;
 }

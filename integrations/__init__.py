@@ -428,6 +428,54 @@ def get_activation_manifests() -> dict[str, dict]:
     return _activation_manifests
 
 
+def discover_web_uis() -> list[dict]:
+    """Discover integrations that ship a web UI (static build).
+
+    Scans SETUP dicts for a ``web_ui`` key containing::
+
+        "web_ui": {
+            "static_dir": "dashboard/dist",  # relative to integration dir
+            "dev_port": 5173,                # optional: Vite dev server port
+        }
+
+    Returns list of dicts:
+        {integration_id, static_dir_path (absolute Path), dev_port (int|None)}
+    Only includes entries where the static_dir actually exists on disk.
+    """
+    results: list[dict] = []
+
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        setup_file = candidate / "setup.py"
+        if not setup_file.exists():
+            continue
+        try:
+            module = _import_module(integration_id, "setup", setup_file, is_external, source)
+            setup = getattr(module, "SETUP", {})
+            web_ui = setup.get("web_ui")
+            if not web_ui or not isinstance(web_ui, dict):
+                continue
+            static_dir = web_ui.get("static_dir")
+            if not static_dir:
+                continue
+            static_path = (candidate / static_dir).resolve()
+            if not static_path.is_dir():
+                logger.debug(
+                    "Integration %r declares web_ui but static dir does not exist: %s",
+                    integration_id, static_path,
+                )
+                continue
+            results.append({
+                "integration_id": integration_id,
+                "static_dir_path": static_path,
+                "dev_port": web_ui.get("dev_port"),
+            })
+            logger.info("Discovered web UI for integration %r: %s", integration_id, static_path)
+        except Exception:
+            logger.exception("Failed to load web_ui config for integration %r", integration_id)
+
+    return results
+
+
 def discover_binding_metadata() -> dict[str, dict]:
     """Return binding metadata for all integrations that have it.
 

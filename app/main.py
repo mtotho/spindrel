@@ -453,6 +453,23 @@ for _integration_id, _integration_router in _discover_integrations():
         logger.exception("Failed to register integration router: %s", _integration_id)
 
 
+# Mount static files for integration web UIs (e.g. dashboards served via iframe)
+from integrations import discover_web_uis as _discover_web_uis  # noqa: E402
+from starlette.staticfiles import StaticFiles  # noqa: E402
+
+for _web_ui in _discover_web_uis():
+    _ui_path = f"/integrations/{_web_ui['integration_id']}/ui"
+    try:
+        app.mount(
+            _ui_path,
+            StaticFiles(directory=str(_web_ui["static_dir_path"]), html=True),
+            name=f"integration-ui-{_web_ui['integration_id']}",
+        )
+        logger.info("Mounted integration web UI: %s → %s", _ui_path, _web_ui["static_dir_path"])
+    except Exception:
+        logger.exception("Failed to mount integration web UI at %s", _ui_path)
+
+
 @app.get("/health")
 async def health():
     from app.config import VERSION

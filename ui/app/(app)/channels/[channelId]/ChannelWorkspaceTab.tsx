@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import {
-  FileText, Archive, Trash2, ChevronDown, ChevronRight, Folder,
-  ExternalLink, Code, Database, Plus, X, RefreshCw, FolderSearch, RotateCw,
+  ExternalLink, Code, Plus, X, RefreshCw, FolderSearch, RotateCw,
 } from "lucide-react";
 import { Link } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
@@ -14,12 +13,8 @@ import { AdvancedSection } from "@/src/components/shared/SettingsControls";
 import { WorkspaceSchemaEditor } from "@/src/components/shared/WorkspaceSchemaEditor";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
-  useChannelWorkspaceFiles,
   useChannelWorkspaceFileContent,
-  useChannelWorkspaceDataFolder,
-  useDeleteChannelWorkspaceFile,
   useActivatableIntegrations,
-  type ChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { InfoBanner } from "@/src/components/shared/SettingsControls";
@@ -27,71 +22,12 @@ import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { apiFetch } from "@/src/api/client";
+import { ChannelFileBrowser } from "./ChannelFileBrowser";
 import type { ChannelSettings } from "@/src/types/api";
 
 type IndexSegment = NonNullable<ChannelSettings["index_segments"]>[number];
 type SegmentDefaults = NonNullable<ChannelSettings["index_segment_defaults"]>;
 
-// ---------------------------------------------------------------------------
-// File list item
-// ---------------------------------------------------------------------------
-function FileItem({
-  file,
-  channelId,
-  onSelect,
-  selected,
-}: {
-  file: { name: string; path: string; size: number; modified_at: number; section: string };
-  channelId: string;
-  onSelect: (path: string) => void;
-  selected: boolean;
-}) {
-  const t = useThemeTokens();
-  const deleteMutation = useDeleteChannelWorkspaceFile(channelId);
-  const modified = new Date(file.modified_at * 1000);
-  const sizeKb = (file.size / 1024).toFixed(1);
-
-  const icon =
-    file.section === "archive" ? <Archive size={14} color={t.textMuted} /> :
-    file.section === "data" ? <Database size={14} color={t.textMuted} /> :
-    <FileText size={14} color={t.accent} />;
-
-  return (
-    <Pressable
-      onPress={() => onSelect(file.path)}
-      style={{
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 6,
-        backgroundColor: selected ? t.surfaceOverlay : "transparent",
-      }}
-    >
-      {icon}
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={{ color: t.text, fontSize: 13, fontWeight: "500" }} numberOfLines={1}>
-          {file.name}
-        </Text>
-        <Text style={{ color: t.textDim, fontSize: 11 }}>
-          {sizeKb} KB &middot; {modified.toLocaleDateString()}
-        </Text>
-      </View>
-      <Pressable
-        onPress={(e) => {
-          e.stopPropagation();
-          if (confirm(`Delete ${file.name}?`)) {
-            deleteMutation.mutate(file.path);
-          }
-        }}
-        style={{ padding: 4 }}
-      >
-        <Trash2 size={13} color={t.danger} />
-      </Pressable>
-    </Pressable>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // File content viewer
@@ -200,197 +136,6 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
   );
 }
 
-// ---------------------------------------------------------------------------
-// Collapsible file section
-// ---------------------------------------------------------------------------
-function CollapsibleFileSection({
-  title,
-  files,
-  channelId,
-  selectedPath,
-  onSelect,
-  defaultOpen = false,
-}: {
-  title: string;
-  files: { name: string; path: string; size: number; modified_at: number; section: string }[];
-  channelId: string;
-  selectedPath: string | null;
-  onSelect: (path: string) => void;
-  defaultOpen?: boolean;
-}) {
-  const t = useThemeTokens();
-  const [open, setOpen] = useState(defaultOpen);
-
-  if (files.length === 0) return null;
-
-  return (
-    <Section
-      title={
-        <Pressable
-          onPress={() => setOpen(!open)}
-          style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-        >
-          {open ? <ChevronDown size={14} color={t.textMuted} /> : <ChevronRight size={14} color={t.textMuted} />}
-          <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>
-            {title} ({files.length})
-          </Text>
-        </Pressable> as any
-      }
-    >
-      {open && (
-        <View style={{ gap: 2 }}>
-          {files.map((f) => (
-            <FileItem
-              key={f.path}
-              file={f}
-              channelId={channelId}
-              onSelect={onSelect}
-              selected={selectedPath === f.path}
-            />
-          ))}
-        </View>
-      )}
-    </Section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Lazy-loading data folder — fetches children on expand
-// ---------------------------------------------------------------------------
-function DataFolderItem({
-  folder,
-  channelId,
-  selectedPath,
-  onSelect,
-}: {
-  folder: ChannelWorkspaceFile;
-  channelId: string;
-  selectedPath: string | null;
-  onSelect: (path: string) => void;
-}) {
-  const t = useThemeTokens();
-  const [open, setOpen] = useState(false);
-  const { data, isLoading } = useChannelWorkspaceDataFolder(
-    open ? channelId : undefined,
-    open ? folder.name : null,
-  );
-
-  const children = data?.files?.filter((f) => f.section === "data") ?? [];
-  const childFiles = children.filter((f) => f.type !== "folder");
-  const childFolders = children.filter((f) => f.type === "folder");
-  const basename = folder.name.includes("/")
-    ? folder.name.substring(folder.name.lastIndexOf("/") + 1)
-    : folder.name;
-
-  return (
-    <View>
-      <Pressable
-        onPress={() => setOpen(!open)}
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          paddingVertical: 6,
-          paddingHorizontal: 12,
-          borderRadius: 6,
-        }}
-      >
-        {open ? <ChevronDown size={12} color={t.textMuted} /> : <ChevronRight size={12} color={t.textMuted} />}
-        <Folder size={14} color={t.textMuted} />
-        <Text style={{ color: t.text, fontSize: 13, fontWeight: "500" }}>{basename}/</Text>
-        {folder.count != null && (
-          <Text style={{ color: t.textDim, fontSize: 11 }}>({folder.count})</Text>
-        )}
-      </Pressable>
-      {open && (
-        <View style={{ gap: 2, paddingLeft: 20 }}>
-          {isLoading && <ActivityIndicator color={t.accent} size="small" style={{ padding: 8 }} />}
-          {childFiles.map((f) => (
-            <FileItem
-              key={f.path}
-              file={{ ...f, name: f.name.includes("/") ? f.name.substring(f.name.lastIndexOf("/") + 1) : f.name }}
-              channelId={channelId}
-              onSelect={onSelect}
-              selected={selectedPath === f.path}
-            />
-          ))}
-          {childFolders.map((f) => (
-            <DataFolderItem
-              key={f.name}
-              folder={f}
-              channelId={channelId}
-              selectedPath={selectedPath}
-              onSelect={onSelect}
-            />
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Data files section — shows root files + folder stubs, lazy-loads children
-// ---------------------------------------------------------------------------
-function DataFileSection({
-  files,
-  channelId,
-  selectedPath,
-  onSelect,
-}: {
-  files: ChannelWorkspaceFile[];
-  channelId: string;
-  selectedPath: string | null;
-  onSelect: (path: string) => void;
-}) {
-  const t = useThemeTokens();
-  const [open, setOpen] = useState(false);
-
-  if (files.length === 0) return null;
-
-  const rootFiles = files.filter((f) => f.type !== "folder");
-  const folders = files.filter((f) => f.type === "folder");
-  const totalCount = rootFiles.length + folders.reduce((sum, f) => sum + (f.count ?? 0), 0);
-
-  return (
-    <Section
-      title={
-        <Pressable
-          onPress={() => setOpen(!open)}
-          style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-        >
-          {open ? <ChevronDown size={14} color={t.textMuted} /> : <ChevronRight size={14} color={t.textMuted} />}
-          <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>
-            Data Files ({totalCount})
-          </Text>
-        </Pressable> as any
-      }
-    >
-      {open && (
-        <View style={{ gap: 2 }}>
-          {rootFiles.map((f) => (
-            <FileItem
-              key={f.path}
-              file={f}
-              channelId={channelId}
-              onSelect={onSelect}
-              selected={selectedPath === f.path}
-            />
-          ))}
-          {folders.map((f) => (
-            <DataFolderItem
-              key={f.name}
-              folder={f}
-              channelId={channelId}
-              selectedPath={selectedPath}
-              onSelect={onSelect}
-            />
-          ))}
-        </View>
-      )}
-    </Section>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Helper: display value with inherited default
@@ -696,15 +441,6 @@ export function ChannelWorkspaceTab({
       ? parseFloat(templateMinVersion) > parseFloat(mcInstalledVersion)
       : false;
 
-  const { data: filesData, isLoading } = useChannelWorkspaceFiles(
-    enabled ? channelId : undefined,
-    { includeArchive: true, includeData: true },
-  );
-
-  const activeFiles = filesData?.files?.filter((f) => f.section === "active") ?? [];
-  const archivedFiles = filesData?.files?.filter((f) => f.section === "archive") ?? [];
-  const dataFiles = filesData?.files?.filter((f) => f.section === "data") ?? [];
-
   return (
     <>
       {/* Channel workspace — persistent working documents */}
@@ -752,36 +488,7 @@ export function ChannelWorkspaceTab({
             </Section>
           )}
 
-          <Section title="Active Files" description="Markdown files in the channel workspace root. Injected into context automatically.">
-            {isLoading ? (
-              <ActivityIndicator color={t.accent} style={{ padding: 16 }} />
-            ) : activeFiles.length === 0 ? (
-              <EmptyState message="No workspace files yet. The bot will create them via exec_command." />
-            ) : (
-              <View style={{ gap: 2 }}>
-                {activeFiles.map((f) => (
-                  <FileItem
-                    key={f.path}
-                    file={f}
-                    channelId={channelId}
-                    onSelect={setSelectedPath}
-                    selected={selectedPath === f.path}
-                  />
-                ))}
-              </View>
-            )}
-          </Section>
-
-          <CollapsibleFileSection
-            title="Archived Files"
-            files={archivedFiles}
-            channelId={channelId}
-            selectedPath={selectedPath}
-            onSelect={setSelectedPath}
-          />
-
-          <DataFileSection
-            files={dataFiles}
+          <ChannelFileBrowser
             channelId={channelId}
             selectedPath={selectedPath}
             onSelect={setSelectedPath}
