@@ -262,12 +262,13 @@ async def trigger_workflow(
     validate_secrets(workflow.secrets)
 
     # Resolve dispatch from channel if not provided
+    # Channel model has `integration` (str|None) not `dispatch_type`
     if dispatch_type is None and channel_id:
         async with async_session() as db:
             from app.db.models import Channel
             ch = await db.get(Channel, channel_id)
             if ch:
-                dispatch_type = ch.dispatch_type or "none"
+                dispatch_type = ch.integration or "none"
                 dispatch_config = dict(ch.dispatch_config or {}) if ch.dispatch_config else None
 
     # Initialize step states

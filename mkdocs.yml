@@ -45,6 +45,7 @@ nav:
     - Harnesses: guides/harnesses.md
     - Secrets & Redaction: guides/secrets.md
     - Content Ingestion: guides/ingestion.md
+    - Usage & Billing: guides/usage-and-billing.md
   - Integrations:
     - Creating an Integration: integrations/index.md
     - Example Integration: integrations/example.md

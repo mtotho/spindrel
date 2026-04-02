@@ -123,6 +123,10 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
     Document ingestion pipeline for PDFs, web pages, and more.
 
+-   [:material-chart-line: **Usage & Billing**](guides/usage-and-billing.md)
+
+    Cost tracking, budget limits, spend forecasting, and provider pricing.
+
 -   [:material-puzzle-edit-outline: **Creating Integrations**](integrations/index.md)
 
     Build custom integrations with routers, dispatchers, and hooks.

@@ -139,6 +139,8 @@ provider ID fall back to the `.env` default.
 **Anthropic (Claude) models**: Use OpenRouter as your default provider for the simplest
 setup, or add a dedicated Anthropic provider in Admin UI > Providers for direct API access.
 
+For cost tracking, budget limits, and spend forecasting, see the [Usage & Billing guide](guides/usage-and-billing.md).
+
 ## Workspaces
 
 Workspaces provide persistent file storage for bots. Each bot with `workspace.enabled: true` gets a directory for memory files, daily logs, and reference documents.
