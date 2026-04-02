@@ -156,7 +156,7 @@ async def _index_filesystems_and_start_watchers() -> None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(application: FastAPI):
     level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
     logging.basicConfig(level=level, format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT)
     # Install in-memory ring buffer handler for /api/v1/admin/server-logs
@@ -332,7 +332,7 @@ async def lifespan(app: FastAPI):
     from integrations import discover_integrations as _discover_integrations
     for _integration_id, _integration_router in _discover_integrations():
         try:
-            app.include_router(
+            application.include_router(
                 _integration_router,
                 prefix=f"/integrations/{_integration_id}",
                 tags=[f"Integration: {_integration_id}"],
@@ -341,43 +341,14 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register integration router: %s", _integration_id)
 
-    # Register explicit routes for integration web UIs with SPA fallback.
-    # Uses FileResponse routes instead of StaticFiles mount — more robust and
-    # easier to debug than relying on Starlette's Mount + custom StaticFiles subclass.
+    # Discover integration web UIs and populate the module-level registry.
+    # The actual route handler is registered at module level (after app = FastAPI(...))
+    # because the lifespan `app` parameter can collide with the `app` package name.
     from integrations import discover_web_uis as _discover_web_uis
-    from starlette.responses import FileResponse as _FileResponse
-    from pathlib import Path as _Path
-
-    _web_ui_dirs: dict[str, _Path] = {}
     for _web_ui in _discover_web_uis():
         _iid = _web_ui["integration_id"]
-        _web_ui_dirs[_iid] = _Path(_web_ui["static_dir_path"])
+        _INTEGRATION_WEB_UI_DIRS[_iid] = Path(_web_ui["static_dir_path"])
         logger.info("Registered integration web UI: /integrations/%s/ui → %s", _iid, _web_ui["static_dir_path"])
-
-    if _web_ui_dirs:
-        @app.get("/integrations/{integration_id}/ui/{path:path}")
-        async def _serve_integration_ui(integration_id: str, path: str = ""):
-            dist_dir = _web_ui_dirs.get(integration_id)
-            if not dist_dir:
-                raise HTTPException(status_code=404, detail=f"No web UI for integration '{integration_id}'")
-
-            # Serve exact file if it exists (assets, etc.)
-            if path:
-                file_path = (dist_dir / path).resolve()
-                # Security: ensure path doesn't escape dist_dir
-                if str(file_path).startswith(str(dist_dir.resolve())) and file_path.is_file():
-                    return _FileResponse(file_path)
-
-            # SPA fallback: serve index.html for any unknown path
-            index = dist_dir / "index.html"
-            if index.is_file():
-                return _FileResponse(index, media_type="text/html")
-
-            raise HTTPException(
-                status_code=404,
-                detail=f"Dashboard not built for '{integration_id}'. "
-                       f"Run 'npm run build' in the dashboard directory.",
-            )
 
     # Auto-start shared workspace containers that were previously running
     for _sw in _sw_rows:
@@ -517,3 +488,39 @@ app.include_router(_api_v1_router)
 async def health():
     from app.config import VERSION
     return {"status": "ok", "version": VERSION}
+
+
+# ---------------------------------------------------------------------------
+# Integration web UI serving (SPA fallback)
+# ---------------------------------------------------------------------------
+# Registry populated during lifespan by discover_web_uis(); route defined here
+# at module level so `app` unambiguously refers to the FastAPI instance.
+_INTEGRATION_WEB_UI_DIRS: dict[str, Path] = {}
+
+
+@app.get("/integrations/{integration_id}/ui/{path:path}")
+async def serve_integration_ui(integration_id: str, path: str = ""):
+    """Serve integration dashboard files with SPA fallback."""
+    dist_dir = _INTEGRATION_WEB_UI_DIRS.get(integration_id)
+    if not dist_dir:
+        raise HTTPException(status_code=404, detail=f"No web UI for integration '{integration_id}'")
+
+    # Serve exact file if it exists (JS/CSS assets, images, etc.)
+    if path:
+        file_path = (dist_dir / path).resolve()
+        # Security: ensure resolved path doesn't escape dist_dir
+        if str(file_path).startswith(str(dist_dir.resolve())) and file_path.is_file():
+            from starlette.responses import FileResponse
+            return FileResponse(file_path)
+
+    # SPA fallback: serve index.html for any unknown path
+    index = dist_dir / "index.html"
+    if index.is_file():
+        from starlette.responses import FileResponse
+        return FileResponse(index, media_type="text/html")
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Dashboard not built for '{integration_id}'. "
+               f"Run 'npm run build' in the dashboard directory.",
+    )
