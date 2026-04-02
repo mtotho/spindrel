@@ -24,9 +24,9 @@ export default function ChannelCard({ channel }: { channel: ChannelSummary }) {
           <h3 className="text-sm font-medium text-gray-100 truncate group-hover:text-accent-hover transition-colors">
             {channel.name || channel.id.slice(0, 8)}
           </h3>
-          {channel.bot_id && (
+          {(channel.bot_name || channel.bot_id) && (
             <p className="text-xs text-gray-500 mt-0.5 truncate">
-              {channel.bot_id}
+              {channel.bot_name || channel.bot_id}
             </p>
           )}
         </div>

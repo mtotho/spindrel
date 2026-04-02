@@ -16,31 +16,39 @@ export interface KanbanColumn {
 }
 
 // ---------------------------------------------------------------------------
-// API data
+// API data (matches /integrations/mission_control/overview response)
 // ---------------------------------------------------------------------------
 
 export interface ChannelSummary {
   id: string;
   name: string | null;
   bot_id: string | null;
+  bot_name: string | null;
+  model: string | null;
   workspace_enabled: boolean;
+  task_count: number;
+  template_name: string | null;
   created_at: string | null;
   updated_at: string | null;
+  is_member: boolean;
 }
 
 export interface BotSummary {
   id: string;
   name: string;
   model: string | null;
+  channel_count: number;
+  memory_scheme: string | null;
 }
 
 export interface OverviewData {
   channels: ChannelSummary[];
   bots: BotSummary[];
-  task_counts: Record<string, number>;
-  session_count: number;
-  channel_count: number;
-  bot_count: number;
+  total_channels: number;
+  total_channels_all: number;
+  total_bots: number;
+  total_tasks: number;
+  is_admin: boolean;
 }
 
 // ---------------------------------------------------------------------------

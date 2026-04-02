@@ -26,8 +26,6 @@ export default function Overview() {
   }
   if (!data) return null;
 
-  const pendingTasks = data.task_counts["pending"] || 0;
-  const runningTasks = data.task_counts["running"] || 0;
   const workspaceChannels = data.channels.filter((ch) => ch.workspace_enabled);
   const needsSetup = workspaceChannels.length === 0;
 
@@ -44,21 +42,21 @@ export default function Overview() {
           <SetupGuide
             hasServer={true}
             hasChannels={workspaceChannels.length > 0}
-            hasBots={data.bot_count > 0}
+            hasBots={data.total_bots > 0}
           />
         </div>
       )}
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard label="Channels" value={data.channel_count} sub={`${workspaceChannels.length} with workspace`} />
-        <StatCard label="Bots" value={data.bot_count} />
+        <StatCard label="Channels" value={data.total_channels_all} sub={`${workspaceChannels.length} with workspace`} />
+        <StatCard label="Bots" value={data.total_bots} />
         <StatCard
-          label="Pending Tasks"
-          value={pendingTasks + runningTasks}
-          color={pendingTasks + runningTasks > 0 ? "text-status-yellow" : "text-gray-100"}
+          label="Tasks"
+          value={data.total_tasks}
+          color={data.total_tasks > 0 ? "text-status-yellow" : "text-gray-100"}
         />
-        <StatCard label="Sessions" value={data.session_count} />
+        <StatCard label="Tracked" value={data.total_channels} sub="channels in scope" />
       </div>
 
       {/* Channel grid */}
@@ -93,6 +91,11 @@ export default function Overview() {
                 {bot.model && (
                   <p className="text-xs text-gray-500 mt-0.5 truncate" title={bot.model}>
                     {bot.model}
+                  </p>
+                )}
+                {bot.channel_count > 0 && (
+                  <p className="text-xs text-gray-600 mt-1">
+                    {bot.channel_count} channel{bot.channel_count !== 1 ? "s" : ""}
                   </p>
                 )}
               </div>
