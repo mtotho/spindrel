@@ -7,6 +7,7 @@ import os
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,6 +82,37 @@ async def read_workspace_file(
     if content is None:
         raise HTTPException(404, "File not found")
     return {"path": path, "content": content}
+
+
+MIME_MAP = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp",
+    ".ico": "image/x-icon", ".bmp": "image/bmp", ".pdf": "application/pdf",
+}
+
+
+@router.get("/files/raw")
+async def read_workspace_file_raw(
+    channel_id: uuid.UUID,
+    path: str = Query(..., description="File path within workspace"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Serve a workspace file as raw bytes (for images, PDFs, etc.)."""
+    channel, bot = await _require_channel_workspace(channel_id, db)
+    from app.services.channel_workspace import get_channel_workspace_root
+    ws_path = get_channel_workspace_root(str(channel_id), bot)
+    ws_real = os.path.realpath(ws_path)
+    target = os.path.realpath(os.path.join(ws_path, path))
+    if not (target == ws_real or target.startswith(ws_real + os.sep)):
+        raise HTTPException(404, "File not found")
+    if not os.path.isfile(target):
+        raise HTTPException(404, "File not found")
+    ext = os.path.splitext(target)[1].lower()
+    mime = MIME_MAP.get(ext, "application/octet-stream")
+    with open(target, "rb") as f:
+        data = f.read()
+    return Response(content=data, media_type=mime, headers={"Cache-Control": "private, max-age=300"})
 
 
 @router.put("/files/content")

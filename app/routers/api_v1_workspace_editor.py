@@ -19,14 +19,31 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from starlette.responses import RedirectResponse
 
+from sqlalchemy import select
+
 from app.config import settings
-from app.db.models import SharedWorkspace
+from app.db.models import Channel, SharedWorkspace
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.workspace_editor import write_chat_config
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workspaces", tags=["workspace-editor"])
+
+
+async def _resolve_channel_info(channel_id: str | None, db) -> tuple[str | None, str | None]:
+    """Look up bot_id and active_session_id for a channel. Returns (bot_id, session_id)."""
+    if not channel_id:
+        return None, None
+    try:
+        import uuid as _uuid
+        ch = await db.get(Channel, _uuid.UUID(channel_id))
+        if not ch:
+            return None, None
+        session_id = str(ch.active_session_id) if ch.active_session_id else None
+        return ch.bot_id, session_id
+    except Exception:
+        return None, None
 
 # Cookie name per workspace
 def _cookie_name(workspace_id: str) -> str:
@@ -99,10 +116,19 @@ async def proxy_editor_http(
         if ws.container_name:
             try:
                 server_url = str(request.base_url).rstrip("/")
+                # Extract channel_id from folder param (/workspace/channels/{id})
+                folder = request.query_params.get("folder", "")
+                channel_id = None
+                if "/channels/" in folder:
+                    channel_id = folder.split("/channels/")[-1].strip("/")
+                bot_id, session_id = await _resolve_channel_info(channel_id, db)
                 await write_chat_config(
                     container_name=ws.container_name,
                     server_url=server_url,
                     token=tkn,
+                    channel_id=channel_id,
+                    bot_id=bot_id,
+                    session_id=session_id,
                 )
             except Exception as exc:
                 logger.debug("Failed to write chat config to container: %s", exc)

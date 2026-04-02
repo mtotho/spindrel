@@ -6,6 +6,9 @@ const CONFIG_PATH = "/home/agent/.spindrel-chat/config.json";
 export interface ChatConfig {
   serverUrl: string;
   token: string;
+  channelId?: string;
+  botId?: string;
+  sessionId?: string;
   userId?: string;
   userEmail?: string;
 }
@@ -15,17 +18,12 @@ export interface SSEEvent {
   data: any;
 }
 
-export interface Channel {
+export interface HistoryMessage {
   id: string;
-  name: string;
-  bot_id: string;
-  active_session_id?: string;
-}
-
-export interface Bot {
-  id: string;
-  name: string;
-  model: string;
+  role: string;
+  content: string | null;
+  created_at: string;
+  metadata?: Record<string, any>;
 }
 
 /**
@@ -58,7 +56,7 @@ export function readConfig(): ChatConfig | null {
 }
 
 /**
- * Watch the config file for changes (token refresh).
+ * Watch the config file for changes (token refresh, channel rebind).
  */
 export function watchConfig(
   callback: (config: ChatConfig | null) => void
@@ -68,7 +66,7 @@ export function watchConfig(
     if (!fs.existsSync(dir)) {
       return null;
     }
-    return fs.watch(dir, (_eventType, filename) => {
+    return fs.watch(dir, (_eventType: string, filename: string | null) => {
       if (filename === "config.json") {
         callback(readConfig());
       }
@@ -85,48 +83,6 @@ function authHeaders(token: string): Record<string, string> {
   };
 }
 
-export async function createChannel(
-  config: ChatConfig,
-  name: string,
-  botId: string
-): Promise<Channel> {
-  const resp = await fetch(`${config.serverUrl}/api/v1/channels`, {
-    method: "POST",
-    headers: authHeaders(config.token),
-    body: JSON.stringify({
-      name,
-      bot_id: botId,
-      client_id: `vscode:${name}`,
-    }),
-  });
-  if (!resp.ok) {
-    throw new Error(`Failed to create channel: ${resp.status} ${resp.statusText}`);
-  }
-  return (await resp.json()) as Channel;
-}
-
-export async function listChannels(
-  config: ChatConfig
-): Promise<Channel[]> {
-  const resp = await fetch(`${config.serverUrl}/api/v1/channels`, {
-    headers: authHeaders(config.token),
-  });
-  if (!resp.ok) {
-    throw new Error(`Failed to list channels: ${resp.status}`);
-  }
-  return (await resp.json()) as Channel[];
-}
-
-export async function getBots(config: ChatConfig): Promise<Bot[]> {
-  const resp = await fetch(`${config.serverUrl}/bots`, {
-    headers: authHeaders(config.token),
-  });
-  if (!resp.ok) {
-    throw new Error(`Failed to list bots: ${resp.status}`);
-  }
-  return (await resp.json()) as Bot[];
-}
-
 export async function cancelRequest(
   config: ChatConfig,
   clientId: string,
@@ -137,6 +93,27 @@ export async function cancelRequest(
     headers: authHeaders(config.token),
     body: JSON.stringify({ client_id: clientId, bot_id: botId }),
   });
+}
+
+/**
+ * Fetch recent messages from the active session to show chat history.
+ */
+export async function fetchRecentMessages(
+  config: ChatConfig,
+  limit: number = 10
+): Promise<HistoryMessage[]> {
+  if (!config.sessionId) {
+    return [];
+  }
+  const resp = await fetch(
+    `${config.serverUrl}/sessions/${config.sessionId}/messages?limit=${limit}`,
+    { headers: authHeaders(config.token) }
+  );
+  if (!resp.ok) {
+    return [];
+  }
+  const page = (await resp.json()) as { messages: HistoryMessage[]; has_more: boolean };
+  return page.messages;
 }
 
 /**
@@ -230,7 +207,7 @@ export function streamChat(
       }
       onDone();
     })
-    .catch((err) => {
+    .catch((err: any) => {
       if (err.name !== "AbortError") {
         onError(err);
       }

@@ -9,17 +9,25 @@ Handles:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 
+from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Task, Workflow, WorkflowRun
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-process advancement lock — prevents concurrent advance_workflow() calls
+# for the same run_id within a single process.
+# ---------------------------------------------------------------------------
+_advance_locks: dict[uuid.UUID, asyncio.Lock] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +353,17 @@ async def trigger_workflow(
 # ---------------------------------------------------------------------------
 
 async def advance_workflow(run_id: uuid.UUID) -> None:
-    """Advance a workflow run to the next actionable step.
+    """Advance a workflow run to the next actionable step (with per-run lock)."""
+    lock = _advance_locks.setdefault(run_id, asyncio.Lock())
+    async with lock:
+        await _advance_workflow_inner(run_id)
+    # Clean up lock if no one else is waiting
+    if not lock.locked():
+        _advance_locks.pop(run_id, None)
+
+
+async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
+    """Inner advancement logic.
 
     Uses a single session with row-level locking to prevent race conditions.
     Loops through pending steps (no recursion):
@@ -405,6 +423,23 @@ async def advance_workflow(run_id: uuid.UUID) -> None:
                     await db.commit()
                     logger.info("Workflow run %s awaiting approval at step %d (%s)",
                                 run_id, i, step_def.get("id", "?"))
+                    return
+
+                # Execution cap — prevent runaway workflows
+                executed = sum(
+                    1 for s in step_states
+                    if s["status"] in ("running", "done", "failed")
+                )
+                cap = settings.WORKFLOW_MAX_TASK_EXECUTIONS
+                if executed >= cap:
+                    run.status = "failed"
+                    run.error = f"Execution cap reached ({cap} tasks)"
+                    run.completed_at = datetime.now(timezone.utc)
+                    run.step_states = step_states
+                    await db.commit()
+                    logger.error(
+                        "Workflow run %s hit execution cap (%d)", run_id, cap,
+                    )
                     return
 
                 # Create task for this step
@@ -690,6 +725,25 @@ async def on_step_task_completed(
                 except (ValueError, IndexError):
                     max_retries = 1
                 retry_count = state.get("retry_count", 0)
+
+                # Check execution cap before allowing retry
+                executed = sum(
+                    1 for s in step_states
+                    if s["status"] in ("running", "done", "failed")
+                )
+                cap = settings.WORKFLOW_MAX_TASK_EXECUTIONS
+                if executed >= cap:
+                    run.status = "failed"
+                    run.error = f"Execution cap reached ({cap} tasks) during retry"
+                    run.completed_at = datetime.now(timezone.utc)
+                    run.step_states = step_states
+                    await db.commit()
+                    logger.error(
+                        "Workflow run %s hit execution cap (%d) during retry",
+                        run_id, cap,
+                    )
+                    return
+
                 if retry_count < max_retries:
                     state["status"] = "pending"
                     state["error"] = None
@@ -810,7 +864,7 @@ async def retry_step(run_id: uuid.UUID, step_index: int) -> WorkflowRun:
 
 
 async def cancel_workflow(run_id: uuid.UUID) -> WorkflowRun:
-    """Cancel a running workflow."""
+    """Cancel a running workflow and its pending tasks."""
     async with async_session() as db:
         run = await db.get(WorkflowRun, run_id)
         if not run:
@@ -820,6 +874,17 @@ async def cancel_workflow(run_id: uuid.UUID) -> WorkflowRun:
 
         run.status = "cancelled"
         run.completed_at = datetime.now(timezone.utc)
+
+        # Cancel any pending tasks belonging to this workflow run
+        now = datetime.now(timezone.utc)
+        await db.execute(
+            sa_update(Task)
+            .where(Task.status.in_(["pending"]))
+            .where(Task.task_type == "workflow")
+            .where(Task.callback_config["workflow_run_id"].as_string() == str(run_id))
+            .values(status="cancelled", completed_at=now)
+        )
+
         await db.commit()
         await db.refresh(run)
     return run

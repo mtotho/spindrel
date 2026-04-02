@@ -469,10 +469,13 @@ export function getWebviewContent(
       const msg = event.data;
       switch (msg.type) {
         case 'ready':
-          statusEl.textContent = 'Ready — send a message to start chatting';
+          statusEl.textContent = 'Ready — send a message to continue the conversation';
           break;
         case 'noConfig':
-          statusEl.textContent = 'No server configuration found. Waiting for editor proxy config...';
+          statusEl.textContent = 'No server configuration found. Please open this editor from the workspace UI.';
+          break;
+        case 'noChannel':
+          statusEl.textContent = 'No channel bound. Please open this editor from a channel workspace tab.';
           break;
         case 'streamStart':
           startStreaming();

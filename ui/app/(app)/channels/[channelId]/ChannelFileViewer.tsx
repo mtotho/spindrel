@@ -6,6 +6,14 @@ import {
   useChannelWorkspaceFileContent,
   useWriteChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
+import { useAuthStore, getAuthToken } from "@/src/stores/auth";
+
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp"]);
+
+function isImageFile(path: string): boolean {
+  const ext = path.includes(".") ? path.substring(path.lastIndexOf(".")).toLowerCase() : "";
+  return IMAGE_EXTENSIONS.has(ext);
+}
 
 interface ChannelFileViewerProps {
   channelId: string;
@@ -19,8 +27,30 @@ interface ChannelFileViewerProps {
 
 export function ChannelFileViewer({ channelId, filePath, onBack, splitMode, onToggleSplit, onDirtyChange }: ChannelFileViewerProps) {
   const t = useThemeTokens();
-  const { data, isLoading, refetch } = useChannelWorkspaceFileContent(channelId, filePath);
+  const isImage = isImageFile(filePath);
+  const { data, isLoading, refetch } = useChannelWorkspaceFileContent(channelId, isImage ? null : filePath);
   const writeMutation = useWriteChannelWorkspaceFile(channelId);
+  const { serverUrl } = useAuthStore();
+
+  // For image files, fetch raw bytes and create a blob URL
+  const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  useEffect(() => {
+    if (!isImage) { setImageBlobUrl(null); return; }
+    let revoke: string | null = null;
+    setImageLoading(true);
+    const token = getAuthToken();
+    const url = `${serverUrl}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(filePath)}`;
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((res) => { if (!res.ok) throw new Error("fetch failed"); return res.blob(); })
+      .then((blob) => {
+        revoke = URL.createObjectURL(blob);
+        setImageBlobUrl(revoke);
+      })
+      .catch(() => setImageBlobUrl(null))
+      .finally(() => setImageLoading(false));
+    return () => { if (revoke) URL.revokeObjectURL(revoke); };
+  }, [isImage, serverUrl, channelId, filePath]);
 
   const [editContent, setEditContent] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -146,30 +176,58 @@ export function ChannelFileViewer({ channelId, filePath, onBack, splitMode, onTo
           </Pressable>
         )}
 
-        <Pressable
-          onPress={handleSave}
-          disabled={!isDirty || writeMutation.isPending}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 5,
-            paddingHorizontal: 10,
-            paddingVertical: 5,
-            borderRadius: 5,
-            backgroundColor: isDirty ? t.accent : t.surfaceOverlay,
-            opacity: isDirty ? 1 : 0.4,
-          }}
-          {...(Platform.OS === "web" ? { title: "Save (Ctrl+S)" } as any : {})}
-        >
-          <Save size={12} color={isDirty ? "#fff" : t.textDim} />
-          <Text style={{ color: isDirty ? "#fff" : t.textDim, fontSize: 11, fontWeight: "600" }}>
-            {writeMutation.isPending ? "Saving..." : "Save"}
-          </Text>
-        </Pressable>
+        {!isImage && (
+          <Pressable
+            onPress={handleSave}
+            disabled={!isDirty || writeMutation.isPending}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 5,
+              paddingHorizontal: 10,
+              paddingVertical: 5,
+              borderRadius: 5,
+              backgroundColor: isDirty ? t.accent : t.surfaceOverlay,
+              opacity: isDirty ? 1 : 0.4,
+            }}
+            {...(Platform.OS === "web" ? { title: "Save (Ctrl+S)" } as any : {})}
+          >
+            <Save size={12} color={isDirty ? "#fff" : t.textDim} />
+            <Text style={{ color: isDirty ? "#fff" : t.textDim, fontSize: 11, fontWeight: "600" }}>
+              {writeMutation.isPending ? "Saving..." : "Save"}
+            </Text>
+          </Pressable>
+        )}
       </View>
 
-      {/* Editor area */}
-      {isLoading ? (
+      {/* Editor / Preview area */}
+      {isImage ? (
+        imageLoading ? (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <ActivityIndicator color={t.accent} />
+          </View>
+        ) : imageBlobUrl ? (
+          <div style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "auto",
+            padding: 16,
+            backgroundColor: t.surfaceRaised,
+          }}>
+            <img
+              src={imageBlobUrl}
+              alt={fileName}
+              style={{ maxWidth: "100%", maxHeight: "80vh", objectFit: "contain", borderRadius: 4 }}
+            />
+          </div>
+        ) : (
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ color: t.textDim, fontSize: 12 }}>Failed to load image</Text>
+          </View>
+        )
+      ) : isLoading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <ActivityIndicator color={t.accent} />
         </View>

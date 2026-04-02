@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import {
   readConfig,
   watchConfig,
-  createChannel,
   cancelRequest,
   streamChat,
   ChatConfig,
@@ -15,7 +14,6 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
 
   private _view?: vscode.WebviewView;
   private _config: ChatConfig | null = null;
-  private _channelId: string | null = null;
   private _clientId: string;
   private _abortController: AbortController | null = null;
   private _configWatcher: ReturnType<typeof watchConfig> = null;
@@ -23,9 +21,6 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
 
   constructor(private readonly _extensionUri: vscode.Uri, private readonly _context: vscode.ExtensionContext) {
     this._clientId = `vscode:${vscode.env.machineId}`;
-
-    // Restore persisted channel ID
-    this._channelId = this._context.globalState.get<string>("spindrel.channelId") || null;
 
     // Track last active text editor (goes undefined when webview gets focus)
     this._lastActiveEditor = vscode.window.activeTextEditor;
@@ -83,50 +78,49 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
   private async _initialize(): Promise<void> {
     this._config = readConfig();
 
-    // Watch for config changes (token refresh)
+    // Watch for config changes (token refresh, channel rebind)
     this._configWatcher = watchConfig((newConfig) => {
+      const channelChanged = newConfig?.channelId !== this._config?.channelId;
       this._config = newConfig;
       if (newConfig) {
-        this._postMessage({ type: "ready" });
+        this._postMessage({
+          type: "ready",
+          channelId: newConfig.channelId || null,
+        });
+        if (channelChanged) {
+          // Reset the webview for the new channel
+          this._resetWebview();
+        }
       }
     });
 
     if (this._config) {
-      this._postMessage({ type: "ready" });
+      if (this._config.channelId) {
+        this._postMessage({
+          type: "ready",
+          channelId: this._config.channelId,
+        });
+      } else {
+        this._postMessage({ type: "noChannel" });
+      }
     } else {
       this._postMessage({ type: "noConfig" });
     }
   }
 
   private _getBotId(): string {
+    // Config file (from channel's actual bot) > VS Code setting > default
     return (
+      this._config?.botId ||
       vscode.workspace
         .getConfiguration("spindrel")
-        .get<string>("botId") || "default"
+        .get<string>("botId") ||
+      "default"
     );
   }
 
-  private async _ensureChannel(): Promise<string> {
-    if (this._channelId) {
-      return this._channelId;
-    }
-
-    if (!this._config) {
-      throw new Error("Not connected to server");
-    }
-
-    // Name channel after workspace folder
-    const folders = vscode.workspace.workspaceFolders;
-    const name = folders?.[0]?.name || "vscode-chat";
-
-    const channel = await createChannel(
-      this._config,
-      `VS Code: ${name}`,
-      this._getBotId()
-    );
-    this._channelId = channel.id;
-    await this._context.globalState.update("spindrel.channelId", channel.id);
-    return channel.id;
+  private _getChannelId(): string | null {
+    return this._config?.channelId || null;
   }
 
   private async _sendMessage(text: string): Promise<void> {
@@ -138,9 +132,16 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    try {
-      const channelId = await this._ensureChannel();
+    const channelId = this._getChannelId();
+    if (!channelId) {
+      this._postMessage({
+        type: "error",
+        text: "No channel bound. Please open this editor from a channel workspace tab.",
+      });
+      return;
+    }
 
+    try {
       this._postMessage({ type: "streamStart" });
 
       this._abortController = streamChat(
@@ -242,17 +243,21 @@ export class ChatSidebarProvider implements vscode.WebviewViewProvider {
       this._abortController = null;
     }
     if (this._config) {
-      cancelRequest(this._config, this._clientId, this._getBotId()).catch(
-        () => {}
-      );
+      const channelId = this._getChannelId();
+      if (channelId) {
+        cancelRequest(this._config, this._clientId, this._getBotId()).catch(
+          () => {}
+        );
+      }
     }
   }
 
-  /** Start a new chat by clearing channel and creating a fresh one. */
-  public async newChat(): Promise<void> {
-    this._channelId = null;
-    await this._context.globalState.update("spindrel.channelId", undefined);
-    // The next message will auto-create a new channel
+  /** Reset the webview (e.g. when channel changes). */
+  public resetWebview(): void {
+    this._resetWebview();
+  }
+
+  private _resetWebview(): void {
     if (this._view) {
       this._view.webview.html = getWebviewContent(
         this._view.webview,

@@ -365,6 +365,9 @@ class Settings(BaseSettings):
     HARNESS_WORKING_DIR_ALLOWLIST: Annotated[list[str], NoDecode] = []
     HARNESS_MAX_RESUME_RETRIES: int = 1
 
+    # Workflow safety
+    WORKFLOW_MAX_TASK_EXECUTIONS: int = 50  # max tasks a single workflow run can spawn before auto-fail
+
     # Workspaces
     WORKSPACE_BASE_DIR: str = "~/.spindrel-workspaces"
     WORKSPACE_DEFAULT_IMAGE: str = "agent-workspace:latest"

@@ -33,10 +33,6 @@
     },
     "commands": [
       {
-        "command": "spindrel-chat.newChat",
-        "title": "Spindrel: New Chat"
-      },
-      {
         "command": "spindrel-chat.attachContext",
         "title": "Spindrel: Attach Current File"
       },

@@ -14,14 +14,8 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("spindrel-chat.newChat", () => {
-      sidebarProvider.newChat();
-    })
-  );
-
-  context.subscriptions.push(
     vscode.commands.registerCommand("spindrel-chat.attachContext", () => {
-      // Trigger attach from command palette — forward to webview
+      // Open the sidebar then let the webview handle it
       vscode.commands.executeCommand(
         "workbench.view.extension.spindrel-chat"
       );

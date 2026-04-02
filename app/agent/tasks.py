@@ -739,18 +739,15 @@ async def run_task(task: Task) -> None:
         return
 
     logger.info("Running task %s (bot=%s)", task.id, task.bot_id)
-    now = datetime.now(timezone.utc)
 
-    # Mark as running
+    # Task is already marked running by fetch_due_tasks (atomic fetch-and-mark).
+    # Verify it still exists before proceeding.
     async with async_session() as db:
         t = await db.get(Task, task.id)
         if t is None:
             if task.session_id:
                 session_locks.release(task.session_id)
             return
-        t.status = "running"
-        t.run_at = now
-        await db.commit()
 
     # Notify the dispatcher that a queued task is starting (e.g. Slack posts
     # a thinking placeholder).  Uses duck-typing — only dispatchers that
@@ -1122,7 +1119,11 @@ async def run_task(task: Task) -> None:
 
 
 async def fetch_due_tasks() -> list[Task]:
-    """Fetch pending tasks that are due to run (scheduled_at <= now or null)."""
+    """Atomically fetch pending tasks and mark them running.
+
+    Uses FOR UPDATE SKIP LOCKED to prevent duplicate pickup across
+    concurrent poll cycles.
+    """
     now = datetime.now(timezone.utc)
     async with async_session() as db:
         stmt = (
@@ -1132,8 +1133,17 @@ async def fetch_due_tasks() -> list[Task]:
                 (Task.scheduled_at.is_(None)) | (Task.scheduled_at <= now)
             )
             .limit(20)
+            .with_for_update(skip_locked=True)
         )
-        return list((await db.execute(stmt)).scalars().all())
+        tasks = list((await db.execute(stmt)).scalars().all())
+        for t in tasks:
+            t.status = "running"
+            t.run_at = now
+        await db.commit()
+        # Expunge so they're usable outside the session
+        for t in tasks:
+            db.expunge(t)
+        return tasks
 
 
 async def recover_stuck_tasks() -> None:
@@ -1175,8 +1185,16 @@ async def recover_stuck_tasks() -> None:
                     await db.commit()
                     recovered += 1
                     logger.warning("Recovered stuck task %s (running %ds, timeout %ds)", task.id, int(elapsed), timeout)
-                    # Fire the completion hook so workflow runs can advance
-                    await _fire_task_complete(t, "failed")
+                    # For workflow tasks, skip the hook to prevent auto-resume
+                    # on server restart. The stalled-run sweep will handle them.
+                    is_workflow_task = bool((task.callback_config or {}).get("workflow_run_id"))
+                    if is_workflow_task:
+                        logger.warning(
+                            "Recovered stuck workflow task %s — skipping hook (stalled-run sweep will handle)",
+                            task.id,
+                        )
+                    else:
+                        await _fire_task_complete(t, "failed")
     if recovered:
         logger.info("Recovered %d stuck tasks", recovered)
 

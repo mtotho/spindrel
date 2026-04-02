@@ -408,13 +408,22 @@ async def write_chat_config(
     container_name: str,
     server_url: str,
     token: str,
+    channel_id: str | None = None,
+    bot_id: str | None = None,
+    session_id: str | None = None,
     user_id: str | None = None,
     user_email: str | None = None,
 ) -> None:
     """Write the chat extension config file into a workspace container."""
     import json
 
-    config = {"serverUrl": server_url, "token": token}
+    config: dict[str, str] = {"serverUrl": server_url, "token": token}
+    if channel_id:
+        config["channelId"] = channel_id
+    if bot_id:
+        config["botId"] = bot_id
+    if session_id:
+        config["sessionId"] = session_id
     if user_id:
         config["userId"] = user_id
     if user_email:
