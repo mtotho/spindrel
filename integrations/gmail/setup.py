@@ -54,6 +54,12 @@ SETUP = {
     "api_permissions": "slack_integration",
     "webhook": None,
     "instructions_url": None,
+    "activation": {
+        "carapaces": ["gmail-feeds"],
+        "requires_workspace": True,
+        "description": "Email ingestion and digest management via Gmail IMAP",
+        "compatible_templates": ["email-digest"],
+    },
     "binding": {
         "client_id_prefix": "gmail:",
         "client_id_placeholder": "gmail:user@gmail.com",

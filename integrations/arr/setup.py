@@ -23,4 +23,10 @@ SETUP = {
         {"key": "BAZARR_URL", "required": False, "description": "Bazarr base URL (e.g. http://192.168.1.x:6767)"},
         {"key": "BAZARR_API_KEY", "required": False, "description": "Bazarr API key (Settings → General)", "secret": True},
     ],
+    "activation": {
+        "carapaces": ["arr"],
+        "requires_workspace": False,
+        "description": "Media library management with Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr",
+        "compatible_templates": ["media-management"],
+    },
 }

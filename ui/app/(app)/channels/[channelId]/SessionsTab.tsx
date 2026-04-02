@@ -49,18 +49,18 @@ export function SessionsTab({ channelId }: { channelId: string }) {
       {/* Actions bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <ActionButton
-          label={resetMutation.isPending ? "Resetting..." : "New Session"}
+          label={resetMutation.isPending ? "Resetting..." : "Start Fresh"}
           onPress={() => resetMutation.mutate()}
           disabled={resetMutation.isPending}
           icon={<RotateCw size={12} />}
         />
         <span style={{ fontSize: 11, color: t.textDim, alignSelf: "center" }}>
-          {data?.length ?? 0} session{data?.length !== 1 ? "s" : ""}
+          {data?.length ?? 0} conversation{data?.length !== 1 ? "s" : ""}
         </span>
       </div>
 
       {!data?.length ? (
-        <EmptyState message="No sessions yet." />
+        <EmptyState message="No conversations yet." />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {data.map((s: any) => (

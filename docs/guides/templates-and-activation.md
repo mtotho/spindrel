@@ -47,22 +47,26 @@ Templates define the file structure for a channel's workspace. When a bot has `w
 
 1. Open a channel and go to the **Workspace** tab
 2. The **Schema** section shows available templates
-3. If an integration is activated, **compatible templates** are highlighted with a green badge and shown first under "Suggested schemas"
+3. If an integration is activated, **compatible templates** are highlighted with a green badge and shown first under "Suggested templates"
 4. Click a template to apply it — the bot will use this structure when creating workspace files
 
 ### Built-in Templates
 
-Spindrel ships templates for common workflows. Integrations can provide their own — Mission Control ships 9 templates including:
+Spindrel ships templates for common workflows:
 
-| Template | Best for | Key files |
-|----------|----------|-----------|
-| Software Development | Code projects with task tracking | tasks.md, status.md, plans.md, decisions.md |
-| Research | Investigation and analysis | findings.md, sources.md, questions.md |
-| QA Testing | Test planning and execution | test-plan.md, test-results.md, bugs.md |
-| PM Hub | Project coordination | status.md, risks.md, stakeholders.md |
-| Creative | Writing, design, content | drafts.md, references.md, feedback.md |
-| General | Lightweight catch-all | notes.md, tasks.md |
-| Structured Task Hub | Complex multi-track work | tasks.md, timeline.md, status.md |
+| Template | Best for | Compatible with | Key files |
+|----------|----------|----------------|-----------|
+| Software Development | Code projects with task tracking | Mission Control | tasks.md, architecture.md, decisions.md |
+| Research / Analysis | Investigation and analysis | — | findings.md, sources.md, questions.md |
+| Creative Project | Writing, design, content | — | brief.md, concepts.md, feedback.md |
+| General Project | Lightweight catch-all | — | overview.md, notes.md, tasks.md |
+| Project Management Hub | Project coordination | Mission Control | status.md, projects.md, reports.md |
+| Mission Control | Structured task tracking | Mission Control | tasks.md, status.md, decisions.md |
+| Software Testing / QA | Test planning and execution | — | test-plan.md, bugs.md, coverage.md |
+| Media Management | Media library and requests | Arr | requests.md, library.md, issues.md |
+| Email Digest | Email ingestion and action tracking | Gmail | feeds.md, digest.md, actions.md |
+| Home Automation | Device inventory and events | Frigate | devices.md, automations.md, events.md |
+| DevOps | Repository and deployment tracking | GitHub | repos.md, prs.md, deployments.md |
 
 ### Template Compatibility
 

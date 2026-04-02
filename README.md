@@ -84,6 +84,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | Guide | Description |
 |-------|-------------|
 | [Setup Guide](docs/setup.md) | Installation, providers, workspaces, integrations |
+| [How Spindrel Works](docs/guides/how-spindrel-works.md) | Mental model — channels, templates, activation, carapaces |
 | [Templates & Activation](docs/guides/templates-and-activation.md) | Activate integrations on channels, workspace templates |
 | [Slack Integration](docs/guides/slack.md) | Slack bot setup and channel config |
 | [Discord Integration](docs/guides/discord.md) | Discord bot setup |

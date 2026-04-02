@@ -110,7 +110,7 @@ export default function CarapacesPage() {
   return (
     <View className="flex-1 bg-surface">
       <MobileHeader
-        title="Carapaces"
+        title="Carapaces (Expertise)"
         right={
           <div style={{ display: "flex", gap: 8 }}>
             <button

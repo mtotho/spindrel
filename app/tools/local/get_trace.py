@@ -53,7 +53,7 @@ async def list_session_traces(limit: int = 10) -> str:
         )).all()
 
         if not rows:
-            return f"No trace events found for this conversation."
+            return "No trace events found for this conversation."
 
         # Collect correlation_ids to look up errors and tool call counts
         corr_ids = [r.correlation_id for r in rows]

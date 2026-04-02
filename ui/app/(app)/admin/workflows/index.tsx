@@ -385,7 +385,7 @@ function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }
                   borderColor: t.purpleBorder, paddingHorizontal: 6,
                   paddingVertical: 1, borderRadius: 4,
                 }}>
-                  <Text style={{ color: t.purple, fontSize: 10 }}>shared session</Text>
+                  <Text style={{ color: t.purple, fontSize: 10 }}>shared context</Text>
                 </View>
               )}
             </View>

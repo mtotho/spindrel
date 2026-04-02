@@ -249,6 +249,19 @@ def write_workspace_file(channel_id: str, bot: "BotConfig", path: str, content: 
     return {"path": path, "size": os.path.getsize(target)}
 
 
+def write_workspace_file_binary(channel_id: str, bot: "BotConfig", path: str, data: bytes) -> dict:
+    """Write binary data to the channel workspace. Creates parent dirs if needed."""
+    ws_path = get_channel_workspace_root(channel_id, bot)
+    ws_real = os.path.realpath(ws_path)
+    target = os.path.realpath(os.path.join(ws_real, path))
+    if not (target == ws_real or target.startswith(ws_real + os.sep)):
+        raise ValueError("Path escapes workspace root")
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "wb") as f:
+        f.write(data)
+    return {"path": path, "size": os.path.getsize(target)}
+
+
 def delete_workspace_file(channel_id: str, bot: "BotConfig", path: str) -> dict:
     """Delete a file from the channel workspace."""
     ws_path = get_channel_workspace_root(channel_id, bot)

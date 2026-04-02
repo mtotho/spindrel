@@ -309,7 +309,7 @@ export default function WorkflowDetailPage() {
                   value={draft.session_mode || "isolated"}
                   onChange={(v) => update({ session_mode: v })}
                   options={[
-                    { label: "Isolated — each step gets fresh session", value: "isolated" },
+                    { label: "Isolated — each step gets fresh context", value: "isolated" },
                     { label: "Shared — all steps share one conversation", value: "shared" },
                   ]}
                 />

@@ -106,7 +106,7 @@ export function WorkspaceSchemaEditor({
               <Text style={{ fontSize: 11, fontWeight: "600", color: t.textDim }}>
                 {activeIntegrationName
                   ? `Compatible with ${activeIntegrationName}`
-                  : "Suggested schemas"}
+                  : "Suggested templates"}
               </Text>
             </View>
             <View style={{ gap: 6 }}>
@@ -257,7 +257,7 @@ export function WorkspaceSchemaEditor({
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
           <FileText size={12} color={t.textDim} />
           <Text style={{ fontSize: 10, fontWeight: "700", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            Schema
+            Template
           </Text>
         </View>
 

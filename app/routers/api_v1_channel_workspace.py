@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -145,6 +146,22 @@ async def move_workspace_file(
     return result
 
 
+# File extensions treated as text (written via UTF-8 text writer)
+_TEXT_EXTENSIONS = frozenset({
+    ".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".xml", ".html",
+    ".css", ".js", ".ts", ".tsx", ".jsx", ".py", ".sh", ".toml", ".ini",
+    ".cfg", ".conf", ".log", ".env", ".sql", ".graphql", ".rst", ".tex",
+    ".r", ".rb", ".go", ".java", ".kt", ".swift", ".c", ".cpp", ".h",
+    ".hpp", ".rs", ".lua", ".pl", ".pm",
+})
+
+
+def _is_text_file(filename: str) -> bool:
+    """Check if a filename should be treated as text based on extension."""
+    _, ext = os.path.splitext(filename.lower())
+    return ext in _TEXT_EXTENSIONS
+
+
 @router.post("/files/upload")
 async def upload_workspace_file(
     channel_id: uuid.UUID,
@@ -153,20 +170,24 @@ async def upload_workspace_file(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth_or_user),
 ):
-    """Upload a file to the channel workspace."""
+    """Upload a file to the channel workspace. Text files are stored as UTF-8; binary files are stored as-is."""
     channel, bot = await _require_channel_workspace(channel_id, db)
     from app.services.channel_workspace import (
         ensure_channel_workspace,
-        write_workspace_file as _write,
+        write_workspace_file as _write_text,
+        write_workspace_file_binary as _write_binary,
     )
     ensure_channel_workspace(str(channel_id), bot, display_name=channel.name)
 
     filename = file.filename or "upload.md"
     file_path = f"{path}/{filename}" if path else filename
-    content = (await file.read()).decode("utf-8", errors="replace")
+    raw_bytes = await file.read()
 
     try:
-        result = _write(str(channel_id), bot, file_path, content)
+        if _is_text_file(filename):
+            result = _write_text(str(channel_id), bot, file_path, raw_bytes.decode("utf-8", errors="replace"))
+        else:
+            result = _write_binary(str(channel_id), bot, file_path, raw_bytes)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     _schedule_reindex(str(channel_id), bot)

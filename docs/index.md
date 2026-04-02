@@ -97,6 +97,10 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
 <div class="grid cards" markdown>
 
+-   [:material-lightbulb-outline: **How Spindrel Works**](guides/how-spindrel-works.md)
+
+    The mental model — channels, templates, activation, carapaces, and how they compose.
+
 -   [:material-setup: **Setup Guide**](setup.md)
 
     Installation, providers, workspaces, integrations, troubleshooting.
@@ -143,7 +147,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
 -   [:material-history: **Chat History**](guides/chat-history.md)
 
-    Conversation archival, searchable sections, and cross-session continuity.
+    Conversation archival, searchable sections, and continuity across fresh starts.
 
 -   [:material-cellphone-link: **Agent Client**](guides/clients.md)
 

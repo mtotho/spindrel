@@ -128,7 +128,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
         <MetaItem label="Run ID" value={run.id.slice(0, 8)} t={t} mono />
         <MetaItem label="Bot" value={run.bot_id} t={t} />
         <MetaItem label="Triggered by" value={run.triggered_by || "\u2014"} t={t} />
-        <MetaItem label="Session" value={run.session_mode || "isolated"} t={t} />
+        <MetaItem label="Context" value={run.session_mode || "isolated"} t={t} />
         <MetaItem label="Started" value={fmtTime(run.created_at)} t={t} />
         {run.completed_at && <MetaItem label="Completed" value={fmtTime(run.completed_at)} t={t} />}
         {run.channel_id && (

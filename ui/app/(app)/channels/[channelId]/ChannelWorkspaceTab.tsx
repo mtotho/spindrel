@@ -455,12 +455,12 @@ export function ChannelWorkspaceTab({
       {enabled && (
         <>
           <Section
-            title="Workspace Schema"
+            title="Template"
             description="Choose an organization template that defines how workspace files should be structured for this type of project."
           >
             {activeWithTemplates.length > 0 && hasNoSchema && (
               <InfoBanner variant="info">
-                {activeIntName} is active on this channel. Pick a compatible workspace schema for best results.
+                {activeIntName} is active on this channel. Pick a compatible template for best results.
               </InfoBanner>
             )}
             <WorkspaceSchemaEditor

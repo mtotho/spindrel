@@ -299,6 +299,72 @@ class TestChannelWorkspaceFileOps:
                     delete_workspace_file("ch-1", bot, "../ws_evil/victim.md")
             assert os.path.exists(target)
 
+    def test_write_workspace_file_binary(self):
+        from app.services.channel_workspace import write_workspace_file_binary
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            png_data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+            with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
+                result = write_workspace_file_binary("ch-1", bot, "data/image.png", png_data)
+                assert result["path"] == "data/image.png"
+                assert result["size"] == len(png_data)
+                # Verify binary content preserved exactly
+                with open(os.path.join(tmp, "data/image.png"), "rb") as f:
+                    assert f.read() == png_data
+
+    def test_write_workspace_file_binary_creates_subdirs(self):
+        from app.services.channel_workspace import write_workspace_file_binary
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            data = b"\xff\xfe binary \x00 data"
+            with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
+                write_workspace_file_binary("ch-1", bot, "data/deep/nested/file.bin", data)
+                assert os.path.isfile(os.path.join(tmp, "data/deep/nested/file.bin"))
+                with open(os.path.join(tmp, "data/deep/nested/file.bin"), "rb") as f:
+                    assert f.read() == data
+
+    def test_write_workspace_file_binary_path_escape(self):
+        from app.services.channel_workspace import write_workspace_file_binary
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
+                with pytest.raises(ValueError, match="escapes"):
+                    write_workspace_file_binary("ch-1", bot, "../../evil.bin", b"bad")
+
+    def test_write_workspace_file_binary_overwrites(self):
+        from app.services.channel_workspace import write_workspace_file_binary
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
+                write_workspace_file_binary("ch-1", bot, "data/f.bin", b"v1")
+                write_workspace_file_binary("ch-1", bot, "data/f.bin", b"v2-longer")
+                with open(os.path.join(tmp, "data/f.bin"), "rb") as f:
+                    assert f.read() == b"v2-longer"
+
+    def test_list_data_includes_binary_files(self):
+        from app.services.channel_workspace import list_workspace_files, write_workspace_file_binary
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "data"))
+            with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
+                write_workspace_file_binary("ch-1", bot, "data/image.png", b"\x89PNG" + b"\x00" * 50)
+                files = list_workspace_files("ch-1", bot, include_data=True)
+            data_files = [f for f in files if f["section"] == "data"]
+            assert len(data_files) == 1
+            assert data_files[0]["name"] == "image.png"
+            assert data_files[0]["size"] == 54
+
+    def test_delete_binary_file(self):
+        from app.services.channel_workspace import delete_workspace_file, write_workspace_file_binary
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "data"))
+            with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
+                write_workspace_file_binary("ch-1", bot, "data/img.png", b"\x89PNG")
+                result = delete_workspace_file("ch-1", bot, "data/img.png")
+                assert result["deleted"] is True
+                assert not os.path.exists(os.path.join(tmp, "data/img.png"))
+
     def test_delete_workspace_file_not_found(self):
         """Deleting a non-existent file raises FileNotFoundError."""
         from app.services.channel_workspace import delete_workspace_file

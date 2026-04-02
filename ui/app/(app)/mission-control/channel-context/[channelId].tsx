@@ -289,9 +289,9 @@ export default function MCChannelContext() {
               </View>
             </Section>
 
-            {/* 2. Workspace Schema */}
+            {/* 2. Template */}
             <Section
-              title="Workspace Schema"
+              title="Template"
               icon={Layers}
               badge={data.schema.template_name || undefined}
             >
@@ -305,7 +305,7 @@ export default function MCChannelContext() {
                 </Text>
               ) : (
                 <Text className="text-text-dim text-xs italic">
-                  No workspace schema assigned
+                  No template assigned
                 </Text>
               )}
               {data.schema.content && (
