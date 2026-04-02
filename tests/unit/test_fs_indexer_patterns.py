@@ -58,7 +58,7 @@ class TestGlobWithExclusions:
         return p.is_file()
 
     def test_include_only(self, tree: Path):
-        result = _glob_with_exclusions(tree, ["**/*.py"], self._accept_all, tree)
+        result = _glob_with_exclusions(tree, ["**/*.py"], self._accept_all)
         names = {p.name for p in result}
         assert "main.py" in names
         assert "utils.py" in names
@@ -67,7 +67,7 @@ class TestGlobWithExclusions:
 
     def test_exclude_directory(self, tree: Path):
         result = _glob_with_exclusions(
-            tree, ["**/*.py", "!vendor/**"], self._accept_all, tree,
+            tree, ["**/*.py", "!vendor/**"], self._accept_all,
         )
         names = {p.name for p in result}
         assert "main.py" in names
@@ -76,7 +76,7 @@ class TestGlobWithExclusions:
 
     def test_exclude_pattern(self, tree: Path):
         result = _glob_with_exclusions(
-            tree, ["**/*.py", "!**/test/**"], self._accept_all, tree,
+            tree, ["**/*.py", "!**/test/**"], self._accept_all,
         )
         names = {p.name for p in result}
         assert "main.py" in names
@@ -85,7 +85,7 @@ class TestGlobWithExclusions:
 
     def test_exclude_by_extension(self, tree: Path):
         result = _glob_with_exclusions(
-            tree, ["**/*", "!**/*.md"], self._accept_all, tree,
+            tree, ["**/*", "!**/*.md"], self._accept_all,
         )
         names = {p.name for p in result}
         assert "main.py" in names
@@ -93,7 +93,7 @@ class TestGlobWithExclusions:
 
     def test_multiple_excludes(self, tree: Path):
         result = _glob_with_exclusions(
-            tree, ["**/*", "!**/*.md", "!vendor/**"], self._accept_all, tree,
+            tree, ["**/*", "!**/*.md", "!vendor/**"], self._accept_all,
         )
         names = {p.name for p in result}
         assert "main.py" in names
@@ -101,12 +101,12 @@ class TestGlobWithExclusions:
         assert "lib.py" not in names
 
     def test_no_patterns(self, tree: Path):
-        result = _glob_with_exclusions(tree, [], self._accept_all, tree)
+        result = _glob_with_exclusions(tree, [], self._accept_all)
         assert result == set()
 
     def test_only_exclude_patterns(self, tree: Path):
         """If only exclusion patterns given, no files are included."""
         result = _glob_with_exclusions(
-            tree, ["!**/*.py"], self._accept_all, tree,
+            tree, ["!**/*.py"], self._accept_all,
         )
         assert result == set()

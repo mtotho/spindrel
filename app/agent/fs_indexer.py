@@ -69,8 +69,7 @@ def _split_patterns(patterns: list[str]) -> tuple[list[str], list[str]]:
 def _glob_with_exclusions(
     base_dir: Path,
     patterns: list[str],
-    accept: "callable",  # type: ignore[valid-type]
-    root_path: Path,
+    accept: "Any",
 ) -> set[Path]:
     """Glob *base_dir* with *patterns*, honouring ``!``-prefixed exclusions."""
     include, exclude = _split_patterns(patterns)
@@ -571,10 +570,10 @@ async def index_directory(
                 logger.debug("Segment dir %s does not exist, skipping", seg_dir)
                 continue
             seg_patterns = seg.get("patterns") or patterns
-            seen |= _glob_with_exclusions(seg_dir, seg_patterns, _accept, root_path)
+            seen |= _glob_with_exclusions(seg_dir, seg_patterns, _accept)
         candidates = list(seen)
     else:
-        candidates = list(_glob_with_exclusions(root_path, patterns, _accept, root_path))
+        candidates = list(_glob_with_exclusions(root_path, patterns, _accept))
 
     stats = {"indexed": 0, "skipped": 0, "removed": 0, "errors": 0, "cooldown": False}
 
