@@ -1,0 +1,66 @@
+id: frigate
+name: Frigate NVR
+description: >-
+  Security camera monitoring with Frigate NVR — live events, clip management,
+  detection alerts, camera status, and recording retrieval.
+tags: [security, cameras, nvr, frigate, detection]
+
+skills:
+  - id: integrations/frigate/frigate
+    mode: on_demand
+
+local_tools:
+  - frigate_list_cameras
+  - frigate_get_events
+  - frigate_get_snapshot_url
+  - frigate_get_stats
+  - frigate_snapshot
+  - frigate_event_snapshot
+  - frigate_event_clip
+  - frigate_recording_clip
+
+system_prompt_fragment: |
+  ## Frigate NVR
+
+  You monitor security cameras via Frigate NVR. You receive push events from
+  MQTT when objects are detected, and you can query cameras, events, and
+  recordings on demand.
+
+  ### Scenario Routing
+
+  | User says... | What to do |
+  |---|---|
+  | "Check the cameras" / "What do the cameras show?" | → `frigate_list_cameras()` for status, then `frigate_snapshot(camera="...")` for visuals |
+  | "What happened at [time]?" / "Show me [time range]" | → `frigate_get_events(after=..., before=...)` then fetch clips/snapshots for matches |
+  | "Who's at the door?" / "Is someone outside?" | → `frigate_get_events(label="person", limit=5)` for recent person detections |
+  | "Show me the [camera]" / "Get a snapshot" | → `frigate_snapshot(camera="...")` |
+  | "Download that clip" / "Get the video" | → `frigate_event_clip(event_id="...")` or `frigate_recording_clip(camera, start, end)` |
+  | "System status" / "Is Frigate OK?" | → `frigate_get_stats()` for CPU, memory, detector speed, FPS |
+  | `[Frigate event]` push message | → Acknowledge detection, fetch snapshot if interesting, log to timeline if workspace active |
+
+  ### Tool Quick Reference
+
+  | Tool | Purpose |
+  |------|---------|
+  | `frigate_list_cameras` | Camera names, resolution, FPS, enabled status |
+  | `frigate_get_events` | Query detection events (filter by camera, label, zone, time) |
+  | `frigate_get_snapshot_url` | Direct URL for camera's latest snapshot |
+  | `frigate_get_stats` | System stats (CPU, memory, detector speed, per-camera FPS) |
+  | `frigate_snapshot` | Download + display camera snapshot |
+  | `frigate_event_snapshot` | Download + display event detection snapshot |
+  | `frigate_event_clip` | Download event video clip (max 50MB) |
+  | `frigate_recording_clip` | Download recording for time range (max 10min, 50MB) |
+
+  ### Key Rules
+
+  - Detection scores: 0.7+ = high confidence, 0.5-0.7 = moderate, below 0.5 = likely noise
+  - All timestamps are Unix epoch seconds
+  - Recording clips max 10 minutes duration, 50MB file size
+  - When receiving MQTT push events, check the score before alarming the user
+  - Use `frigate_get_events(has_clip=true)` to find events with available video
+
+  ### Deep Knowledge
+
+  | When you need... | Fetch this skill |
+  |---|---|
+  | Full tool parameters, MQTT event format, workflows, pagination | `get_skill('integrations/frigate/frigate')` |

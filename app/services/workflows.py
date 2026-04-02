@@ -136,13 +136,16 @@ async def create_workflow(data: dict) -> Workflow:
 
 
 async def update_workflow(workflow_id: str, data: dict) -> Workflow | None:
-    """Update a workflow (manual/bot source only)."""
+    """Update a workflow. Auto-detaches file/integration sources to manual."""
     async with async_session() as db:
         row = await db.get(Workflow, workflow_id)
         if not row:
             return None
-        if row.source_type == "file":
-            raise ValueError("Cannot update file-sourced workflows via API")
+
+        # Auto-detach file-sourced workflows when edited — makes them user-managed
+        if row.source_type in ("file", "integration"):
+            row.source_type = "manual"
+            row.content_hash = None
 
         for field in ("name", "description", "params", "secrets", "defaults",
                        "steps", "triggers", "tags", "session_mode"):
@@ -156,11 +159,29 @@ async def update_workflow(workflow_id: str, data: dict) -> Workflow | None:
 
 
 async def delete_workflow(workflow_id: str) -> bool:
-    """Delete a workflow."""
+    """Delete a workflow. Raises ValueError if active runs exist."""
+    from sqlalchemy import select as sa_select, func
+    from app.db.models import WorkflowRun
+
     async with async_session() as db:
         row = await db.get(Workflow, workflow_id)
         if not row:
             return False
+
+        # Guard: prevent deletion if active runs exist
+        active_count = (await db.execute(
+            sa_select(func.count()).select_from(WorkflowRun).where(
+                WorkflowRun.workflow_id == workflow_id,
+                WorkflowRun.status.in_(("running", "awaiting_approval")),
+            )
+        )).scalar() or 0
+        if active_count > 0:
+            raise ValueError(
+                f"Cannot delete workflow '{workflow_id}': "
+                f"{active_count} active run(s) still in progress. "
+                f"Cancel them first."
+            )
+
         await db.delete(row)
         await db.commit()
     _registry.pop(workflow_id, None)

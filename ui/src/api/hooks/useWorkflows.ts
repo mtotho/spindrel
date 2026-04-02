@@ -137,6 +137,8 @@ export function useApproveWorkflowStep() {
       }),
     onSuccess: (_data, { runId }) => {
       qc.invalidateQueries({ queryKey: ["workflow-run", runId] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs"] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs-recent"] });
     },
   });
 }
@@ -150,6 +152,8 @@ export function useSkipWorkflowStep() {
       }),
     onSuccess: (_data, { runId }) => {
       qc.invalidateQueries({ queryKey: ["workflow-run", runId] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs"] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs-recent"] });
     },
   });
 }
@@ -163,6 +167,8 @@ export function useRetryWorkflowStep() {
       }),
     onSuccess: (_data, { runId }) => {
       qc.invalidateQueries({ queryKey: ["workflow-run", runId] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs"] });
+      qc.invalidateQueries({ queryKey: ["workflow-runs-recent"] });
     },
   });
 }

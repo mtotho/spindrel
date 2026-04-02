@@ -133,28 +133,20 @@ async def create_workflow(
     if existing:
         raise HTTPException(status_code=409, detail=f"Workflow '{wid}' already exists")
 
-    now = datetime.now(timezone.utc)
-    row = Workflow(
-        id=wid,
-        name=body.name,
-        description=body.description,
-        params=body.params,
-        secrets=body.secrets,
-        defaults=body.defaults,
-        steps=body.steps,
-        triggers=body.triggers,
-        tags=body.tags,
-        session_mode=body.session_mode,
-        source_type="manual",
-        created_at=now,
-        updated_at=now,
-    )
-    db.add(row)
-    await db.commit()
-    await db.refresh(row)
-    # Update in-memory registry
-    from app.services.workflows import _registry
-    _registry[row.id] = row
+    from app.services.workflows import create_workflow as svc_create
+    row = await svc_create({
+        "id": wid,
+        "name": body.name,
+        "description": body.description,
+        "params": body.params,
+        "secrets": body.secrets,
+        "defaults": body.defaults,
+        "steps": body.steps,
+        "triggers": body.triggers,
+        "tags": body.tags,
+        "session_mode": body.session_mode,
+        "source_type": "manual",
+    })
     return WorkflowOut.model_validate(row)
 
 
@@ -165,28 +157,11 @@ async def update_workflow(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("workflows:write")),
 ):
-    row = await db.get(Workflow, workflow_id)
+    from app.services.workflows import update_workflow as svc_update
+    data = body.model_dump(exclude_none=True)
+    row = await svc_update(workflow_id, data)
     if not row:
         raise HTTPException(status_code=404, detail="Workflow not found")
-
-    # Auto-detach file-sourced workflows when edited — makes them user-managed
-    was_file_based = row.source_type in ("file", "integration")
-
-    data = body.model_dump(exclude_none=True)
-    for field in ("name", "description", "params", "secrets", "defaults",
-                   "steps", "triggers", "tags", "session_mode"):
-        if field in data:
-            setattr(row, field, data[field])
-
-    if was_file_based:
-        row.source_type = "manual"
-        row.content_hash = None
-
-    row.updated_at = datetime.now(timezone.utc)
-    await db.commit()
-    await db.refresh(row)
-    from app.services.workflows import _registry
-    _registry[workflow_id] = row
     return WorkflowOut.model_validate(row)
 
 
@@ -196,13 +171,13 @@ async def delete_workflow(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("workflows:write")),
 ):
-    row = await db.get(Workflow, workflow_id)
-    if not row:
+    from app.services.workflows import delete_workflow as svc_delete
+    try:
+        deleted = await svc_delete(workflow_id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if not deleted:
         raise HTTPException(status_code=404, detail="Workflow not found")
-    await db.delete(row)
-    await db.commit()
-    from app.services.workflows import _registry
-    _registry.pop(workflow_id, None)
 
 
 @router.post("/workflows/{workflow_id}/export")
@@ -325,15 +300,11 @@ async def cancel_workflow_run(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("workflows:write")),
 ):
-    run = await db.get(WorkflowRun, run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Workflow run not found")
-    if run.status in ("complete", "cancelled"):
-        raise HTTPException(status_code=400, detail=f"Run is already {run.status}")
-    run.status = "cancelled"
-    run.completed_at = datetime.now(timezone.utc)
-    await db.commit()
-    await db.refresh(run)
+    from app.services.workflow_executor import cancel_workflow
+    try:
+        run = await cancel_workflow(run_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return WorkflowRunOut.model_validate(run)
 
 

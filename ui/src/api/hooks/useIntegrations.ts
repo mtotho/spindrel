@@ -62,6 +62,21 @@ export interface IntegrationSettingItem {
   default?: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Docs page hook (generic — serves markdown from docs/ directory)
+// ---------------------------------------------------------------------------
+
+export function useDocsPage(path: string) {
+  return useQuery({
+    queryKey: ["admin-docs", path],
+    queryFn: () =>
+      apiFetch<{ content: string; path: string }>(
+        `/api/v1/admin/docs?path=${encodeURIComponent(path)}`
+      ),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useIntegrations() {
   return useQuery({
     queryKey: ["admin-integrations"],

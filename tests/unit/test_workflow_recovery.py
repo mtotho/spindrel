@@ -38,7 +38,7 @@ class TestOnStepTaskCompletedIdempotency:
         task.correlation_id = None
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(side_effect=lambda model, id_: run if model.__name__ == "WorkflowRun" else workflow)
+        mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw: run if model.__name__ == "WorkflowRun" else workflow)
 
         with patch("app.services.workflow_executor.async_session") as mock_session:
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
@@ -70,7 +70,7 @@ class TestOnStepTaskCompletedIdempotency:
         task.status = "failed"
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(side_effect=lambda model, id_: run if model.__name__ == "WorkflowRun" else workflow)
+        mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw: run if model.__name__ == "WorkflowRun" else workflow)
 
         with patch("app.services.workflow_executor.async_session") as mock_session:
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
@@ -100,7 +100,7 @@ class TestOnStepTaskCompletedIdempotency:
         task.status = "complete"
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(side_effect=lambda model, id_: run if model.__name__ == "WorkflowRun" else workflow)
+        mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw: run if model.__name__ == "WorkflowRun" else workflow)
 
         with patch("app.services.workflow_executor.async_session") as mock_session:
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
@@ -548,7 +548,7 @@ class TestWorkflowEventDispatch:
         fresh_task.correlation_id = None
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(side_effect=lambda model, id_: {
+        mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw: {
             "WorkflowRun": run, "Workflow": workflow, "Task": fresh_task,
         }.get(model.__name__, None))
         mock_db.commit = AsyncMock()
@@ -600,7 +600,7 @@ class TestWorkflowEventDispatch:
         fresh_task.correlation_id = None
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(side_effect=lambda model, id_: {
+        mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw: {
             "WorkflowRun": run, "Workflow": workflow, "Task": fresh_task,
         }.get(model.__name__, None))
         mock_db.commit = AsyncMock()
@@ -980,7 +980,7 @@ class TestOnStepFailurePolicies:
         fresh_task.correlation_id = None
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(side_effect=lambda model, id_: {
+        mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw: {
             "WorkflowRun": run, "Workflow": workflow, "Task": fresh_task,
         }.get(model.__name__, None))
         mock_db.commit = AsyncMock()
@@ -1231,7 +1231,7 @@ class TestAdvanceWorkflowTaskCreationFailure:
         workflow.secrets = []
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(side_effect=lambda model, id_:
+        mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw:
             run if model.__name__ == "WorkflowRun" else workflow)
         mock_db.commit = AsyncMock()
 
@@ -1278,7 +1278,7 @@ class TestAdvanceWorkflowTaskCreationFailure:
         workflow.secrets = []
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(side_effect=lambda model, id_:
+        mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw:
             run if model.__name__ == "WorkflowRun" else workflow)
         mock_db.commit = AsyncMock()
 
@@ -1327,7 +1327,7 @@ class TestAdvanceWorkflowTaskCreationFailure:
         workflow.secrets = []
 
         mock_db = AsyncMock()
-        mock_db.get = AsyncMock(side_effect=lambda model, id_:
+        mock_db.get = AsyncMock(side_effect=lambda model, id_, **kw:
             run if model.__name__ == "WorkflowRun" else workflow)
         mock_db.commit = AsyncMock()
 

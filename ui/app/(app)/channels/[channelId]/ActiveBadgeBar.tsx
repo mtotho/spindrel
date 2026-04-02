@@ -1,4 +1,4 @@
-import { View, Text, Pressable } from "react-native";
+import { View, Text, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import {
   FileText, Wrench, BookOpen, Plug,
@@ -23,7 +23,7 @@ function resolveIcon(name: string | undefined): React.ComponentType<{ size: numb
  * template badge, active/bound integration badges, tool/skill counts.
  * Clicking a badge navigates to the relevant settings tab.
  */
-export function ActiveBadgeBar({ channelId }: { channelId: string }) {
+export function ActiveBadgeBar({ channelId, compact }: { channelId: string; compact?: boolean }) {
   const theme = useThemeTokens();
   const router = useRouter();
   const { data: settings } = useChannelSettings(channelId);
@@ -54,17 +54,8 @@ export function ActiveBadgeBar({ channelId }: { channelId: string }) {
 
   const nav = (hash: string) => router.push(`/channels/${channelId}/settings#${hash}` as any);
 
-  return (
-    <View
-      className="flex-row items-center border-b border-surface-border"
-      style={{
-        paddingHorizontal: 16,
-        paddingVertical: 5,
-        gap: 6,
-        flexWrap: "wrap",
-        backgroundColor: theme.surface,
-      }}
-    >
+  const badges = (
+    <>
       {/* Template badge */}
       {template && (
         <Pressable onPress={() => nav("workspace")} style={badgeStyle(theme.accent + "15", theme.accent + "40")}>
@@ -131,6 +122,43 @@ export function ActiveBadgeBar({ channelId }: { channelId: string }) {
           </Text>
         </Pressable>
       )}
+    </>
+  );
+
+  // Compact mode: horizontal scroll, single row, no wrap (mobile)
+  if (compact) {
+    return (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        className="border-b border-surface-border"
+        style={{ flexShrink: 0, backgroundColor: theme.surface }}
+        contentContainerStyle={{
+          paddingHorizontal: 12,
+          paddingVertical: 4,
+          gap: 6,
+          alignItems: "center",
+          flexDirection: "row",
+        }}
+      >
+        {badges}
+      </ScrollView>
+    );
+  }
+
+  // Default: wrapping row (desktop)
+  return (
+    <View
+      className="flex-row items-center border-b border-surface-border"
+      style={{
+        paddingHorizontal: 16,
+        paddingVertical: 5,
+        gap: 6,
+        flexWrap: "wrap",
+        backgroundColor: theme.surface,
+      }}
+    >
+      {badges}
     </View>
   );
 }

@@ -1,0 +1,74 @@
+id: github
+name: GitHub
+description: >-
+  GitHub repository management — PR reviews, issue tracking, code browsing,
+  commit history, branch comparison, and webhook-driven event handling.
+tags: [github, git, code-review, pull-requests, issues]
+
+skills:
+  - id: integrations/github/github
+    mode: on_demand
+
+local_tools:
+  - github_get_pr
+  - github_search_issues
+  - github_post_comment
+  - github_list_prs
+  - github_list_commits
+  - github_get_commit
+  - github_get_file
+  - github_compare
+  - github_list_branches
+  - github_get_issue
+  - github_create_issue
+
+system_prompt_fragment: |
+  ## GitHub
+
+  You manage GitHub repositories. You receive webhook events for PRs, issues,
+  and comments, and you can query and interact with repos on demand.
+
+  ### Scenario Routing
+
+  | User says... | What to do |
+  |---|---|
+  | "Review this PR" / "What's in PR #N?" | → `github_get_pr(repo, number)` — read diff, provide review |
+  | "What PRs are open?" / "Show PRs" | → `github_list_prs(repo, state="open")` |
+  | "What changed recently?" / "Recent commits" | → `github_list_commits(repo)` for latest commits |
+  | "Compare branches" / "What's in feature vs main?" | → `github_compare(repo, base, head)` |
+  | "File a bug" / "Create an issue" | → `github_create_issue(repo, title, body, labels)` |
+  | "Find issues about X" / "Search for X" | → `github_search_issues(query)` |
+  | "Show me [file] on [branch]" | → `github_get_file(repo, path, ref)` |
+  | Incoming `[GitHub PR]` webhook | → Review the PR: read diff, post review comment |
+  | Incoming `[GitHub Issue]` webhook | → Acknowledge, triage, or respond based on context |
+  | Incoming `[GitHub Comment]` webhook | → Read context, respond if addressed to bot |
+
+  ### Tool Quick Reference
+
+  | Tool | Purpose |
+  |------|---------|
+  | `github_get_pr` | Full PR details + diff + changed files |
+  | `github_list_prs` | List PRs (open/closed/all) |
+  | `github_search_issues` | Search issues and PRs (top 10 results) |
+  | `github_get_issue` | Issue details + comments |
+  | `github_create_issue` | Create new issue with labels/assignees |
+  | `github_post_comment` | Comment on issue or PR |
+  | `github_list_commits` | Commit history with filters (author, date, path) |
+  | `github_get_commit` | Full commit details + diff |
+  | `github_get_file` | Read file contents at any ref |
+  | `github_compare` | Compare two refs (commits between + diff) |
+  | `github_list_branches` | All branches with protection status |
+
+  ### Key Rules
+
+  - Channel format: `github:owner/repo` — extract owner/repo from the channel binding
+  - Diffs truncated at 50K chars, file contents at 100K chars
+  - When reviewing PRs: read the full diff, comment on specific issues, be constructive
+  - Avoid self-loops: don't respond to comments posted by the bot's own GitHub user
+  - For webhook events: distinguish action-required (PR opened, issue opened, comment) from informational (push, release, PR merged)
+
+  ### Deep Knowledge
+
+  | When you need... | Fetch this skill |
+  |---|---|
+  | Full tool parameters, webhook event formats, search syntax, workflows | `get_skill('integrations/github/github')` |

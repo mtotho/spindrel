@@ -187,6 +187,7 @@ function TriggerForm({
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
   const [botId, setBotId] = useState("");
   const [sessionMode, setSessionMode] = useState("");
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!workflow) return;
@@ -199,12 +200,13 @@ function TriggerForm({
   }, [workflow]);
 
   const handleTrigger = async () => {
+    setValidationErrors({});
     const params: Record<string, any> = {};
     for (const [k, v] of Object.entries(paramDefs)) {
       const def = v as any;
       const val = paramValues[k];
       if (def.required && (!val || val.trim() === "")) {
-        alert(`Parameter "${k}" is required`);
+        setValidationErrors((prev) => ({ ...prev, [k]: `"${k}" is required` }));
         return;
       }
       if (val !== undefined && val !== "") {
@@ -254,8 +256,11 @@ function TriggerForm({
               {def.type === "boolean" ? (
                 <select
                   value={paramValues[name] || ""}
-                  onChange={(e) => setParamValues((p) => ({ ...p, [name]: e.target.value }))}
-                  style={{ ...inputStyle, padding: "6px 8px" }}
+                  onChange={(e) => {
+                    setParamValues((p) => ({ ...p, [name]: e.target.value }));
+                    setValidationErrors((prev) => { const n = { ...prev }; delete n[name]; return n; });
+                  }}
+                  style={{ ...inputStyle, padding: "6px 8px", borderColor: validationErrors[name] ? t.danger : t.inputBorder }}
                 >
                   <option value="">— select —</option>
                   <option value="true">true</option>
@@ -264,10 +269,16 @@ function TriggerForm({
               ) : (
                 <input
                   value={paramValues[name] || ""}
-                  onChange={(e) => setParamValues((p) => ({ ...p, [name]: e.target.value }))}
+                  onChange={(e) => {
+                    setParamValues((p) => ({ ...p, [name]: e.target.value }));
+                    setValidationErrors((prev) => { const n = { ...prev }; delete n[name]; return n; });
+                  }}
                   placeholder={def.default != null ? `default: ${def.default}` : def.required ? "required" : "optional"}
-                  style={inputStyle}
+                  style={{ ...inputStyle, borderColor: validationErrors[name] ? t.danger : t.inputBorder }}
                 />
+              )}
+              {validationErrors[name] && (
+                <span style={{ fontSize: 11, color: t.danger }}>{validationErrors[name]}</span>
               )}
             </div>
           ))}

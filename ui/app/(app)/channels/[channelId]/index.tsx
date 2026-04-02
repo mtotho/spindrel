@@ -784,7 +784,7 @@ export default function ChatScreen() {
       </View>
 
       {/* What's active badge bar */}
-      {channelId && <ActiveBadgeBar channelId={channelId} />}
+      {channelId && <ActiveBadgeBar channelId={channelId} compact={isMobile} />}
 
       {/* Protected channel warning */}
       {channel?.client_id === "orchestrator:home" && (

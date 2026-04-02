@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Link, useRouter } from "expo-router";
 import type { Workflow, WorkflowRun } from "@/src/types/api";
+import { fmtTime } from "./WorkflowRunHelpers";
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -31,20 +32,6 @@ function getRunStatusStyle(status: string, t: ThemeTokens) {
       return { color: t.warning, bg: t.warningSubtle, border: t.warningBorder, icon: ShieldCheck, label: "awaiting approval" };
     default:
       return { color: t.textDim, bg: t.surfaceRaised, border: t.surfaceBorder, icon: HelpCircle, label: status };
-  }
-}
-
-function fmtTimeAgo(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    if (diffMs < 60000) return "just now";
-    if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`;
-    if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`;
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return iso;
   }
 }
 
@@ -136,7 +123,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
                 </span>
               )}
               <span style={{ fontSize: 11, color: t.textMuted }}>
-                {fmtTimeAgo(run.created_at)}
+                {fmtTime(run.created_at)}
               </span>
             </div>
           </div>

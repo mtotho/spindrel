@@ -102,7 +102,11 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
           )}
           {isActive && (
             <button
-              onClick={() => cancelMut.mutate(runId)}
+              onClick={() => {
+                if (window.confirm("Cancel this workflow run? In-flight steps will be abandoned.")) {
+                  cancelMut.mutate(runId);
+                }
+              }}
               disabled={cancelMut.isPending}
               style={{
                 display: "flex", alignItems: "center", gap: 4,
@@ -240,9 +244,9 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
           onApprove={(i) => approveMut.mutate({ runId, stepIndex: i })}
           onSkip={(i) => skipMut.mutate({ runId, stepIndex: i })}
           onRetry={(i) => retryMut.mutate({ runId, stepIndex: i })}
-          isApproving={approveMut.isPending}
-          isSkipping={skipMut.isPending}
-          isRetrying={retryMut.isPending}
+          pendingApproveStep={approveMut.isPending ? approveMut.variables?.stepIndex ?? null : null}
+          pendingSkipStep={skipMut.isPending ? skipMut.variables?.stepIndex ?? null : null}
+          pendingRetryStep={retryMut.isPending ? retryMut.variables?.stepIndex ?? null : null}
         />
       </div>
     </div>

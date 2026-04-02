@@ -5,7 +5,8 @@ import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { Search, Play, Square, RefreshCw } from "lucide-react";
+import { Search, Play, Square, RefreshCw, BookOpen } from "lucide-react";
+import { IntegrationGuideModal } from "./IntegrationGuideModal";
 import {
   useIntegrations,
   useStartProcess,
@@ -221,6 +222,7 @@ export default function IntegrationsScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
   const [search, setSearch] = useState("");
+  const [showGuide, setShowGuide] = useState(false);
 
   // Deduplicate
   const all = useMemo(() => {
@@ -280,36 +282,66 @@ export default function IntegrationsScreen() {
     <View className="flex-1 bg-surface">
       <MobileHeader title="Integrations" />
 
-      {/* Pinned search bar (matches skills/tools pattern) */}
+      {/* Toolbar: search bar (when items exist) + guide button (always) */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 10,
+        padding: isWide ? "8px 16px" : "8px 12px",
+        borderBottom: `1px solid ${t.surfaceBorder}`,
+      }}>
+        {all && all.length > 0 && (
+          <>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
+              borderRadius: 6, padding: "5px 10px",
+              maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
+            }}>
+              <Search size={13} color={t.textDim} />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Filter integrations..."
+                style={{
+                  background: "none", border: "none", outline: "none",
+                  color: t.text, fontSize: 12, flex: 1, width: "100%",
+                }}
+              />
+            </div>
+            <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap" }}>
+              {search && filtered.length !== all.length
+                ? `${filtered.length} / ${all.length}`
+                : all.length}{" "}
+              integrations
+            </span>
+          </>
+        )}
+        {(!all || all.length === 0) && <div style={{ flex: 1 }} />}
+        <button
+          onClick={() => setShowGuide(true)}
+          title="Integration Guide"
+          style={{
+            display: "flex", alignItems: "center", gap: 4,
+            padding: "4px 8px", borderRadius: 5, border: `1px solid ${t.surfaceBorder}`,
+            background: "transparent", color: t.textMuted,
+            fontSize: 11, fontWeight: 500,
+            cursor: "pointer",
+            marginLeft: all && all.length > 0 ? undefined : "auto",
+          }}
+        >
+          <BookOpen size={13} />
+          Guide
+        </button>
+      </div>
+
+      {/* Status legend */}
       {all && all.length > 0 && (
         <div style={{
-          display: "flex", alignItems: "center", gap: 10,
-          padding: isWide ? "8px 16px" : "8px 12px",
-          borderBottom: `1px solid ${t.surfaceBorder}`,
+          padding: isWide ? "4px 16px 6px" : "4px 12px 6px",
+          fontSize: 11, color: t.textDim, lineHeight: 1.5,
         }}>
-          <div style={{
-            display: "flex", alignItems: "center", gap: 6,
-            background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 6, padding: "5px 10px",
-            maxWidth: isWide ? 300 : undefined, flex: isWide ? undefined : 1,
-          }}>
-            <Search size={13} color={t.textDim} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter integrations..."
-              style={{
-                background: "none", border: "none", outline: "none",
-                color: t.text, fontSize: 12, flex: 1, width: "100%",
-              }}
-            />
-          </div>
-          <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap" }}>
-            {search && filtered.length !== all.length
-              ? `${filtered.length} / ${all.length}`
-              : all.length}{" "}
-            integrations
-          </span>
+          <strong style={{ color: t.textMuted }}>Ready</strong> = configured{" \u00b7 "}
+          <strong style={{ color: t.textMuted }}>Needs Setup</strong> = missing required vars{" \u00b7 "}
+          Workspace integrations auto-discovered on restart
         </div>
       )}
 
@@ -343,6 +375,8 @@ export default function IntegrationsScreen() {
           ),
         )}
       </RefreshableScrollView>
+
+      {showGuide && <IntegrationGuideModal onClose={() => setShowGuide(false)} />}
     </View>
   );
 }

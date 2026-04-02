@@ -132,6 +132,7 @@ def evaluate_condition(condition: dict | None, context: dict) -> bool:
                 return False
         return True
 
+    logger.warning("Unrecognized condition keys: %s — evaluating as False", list(condition.keys()))
     return False
 
 
@@ -260,6 +261,14 @@ async def trigger_workflow(
     if not workflow:
         raise ValueError(f"Workflow '{workflow_id}' not found")
 
+    # Enforce trigger restrictions
+    triggers = workflow.triggers or {}
+    if triggers and triggered_by in triggers:
+        if not triggers[triggered_by]:
+            raise ValueError(
+                f"Workflow '{workflow_id}' does not allow '{triggered_by}' triggers"
+            )
+
     # Resolve bot_id from workflow defaults if not provided
     effective_bot_id = bot_id or workflow.defaults.get("bot_id")
     if not effective_bot_id:
@@ -338,112 +347,105 @@ async def trigger_workflow(
 async def advance_workflow(run_id: uuid.UUID) -> None:
     """Advance a workflow run to the next actionable step.
 
-    Loops through pending steps:
+    Uses a single session with row-level locking to prevent race conditions.
+    Loops through pending steps (no recursion):
     - Evaluates conditions (skip if false)
     - Pauses at approval gates
     - Creates tasks for runnable steps
     - Marks run complete when all steps are terminal
     """
-    async with async_session() as db:
-        run = await db.get(WorkflowRun, run_id)
-        if not run or run.status not in ("running", "awaiting_approval"):
-            return
+    # Deferred event dispatch — collected inside the loop, fired after session closes
+    pending_events: list[tuple[WorkflowRun, str, str, str]] = []
+    fire_completion = False
 
-        workflow = await db.get(Workflow, run.workflow_id)
-        if not workflow:
-            run.status = "failed"
-            run.error = f"Workflow '{run.workflow_id}' not found"
-            run.completed_at = datetime.now(timezone.utc)
-            await db.commit()
-            return
+    while True:
+        action_taken = False
 
-    steps = workflow.steps
-    step_states = list(run.step_states)  # mutable copy
+        async with async_session() as db:
+            run = await db.get(WorkflowRun, run_id, with_for_update=True)
+            if not run or run.status not in ("running", "awaiting_approval"):
+                return
 
-    # Build condition context
-    context = _build_condition_context(steps, step_states, run.params)
+            workflow = await db.get(Workflow, run.workflow_id)
+            if not workflow:
+                run.status = "failed"
+                run.error = f"Workflow '{run.workflow_id}' not found"
+                run.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                return
 
-    advanced = False
-    for i, step_def in enumerate(steps):
-        if i >= len(step_states):
-            break
-
-        state = step_states[i]
-        if state["status"] != "pending":
-            continue
-
-        # Evaluate condition
-        condition = step_def.get("when")
-        if not evaluate_condition(condition, context):
-            # Mark skipped
-            state["status"] = "skipped"
-            state["completed_at"] = datetime.now(timezone.utc).isoformat()
-            # Update context for subsequent conditions
+            steps = workflow.steps
+            step_states = list(run.step_states)  # mutable copy
             context = _build_condition_context(steps, step_states, run.params)
-            advanced = True
-            continue
 
-        # Approval gate
-        if step_def.get("requires_approval"):
-            async with async_session() as db:
-                run = await db.get(WorkflowRun, run_id)
-                if run:
+            for i, step_def in enumerate(steps):
+                if i >= len(step_states):
+                    break
+
+                state = step_states[i]
+                if state["status"] != "pending":
+                    continue
+
+                # Evaluate condition
+                condition = step_def.get("when")
+                if not evaluate_condition(condition, context):
+                    state["status"] = "skipped"
+                    state["completed_at"] = datetime.now(timezone.utc).isoformat()
+                    context = _build_condition_context(steps, step_states, run.params)
+                    action_taken = True
+                    continue
+
+                # Approval gate
+                if step_def.get("requires_approval"):
                     run.status = "awaiting_approval"
                     run.current_step_index = i
                     run.step_states = step_states
                     await db.commit()
-            logger.info("Workflow run %s awaiting approval at step %d (%s)", run_id, i, step_def.get("id", "?"))
-            return
+                    logger.info("Workflow run %s awaiting approval at step %d (%s)",
+                                run_id, i, step_def.get("id", "?"))
+                    return
 
-        # Create task for this step — task first, then step state update.
-        # This avoids a stuck "running" step if task creation fails.
-        now = datetime.now(timezone.utc)
-        try:
-            task_id = await _create_step_task(run, workflow, step_def, i)
-        except Exception as e:
-            logger.exception("Failed to create step task for run %s step %d", run_id, i)
-            state["status"] = "failed"
-            state["error"] = f"Task creation failed: {e}"
-            state["completed_at"] = now.isoformat()
-            async with async_session() as db:
-                run = await db.get(WorkflowRun, run_id)
-                if run:
+                # Create task for this step
+                now = datetime.now(timezone.utc)
+                try:
+                    task_id = await _create_step_task(run, workflow, step_def, i)
+                except Exception as e:
+                    logger.exception("Failed to create step task for run %s step %d", run_id, i)
+                    state["status"] = "failed"
+                    state["error"] = f"Task creation failed: {e}"
+                    state["completed_at"] = now.isoformat()
                     run.step_states = step_states
                     run.status = "failed"
                     run.error = f"Step '{step_def.get('id', i)}' task creation failed: {e}"
                     run.completed_at = now
                     await db.commit()
-            return
+                    return
 
-        state["status"] = "running"
-        state["started_at"] = now.isoformat()
-        state["task_id"] = str(task_id)
-        advanced = True
-
-        async with async_session() as db:
-            run = await db.get(WorkflowRun, run_id)
-            if run:
+                state["status"] = "running"
+                state["started_at"] = now.isoformat()
+                state["task_id"] = str(task_id)
                 run.current_step_index = i
                 run.step_states = step_states
                 await db.commit()
+                return  # Wait for task completion callback
 
-        return  # Wait for task completion callback
+            # No more pending steps — check terminal state
+            all_terminal = all(
+                s["status"] in ("done", "skipped", "failed") for s in step_states
+            )
+            run.step_states = step_states
 
-    # If we got here, no more steps to process — check if all are terminal
-    all_terminal = all(s["status"] in ("done", "skipped", "failed") for s in step_states)
-    if all_terminal or advanced:
-        async with async_session() as db:
-            run = await db.get(WorkflowRun, run_id)
-            if run:
-                run.step_states = step_states
-                if all_terminal:
-                    has_failure = any(s["status"] == "failed" for s in step_states)
-                    run.status = "failed" if has_failure else "complete"
-                    run.completed_at = datetime.now(timezone.utc)
-                    logger.info("Workflow run %s completed with status '%s'", run_id, run.status)
-                await db.commit()
+            if all_terminal:
+                has_failure = any(s["status"] == "failed" for s in step_states)
+                run.status = "failed" if has_failure else "complete"
+                run.completed_at = datetime.now(timezone.utc)
+                logger.info("Workflow run %s completed with status '%s'", run_id, run.status)
+                fire_completion = True
 
-        if all_terminal and run:
+            await db.commit()
+
+        # End of session — dispatch events outside the transaction
+        if fire_completion:
             done_ct = sum(1 for s in step_states if s["status"] == "done")
             fail_ct = sum(1 for s in step_states if s["status"] == "failed")
             skip_ct = sum(1 for s in step_states if s["status"] == "skipped")
@@ -453,10 +455,11 @@ async def advance_workflow(run_id: uuid.UUID) -> None:
                 f"{done_ct} done, {fail_ct} failed, {skip_ct} skipped",
             )
             await _fire_after_workflow_complete(run, workflow)
+            return
 
-        # Re-check if there are more steps after skips
-        if not all_terminal:
-            await advance_workflow(run_id)
+        # If we only skipped steps this iteration, loop back to re-evaluate
+        if not action_taken:
+            return
 
 
 def _build_condition_context(steps: list[dict], step_states: list[dict], params: dict) -> dict:
@@ -510,9 +513,9 @@ async def _create_step_task(
         prior_lines = []
         steps = workflow.steps
         for i, st in enumerate(run.step_states):
-            if i >= step_index and st.get("status") in ("done", "failed"):
+            if i >= step_index:
                 break
-            if i < step_index and st.get("status") in ("done", "failed"):
+            if st.get("status") in ("done", "failed"):
                 sid = steps[i].get("id", f"step_{i}") if i < len(steps) else f"step_{i}"
                 text = (st.get("result") or st.get("error") or "")[:max_chars]
                 prior_lines.append(f"- {sid} ({st['status']}): {text}")
@@ -727,15 +730,18 @@ async def approve_step(run_id: uuid.UUID, step_index: int) -> WorkflowRun:
 
     step_def = workflow.steps[step_index]
 
+    task_id = await _create_step_task(run, workflow, step_def, step_index)
+
     async with async_session() as db:
         run = await db.get(WorkflowRun, run_id)
         step_states = list(run.step_states)
         step_states[step_index]["status"] = "running"
         step_states[step_index]["started_at"] = datetime.now(timezone.utc).isoformat()
+        step_states[step_index]["task_id"] = str(task_id)
         run.step_states = step_states
         await db.commit()
+        await db.refresh(run)
 
-    await _create_step_task(run, workflow, step_def, step_index)
     return run
 
 

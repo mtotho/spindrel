@@ -21,7 +21,7 @@ export default function WorkflowRunFeed({
   stepStates, steps, runStatus, runParams, runId, t,
   activeStepIndex, onStepVisible,
   onApprove, onSkip, onRetry,
-  isApproving, isSkipping, isRetrying,
+  pendingApproveStep, pendingSkipStep, pendingRetryStep,
 }: {
   stepStates: WorkflowStepState[];
   steps: { id?: string; prompt?: string; requires_approval?: boolean; on_failure?: string; when?: any }[];
@@ -34,9 +34,9 @@ export default function WorkflowRunFeed({
   onApprove: (stepIndex: number) => void;
   onSkip: (stepIndex: number) => void;
   onRetry: (stepIndex: number) => void;
-  isApproving: boolean;
-  isSkipping: boolean;
-  isRetrying: boolean;
+  pendingApproveStep: number | null;
+  pendingSkipStep: number | null;
+  pendingRetryStep: number | null;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -113,9 +113,9 @@ export default function WorkflowRunFeed({
           onApprove={() => onApprove(i)}
           onSkip={() => onSkip(i)}
           onRetry={() => onRetry(i)}
-          isApproving={isApproving}
-          isSkipping={isSkipping}
-          isRetrying={isRetrying}
+          isApproving={pendingApproveStep === i}
+          isSkipping={pendingSkipStep === i}
+          isRetrying={pendingRetryStep === i}
         />
       ))}
 

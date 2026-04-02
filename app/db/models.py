@@ -1355,4 +1355,5 @@ class WorkflowRun(Base):
     __table_args__ = (
         Index("ix_workflow_runs_status", "status"),
         Index("ix_workflow_runs_workflow_id", "workflow_id"),
+        Index("ix_workflow_runs_created_at", "created_at"),
     )
