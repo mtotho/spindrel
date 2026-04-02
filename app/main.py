@@ -320,7 +320,8 @@ async def lifespan(app: FastAPI):
         )
         os.makedirs(_ws_int_path, exist_ok=True)
         _existing = settings.INTEGRATION_DIRS
-        if _ws_int_path not in (_existing or ""):
+        _existing_paths = {p.strip() for p in _existing.split(":")} if _existing else set()
+        if _ws_int_path not in _existing_paths:
             settings.INTEGRATION_DIRS = (
                 f"{_existing}:{_ws_int_path}" if _existing else _ws_int_path
             )
@@ -340,15 +341,25 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to register integration router: %s", _integration_id)
 
-    # Mount static files for integration web UIs
+    # Mount static files for integration web UIs (SPA fallback: unknown paths → index.html)
     from integrations import discover_web_uis as _discover_web_uis
     from starlette.staticfiles import StaticFiles
+
+    class _SPAStaticFiles(StaticFiles):
+        """StaticFiles with SPA fallback — serves index.html for any 404."""
+
+        async def get_response(self, path: str, scope):
+            response = await super().get_response(path, scope)
+            if response.status_code == 404:
+                response = await super().get_response("index.html", scope)
+            return response
+
     for _web_ui in _discover_web_uis():
         _ui_path = f"/integrations/{_web_ui['integration_id']}/ui"
         try:
             app.mount(
                 _ui_path,
-                StaticFiles(directory=str(_web_ui["static_dir_path"]), html=True),
+                _SPAStaticFiles(directory=str(_web_ui["static_dir_path"]), html=True),
                 name=f"integration-ui-{_web_ui['integration_id']}",
             )
             logger.info("Mounted integration web UI: %s → %s", _ui_path, _web_ui["static_dir_path"])
