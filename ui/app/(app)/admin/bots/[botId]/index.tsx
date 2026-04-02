@@ -235,7 +235,11 @@ export default function BotEditorScreen() {
                 </Col>
               </Row>
               <FormRow label="Model">
-                <LlmModelDropdown value={draft.model} onChange={(v) => update({ model: v })} />
+                <LlmModelDropdown
+                  value={draft.model}
+                  selectedProviderId={draft.model_provider_id}
+                  onChange={(v, pid) => update({ model: v, model_provider_id: pid ?? null })}
+                />
               </FormRow>
               <FormRow label="Fallback Models" description="Ordered list of models tried when the primary fails. Global list is appended as catch-all.">
                 <FallbackModelList

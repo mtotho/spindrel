@@ -1,4 +1,5 @@
 import { useState, useMemo, Fragment } from "react";
+import { useRouter } from "expo-router";
 import { View, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
@@ -894,6 +895,7 @@ export default function TasksScreen() {
   const [botFilter, setBotFilter] = useState<string>("");
   const [editorState, setEditorState] = useState<EditorState>({ mode: "closed" });
   const qc = useQueryClient();
+  const router = useRouter();
   const { refreshing, onRefresh } = usePageRefresh();
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
@@ -1006,6 +1008,11 @@ export default function TasksScreen() {
   };
 
   const handleTaskPress = (t: TaskItem) => {
+    // Workflow tasks → navigate to task detail page (has WorkflowRunLink)
+    if (t.task_type === "workflow") {
+      router.push(`/admin/tasks/${t.id}` as any);
+      return;
+    }
     const taskId = t.is_virtual && t._schedule_id ? t._schedule_id : t.id;
     setEditorState({ mode: "edit", taskId });
   };

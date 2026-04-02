@@ -5,13 +5,173 @@ import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useWorkflows, useRecentWorkflowRuns } from "@/src/api/hooks/useWorkflows";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
-import { Plus, Search, Zap, ChevronRight, HelpCircle, Loader2, CheckCircle2, XCircle, ShieldCheck } from "lucide-react";
+import {
+  Plus, Search, Zap, ChevronRight, HelpCircle,
+  Loader2, CheckCircle2, XCircle, ShieldCheck, Clock, Minus,
+} from "lucide-react";
 import { Link, useRouter } from "expo-router";
 import type { Workflow, WorkflowRun } from "@/src/types/api";
 
-type RenderItem =
-  | { type: "header"; key: string; label: string; count: number }
-  | { type: "card"; key: string; workflow: Workflow };
+// ---------------------------------------------------------------------------
+// Status helpers
+// ---------------------------------------------------------------------------
+
+function getRunStatusStyle(status: string, t: ThemeTokens) {
+  switch (status) {
+    case "running":
+      return { color: t.accent, bg: t.accentSubtle, border: t.accentBorder, icon: Loader2, label: "running" };
+    case "complete":
+    case "done":
+      return { color: t.success, bg: t.successSubtle, border: t.successBorder, icon: CheckCircle2, label: "complete" };
+    case "failed":
+      return { color: t.danger, bg: t.dangerSubtle, border: t.dangerBorder, icon: XCircle, label: "failed" };
+    case "cancelled":
+      return { color: t.textDim, bg: t.surfaceRaised, border: t.surfaceBorder, icon: Minus, label: "cancelled" };
+    case "awaiting_approval":
+      return { color: t.warning, bg: t.warningSubtle, border: t.warningBorder, icon: ShieldCheck, label: "awaiting approval" };
+    default:
+      return { color: t.textDim, bg: t.surfaceRaised, border: t.surfaceBorder, icon: HelpCircle, label: status };
+  }
+}
+
+function fmtTimeAgo(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    if (diffMs < 60000) return "just now";
+    if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`;
+    if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recent Runs Feed
+// ---------------------------------------------------------------------------
+
+function RecentRunsFeed({ runs, t }: { runs: WorkflowRun[]; t: ThemeTokens }) {
+  if (runs.length === 0) return null;
+
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        marginBottom: 10,
+      }}>
+        <Clock size={13} color={t.textMuted} />
+        <span style={{
+          fontSize: 11, fontWeight: 600, color: t.textMuted,
+          textTransform: "uppercase", letterSpacing: 1,
+        }}>
+          Recent Runs
+        </span>
+        <span style={{ fontSize: 10, color: t.textDim }}>{runs.length}</span>
+        <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {runs.map((run) => (
+          <RunRow key={run.id} run={run} t={t} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
+  const s = getRunStatusStyle(run.status, t);
+  const Icon = s.icon;
+  const doneSteps = run.step_states.filter(
+    (st) => st.status === "done" || st.status === "skipped" || st.status === "failed"
+  ).length;
+  const totalSteps = run.step_states.length;
+
+  return (
+    <Link href={`/admin/workflows/${run.workflow_id}?tab=runs&run=${run.id}` as any} asChild>
+      <Pressable
+        style={{
+          backgroundColor: t.surfaceRaised,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: t.surfaceBorder,
+          padding: 10,
+        }}
+      >
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+        }}>
+          {/* Status icon */}
+          <div style={{
+            width: 26, height: 26, borderRadius: 13, flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            background: s.bg, border: `1px solid ${s.border}`,
+          }}>
+            <Icon size={13} color={s.color} />
+          </div>
+
+          {/* Main content */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
+                {run.workflow_id}
+              </span>
+              <span style={{
+                display: "inline-flex", alignItems: "center", gap: 3,
+                padding: "1px 6px", borderRadius: 4, fontSize: 10, fontWeight: 600,
+                background: s.bg, border: `1px solid ${s.border}`, color: s.color,
+              }}>
+                {run.status.replace(/_/g, " ")}
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
+              <span style={{ fontSize: 11, color: t.textDim }}>
+                {run.bot_id}
+              </span>
+              {run.triggered_by && (
+                <span style={{ fontSize: 11, color: t.textDim }}>
+                  via {run.triggered_by}
+                </span>
+              )}
+              <span style={{ fontSize: 11, color: t.textDim }}>
+                {fmtTimeAgo(run.created_at)}
+              </span>
+            </div>
+          </div>
+
+          {/* Step progress */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            {/* Mini step bar */}
+            <div style={{
+              display: "flex", gap: 2, height: 4, borderRadius: 2,
+              overflow: "hidden", width: 60,
+            }}>
+              {run.step_states.map((st, i) => {
+                const color =
+                  st.status === "done" ? t.success :
+                  st.status === "running" ? t.accent :
+                  st.status === "failed" ? t.danger :
+                  st.status === "skipped" ? t.surfaceBorder :
+                  t.surfaceOverlay;
+                return <div key={i} style={{ flex: 1, background: color, borderRadius: 1 }} />;
+              })}
+            </div>
+            <span style={{ fontSize: 11, color: t.textDim, whiteSpace: "nowrap" }}>
+              {doneSteps}/{totalSteps}
+            </span>
+            <ChevronRight size={14} color={t.textDim} />
+          </div>
+        </div>
+      </Pressable>
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Section headers
+// ---------------------------------------------------------------------------
 
 function SectionHeader({ label, count }: { label: string; count: number }) {
   const t = useThemeTokens();
@@ -32,6 +192,14 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+type RenderItem =
+  | { type: "header"; key: string; label: string; count: number }
+  | { type: "card"; key: string; workflow: Workflow };
+
 export default function WorkflowsPage() {
   const t = useThemeTokens();
   const router = useRouter();
@@ -39,16 +207,6 @@ export default function WorkflowsPage() {
   const { data: recentRuns } = useRecentWorkflowRuns();
   const { refreshing, onRefresh } = usePageRefresh([["workflows"], ["workflow-runs-recent"]]);
   const [search, setSearch] = useState("");
-
-  // Map: workflow_id -> latest run
-  const latestRunByWorkflow = useMemo(() => {
-    const map = new Map<string, WorkflowRun>();
-    if (!recentRuns) return map;
-    for (const run of recentRuns) {
-      if (!map.has(run.workflow_id)) map.set(run.workflow_id, run);
-    }
-    return map;
-  }, [recentRuns]);
 
   const filtered = useMemo(() => {
     if (!workflows) return [];
@@ -152,6 +310,11 @@ export default function WorkflowsPage() {
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
           <View style={{ padding: 16, maxWidth: 960 }}>
+            {/* Recent Runs feed — always at the top */}
+            {recentRuns && recentRuns.length > 0 && !search && (
+              <RecentRunsFeed runs={recentRuns} t={t} />
+            )}
+
             {(!workflows || workflows.length === 0) && (
               <View style={{ alignItems: "center", paddingTop: 60 }}>
                 <Zap size={32} color={t.textMuted} />
@@ -172,7 +335,7 @@ export default function WorkflowsPage() {
                 <SectionHeader key={item.key} label={item.label} count={item.count} />
               ) : (
                 <View key={item.key} style={{ marginBottom: 8 }}>
-                  <WorkflowCard workflow={item.workflow} t={t} latestRun={latestRunByWorkflow.get(item.workflow.id)} />
+                  <WorkflowCard workflow={item.workflow} t={t} />
                 </View>
               ),
             )}
@@ -183,40 +346,11 @@ export default function WorkflowsPage() {
   );
 }
 
-function getRunStatusStyle(status: string, t: ThemeTokens) {
-  switch (status) {
-    case "running":
-      return { color: t.accent, icon: Loader2, label: "running" };
-    case "complete":
-    case "done":
-      return { color: t.success, icon: CheckCircle2, label: "complete" };
-    case "failed":
-      return { color: t.danger, icon: XCircle, label: "failed" };
-    case "awaiting_approval":
-      return { color: t.warning, icon: ShieldCheck, label: "awaiting approval" };
-    default:
-      return { color: t.textDim, icon: HelpCircle, label: status };
-  }
-}
+// ---------------------------------------------------------------------------
+// Workflow card
+// ---------------------------------------------------------------------------
 
-function fmtTimeAgo(iso: string): string {
-  try {
-    const d = new Date(iso);
-    const now = new Date();
-    const diffMs = now.getTime() - d.getTime();
-    if (diffMs < 60000) return "just now";
-    if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`;
-    if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`;
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  } catch {
-    return iso;
-  }
-}
-
-function WorkflowCard({ workflow: w, t, latestRun }: { workflow: Workflow; t: ThemeTokens; latestRun?: WorkflowRun }) {
-  const runStyle = latestRun ? getRunStatusStyle(latestRun.status, t) : null;
-  const RunIcon = runStyle?.icon;
-
+function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }) {
   return (
     <Link href={`/admin/workflows/${w.id}` as any} asChild>
       <Pressable
@@ -273,11 +407,6 @@ function WorkflowCard({ workflow: w, t, latestRun }: { workflow: Workflow; t: Th
                   {Object.keys(w.params).length} param{Object.keys(w.params).length !== 1 ? "s" : ""}
                 </Text>
               )}
-              {w.secrets.length > 0 && (
-                <Text style={{ color: t.textDim, fontSize: 11 }}>
-                  {w.secrets.length} secret{w.secrets.length !== 1 ? "s" : ""}
-                </Text>
-              )}
               {w.tags.length > 0 && (
                 <View style={{ flexDirection: "row", gap: 4 }}>
                   {w.tags.map((tag) => (
@@ -290,21 +419,6 @@ function WorkflowCard({ workflow: w, t, latestRun }: { workflow: Workflow; t: Th
                     </View>
                   ))}
                 </View>
-              )}
-              {/* Latest run status */}
-              {latestRun && runStyle && RunIcon && (
-                <>
-                  <View style={{ width: 1, height: 10, backgroundColor: t.surfaceBorder }} />
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                    <RunIcon size={11} color={runStyle.color} />
-                    <Text style={{ color: runStyle.color, fontSize: 11, fontWeight: "500" }}>
-                      {runStyle.label}
-                    </Text>
-                    <Text style={{ color: t.textDim, fontSize: 10 }}>
-                      {fmtTimeAgo(latestRun.created_at)}
-                    </Text>
-                  </View>
-                </>
               )}
             </View>
           </View>
