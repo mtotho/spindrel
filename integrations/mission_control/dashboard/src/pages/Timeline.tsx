@@ -14,23 +14,23 @@ import ScopeToggle from "../components/ScopeToggle";
 
 const DAY_OPTIONS = [7, 14, 30, 60];
 
-function eventMeta(event: string): { Icon: typeof Circle; color: string; tint: string } {
+function eventMeta(event: string): { Icon: typeof Circle; color: string } {
   const e = event.toLowerCase();
   if (e.includes("complete") || e.includes("done"))
-    return { Icon: CheckCircle, color: "#22c55e", tint: "rgba(34,197,94,0.08)" };
+    return { Icon: CheckCircle, color: "#22c55e" };
   if (e.includes("create") || e.includes("add"))
-    return { Icon: Plus, color: "#3b82f6", tint: "rgba(59,130,246,0.08)" };
+    return { Icon: Plus, color: "#3b82f6" };
   if (e.includes("move"))
-    return { Icon: ArrowRight, color: "#f59e0b", tint: "rgba(245,158,11,0.08)" };
+    return { Icon: ArrowRight, color: "#f59e0b" };
   if (e.includes("plan"))
-    return { Icon: ListChecks, color: "#a855f7", tint: "rgba(168,85,247,0.08)" };
+    return { Icon: ListChecks, color: "#a855f7" };
   if (e.includes("approve"))
-    return { Icon: ThumbsUp, color: "#22c55e", tint: "rgba(34,197,94,0.08)" };
+    return { Icon: ThumbsUp, color: "#22c55e" };
   if (e.includes("reject") || e.includes("abandon"))
-    return { Icon: ThumbsDown, color: "#ef4444", tint: "rgba(239,68,68,0.08)" };
+    return { Icon: ThumbsDown, color: "#ef4444" };
   if (e.includes("skip"))
-    return { Icon: CornerDownRight, color: "#9ca3af", tint: "rgba(156,163,175,0.08)" };
-  return { Icon: Circle, color: "#9ca3af", tint: "transparent" };
+    return { Icon: CornerDownRight, color: "#9ca3af" };
+  return { Icon: Circle, color: "#9ca3af" };
 }
 
 export default function Timeline() {
@@ -139,12 +139,11 @@ export default function Timeline() {
                 </div>
                 <div className="space-y-1.5">
                   {items.map((ev, idx) => {
-                    const { Icon, color, tint } = eventMeta(ev.event);
+                    const { Icon, color } = eventMeta(ev.event);
                     return (
                       <div
                         key={`${ev.channel_id}-${ev.time}-${idx}`}
-                        className="flex items-start gap-3 py-2.5 px-3 rounded-lg border border-surface-3 transition-colors hover:border-surface-4"
-                        style={{ borderLeftWidth: 3, borderLeftColor: color, backgroundColor: tint }}
+                        className="flex items-start gap-3 py-2.5 px-3 rounded-lg bg-surface-2 border border-surface-3 transition-colors hover:border-surface-4"
                       >
                         <div
                           className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
