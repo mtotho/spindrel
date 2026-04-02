@@ -258,7 +258,7 @@ function ChannelNavList() {
           value={search}
           onChange={(e) => { setSearch(e.target.value); setShowAll(false); }}
           placeholder="Search..."
-          className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1 text-xs text-content-muted placeholder-gray-600 focus:outline-none focus:border-accent/40 mb-1"
+          className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1 text-xs text-content-muted placeholder-content-dim focus:outline-none focus:border-accent/40 mb-1"
         />
       )}
 

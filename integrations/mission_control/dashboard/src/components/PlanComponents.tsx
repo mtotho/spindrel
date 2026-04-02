@@ -8,7 +8,7 @@ import type { PlanStep } from "../lib/types";
 
 export function StepIcon({ status }: { status: string }) {
   switch (status) {
-    case "complete":
+    case "done":
       return <CheckCircle2 size={14} color="#22c55e" />;
     case "in_progress":
       return <Loader2 size={14} color="#3b82f6" />;
@@ -25,7 +25,7 @@ export function ProgressBar({ steps }: { steps: PlanStep[] }) {
   const total = steps.length;
   if (total === 0) return null;
   const done = steps.filter(
-    (s) => s.status === "complete" || s.status === "skipped" || s.status === "failed",
+    (s) => s.status === "done" || s.status === "skipped" || s.status === "failed",
   ).length;
   const pct = Math.round((done / total) * 100);
 

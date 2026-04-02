@@ -73,7 +73,7 @@ export default function Memory() {
           value={searchQuery}
           onChange={(e) => handleSearchChange(e.target.value)}
           placeholder="Search memory files..."
-          className="w-full bg-surface-1 border border-surface-3 rounded-md pl-8 pr-8 py-2 text-sm text-content placeholder-gray-600 focus:outline-none focus:border-accent/40"
+          className="w-full bg-surface-1 border border-surface-3 rounded-md pl-8 pr-8 py-2 text-sm text-content placeholder-content-dim focus:outline-none focus:border-accent/40"
         />
         {searchQuery && (
           <button onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-content-dim hover:text-content-muted">

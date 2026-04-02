@@ -35,14 +35,14 @@ export default function NewCardForm({ columnName, onSubmit, onCancel }: NewCardF
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Task title..."
         autoFocus
-        className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1.5 text-sm text-content placeholder-gray-600 focus:outline-none focus:border-accent/50"
+        className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1.5 text-sm text-content placeholder-content-dim focus:outline-none focus:border-accent/50"
       />
       <textarea
         value={description}
         onChange={(e) => setDescription(e.target.value)}
         placeholder="Description (optional)"
         rows={2}
-        className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1.5 text-xs text-content-muted placeholder-gray-600 focus:outline-none focus:border-accent/50 resize-none"
+        className="w-full bg-surface-0 border border-surface-4 rounded px-2.5 py-1.5 text-xs text-content-muted placeholder-content-dim focus:outline-none focus:border-accent/50 resize-none"
       />
       <div className="flex items-center gap-2">
         <select

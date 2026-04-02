@@ -306,7 +306,7 @@ function StepRow({
       <div className="flex-1 min-w-0">
         <p className="text-xs text-content">{step.content}</p>
         <div className="flex items-center gap-2 mt-0.5">
-          {step.requires_approval && step.status !== "complete" && step.status !== "skipped" && (
+          {step.requires_approval && step.status !== "done" && step.status !== "skipped" && (
             <span className="flex items-center gap-0.5 text-[10px] text-purple-400">
               <ShieldAlert size={10} /> gated
             </span>
@@ -330,10 +330,9 @@ function StepRow({
         </div>
         {step.result_summary && (
           <div
-            className="text-[10px] mt-1 px-2 py-1 rounded"
+            className="text-[10px] mt-1 px-2 py-1 rounded text-content-muted"
             style={{
-              backgroundColor: step.status === "failed" ? "rgba(239,68,68,0.06)" : "rgba(34,197,94,0.06)",
-              color: step.status === "failed" ? "#fca5a5" : "#86efac",
+              backgroundColor: step.status === "failed" ? "rgba(239,68,68,0.08)" : "rgba(34,197,94,0.08)",
             }}
           >
             {step.result_summary}
@@ -450,7 +449,7 @@ function PlanCreateForm({
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="Plan title"
-        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content placeholder-gray-600"
+        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content placeholder-content-dim"
       />
 
       <textarea
@@ -458,7 +457,7 @@ function PlanCreateForm({
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes (optional)"
         rows={2}
-        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content placeholder-gray-600 resize-none"
+        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content placeholder-content-dim resize-none"
       />
 
       <div>

@@ -80,7 +80,7 @@ export default function PlanDetail() {
       {/* Steps timeline */}
       <div className="mb-6">
         <h3 className="text-sm font-semibold text-content mb-3">
-          Steps ({plan.steps.filter((s) => s.status === "complete" || s.status === "skipped").length}/{plan.steps.length})
+          Steps ({plan.steps.filter((s) => s.status === "done" || s.status === "skipped").length}/{plan.steps.length})
         </h3>
         <div className="space-y-2">
           {plan.steps.map((step, idx) => {
@@ -206,7 +206,7 @@ function Btn({
 
 function stepBorderColor(status: string): string {
   switch (status) {
-    case "complete": return "border-green-500 bg-green-500/10";
+    case "done": return "border-green-500 bg-green-500/10";
     case "in_progress": return "border-yellow-500 bg-yellow-500/10";
     case "skipped": return "border-surface-4 bg-surface-1";
     case "failed": return "border-red-500 bg-red-500/10";
@@ -340,7 +340,7 @@ function PlanEditForm({ plan, onDone }: { plan: Plan; onDone: () => void }) {
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes"
         rows={2}
-        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content placeholder-gray-600 resize-none"
+        className="w-full bg-surface-1 border border-surface-3 rounded-md px-3 py-2 text-sm text-content placeholder-content-dim resize-none"
       />
       <div>
         <label className="text-xs text-content-muted mb-1 block">Steps</label>

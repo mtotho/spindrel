@@ -52,7 +52,7 @@ export default function StepListEditor({ steps, onChange }: StepListEditorProps)
             value={step.content}
             onChange={(e) => updateStep(step.key, { content: e.target.value })}
             placeholder="Step description..."
-            className="flex-1 bg-surface-1 border border-surface-3 rounded-md px-2.5 py-1.5 text-xs text-content placeholder-gray-600 focus:outline-none focus:border-accent/40"
+            className="flex-1 bg-surface-1 border border-surface-3 rounded-md px-2.5 py-1.5 text-xs text-content placeholder-content-dim focus:outline-none focus:border-accent/40"
           />
           <button
             onClick={() => updateStep(step.key, { requires_approval: !step.requires_approval })}
