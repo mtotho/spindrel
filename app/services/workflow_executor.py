@@ -819,19 +819,20 @@ async def on_step_task_completed(
         if fresh_task and fresh_task.correlation_id:
             state["correlation_id"] = str(fresh_task.correlation_id)
 
-        # Dispatch step event
+        # Prepare step event dispatch (fired AFTER commit to avoid holding row lock during network I/O)
         step_id = step_def.get("id", f"step_{step_index}")
         done_ct = sum(1 for s in step_states if s["status"] in ("done", "failed", "skipped"))
         total_ct = len(step_states)
         step_event = "step_done" if state["status"] == "done" else "step_failed"
         preview = (state.get("result") or state.get("error") or "")[:100]
-        await _dispatch_workflow_event(
+        _pending_step_event = (
             run, workflow.name, step_event,
             f"{step_id} ({done_ct}/{total_ct})" + (f" — {preview}" if preview else ""),
         )
 
         # Handle on_failure policy
         on_failure = step_def.get("on_failure", "abort")
+        _committed = False
 
         if state["status"] == "failed":
             if on_failure == "abort":
@@ -841,7 +842,7 @@ async def on_step_task_completed(
                 run.completed_at = datetime.now(timezone.utc)
                 await db.commit()
                 logger.info("Workflow run %s aborted at step %d", run_id, step_index)
-                # Dispatch abort event
+                await _dispatch_workflow_event(*_pending_step_event)
                 await _dispatch_workflow_event(
                     run, workflow.name, "failed",
                     f"aborted at {step_id}: {state.get('error', '')[:100]}",
@@ -871,6 +872,7 @@ async def on_step_task_completed(
                         "Workflow run %s hit execution cap (%d) during retry",
                         run_id, cap,
                     )
+                    await _dispatch_workflow_event(*_pending_step_event)
                     return
 
                 if retry_count < max_retries:
@@ -879,17 +881,20 @@ async def on_step_task_completed(
                     state["retry_count"] = retry_count + 1
                     run.step_states = step_states
                     await db.commit()
+                    _committed = True
                     logger.info("Retrying step %d (attempt %d/%d) for run %s",
                                 step_index, retry_count + 1, max_retries, run_id)
-                    await advance_workflow(_run_id)
-                    return
-            # on_failure == "continue" falls through to advance
+            # on_failure == "continue" or retry exhausted: fall through to advance
 
-        run.step_states = step_states
-        await db.commit()
+        if not _committed:
+            run.step_states = step_states
+            await db.commit()
+
+    # Dispatch step event outside the DB lock
+    await _dispatch_workflow_event(*_pending_step_event)
 
     # Advance to next step.
-    # If this fails, the step state is already committed above — the recovery
+    # If this fails, the step state is already committed — the recovery
     # sweep will re-fire advancement.  Log prominently so we can debug.
     try:
         await advance_workflow(_run_id)

@@ -160,13 +160,9 @@ function IntegrationSidebarSection({
   const hasActive = items.some((item) => pathname === item.href || pathname.startsWith(item.href)) ||
     modules.some((mod) => pathname === `/integration/${section.integration_id}/module/${mod.module_id}`);
 
-  // Auto-expand when navigating to a page in this section
-  const effectiveCollapsed = hasActive ? false : collapsed;
-
   const SectionIcon = resolveIcon(section.icon);
 
   const toggle = () => {
-    if (hasActive) return; // Don't collapse when active
     const next = !collapsed;
     setCollapsed(next);
     const saved = loadIntegrationCollapsed();
@@ -178,10 +174,10 @@ function IntegrationSidebarSection({
     <View className="px-2 py-1.5">
       <Pressable
         onPress={toggle}
-        className="flex-row items-center px-1 py-1.5 rounded hover:bg-surface-overlay"
+        className="flex-row items-center px-3 py-1.5 rounded hover:bg-surface-overlay"
         style={{ gap: 6 }}
       >
-        <SectionIcon size={13} color={hasActive ? t.accent : t.textDim} />
+        <SectionIcon size={12} color={hasActive ? t.accent : t.textDim} />
         <Text
           className={`${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider`}
           style={{ flex: 1, color: hasActive ? t.accent : t.textDim }}
@@ -190,15 +186,15 @@ function IntegrationSidebarSection({
         </Text>
         <ChevronRight
           size={10}
-          color={hasActive ? t.accent : t.textDim}
+          color={t.textDim}
           style={{
-            transform: [{ rotate: effectiveCollapsed ? "0deg" : "90deg" }],
+            transform: [{ rotate: collapsed ? "0deg" : "90deg" }],
             transition: "transform 0.15s",
           } as any}
         />
       </Pressable>
-      {!effectiveCollapsed && (
-        <View style={{ paddingLeft: 6 }}>
+      {!collapsed && (
+        <>
           {items.map((item) => (
             <NavLink
               key={item.href}
@@ -222,7 +218,7 @@ function IntegrationSidebarSection({
               />
             );
           })}
-        </View>
+        </>
       )}
     </View>
   );

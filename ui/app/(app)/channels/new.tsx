@@ -5,7 +5,6 @@ import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useBots } from "@/src/api/hooks/useBots";
-import { useModelGroups } from "@/src/api/hooks/useModels";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import {
   useCreateChannel,
@@ -13,6 +12,7 @@ import {
   useChannelCategories,
 } from "@/src/api/hooks/useChannels";
 import { Section, SelectInput, TextInput, Toggle } from "@/src/components/shared/FormControls";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { TemplateCardGrid } from "@/src/components/channels/TemplateCardGrid";
 import { IntegrationActivationList } from "@/src/components/channels/IntegrationActivationList";
 
@@ -24,7 +24,6 @@ export default function NewChannelScreen() {
   const theme = useThemeTokens();
   const params = useLocalSearchParams<{ templateId?: string }>();
   const { data: bots } = useBots();
-  const { data: modelGroups } = useModelGroups();
   const { data: templates } = usePromptTemplates(undefined, "workspace_schema");
   const { data: activatableIntegrations } = useGlobalActivatableIntegrations();
   const { data: existingCategories } = useChannelCategories();
@@ -49,21 +48,6 @@ export default function NewChannelScreen() {
   }, [params.templateId, templates]);
 
   const workspaceEnabled = templateId !== null;
-
-  // Build model options from groups
-  const modelOptions = useMemo(() => {
-    if (!modelGroups) return [];
-    const opts: { label: string; value: string }[] = [];
-    for (const group of modelGroups) {
-      for (const model of group.models) {
-        opts.push({
-          label: `${model.display || model.id}`,
-          value: model.id,
-        });
-      }
-    }
-    return opts;
-  }, [modelGroups]);
 
   const botOptions = useMemo(
     () => (bots ?? []).map((b) => ({ label: b.name, value: b.id })),
@@ -183,13 +167,11 @@ export default function NewChannelScreen() {
             {/* Model picker */}
             {!useBotMode && (
               <Section title="Model">
-                <SelectInput
+                <LlmModelDropdown
                   value={selectedModel}
-                  onChange={setSelectedModel}
-                  options={[
-                    { label: "Default (from bot)", value: "" },
-                    ...modelOptions,
-                  ]}
+                  onChange={(modelId) => setSelectedModel(modelId)}
+                  placeholder="Default (from bot)"
+                  allowClear
                 />
               </Section>
             )}

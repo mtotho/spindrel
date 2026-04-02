@@ -93,12 +93,12 @@ def _resolve_image_client(provider_id: str | None = None):
     return get_llm_client(effective_pid)
 
 
-async def _resolve_attachment_images(attachment_ids: list[str]) -> tuple[list[bytes], str | None]:
-    """Fetch image bytes from attachment IDs. Returns (list_of_bytes, error_or_None)."""
+async def _resolve_attachments(attachment_ids: list[str]) -> tuple[list, str | None]:
+    """Fetch attachment objects from IDs. Returns (list_of_Attachment, error_or_None)."""
     import uuid as _uuid
     from app.services.attachments import get_attachment_by_id
 
-    images: list[bytes] = []
+    attachments = []
     for aid in attachment_ids:
         try:
             att = await get_attachment_by_id(_uuid.UUID(aid))
@@ -108,8 +108,8 @@ async def _resolve_attachment_images(attachment_ids: list[str]) -> tuple[list[by
             return [], f"Attachment {aid} not found."
         if not att.file_data:
             return [], f"Attachment {aid} has no stored file data."
-        images.append(att.file_data)
-    return images, None
+        attachments.append(att)
+    return attachments, None
 
 
 @register({
@@ -177,12 +177,15 @@ async def generate_image_tool(
 
     # Resolve source images from attachment_ids (preferred) or legacy source_image_b64
     image_files: list[tuple] = []
+    attachment_descriptions: list[str] = []
     if attachment_ids:
-        images, err = await _resolve_attachment_images(attachment_ids)
+        attachments, err = await _resolve_attachments(attachment_ids)
         if err:
             return json.dumps({"error": err})
-        for i, img_bytes in enumerate(images):
-            image_files.append((f"image_{i}.png", img_bytes, "image/png"))
+        for i, att in enumerate(attachments):
+            image_files.append((f"image_{i}.png", att.file_data, "image/png"))
+            if att.description:
+                attachment_descriptions.append(att.description)
     elif source_image_b64:
         image_files.append(("image.png", base64.b64decode(source_image_b64), "image/png"))
 
@@ -190,25 +193,41 @@ async def generate_image_tool(
     effective_model = model or settings.IMAGE_GENERATION_MODEL
     client = _resolve_image_client(provider_id)
 
+    gemini_fallback = False
     try:
         if image_files:
             if not _supports_edit(effective_model):
-                return json.dumps({
-                    "error": (
-                        f"Image editing (attachment_ids) is not supported for {effective_model}. "
-                        "Gemini models do not support the images.edit() endpoint. "
-                        "To edit with Gemini, generate a new image with a detailed prompt "
-                        "describing the desired result instead of passing attachment_ids."
-                    ),
-                })
-            # Single image → pass directly; multiple → pass as list
-            image_param = image_files[0] if len(image_files) == 1 else image_files
-            resp = await client.images.edit(
-                model=effective_model,
-                image=image_param,
-                prompt=prompt,
-                **_edit_kwargs(effective_model, n),
-            )
+                # Gemini doesn't support images.edit() — fall back to generation
+                # with attachment descriptions baked into the prompt.
+                if attachment_descriptions:
+                    desc_block = "\n".join(
+                        f"- Reference image {i+1}: {d}"
+                        for i, d in enumerate(attachment_descriptions)
+                    )
+                    prompt = (
+                        f"Based on these reference images:\n{desc_block}\n\n"
+                        f"Generate: {prompt}"
+                    )
+                gemini_fallback = True
+                logger.info(
+                    "Model %s doesn't support edit — falling back to generate "
+                    "(descriptions=%d, prompt=%s)",
+                    effective_model, len(attachment_descriptions), prompt[:120],
+                )
+                resp = await client.images.generate(
+                    model=effective_model,
+                    prompt=prompt,
+                    **_generate_kwargs(effective_model, n),
+                )
+            else:
+                # Single image → pass directly; multiple → pass as list
+                image_param = image_files[0] if len(image_files) == 1 else image_files
+                resp = await client.images.edit(
+                    model=effective_model,
+                    image=image_param,
+                    prompt=prompt,
+                    **_edit_kwargs(effective_model, n),
+                )
         else:
             resp = await client.images.generate(
                 model=effective_model,
@@ -276,7 +295,14 @@ async def generate_image_tool(
     if not results:
         return json.dumps({"error": "No images could be retrieved from response"})
 
+    msg = f"{len(results)} image(s) generated successfully."
+    if gemini_fallback:
+        msg += (
+            " Note: this model doesn't support direct image editing, so a new image "
+            "was generated using descriptions of the reference images. The result may "
+            "not exactly match the originals."
+        )
     return json.dumps({
-        "message": f"{len(results)} image(s) generated successfully.",
+        "message": msg,
         "client_action": results[0] if len(results) == 1 else results,
     })

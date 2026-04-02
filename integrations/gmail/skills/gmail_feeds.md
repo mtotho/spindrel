@@ -114,7 +114,27 @@ search_channel_workspace(channel_id, query="invoice from accounting")
 search_channel_workspace(channel_id, query="meeting agenda next week")
 ```
 
-## Configuration
+## Setup Guide
+
+When a user asks how to set up Gmail, walk them through these steps:
+
+### 1. Generate a Google App Password
+- Go to [Google App Passwords](https://myaccount.google.com/apppasswords)
+- Sign in, select "Mail" as the app, generate a password
+- Copy the 16-character password (shown once)
+
+### 2. Configure credentials in Spindrel
+- Go to **Admin → Integrations → Gmail** (the settings page for this integration)
+- Set `GMAIL_EMAIL` to the Gmail address
+- Set `GMAIL_APP_PASSWORD` to the app password from step 1
+- These are stored encrypted — never paste raw credentials into chat
+
+**Important**: If a user pastes a credential directly into chat, tell them to use the integration settings page instead. Never echo back or store raw secrets in conversation.
+
+### 3. Verify connectivity
+- Say "check Gmail status" and the bot will run `check_gmail_status()` to confirm the connection
+
+## Configuration Reference
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -125,6 +145,8 @@ search_channel_workspace(channel_id, query="meeting agenda next week")
 | `GMAIL_POLL_INTERVAL` | 60 | Seconds between polls |
 | `GMAIL_MAX_PER_POLL` | 25 | Max emails per cycle |
 | `GMAIL_FOLDERS` | INBOX | Comma-separated folders |
+
+All settings are configured via **Admin → Integrations → Gmail**. Do NOT tell users to edit `.env` files or paste credentials into chat.
 
 ## Channel Binding
 

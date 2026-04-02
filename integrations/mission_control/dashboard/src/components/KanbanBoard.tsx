@@ -1,3 +1,7 @@
+/**
+ * Per-channel kanban board with @dnd-kit drag-and-drop.
+ * Uses shared CardEditModal and consistent card styling.
+ */
 import { useState, useCallback, useMemo } from "react";
 import {
   DndContext,
@@ -16,12 +20,14 @@ import KanbanCardView from "./KanbanCard";
 interface KanbanBoardProps {
   columns: KanbanColumn[];
   onMove: (cardId: string, fromCol: string, toCol: string) => void;
+  onUpdate?: (cardId: string, fields: Record<string, string>) => void;
   onAddCard?: (columnName: string, card: { title: string; priority: string; description: string }) => void;
   isSaving: boolean;
 }
 
-export default function KanbanBoard({ columns, onMove, onAddCard, isSaving }: KanbanBoardProps) {
-  const [activeCard, setActiveCard] = useState<TaskCard | null>(null);
+export default function KanbanBoard({ columns, onMove, onUpdate, onAddCard, isSaving }: KanbanBoardProps) {
+  const [activeCard, setActiveCard] = useState<{ card: TaskCard; column: string } | null>(null);
+  const columnNames = useMemo(() => columns.map((c) => c.name), [columns]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -33,15 +39,13 @@ export default function KanbanBoard({ columns, onMove, onAddCard, isSaving }: Ka
       for (const col of columns) {
         const card = col.cards.find((c) => (c.meta.id || c.title) === cardId);
         if (card) {
-          setActiveCard(card);
+          setActiveCard({ card, column: col.name });
           break;
         }
       }
     },
     [columns],
   );
-
-  const columnNames = useMemo(() => new Set(columns.map((c) => c.name)), [columns]);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -52,12 +56,11 @@ export default function KanbanBoard({ columns, onMove, onAddCard, isSaving }: Ka
       const cardId = active.id as string;
       const overId = over.id as string;
 
-      // Resolve target: if dropped on a card, find its parent column
+      // Resolve target column
       let targetColName: string | null = null;
-      if (columnNames.has(overId)) {
+      if (columnNames.includes(overId)) {
         targetColName = overId;
       } else {
-        // Dropped on a card — find which column contains that card
         for (const col of columns) {
           if (col.cards.some((c) => (c.meta.id || c.title) === overId)) {
             targetColName = col.name;
@@ -95,12 +98,23 @@ export default function KanbanBoard({ columns, onMove, onAddCard, isSaving }: Ka
           <KanbanColumnView
             key={col.name}
             column={col}
+            columnNames={columnNames}
+            onMove={onMove}
+            onUpdate={onUpdate}
             onAddCard={onAddCard}
           />
         ))}
       </div>
       <DragOverlay>
-        {activeCard ? <KanbanCardView card={activeCard} isDragging /> : null}
+        {activeCard ? (
+          <KanbanCardView
+            card={activeCard.card}
+            isDragging
+            columnName={activeCard.column}
+            columnNames={columnNames}
+            onMove={onMove}
+          />
+        ) : null}
       </DragOverlay>
       {isSaving && (
         <div className="fixed bottom-4 right-4 bg-accent/90 text-white text-xs px-3 py-1.5 rounded-full animate-pulse">

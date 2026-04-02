@@ -69,13 +69,7 @@ Save an attachment's file data to the filesystem. Use when you need to process a
 
 ### generate_image — create or edit images
 
-| Parameter | Type | Required | Notes |
-|---|---|---|---|
-| prompt | string | Yes | What to generate or how to edit |
-| attachment_ids | string[] | No | Source image UUIDs for editing |
-| model | string | No | Image model override (e.g. `gpt-image-1`, `dall-e-3`). Omit for server default. |
-| provider_id | string | No | Route to a specific provider. Use when two providers have same model name. |
-| n | int | No | Variations (1-10, OpenAI models only) |
+See the **generate-image** skill for full details on provider differences, Gemini limitations, and prompt best practices.
 
 Generated images are automatically saved as attachments and delivered to the channel.
 
@@ -110,6 +104,7 @@ generate_image(prompt="A watercolor sunset over mountains")
 1. list_attachments(type_filter="image", limit=5)
 2. generate_image(prompt="Make the sky purple", attachment_ids=["<uuid>"])
 ```
+Note: Direct editing works with OpenAI models. Gemini models auto-fall back to generating a new image using descriptions of the reference images — see the **generate-image** skill for details.
 
 ### Combine multiple images
 ```

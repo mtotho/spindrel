@@ -32,7 +32,12 @@ system_prompt_fragment: |
   | Creating task cards from emails | `create_task_card` with tags `email,from:{sender}` |
   | Logging triage activity | `append_timeline_event` with triage summary |
 
+  ### Credential Safety
+  Credentials are configured via **Admin → Integrations → Gmail** (never in chat).
+  If a user pastes a secret/API key/password into chat, tell them to use the integration settings page instead.
+
   ### Deep Knowledge
   | When you need... | Fetch this skill |
   |---|---|
+  | How to set up Gmail, configure credentials, generate app passwords, verify connectivity | `get_skill('integrations/gmail/gmail_feeds')` |
   | Full triage protocol, action extraction patterns, digest templates, feed store query examples | `get_skill('integrations/gmail/gmail_feeds')` |

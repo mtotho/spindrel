@@ -25,7 +25,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          tiptap: ["@tiptap/react", "@tiptap/starter-kit", "@tiptap/pm", "@tiptap/extension-placeholder"],
+          tiptap: ["@tiptap/react", "@tiptap/starter-kit", "@tiptap/extension-placeholder"],
         },
       },
     },

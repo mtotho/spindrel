@@ -271,26 +271,103 @@ class TestGenerateImageTool:
         assert "prompt is required" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_gemini_edit_rejected(self):
-        """Gemini models should get a clear error when attachment_ids are passed."""
+    async def test_gemini_edit_falls_back_to_generate(self):
+        """Gemini models should fall back to generation when attachment_ids are passed."""
         from app.tools.local.image import generate_image_tool
 
         mock_att = MagicMock()
         mock_att.file_data = b"fake-image"
+        mock_att.description = "A black dog with a plaid collar"
 
-        with patch("app.tools.local.image._resolve_image_client"), \
+        mock_resp = MagicMock()
+        mock_resp.data = []  # triggers "No image returned" but we check generate was called
+
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(return_value=mock_resp)
+
+        with patch("app.tools.local.image._resolve_image_client", return_value=mock_client), \
              patch("app.tools.local.image.settings") as mock_settings, \
              patch("app.services.attachments.get_attachment_by_id", new_callable=AsyncMock, return_value=mock_att):
             mock_settings.IMAGE_GENERATION_MODEL = "gemini/gemini-2.5-flash-image"
 
-            result = json.loads(await generate_image_tool(
+            await generate_image_tool(
                 prompt="make the sky purple",
+                attachment_ids=["00000000-0000-0000-0000-000000000001"],
+            )
+
+        # Should have called images.generate (not edit) with enriched prompt
+        mock_client.images.generate.assert_called_once()
+        call_kwargs = mock_client.images.generate.call_args.kwargs
+        assert "black dog" in call_kwargs["prompt"]
+        assert "make the sky purple" in call_kwargs["prompt"]
+
+    @pytest.mark.asyncio
+    async def test_gemini_fallback_without_descriptions(self):
+        """Gemini fallback works even if attachments have no descriptions."""
+        from app.tools.local.image import generate_image_tool
+
+        mock_att = MagicMock()
+        mock_att.file_data = b"fake-image"
+        mock_att.description = None  # no description yet
+
+        mock_resp = MagicMock()
+        mock_resp.data = []
+
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(return_value=mock_resp)
+
+        with patch("app.tools.local.image._resolve_image_client", return_value=mock_client), \
+             patch("app.tools.local.image.settings") as mock_settings, \
+             patch("app.services.attachments.get_attachment_by_id", new_callable=AsyncMock, return_value=mock_att):
+            mock_settings.IMAGE_GENERATION_MODEL = "gemini/gemini-2.5-flash-image"
+
+            await generate_image_tool(
+                prompt="combine these images",
+                attachment_ids=["00000000-0000-0000-0000-000000000001"],
+            )
+
+        # Should still call generate (not error), just with original prompt
+        mock_client.images.generate.assert_called_once()
+        call_kwargs = mock_client.images.generate.call_args.kwargs
+        assert call_kwargs["prompt"] == "combine these images"
+
+    @pytest.mark.asyncio
+    async def test_gemini_fallback_success_message(self):
+        """Successful Gemini fallback should include a note about the limitation."""
+        from app.tools.local.image import generate_image_tool
+
+        mock_att = MagicMock()
+        mock_att.file_data = b"fake-image"
+        mock_att.description = "A cute cat"
+
+        mock_item = MagicMock()
+        mock_item.b64_json = "AAAA"  # minimal base64
+        mock_item.url = None
+        mock_resp = MagicMock()
+        mock_resp.data = [mock_item]
+
+        mock_client = AsyncMock()
+        mock_client.images.generate = AsyncMock(return_value=mock_resp)
+
+        with patch("app.tools.local.image._resolve_image_client", return_value=mock_client), \
+             patch("app.tools.local.image.settings") as mock_settings, \
+             patch("app.services.attachments.get_attachment_by_id", new_callable=AsyncMock, return_value=mock_att), \
+             patch("app.agent.context.current_bot_id") as mock_bot_id, \
+             patch("app.agent.context.current_channel_id") as mock_chan_id, \
+             patch("app.agent.context.current_dispatch_type") as mock_dispatch, \
+             patch("app.services.attachments.create_attachment", new_callable=AsyncMock):
+            mock_settings.IMAGE_GENERATION_MODEL = "gemini/gemini-2.5-flash-image"
+            mock_bot_id.get.return_value = "test-bot"
+            mock_chan_id.get.return_value = None
+            mock_dispatch.get.return_value = "web"
+
+            result = json.loads(await generate_image_tool(
+                prompt="draw this cat in a hat",
                 attachment_ids=["00000000-0000-0000-0000-000000000001"],
             ))
 
-        assert "error" in result
-        assert "not supported" in result["error"]
-        assert "Gemini" in result["error"]
+        assert "client_action" in result
+        assert "doesn't support direct image editing" in result["message"]
 
     @pytest.mark.asyncio
     async def test_openai_edit_allowed(self):
@@ -299,6 +376,7 @@ class TestGenerateImageTool:
 
         mock_att = MagicMock()
         mock_att.file_data = b"fake-image"
+        mock_att.description = "A dog"
 
         mock_resp = MagicMock()
         mock_resp.data = []
@@ -316,6 +394,6 @@ class TestGenerateImageTool:
                 attachment_ids=["00000000-0000-0000-0000-000000000001"],
             ))
 
-        # Should have called images.edit, not returned an error about unsupported
+        # Should have called images.edit, not images.generate
         mock_client.images.edit.assert_called_once()
         assert "not supported" not in result.get("error", "")

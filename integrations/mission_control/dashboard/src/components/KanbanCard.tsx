@@ -1,20 +1,36 @@
+/**
+ * Card component for the per-channel kanban column view.
+ * Uses @dnd-kit draggable + shared CardEditModal.
+ */
 import { useState, useRef, useEffect } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import type { TaskCard } from "../lib/types";
+import CardEditModal from "./CardEditModal";
 
 const PRIORITY_COLORS: Record<string, string> = {
-  critical: "bg-red-500/20 text-red-400",
-  high: "bg-orange-500/20 text-orange-400",
-  medium: "bg-blue-500/20 text-blue-400",
-  low: "bg-surface-4/40 text-content-muted",
+  critical: "#ef4444",
+  high: "#f97316",
+  medium: "#eab308",
+  low: "#6b7280",
 };
 
 interface KanbanCardProps {
   card: TaskCard;
   isDragging?: boolean;
+  columnName: string;
+  columnNames: string[];
+  onMove: (cardId: string, fromCol: string, toCol: string) => void;
+  onUpdate?: (cardId: string, fields: Record<string, string>) => void;
 }
 
-export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
+export default function KanbanCardView({
+  card,
+  isDragging,
+  columnName,
+  columnNames,
+  onMove,
+  onUpdate,
+}: KanbanCardProps) {
   const [expanded, setExpanded] = useState(false);
   const didDrag = useRef(false);
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
@@ -25,19 +41,16 @@ export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
     ? { transform: `translate(${transform.x}px, ${transform.y}px)` }
     : undefined;
 
-  // Track whether a drag occurred so we don't open modal on drop
   useEffect(() => {
     if (transform && (Math.abs(transform.x) > 2 || Math.abs(transform.y) > 2)) {
       didDrag.current = true;
     }
   }, [transform]);
 
-  const priority = card.meta.priority;
-  const priorityClass = priority ? PRIORITY_COLORS[priority] || "" : "";
-  const tags = card.meta.tags?.split(",").map((t) => t.trim()).filter(Boolean) || [];
+  const priority = (card.meta.priority || "medium").toLowerCase();
+  const pc = PRIORITY_COLORS[priority] || PRIORITY_COLORS.medium;
 
   const handlePointerUp = () => {
-    // Only open modal if we didn't drag
     if (!didDrag.current && !transform) {
       setExpanded(true);
     }
@@ -48,104 +61,44 @@ export default function KanbanCardView({ card, isDragging }: KanbanCardProps) {
     <>
       <div
         ref={setNodeRef}
-        style={style}
+        style={{ ...style, opacity: isDragging ? 0.4 : 1 }}
         {...listeners}
         {...attributes}
         onPointerUp={handlePointerUp}
-        className={`bg-surface-2 rounded-lg p-3 border border-surface-3 cursor-grab active:cursor-grabbing transition-shadow ${
-          isDragging ? "shadow-xl shadow-accent/10 opacity-90" : "hover:border-surface-4"
+        className={`rounded-lg bg-surface-0 shadow-sm cursor-grab active:cursor-grabbing transition-shadow ${
+          isDragging ? "shadow-lg" : "hover:shadow"
         }`}
       >
-        <h4 className="text-sm font-medium text-content leading-snug">
-          {card.title}
-        </h4>
-
-        {card.description && (
-          <p className="text-xs text-content-dim mt-1 line-clamp-2">
-            {card.description}
-          </p>
-        )}
-
-        <div className="flex flex-wrap items-center gap-1.5 mt-2">
-          {priority && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${priorityClass}`}>
-              {priority}
-            </span>
+        <div className="px-2.5 py-2">
+          <div className="text-xs text-content leading-snug">{card.title}</div>
+          {card.description && (
+            <p className="text-[10px] text-content-dim mt-1 line-clamp-2">{card.description}</p>
           )}
-          {tags.map((tag) => (
-            <span
-              key={tag}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-surface-3 text-content-muted"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-
-        {card.meta.assigned && (
-          <p className="text-[10px] text-content-dim mt-1.5">
-            {card.meta.assigned}
-          </p>
-        )}
-      </div>
-
-      {/* Detail modal */}
-      {expanded && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-          onClick={() => setExpanded(false)}
-        >
-          <div
-            className="bg-surface-1 rounded-xl border border-surface-3 w-full max-w-lg mx-4 p-5 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between mb-3">
-              <h3 className="text-lg font-semibold text-content pr-4">
-                {card.title}
-              </h3>
-              <button
-                onClick={() => setExpanded(false)}
-                className="text-content-dim hover:text-content-muted text-lg leading-none flex-shrink-0"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Metadata grid */}
-            <div className="grid grid-cols-2 gap-2 mb-4">
-              {Object.entries(card.meta).map(([key, value]) => (
-                <div key={key}>
-                  <p className="text-[10px] text-content-dim uppercase tracking-wider">{key}</p>
-                  <p className="text-sm text-content-muted">{value}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Tags */}
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-4">
-                {tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="text-xs px-2 py-0.5 rounded bg-surface-3 text-content-muted"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+          <div className="flex items-center gap-2 mt-1">
+            {card.meta.priority && (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: pc }} />
+                <span className="text-[9px] text-content-muted">{card.meta.priority}</span>
+              </>
             )}
-
-            {/* Description */}
-            {card.description && (
-              <div className="bg-surface-0 rounded-lg p-3 border border-surface-3">
-                <p className="text-xs text-content-dim uppercase tracking-wider mb-1">Description</p>
-                <p className="text-sm text-content-muted whitespace-pre-wrap leading-relaxed">
-                  {card.description}
-                </p>
-              </div>
+            {card.meta.due && <span className="text-[9px] text-content-dim">{card.meta.due}</span>}
+            {card.meta.assigned && (
+              <span className="text-[9px] text-content-dim ml-auto">{card.meta.assigned}</span>
             )}
           </div>
         </div>
+      </div>
+
+      {/* Shared edit modal */}
+      {expanded && (
+        <CardEditModal
+          card={card}
+          currentColumn={columnName}
+          columnNames={columnNames}
+          onMove={onMove}
+          onUpdate={onUpdate}
+          onClose={() => setExpanded(false)}
+        />
       )}
     </>
   );
