@@ -40,23 +40,32 @@ async def send_text(
 ) -> dict | None:
     """Send a text message to a BB chat. Returns the API response dict or None on failure.
 
-    Uses a longer timeout for the send operation since iMessage relay
-    through BB → macOS Messages → Apple servers can be slow (10-30s+).
+    Uses a 90s timeout since iMessage relay through BB can be slow.
+    If BB_SEND_METHOD is set, includes it in the request; otherwise lets
+    the BB server use its own configured default.
     """
     if temp_guid is None:
         temp_guid = str(uuid.uuid4())
+
+    body: dict = {
+        "chatGuid": chat_guid,
+        "message": text,
+        "tempGuid": temp_guid,
+    }
+    method = settings.BB_SEND_METHOD
+    if method:
+        body["method"] = method
+
     try:
         r = await client.post(
             f"{server_url}/api/v1/message/text",
             params={"password": password},
-            json={
-                "chatGuid": chat_guid,
-                "message": text,
-                "tempGuid": temp_guid,
-                "method": settings.BB_SEND_METHOD,
-            },
-            timeout=60.0,
+            json=body,
+            timeout=90.0,
         )
+        if r.status_code >= 400:
+            resp_body = r.text[:500] if r.text else "(empty)"
+            logger.error("BB send_text returned %s: %s", r.status_code, resp_body)
         r.raise_for_status()
         return r.json()
     except Exception:

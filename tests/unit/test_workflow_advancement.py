@@ -1311,3 +1311,116 @@ class TestAtomicTaskCreation:
         from app.db.models import Task as TaskModel
         assert isinstance(task, TaskModel)
         assert isinstance(task.id, uuid.UUID)
+
+
+# ---------------------------------------------------------------------------
+# Test: on_step_task_completed uses row-level lock
+# ---------------------------------------------------------------------------
+
+class TestOnStepTaskCompletedLocking:
+    """Verify on_step_task_completed acquires with_for_update to prevent lost updates."""
+
+    @pytest.mark.asyncio
+    async def test_uses_with_for_update(self):
+        """on_step_task_completed must lock the WorkflowRun row to prevent races."""
+        from app.services.workflow_executor import on_step_task_completed
+
+        run = _make_workflow_run(step_count=2, step_states=[
+            {"status": "running", "task_id": "t1", "result": None, "error": None,
+             "started_at": "2024-01-01T00:00:00", "completed_at": None, "correlation_id": None},
+            {"status": "pending", "task_id": None, "result": None, "error": None,
+             "started_at": None, "completed_at": None, "correlation_id": None},
+        ])
+        workflow = _make_workflow()
+        task = _make_task(result="step 0 output", correlation_id=uuid.uuid4())
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+
+        get_calls = []
+        async def mock_get(model, id_, **kwargs):
+            get_calls.append((model, id_, kwargs))
+            name = model.__name__ if hasattr(model, "__name__") else str(model)
+            if name == "WorkflowRun":
+                return run
+            if name == "Workflow":
+                return workflow
+            if name == "Task":
+                return task
+            return None
+
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
+        ):
+            await on_step_task_completed(str(run.id), 0, "complete", task)
+
+        # The FIRST get call (for WorkflowRun) must use with_for_update=True
+        assert len(get_calls) >= 1
+        first_call = get_calls[0]
+        assert first_call[2].get("with_for_update") is True, \
+            "on_step_task_completed must use with_for_update=True to prevent lost updates"
+
+
+# ---------------------------------------------------------------------------
+# Test: trigger_workflow returns fresh data after advancement
+# ---------------------------------------------------------------------------
+
+class TestTriggerWorkflowFreshReturn:
+    """trigger_workflow should re-read from DB after advance_workflow."""
+
+    @pytest.mark.asyncio
+    async def test_returns_refreshed_run(self):
+        """After advancement, trigger_workflow should return DB-fresh run, not stale object."""
+        from app.services.workflow_executor import trigger_workflow
+
+        run_id = uuid.uuid4()
+        stale_run = MagicMock()
+        stale_run.id = run_id
+        stale_run.step_states = [{"status": "pending"}]
+
+        fresh_run = MagicMock()
+        fresh_run.id = run_id
+        fresh_run.step_states = [{"status": "running", "task_id": "t1"}]
+
+        session_idx = [0]
+
+        def make_session():
+            session_idx[0] += 1
+            mock_db = AsyncMock()
+            mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_db.__aexit__ = AsyncMock(return_value=False)
+            if session_idx[0] == 1:
+                # Session 1: create run (db.add + commit + refresh)
+                mock_db.add = MagicMock()
+                mock_db.commit = AsyncMock()
+                mock_db.refresh = AsyncMock()
+            else:
+                # Session 2: re-fetch after advancement
+                mock_db.get = AsyncMock(return_value=fresh_run)
+            return mock_db
+
+        mock_workflow = MagicMock()
+        mock_workflow.name = "Test"
+        mock_workflow.steps = [{"id": "s1", "prompt": "Do."}]
+        mock_workflow.defaults = {"bot_id": "test-bot"}
+        mock_workflow.params = {}
+        mock_workflow.secrets = []
+        mock_workflow.triggers = {}
+        mock_workflow.session_mode = "isolated"
+
+        with (
+            patch("app.services.workflow_executor.async_session", side_effect=make_session),
+            patch("app.services.workflows.get_workflow", return_value=mock_workflow),
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
+        ):
+            result = await trigger_workflow("test-wf", {})
+
+        # Should return the fresh run, not the stale one
+        assert result is fresh_run

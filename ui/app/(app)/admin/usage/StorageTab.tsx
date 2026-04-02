@@ -3,7 +3,7 @@ import { View, ActivityIndicator } from "react-native";
 import { useStorageBreakdown, usePurgeStorage } from "@/src/api/hooks/useStorage";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { BarChart } from "@/src/components/shared/SimpleCharts";
-import { Trash2 } from "lucide-react";
+import { Trash2, Settings, Info } from "lucide-react";
 
 const TABLE_LABELS: Record<string, string> = {
   trace_events: "Trace Events",
@@ -28,6 +28,13 @@ function fmtDate(iso: string | null | undefined): string {
   return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
+function fmtBytes(b: number): string {
+  if (b >= 1_073_741_824) return `${(b / 1_073_741_824).toFixed(1)} GB`;
+  if (b >= 1_048_576) return `${(b / 1_048_576).toFixed(1)} MB`;
+  if (b >= 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${b} B`;
+}
+
 export function StorageTab() {
   const t = useThemeTokens();
   const { data, isLoading } = useStorageBreakdown();
@@ -44,12 +51,50 @@ export function StorageTab() {
 
   if (!data) return null;
 
-  const totalRows = data.tables.reduce((s, t) => s + t.row_count, 0);
-  const totalPurgeable = data.tables.reduce((s, t) => s + t.purgeable, 0);
-  const totalSize = data.tables.reduce((s, t) => s + (t.size_bytes ?? 0), 0);
+  const totalRows = data.tables.reduce((sum, tb) => sum + tb.row_count, 0);
+  const totalPurgeable = data.tables.reduce((sum, tb) => sum + tb.purgeable, 0);
+  const totalSize = data.tables.reduce((sum, tb) => sum + (tb.size_bytes ?? 0), 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Retention disabled nudge */}
+      {data.retention_days == null && totalRows > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "12px 16px",
+            background: t.accentSubtle,
+            border: `1px solid ${t.accentBorder}`,
+            borderRadius: 8,
+            fontSize: 13,
+            color: t.textMuted,
+          }}
+        >
+          <Info size={16} style={{ flexShrink: 0, color: t.accent }} />
+          <span>
+            Data retention is <strong style={{ color: t.text }}>off</strong> — operational data is kept indefinitely.
+          </span>
+          <a
+            href="/admin/settings#Data%20Retention"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              marginLeft: "auto",
+              color: t.accent,
+              fontSize: 12,
+              fontWeight: 600,
+              textDecoration: "none",
+              flexShrink: 0,
+            }}
+          >
+            <Settings size={12} /> Configure
+          </a>
+        </div>
+      )}
+
       {/* Summary cards */}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
         <SummaryCard label="Total Rows" value={fmtNum(totalRows)} t={t} />
@@ -64,12 +109,14 @@ export function StorageTab() {
           sub={data.retention_days != null ? `Sweep every ${Math.round(data.sweep_interval_s / 3600)}h` : "Keeping all data"}
           t={t}
         />
-        <SummaryCard
-          label="Purgeable"
-          value={fmtNum(totalPurgeable)}
-          sub={totalPurgeable > 0 ? "rows eligible for deletion" : "nothing to purge"}
-          t={t}
-        />
+        {data.retention_days != null && (
+          <SummaryCard
+            label="Purgeable"
+            value={fmtNum(totalPurgeable)}
+            sub={totalPurgeable > 0 ? "rows eligible for deletion" : "nothing to purge"}
+            t={t}
+          />
+        )}
       </div>
 
       {/* Size bar chart */}
@@ -114,7 +161,9 @@ export function StorageTab() {
             <span style={{ width: 80, textAlign: "right" }}>Rows</span>
             <span style={{ width: 80, textAlign: "right" }}>Size</span>
             <span style={{ width: 100, textAlign: "right" }}>Oldest</span>
-            <span style={{ width: 80, textAlign: "right" }}>Purgeable</span>
+            {data.retention_days != null && (
+              <span style={{ width: 80, textAlign: "right" }}>Purgeable</span>
+            )}
           </div>
           {data.tables.map((tb, i) => (
             <div
@@ -140,17 +189,19 @@ export function StorageTab() {
               <span style={{ width: 100, textAlign: "right", color: t.textDim, fontSize: 11 }}>
                 {fmtDate(tb.oldest_row)}
               </span>
-              <span
-                style={{
-                  width: 80,
-                  textAlign: "right",
-                  fontFamily: "monospace",
-                  color: tb.purgeable > 0 ? t.warning : t.textDim,
-                  fontWeight: tb.purgeable > 0 ? 600 : 400,
-                }}
-              >
-                {fmtNum(tb.purgeable)}
-              </span>
+              {data.retention_days != null && (
+                <span
+                  style={{
+                    width: 80,
+                    textAlign: "right",
+                    fontFamily: "monospace",
+                    color: tb.purgeable > 0 ? t.warning : t.textDim,
+                    fontWeight: tb.purgeable > 0 ? 600 : 400,
+                  }}
+                >
+                  {fmtNum(tb.purgeable)}
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -161,7 +212,10 @@ export function StorageTab() {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {!showConfirm ? (
             <button
-              onClick={() => setShowConfirm(true)}
+              onClick={() => {
+                purge.reset();
+                setShowConfirm(true);
+              }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -220,11 +274,25 @@ export function StorageTab() {
               </button>
             </>
           )}
-          {purge.isSuccess && (
-            <span style={{ fontSize: 12, color: t.success }}>
-              Purged {purge.data.total} rows
-            </span>
-          )}
+        </div>
+      )}
+
+      {/* Purge result feedback (shown below, outside the conditional purge button area) */}
+      {purge.isSuccess && !showConfirm && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 14px",
+            background: t.successBorder,
+            borderRadius: 6,
+            fontSize: 12,
+            color: t.success,
+            fontWeight: 600,
+          }}
+        >
+          Purged {purge.data.total} rows successfully
         </div>
       )}
     </div>
@@ -262,11 +330,4 @@ function SummaryCard({
       {sub && <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>{sub}</div>}
     </div>
   );
-}
-
-function fmtBytes(b: number): string {
-  if (b >= 1_073_741_824) return `${(b / 1_073_741_824).toFixed(1)} GB`;
-  if (b >= 1_048_576) return `${(b / 1_048_576).toFixed(1)} MB`;
-  if (b >= 1024) return `${(b / 1024).toFixed(1)} KB`;
-  return `${b} B`;
 }

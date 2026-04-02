@@ -372,6 +372,13 @@ async def trigger_workflow(
 
     # Start advancement
     await advance_workflow(run.id)
+
+    # Re-read from DB so callers get step_states updated by advance_workflow
+    # (which runs in its own session).
+    async with async_session() as db:
+        fresh = await db.get(WorkflowRun, run.id)
+        if fresh:
+            return fresh
     return run
 
 
@@ -533,6 +540,9 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                 # If committed separately, the task worker can pick up and
                 # complete the task before the step is marked "running",
                 # causing duplicate task creation.
+                # The with_for_update row lock above prevents concurrent
+                # advancement from creating duplicates — the step status check
+                # (status != "pending") is the guard.
                 now = datetime.now(timezone.utc)
                 try:
                     task = _build_step_task(run, workflow, step_def, i, steps, defaults)
@@ -756,7 +766,10 @@ async def on_step_task_completed(
         return
 
     async with async_session() as db:
-        run = await db.get(WorkflowRun, _run_id)
+        # Row-level lock prevents lost updates when multiple task completions
+        # race — without it, two concurrent completions can read the same
+        # step_states snapshot and the second commit overwrites the first.
+        run = await db.get(WorkflowRun, _run_id, with_for_update=True)
         if not run:
             logger.warning("WorkflowRun %s not found for task completion", run_id)
             return

@@ -29,6 +29,7 @@ import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
 import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
+import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
 import type { Message, ChatAttachment, ChatFileMetadata, ChatRequest } from "@/src/types/api";
 
 interface MessagePage {
@@ -42,6 +43,8 @@ const PAGE_SIZE = 50;
 function shouldGroup(current: Message, prev: Message | undefined): boolean {
   if (!prev) return false;
   if (current.role !== prev.role) return false;
+  // Don't group bot response with preceding trigger card
+  if (prev.role === "user" && (prev.metadata as any)?.trigger) return false;
   // Don't group across different senders (e.g. two different bots)
   const curSender = current.metadata?.sender_id ?? current.role;
   const prevSender = prev.metadata?.sender_id ?? prev.role;
@@ -594,6 +597,16 @@ export default function ChatScreen() {
       const grouped = shouldGroup(item, prevMsg);
       // Show date separator above this message if it's the oldest loaded or on a different day than the one above
       const showDateSep = index === invertedData.length - 1 || (prevMsg && isDifferentDay(item.created_at, prevMsg.created_at));
+      // Render trigger card for automated user messages
+      const meta = (item.metadata ?? {}) as Record<string, any>;
+      if (item.role === "user" && meta.trigger && SUPPORTED_TRIGGERS.has(meta.trigger)) {
+        return (
+          <>
+            <TriggerCard message={item} botName={bot?.name} />
+            {showDateSep && <DateSeparator label={formatDateSeparator(item.created_at)} />}
+          </>
+        );
+      }
       return (
         <>
           <MessageBubble message={item} botName={bot?.name} isGrouped={showDateSep ? false : grouped} />

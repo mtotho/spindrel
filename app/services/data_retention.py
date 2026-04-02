@@ -24,8 +24,19 @@ RETENTION_TABLES: list[tuple[str, str, str | None]] = [
 ]
 
 
+def _build_where(date_col: str, days: int, status_filter: str | None) -> str:
+    """Build WHERE clause for a retention query."""
+    clauses = [f"{date_col} < now() - ('{days} days')::interval"]
+    if status_filter:
+        clauses.append(status_filter)
+    return " AND ".join(clauses)
+
+
 async def run_data_retention_sweep(retention_days: int | None = None) -> dict[str, int]:
     """DELETE old rows from operational tables. Returns per-table deleted counts.
+
+    Each table is purged in its own session/transaction so that a failure
+    in one table does not abort the rest.
 
     Args:
         retention_days: Override; if None, reads from settings.DATA_RETENTION_DAYS.
@@ -38,27 +49,20 @@ async def run_data_retention_sweep(retention_days: int | None = None) -> dict[st
 
     deleted: dict[str, int] = {}
 
-    async with async_session() as db:
-        for table, date_col, status_filter in RETENTION_TABLES:
-            where = f"{date_col} < now() - interval ':days days'"
-            # Use parameterised interval via string substitution since
-            # interval syntax doesn't accept bind params in all dialects.
-            # We build safe SQL — `days` is always an int from config.
-            clauses = [f"{date_col} < now() - ('{days} days')::interval"]
-            if status_filter:
-                clauses.append(status_filter)
-            sql = f"DELETE FROM {table} WHERE {' AND '.join(clauses)}"
-            try:
+    for table, date_col, status_filter in RETENTION_TABLES:
+        where = _build_where(date_col, days, status_filter)
+        sql = f"DELETE FROM {table} WHERE {where}"
+        try:
+            async with async_session() as db:
                 result = await db.execute(text(sql))
                 count = result.rowcount
-                if count:
-                    logger.info("Data retention: deleted %d rows from %s", count, table)
-                deleted[table] = count
-            except Exception:
-                logger.exception("Data retention: failed to purge %s", table)
-                deleted[table] = 0
-
-        await db.commit()
+                await db.commit()
+            if count:
+                logger.info("Data retention: deleted %d rows from %s", count, table)
+            deleted[table] = count
+        except Exception:
+            logger.exception("Data retention: failed to purge %s", table)
+            deleted[table] = 0
 
     total = sum(deleted.values())
     if total:
@@ -79,10 +83,8 @@ async def get_purgeable_counts(retention_days: int | None = None) -> dict[str, i
 
     async with async_session() as db:
         for table, date_col, status_filter in RETENTION_TABLES:
-            clauses = [f"{date_col} < now() - ('{days} days')::interval"]
-            if status_filter:
-                clauses.append(status_filter)
-            sql = f"SELECT COUNT(*) FROM {table} WHERE {' AND '.join(clauses)}"
+            where = _build_where(date_col, days, status_filter)
+            sql = f"SELECT COUNT(*) FROM {table} WHERE {where}"
             try:
                 result = await db.execute(text(sql))
                 counts[table] = result.scalar() or 0
@@ -95,9 +97,10 @@ async def get_purgeable_counts(retention_days: int | None = None) -> dict[str, i
 
 async def data_retention_worker():
     """Background loop: runs purge sweep on a configurable interval."""
-    interval = settings.DATA_RETENTION_SWEEP_INTERVAL_S
-    logger.info("Data retention worker started (interval=%ds)", interval)
+    logger.info("Data retention worker started")
     while True:
+        # Re-read interval each iteration so admin UI changes take effect
+        interval = settings.DATA_RETENTION_SWEEP_INTERVAL_S
         await asyncio.sleep(interval)
         try:
             await run_data_retention_sweep()

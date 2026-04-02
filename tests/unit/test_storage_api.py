@@ -1,5 +1,6 @@
 """Unit tests for storage breakdown and purge API."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -26,6 +27,28 @@ def _bypass_auth():
     app.dependency_overrides[verify_admin_auth] = _noop
     yield
     app.dependency_overrides.pop(verify_admin_auth, None)
+
+
+# ---------------------------------------------------------------------------
+# _fmt_bytes
+# ---------------------------------------------------------------------------
+
+class TestFmtBytes:
+    def test_bytes(self):
+        from app.routers.api_v1_admin.storage import _fmt_bytes
+        assert _fmt_bytes(512) == "512 B"
+
+    def test_kilobytes(self):
+        from app.routers.api_v1_admin.storage import _fmt_bytes
+        assert _fmt_bytes(2048) == "2.0 KB"
+
+    def test_megabytes(self):
+        from app.routers.api_v1_admin.storage import _fmt_bytes
+        assert _fmt_bytes(1_048_576) == "1.0 MB"
+
+    def test_gigabytes(self):
+        from app.routers.api_v1_admin.storage import _fmt_bytes
+        assert _fmt_bytes(2_147_483_648) == "2.0 GB"
 
 
 # ---------------------------------------------------------------------------
@@ -75,8 +98,10 @@ class TestStorageBreakdown:
             for t in data["tables"]:
                 assert "table" in t
                 assert "row_count" in t
-                assert "purgeable" in t
+                assert t["row_count"] == 100
                 assert t["purgeable"] == 10
+                assert t["size_bytes"] == 1048576
+                assert t["size_display"] == "1.0 MB"
 
     async def test_purgeable_counts_zero_when_disabled(self):
         """Purgeable counts are 0 when retention is disabled."""
@@ -116,6 +141,51 @@ class TestStorageBreakdown:
             data = resp.json()
             assert data["retention_days"] is None
             assert all(t["purgeable"] == 0 for t in data["tables"])
+            # pg_total_relation_size failed → size is None
+            assert all(t["size_bytes"] is None for t in data["tables"])
+            assert all(t["size_display"] is None for t in data["tables"])
+
+    async def test_oldest_row_serializes_datetime(self):
+        """Oldest row datetime is serialized to ISO format."""
+        from app.services.data_retention import RETENTION_TABLES
+
+        purgeable = {table: 0 for table, _, _ in RETENTION_TABLES}
+        oldest_dt = datetime(2025, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+
+        mock_factory, mock_db = _mock_db_session()
+
+        async def mock_execute(sql, *args, **kwargs):
+            result = MagicMock()
+            sql_str = str(sql)
+            if "COUNT" in sql_str:
+                result.scalar = MagicMock(return_value=10)
+            elif "pg_total_relation_size" in sql_str:
+                raise Exception("not pg")
+            elif "MIN" in sql_str:
+                result.scalar = MagicMock(return_value=oldest_dt)
+            else:
+                result.scalar = MagicMock(return_value=0)
+            return result
+
+        mock_db.execute = mock_execute
+
+        with (
+            patch("app.routers.api_v1_admin.storage.get_purgeable_counts", new_callable=AsyncMock, return_value=purgeable),
+            patch("app.routers.api_v1_admin.storage.async_session", mock_factory),
+            patch("app.routers.api_v1_admin.storage.settings") as mock_settings,
+        ):
+            mock_settings.DATA_RETENTION_DAYS = None
+            mock_settings.DATA_RETENTION_SWEEP_INTERVAL_S = 86400
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                resp = await ac.get("/api/v1/admin/storage/breakdown", headers={"Authorization": "Bearer test-key"})
+
+            assert resp.status_code == 200
+            data = resp.json()
+            # All tables should have the oldest_row as an ISO string
+            for t in data["tables"]:
+                assert t["oldest_row"] is not None
+                assert "2025-01-15" in t["oldest_row"]
 
 
 # ---------------------------------------------------------------------------

@@ -925,13 +925,17 @@ async def run_task(task: Task) -> None:
         # Persist turn to session history so future agent turns see it as context
         _task_meta: dict | None = None
         if _is_scheduled:
-            _task_meta = {"trigger": "scheduled_task"}
+            _task_meta = {"trigger": "scheduled_task", "task_id": str(task.id)}
             if task.title:
                 _task_meta["task_title"] = task.title
+            if _recurrence:
+                _task_meta["recurrence"] = _recurrence
+            if task.parent_task_id:
+                _task_meta["schedule_id"] = str(task.parent_task_id)
         elif task.task_type == "callback":
             # Callback tasks (e.g. harness results) should identify themselves
             # so the UI can display them properly instead of showing "You".
-            _task_meta = {"trigger": "callback", "sender_type": "bot", "sender_display_name": bot.name}
+            _task_meta = {"trigger": "callback", "task_id": str(task.id), "sender_type": "bot", "sender_display_name": bot.name}
             # Check if the parent was a harness or delegation task for richer metadata
             if task.parent_task_id:
                 async with async_session() as _cb_db:

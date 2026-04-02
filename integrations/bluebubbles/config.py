@@ -47,7 +47,7 @@ class _Settings:
 
     @property
     def BB_SEND_METHOD(self) -> str:
-        return _get("BB_SEND_METHOD", "apple-script")
+        return _get("BB_SEND_METHOD", "")
 
 
 settings = _Settings()

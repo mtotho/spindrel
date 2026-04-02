@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
 import { Link, usePathname } from "expo-router";
 import {
@@ -100,6 +101,25 @@ function botDotColor(botId: string): string {
   return BOT_DOT_COLORS[Math.abs(hash) % BOT_DOT_COLORS.length];
 }
 
+const INTEGRATION_NAV_STORAGE_KEY = "integration-nav-collapsed";
+
+function loadIntegrationCollapsed(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(INTEGRATION_NAV_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveIntegrationCollapsed(state: Record<string, boolean>) {
+  try {
+    localStorage.setItem(INTEGRATION_NAV_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
+
 /** Generic integration sidebar section — renders items declared in SETUP manifests */
 function IntegrationSidebarSection({
   section,
@@ -112,6 +132,11 @@ function IntegrationSidebarSection({
 }) {
   const hiddenSections = useUIStore((s) => s.hiddenSidebarSections);
   const { data: modulesData } = useMCModules();
+  const t = useThemeTokens();
+  const [collapsed, setCollapsed] = useState(() => {
+    const saved = loadIntegrationCollapsed();
+    return saved[section.id] ?? false;
+  });
 
   if (hiddenSections.includes(section.id)) return null;
 
@@ -132,34 +157,76 @@ function IntegrationSidebarSection({
       ? `/${segments[0]}/${segments[1]}`
       : `/${segments[0] || ""}`;
 
+  const hasActive = items.some((item) => pathname === item.href || pathname.startsWith(item.href)) ||
+    modules.some((mod) => pathname === `/integration/${section.integration_id}/module/${mod.module_id}`);
+
+  // Auto-expand when navigating to a page in this section
+  const effectiveCollapsed = hasActive ? false : collapsed;
+
+  const SectionIcon = resolveIcon(section.icon);
+
+  const toggle = () => {
+    if (hasActive) return; // Don't collapse when active
+    const next = !collapsed;
+    setCollapsed(next);
+    const saved = loadIntegrationCollapsed();
+    saved[section.id] = next;
+    saveIntegrationCollapsed(saved);
+  };
+
   return (
     <View className="px-2 py-1.5">
-      <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider px-3 py-1.5`}>
-        {section.title}
-      </Text>
-      {items.map((item) => (
-        <NavLink
-          key={item.href}
-          item={item}
-          active={pathname === item.href || (item.href !== sectionHome && pathname.startsWith(item.href))}
-          mobile={mobile}
+      <Pressable
+        onPress={toggle}
+        className="flex-row items-center px-3 py-1.5 rounded hover:bg-surface-overlay"
+        style={{ gap: 6 }}
+      >
+        <ChevronRight
+          size={10}
+          color={hasActive ? t.accent : t.textDim}
+          style={{
+            transform: [{ rotate: effectiveCollapsed ? "0deg" : "90deg" }],
+            transition: "transform 0.15s",
+          } as any}
         />
-      ))}
-      {modules.map((mod) => {
-        const moduleHref = `/integration/${section.integration_id}/module/${mod.module_id}`;
-        return (
-          <NavLink
-            key={mod.module_id}
-            item={{
-              label: mod.label,
-              href: moduleHref,
-              icon: resolveIcon(mod.icon),
-            }}
-            active={pathname === moduleHref}
-            mobile={mobile}
-          />
-        );
-      })}
+        <SectionIcon size={13} color={hasActive ? t.accent : t.textDim} />
+        <Text
+          className={`${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider`}
+          style={{ flex: 1, color: hasActive ? t.accent : t.textDim }}
+        >
+          {section.title}
+        </Text>
+        {effectiveCollapsed && hasActive && (
+          <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: t.accent }} />
+        )}
+      </Pressable>
+      {!effectiveCollapsed && (
+        <>
+          {items.map((item) => (
+            <NavLink
+              key={item.href}
+              item={item}
+              active={pathname === item.href || (item.href !== sectionHome && pathname.startsWith(item.href))}
+              mobile={mobile}
+            />
+          ))}
+          {modules.map((mod) => {
+            const moduleHref = `/integration/${section.integration_id}/module/${mod.module_id}`;
+            return (
+              <NavLink
+                key={mod.module_id}
+                item={{
+                  label: mod.label,
+                  href: moduleHref,
+                  icon: resolveIcon(mod.icon),
+                }}
+                active={pathname === moduleHref}
+                mobile={mobile}
+              />
+            );
+          })}
+        </>
+      )}
     </View>
   );
 }

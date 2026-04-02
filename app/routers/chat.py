@@ -463,6 +463,7 @@ async def chat(
         _pre_user_msg_id = _user_record.id
     except Exception:
         logger.warning("Failed to pre-persist user message for session %s", session_id, exc_info=True)
+        await db.rollback()
 
     try:
         result = await run(

@@ -140,8 +140,13 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
     );
   }
 
-  const color =
+  const { data: spikeData } = useSpikeStatus();
+  const isSpiking = spikeData?.enabled && spikeData?.spiking;
+
+  const baseColor =
     data.limits.length > 0 ? statusColor(data.limits, t) : t.success;
+  // Spike overrides everything to danger
+  const color = isSpiking ? t.danger : baseColor;
   const worstLimit =
     data.limits.length > 0
       ? data.limits.reduce((a, b) => (b.percentage > a.percentage ? b : a))
@@ -171,7 +176,7 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
           <Pressable
             onPress={() => (open ? setOpen(false) : openPopover())}
             className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 44, height: 44 }}
+            style={{ width: 44, height: 44, position: "relative" }}
             accessibilityLabel="Usage forecast"
           >
             <Text
@@ -185,6 +190,7 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
             >
               {fmt(data.daily_spend)}
             </Text>
+            {isSpiking && <SpikeDot t={t} />}
           </Pressable>
         </View>
         {popover}
@@ -199,6 +205,7 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
         <Pressable
           onPress={() => (open ? setOpen(false) : openPopover())}
           className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
+          style={{ position: "relative" }}
         >
           <DollarSign size={14} color={color} />
           <View style={{ flex: 1, gap: 2 }}>
@@ -219,11 +226,15 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
               >
                 {fmt(data.daily_spend)} today
               </Text>
-              {worstLimit && (
+              {isSpiking ? (
+                <Text style={{ fontSize: 10, fontWeight: 700, color: t.danger }}>
+                  SPIKE {spikeData?.spike_ratio != null ? `${spikeData.spike_ratio.toFixed(1)}x` : ""}
+                </Text>
+              ) : worstLimit ? (
                 <Text style={{ fontSize: 10, color: t.textDim }}>
                   {Math.round(worstLimit.percentage)}%
                 </Text>
-              )}
+              ) : null}
             </View>
             {worstLimit && (
               <View
@@ -477,6 +488,24 @@ function SpikeIndicator({ t }: { t: ReturnType<typeof useThemeTokens> }) {
         {label}
       </span>
     </div>
+  );
+}
+
+function SpikeDot({ t }: { t: ReturnType<typeof useThemeTokens> }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: 6,
+        right: 6,
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+        backgroundColor: t.danger,
+        boxShadow: `0 0 4px ${t.danger}`,
+        animation: "spike-pulse 1.5s ease-in-out infinite",
+      }}
+    />
   );
 }
 
