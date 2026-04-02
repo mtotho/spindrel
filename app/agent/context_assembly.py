@@ -538,9 +538,8 @@ async def assemble_context(
             _cw_data_listing = ""
             if _cw_os.path.isdir(_cw_data_dir):
                 _data_entries = sorted(
-                    _cw_os.path.relpath(_cw_os.path.join(dp, fn), _cw_data_dir)
-                    for dp, _, fns in _cw_os.walk(_cw_data_dir)
-                    for fn in fns
+                    e.name for e in _cw_os.scandir(_cw_data_dir)
+                    if e.is_file()
                 )
                 if _data_entries:
                     _cw_data_listing = "\nData files (data/ — not auto-injected, reference via workspace .md files):\n" + "\n".join(f"  - {n}" for n in _data_entries) + "\n"

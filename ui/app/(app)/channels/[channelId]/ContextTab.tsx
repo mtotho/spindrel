@@ -300,7 +300,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
               }}>
                 <div style={{
                   fontSize: 16, fontWeight: 600,
-                  color: label === "Would Compress" && data.compression.would_compress ? t.success : t.text,
+                  color: label === "Would Compress" && data.compression?.would_compress ? t.success : t.text,
                 }}>{String(val)}</div>
                 <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{label}</div>
               </div>

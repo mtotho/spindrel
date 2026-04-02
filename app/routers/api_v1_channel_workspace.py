@@ -55,13 +55,14 @@ async def list_workspace_files(
     channel_id: uuid.UUID,
     include_archive: bool = Query(False, description="Include archived files"),
     include_data: bool = Query(False, description="Include data/ files"),
+    data_prefix: str | None = Query(None, description="Subfolder within data/ to list (e.g. 'spindrel')"),
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth_or_user),
 ):
     """List files in the channel workspace."""
     channel, bot = await _require_channel_workspace(channel_id, db)
     from app.services.channel_workspace import list_workspace_files as _list
-    files = _list(str(channel_id), bot, include_archive=include_archive, include_data=include_data)
+    files = _list(str(channel_id), bot, include_archive=include_archive, include_data=include_data, data_prefix=data_prefix)
     return {"files": files}
 
 

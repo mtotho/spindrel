@@ -187,6 +187,7 @@ Composable bundles of skills, tools, and behavioral instructions that give bots 
 - **Source types**: `manual` (API/UI), `file` (YAML, read-only), `integration`, `tool`
 - **Channel overrides**: `carapaces_extra` (add) and `carapaces_disabled` (remove) on Channel
 - **Bot config**: `carapaces: [qa, code-review]` in bot YAML
+- **Fragment-as-index architecture**: The `system_prompt_fragment` is always injected and acts as an index to on-demand skills. It must contain clear, specific trigger phrases (user keywords, scenarios) that tell the bot *when* to `get_skill()` each deep skill. A table row or instruction without concrete triggers will get lost — the bot needs "when you see X, fetch Y" patterns, not just topic descriptions.
 
 ### Channel Workspace System
 

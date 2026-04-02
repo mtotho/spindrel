@@ -164,6 +164,7 @@ class ChannelConfigOut(BaseModel):
     client_id: Optional[str] = None
     integration: Optional[str] = None
     active_session_id: Optional[uuid.UUID] = None
+    protected: bool = False
     # Behavior
     require_mention: bool = True
     passive_memory: bool = True
@@ -778,6 +779,7 @@ async def switch_session(
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    _check_protected(channel, _auth)
 
     previous = channel.active_session_id
     try:

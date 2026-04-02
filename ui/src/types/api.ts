@@ -665,6 +665,15 @@ export interface EffectiveSetting {
   source: "channel" | "bot" | "global";
 }
 
+export interface CompressionState {
+  enabled: boolean;
+  model: string | null;
+  threshold: number;
+  keep_turns: number;
+  conversation_chars: number;
+  would_compress: boolean;
+}
+
 export interface ContextBreakdown {
   channel_id: string;
   session_id: string | null;
@@ -673,6 +682,7 @@ export interface ContextBreakdown {
   total_chars: number;
   total_tokens_approx: number;
   compaction: CompactionState;
+  compression?: CompressionState | null;
   reranking: RerankState;
   effective_settings: Record<string, EffectiveSetting>;
   disclaimer: string;

@@ -326,6 +326,7 @@ class ChannelSettingsOut(BaseModel):
     require_mention: bool = True
     passive_memory: bool = True
     private: bool = False
+    protected: bool = False
     user_id: Optional[uuid.UUID] = None
     allow_bot_messages: bool = False
     workspace_rag: bool = True

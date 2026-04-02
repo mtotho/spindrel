@@ -16,8 +16,10 @@ import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   useChannelWorkspaceFiles,
   useChannelWorkspaceFileContent,
+  useChannelWorkspaceDataFolder,
   useDeleteChannelWorkspaceFile,
   useActivatableIntegrations,
+  type ChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { InfoBanner } from "@/src/components/shared/SettingsControls";
@@ -70,10 +72,7 @@ function FileItem({
       {icon}
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={{ color: t.text, fontSize: 13, fontWeight: "500" }} numberOfLines={1}>
-          {file.name.includes("/") && (
-            <Text style={{ color: t.textDim }}>{file.name.substring(0, file.name.lastIndexOf("/") + 1)}</Text>
-          )}
-          {file.name.includes("/") ? file.name.substring(file.name.lastIndexOf("/") + 1) : file.name}
+          {file.name}
         </Text>
         <Text style={{ color: t.textDim, fontSize: 11 }}>
           {sizeKb} KB &middot; {modified.toLocaleDateString()}
@@ -256,23 +255,32 @@ function CollapsibleFileSection({
 }
 
 // ---------------------------------------------------------------------------
-// Folder group within a section (collapsible, shows file count)
+// Lazy-loading data folder — fetches children on expand
 // ---------------------------------------------------------------------------
-function FolderGroup({
+function DataFolderItem({
   folder,
-  files,
   channelId,
   selectedPath,
   onSelect,
 }: {
-  folder: string;
-  files: { name: string; path: string; size: number; modified_at: number; section: string }[];
+  folder: ChannelWorkspaceFile;
   channelId: string;
   selectedPath: string | null;
   onSelect: (path: string) => void;
 }) {
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
+  const { data, isLoading } = useChannelWorkspaceDataFolder(
+    open ? channelId : undefined,
+    open ? folder.name : null,
+  );
+
+  const children = data?.files?.filter((f) => f.section === "data") ?? [];
+  const childFiles = children.filter((f) => f.type !== "folder");
+  const childFolders = children.filter((f) => f.type === "folder");
+  const basename = folder.name.includes("/")
+    ? folder.name.substring(folder.name.lastIndexOf("/") + 1)
+    : folder.name;
 
   return (
     <View>
@@ -289,18 +297,30 @@ function FolderGroup({
       >
         {open ? <ChevronDown size={12} color={t.textMuted} /> : <ChevronRight size={12} color={t.textMuted} />}
         <Folder size={14} color={t.textMuted} />
-        <Text style={{ color: t.text, fontSize: 13, fontWeight: "500" }}>{folder}/</Text>
-        <Text style={{ color: t.textDim, fontSize: 11 }}>({files.length})</Text>
+        <Text style={{ color: t.text, fontSize: 13, fontWeight: "500" }}>{basename}/</Text>
+        {folder.count != null && (
+          <Text style={{ color: t.textDim, fontSize: 11 }}>({folder.count})</Text>
+        )}
       </Pressable>
       {open && (
         <View style={{ gap: 2, paddingLeft: 20 }}>
-          {files.map((f) => (
+          {isLoading && <ActivityIndicator color={t.accent} size="small" style={{ padding: 8 }} />}
+          {childFiles.map((f) => (
             <FileItem
               key={f.path}
-              file={{ ...f, name: f.name.slice(folder.length + 1) }}
+              file={{ ...f, name: f.name.includes("/") ? f.name.substring(f.name.lastIndexOf("/") + 1) : f.name }}
               channelId={channelId}
               onSelect={onSelect}
               selected={selectedPath === f.path}
+            />
+          ))}
+          {childFolders.map((f) => (
+            <DataFolderItem
+              key={f.name}
+              folder={f}
+              channelId={channelId}
+              selectedPath={selectedPath}
+              onSelect={onSelect}
             />
           ))}
         </View>
@@ -310,43 +330,27 @@ function FolderGroup({
 }
 
 // ---------------------------------------------------------------------------
-// Grouped file section — groups files by top-level folder
+// Data files section — shows root files + folder stubs, lazy-loads children
 // ---------------------------------------------------------------------------
-function GroupedFileSection({
-  title,
+function DataFileSection({
   files,
   channelId,
   selectedPath,
   onSelect,
-  defaultOpen = false,
 }: {
-  title: string;
-  files: { name: string; path: string; size: number; modified_at: number; section: string }[];
+  files: ChannelWorkspaceFile[];
   channelId: string;
   selectedPath: string | null;
   onSelect: (path: string) => void;
-  defaultOpen?: boolean;
 }) {
   const t = useThemeTokens();
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
 
   if (files.length === 0) return null;
 
-  // Group by top-level folder; root files have no slash
-  const rootFiles: typeof files = [];
-  const folderMap = new Map<string, typeof files>();
-  for (const f of files) {
-    const slashIdx = f.name.indexOf("/");
-    if (slashIdx === -1) {
-      rootFiles.push(f);
-    } else {
-      const folder = f.name.slice(0, slashIdx);
-      let arr = folderMap.get(folder);
-      if (!arr) { arr = []; folderMap.set(folder, arr); }
-      arr.push(f);
-    }
-  }
-  const folders = Array.from(folderMap.entries()).sort(([a], [b]) => a.localeCompare(b));
+  const rootFiles = files.filter((f) => f.type !== "folder");
+  const folders = files.filter((f) => f.type === "folder");
+  const totalCount = rootFiles.length + folders.reduce((sum, f) => sum + (f.count ?? 0), 0);
 
   return (
     <Section
@@ -357,7 +361,7 @@ function GroupedFileSection({
         >
           {open ? <ChevronDown size={14} color={t.textMuted} /> : <ChevronRight size={14} color={t.textMuted} />}
           <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>
-            {title} ({files.length})
+            Data Files ({totalCount})
           </Text>
         </Pressable> as any
       }
@@ -373,11 +377,10 @@ function GroupedFileSection({
               selected={selectedPath === f.path}
             />
           ))}
-          {folders.map(([folder, folderFiles]) => (
-            <FolderGroup
-              key={folder}
-              folder={folder}
-              files={folderFiles}
+          {folders.map((f) => (
+            <DataFolderItem
+              key={f.name}
+              folder={f}
               channelId={channelId}
               selectedPath={selectedPath}
               onSelect={onSelect}
@@ -777,8 +780,7 @@ export function ChannelWorkspaceTab({
             onSelect={setSelectedPath}
           />
 
-          <GroupedFileSection
-            title="Data Files"
+          <DataFileSection
             files={dataFiles}
             channelId={channelId}
             selectedPath={selectedPath}

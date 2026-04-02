@@ -141,8 +141,14 @@ def list_workspace_files(
     bot: "BotConfig",
     include_archive: bool = False,
     include_data: bool = False,
+    data_prefix: str | None = None,
 ) -> list[dict]:
-    """List .md files in workspace root + optionally archive/ and data/ files."""
+    """List .md files in workspace root + optionally archive/ and data/ files.
+
+    For data/, only one directory level is returned at a time.  Subdirectories
+    come back as ``{"type": "folder", "name": ..., "count": N}``.  Pass
+    *data_prefix* (e.g. ``"spindrel"``) to list files inside that subfolder.
+    """
     ws_path = get_channel_workspace_root(channel_id, bot)
     files: list[dict] = []
 
@@ -174,18 +180,39 @@ def list_workspace_files(
 
     if include_data:
         data_path = os.path.join(ws_path, "data")
+        # Drill into a subfolder when data_prefix is given
+        if data_prefix:
+            # Normalise and guard against path traversal
+            safe = os.path.normpath(data_prefix).strip("/")
+            if ".." in safe.split(os.sep):
+                return files  # reject traversal attempts
+            data_path = os.path.join(data_path, safe)
         if os.path.isdir(data_path):
-            for dirpath, _dirnames, filenames in os.walk(data_path):
-                _dirnames.sort()
-                for fname in sorted(filenames):
-                    fpath = os.path.join(dirpath, fname)
-                    rel = os.path.relpath(fpath, ws_path)  # e.g. "data/spindrel/file.md"
-                    stat = os.stat(fpath)
+            for entry in sorted(os.scandir(data_path), key=lambda e: e.name):
+                if entry.is_file():
+                    rel = os.path.relpath(entry.path, ws_path)
+                    stat = entry.stat()
+                    display = entry.name
+                    if data_prefix:
+                        display = f"{data_prefix}/{entry.name}"
                     files.append({
-                        "name": os.path.relpath(fpath, data_path),  # e.g. "spindrel/file.md"
+                        "name": display,
                         "path": rel,
                         "size": stat.st_size,
                         "modified_at": stat.st_mtime,
+                        "section": "data",
+                    })
+                elif entry.is_dir():
+                    # Count total files recursively inside this folder
+                    count = sum(len(fns) for _, _, fns in os.walk(entry.path))
+                    folder_name = entry.name
+                    if data_prefix:
+                        folder_name = f"{data_prefix}/{entry.name}"
+                    files.append({
+                        "name": folder_name,
+                        "path": os.path.relpath(entry.path, ws_path),
+                        "type": "folder",
+                        "count": count,
                         "section": "data",
                     })
 

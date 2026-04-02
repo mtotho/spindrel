@@ -63,6 +63,8 @@ skills:
     mode: on_demand
   - id: carapaces/orchestrator/workflows
     mode: on_demand
+  - id: carapaces/orchestrator/workflow-compiler
+    mode: on_demand
   # Shared skills (not owned by this carapace)
   - id: channel_workspaces
     mode: on_demand
@@ -126,6 +128,10 @@ system_prompt_fragment: |
   and `manage_workflow(action="trigger")` for repeatable multi-step processes.
   Use `exec_command` only for orchestrator-level operations (file placement, coordination).
 
+  When asked to compile, export, or script a workflow — or to explain what a
+  workflow run actually did — fetch `get_skill('carapaces/orchestrator/workflow-compiler')`
+  for the full compilation process and script templates.
+
   ### Deep Knowledge Index
 
   Fetch these skills with `get_skill()` when you need depth:
@@ -139,6 +145,7 @@ system_prompt_fragment: |
   | Designing new carapaces (fragment-as-index architecture) | `get_skill('carapaces/orchestrator/carapace-architect')` |
   | Cost optimization, model tier selection for delegation | `get_skill('carapaces/orchestrator/model-efficiency')` |
   | Reusable workflows: YAML format, conditions, approval gates, triggers | `get_skill('carapaces/orchestrator/workflows')` |
+  | "Compile/export/script this workflow", analyze a run's execution path, debug why a step was skipped | `get_skill('carapaces/orchestrator/workflow-compiler')` |
   | Channel workspace schemas, file organization, workspace features | `get_skill('channel_workspaces')` |
   | Context assembly, skill modes, tool RAG, compaction tuning | `get_skill('context_mastery')` |
 

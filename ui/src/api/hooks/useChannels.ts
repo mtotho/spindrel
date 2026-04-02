@@ -238,12 +238,14 @@ export function useDeactivateIntegration(channelId: string) {
 // Channel workspace files
 // ---------------------------------------------------------------------------
 
-interface ChannelWorkspaceFile {
+export interface ChannelWorkspaceFile {
   name: string;
   path: string;
   size: number;
   modified_at: number;
   section: "active" | "archive" | "data";
+  type?: "folder";
+  count?: number;
 }
 
 export function useChannelWorkspaceFiles(
@@ -258,6 +260,20 @@ export function useChannelWorkspaceFiles(
         `/api/v1/channels/${channelId}/workspace/files?include_archive=${includeArchive}&include_data=${includeData}`
       ),
     enabled: !!channelId,
+  });
+}
+
+export function useChannelWorkspaceDataFolder(
+  channelId: string | undefined,
+  dataPrefix: string | null,
+) {
+  return useQuery({
+    queryKey: ["channel-workspace-files", channelId, "data-folder", dataPrefix],
+    queryFn: () =>
+      apiFetch<{ files: ChannelWorkspaceFile[] }>(
+        `/api/v1/channels/${channelId}/workspace/files?include_data=true&data_prefix=${encodeURIComponent(dataPrefix!)}`
+      ),
+    enabled: !!channelId && !!dataPrefix,
   });
 }
 

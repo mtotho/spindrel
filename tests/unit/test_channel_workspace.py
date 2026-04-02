@@ -106,12 +106,11 @@ class TestChannelWorkspaceFileOps:
                 assert len(archived) == 1
                 assert archived[0]["name"] == "old.md"
 
-    def test_list_workspace_files_data_recurses_subdirs(self):
-        """Data section must include files in subdirectories like data/spindrel/."""
+    def test_list_workspace_files_data_single_level(self):
+        """Data listing returns root files + folder stubs (not recursive)."""
         from app.services.channel_workspace import list_workspace_files
         bot = _make_bot()
         with tempfile.TemporaryDirectory() as tmp:
-            # Create data/ with a subdirectory
             os.makedirs(os.path.join(tmp, "data", "spindrel"))
             with open(os.path.join(tmp, "data", "top_level.md"), "w") as f:
                 f.write("top")
@@ -123,22 +122,63 @@ class TestChannelWorkspaceFileOps:
             with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
                 files = list_workspace_files("ch-1", bot, include_data=True)
 
-            data_files = [f for f in files if f["section"] == "data"]
-            names = {f["name"] for f in data_files}
-            paths = {f["path"] for f in data_files}
+            data_items = [f for f in files if f["section"] == "data"]
+            # Should be 1 root file + 1 folder stub, NOT 3 flat files
+            assert len(data_items) == 2
 
-            assert len(data_files) == 3
-            # Names show relative path within data/
-            assert "top_level.md" in names
-            assert os.path.join("spindrel", "channel_prompt.md") in names
-            assert os.path.join("spindrel", "heartbeat.md") in names
-            # Paths include the data/ prefix
-            assert "data/top_level.md" in paths
-            assert os.path.join("data", "spindrel", "channel_prompt.md") in paths
-            assert os.path.join("data", "spindrel", "heartbeat.md") in paths
+            root_file = [f for f in data_items if f.get("type") != "folder"]
+            assert len(root_file) == 1
+            assert root_file[0]["name"] == "top_level.md"
 
-    def test_context_assembly_data_listing_recurses_subdirs(self):
-        """The os.walk logic in context_assembly must list files in data/ subdirectories."""
+            folders = [f for f in data_items if f.get("type") == "folder"]
+            assert len(folders) == 1
+            assert folders[0]["name"] == "spindrel"
+            assert folders[0]["count"] == 2  # 2 files inside
+
+    def test_list_workspace_files_data_prefix_drills_into_folder(self):
+        """data_prefix parameter lists contents of a specific subfolder."""
+        from app.services.channel_workspace import list_workspace_files
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "data", "spindrel", "sub"))
+            with open(os.path.join(tmp, "data", "spindrel", "channel_prompt.md"), "w") as f:
+                f.write("prompt")
+            with open(os.path.join(tmp, "data", "spindrel", "sub", "deep.md"), "w") as f:
+                f.write("deep")
+
+            with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
+                files = list_workspace_files("ch-1", bot, include_data=True, data_prefix="spindrel")
+
+            data_items = [f for f in files if f["section"] == "data"]
+            assert len(data_items) == 2  # 1 file + 1 subfolder
+
+            file_items = [f for f in data_items if f.get("type") != "folder"]
+            assert len(file_items) == 1
+            assert file_items[0]["name"] == "spindrel/channel_prompt.md"
+
+            folder_items = [f for f in data_items if f.get("type") == "folder"]
+            assert len(folder_items) == 1
+            assert folder_items[0]["name"] == "spindrel/sub"
+            assert folder_items[0]["count"] == 1
+
+    def test_list_workspace_files_data_prefix_rejects_traversal(self):
+        """data_prefix with .. must not escape data/ directory."""
+        from app.services.channel_workspace import list_workspace_files
+        bot = _make_bot()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "data"))
+            with open(os.path.join(tmp, "secret.md"), "w") as f:
+                f.write("secret")
+
+            with patch("app.services.channel_workspace.get_channel_workspace_root", return_value=tmp):
+                files = list_workspace_files("ch-1", bot, include_data=True, data_prefix="../")
+
+            # Should return nothing — traversal rejected
+            data_items = [f for f in files if f["section"] == "data"]
+            assert len(data_items) == 0
+
+    def test_context_assembly_data_listing_is_root_only(self):
+        """Context assembly lists only root-level data/ files (scandir, not walk)."""
         with tempfile.TemporaryDirectory() as tmp:
             data_dir = os.path.join(tmp, "data")
             os.makedirs(os.path.join(data_dir, "spindrel"))
@@ -146,19 +186,14 @@ class TestChannelWorkspaceFileOps:
                 f.write("top")
             with open(os.path.join(data_dir, "spindrel", "README.md"), "w") as f:
                 f.write("readme")
-            with open(os.path.join(data_dir, "spindrel", "config.yaml"), "w") as f:
-                f.write("cfg")
 
-            # Reproduce the exact logic from context_assembly.py
+            # Reproduce the exact logic from context_assembly.py (scandir, root only)
             entries = sorted(
-                os.path.relpath(os.path.join(dp, fn), data_dir)
-                for dp, _, fns in os.walk(data_dir)
-                for fn in fns
+                e.name for e in os.scandir(data_dir)
+                if e.is_file()
             )
-            assert "top.md" in entries
-            assert os.path.join("spindrel", "README.md") in entries
-            assert os.path.join("spindrel", "config.yaml") in entries
-            assert len(entries) == 3
+            # Only root file, NOT nested files
+            assert entries == ["top.md"]
 
     def test_read_workspace_file(self):
         from app.services.channel_workspace import read_workspace_file

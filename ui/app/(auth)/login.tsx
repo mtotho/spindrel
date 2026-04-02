@@ -59,7 +59,7 @@ export default function LoginScreen() {
         if (status.setup_required) {
           // Temporarily store serverUrl so setup screen can use it
           useAuthStore.setState({ serverUrl: url });
-          router.replace("/(auth)/setup");
+          router.replace("/(auth)/setup" as any);
           return;
         }
       }
