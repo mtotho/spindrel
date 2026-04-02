@@ -1,5 +1,7 @@
 # Spindrel
 
+*Your entire RAG loop, silk-wrapped.*
+
 Self-hosted AI agent server with persistent channels, composable expertise, workspace-driven memory, multi-step workflows, and a pluggable integration framework.
 
 > **Early Access** — Spindrel is under active development and in daily use by the maintainer. Core features are stable, but APIs, configuration formats, and database schemas may change between releases. Bug reports, feature requests, and contributions are welcome.

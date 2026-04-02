@@ -161,7 +161,7 @@ export function StepNavItem({
         flexDirection: "row", alignItems: "center", gap: 8,
         paddingVertical: 6, paddingHorizontal: 10,
         borderLeftWidth: 2,
-        borderLeftColor: isActive ? t.accent : "transparent",
+        borderLeftColor: isActive ? t.accent : color + "40",
         backgroundColor: isActive ? t.accentSubtle : "transparent",
       }}
     >

@@ -93,6 +93,11 @@ async def _post_workflow_chat_message(
     Messages appear in the channel chat with ``trigger: "workflow"`` metadata,
     rendered as collapsed cards by the UI (similar to heartbeat messages).
     No-op when the run has no ``channel_id``.
+
+    For ``step_done`` and ``step_failed`` events, updates the most recent
+    progress message in-place instead of creating a new one.  This prevents
+    the chat from accumulating N frozen-snapshot messages and keeps the
+    progress counter current.
     """
     if not run.channel_id:
         return
@@ -133,6 +138,37 @@ async def _post_workflow_chat_message(
                 metadata["completed_steps"] = completed_steps
 
             now = datetime.now(timezone.utc)
+
+            # For step progress events, update the existing progress message
+            # in-place rather than creating a new one per step.
+            if event_type in ("step_done", "step_failed"):
+                existing = (
+                    await db.execute(
+                        select(Message)
+                        .where(
+                            Message.session_id == channel.active_session_id,
+                            Message.metadata_["workflow_run_id"].astext == str(run.id),
+                            Message.metadata_["workflow_event"].astext.in_(
+                                ["step_done", "step_failed"]
+                            ),
+                        )
+                        .order_by(Message.created_at.desc())
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+
+                if existing:
+                    existing.content = content
+                    existing.metadata_ = metadata
+                    flag_modified(existing, "metadata_")
+                    await db.execute(
+                        sa_upd(Session)
+                        .where(Session.id == channel.active_session_id)
+                        .values(last_active=now)
+                    )
+                    await db.commit()
+                    return
+
             record = Message(
                 session_id=channel.active_session_id,
                 role="assistant",

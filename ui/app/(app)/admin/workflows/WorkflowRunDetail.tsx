@@ -133,7 +133,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
       <div style={{
         display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
         gap: 8, padding: 12, borderRadius: 8, flexShrink: 0,
-        background: t.codeBg, border: `1px solid ${t.surfaceBorder}`,
+        background: t.surface,
         marginBottom: 12,
       }}>
         <MetaItem label="Run ID" value={run.id.slice(0, 8)} t={t} mono />
@@ -188,7 +188,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
       {Object.keys(run.params).length > 0 && (
         <div style={{
           padding: 10, borderRadius: 8, flexShrink: 0, marginBottom: 12,
-          background: t.codeBg, border: `1px solid ${t.surfaceBorder}`,
+          background: t.surface,
         }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Parameters
@@ -209,7 +209,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
         <div style={{
           flexShrink: 0, marginBottom: 8,
           borderRadius: 8, overflow: "hidden",
-          border: `1px solid ${t.surfaceBorder}`, background: t.codeBg,
+          border: `1px solid ${t.surfaceBorder}`, background: t.surface,
         }}>
           <StepNavStrip
             steps={steps}
@@ -228,19 +228,21 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
         flex: 1, minHeight: 0,
         border: `1px solid ${t.surfaceBorder}`,
         borderRadius: 8, overflow: "hidden",
-        background: t.codeBg,
+        background: t.surface,
       }}>
         {/* Step nav sidebar (desktop) */}
         {!isMobile && (
           <div style={{
             width: 200, flexShrink: 0, overflow: "auto",
             borderRight: `1px solid ${t.surfaceBorder}`,
+            background: t.surfaceRaised,
             display: "flex", flexDirection: "column",
           }}>
             <div style={{
               padding: "8px 10px", fontSize: 10, fontWeight: 600,
               color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5,
               borderBottom: `1px solid ${t.surfaceBorder}`,
+              background: t.surfaceOverlay,
             }}>
               Steps
             </div>

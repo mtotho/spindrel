@@ -171,12 +171,26 @@ const FeedSection = forwardRef<HTMLDivElement, {
   const stepId = stepDef?.id || `step_${index}`;
   const s = getStatusStyle(state.status, t);
   const isRunning = state.status === "running";
+  const isPending = state.status === "pending";
   const elapsed = useElapsed(state.started_at, isRunning);
   const duration = formatStepDuration(state.started_at, state.completed_at);
 
   const isAwaitingApproval = runStatus === "awaiting_approval" &&
     state.status === "pending" && stepDef?.requires_approval;
   const canRetry = state.status === "failed";
+
+  // Status-colored left border
+  const borderColor = (() => {
+    switch (state.status) {
+      case "done": return t.success;
+      case "complete": return t.success;
+      case "running": return t.accent;
+      case "failed": return t.danger;
+      case "awaiting_approval": return t.warning;
+      case "skipped": return t.surfaceBorder;
+      default: return t.surfaceBorder;
+    }
+  })();
 
   const renderedPrompt = useMemo(() => {
     if (!stepDef?.prompt) return null;
@@ -203,12 +217,16 @@ const FeedSection = forwardRef<HTMLDivElement, {
       ref={ref}
       style={{
         borderBottom: isLast ? "none" : `1px solid ${t.surfaceBorder}`,
+        borderLeft: `3px solid ${borderColor}`,
         padding: "16px 16px",
+        opacity: isPending && !isAwaitingApproval ? 0.55 : 1,
       }}
     >
       {/* Step header */}
       <div style={{
         display: "flex", alignItems: "center", gap: 8, marginBottom: 8,
+        padding: "4px 8px", borderRadius: 4,
+        background: isPending && !isAwaitingApproval ? "transparent" : s.bg,
       }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
           {stepId}

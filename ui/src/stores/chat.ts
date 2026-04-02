@@ -8,7 +8,7 @@ interface ChatChannelState {
   isStreaming: boolean;
   isProcessing: boolean;
   queuedTaskId: string | null;
-  toolCalls: { name: string; args?: string; status: "running" | "done" }[];
+  toolCalls: { name: string; args?: string; status: "running" | "done" | "awaiting_approval" | "denied"; approvalId?: string; approvalReason?: string }[];
   correlationId: string | null;
   error: string | null;
   secretWarning: { patterns: { type: string }[] } | null;
@@ -241,6 +241,35 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             channels: {
               ...s.channels,
               [channelId]: { ...ch, error: data.message ?? data.detail ?? "Unknown error" },
+            },
+          };
+        }
+        case "approval_request": {
+          const data = event.data as { approval_id?: string; tool?: string; reason?: string };
+          const updated = [...ch.toolCalls];
+          const last = updated.findLastIndex((t) => t.status === "running" && t.name === data.tool);
+          if (last >= 0) {
+            updated[last] = { ...updated[last], status: "awaiting_approval", approvalId: data.approval_id, approvalReason: data.reason ?? undefined };
+          }
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: { ...ch, toolCalls: updated },
+            },
+          };
+        }
+        case "approval_resolved": {
+          const data = event.data as { approval_id?: string; verdict?: string };
+          const updated = [...ch.toolCalls];
+          const idx = updated.findIndex((t) => t.approvalId === data.approval_id);
+          if (idx >= 0) {
+            const newStatus = data.verdict === "approved" ? "running" as const : "denied" as const;
+            updated[idx] = { ...updated[idx], status: newStatus };
+          }
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: { ...ch, toolCalls: updated },
             },
           };
         }

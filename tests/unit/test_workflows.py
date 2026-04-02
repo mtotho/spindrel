@@ -358,7 +358,7 @@ class TestPostWorkflowChatMessage:
 
     @pytest.mark.asyncio
     async def test_posts_message_to_active_session(self):
-        """Should create a Message record with correct metadata."""
+        """Should create a Message record with correct metadata for non-step events."""
         run = MagicMock()
         run.channel_id = uuid.uuid4()
         run.bot_id = "test-bot"
@@ -385,9 +385,10 @@ class TestPostWorkflowChatMessage:
         ):
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_session.return_value.__aexit__ = AsyncMock()
+            # Use "started" event — always creates a new message
             await _post_workflow_chat_message(
-                run, "My Workflow", "step_done", "Step completed",
-                step_id="search", step_index=0, total_steps=3, completed_steps=1,
+                run, "My Workflow", "started", "Workflow started",
+                total_steps=3, completed_steps=0,
             )
 
             # Verify a message was added
@@ -395,15 +396,112 @@ class TestPostWorkflowChatMessage:
             msg = mock_db.add.call_args[0][0]
             assert msg.session_id == session_id
             assert msg.role == "assistant"
-            assert msg.content == "Step completed"
+            assert msg.content == "Workflow started"
             assert msg.metadata_["trigger"] == "workflow"
-            assert msg.metadata_["workflow_event"] == "step_done"
+            assert msg.metadata_["workflow_event"] == "started"
             assert msg.metadata_["workflow_name"] == "My Workflow"
-            assert msg.metadata_["step_id"] == "search"
-            assert msg.metadata_["step_index"] == 0
             assert msg.metadata_["total_steps"] == 3
-            assert msg.metadata_["completed_steps"] == 1
+            assert msg.metadata_["completed_steps"] == 0
             assert msg.metadata_["sender_display_name"] == "Test Bot"
+            mock_db.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_step_done_creates_message_when_no_existing(self):
+        """First step_done should create a new message (no existing to update)."""
+        run = MagicMock()
+        run.channel_id = uuid.uuid4()
+        run.bot_id = "test-bot"
+        run.id = uuid.uuid4()
+        run.workflow_id = "test-wf"
+
+        session_id = uuid.uuid4()
+        channel = MagicMock()
+        channel.active_session_id = session_id
+
+        bot = MagicMock()
+        bot.display_name = "Test Bot"
+        bot.name = "test-bot"
+
+        # Make the select query return no existing message
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=channel)
+        mock_db.add = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.agent.bots.get_bot", return_value=bot),
+        ):
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+            await _post_workflow_chat_message(
+                run, "My Workflow", "step_done", "Step completed",
+                step_id="search", step_index=0, total_steps=3, completed_steps=1,
+            )
+
+            # Should create new message since no existing found
+            mock_db.add.assert_called_once()
+            msg = mock_db.add.call_args[0][0]
+            assert msg.content == "Step completed"
+            assert msg.metadata_["workflow_event"] == "step_done"
+            assert msg.metadata_["step_id"] == "search"
+            assert msg.metadata_["completed_steps"] == 1
+
+    @pytest.mark.asyncio
+    async def test_step_done_updates_existing_message(self):
+        """Subsequent step_done should update the existing progress message in-place."""
+        run = MagicMock()
+        run.channel_id = uuid.uuid4()
+        run.bot_id = "test-bot"
+        run.id = uuid.uuid4()
+        run.workflow_id = "test-wf"
+
+        session_id = uuid.uuid4()
+        channel = MagicMock()
+        channel.active_session_id = session_id
+
+        bot = MagicMock()
+        bot.display_name = "Test Bot"
+        bot.name = "test-bot"
+
+        # Simulate an existing step_done message
+        existing_msg = MagicMock()
+        existing_msg.content = "Old step result"
+        existing_msg.metadata_ = {"workflow_event": "step_done", "completed_steps": 1}
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_msg
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=channel)
+        mock_db.add = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.agent.bots.get_bot", return_value=bot),
+            patch("app.services.workflow_executor.flag_modified") as mock_flag,
+        ):
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+            await _post_workflow_chat_message(
+                run, "My Workflow", "step_done", "Step 2 completed",
+                step_id="analyze", step_index=1, total_steps=3, completed_steps=2,
+            )
+
+            # Should NOT create a new message
+            mock_db.add.assert_not_called()
+            # Should update the existing message
+            assert existing_msg.content == "Step 2 completed"
+            assert existing_msg.metadata_["workflow_event"] == "step_done"
+            assert existing_msg.metadata_["step_id"] == "analyze"
+            assert existing_msg.metadata_["completed_steps"] == 2
+            mock_flag.assert_called_once_with(existing_msg, "metadata_")
             mock_db.commit.assert_called_once()
 
     @pytest.mark.asyncio

@@ -24,6 +24,7 @@ bold "  ┌───────────────────────
 bold "  │         s p i n d r e l          │"
 bold "  │     self-hosted ai agent server  │"
 bold "  └─────────────────────────────────┘"
+echo -e "  ${DIM}your entire RAG loop, silk-wrapped.${RESET}"
 echo ""
 
 # ── Prerequisites ───────────────────────────────────────────────────────────

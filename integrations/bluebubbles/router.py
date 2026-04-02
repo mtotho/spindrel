@@ -179,7 +179,7 @@ async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
                 f"{server_url}/api/v1/chat/query",
                 params={"password": password},
                 json={
-                    "limit": 10,
+                    "limit": 25,
                     "offset": 0,
                     "sort": "lastmessage",
                     "with": ["lastMessage", "participants"],
@@ -190,8 +190,16 @@ async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"BlueBubbles server error: {e}")
 
+    # BB's server-side sort can be unreliable — re-sort client-side by
+    # lastMessage date descending so the most recent conversations appear first.
+    def _last_msg_ts(c: dict) -> int:
+        lm = c.get("lastMessage") or {}
+        return lm.get("dateCreated") or lm.get("dateDelivered") or 0
+
+    chats.sort(key=_last_msg_ts, reverse=True)
+
     suggestions: list[dict] = []
-    for chat in chats:
+    for chat in chats[:10]:
         guid = chat.get("guid", "")
         if not guid:
             continue
