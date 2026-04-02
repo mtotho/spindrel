@@ -161,6 +161,65 @@ async def list_chats(limit: int = 25, offset: int = 0, _auth=Depends(verify_admi
         raise HTTPException(status_code=502, detail=f"BlueBubbles server error: {e}")
 
 
+@router.get("/binding-suggestions")
+async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
+    """Return the 10 most recent BB chats as binding suggestions for the admin UI.
+
+    Each suggestion has ``client_id``, ``display_name``, and an optional
+    ``description`` (last message preview) so the user can quickly pick
+    the right chat when creating a channel binding.
+    """
+    server_url = _get_server_url()
+    password = _get_password()
+    if not server_url or not password:
+        raise HTTPException(status_code=503, detail="BlueBubbles not configured")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"{server_url}/api/v1/chat/query",
+                params={"password": password},
+                json={
+                    "limit": 10,
+                    "offset": 0,
+                    "sort": "lastmessage",
+                    "with": ["lastMessage", "participants"],
+                },
+            )
+            r.raise_for_status()
+            chats = r.json().get("data", [])
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"BlueBubbles server error: {e}")
+
+    suggestions: list[dict] = []
+    for chat in chats:
+        guid = chat.get("guid", "")
+        if not guid:
+            continue
+
+        # Build a human-friendly display name
+        display_name = chat.get("displayName") or ""
+        if not display_name:
+            participants = chat.get("participants") or []
+            addrs = [p.get("address", "") for p in participants if p.get("address")]
+            display_name = ", ".join(addrs) if addrs else guid
+
+        # Last message preview for extra context
+        description = ""
+        last_msg = chat.get("lastMessage")
+        if last_msg:
+            text = (last_msg.get("text") or "")[:80]
+            if text:
+                description = text
+
+        suggestions.append({
+            "client_id": f"bb:{guid}",
+            "display_name": display_name,
+            "description": description,
+        })
+
+    return suggestions
+
+
 @router.get("/status")
 async def get_status(_auth=Depends(verify_admin_auth)) -> dict:
     """Check BB server connectivity."""

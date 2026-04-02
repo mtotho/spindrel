@@ -37,6 +37,11 @@ nav:
     - Migration: migration.md
     - Backup & Restore: backup.md
   - Guides:
+    - How Spindrel Works: guides/how-spindrel-works.md
+    - Templates & Activation: guides/templates-and-activation.md
+    - Workflows: guides/workflows.md
+    - Heartbeats: guides/heartbeats.md
+    - Custom Tools & Extensions: guides/custom-tools.md
     - Slack Integration: guides/slack.md
     - Discord Integration: guides/discord.md
     - Gmail Integration: guides/gmail.md

@@ -1,6 +1,6 @@
 import { useState, memo } from "react";
 import { View, Text, Platform } from "react-native";
-import { Wrench, ChevronRight, ChevronDown, Copy, Check, Activity } from "lucide-react";
+import { Wrench, ChevronRight, ChevronDown, Copy, Check, Activity, ExternalLink } from "lucide-react";
 import { useRouter } from "expo-router";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useThemeTokens } from "../../theme/tokens";
@@ -703,6 +703,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   if (isNonDispatchedHeartbeat && isWeb) {
     return (
       <div
+        className="msg-hover"
         style={{
           paddingLeft: 20,
           paddingRight: 20,
@@ -759,6 +760,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   if (isWorkflowMessage && isWeb) {
     const wfEvent = (meta.workflow_event as string) || "unknown";
     const wfName = (meta.workflow_name as string) || "Workflow";
+    const wfId = meta.workflow_id as string | undefined;
+    const wfRunId = meta.workflow_run_id as string | undefined;
     const totalSteps = meta.total_steps as number | undefined;
     const completedSteps = meta.completed_steps as number | undefined;
     const stepId = meta.step_id as string | undefined;
@@ -774,9 +777,13 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     const progress = totalSteps != null && completedSteps != null
       ? `${completedSteps}/${totalSteps}`
       : null;
+    const runDetailHref = wfId && wfRunId
+      ? `/admin/workflows/${wfId}?tab=runs&run=${wfRunId}`
+      : null;
 
     return (
       <div
+        className="msg-hover"
         style={{
           paddingLeft: 20,
           paddingRight: 20,
@@ -820,9 +827,27 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
               ({progress})
             </span>
           )}
-          <span style={{ fontSize: 11, color: t.textDim, opacity: 0.7 }}>
+          <span style={{ fontSize: 11, color: t.textDim, opacity: 0.7, flex: 1 }}>
             {timestamp}
           </span>
+          {runDetailHref && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                window.location.href = runDetailHref;
+              }}
+              title="View workflow run"
+              style={{
+                display: "inline-flex", alignItems: "center", cursor: "pointer",
+                color: t.textDim, opacity: 0.5,
+                transition: "opacity 0.15s",
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = "0.5"; }}
+            >
+              <ExternalLink size={11} />
+            </span>
+          )}
         </div>
         {workflowExpanded && displayContent.length > 0 && (
           <div style={{ paddingLeft: 30, paddingTop: 4, paddingBottom: 4 }}>

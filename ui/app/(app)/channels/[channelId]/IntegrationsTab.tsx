@@ -9,11 +9,13 @@ import {
   useBindIntegration,
   useUnbindIntegration,
   useAvailableIntegrations,
+  useBindingSuggestions,
   useActivatableIntegrations,
   useActivateIntegration,
   useDeactivateIntegration,
   type AvailableIntegration,
   type ConfigField,
+  type BindingSuggestion,
 } from "@/src/api/hooks/useChannels";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle, EmptyState,
@@ -442,6 +444,96 @@ function collectConfigValues(
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Suggestions picker (shown when integration provides suggestions_endpoint)
+// ---------------------------------------------------------------------------
+
+function SuggestionsPicker({
+  suggestions,
+  isLoading,
+  onSelect,
+  selectedClientId,
+}: {
+  suggestions: BindingSuggestion[];
+  isLoading: boolean;
+  onSelect: (s: BindingSuggestion) => void;
+  selectedClientId: string;
+}) {
+  const t = useThemeTokens();
+
+  if (isLoading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0" }}>
+        <ActivityIndicator size={12} color={t.textDim} />
+        <span style={{ fontSize: 11, color: t.textDim }}>Loading recent chats...</span>
+      </div>
+    );
+  }
+
+  if (suggestions.length === 0) return null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim }}>Recent chats</span>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 2,
+          maxHeight: 200,
+          overflowY: "auto",
+          borderRadius: 8,
+          border: `1px solid ${t.surfaceBorder}`,
+          background: t.surfaceRaised,
+        }}
+      >
+        {suggestions.map((s) => {
+          const isSelected = selectedClientId === s.client_id;
+          return (
+            <button
+              key={s.client_id}
+              onClick={() => onSelect(s)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 1,
+                padding: "8px 12px",
+                background: isSelected ? t.accentSubtle : "transparent",
+                border: "none",
+                borderBottom: `1px solid ${t.surfaceBorder}`,
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "background 0.1s",
+              }}
+              onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = t.surfaceOverlay; }}
+              onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+            >
+              <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+                {s.display_name}
+              </span>
+              <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>
+                {s.client_id}
+              </span>
+              {s.description && (
+                <span style={{
+                  fontSize: 10,
+                  color: t.textMuted,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  maxWidth: "100%",
+                }}>
+                  {s.description}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function BindingForm({
   availableIntegrations,
   initialType,
@@ -480,6 +572,9 @@ function BindingForm({
   const currentSelected = availableIntegrations.find((i) => i.type === type);
   const binding = currentSelected?.binding;
   const configFields = binding?.config_fields;
+  const suggestionsEndpoint = binding?.suggestions_endpoint;
+
+  const { data: suggestions, isLoading: suggestionsLoading } = useBindingSuggestions(suggestionsEndpoint);
 
   const handleTypeChange = (newType: string) => {
     setType(newType);
@@ -492,6 +587,11 @@ function BindingForm({
 
   const handleConfigChange = (key: string, value: any) => {
     setConfigValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleSuggestionSelect = (s: BindingSuggestion) => {
+    setClientId(s.client_id);
+    setDisplayName(s.display_name);
   };
 
   return (
@@ -507,6 +607,14 @@ function BindingForm({
           />
         )}
       </FormRow>
+      {(suggestionsEndpoint && (suggestionsLoading || (suggestions && suggestions.length > 0))) && (
+        <SuggestionsPicker
+          suggestions={suggestions ?? []}
+          isLoading={suggestionsLoading}
+          onSelect={handleSuggestionSelect}
+          selectedClientId={clientId}
+        />
+      )}
       <FormRow
         label="Client ID"
         description={binding?.client_id_description}

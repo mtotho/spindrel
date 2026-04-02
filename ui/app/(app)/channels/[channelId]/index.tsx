@@ -243,6 +243,11 @@ export default function ChatScreen() {
   }, [channelId]);
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
+  const [turnProviderIdOverride, setTurnProviderIdOverride] = useState<string | null | undefined>();
+  const handleModelOverrideChange = useCallback((m: string | undefined, providerId?: string | null) => {
+    setTurnModelOverride(m);
+    setTurnProviderIdOverride(m ? providerId : undefined);
+  }, []);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [secretWarning, setSecretWarning] = useState<{
     result: SecretCheckResult;
@@ -462,13 +467,15 @@ export default function ChatScreen() {
         client_id: channel.client_id ?? "",
         channel_id: channelId,
         ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
+        ...(turnProviderIdOverride != null ? { model_provider_id_override: turnProviderIdOverride } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(file_metadata?.length ? { file_metadata } : {}),
       });
 
       setTurnModelOverride(undefined);
+      setTurnProviderIdOverride(undefined);
     },
-    [channelId, channel, turnModelOverride]
+    [channelId, channel, turnModelOverride, turnProviderIdOverride]
   );
 
   const handleSend = useCallback(
@@ -519,11 +526,13 @@ export default function ChatScreen() {
         audio_data: audioBase64,
         audio_format: audioFormat,
         ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
+        ...(turnProviderIdOverride != null ? { model_provider_id_override: turnProviderIdOverride } : {}),
       });
 
       setTurnModelOverride(undefined);
+      setTurnProviderIdOverride(undefined);
     },
-    [channelId, channel, turnModelOverride]
+    [channelId, channel, turnModelOverride, turnProviderIdOverride]
   );
 
   // Slash command handler
@@ -874,7 +883,8 @@ export default function ChatScreen() {
               isStreaming={chatState.isStreaming || chatState.isProcessing}
               onCancel={handleCancel}
               modelOverride={turnModelOverride}
-              onModelOverrideChange={setTurnModelOverride}
+              modelProviderIdOverride={turnProviderIdOverride}
+              onModelOverrideChange={handleModelOverrideChange}
               defaultModel={channel?.model_override || bot?.model}
               currentBotId={channel?.bot_id}
               channelId={channelId}
@@ -943,7 +953,8 @@ export default function ChatScreen() {
                 isStreaming={chatState.isStreaming || chatState.isProcessing}
                 onCancel={handleCancel}
                 modelOverride={turnModelOverride}
-                onModelOverrideChange={setTurnModelOverride}
+                modelProviderIdOverride={turnProviderIdOverride}
+                onModelOverrideChange={handleModelOverrideChange}
                 defaultModel={channel?.model_override || bot?.model}
                 currentBotId={channel?.bot_id}
                 channelId={channelId}

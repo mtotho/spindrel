@@ -25,6 +25,8 @@ _no_sys_msg_models: set[str] = set()
 _no_tools_models: set[str] = set()
 # Cached set of model_ids belonging to plan-billed providers
 _plan_billed_models: set[str] = set()
+# Reverse index: model_id → provider_id (built from provider_models table)
+_model_to_provider: dict[str, str] = {}
 
 
 def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
@@ -77,7 +79,7 @@ async def _warm_model_info_cache() -> None:
 
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
-    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _plan_billed_models
+    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _plan_billed_models, _model_to_provider
     _registry = {}
     _client_cache = {}
     _tpm_windows = {}
@@ -85,6 +87,7 @@ async def load_providers() -> None:
     _no_sys_msg_models = set()
     _no_tools_models = set()
     _plan_billed_models = set()
+    _model_to_provider = {}
 
     async with async_session() as db:
         rows = (
@@ -124,6 +127,18 @@ async def load_providers() -> None:
                 )
             ).scalars().all()
             _plan_billed_models = set(plan_models)
+
+        # Build reverse index: model_id → provider_id
+        all_pm = (
+            await db.execute(
+                select(ProviderModel.model_id, ProviderModel.provider_id)
+            )
+        ).all()
+        for model_id, provider_id in all_pm:
+            # First provider wins; if a model appears on multiple providers,
+            # user should pass provider_id explicitly (or use channel/bot config).
+            if model_id not in _model_to_provider:
+                _model_to_provider[model_id] = provider_id
 
     from app.services.encryption import decrypt
 
@@ -232,6 +247,15 @@ def get_default_provider() -> ProviderConfigRow | None:
         if row.provider_type == "litellm":
             return row
     return None
+
+
+def resolve_provider_for_model(model: str) -> str | None:
+    """Look up the provider_id that owns *model* via the reverse index.
+
+    Returns None if the model isn't in any provider's model list (caller
+    should fall back to the .env default client).
+    """
+    return _model_to_provider.get(model)
 
 
 def get_llm_client(provider_id: str | None = None) -> AsyncOpenAI:

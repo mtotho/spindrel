@@ -22,7 +22,8 @@ interface Props {
   isStreaming?: boolean;
   onCancel?: () => void;
   modelOverride?: string;
-  onModelOverrideChange?: (m: string | undefined) => void;
+  modelProviderIdOverride?: string | null;
+  onModelOverrideChange?: (m: string | undefined, providerId?: string | null) => void;
   defaultModel?: string;
   /** Current channel's bot ID — excluded from @-mention completions */
   currentBotId?: string;
@@ -44,7 +45,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId, channelId, onSlashCommand }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, channelId, onSlashCommand }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const insets = useSafeAreaInsets();
@@ -369,7 +370,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   </span>
                   <span style={{ fontSize: 9, opacity: 0.7 }}>1 msg</span>
                   <span
-                    onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined); }}
+                    onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined, null); }}
                     style={{ marginLeft: 2, cursor: "pointer", fontSize: 12, lineHeight: 1 }}
                   >
                     ✕
@@ -399,8 +400,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                     <div style={{ position: "fixed", bottom: dropdownBottom, right: dropdownRight, zIndex: 50001, width: 320 }}>
                       <LlmModelDropdown
                         value={modelOverride ?? ""}
-                        onChange={(m: string) => {
-                          onModelOverrideChange(m || undefined);
+                        selectedProviderId={modelProviderIdOverride}
+                        onChange={(m: string, pid?: string | null) => {
+                          onModelOverrideChange(m || undefined, pid);
                           setShowModelPicker(false);
                         }}
                         placeholder={defaultModel ? `inherit (${defaultModel})` : "Select model..."}

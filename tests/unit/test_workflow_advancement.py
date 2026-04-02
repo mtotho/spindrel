@@ -1506,3 +1506,147 @@ class TestTriggerWorkflowFreshReturn:
 
         # Should return the fresh run, not the stale one
         assert result is fresh_run
+
+
+# ---------------------------------------------------------------------------
+# Test: _set_step_states calls flag_modified
+# ---------------------------------------------------------------------------
+
+class TestSetStepStates:
+    """Verify _set_step_states forces SQLAlchemy change detection."""
+
+    def test_flag_modified_called(self):
+        """_set_step_states should call flag_modified to force the JSONB UPDATE."""
+        from app.services.workflow_executor import _set_step_states
+
+        run = _make_workflow_run(step_count=2)
+        new_states = [{"status": "running"}, {"status": "pending"}]
+
+        with patch("app.services.workflow_executor.flag_modified") as mock_fm:
+            _set_step_states(run, new_states)
+
+        assert run.step_states == new_states
+        mock_fm.assert_called_once_with(run, "step_states")
+
+
+# ---------------------------------------------------------------------------
+# Test: deepcopy prevents shared-dict mutation
+# ---------------------------------------------------------------------------
+
+class TestDeepCopyStepStates:
+    """Verify that step_states are deep-copied so mutations don't pollute the original."""
+
+    @pytest.mark.asyncio
+    async def test_advance_uses_deep_copy(self):
+        """Mutating the working copy should not affect run.step_states until explicit assignment."""
+        from app.services.workflow_executor import _advance_workflow_inner
+
+        run = _make_workflow_run(step_count=1)
+        run.step_states = [
+            {"status": "pending", "task_id": None, "result": None, "error": None,
+             "started_at": None, "completed_at": None, "correlation_id": None}
+        ]
+        original_states = run.step_states
+
+        workflow = _make_workflow(steps=[{"id": "s0", "prompt": "Hello"}])
+
+        # Mock DB session
+        committed_values = []
+
+        class MockDB:
+            async def get(self, model, id, **kw):
+                if model == type(run) or str(model.__name__) == "WorkflowRun":
+                    return run
+                return workflow
+
+            def add(self, obj):
+                pass
+
+            async def commit(self):
+                # Capture the step_states at commit time
+                committed_values.append(
+                    [dict(s) for s in run.step_states]
+                )
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        mock_db = MockDB()
+
+        with (
+            patch("app.services.workflow_executor.async_session", return_value=mock_db),
+            patch("app.services.workflow_executor.flag_modified"),
+        ):
+            await _advance_workflow_inner(run.id)
+
+        # After advance, step 0 should be "running" in the committed data
+        assert len(committed_values) == 1
+        assert committed_values[0][0]["status"] == "running"
+
+        # The ORIGINAL step_states should NOT have been mutated by the
+        # deepcopy working copy (they would be mutated with shallow copy)
+        # NOTE: with flag_modified + assignment, the run.step_states IS
+        # updated. But the original_states reference should be untouched
+        # if deepcopy was used.
+        assert original_states[0]["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# Source-code regression guard: no shallow copies of step_states
+# ---------------------------------------------------------------------------
+
+class TestNoShallowCopyRegression:
+    """Prevent re-introduction of the shallow-copy bug.
+
+    The pattern `list(run.step_states)` creates a shallow copy — inner dicts
+    are shared, so mutating them also mutates the SQLAlchemy-tracked original.
+    On PostgreSQL, this causes SQLAlchemy to skip the UPDATE because
+    old == new. We MUST use copy.deepcopy() instead.
+    """
+
+    def test_no_list_of_step_states_in_executor(self):
+        """workflow_executor.py must not use list(run.step_states) — only deepcopy."""
+        import inspect
+        import app.services.workflow_executor as mod
+
+        source = inspect.getsource(mod)
+
+        # Check for the dangerous pattern
+        import re
+        # Match `list(run.step_states)` or `list(run .step_states)` etc.
+        matches = re.findall(r'list\s*\(\s*run\.step_states\s*\)', source)
+        assert not matches, (
+            f"Found {len(matches)} occurrence(s) of list(run.step_states) in workflow_executor.py. "
+            "This creates a shallow copy that breaks JSONB mutation tracking on PostgreSQL. "
+            "Use copy.deepcopy(run.step_states) instead."
+        )
+
+    def test_all_step_states_assignments_use_helper(self):
+        """All step_states assignments should go through _set_step_states().
+
+        Direct `run.step_states = ...` assignments skip flag_modified,
+        which can cause PostgreSQL to skip the UPDATE.
+        """
+        import inspect
+        import app.services.workflow_executor as mod
+
+        source = inspect.getsource(mod)
+
+        # Find direct assignments that AREN'T inside _set_step_states
+        import re
+        # Get the source of _set_step_states itself
+        helper_source = inspect.getsource(mod._set_step_states)
+
+        # Remove the helper source from the full module source
+        remaining = source.replace(helper_source, "")
+
+        # Now look for direct assignments in the remaining code
+        direct_assigns = re.findall(r'run\.step_states\s*=\s*', remaining)
+        assert not direct_assigns, (
+            f"Found {len(direct_assigns)} direct assignment(s) to run.step_states outside "
+            "_set_step_states(). Use _set_step_states(run, step_states) instead to ensure "
+            "flag_modified is called."
+        )

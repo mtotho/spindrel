@@ -19,7 +19,13 @@ curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | b
 
 ### What the wizard does
 
-The setup wizard is an interactive TUI that checks prerequisites (Python 3.12+, Docker, git), then walks you through:
+### Prerequisites
+
+- **Python 3.12+** with `pip` or `ensurepip` (on Debian/Ubuntu: `apt install python3-pip python3-venv`)
+- **Docker** with the Compose v2 plugin
+- **git**
+
+The setup wizard is an interactive TUI that checks these prerequisites, then walks you through:
 
 1. **Deployment mode** — Docker (recommended) or local dev
 2. **LLM provider** — Pick from presets (OpenAI, OpenRouter, Google Gemini, LiteLLM proxy, Ollama/vLLM) or enter a custom OpenAI-compatible endpoint

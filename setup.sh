@@ -56,6 +56,12 @@ if [ "$py_major" -lt 3 ] || { [ "$py_major" -eq 3 ] && [ "$py_minor" -lt 12 ]; }
     missing=1
 fi
 
+# Check pip / ensurepip availability
+if ! python3 -m pip --version &>/dev/null && ! python3 -c "import ensurepip" &>/dev/null; then
+    err "Required: pip or ensurepip for Python. Install python3-pip (or python3-venv on Debian/Ubuntu)."
+    missing=1
+fi
+
 if [ "$missing" -ne 0 ]; then
     echo ""
     err "Please install the missing prerequisites and try again."
@@ -89,12 +95,12 @@ trap cleanup_venv EXIT
 
 if [ ! -d "$SETUP_VENV" ]; then
     info "Creating temporary setup environment..."
-    python3 -m venv "$SETUP_VENV" --without-pip 2>/dev/null || python3 -m venv "$SETUP_VENV"
-    "$SETUP_VENV/bin/python" -m ensurepip --upgrade -q 2>/dev/null || true
-    "$SETUP_VENV/bin/pip" install -q questionary pyyaml 2>/dev/null || {
-        # Fallback: use pip from the venv
-        "$SETUP_VENV/bin/python" -m pip install -q questionary pyyaml
+    python3 -m venv "$SETUP_VENV" 2>/dev/null || {
+        # Some systems need --without-pip + ensurepip
+        python3 -m venv "$SETUP_VENV" --without-pip
+        "$SETUP_VENV/bin/python" -m ensurepip --upgrade -q
     }
+    "$SETUP_VENV/bin/python" -m pip install -q questionary pyyaml
 fi
 
 # ── Run Python wizard ──────────────────────────────────────────────────────

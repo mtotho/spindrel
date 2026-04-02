@@ -64,6 +64,7 @@ class ChatRequest(BaseModel):
     dispatch_type: Optional[str] = None  # "slack" | "webhook" | "internal" | "none"
     dispatch_config: Optional[dict] = None  # type-specific routing config
     model_override: Optional[str] = None  # Per-turn model override (highest priority)
+    model_provider_id_override: Optional[str] = None  # Per-turn provider override (paired with model_override)
     passive: bool = False  # If True, store message but skip agent run
     msg_metadata: Optional[dict] = None  # Metadata to attach to the user message row
 
@@ -476,6 +477,7 @@ async def chat(
             dispatch_config=req.dispatch_config,
             channel_id=channel_id,
             model_override=req.model_override,
+            provider_id_override=req.model_provider_id_override,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
@@ -784,6 +786,7 @@ async def chat_stream(
                 dispatch_config=req.dispatch_config,
                 channel_id=channel_id,
                 model_override=req.model_override,
+                provider_id_override=req.model_provider_id_override,
             )
             _budget_utilization = None
             async for event in _with_keepalive(stream):

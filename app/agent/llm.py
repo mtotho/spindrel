@@ -560,7 +560,13 @@ def _prepare_call_params(
 ) -> _CallParams:
     """Shared model preparation: client, param filtering, message folding, tool stripping."""
     from app.agent.model_params import filter_model_params
-    from app.services.providers import get_llm_client, model_supports_tools, requires_system_message_folding
+    from app.services.providers import get_llm_client, model_supports_tools, requires_system_message_folding, resolve_provider_for_model
+
+    # Auto-resolve provider when caller didn't specify one and the model is
+    # registered under a specific provider (avoids sending e.g. an Anthropic
+    # model to the .env/LiteLLM fallback).
+    if provider_id is None:
+        provider_id = resolve_provider_for_model(model)
 
     client = get_llm_client(provider_id)
     filtered = filter_model_params(model, model_params or {})

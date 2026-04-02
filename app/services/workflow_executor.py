@@ -11,6 +11,7 @@ Handles:
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import re
@@ -18,12 +19,24 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import select, update as sa_update
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Task, Workflow, WorkflowRun
 
 logger = logging.getLogger(__name__)
+
+
+def _set_step_states(run: WorkflowRun, step_states: list[dict]) -> None:
+    """Assign step_states and force SQLAlchemy to include it in the UPDATE.
+
+    Plain JSONB columns without MutableList don't track in-place mutations.
+    flag_modified ensures the column is always written.
+    """
+    run.step_states = step_states
+    flag_modified(run, "step_states")
+
 
 # ---------------------------------------------------------------------------
 # In-process advancement lock — prevents concurrent advance_workflow() calls
@@ -522,7 +535,11 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
 
         async with async_session() as db:
             run = await db.get(WorkflowRun, run_id, with_for_update=True)
-            if not run or run.status not in ("running", "awaiting_approval"):
+            if not run:
+                logger.warning("advance_workflow: run %s not found", run_id)
+                return
+            if run.status not in ("running", "awaiting_approval"):
+                logger.info("advance_workflow: run %s status=%s, skipping", run_id, run.status)
                 return
 
             workflow = await db.get(Workflow, run.workflow_id)
@@ -534,7 +551,7 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                 return
 
             steps, defaults, _secrets = _get_run_definition(run, workflow)
-            step_states = list(run.step_states)  # mutable copy
+            step_states = copy.deepcopy(run.step_states)  # deep copy to avoid shared-dict mutation
             context = _build_condition_context(steps, step_states, run.params)
 
             for i, step_def in enumerate(steps):
@@ -558,7 +575,7 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                 if step_def.get("requires_approval"):
                     run.status = "awaiting_approval"
                     run.current_step_index = i
-                    run.step_states = step_states
+                    _set_step_states(run, step_states)
                     await db.commit()
                     logger.info("Workflow run %s awaiting approval at step %d (%s)",
                                 run_id, i, step_def.get("id", "?"))
@@ -576,7 +593,7 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                         run.status = "failed"
                         run.error = f"Execution cap reached ({cap} tasks)"
                         run.completed_at = datetime.now(timezone.utc)
-                        run.step_states = step_states
+                        _set_step_states(run, step_states)
                         await db.commit()
                         logger.error(
                             "Workflow run %s hit execution cap (%d)", run_id, cap,
@@ -592,7 +609,7 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                         state["error"] = "Step type 'tool' requires 'tool_name'"
                         state["started_at"] = now.isoformat()
                         state["completed_at"] = now.isoformat()
-                        run.step_states = step_states
+                        _set_step_states(run, step_states)
                         run.status = "failed"
                         run.error = f"Step '{step_def.get('id', i)}' missing tool_name"
                         run.completed_at = now
@@ -619,7 +636,7 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
 
                     state["started_at"] = now.isoformat()
                     state["completed_at"] = now.isoformat()
-                    run.step_states = step_states
+                    _set_step_states(run, step_states)
                     context = _build_condition_context(steps, step_states, run.params)
                     action_taken = True
 
@@ -652,7 +669,7 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                     state["status"] = "failed"
                     state["error"] = f"Task creation failed: {e}"
                     state["completed_at"] = now.isoformat()
-                    run.step_states = step_states
+                    _set_step_states(run, step_states)
                     run.status = "failed"
                     run.error = f"Step '{step_def.get('id', i)}' task creation failed: {e}"
                     run.completed_at = now
@@ -663,16 +680,20 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
                 state["started_at"] = now.isoformat()
                 state["task_id"] = str(task.id)
                 run.current_step_index = i
-                run.step_states = step_states
+                _set_step_states(run, step_states)
                 db.add(task)  # Add to same session as run state update
                 await db.commit()  # Atomic: task + step state committed together
+                logger.info(
+                    "advance_workflow: run %s step %d (%s) → task %s created, step marked 'running'",
+                    run_id, i, step_def.get("id", "?"), task.id,
+                )
                 return  # Wait for task completion callback
 
             # No more pending steps — check terminal state
             all_terminal = all(
                 s["status"] in ("done", "skipped", "failed") for s in step_states
             )
-            run.step_states = step_states
+            _set_step_states(run, step_states)
 
             if all_terminal:
                 has_failure = any(s["status"] == "failed" for s in step_states)
@@ -866,6 +887,10 @@ async def on_step_task_completed(
     run_id: str, step_index: int, status: str, task: Task
 ) -> None:
     """Called when a workflow step's task completes. Updates step state and advances."""
+    logger.info(
+        "on_step_task_completed: run=%s step=%d status=%s task=%s",
+        run_id, step_index, status, task.id,
+    )
     try:
         _run_id = uuid.UUID(run_id)
     except (ValueError, TypeError):
@@ -891,7 +916,7 @@ async def on_step_task_completed(
             logger.warning("Workflow %s not found for run %s", run.workflow_id, run_id)
             return
 
-        step_states = list(run.step_states)
+        step_states = copy.deepcopy(run.step_states)
         if step_index >= len(step_states):
             logger.error("Step index %d out of bounds for run %s", step_index, run_id)
             return
@@ -945,7 +970,7 @@ async def on_step_task_completed(
             if on_failure == "abort":
                 run.status = "failed"
                 run.error = f"Step '{step_def.get('id', step_index)}' failed: {state['error']}"
-                run.step_states = step_states
+                _set_step_states(run, step_states)
                 run.completed_at = datetime.now(timezone.utc)
                 await db.commit()
                 logger.info("Workflow run %s aborted at step %d", run_id, step_index)
@@ -984,7 +1009,7 @@ async def on_step_task_completed(
                     run.status = "failed"
                     run.error = f"Execution cap reached ({cap} tasks) during retry"
                     run.completed_at = datetime.now(timezone.utc)
-                    run.step_states = step_states
+                    _set_step_states(run, step_states)
                     await db.commit()
                     logger.error(
                         "Workflow run %s hit execution cap (%d) during retry",
@@ -997,7 +1022,7 @@ async def on_step_task_completed(
                     state["status"] = "pending"
                     state["error"] = None
                     state["retry_count"] = retry_count + 1
-                    run.step_states = step_states
+                    _set_step_states(run, step_states)
                     await db.commit()
                     _committed = True
                     logger.info("Retrying step %d (attempt %d/%d) for run %s",
@@ -1005,8 +1030,12 @@ async def on_step_task_completed(
             # on_failure == "continue" or retry exhausted: fall through to advance
 
         if not _committed:
-            run.step_states = step_states
+            _set_step_states(run, step_states)
             await db.commit()
+            logger.info(
+                "on_step_task_completed: run %s step %d committed as '%s'",
+                run_id, step_index, state["status"],
+            )
 
     # Dispatch step event outside the DB lock
     await _dispatch_workflow_event(*_pending_step_event)
@@ -1049,7 +1078,7 @@ async def approve_step(run_id: uuid.UUID, step_index: int) -> WorkflowRun:
         if run.status != "awaiting_approval":
             raise ValueError(f"Run is not awaiting approval (status: {run.status})")
 
-        step_states = list(run.step_states)
+        step_states = copy.deepcopy(run.step_states)
         if step_index >= len(step_states):
             raise ValueError(f"Step index {step_index} out of bounds")
         if step_states[step_index]["status"] != "pending":
@@ -1070,7 +1099,7 @@ async def approve_step(run_id: uuid.UUID, step_index: int) -> WorkflowRun:
         step_states[step_index]["status"] = "running"
         step_states[step_index]["started_at"] = datetime.now(timezone.utc).isoformat()
         step_states[step_index]["task_id"] = str(task.id)
-        run.step_states = step_states
+        _set_step_states(run, step_states)
         db.add(task)
         await db.commit()
         await db.refresh(run)
@@ -1087,13 +1116,13 @@ async def skip_step(run_id: uuid.UUID, step_index: int) -> WorkflowRun:
         if run.status != "awaiting_approval":
             raise ValueError(f"Run is not awaiting approval (status: {run.status})")
 
-        step_states = list(run.step_states)
+        step_states = copy.deepcopy(run.step_states)
         if step_index >= len(step_states):
             raise ValueError(f"Step index {step_index} out of bounds")
 
         step_states[step_index]["status"] = "skipped"
         step_states[step_index]["completed_at"] = datetime.now(timezone.utc).isoformat()
-        run.step_states = step_states
+        _set_step_states(run, step_states)
         run.status = "running"
         await db.commit()
 
@@ -1111,7 +1140,7 @@ async def retry_step(run_id: uuid.UUID, step_index: int) -> WorkflowRun:
         if not run:
             raise ValueError("WorkflowRun not found")
 
-        step_states = list(run.step_states)
+        step_states = copy.deepcopy(run.step_states)
         if step_index >= len(step_states):
             raise ValueError(f"Step index {step_index} out of bounds")
         if step_states[step_index]["status"] != "failed":
@@ -1119,7 +1148,7 @@ async def retry_step(run_id: uuid.UUID, step_index: int) -> WorkflowRun:
 
         step_states[step_index]["status"] = "pending"
         step_states[step_index]["error"] = None
-        run.step_states = step_states
+        _set_step_states(run, step_states)
         if run.status in ("failed",):
             run.status = "running"
             run.error = None

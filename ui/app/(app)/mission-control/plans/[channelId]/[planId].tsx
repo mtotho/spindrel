@@ -16,15 +16,24 @@ import {
   useMCPlanUpdate,
   useMCPlanDelete,
   useMCSavePlanAsTemplate,
+  type MCPlanStep,
 } from "@/src/api/hooks/useMissionControl";
 import { channelColor } from "@/src/components/mission-control/botColors";
-import { StatusBadge, StepIcon, ProgressBar } from "@/src/components/mission-control/PlanComponents";
+import {
+  StatusBadge,
+  StepIcon,
+  StepStatusBadge,
+  ProgressBar,
+  MetaItem,
+} from "@/src/components/mission-control/PlanComponents";
+import { getStepStatusStyle } from "@/src/components/mission-control/planConstants";
 import {
   StepListEditor,
   makeStepKey,
   type StepDraft,
 } from "@/src/components/mission-control/StepListEditor";
 import { writeToClipboard } from "@/src/utils/clipboard";
+import { downloadBlob } from "@/src/utils/download";
 import {
   Play,
   X,
@@ -39,8 +48,9 @@ import {
   BookmarkPlus,
   Download,
   Layers,
+  Check,
+  AlertTriangle,
 } from "lucide-react";
-import { downloadBlob } from "@/src/utils/download";
 
 // ---------------------------------------------------------------------------
 // Duration / time helpers
@@ -58,28 +68,16 @@ function formatDuration(startIso: string, endIso: string): string {
   return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
-function timeAgo(isoDate: string): string {
-  const ms = Date.now() - new Date(isoDate).getTime();
-  if (ms < 0) return "just now";
-  const minutes = Math.floor(ms / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function formatDate(iso: string | null | undefined): string {
+function fmtTime(iso: string | null | undefined): string {
   if (!iso) return "";
   try {
-    return new Date(iso).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const d = new Date(iso);
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    if (diff < 60000) return "just now";
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch {
     return iso;
   }
@@ -104,7 +102,7 @@ function ExportMenu({ channelId, planId, planTitle }: { channelId: string; planI
       const slug = planTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
       downloadBlob(content, `plan-${slug}.${ext}`, format === "markdown" ? "text/markdown" : "application/json");
     } catch {
-      // silently fail — not critical
+      // silently fail
     } finally {
       setExporting(false);
       setOpen(false);
@@ -113,44 +111,264 @@ function ExportMenu({ channelId, planId, planTitle }: { channelId: string; planI
 
   return (
     <div style={{ position: "relative" }}>
-      <Pressable
-        onPress={() => setOpen((v) => !v)}
+      <button
+        onClick={() => setOpen((v) => !v)}
         disabled={exporting}
-        className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
-        style={{ borderWidth: 1, borderColor: t.surfaceBorder, opacity: exporting ? 0.5 : 1 }}
+        style={{
+          display: "flex", alignItems: "center", gap: 4,
+          padding: "4px 10px", fontSize: 11, fontWeight: 600,
+          border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+          background: "transparent", color: t.textDim, cursor: "pointer",
+          opacity: exporting ? 0.5 : 1,
+        }}
       >
-        <Download size={12} color={t.textDim} />
-        <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>Export</Text>
-      </Pressable>
+        <Download size={12} />
+        Export
+      </button>
       {open && (
         <div
           style={{
             position: "absolute",
-            top: 32,
-            left: 0,
+            top: 28,
+            right: 0,
             zIndex: 100,
             background: t.surfaceRaised,
             border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 8,
-            boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
-            minWidth: 130,
+            borderRadius: 6,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            minWidth: 120,
             overflow: "hidden",
           }}
         >
-          <Pressable
-            onPress={() => doExport("markdown")}
-            style={{ padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}
+          <button
+            onClick={() => doExport("markdown")}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              padding: "8px 12px", fontSize: 12, color: t.text,
+              background: "transparent", border: "none", cursor: "pointer",
+            }}
           >
-            <Text style={{ fontSize: 12, color: t.text }}>Markdown</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => doExport("json")}
-            style={{ padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}
+            Markdown
+          </button>
+          <button
+            onClick={() => doExport("json")}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              padding: "8px 12px", fontSize: 12, color: t.text,
+              background: "transparent", border: "none", cursor: "pointer",
+            }}
           >
-            <Text style={{ fontSize: 12, color: t.text }}>JSON</Text>
-          </Pressable>
+            JSON
+          </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Step feed section (one step = one section, like WorkflowRunFeed)
+// ---------------------------------------------------------------------------
+function StepSection({
+  step,
+  plan,
+  onApproveStep,
+  onSkipStep,
+  isApprovePending,
+  isSkipPending,
+  isLast,
+}: {
+  step: MCPlanStep;
+  plan: { status: string; channel_id: string; id: string; steps: MCPlanStep[] };
+  onApproveStep: () => void;
+  onSkipStep: () => void;
+  isApprovePending: boolean;
+  isSkipPending: boolean;
+  isLast: boolean;
+}) {
+  const t = useThemeTokens();
+  const ss = getStepStatusStyle(step.status, t);
+
+  const isTerminal = step.status === "done" || step.status === "skipped" || step.status === "failed";
+  const isGated = step.requires_approval && !isTerminal;
+  const isAwaitingApproval = plan.status === "awaiting_approval";
+  const nextStep = plan.steps.find((s) => s.status === "pending" || s.status === "in_progress");
+  const isNext = nextStep?.position === step.position && (plan.status === "executing" || isAwaitingApproval);
+  const needsStepApproval = isAwaitingApproval && isNext && isGated;
+  const canSkip = step.status === "pending" && (plan.status === "executing" || plan.status === "awaiting_approval");
+
+  const duration = step.started_at && step.completed_at
+    ? formatDuration(step.started_at, step.completed_at)
+    : null;
+
+  return (
+    <div style={{ borderBottom: isLast ? "none" : `1px solid ${t.surfaceBorder}`, padding: "14px 16px" }}>
+      {/* Step header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <StepIcon status={step.status} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>
+          Step {step.position}
+        </span>
+        <StepStatusBadge status={step.status} />
+        {step.status === "in_progress" && step.started_at && (
+          <span style={{ fontSize: 11, color: t.accent, fontWeight: 600 }}>
+            {fmtTime(step.started_at)}
+          </span>
+        )}
+        {duration && (
+          <span style={{ fontSize: 11, color: t.textDim }}>{duration}</span>
+        )}
+      </div>
+
+      {/* Step content */}
+      <div style={{
+        fontSize: 13,
+        color: step.status === "skipped" ? t.textDim : t.text,
+        lineHeight: 1.5,
+        textDecorationLine: step.status === "skipped" ? "line-through" : "none",
+        marginBottom: 8,
+      }}>
+        {step.content}
+      </div>
+
+      {/* Approval gate UI */}
+      {needsStepApproval && (
+        <div style={{
+          padding: 10,
+          borderRadius: 6,
+          background: "rgba(168,85,247,0.06)",
+          border: "1px solid rgba(168,85,247,0.15)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          marginBottom: 8,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <ShieldAlert size={13} color="#a855f7" />
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#a855f7" }}>
+              Awaiting approval
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={onApproveStep}
+              disabled={isApprovePending}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                border: "none", borderRadius: 6,
+                background: t.success, color: "#fff", cursor: "pointer",
+                opacity: isApprovePending ? 0.6 : 1,
+              }}
+            >
+              <Check size={13} />
+              Approve
+            </button>
+            <button
+              onClick={onSkipStep}
+              disabled={isSkipPending}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                background: "transparent", color: t.textMuted, cursor: "pointer",
+                opacity: isSkipPending ? 0.6 : 1,
+              }}
+            >
+              <SkipForward size={13} />
+              Skip
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Result summary */}
+      {step.result_summary && (
+        <div style={{
+          padding: 10,
+          borderRadius: 6,
+          background: step.status === "failed" ? t.dangerSubtle : t.successSubtle,
+          border: `1px solid ${step.status === "failed" ? t.dangerBorder : t.successBorder}`,
+          fontSize: 12,
+          color: t.text,
+          whiteSpace: "pre-wrap",
+          lineHeight: 1.5,
+          maxHeight: 300,
+          overflow: "auto",
+          marginBottom: 8,
+        }}>
+          {step.status === "failed" && (
+            <div style={{ fontSize: 11, fontWeight: 600, color: t.danger, marginBottom: 4 }}>Error</div>
+          )}
+          {step.result_summary}
+        </div>
+      )}
+
+      {/* Metadata row */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        {step.started_at && (
+          <span style={{ fontSize: 10, color: t.textMuted }}>
+            Started {fmtTime(step.started_at)}
+          </span>
+        )}
+        {step.completed_at && (
+          <span style={{ fontSize: 10, color: t.textMuted }}>
+            Completed {fmtTime(step.completed_at)}
+          </span>
+        )}
+        {isGated && !needsStepApproval && (
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 3,
+            fontSize: 10, color: "#a855f7",
+          }}>
+            <ShieldAlert size={9} />
+            Requires approval
+          </span>
+        )}
+        {canSkip && !needsStepApproval && (
+          <button
+            onClick={onSkipStep}
+            disabled={isSkipPending}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 3,
+              fontSize: 10, color: t.textDim, background: "none",
+              border: "none", cursor: "pointer", padding: 0,
+              opacity: isSkipPending ? 0.4 : 0.7,
+            }}
+          >
+            <SkipForward size={9} />
+            Skip
+          </button>
+        )}
+        {step.task_id && (
+          <Pressable
+            onPress={() => writeToClipboard(step.task_id!)}
+            style={{ flexDirection: "row", alignItems: "center", gap: 3 }}
+          >
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 3,
+              fontSize: 10, color: t.textMuted, fontFamily: "monospace",
+              padding: "1px 5px", borderRadius: 3,
+              background: t.codeBg, border: `1px solid ${t.codeBorder}`,
+              cursor: "pointer",
+            }}>
+              <ExternalLink size={8} />
+              Task: {step.task_id.slice(0, 8)}
+            </span>
+          </Pressable>
+        )}
+        {step.linked_card_id && (
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 3,
+            fontSize: 10, color: t.accent, fontFamily: "monospace",
+            padding: "1px 5px", borderRadius: 3,
+            background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
+          }}>
+            <Layers size={8} />
+            Card: {step.linked_card_id.slice(0, 8)}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -185,6 +403,7 @@ export default function PlanDetailPage() {
   const [editTitle, setEditTitle] = useState("");
   const [editNotes, setEditNotes] = useState("");
   const [editSteps, setEditSteps] = useState<StepDraft[]>([]);
+  const [templateSaved, setTemplateSaved] = useState(false);
 
   const startEdit = useCallback(() => {
     if (!plan) return;
@@ -244,10 +463,9 @@ export default function PlanDetailPage() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         contentContainerStyle={{
-          paddingLeft: 24,
-          paddingRight: 16,
-          paddingTop: 20,
-          gap: 20,
+          paddingHorizontal: 20,
+          paddingTop: 16,
+          gap: 16,
           paddingBottom: 48,
           maxWidth: 960,
         }}
@@ -257,112 +475,52 @@ export default function PlanDetailPage() {
             <ActivityIndicator size="large" />
           </View>
         ) : error ? (
-          <View
-            className="rounded-lg p-4"
-            style={{ backgroundColor: "rgba(239,68,68,0.06)", borderWidth: 1, borderColor: "rgba(239,68,68,0.15)" }}
-          >
-            <Text style={{ fontSize: 13, fontWeight: "600", color: "#ef4444" }}>
+          <div style={{
+            padding: 12, borderRadius: 8,
+            background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: t.danger }}>
               Failed to load plan
-            </Text>
-            <Text style={{ fontSize: 12, color: "#dc2626", marginTop: 4 }}>
+            </span>
+            <div style={{ fontSize: 12, color: t.danger, marginTop: 4 }}>
               {(error as any)?.message || "Plan not found"}
-            </Text>
-          </View>
+            </div>
+          </div>
         ) : plan ? (
           <>
-            {/* Metadata */}
-            <View style={{ gap: 10 }}>
-              {editing ? (
-                <View style={{ gap: 4 }}>
-                  <Text style={{ fontSize: 11, color: t.textDim, fontWeight: "600" }}>Title</Text>
-                  <input
-                    type="text"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    style={{
-                      fontSize: 16,
-                      fontWeight: "700",
-                      color: t.text,
-                      backgroundColor: t.surfaceOverlay,
-                      border: `1px solid ${t.surfaceBorder}`,
-                      borderRadius: 6,
-                      padding: "8px 10px",
-                      outline: "none",
-                      fontFamily: "inherit",
-                    }}
-                  />
-                </View>
-              ) : (
-                <Text style={{ fontSize: 18, fontWeight: "700", color: t.text }}>
-                  {plan.title}
-                </Text>
-              )}
-              <View className="flex-row items-center gap-3 flex-wrap">
-                <StatusBadge status={plan.status} />
-                <View className="flex-row items-center gap-1.5">
-                  <View
-                    style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: cc }}
-                  />
-                  <Text style={{ fontSize: 12, color: t.textDim }}>{plan.channel_name}</Text>
-                </View>
-                <Pressable
-                  onPress={() => writeToClipboard(plan.id)}
-                  className="flex-row items-center gap-1"
-                >
-                  <Text style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
-                    {plan.id}
-                  </Text>
-                  <Copy size={10} color={t.textDim} />
-                </Pressable>
-              </View>
+            {/* ── Action toolbar ── */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 8,
+              paddingBottom: 12,
+              flexWrap: "wrap",
+            }}>
+              <StatusBadge status={plan.status} />
+              <div style={{ flex: 1 }} />
 
-              {/* Dates */}
-              <View className="flex-row items-center gap-4 flex-wrap">
-                {plan.created_at && (
-                  <Text style={{ fontSize: 11, color: t.textDim }}>
-                    Created: {formatDate(plan.created_at)}
-                  </Text>
-                )}
-                {plan.meta.approved && (
-                  <Text style={{ fontSize: 11, color: t.textDim }}>
-                    Approved: {plan.meta.approved}
-                  </Text>
-                )}
-                {plan.updated_at && (
-                  <Text style={{ fontSize: 11, color: t.textDim }}>
-                    Updated: {formatDate(plan.updated_at)}
-                  </Text>
-                )}
-              </View>
-
-              <ProgressBar steps={plan.steps} />
-            </View>
-
-            {/* Actions */}
-            <View className="flex-row items-center gap-2 flex-wrap">
+              {/* Primary actions */}
               {plan.status === "draft" && !editing && (
                 <>
-                  <Pressable
-                    onPress={() =>
+                  <button
+                    onClick={() =>
                       approve.mutate(
                         { channelId: plan.channel_id, planId: plan.id },
                         { onError: (e: Error) => setActionError(`Approve failed: ${e.message}`) }
                       )
                     }
                     disabled={approve.isPending}
-                    className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
                     style={{
-                      backgroundColor: "rgba(34,197,94,0.15)",
-                      borderWidth: 1,
-                      borderColor: "rgba(34,197,94,0.4)",
-                      opacity: approve.isPending ? 0.5 : 1,
+                      display: "flex", alignItems: "center", gap: 4,
+                      padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                      border: "none", borderRadius: 6,
+                      background: t.success, color: "#fff", cursor: "pointer",
+                      opacity: approve.isPending ? 0.6 : 1,
                     }}
                   >
-                    <Play size={12} color="#22c55e" />
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#22c55e" }}>Approve</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
+                    <Play size={12} />
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => {
                       if (!confirmReject) { setConfirmReject(true); return; }
                       setConfirmReject(false);
                       reject.mutate(
@@ -371,52 +529,144 @@ export default function PlanDetailPage() {
                       );
                     }}
                     disabled={reject.isPending}
-                    className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
                     style={{
-                      backgroundColor: confirmReject ? "rgba(239,68,68,0.25)" : "rgba(239,68,68,0.1)",
-                      borderWidth: 1,
-                      borderColor: confirmReject ? "rgba(239,68,68,0.6)" : "rgba(239,68,68,0.3)",
-                      opacity: reject.isPending ? 0.5 : 1,
+                      display: "flex", alignItems: "center", gap: 4,
+                      padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                      border: `1px solid ${confirmReject ? t.dangerBorder : t.surfaceBorder}`,
+                      borderRadius: 5,
+                      background: confirmReject ? t.dangerSubtle : "transparent",
+                      color: confirmReject ? t.danger : t.textDim,
+                      cursor: "pointer",
                     }}
                   >
-                    <X size={12} color="#ef4444" />
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#ef4444" }}>
-                      {confirmReject ? "Confirm" : "Reject"}
-                    </Text>
-                  </Pressable>
+                    <X size={12} />
+                    {confirmReject ? "Confirm Reject" : "Reject"}
+                  </button>
                   {confirmReject && (
-                    <Pressable onPress={() => setConfirmReject(false)} className="rounded-lg px-2 py-1.5">
-                      <Text style={{ fontSize: 11, color: t.textDim }}>Cancel</Text>
-                    </Pressable>
+                    <button
+                      onClick={() => setConfirmReject(false)}
+                      style={{
+                        padding: "4px 8px", fontSize: 11,
+                        border: "none", background: "transparent",
+                        color: t.textDim, cursor: "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
                   )}
                 </>
               )}
               {plan.status === "executing" && (
-                <Pressable
-                  onPress={() =>
+                <button
+                  onClick={() =>
                     resume.mutate(
                       { channelId: plan.channel_id, planId: plan.id },
                       { onError: (e: Error) => setActionError(`Resume failed: ${e.message}`) }
                     )
                   }
                   disabled={resume.isPending}
-                  className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
                   style={{
-                    backgroundColor: "rgba(59,130,246,0.12)",
-                    borderWidth: 1,
-                    borderColor: "rgba(59,130,246,0.35)",
-                    opacity: resume.isPending ? 0.5 : 1,
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                    border: `1px solid ${t.accentBorder}`,
+                    borderRadius: 5,
+                    background: t.accentSubtle, color: t.accent, cursor: "pointer",
+                    opacity: resume.isPending ? 0.6 : 1,
                   }}
                 >
-                  <StepForward size={12} color="#3b82f6" />
-                  <Text style={{ fontSize: 12, fontWeight: "600", color: "#3b82f6" }}>Resume</Text>
-                </Pressable>
+                  <StepForward size={12} />
+                  Resume
+                </button>
               )}
-              {/* Delete for terminal/draft */}
-              {(plan.status === "draft" || plan.status === "complete" || plan.status === "abandoned") && (
+
+              {/* Secondary actions */}
+              {plan.status === "draft" && !editing && (
+                <button
+                  onClick={startEdit}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                    border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+                    background: "transparent", color: t.textDim, cursor: "pointer",
+                  }}
+                >
+                  <Pencil size={12} />
+                  Edit
+                </button>
+              )}
+              {editing && (
                 <>
-                  <Pressable
-                    onPress={() => {
+                  <button
+                    onClick={saveEdit}
+                    disabled={updatePlan.isPending}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 4,
+                      padding: "5px 12px", fontSize: 12, fontWeight: 600,
+                      border: "none", borderRadius: 6,
+                      background: t.success, color: "#fff", cursor: "pointer",
+                      opacity: updatePlan.isPending ? 0.6 : 1,
+                    }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditing(false)}
+                    style={{
+                      padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                      border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
+                      background: "transparent", color: t.textDim, cursor: "pointer",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              )}
+
+              {/* Save template */}
+              {!editing && (plan.status === "draft" || plan.status === "complete") && (
+                <button
+                  onClick={() => {
+                    setActionError(null);
+                    saveAsTemplate.mutate(
+                      {
+                        channelId: plan.channel_id,
+                        planId: plan.id,
+                        name: plan.title,
+                        description: plan.notes || "",
+                      },
+                      {
+                        onSuccess: () => { setTemplateSaved(true); setTimeout(() => setTemplateSaved(false), 2000); },
+                        onError: (e: Error) => setActionError(`Save template failed: ${e.message}`),
+                      },
+                    );
+                  }}
+                  disabled={saveAsTemplate.isPending || templateSaved}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                    border: `1px solid ${templateSaved ? t.successBorder : t.surfaceBorder}`,
+                    borderRadius: 5,
+                    background: templateSaved ? t.successSubtle : "transparent",
+                    color: templateSaved ? t.success : t.textDim,
+                    cursor: "pointer",
+                    opacity: saveAsTemplate.isPending ? 0.6 : 1,
+                  }}
+                >
+                  {templateSaved ? <Check size={12} /> : <BookmarkPlus size={12} />}
+                  {templateSaved ? "Saved!" : "Save Template"}
+                </button>
+              )}
+
+              {/* Export */}
+              {!editing && (
+                <ExportMenu channelId={plan.channel_id} planId={plan.id} planTitle={plan.title} />
+              )}
+
+              {/* Delete */}
+              {(plan.status === "draft" || plan.status === "complete" || plan.status === "abandoned") && !editing && (
+                <>
+                  <button
+                    onClick={() => {
                       if (!confirmDelete) { setConfirmDelete(true); return; }
                       setConfirmDelete(false);
                       deletePlan.mutate(
@@ -428,326 +678,176 @@ export default function PlanDetailPage() {
                       );
                     }}
                     disabled={deletePlan.isPending}
-                    className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
                     style={{
-                      backgroundColor: confirmDelete ? "rgba(239,68,68,0.2)" : "transparent",
-                      borderWidth: 1,
-                      borderColor: confirmDelete ? "rgba(239,68,68,0.4)" : t.surfaceBorder,
-                      opacity: deletePlan.isPending ? 0.5 : 1,
+                      display: "flex", alignItems: "center", gap: 4,
+                      padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                      border: `1px solid ${confirmDelete ? t.dangerBorder : t.surfaceBorder}`,
+                      borderRadius: 5,
+                      background: confirmDelete ? t.dangerSubtle : "transparent",
+                      color: confirmDelete ? t.danger : t.textDim,
+                      cursor: "pointer",
                     }}
                   >
-                    <Trash2 size={12} color={confirmDelete ? "#ef4444" : t.textDim} />
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: confirmDelete ? "#ef4444" : t.textDim }}>
-                      {confirmDelete ? "Confirm Delete" : "Delete"}
-                    </Text>
-                  </Pressable>
+                    <Trash2 size={12} />
+                    {confirmDelete ? "Confirm Delete" : "Delete"}
+                  </button>
                   {confirmDelete && (
-                    <Pressable onPress={() => setConfirmDelete(false)} className="rounded-lg px-2 py-1.5">
-                      <Text style={{ fontSize: 11, color: t.textDim }}>Cancel</Text>
-                    </Pressable>
+                    <button
+                      onClick={() => setConfirmDelete(false)}
+                      style={{
+                        padding: "4px 8px", fontSize: 11,
+                        border: "none", background: "transparent",
+                        color: t.textDim, cursor: "pointer",
+                      }}
+                    >
+                      Cancel
+                    </button>
                   )}
                 </>
               )}
-              {/* Edit button for draft */}
-              {plan.status === "draft" && !editing && (
-                <Pressable
-                  onPress={startEdit}
-                  className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
-                  style={{
-                    borderWidth: 1,
-                    borderColor: t.surfaceBorder,
-                  }}
-                >
-                  <Pencil size={12} color={t.textDim} />
-                  <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>Edit</Text>
-                </Pressable>
-              )}
-              {/* Save as template (draft or complete) */}
-              {!editing && (plan.status === "draft" || plan.status === "complete") && (
-                <Pressable
-                  onPress={() => {
-                    setActionError(null);
-                    saveAsTemplate.mutate(
-                      {
-                        channelId: plan.channel_id,
-                        planId: plan.id,
-                        name: plan.title,
-                        description: plan.notes || "",
-                      },
-                      {
-                        onSuccess: () => setActionError(null),
-                        onError: (e: Error) => setActionError(`Save template failed: ${e.message}`),
-                      },
-                    );
-                  }}
-                  disabled={saveAsTemplate.isPending}
-                  className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
-                  style={{
-                    borderWidth: 1,
-                    borderColor: t.surfaceBorder,
-                    opacity: saveAsTemplate.isPending ? 0.5 : 1,
-                  }}
-                >
-                  <BookmarkPlus size={12} color={t.textDim} />
-                  <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>
-                    {saveAsTemplate.isPending ? "Saving..." : "Save Template"}
-                  </Text>
-                </Pressable>
-              )}
-              {/* Export */}
-              {!editing && (
-                <ExportMenu channelId={plan.channel_id} planId={plan.id} planTitle={plan.title} />
-              )}
-              {/* Edit save/cancel */}
-              {editing && (
-                <>
-                  <Pressable
-                    onPress={saveEdit}
-                    disabled={updatePlan.isPending}
-                    className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
-                    style={{
-                      backgroundColor: "rgba(34,197,94,0.15)",
-                      borderWidth: 1,
-                      borderColor: "rgba(34,197,94,0.4)",
-                      opacity: updatePlan.isPending ? 0.5 : 1,
-                    }}
-                  >
-                    <Text style={{ fontSize: 12, fontWeight: "600", color: "#22c55e" }}>Save</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setEditing(false)}
-                    className="rounded-lg px-3 py-1.5"
-                    style={{ borderWidth: 1, borderColor: t.surfaceBorder }}
-                  >
-                    <Text style={{ fontSize: 12, color: t.textDim }}>Cancel</Text>
-                  </Pressable>
-                </>
-              )}
-            </View>
+            </div>
 
-            {/* Error */}
+            {/* ── Error banner ── */}
             {actionError && (
-              <View
-                className="rounded-lg px-3 py-2"
-                style={{ backgroundColor: "rgba(239,68,68,0.1)" }}
-              >
-                <Text style={{ fontSize: 12, color: "#ef4444" }}>{actionError}</Text>
-              </View>
+              <div style={{
+                padding: 10, borderRadius: 8,
+                background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+                color: t.danger, fontSize: 12,
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+              }}>
+                <span>{actionError}</span>
+                <button
+                  onClick={() => setActionError(null)}
+                  style={{ background: "none", border: "none", color: t.danger, cursor: "pointer", padding: 2 }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
             )}
 
-            {/* Steps Timeline */}
-            <View style={{ gap: 6 }}>
-              <Text style={{ fontSize: 12, fontWeight: "700", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                Steps
-              </Text>
-              {editing ? (
-                <View style={{ gap: 4 }}>
-                  <StepListEditor steps={editSteps} onChange={setEditSteps} />
-                </View>
-              ) : (
-                <View style={{ gap: 4 }}>
-                  {plan.steps.map((step) => {
-                    const isTerminal = step.status === "done" || step.status === "skipped" || step.status === "failed";
-                    const isGated = step.requires_approval && !isTerminal;
-                    const isAwaitingApproval = plan.status === "awaiting_approval";
-                    const nextStep = plan.steps.find((s) => s.status === "pending" || s.status === "in_progress");
-                    const isNext = nextStep?.position === step.position && (plan.status === "executing" || isAwaitingApproval);
-                    const needsStepApproval = isAwaitingApproval && isNext && isGated;
-                    const canSkip = step.status === "pending" && (plan.status === "executing" || plan.status === "awaiting_approval");
+            {/* ── Metadata grid ── */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+              gap: 8,
+              padding: 12,
+              borderRadius: 8,
+              background: t.codeBg,
+              border: `1px solid ${t.surfaceBorder}`,
+            }}>
+              <MetaItem label="Plan ID" value={plan.id.slice(0, 12)} mono />
+              <div>
+                <div style={{ fontSize: 10, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Channel
+                </div>
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  fontSize: 12, color: t.text, marginTop: 1,
+                }}>
+                  <div style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: cc, flexShrink: 0 }} />
+                  {plan.channel_name}
+                </div>
+              </div>
+              <MetaItem label="Created" value={fmtTime(plan.created_at)} />
+              {plan.updated_at && <MetaItem label="Updated" value={fmtTime(plan.updated_at)} />}
+              {plan.meta.approved && <MetaItem label="Approved" value={plan.meta.approved} />}
+              <div>
+                <div style={{ fontSize: 10, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Progress
+                </div>
+                <div style={{ marginTop: 3 }}>
+                  <ProgressBar steps={plan.steps} />
+                </div>
+              </div>
+            </div>
 
-                    return (
-                      <View
-                        key={step.position}
-                        className="rounded-lg border border-surface-border"
-                        style={{
-                          padding: 12,
-                          gap: 8,
-                          backgroundColor: needsStepApproval
-                            ? "rgba(168,85,247,0.04)"
-                            : isNext
-                              ? "rgba(59,130,246,0.04)"
-                              : "transparent",
-                        }}
-                      >
-                        {/* Step header */}
-                        <View className="flex-row items-start gap-2">
-                          <View style={{ marginTop: 1 }}>
-                            <StepIcon status={step.status} />
-                          </View>
-                          <View style={{ flex: 1, gap: 4 }}>
-                            <Text
-                              style={{
-                                fontSize: 13,
-                                color: step.status === "failed" ? "#ef4444" : isTerminal ? t.textDim : t.text,
-                                lineHeight: 18,
-                                fontWeight: isNext ? "600" : "400",
-                                textDecorationLine: step.status === "skipped" ? "line-through" : "none",
-                              }}
-                            >
-                              {step.position}. {step.content}
-                            </Text>
-
-                            {/* Timestamps */}
-                            <View className="flex-row items-center gap-3 flex-wrap">
-                              {step.started_at && (
-                                <Text style={{ fontSize: 10, color: t.textDim }}>
-                                  Started: {formatDate(step.started_at)}
-                                </Text>
-                              )}
-                              {step.completed_at && (
-                                <Text style={{ fontSize: 10, color: t.textDim }}>
-                                  Completed: {formatDate(step.completed_at)}
-                                </Text>
-                              )}
-                              {step.started_at && step.completed_at && (
-                                <Text style={{ fontSize: 10, color: "#3b82f6", fontWeight: "600" }}>
-                                  {formatDuration(step.started_at, step.completed_at)}
-                                </Text>
-                              )}
-                              {step.started_at && !step.completed_at && step.status === "in_progress" && (
-                                <Text style={{ fontSize: 10, color: "#3b82f6" }}>
-                                  started {timeAgo(step.started_at)}
-                                </Text>
-                              )}
-                              {step.linked_card_id && (
-                                <View className="flex-row items-center gap-1">
-                                  <Layers size={9} color={t.accent} />
-                                  <Text style={{ fontSize: 10, color: t.accent, fontFamily: "monospace" }}>
-                                    {step.linked_card_id.slice(0, 8)}
-                                  </Text>
-                                </View>
-                              )}
-                            </View>
-                          </View>
-
-                          <View className="flex-row items-center gap-1">
-                            {isGated && <ShieldAlert size={13} color="#a855f7" />}
-                            {step.task_id && (
-                              <Pressable
-                                onPress={() => writeToClipboard(step.task_id!)}
-                                style={{ padding: 2 }}
-                                accessibilityLabel="Copy task ID"
-                              >
-                                <ExternalLink size={11} color={t.textDim} />
-                              </Pressable>
-                            )}
-                            {canSkip && (
-                              <Pressable
-                                onPress={() => {
-                                  setActionError(null);
-                                  skipStep.mutate(
-                                    { channelId: plan.channel_id, planId: plan.id, position: step.position },
-                                    { onError: (e: Error) => setActionError(`Skip failed: ${e.message}`) },
-                                  );
-                                }}
-                                disabled={skipStep.isPending}
-                                style={{ padding: 2, opacity: skipStep.isPending ? 0.4 : 0.6 }}
-                                accessibilityLabel="Skip step"
-                              >
-                                <SkipForward size={13} color={t.textDim} />
-                              </Pressable>
-                            )}
-                          </View>
-                        </View>
-
-                        {/* Step approve */}
-                        {needsStepApproval && (
-                          <View className="flex-row items-center gap-2" style={{ paddingLeft: 22 }}>
-                            <Pressable
-                              onPress={() => {
-                                setActionError(null);
-                                stepApprove.mutate(
-                                  { channelId: plan.channel_id, planId: plan.id, position: step.position },
-                                  { onError: (e: Error) => setActionError(`Step approve failed: ${e.message}`) },
-                                );
-                              }}
-                              disabled={stepApprove.isPending}
-                              className="flex-row items-center gap-1.5 rounded-lg px-3 py-1"
-                              style={{
-                                backgroundColor: "rgba(168,85,247,0.12)",
-                                borderWidth: 1,
-                                borderColor: "rgba(168,85,247,0.35)",
-                                opacity: stepApprove.isPending ? 0.5 : 1,
-                              }}
-                            >
-                              <ShieldCheck size={11} color="#a855f7" />
-                              <Text style={{ fontSize: 11, fontWeight: "600", color: "#a855f7" }}>
-                                Approve Step
-                              </Text>
-                            </Pressable>
-                            <Text style={{ fontSize: 10, color: t.textDim }}>
-                              Requires human approval
-                            </Text>
-                          </View>
-                        )}
-
-                        {/* Result summary */}
-                        {step.result_summary && (
-                          <View
-                            className="rounded-md px-2 py-1"
-                            style={{
-                              marginLeft: 22,
-                              backgroundColor: step.status === "failed"
-                                ? "rgba(239,68,68,0.06)"
-                                : "rgba(34,197,94,0.06)",
-                            }}
-                          >
-                            <Text
-                              style={{
-                                fontSize: 11,
-                                color: step.status === "failed" ? "#ef4444" : "#22c55e",
-                                lineHeight: 15,
-                              }}
-                            >
-                              {step.result_summary}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-            </View>
-
-            {/* Notes */}
-            <View style={{ gap: 6 }}>
-              <Text style={{ fontSize: 12, fontWeight: "700", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                Notes
-              </Text>
-              {editing ? (
+            {/* ── Notes ── */}
+            {editing ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Title
+                </div>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  style={{
+                    fontSize: 14, fontWeight: 600, color: t.text,
+                    backgroundColor: t.inputBg, border: `1px solid ${t.inputBorder}`,
+                    borderRadius: 8, padding: "8px 12px", outline: "none", fontFamily: "inherit",
+                  }}
+                />
+                <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 4 }}>
+                  Notes
+                </div>
                 <textarea
                   value={editNotes}
                   onChange={(e) => setEditNotes(e.target.value)}
                   placeholder="Context, rationale, estimates..."
                   rows={3}
                   style={{
-                    fontSize: 13,
-                    color: t.text,
-                    backgroundColor: t.surfaceOverlay,
-                    border: `1px solid ${t.surfaceBorder}`,
-                    borderRadius: 6,
-                    padding: "8px 10px",
-                    outline: "none",
-                    fontFamily: "inherit",
-                    resize: "vertical",
+                    fontSize: 13, color: t.text,
+                    backgroundColor: t.inputBg, border: `1px solid ${t.inputBorder}`,
+                    borderRadius: 8, padding: "8px 12px", outline: "none",
+                    fontFamily: "inherit", resize: "vertical",
                   }}
                 />
-              ) : plan.notes ? (
-                <View
-                  className="rounded-lg px-3 py-2"
-                  style={{ backgroundColor: t.surfaceOverlay }}
-                >
-                  <Text style={{ fontSize: 13, color: t.textDim, lineHeight: 19 }}>
-                    {plan.notes}
-                  </Text>
-                </View>
+              </div>
+            ) : plan.notes ? (
+              <div style={{
+                padding: 12, borderRadius: 8,
+                background: t.codeBg, border: `1px solid ${t.surfaceBorder}`,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+                  Notes
+                </div>
+                <div style={{ fontSize: 13, color: t.text, lineHeight: 1.5 }}>
+                  {plan.notes}
+                </div>
+              </div>
+            ) : null}
+
+            {/* ── Steps ── */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+                Steps
+              </div>
+              {editing ? (
+                <StepListEditor steps={editSteps} onChange={setEditSteps} />
               ) : (
-                <Text style={{ fontSize: 12, color: t.textDim, fontStyle: "italic" }}>
-                  No notes
-                </Text>
+                <div style={{
+                  borderRadius: 8,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  overflow: "hidden",
+                  background: t.codeBg,
+                }}>
+                  {plan.steps.map((step, i) => (
+                    <StepSection
+                      key={step.position}
+                      step={step}
+                      plan={plan}
+                      onApproveStep={() => {
+                        setActionError(null);
+                        stepApprove.mutate(
+                          { channelId: plan.channel_id, planId: plan.id, position: step.position },
+                          { onError: (e: Error) => setActionError(`Step approve failed: ${e.message}`) },
+                        );
+                      }}
+                      onSkipStep={() => {
+                        setActionError(null);
+                        skipStep.mutate(
+                          { channelId: plan.channel_id, planId: plan.id, position: step.position },
+                          { onError: (e: Error) => setActionError(`Skip failed: ${e.message}`) },
+                        );
+                      }}
+                      isApprovePending={stepApprove.isPending}
+                      isSkipPending={skipStep.isPending}
+                      isLast={i === plan.steps.length - 1}
+                    />
+                  ))}
+                </div>
               )}
-            </View>
+            </div>
           </>
         ) : null}
       </RefreshableScrollView>

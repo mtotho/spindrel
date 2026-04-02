@@ -178,6 +178,12 @@ export interface ConfigField {
   options?: { value: string; label: string }[];
 }
 
+export interface BindingSuggestion {
+  client_id: string;
+  display_name: string;
+  description?: string;
+}
+
 export interface AvailableIntegration {
   type: string;
   binding?: {
@@ -187,6 +193,7 @@ export interface AvailableIntegration {
     display_name_placeholder: string;
     config_fields?: ConfigField[];
     event_types?: { value: string; label: string }[];
+    suggestions_endpoint?: string;
   } | null;
 }
 
@@ -194,6 +201,15 @@ export function useAvailableIntegrations() {
   return useQuery({
     queryKey: ["available-integrations"],
     queryFn: () => apiFetch<AvailableIntegration[]>("/api/v1/admin/channels/integrations/available"),
+  });
+}
+
+export function useBindingSuggestions(suggestionsEndpoint: string | undefined) {
+  return useQuery({
+    queryKey: ["binding-suggestions", suggestionsEndpoint],
+    queryFn: () => apiFetch<BindingSuggestion[]>(suggestionsEndpoint!),
+    enabled: !!suggestionsEndpoint,
+    staleTime: 30_000,
   });
 }
 

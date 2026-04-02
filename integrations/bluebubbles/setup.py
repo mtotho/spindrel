@@ -27,6 +27,7 @@ SETUP = {
         "client_id_placeholder": "bb:iMessage;-;+15551234567",
         "client_id_description": "BlueBubbles chat GUID (e.g. iMessage;-;+15551234567 for 1:1, iMessage;+;chat123 for group)",
         "display_name_placeholder": "+1 (555) 123-4567",
+        "suggestions_endpoint": "/integrations/bluebubbles/binding-suggestions",
         "config_fields": [
             {"key": "extra_wake_words", "type": "string", "label": "Extra Wake Words", "description": "Comma-separated additional wake words for this chat", "default": ""},
             {"key": "use_bot_wake_word", "type": "boolean", "label": "Use Bot Name as Wake Word", "description": "Automatically use the channel bot's name and ID as wake words", "default": True},

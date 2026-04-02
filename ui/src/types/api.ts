@@ -478,6 +478,7 @@ export interface ChatRequest {
   session_id?: string;
   channel_id?: string;
   model_override?: string;
+  model_provider_id_override?: string | null;
   attachments?: ChatAttachment[];
   file_metadata?: ChatFileMetadata[];
   audio_data?: string;
