@@ -12,11 +12,14 @@ class KanbanCard(BaseModel):
     description: str
     channel_id: str
     channel_name: str
+    plan_id: Optional[str] = None
+    plan_step_position: Optional[int] = None
 
 
 class KanbanColumn(BaseModel):
     name: str
     cards: list[KanbanCard]
+    id: Optional[str] = None
 
 
 class KanbanMoveRequest(BaseModel):
@@ -111,6 +114,12 @@ class TimelineResponse(BaseModel):
     events: list[TimelineEvent]
 
 
+class CardHistoryEvent(BaseModel):
+    date: str
+    time: str
+    event: str
+
+
 class MCPlanStep(BaseModel):
     position: int
     status: str
@@ -120,6 +129,7 @@ class MCPlanStep(BaseModel):
     result_summary: Optional[str] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    linked_card_id: Optional[str] = None
 
 
 class MCPlan(BaseModel):
@@ -154,6 +164,56 @@ class MCPlanUpdateRequest(BaseModel):
     title: Optional[str] = None
     notes: Optional[str] = None
     steps: Optional[list[MCPlanStepInput]] = None
+
+
+class ColumnCreateRequest(BaseModel):
+    channel_id: str
+    name: str
+    position: Optional[int] = None
+
+
+class ColumnRenameRequest(BaseModel):
+    channel_id: str
+    name: str
+
+
+class ColumnReorderRequest(BaseModel):
+    channel_id: str
+    column_ids: list[str]
+
+
+class PlanTemplateStep(BaseModel):
+    content: str
+    requires_approval: bool = False
+
+
+class PlanTemplateCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    steps: list[PlanTemplateStep]
+
+
+class PlanFromTemplateRequest(BaseModel):
+    title: str
+    notes: str = ""
+
+
+class SaveAsTemplateRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+class MCPlanTemplate(BaseModel):
+    id: str
+    name: str
+    description: str
+    steps_json: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class MCPlanTemplatesResponse(BaseModel):
+    templates: list[MCPlanTemplate]
 
 
 class FeatureReadiness(BaseModel):

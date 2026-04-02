@@ -15,6 +15,7 @@ import {
   useMCPlanStepSkip,
   useMCPlanUpdate,
   useMCPlanDelete,
+  useMCSavePlanAsTemplate,
 } from "@/src/api/hooks/useMissionControl";
 import { channelColor } from "@/src/components/mission-control/botColors";
 import { StatusBadge, StepIcon, ProgressBar } from "@/src/components/mission-control/PlanComponents";
@@ -35,7 +36,11 @@ import {
   SkipForward,
   Pencil,
   ExternalLink,
+  BookmarkPlus,
+  Download,
+  Layers,
 } from "lucide-react";
+import { downloadBlob } from "@/src/utils/download";
 
 // ---------------------------------------------------------------------------
 // Duration / time helpers
@@ -81,6 +86,76 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// Export menu
+// ---------------------------------------------------------------------------
+function ExportMenu({ channelId, planId, planTitle }: { channelId: string; planId: string; planTitle: string }) {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const doExport = async (format: "markdown" | "json") => {
+    setExporting(true);
+    try {
+      const { apiFetchText } = await import("@/src/api/client");
+      const content = await apiFetchText(
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}/export?format=${format}`,
+      );
+      const ext = format === "markdown" ? "md" : "json";
+      const slug = planTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+      downloadBlob(content, `plan-${slug}.${ext}`, format === "markdown" ? "text/markdown" : "application/json");
+    } catch {
+      // silently fail — not critical
+    } finally {
+      setExporting(false);
+      setOpen(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        disabled={exporting}
+        className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
+        style={{ borderWidth: 1, borderColor: t.surfaceBorder, opacity: exporting ? 0.5 : 1 }}
+      >
+        <Download size={12} color={t.textDim} />
+        <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>Export</Text>
+      </Pressable>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: 32,
+            left: 0,
+            zIndex: 100,
+            background: t.surfaceRaised,
+            border: `1px solid ${t.surfaceBorder}`,
+            borderRadius: 8,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+            minWidth: 130,
+            overflow: "hidden",
+          }}
+        >
+          <Pressable
+            onPress={() => doExport("markdown")}
+            style={{ padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}
+          >
+            <Text style={{ fontSize: 12, color: t.text }}>Markdown</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => doExport("json")}
+            style={{ padding: 10, flexDirection: "row", alignItems: "center", gap: 8 }}
+          >
+            <Text style={{ fontSize: 12, color: t.text }}>JSON</Text>
+          </Pressable>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 export default function PlanDetailPage() {
@@ -101,6 +176,7 @@ export default function PlanDetailPage() {
   const skipStep = useMCPlanStepSkip();
   const updatePlan = useMCPlanUpdate();
   const deletePlan = useMCPlanDelete();
+  const saveAsTemplate = useMCSavePlanAsTemplate();
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
@@ -386,6 +462,42 @@ export default function PlanDetailPage() {
                   <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>Edit</Text>
                 </Pressable>
               )}
+              {/* Save as template (draft or complete) */}
+              {!editing && (plan.status === "draft" || plan.status === "complete") && (
+                <Pressable
+                  onPress={() => {
+                    setActionError(null);
+                    saveAsTemplate.mutate(
+                      {
+                        channelId: plan.channel_id,
+                        planId: plan.id,
+                        name: plan.title,
+                        description: plan.notes || "",
+                      },
+                      {
+                        onSuccess: () => setActionError(null),
+                        onError: (e: Error) => setActionError(`Save template failed: ${e.message}`),
+                      },
+                    );
+                  }}
+                  disabled={saveAsTemplate.isPending}
+                  className="flex-row items-center gap-1.5 rounded-lg px-3 py-1.5"
+                  style={{
+                    borderWidth: 1,
+                    borderColor: t.surfaceBorder,
+                    opacity: saveAsTemplate.isPending ? 0.5 : 1,
+                  }}
+                >
+                  <BookmarkPlus size={12} color={t.textDim} />
+                  <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>
+                    {saveAsTemplate.isPending ? "Saving..." : "Save Template"}
+                  </Text>
+                </Pressable>
+              )}
+              {/* Export */}
+              {!editing && (
+                <ExportMenu channelId={plan.channel_id} planId={plan.id} planTitle={plan.title} />
+              )}
               {/* Edit save/cancel */}
               {editing && (
                 <>
@@ -496,6 +608,14 @@ export default function PlanDetailPage() {
                                 <Text style={{ fontSize: 10, color: "#3b82f6" }}>
                                   started {timeAgo(step.started_at)}
                                 </Text>
+                              )}
+                              {step.linked_card_id && (
+                                <View className="flex-row items-center gap-1">
+                                  <Layers size={9} color={t.accent} />
+                                  <Text style={{ fontSize: 10, color: t.accent, fontFamily: "monospace" }}>
+                                    {step.linked_card_id.slice(0, 8)}
+                                  </Text>
+                                </View>
                               )}
                             </View>
                           </View>

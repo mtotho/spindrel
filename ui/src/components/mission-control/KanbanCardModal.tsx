@@ -4,9 +4,10 @@
  */
 import { useState, useEffect } from "react";
 import { View, Text, Pressable, TextInput } from "react-native";
-import { X, Tag, User, Calendar, ArrowRight, Pencil, Check } from "lucide-react";
+import { X, Tag, User, Calendar, ArrowRight, Pencil, Check, Clock, Link2 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { channelColor } from "./botColors";
+import { useMCCardHistory } from "@/src/api/hooks/useMissionControl";
 import type { MCKanbanCard, MCKanbanColumn } from "@/src/api/hooks/useMissionControl";
 
 const PRIORITY_COLORS: Record<string, { bg: string; fg: string }> = {
@@ -378,6 +379,24 @@ export function KanbanCardModal({
             )}
           </View>
 
+          {/* Plan link */}
+          {card.plan_id && (
+            <View style={{ gap: 4 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                <Link2 size={10} color={t.textDim} />
+                <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Linked Plan
+                </Text>
+              </View>
+              <Text style={{ fontSize: 12, color: t.accent, fontFamily: "monospace" }}>
+                {card.plan_id}{card.plan_step_position ? ` (step ${card.plan_step_position})` : ""}
+              </Text>
+            </View>
+          )}
+
+          {/* History */}
+          <CardHistorySection cardId={card.meta.id} channelId={card.channel_id} t={t} />
+
           {/* Move actions */}
           {otherColumns.length > 0 && (
             <View style={{ gap: 6 }}>
@@ -439,6 +458,53 @@ function MetaField({
         <Text style={{ fontSize: 10, color: t.textDim, fontWeight: "500" }}>{label}</Text>
       </View>
       <Text style={{ fontSize: 12, color: t.text, fontFamily: "monospace" }}>{value}</Text>
+    </View>
+  );
+}
+
+function CardHistorySection({
+  cardId,
+  channelId,
+  t,
+}: {
+  cardId: string;
+  channelId: string;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const { data } = useMCCardHistory(cardId, channelId);
+  const events = data?.events;
+
+  if (!events || events.length === 0) return null;
+
+  return (
+    <View style={{ gap: 6 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+        <Clock size={10} color={t.textDim} />
+        <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          History
+        </Text>
+      </View>
+      <View
+        style={{
+          backgroundColor: t.surfaceOverlay,
+          borderRadius: 8,
+          padding: 10,
+          borderWidth: 1,
+          borderColor: t.surfaceBorder,
+          gap: 6,
+        }}
+      >
+        {events.slice(0, 5).map((ev, i) => (
+          <View key={i} style={{ flexDirection: "row", gap: 8, alignItems: "flex-start" }}>
+            <Text style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace", minWidth: 36, flexShrink: 0 }}>
+              {ev.time}
+            </Text>
+            <Text style={{ fontSize: 11, color: t.text, lineHeight: 16, flex: 1 }}>
+              {ev.event}
+            </Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }

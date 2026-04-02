@@ -158,12 +158,16 @@ async def _get_kanban_columns_as_dicts(channel_id: str) -> list[dict]:
                     meta["started"] = c.started_date
                 if c.completed_date:
                     meta["completed"] = c.completed_date
-                cards.append({
+                card_dict: dict = {
                     "title": c.title,
                     "meta": meta,
                     "description": c.description or "",
-                })
-            columns.append({"name": db_col.name, "cards": cards})
+                }
+                if c.plan_id:
+                    card_dict["plan_id"] = c.plan_id
+                    card_dict["plan_step_position"] = c.plan_step_position
+                cards.append(card_dict)
+            columns.append({"name": db_col.name, "id": db_col.id, "cards": cards})
 
     return columns
 
@@ -223,7 +227,7 @@ async def _get_plans_as_dicts(channel_id: str) -> list[dict]:
 async def get_single_plan(channel_id: str, plan_id: str) -> dict | None:
     """Query MC SQLite for one plan by plan_id + channel_id, return dict or None."""
     from integrations.mission_control.db.engine import mc_session
-    from integrations.mission_control.db.models import McPlan
+    from integrations.mission_control.db.models import McKanbanCard, McPlan
 
     await _ensure_plans_migrated(channel_id)
 
@@ -238,6 +242,18 @@ async def get_single_plan(channel_id: str, plan_id: str) -> dict | None:
             return None
 
         await session.refresh(p, ["steps"])
+
+        # Pre-fetch linked card IDs for all steps
+        linked_cards: dict[int, str] = {}
+        card_result = await session.execute(
+            select(McKanbanCard.plan_step_position, McKanbanCard.card_id)
+            .where(McKanbanCard.plan_id == plan_id)
+            .where(McKanbanCard.channel_id == channel_id)
+        )
+        for row in card_result.all():
+            if row[0] is not None:
+                linked_cards[row[0]] = row[1]
+
         meta: dict[str, str] = {"id": p.plan_id}
         if p.created_date:
             meta["created"] = p.created_date
@@ -257,6 +273,8 @@ async def get_single_plan(channel_id: str, plan_id: str) -> dict | None:
                 step_dict["task_id"] = s.task_id
             if s.result_summary:
                 step_dict["result_summary"] = s.result_summary
+            if s.position in linked_cards:
+                step_dict["linked_card_id"] = linked_cards[s.position]
             steps.append(step_dict)
         return {
             "title": p.title,
@@ -528,6 +546,27 @@ def parse_timeline_md(content: str) -> list[dict]:
                 "event": em.group(2).strip(),
             })
     return events
+
+
+async def get_card_history(channel_id: str, card_id: str, limit: int = 10) -> list[dict]:
+    """Get timeline events mentioning a specific card."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McTimelineEvent
+
+    await _ensure_timeline_migrated(channel_id)
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McTimelineEvent)
+            .where(McTimelineEvent.channel_id == channel_id)
+            .where(McTimelineEvent.event.contains(card_id))
+            .order_by(McTimelineEvent.event_date.desc(), McTimelineEvent.event_time.desc())
+            .limit(limit)
+        )
+        return [
+            {"date": ev.event_date, "time": ev.event_time, "event": ev.event}
+            for ev in result.scalars().all()
+        ]
 
 
 async def get_timeline_events(channel_id: str) -> list[dict]:
@@ -876,6 +915,431 @@ async def update_card(
 
 
 # ---------------------------------------------------------------------------
+# Column management operations
+# ---------------------------------------------------------------------------
+
+async def create_column(channel_id: str, name: str, position: int | None = None) -> dict:
+    """Create a new kanban column. Returns {"id": str, "name": str, "position": int}."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanColumn
+
+    await _ensure_kanban_migrated(channel_id)
+
+    async with await mc_session() as session:
+        if position is None:
+            # Insert before "Done" if it exists, else at end
+            done_result = await session.execute(
+                select(McKanbanColumn)
+                .where(McKanbanColumn.channel_id == channel_id)
+                .where(func.lower(McKanbanColumn.name) == "done")
+            )
+            done_col = done_result.scalar_one_or_none()
+            if done_col:
+                position = done_col.position
+                await session.execute(
+                    McKanbanColumn.__table__.update()
+                    .where(McKanbanColumn.channel_id == channel_id)
+                    .where(McKanbanColumn.position >= position)
+                    .values(position=McKanbanColumn.position + 1)
+                )
+            else:
+                max_result = await session.execute(
+                    select(func.max(McKanbanColumn.position))
+                    .where(McKanbanColumn.channel_id == channel_id)
+                )
+                position = (max_result.scalar() or -1) + 1
+
+        col = McKanbanColumn(channel_id=channel_id, name=name, position=position)
+        session.add(col)
+        await session.commit()
+        col_id = col.id
+        col_pos = col.position
+
+    await _render_tasks_md(channel_id)
+    try:
+        await append_timeline(channel_id, f"Column created: **{name}**")
+    except Exception:
+        logger.debug("Failed to log timeline for column create", exc_info=True)
+
+    return {"id": col_id, "name": name, "position": col_pos}
+
+
+async def rename_column(channel_id: str, column_id: str, name: str) -> dict:
+    """Rename a kanban column. Returns {"id": str, "name": str}."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanColumn
+
+    async with await mc_session() as session:
+        col = await session.get(McKanbanColumn, column_id)
+        if not col or col.channel_id != channel_id:
+            raise ValueError(f"Column {column_id} not found")
+
+        # Check for duplicate names (case-insensitive)
+        dup_result = await session.execute(
+            select(McKanbanColumn)
+            .where(McKanbanColumn.channel_id == channel_id)
+            .where(func.lower(McKanbanColumn.name) == name.lower())
+            .where(McKanbanColumn.id != column_id)
+        )
+        if dup_result.scalar_one_or_none():
+            raise ValueError(f"Column '{name}' already exists")
+
+        old_name = col.name
+        col.name = name
+        await session.commit()
+
+    await _render_tasks_md(channel_id)
+    try:
+        await append_timeline(channel_id, f"Column renamed: **{old_name}** → **{name}**")
+    except Exception:
+        logger.debug("Failed to log timeline for column rename", exc_info=True)
+
+    return {"id": column_id, "name": name}
+
+
+async def delete_column(channel_id: str, column_id: str) -> None:
+    """Delete a kanban column. Raises ValueError if column has cards."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanCard, McKanbanColumn
+
+    async with await mc_session() as session:
+        col = await session.get(McKanbanColumn, column_id)
+        if not col or col.channel_id != channel_id:
+            raise ValueError(f"Column {column_id} not found")
+
+        card_count = (await session.execute(
+            select(func.count()).select_from(McKanbanCard)
+            .where(McKanbanCard.column_id == column_id)
+        )).scalar() or 0
+
+        if card_count > 0:
+            raise ValueError(f"Column '{col.name}' has cards — move or delete them first")
+
+        col_name = col.name
+        await session.delete(col)
+        await session.commit()
+
+    await _render_tasks_md(channel_id)
+    try:
+        await append_timeline(channel_id, f"Column deleted: **{col_name}**")
+    except Exception:
+        logger.debug("Failed to log timeline for column delete", exc_info=True)
+
+
+async def reorder_columns(channel_id: str, column_ids: list[str]) -> None:
+    """Set column positions from an ordered list of column IDs."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanColumn
+
+    async with await mc_session() as session:
+        for i, col_id in enumerate(column_ids):
+            col = await session.get(McKanbanColumn, col_id)
+            if not col or col.channel_id != channel_id:
+                raise ValueError(f"Column {col_id} not found in channel")
+            col.position = i
+        await session.commit()
+
+    await _render_tasks_md(channel_id)
+    try:
+        await append_timeline(channel_id, "Columns reordered")
+    except Exception:
+        logger.debug("Failed to log timeline for column reorder", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Plan ↔ Kanban bridge
+# ---------------------------------------------------------------------------
+
+async def create_cards_from_plan(channel_id: str, plan_id: str) -> list[str]:
+    """Create kanban cards for each step of a plan. Returns list of card_ids.
+
+    Guard against duplicates: if cards already exist for this plan_id, returns [].
+    """
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanCard, McPlan
+
+    await _ensure_kanban_migrated(channel_id)
+
+    # Duplicate guard
+    async with await mc_session() as session:
+        existing = (await session.execute(
+            select(func.count()).select_from(McKanbanCard)
+            .where(McKanbanCard.channel_id == channel_id)
+            .where(McKanbanCard.plan_id == plan_id)
+        )).scalar() or 0
+
+    if existing > 0:
+        return []
+
+    # Get plan steps
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlan)
+            .where(McPlan.plan_id == plan_id)
+            .where(McPlan.channel_id == channel_id)
+        )
+        plan = result.scalar_one_or_none()
+        if not plan:
+            raise ValueError(f"Plan '{plan_id}' not found")
+
+        await session.refresh(plan, ["steps"])
+        steps = sorted(plan.steps, key=lambda s: s.position)
+        plan_title = plan.title
+
+    # Create a card for each step
+    card_ids: list[str] = []
+    for step in steps:
+        title = step.content[:100]
+        result = await create_card(
+            channel_id,
+            title=title,
+            column="Backlog",
+            tags=f"plan:{plan_id}",
+            description=step.content,
+        )
+        card_id = result["card_id"]
+        card_ids.append(card_id)
+
+        # Link card to plan
+        async with await mc_session() as session:
+            card_result = await session.execute(
+                select(McKanbanCard).where(McKanbanCard.card_id == card_id)
+            )
+            card = card_result.scalar_one()
+            card.plan_id = plan_id
+            card.plan_step_position = step.position
+            await session.commit()
+
+    try:
+        await append_timeline(
+            channel_id,
+            f"Cards created from plan '{plan_title}' ({plan_id})",
+        )
+    except Exception:
+        logger.debug("Failed to log timeline for plan card creation", exc_info=True)
+
+    return card_ids
+
+
+async def move_plan_card(
+    channel_id: str, plan_id: str, step_position: int, to_column: str,
+) -> None:
+    """Move the kanban card linked to a plan step. Silently no-ops if no card found."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McKanbanCard
+
+    try:
+        async with await mc_session() as session:
+            result = await session.execute(
+                select(McKanbanCard)
+                .where(McKanbanCard.plan_id == plan_id)
+                .where(McKanbanCard.plan_step_position == step_position)
+                .where(McKanbanCard.channel_id == channel_id)
+            )
+            card = result.scalar_one_or_none()
+
+        if card:
+            await move_card(channel_id, card.card_id, to_column)
+    except Exception:
+        logger.debug(
+            "Best-effort move_plan_card failed for %s step %d",
+            plan_id, step_position, exc_info=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Plan template operations
+# ---------------------------------------------------------------------------
+
+async def list_plan_templates() -> list[dict]:
+    """List all plan templates."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlanTemplate
+
+    async with await mc_session() as session:
+        result = await session.execute(
+            select(McPlanTemplate).order_by(McPlanTemplate.created_at.desc())
+        )
+        return [
+            {
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "steps_json": t.steps_json,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+            }
+            for t in result.scalars().all()
+        ]
+
+
+async def get_plan_template(template_id: str) -> dict | None:
+    """Get a single plan template by ID."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlanTemplate
+
+    async with await mc_session() as session:
+        tpl = await session.get(McPlanTemplate, template_id)
+        if not tpl:
+            return None
+        return {
+            "id": tpl.id,
+            "name": tpl.name,
+            "description": tpl.description,
+            "steps_json": tpl.steps_json,
+            "created_at": tpl.created_at.isoformat() if tpl.created_at else None,
+            "updated_at": tpl.updated_at.isoformat() if tpl.updated_at else None,
+        }
+
+
+async def create_plan_template(
+    name: str, description: str, steps: list[dict],
+) -> dict:
+    """Create a plan template. steps = [{content, requires_approval?}]."""
+    import json as _json
+
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlanTemplate
+
+    async with await mc_session() as session:
+        tpl = McPlanTemplate(
+            name=name,
+            description=description,
+            steps_json=_json.dumps(steps),
+        )
+        session.add(tpl)
+        await session.commit()
+        return {
+            "id": tpl.id,
+            "name": tpl.name,
+            "description": tpl.description,
+            "steps_json": tpl.steps_json,
+            "created_at": tpl.created_at.isoformat() if tpl.created_at else None,
+            "updated_at": tpl.updated_at.isoformat() if tpl.updated_at else None,
+        }
+
+
+async def delete_plan_template(template_id: str) -> None:
+    """Delete a plan template."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlanTemplate
+
+    async with await mc_session() as session:
+        tpl = await session.get(McPlanTemplate, template_id)
+        if not tpl:
+            raise ValueError(f"Template '{template_id}' not found")
+        await session.delete(tpl)
+        await session.commit()
+
+
+async def create_plan_from_template(
+    template_id: str, channel_id: str, title: str, notes: str = "",
+) -> str:
+    """Create a draft plan from a template. Returns the new plan_id."""
+    import json as _json
+
+    from app.services.plan_board import generate_plan_id
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan, McPlanStep, McPlanTemplate
+
+    await _ensure_plans_migrated(channel_id)
+
+    async with await mc_session() as session:
+        tpl = await session.get(McPlanTemplate, template_id)
+        if not tpl:
+            raise ValueError(f"Template '{template_id}' not found")
+        steps = _json.loads(tpl.steps_json)
+
+    new_plan_id = generate_plan_id()
+
+    async with await mc_session() as session:
+        plan = McPlan(
+            channel_id=channel_id,
+            plan_id=new_plan_id,
+            title=title,
+            status="draft",
+            notes=notes,
+            created_date=date.today().isoformat(),
+        )
+        session.add(plan)
+        await session.flush()
+
+        for i, step in enumerate(steps, 1):
+            session.add(McPlanStep(
+                plan_id=plan.id,
+                position=i,
+                content=step.get("content", ""),
+                status="pending",
+                requires_approval=step.get("requires_approval", False),
+            ))
+        await session.commit()
+
+    await _render_plans_md(channel_id)
+    try:
+        await append_timeline(channel_id, f"Plan drafted from template: **{title}** ({new_plan_id})")
+    except Exception:
+        logger.debug("Failed to log timeline for plan from template", exc_info=True)
+
+    return new_plan_id
+
+
+async def save_plan_as_template(
+    channel_id: str, plan_id: str, name: str, description: str = "",
+) -> dict:
+    """Save an existing plan's steps as a reusable template."""
+    import json as _json
+
+    plan = await get_single_plan(channel_id, plan_id)
+    if not plan:
+        raise ValueError(f"Plan '{plan_id}' not found")
+
+    steps = [
+        {
+            "content": s["content"],
+            "requires_approval": s.get("requires_approval", False),
+        }
+        for s in plan["steps"]
+    ]
+
+    return await create_plan_template(name, description, steps)
+
+
+# ---------------------------------------------------------------------------
+# Export operations
+# ---------------------------------------------------------------------------
+
+async def export_kanban_md(channel_id: str) -> str:
+    """Export kanban board as markdown."""
+    from app.services.task_board import serialize_tasks_md
+
+    columns = await _get_kanban_columns_as_dicts(channel_id)
+    return serialize_tasks_md(columns)
+
+
+async def export_kanban_json(channel_id: str) -> list[dict]:
+    """Export kanban board as JSON-serializable list of columns."""
+    return await _get_kanban_columns_as_dicts(channel_id)
+
+
+async def export_plan_md(channel_id: str, plan_id: str) -> str:
+    """Export a single plan as markdown."""
+    from app.services.plan_board import serialize_plans_md
+
+    plan = await get_single_plan(channel_id, plan_id)
+    if not plan:
+        raise ValueError(f"Plan '{plan_id}' not found")
+    return serialize_plans_md([plan])
+
+
+async def export_plan_json(channel_id: str, plan_id: str) -> dict:
+    """Export a single plan as JSON-serializable dict."""
+    plan = await get_single_plan(channel_id, plan_id)
+    if not plan:
+        raise ValueError(f"Plan '{plan_id}' not found")
+    return plan
+
+
+# ---------------------------------------------------------------------------
 # Plan operations (shared by tools + router)
 # ---------------------------------------------------------------------------
 
@@ -915,6 +1379,12 @@ async def approve_plan(channel_id: str, plan_id: str) -> dict:
         await append_timeline(channel_id, f"Plan approved: **{db_plan.title}** ({plan_id})")
     except Exception:
         logger.debug("Failed to log timeline for plan approval", exc_info=True)
+
+    # Auto-create kanban cards from plan steps
+    try:
+        await create_cards_from_plan(channel_id, plan_id)
+    except Exception:
+        logger.debug("Failed to create cards from plan on approval", exc_info=True)
 
     return {"plan": plan_dict or {}, "plans_list": plans_list}
 

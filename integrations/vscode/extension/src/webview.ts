@@ -457,15 +457,16 @@ export function getWebviewContent(
     /** Minimal markdown renderer — handles code blocks, inline code, bold, italic, links, paragraphs. */
     function renderMarkdown(text) {
       if (!text) return '';
+      var BT = String.fromCharCode(96); // backtick — can't use literal inside template string
       let html = escapeHtml(text);
 
       // Code blocks
-      html = html.replace(/\`\`\`(\\w*?)\\n([\\s\\S]*?)\`\`\`/g, (_, lang, code) => {
+      html = html.replace(new RegExp(BT+BT+BT+'(\\\\w*?)\\\\n([\\\\s\\\\S]*?)'+BT+BT+BT, 'g'), function(_, lang, code) {
         return '<pre><code>' + code + '</code></pre>';
       });
 
       // Inline code
-      html = html.replace(/\`([^\`]+?)\`/g, '<code>$1</code>');
+      html = html.replace(new RegExp(BT+'([^'+BT+']+?)'+BT, 'g'), '<code>$1</code>');
 
       // Bold
       html = html.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');

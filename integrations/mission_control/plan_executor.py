@@ -20,6 +20,31 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 
+async def _send_plan_notification(channel_id: str, message: str) -> None:
+    """Inject a passive notification into the channel's active session."""
+    import uuid as _uuid
+
+    try:
+        from app.db.engine import async_session
+        from app.db.models import Channel
+        from app.services.channels import ensure_active_session
+        from app.services.sessions import store_passive_message
+
+        async with async_session() as db:
+            channel = await db.get(Channel, _uuid.UUID(channel_id))
+            if not channel:
+                return
+            session_id = await ensure_active_session(db, channel)
+            await db.commit()
+            await store_passive_message(
+                db, session_id, message,
+                {"source": "mission_control", "notification": True},
+            )
+            await db.commit()
+    except Exception:
+        logger.debug("_send_plan_notification failed for channel %s", channel_id, exc_info=True)
+
+
 async def advance_plan(plan_db_id: str) -> None:
     """Find and execute the next pending step in a plan.
 
@@ -56,15 +81,22 @@ async def advance_plan(plan_db_id: str) -> None:
             )
             if all_terminal:
                 db_plan.status = "complete"
+                completed_channel_id = db_plan.channel_id
+                completed_title = db_plan.title
+                completed_plan_id = db_plan.plan_id
                 await session.commit()
-                await _render_plans_md(db_plan.channel_id)
+                await _render_plans_md(completed_channel_id)
                 try:
                     await append_timeline(
-                        db_plan.channel_id,
-                        f"Plan completed: **{db_plan.title}** ({db_plan.plan_id})",
+                        completed_channel_id,
+                        f"Plan completed: **{completed_title}** ({completed_plan_id})",
                     )
                 except Exception:
                     pass
+                await _send_plan_notification(
+                    completed_channel_id,
+                    f"**Plan '{completed_title}' completed** — All steps finished. Plan ID: {completed_plan_id}",
+                )
             return
 
         channel_id = db_plan.channel_id
@@ -97,6 +129,13 @@ async def advance_plan(plan_db_id: str) -> None:
             )
         except Exception:
             pass
+
+        # Send approval notification to channel
+        await _send_plan_notification(
+            channel_id,
+            f"**Plan '{plan_title}' needs approval** — Step {step_position}: {step_content}\n"
+            f"Approve or skip from the Mission Control dashboard.",
+        )
         return
 
     # Auto step: create a core Task to execute it
@@ -118,6 +157,13 @@ async def advance_plan(plan_db_id: str) -> None:
             await session.commit()
 
     await _render_plans_md(channel_id)
+
+    # Move linked kanban card to In Progress
+    try:
+        from integrations.mission_control.services import move_plan_card
+        await move_plan_card(channel_id, plan_id, step_position, "In Progress")
+    except Exception:
+        pass
 
     try:
         await append_timeline(
@@ -215,7 +261,7 @@ async def on_step_task_completed(step_id: str, status: str, task) -> None:
     Updates the step status and advances the plan to the next step.
     """
     from integrations.mission_control.db.engine import mc_session
-    from integrations.mission_control.db.models import McPlanStep
+    from integrations.mission_control.db.models import McPlan, McPlanStep
 
     async with await mc_session() as session:
         step = await session.get(McPlanStep, step_id)
@@ -231,7 +277,36 @@ async def on_step_task_completed(step_id: str, status: str, task) -> None:
                 step.result_summary = (task.result or "")[:500]
             await session.commit()
 
-        plan_id = step.plan_id
+        plan_db_id = step.plan_id
+
+    # Move linked kanban card based on step outcome
+    try:
+        from integrations.mission_control.services import move_plan_card
+
+        async with await mc_session() as session:
+            step_obj = await session.get(McPlanStep, step_id)
+            if step_obj:
+                plan = await session.get(McPlan, step_obj.plan_id)
+                if plan:
+                    target_col = "Done" if step_obj.status == "done" else "Failed"
+                    await move_plan_card(plan.channel_id, plan.plan_id, step_obj.position, target_col)
+    except Exception:
+        logger.debug("Best-effort move_plan_card on completion failed", exc_info=True)
+
+    # Send failure notification if step failed
+    if status != "complete":
+        try:
+            async with await mc_session() as session:
+                step_obj = await session.get(McPlanStep, step_id)
+                if step_obj:
+                    plan = await session.get(McPlan, step_obj.plan_id)
+                    if plan:
+                        await _send_plan_notification(
+                            plan.channel_id,
+                            f"**Plan step failed** — Plan '{plan.title}', Step {step_obj.position}: {step_obj.content}",
+                        )
+        except Exception:
+            logger.debug("Failed to send failure notification", exc_info=True)
 
     # Advance to next step
-    await advance_plan(plan_id)
+    await advance_plan(plan_db_id)

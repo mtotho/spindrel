@@ -58,6 +58,9 @@ class McKanbanCard(MCBase):
     created_at: Mapped[datetime] = mapped_column(default=_now)
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
+    plan_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plan_step_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     column: Mapped[McKanbanColumn] = relationship(back_populates="cards")
 
 
@@ -108,3 +111,14 @@ class McPlanStep(MCBase):
     updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)
 
     plan: Mapped[McPlan] = relationship(back_populates="steps")
+
+
+class McPlanTemplate(MCBase):
+    __tablename__ = "mc_plan_templates"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(Text)
+    description: Mapped[str] = mapped_column(Text, default="")
+    steps_json: Mapped[str] = mapped_column(Text, default="[]")  # JSON array of {content, requires_approval}
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)

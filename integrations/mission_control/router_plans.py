@@ -24,12 +24,23 @@ from integrations.mission_control.schemas import (
     MCPlanStep,
     MCPlanUpdateRequest,
     MCPlansResponse,
+    PlanFromTemplateRequest,
+    PlanTemplateCreateRequest,
+    SaveAsTemplateRequest,
 )
 from integrations.mission_control.services import (
     approve_plan,
+    create_plan_from_template,
+    create_plan_template,
+    delete_plan_template,
+    export_plan_json,
+    export_plan_md,
+    get_plan_template,
     get_single_plan,
+    list_plan_templates,
     reject_plan,
     resume_plan,
+    save_plan_as_template,
 )
 
 logger = logging.getLogger(__name__)
@@ -600,3 +611,129 @@ async def delete_plan_endpoint(
         logger.debug("Failed to log timeline for plan delete", exc_info=True)
 
     return {"ok": True, "plan_id": plan_id}
+
+
+# ---------------------------------------------------------------------------
+# Plan Templates
+# ---------------------------------------------------------------------------
+
+@router.get("/plans/templates")
+async def list_templates(auth=Depends(verify_auth_or_user)):
+    """List all plan templates."""
+    templates = await list_plan_templates()
+    return {"templates": templates}
+
+
+@router.post("/plans/templates")
+async def create_template(
+    body: PlanTemplateCreateRequest,
+    auth=Depends(verify_auth_or_user),
+):
+    """Create a plan template."""
+    if not body.steps:
+        raise HTTPException(422, "At least one step is required")
+
+    steps = [{"content": s.content, "requires_approval": s.requires_approval} for s in body.steps]
+    tpl = await create_plan_template(body.name, body.description, steps)
+    return {"ok": True, "template": tpl}
+
+
+@router.delete("/plans/templates/{template_id}")
+async def delete_template(
+    template_id: str,
+    auth=Depends(verify_auth_or_user),
+):
+    """Delete a plan template."""
+    try:
+        await delete_plan_template(template_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    return {"ok": True}
+
+
+@router.post("/plans/templates/{template_id}/create-plan")
+async def create_plan_from_template_endpoint(
+    template_id: str,
+    body: PlanFromTemplateRequest,
+    channel_id: str = Query(..., description="Channel ID to create plan in"),
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Create a draft plan from a template."""
+    user = get_user(auth)
+    channel = await db.get(Channel, uuid.UUID(channel_id))
+    if not channel:
+        raise HTTPException(404, "Channel not found")
+    require_channel_access(channel, user)
+    if not channel.channel_workspace_enabled:
+        raise HTTPException(400, "Channel workspace not enabled")
+
+    try:
+        plan_id = await create_plan_from_template(
+            template_id, str(channel.id), body.title, body.notes,
+        )
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+    return {"ok": True, "plan_id": plan_id, "status": "draft"}
+
+
+@router.post("/channels/{channel_id}/plans/{plan_id}/save-template")
+async def save_as_template(
+    channel_id: uuid.UUID,
+    plan_id: str,
+    body: SaveAsTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Save a plan's steps as a reusable template."""
+    user = get_user(auth)
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel not found")
+    require_channel_access(channel, user)
+
+    try:
+        tpl = await save_plan_as_template(
+            str(channel.id), plan_id, body.name, body.description,
+        )
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+    return {"ok": True, "template": tpl}
+
+
+# ---------------------------------------------------------------------------
+# Plan Export
+# ---------------------------------------------------------------------------
+
+@router.get("/channels/{channel_id}/plans/{plan_id}/export")
+async def export_plan(
+    channel_id: uuid.UUID,
+    plan_id: str,
+    format: str = Query("json", description="markdown or json"),
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Export a plan as markdown or JSON."""
+    from fastapi.responses import PlainTextResponse
+
+    user = get_user(auth)
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(404, "Channel not found")
+    require_channel_access(channel, user)
+
+    ch_id = str(channel.id)
+    try:
+        if format == "markdown":
+            content = await export_plan_md(ch_id, plan_id)
+            return PlainTextResponse(
+                content,
+                headers={"Content-Disposition": f'attachment; filename="plan-{plan_id}.md"'},
+            )
+        else:
+            data = await export_plan_json(ch_id, plan_id)
+            return data
+    except ValueError as e:
+        raise HTTPException(404, str(e))

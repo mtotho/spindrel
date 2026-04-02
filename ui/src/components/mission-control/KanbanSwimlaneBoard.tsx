@@ -7,6 +7,7 @@
 import { useThemeTokens } from "@/src/theme/tokens";
 import { channelColor } from "./botColors";
 import { KanbanCardView } from "./KanbanCard";
+import { KanbanColumnHeader } from "./KanbanColumnHeader";
 import {
   columnColor,
   type DragState,
@@ -24,6 +25,8 @@ interface Props {
   onDrop: (toColumn: string) => void;
   onMove: (cardId: string, channelId: string, fromColumn: string, toColumn: string) => void;
   onUpdate?: (cardId: string, channelId: string, fields: Record<string, string>) => void;
+  onColumnRename?: (columnId: string, newName: string) => void;
+  onColumnDelete?: (columnId: string) => void;
   moveDisabled?: boolean;
 }
 
@@ -37,6 +40,8 @@ export function KanbanSwimlaneBoard({
   onDrop,
   onMove,
   onUpdate,
+  onColumnRename,
+  onColumnDelete,
   moveDisabled,
 }: Props) {
   const t = useThemeTokens();
@@ -94,59 +99,32 @@ export function KanbanSwimlaneBoard({
         </div>
 
         {/* Column headers */}
-        {columns.map((col, ci) => {
-          const cc = columnColor(col.name);
-          return (
-            <div
-              key={col.name}
-              style={{
-                position: "sticky",
-                top: 0,
-                zIndex: 2,
-                backgroundColor: t.surfaceRaised,
-                borderRight: `1px solid ${t.surfaceBorder}`,
-                borderBottom: `1px solid ${t.surfaceBorder}`,
-                padding: "8px 10px",
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              <div
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: "50%",
-                  backgroundColor: cc,
-                  flexShrink: 0,
-                }}
-              />
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: t.text,
-                  flex: 1,
-                }}
-              >
-                {col.name}
-              </span>
-              <span
-                style={{
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: t.textDim,
-                  backgroundColor: "rgba(107,114,128,0.1)",
-                  borderRadius: 10,
-                  padding: "1px 7px",
-                }}
-              >
-                {colCounts[ci]}
-              </span>
-            </div>
-          );
-        })}
+        {columns.map((col, ci) => (
+          <div
+            key={col.name}
+            style={{
+              position: "sticky",
+              top: 0,
+              zIndex: 2,
+              backgroundColor: t.surfaceRaised,
+              borderRight: `1px solid ${t.surfaceBorder}`,
+              borderBottom: `1px solid ${t.surfaceBorder}`,
+              padding: "8px 10px",
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
+            <KanbanColumnHeader
+              columnName={col.name}
+              columnId={col.id}
+              cardCount={colCounts[ci]}
+              onRename={onColumnRename}
+              onDelete={onColumnDelete}
+            />
+          </div>
+        ))}
 
         {/* ── Swimlane rows ── */}
         {swimlanes.map((row) => {

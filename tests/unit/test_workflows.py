@@ -1,4 +1,9 @@
-"""Unit tests for workflow condition evaluator, prompt rendering, and param validation."""
+"""Unit tests for workflow condition evaluator, prompt rendering, param validation,
+and chat message posting."""
+import uuid
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from app.services.workflow_executor import (
@@ -6,6 +11,7 @@ from app.services.workflow_executor import (
     render_prompt,
     validate_params,
     validate_secrets,
+    _post_workflow_chat_message,
 )
 
 
@@ -304,3 +310,171 @@ class TestValidateSecrets:
         from unittest.mock import patch
         with patch("app.services.secret_values.get_env_dict", return_value={"MY_SECRET": "val"}):
             validate_secrets(["MY_SECRET"])
+
+
+# ---------------------------------------------------------------------------
+# _post_workflow_chat_message
+# ---------------------------------------------------------------------------
+
+class TestPostWorkflowChatMessage:
+    """Tests for the workflow chat message posting helper."""
+
+    @pytest.mark.asyncio
+    async def test_no_op_when_no_channel_id(self):
+        """Should silently return when run has no channel_id."""
+        run = MagicMock()
+        run.channel_id = None
+
+        # Should not raise
+        await _post_workflow_chat_message(run, "Test WF", "started", "Hello")
+
+    @pytest.mark.asyncio
+    async def test_no_op_when_no_active_session(self):
+        """Should return when channel has no active_session_id."""
+        run = MagicMock()
+        run.channel_id = uuid.uuid4()
+        run.bot_id = "test-bot"
+        run.id = uuid.uuid4()
+        run.workflow_id = "test-wf"
+
+        channel = MagicMock()
+        channel.active_session_id = None
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=channel)
+        mock_db.add = MagicMock()
+        mock_db.execute = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.agent.bots.get_bot", side_effect=Exception("no bot")),
+        ):
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+            await _post_workflow_chat_message(run, "Test WF", "started", "Hello")
+            # Should not have added a message
+            mock_db.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_posts_message_to_active_session(self):
+        """Should create a Message record with correct metadata."""
+        run = MagicMock()
+        run.channel_id = uuid.uuid4()
+        run.bot_id = "test-bot"
+        run.id = uuid.uuid4()
+        run.workflow_id = "test-wf"
+
+        session_id = uuid.uuid4()
+        channel = MagicMock()
+        channel.active_session_id = session_id
+
+        bot = MagicMock()
+        bot.display_name = "Test Bot"
+        bot.name = "test-bot"
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=channel)
+        mock_db.add = MagicMock()
+        mock_db.execute = AsyncMock()
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.agent.bots.get_bot", return_value=bot),
+        ):
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+            await _post_workflow_chat_message(
+                run, "My Workflow", "step_done", "Step completed",
+                step_id="search", step_index=0, total_steps=3, completed_steps=1,
+            )
+
+            # Verify a message was added
+            mock_db.add.assert_called_once()
+            msg = mock_db.add.call_args[0][0]
+            assert msg.session_id == session_id
+            assert msg.role == "assistant"
+            assert msg.content == "Step completed"
+            assert msg.metadata_["trigger"] == "workflow"
+            assert msg.metadata_["workflow_event"] == "step_done"
+            assert msg.metadata_["workflow_name"] == "My Workflow"
+            assert msg.metadata_["step_id"] == "search"
+            assert msg.metadata_["step_index"] == 0
+            assert msg.metadata_["total_steps"] == 3
+            assert msg.metadata_["completed_steps"] == 1
+            assert msg.metadata_["sender_display_name"] == "Test Bot"
+            mock_db.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_swallows_exceptions(self):
+        """Posting failures should be silently caught, not bubble up."""
+        run = MagicMock()
+        run.channel_id = uuid.uuid4()
+        run.bot_id = "test-bot"
+        run.id = uuid.uuid4()
+        run.workflow_id = "test-wf"
+
+        with patch("app.services.workflow_executor.async_session", side_effect=RuntimeError("db down")):
+            # Should not raise
+            await _post_workflow_chat_message(run, "WF", "started", "Hello")
+
+
+# ---------------------------------------------------------------------------
+# trigger_workflow error handling
+# ---------------------------------------------------------------------------
+
+class TestTriggerWorkflowErrorHandling:
+    """Tests that trigger_workflow wraps advance_workflow failures."""
+
+    @pytest.mark.asyncio
+    async def test_advance_failure_marks_run_as_failed(self):
+        """If advance_workflow raises during trigger, run should be marked failed."""
+        from app.services.workflow_executor import trigger_workflow
+
+        workflow = MagicMock()
+        workflow.name = "Test"
+        workflow.steps = [{"id": "s1", "prompt": "Do."}]
+        workflow.params = {}
+        workflow.secrets = []
+        workflow.defaults = {"bot_id": "test-bot"}
+        workflow.triggers = {}
+        workflow.session_mode = "isolated"
+
+        run_id = uuid.uuid4()
+
+        # Track the run that gets created and updated
+        created_run = None
+        failed_run = MagicMock()
+        failed_run.status = "running"
+
+        mock_db = AsyncMock()
+
+        async def mock_get(model, id_, **kw):
+            if hasattr(model, '__tablename__'):
+                if model.__tablename__ == 'channels':
+                    return None
+                if model.__tablename__ == 'workflow_runs':
+                    return failed_run
+            return failed_run
+
+        mock_db.get = AsyncMock(side_effect=mock_get)
+        mock_db.add = MagicMock()
+        mock_db.commit = AsyncMock()
+        mock_db.refresh = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflows.get_workflow", return_value=workflow),
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock, side_effect=RuntimeError("boom")),
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock),
+            patch("app.services.workflow_executor._post_workflow_chat_message", new_callable=AsyncMock),
+        ):
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock()
+
+            result = await trigger_workflow("test-wf", {}, bot_id="test-bot")
+
+            # The run should have been marked as failed
+            assert failed_run.status == "failed"
+            assert "Initial advancement failed" in (failed_run.error or "")

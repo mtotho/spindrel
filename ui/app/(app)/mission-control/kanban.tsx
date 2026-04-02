@@ -9,6 +9,9 @@ import {
   useMCKanbanMove,
   useMCKanbanCreate,
   useMCKanbanUpdate,
+  useMCColumnCreate,
+  useMCColumnRename,
+  useMCColumnDelete,
   useMCOverview,
   useMCPrefs,
   type MCKanbanColumn,
@@ -19,8 +22,9 @@ import { KanbanNewCardForm } from "@/src/components/mission-control/KanbanNewCar
 import { KanbanSwimlaneBoard } from "@/src/components/mission-control/KanbanSwimlaneBoard";
 import { KanbanMobileSwimlanes } from "@/src/components/mission-control/KanbanMobileSwimlanes";
 import { buildSwimlanes, EMPTY_DRAG, type DragState } from "@/src/components/mission-control/kanbanTypes";
-import { Plus, AlertCircle } from "lucide-react";
+import { Plus, AlertCircle, Download } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { downloadBlob } from "@/src/utils/download";
 
 // ---------------------------------------------------------------------------
 // Column ordering
@@ -62,6 +66,9 @@ export default function MCKanban() {
   const moveMutation = useMCKanbanMove();
   const createMutation = useMCKanbanCreate();
   const updateMutation = useMCKanbanUpdate();
+  const columnRenameMutation = useMCColumnRename();
+  const columnDeleteMutation = useMCColumnDelete();
+  const columnCreateMutation = useMCColumnCreate();
   const { refreshing, onRefresh } = usePageRefresh([["mc-kanban"]]);
   const [showNewCard, setShowNewCard] = useState(false);
   const [filterChannel, setFilterChannel] = useState<string | null>(null);
@@ -153,6 +160,25 @@ export default function MCKanban() {
     handleDragEnd();
   };
 
+  const handleColumnRename = (columnId: string, newName: string) => {
+    // Use the first channel that has cards, or fallback
+    const firstChannelId = overview?.channels[0]?.id;
+    if (!firstChannelId) return;
+    columnRenameMutation.mutate(
+      { columnId, channel_id: firstChannelId, name: newName },
+      { onError: (err: any) => setMoveError(err?.message || "Failed to rename column") },
+    );
+  };
+
+  const handleColumnDelete = (columnId: string) => {
+    const firstChannelId = overview?.channels[0]?.id;
+    if (!firstChannelId) return;
+    columnDeleteMutation.mutate(
+      { columnId, channelId: firstChannelId },
+      { onError: (err: any) => setMoveError(err?.message || "Failed to delete column") },
+    );
+  };
+
   const channels = overview?.channels.map((ch) => ({ id: ch.id, name: ch.name })) || [];
 
   return (
@@ -161,13 +187,31 @@ export default function MCKanban() {
         title="Kanban"
         subtitle="Aggregated task board"
         right={
-          <Pressable
-            onPress={() => setShowNewCard(!showNewCard)}
-            className="flex-row items-center gap-1.5 rounded-lg px-3 py-2 hover:bg-surface-overlay"
-          >
-            <Plus size={16} color={t.accent} />
-            <Text style={{ fontSize: 13, color: t.accent, fontWeight: "600" }}>Add</Text>
-          </Pressable>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            {filterChannel && (
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const { apiFetchText } = await import("@/src/api/client");
+                    const content = await apiFetchText(
+                      `/integrations/mission_control/kanban/export?channel_id=${filterChannel}&format=markdown`,
+                    );
+                    downloadBlob(content, "kanban-export.md", "text/markdown");
+                  } catch { /* ignore */ }
+                }}
+                className="flex-row items-center gap-1.5 rounded-lg px-3 py-2 hover:bg-surface-overlay"
+              >
+                <Download size={14} color={t.textDim} />
+              </Pressable>
+            )}
+            <Pressable
+              onPress={() => setShowNewCard(!showNewCard)}
+              className="flex-row items-center gap-1.5 rounded-lg px-3 py-2 hover:bg-surface-overlay"
+            >
+              <Plus size={16} color={t.accent} />
+              <Text style={{ fontSize: 13, color: t.accent, fontWeight: "600" }}>Add</Text>
+            </Pressable>
+          </View>
         }
       />
 
@@ -251,6 +295,8 @@ export default function MCKanban() {
           onDrop={handleDrop}
           onMove={handleMove}
           onUpdate={handleUpdate}
+          onColumnRename={handleColumnRename}
+          onColumnDelete={handleColumnDelete}
           moveDisabled={moveMutation.isPending}
         />
       )}

@@ -73,4 +73,39 @@ export async function apiFetch<T = unknown>(
   return res.json();
 }
 
+/** Like apiFetch but returns raw text instead of parsing JSON. */
+export async function apiFetchText(
+  path: string,
+  options: RequestInit = {},
+): Promise<string> {
+  const { serverUrl } = useAuthStore.getState();
+  if (!serverUrl) throw new Error("Server not configured");
+
+  const token = getAuthToken();
+  const url = `${serverUrl}${path}`;
+  const headers: Record<string, string> = {
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers as Record<string, string>),
+  };
+
+  let res = await fetch(url, { ...options, headers });
+
+  if (res.status === 401 && useAuthStore.getState().refreshToken) {
+    const newToken = await tryRefresh();
+    if (newToken) {
+      headers.Authorization = `Bearer ${newToken}`;
+      res = await fetch(url, { ...options, headers });
+    } else {
+      useAuthStore.getState().clear();
+    }
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => null);
+    throw new ApiError(res.status, `API error ${res.status}: ${res.statusText}`, body);
+  }
+
+  return res.text();
+}
+
 export { ApiError };

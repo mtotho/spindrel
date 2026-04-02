@@ -436,6 +436,71 @@ class TestRecoveryAllPendingStalls:
             mock_advance.assert_not_called()
 
 
+class TestRecoveryAllTerminalStalls:
+    """Scenario 4: run is 'running' but all steps are terminal (done/skipped/failed)."""
+
+    @pytest.mark.asyncio
+    async def test_recovers_all_terminal_run(self):
+        """All steps done/failed but run still 'running' → advance_workflow called."""
+        from app.agent.tasks import recover_stalled_workflow_runs
+
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.status = "running"
+        run.step_states = [
+            {"status": "done", "task_id": str(uuid.uuid4()), "started_at": "2025-01-01T00:00:00"},
+            {"status": "failed", "task_id": str(uuid.uuid4()), "started_at": "2025-01-01T00:00:00"},
+            {"status": "skipped", "task_id": None, "started_at": None},
+        ]
+        run.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [run]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        with (
+            patch("app.agent.tasks.async_session", return_value=mock_db),
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
+        ):
+            await recover_stalled_workflow_runs()
+            mock_advance.assert_called_once_with(run_id)
+
+    @pytest.mark.asyncio
+    async def test_does_not_recover_all_terminal_if_not_running(self):
+        """Run with status 'awaiting_approval' and all-terminal should NOT trigger recovery."""
+        from app.agent.tasks import recover_stalled_workflow_runs
+
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.status = "awaiting_approval"
+        run.step_states = [
+            {"status": "done", "task_id": str(uuid.uuid4()), "started_at": "2025-01-01T00:00:00"},
+            {"status": "done", "task_id": str(uuid.uuid4()), "started_at": "2025-01-01T00:00:00"},
+        ]
+        run.created_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+        mock_db = AsyncMock()
+        mock_db.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_db.__aexit__ = AsyncMock(return_value=False)
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [run]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        with (
+            patch("app.agent.tasks.async_session", return_value=mock_db),
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock) as mock_advance,
+        ):
+            await recover_stalled_workflow_runs()
+            mock_advance.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Test: _fire_task_complete error logging (Bug 1)
 # ---------------------------------------------------------------------------

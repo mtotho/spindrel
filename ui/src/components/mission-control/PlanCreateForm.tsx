@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
-import { X } from "lucide-react";
+import { X, BookTemplate } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { channelColor } from "./botColors";
 import {
@@ -8,6 +8,7 @@ import {
   makeStepKey,
   type StepDraft,
 } from "./StepListEditor";
+import { useMCPlanTemplates, type MCPlanTemplate } from "@/src/api/hooks/useMissionControl";
 
 interface PlanCreateFormProps {
   channels: Array<{ id: string; name: string }>;
@@ -28,12 +29,31 @@ export function PlanCreateForm({
   isPending,
 }: PlanCreateFormProps) {
   const t = useThemeTokens();
+  const { data: templatesData } = useMCPlanTemplates();
+  const templates = templatesData?.templates || [];
   const [channelId, setChannelId] = useState(channels[0]?.id || "");
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
   const [steps, setSteps] = useState<StepDraft[]>([
     { key: makeStepKey(), content: "", requires_approval: false },
   ]);
+
+  const applyTemplate = (tmpl: MCPlanTemplate) => {
+    setTitle(tmpl.name);
+    setNotes(tmpl.description);
+    try {
+      const parsed = JSON.parse(tmpl.steps_json) as Array<{ content: string; requires_approval?: boolean }>;
+      setSteps(
+        parsed.map((s) => ({
+          key: makeStepKey(),
+          content: s.content,
+          requires_approval: s.requires_approval ?? false,
+        })),
+      );
+    } catch {
+      // ignore bad template data
+    }
+  };
 
   const canSubmit =
     channelId &&
@@ -106,6 +126,27 @@ export function PlanCreateForm({
                 </Pressable>
               );
             })}
+          </View>
+        </View>
+      )}
+
+      {/* From template */}
+      {templates.length > 0 && (
+        <View style={{ gap: 4 }}>
+          <Text style={{ fontSize: 11, color: t.textDim, fontWeight: "600" }}>
+            From Template
+          </Text>
+          <View className="flex-row flex-wrap gap-2">
+            {templates.map((tmpl) => (
+              <Pressable
+                key={tmpl.id}
+                onPress={() => applyTemplate(tmpl)}
+                className="flex-row items-center gap-1.5 rounded-full px-3 py-1 border border-surface-border"
+              >
+                <BookTemplate size={10} color={t.textDim} />
+                <Text style={{ fontSize: 11, color: t.text }}>{tmpl.name}</Text>
+              </Pressable>
+            ))}
           </View>
         </View>
       )}

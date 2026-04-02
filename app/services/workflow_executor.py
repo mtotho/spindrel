@@ -64,6 +64,83 @@ async def _dispatch_workflow_event(
         logger.debug("Workflow event dispatch failed (event=%s, run=%s)", event, run.id, exc_info=True)
 
 
+async def _post_workflow_chat_message(
+    run: WorkflowRun,
+    workflow_name: str,
+    event_type: str,
+    content: str,
+    *,
+    step_id: str | None = None,
+    step_index: int | None = None,
+    total_steps: int | None = None,
+    completed_steps: int | None = None,
+) -> None:
+    """Post a workflow lifecycle message to the channel's active session.
+
+    Messages appear in the channel chat with ``trigger: "workflow"`` metadata,
+    rendered as collapsed cards by the UI (similar to heartbeat messages).
+    No-op when the run has no ``channel_id``.
+    """
+    if not run.channel_id:
+        return
+    try:
+        from app.agent.bots import get_bot
+        from app.db.models import Channel, Message, Session
+        from sqlalchemy import update as sa_upd
+
+        bot_name = run.bot_id
+        try:
+            bot = get_bot(run.bot_id)
+            bot_name = bot.display_name or bot.name or run.bot_id
+        except Exception:
+            pass
+
+        async with async_session() as db:
+            channel = await db.get(Channel, run.channel_id)
+            if not channel or not channel.active_session_id:
+                return
+
+            metadata = {
+                "trigger": "workflow",
+                "workflow_event": event_type,
+                "workflow_id": run.workflow_id,
+                "workflow_name": workflow_name,
+                "workflow_run_id": str(run.id),
+                "sender_type": "bot",
+                "sender_display_name": bot_name,
+                "dispatched": False,
+            }
+            if step_id is not None:
+                metadata["step_id"] = step_id
+            if step_index is not None:
+                metadata["step_index"] = step_index
+            if total_steps is not None:
+                metadata["total_steps"] = total_steps
+            if completed_steps is not None:
+                metadata["completed_steps"] = completed_steps
+
+            now = datetime.now(timezone.utc)
+            record = Message(
+                session_id=channel.active_session_id,
+                role="assistant",
+                content=content,
+                metadata_=metadata,
+                created_at=now,
+            )
+            db.add(record)
+            await db.execute(
+                sa_upd(Session)
+                .where(Session.id == channel.active_session_id)
+                .values(last_active=now)
+            )
+            await db.commit()
+    except Exception:
+        logger.debug(
+            "Failed to post workflow chat message (event=%s, run=%s)",
+            event_type, run.id, exc_info=True,
+        )
+
+
 async def _fire_after_workflow_complete(run: WorkflowRun, workflow: Workflow) -> None:
     """Fire the after_workflow_complete lifecycle hook."""
     try:
@@ -370,8 +447,32 @@ async def trigger_workflow(
         f"{len(workflow.steps)} steps",
     )
 
-    # Start advancement
-    await advance_workflow(run.id)
+    # Post "started" message to channel chat
+    await _post_workflow_chat_message(
+        run, workflow.name, "started",
+        f"Workflow **{workflow.name}** started ({len(workflow.steps)} steps)",
+        total_steps=len(workflow.steps),
+        completed_steps=0,
+    )
+
+    # Start advancement — wrap in try/except to prevent orphaned "running" runs
+    try:
+        await advance_workflow(run.id)
+    except Exception:
+        logger.exception("advance_workflow failed during trigger for run %s", run.id)
+        async with async_session() as db:
+            failed_run = await db.get(WorkflowRun, run.id)
+            if failed_run and failed_run.status == "running":
+                failed_run.status = "failed"
+                failed_run.error = "Initial advancement failed — see server logs"
+                failed_run.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+                await _post_workflow_chat_message(
+                    failed_run, workflow.name, "failed",
+                    f"Workflow **{workflow.name}** failed to start",
+                    total_steps=len(workflow.steps),
+                    completed_steps=0,
+                )
 
     # Re-read from DB so callers get step_states updated by advance_workflow
     # (which runs in its own session).
@@ -588,9 +689,15 @@ async def _advance_workflow_inner(run_id: uuid.UUID) -> None:
             fail_ct = sum(1 for s in step_states if s["status"] == "failed")
             skip_ct = sum(1 for s in step_states if s["status"] == "skipped")
             event = "failed" if run.status == "failed" else "completed"
+            summary = f"{done_ct} done, {fail_ct} failed, {skip_ct} skipped"
             await _dispatch_workflow_event(
+                run, workflow.name, event, summary,
+            )
+            await _post_workflow_chat_message(
                 run, workflow.name, event,
-                f"{done_ct} done, {fail_ct} failed, {skip_ct} skipped",
+                f"Workflow **{workflow.name}** {event} — {summary}",
+                total_steps=len(step_states),
+                completed_steps=done_ct + fail_ct + skip_ct,
             )
             await _fire_after_workflow_complete(run, workflow)
             return
@@ -847,6 +954,17 @@ async def on_step_task_completed(
                     run, workflow.name, "failed",
                     f"aborted at {step_id}: {state.get('error', '')[:100]}",
                 )
+                await _post_workflow_chat_message(
+                    run, workflow.name, "step_failed",
+                    state.get("error") or f"Step {step_id} failed",
+                    step_id=step_id, step_index=step_index,
+                    total_steps=total_ct, completed_steps=done_ct,
+                )
+                await _post_workflow_chat_message(
+                    run, workflow.name, "failed",
+                    f"Workflow **{workflow.name}** failed — aborted at {step_id}",
+                    total_steps=total_ct, completed_steps=done_ct,
+                )
                 await _fire_after_workflow_complete(run, workflow)
                 return
             elif on_failure.startswith("retry:"):
@@ -892,6 +1010,18 @@ async def on_step_task_completed(
 
     # Dispatch step event outside the DB lock
     await _dispatch_workflow_event(*_pending_step_event)
+
+    # Post step chat message to the channel (full result, not the 100-char dispatch preview)
+    _full_result = state.get("result") or state.get("error") or ""
+    _step_chat_content = _full_result if _full_result else f"Step {step_id} {step_event.replace('step_', '')}"
+    await _post_workflow_chat_message(
+        run, workflow.name, step_event,
+        _step_chat_content,
+        step_id=step_id,
+        step_index=step_index,
+        total_steps=total_ct,
+        completed_steps=done_ct,
+    )
 
     # Advance to next step.
     # If this fails, the step state is already committed — the recovery

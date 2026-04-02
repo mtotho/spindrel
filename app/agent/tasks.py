@@ -1227,9 +1227,11 @@ async def recover_stuck_tasks() -> None:
 async def recover_stalled_workflow_runs() -> None:
     """Detect and recover workflow runs that are stuck in 'running' state.
 
-    Catches two scenarios:
+    Catches four scenarios:
     1. Step has a task_id but the Task is terminal (hook never fired)
     2. Step is "running" with no task_id (crash between state commit and task creation)
+    3. All steps still "pending" after 5 min (advance_workflow failed before starting)
+    4. All steps terminal but run still "running" (advance_workflow failed after last step)
     """
     from app.db.models import WorkflowRun
 
@@ -1279,6 +1281,26 @@ async def recover_stalled_workflow_runs() -> None:
                         recovered += 1
                     except Exception:
                         logger.exception("Recovery advance_workflow failed for run %s", run.id)
+
+            # Scenario 4: run is "running" but ALL steps are terminal (done/skipped/failed).
+            # This happens when advance_workflow fails after on_step_task_completed commits
+            # the step state but before marking the run complete.
+            elif (
+                run.status == "running"
+                and step_states
+                and all(s.get("status") in ("done", "skipped", "failed") for s in step_states)
+            ):
+                logger.warning(
+                    "Recovering stalled workflow run %s — all %d steps terminal but run still 'running'",
+                    run.id, len(step_states),
+                )
+                try:
+                    from app.services.workflow_executor import advance_workflow
+                    await advance_workflow(run.id)
+                    recovered += 1
+                except Exception:
+                    logger.exception("Recovery advance_workflow failed for run %s", run.id)
+
             continue
 
         state = step_states[running_step_idx]

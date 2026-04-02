@@ -669,6 +669,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const t = useThemeTokens();
   const meta = message.metadata || {};
   const [heartbeatExpanded, setHeartbeatExpanded] = useState(false);
+  const [workflowExpanded, setWorkflowExpanded] = useState(false);
   // Extract text from content (handles JSON-array content blocks) then strip Slack prefix
   const rawText = extractDisplayText(message.content);
   const { slackUserId, cleaned: displayContent } = parseSlackPrefix(rawText);
@@ -681,7 +682,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const trigger = meta.trigger as string | undefined;
   const delegations = (meta.delegations as any[]) || [];
   const delegatedByDisplay = meta.delegated_by_display as string | undefined;
-  const triggerBadge = trigger === "heartbeat"
+  const triggerBadge = trigger === "workflow"
+    ? { label: meta.workflow_name || "workflow", icon: "⟳", color: "#6366f1" }
+    : trigger === "heartbeat"
     ? { label: "heartbeat", icon: "💓", color: "#ec4899" }
     : trigger === "scheduled_task"
       ? { label: meta.task_title || "scheduled", icon: "🔁", color: "#8b5cf6" }
@@ -746,6 +749,101 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       <View style={{ paddingHorizontal: 20, paddingVertical: 2 }}>
         <Text style={{ fontSize: 12, color: t.textDim }}>
           💓 Heartbeat ran — {timestamp}
+        </Text>
+      </View>
+    );
+  }
+
+  // Collapsed workflow lifecycle messages
+  const isWorkflowMessage = trigger === "workflow";
+  if (isWorkflowMessage && isWeb) {
+    const wfEvent = (meta.workflow_event as string) || "unknown";
+    const wfName = (meta.workflow_name as string) || "Workflow";
+    const totalSteps = meta.total_steps as number | undefined;
+    const completedSteps = meta.completed_steps as number | undefined;
+    const stepId = meta.step_id as string | undefined;
+
+    const eventConfig: Record<string, { icon: string; label: string; color: string }> = {
+      started: { icon: "▶", label: "started", color: "#6366f1" },
+      step_done: { icon: "✓", label: "step done", color: "#10b981" },
+      step_failed: { icon: "✗", label: "step failed", color: "#ef4444" },
+      completed: { icon: "✓", label: "completed", color: "#10b981" },
+      failed: { icon: "✗", label: "failed", color: "#ef4444" },
+    };
+    const cfg = eventConfig[wfEvent] || { icon: "⟳", label: wfEvent, color: "#8b5cf6" };
+    const progress = totalSteps != null && completedSteps != null
+      ? `${completedSteps}/${totalSteps}`
+      : null;
+
+    return (
+      <div
+        style={{
+          paddingLeft: 20,
+          paddingRight: 20,
+          paddingTop: 2,
+          paddingBottom: 2,
+        }}
+      >
+        <div
+          onClick={() => setWorkflowExpanded((v) => !v)}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+            padding: "4px 8px",
+            borderRadius: 4,
+            fontSize: 12,
+            color: t.textDim,
+          }}
+        >
+          {workflowExpanded
+            ? <ChevronDown size={11} color={t.textDim} />
+            : <ChevronRight size={11} color={t.textDim} />
+          }
+          <span style={{ color: cfg.color, fontWeight: 600 }}>{cfg.icon}</span>
+          <span>{wfName}</span>
+          <span style={{
+            fontSize: 10, fontWeight: 600, color: cfg.color,
+            background: `${cfg.color}18`, border: `1px solid ${cfg.color}30`,
+            borderRadius: 10, padding: "0px 6px",
+          }}>
+            {cfg.label}
+          </span>
+          {stepId && wfEvent.startsWith("step_") && (
+            <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted }}>
+              {stepId}
+            </span>
+          )}
+          {progress && (
+            <span style={{ fontSize: 11, color: t.textMuted }}>
+              ({progress})
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: t.textDim, opacity: 0.7 }}>
+            {timestamp}
+          </span>
+        </div>
+        {workflowExpanded && displayContent.length > 0 && (
+          <div style={{ paddingLeft: 30, paddingTop: 4, paddingBottom: 4 }}>
+            <div style={{
+              fontSize: 14, lineHeight: "1.5", color: t.textMuted,
+              whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>
+              <MarkdownContent text={displayContent} t={t} />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (isWorkflowMessage && !isWeb) {
+    const wfName = (meta.workflow_name as string) || "Workflow";
+    const wfEvent = (meta.workflow_event as string) || "unknown";
+    return (
+      <View style={{ paddingHorizontal: 20, paddingVertical: 2 }}>
+        <Text style={{ fontSize: 12, color: t.textDim }}>
+          ⟳ {wfName} — {wfEvent} — {timestamp}
         </Text>
       </View>
     );

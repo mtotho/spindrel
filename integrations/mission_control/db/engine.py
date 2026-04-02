@@ -21,6 +21,23 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 _init_lock = asyncio.Lock()
 
 
+def _migrate_schema(conn) -> None:
+    """Add columns that may be missing from older DBs (SQLite ALTER TABLE)."""
+    raw = conn.connection
+    cursor = raw.cursor()
+
+    # Check mc_kanban_cards for plan_id / plan_step_position
+    cursor.execute("PRAGMA table_info(mc_kanban_cards)")
+    existing = {row[1] for row in cursor.fetchall()}
+
+    if "plan_id" not in existing:
+        cursor.execute("ALTER TABLE mc_kanban_cards ADD COLUMN plan_id TEXT")
+    if "plan_step_position" not in existing:
+        cursor.execute("ALTER TABLE mc_kanban_cards ADD COLUMN plan_step_position INTEGER")
+
+    cursor.close()
+
+
 def _get_db_path() -> str:
     from integrations.mission_control.config import settings
     return settings.MISSION_CONTROL_DB_PATH
@@ -50,6 +67,7 @@ async def get_mc_engine():
 
         async with engine.begin() as conn:
             await conn.run_sync(MCBase.metadata.create_all)
+            await conn.run_sync(_migrate_schema)
         _session_factory = async_sessionmaker(engine, expire_on_commit=False)
         _engine = engine
         logger.info("MC SQLite engine initialized at %s", db_path)

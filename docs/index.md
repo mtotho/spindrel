@@ -141,6 +141,14 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
     Cost tracking, budget limits, spend forecasting, and provider pricing.
 
+-   [:material-sitemap: **Workflows**](guides/workflows.md)
+
+    Multi-step automations with conditions, approval gates, cross-bot delegation, and scoped secrets.
+
+-   [:material-heart-pulse: **Heartbeats**](guides/heartbeats.md)
+
+    Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and workflow triggers.
+
 -   [:material-wrench: **Custom Tools & Extensions**](guides/custom-tools.md)
 
     Create custom tools, manage a personal extensions repo, load external carapaces and skills.

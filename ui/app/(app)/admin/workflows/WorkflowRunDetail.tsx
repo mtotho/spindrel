@@ -43,6 +43,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
   const retryMut = useRetryWorkflowStep();
 
   const [activeStepIndex, setActiveStepIndex] = useState<number | null>(null);
+  const [runAgainError, setRunAgainError] = useState<string | null>(null);
 
   if (isLoading || !run) {
     return (
@@ -56,6 +57,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
   const isActive = run.status === "running" || run.status === "awaiting_approval";
 
   const handleRunAgain = async () => {
+    setRunAgainError(null);
     try {
       const newRun = await triggerMut.mutateAsync({
         params: run.params,
@@ -64,8 +66,9 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
         session_mode: run.session_mode || undefined,
       });
       onNavigateToRun(newRun.id);
-    } catch {
-      // handled by mutation
+    } catch (err: any) {
+      const msg = err?.message || err?.data?.detail || "Failed to trigger workflow";
+      setRunAgainError(typeof msg === "string" ? msg : JSON.stringify(msg));
     }
   };
 
@@ -97,8 +100,11 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
                 opacity: triggerMut.isPending ? 0.6 : 1,
               }}
             >
-              <RefreshCw size={12} />
-              Run Again
+              {triggerMut.isPending
+                ? <ActivityIndicator color={t.accent} style={{ width: 12, height: 12 }} />
+                : <RefreshCw size={12} />
+              }
+              {triggerMut.isPending ? "Starting..." : "Run Again"}
             </button>
           )}
           {isActive && (
@@ -148,6 +154,24 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
           </div>
         )}
       </div>
+
+      {/* Run Again error */}
+      {runAgainError && (
+        <div style={{
+          padding: 10, borderRadius: 8, flexShrink: 0, marginBottom: 12,
+          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+          color: t.danger, fontSize: 12,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <span>Run Again failed: {runAgainError}</span>
+          <button
+            onClick={() => setRunAgainError(null)}
+            style={{ background: "none", border: "none", color: t.danger, cursor: "pointer", padding: 2 }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Error */}
       {run.error && (

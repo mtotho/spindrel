@@ -43,11 +43,14 @@ export interface MCKanbanCard {
   description: string;
   channel_id: string;
   channel_name: string;
+  plan_id?: string;
+  plan_step_position?: number;
 }
 
 export interface MCKanbanColumn {
   name: string;
   cards: MCKanbanCard[];
+  id?: string;
 }
 
 export interface MCKanbanResponse {
@@ -131,6 +134,21 @@ export interface MCPrefs {
   layout_prefs: Record<string, unknown>;
 }
 
+export interface MCCardHistoryEvent {
+  date: string;
+  time: string;
+  event: string;
+}
+
+export interface MCPlanTemplate {
+  id: string;
+  name: string;
+  description: string;
+  steps_json: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface MCPlanStep {
   position: number;
   status: string;
@@ -140,6 +158,7 @@ export interface MCPlanStep {
   result_summary: string | null;
   started_at: string | null;
   completed_at: string | null;
+  linked_card_id?: string;
 }
 
 export interface MCPlan {
@@ -627,6 +646,184 @@ export function useLeaveChannel() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["mc-overview"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Card History
+// ---------------------------------------------------------------------------
+
+export function useMCCardHistory(cardId: string | undefined, channelId: string | undefined) {
+  return useQuery({
+    queryKey: ["mc-card-history", cardId, channelId],
+    queryFn: () =>
+      apiFetch<{ events: MCCardHistoryEvent[] }>(
+        `/integrations/mission_control/kanban/cards/${cardId}/history?channel_id=${channelId}`
+      ),
+    enabled: !!cardId && !!channelId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Column Management
+// ---------------------------------------------------------------------------
+
+export function useMCColumnCreate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { channel_id: string; name: string; position?: number }) =>
+      apiFetch("/integrations/mission_control/kanban/columns", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-kanban"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
+  });
+}
+
+export function useMCColumnRename() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ columnId, ...body }: { columnId: string; channel_id: string; name: string }) =>
+      apiFetch(`/integrations/mission_control/kanban/columns/${columnId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-kanban"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
+  });
+}
+
+export function useMCColumnDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ columnId, channelId }: { columnId: string; channelId: string }) =>
+      apiFetch(
+        `/integrations/mission_control/kanban/columns/${columnId}?channel_id=${channelId}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-kanban"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
+  });
+}
+
+export function useMCColumnReorder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { channel_id: string; column_ids: string[] }) =>
+      apiFetch("/integrations/mission_control/kanban/columns/reorder", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-kanban"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Plan Templates
+// ---------------------------------------------------------------------------
+
+export function useMCPlanTemplates() {
+  return useQuery({
+    queryKey: ["mc-plan-templates"],
+    queryFn: () =>
+      apiFetch<{ templates: MCPlanTemplate[] }>(
+        "/integrations/mission_control/plans/templates"
+      ),
+  });
+}
+
+export function useMCPlanTemplateCreate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: {
+      name: string;
+      description?: string;
+      steps: Array<{ content: string; requires_approval?: boolean }>;
+    }) =>
+      apiFetch("/integrations/mission_control/plans/templates", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plan-templates"] });
+    },
+  });
+}
+
+export function useMCPlanTemplateDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (templateId: string) =>
+      apiFetch(`/integrations/mission_control/plans/templates/${templateId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plan-templates"] });
+    },
+  });
+}
+
+export function useMCCreatePlanFromTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      templateId,
+      channelId,
+      title,
+      notes,
+    }: {
+      templateId: string;
+      channelId: string;
+      title: string;
+      notes?: string;
+    }) =>
+      apiFetch<{ ok: boolean; plan_id: string; status: string }>(
+        `/integrations/mission_control/plans/templates/${templateId}/create-plan?channel_id=${channelId}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ title, notes: notes || "" }),
+        }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plans"] });
+      qc.invalidateQueries({ queryKey: ["mc-timeline"] });
+    },
+  });
+}
+
+export function useMCSavePlanAsTemplate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      channelId,
+      planId,
+      name,
+      description,
+    }: {
+      channelId: string;
+      planId: string;
+      name: string;
+      description?: string;
+    }) =>
+      apiFetch(
+        `/integrations/mission_control/channels/${channelId}/plans/${planId}/save-template`,
+        {
+          method: "POST",
+          body: JSON.stringify({ name, description: description || "" }),
+        }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mc-plan-templates"] });
     },
   });
 }
