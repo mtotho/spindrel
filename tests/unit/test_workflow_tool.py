@@ -278,6 +278,36 @@ class TestActionRedirect:
         assert result["status"] == "complete"
 
     @pytest.mark.asyncio
+    async def test_trigger_session_mode_override(self):
+        """trigger with session_mode should pass it to trigger_workflow."""
+        run = MagicMock()
+        run.id = uuid.uuid4()
+        run.workflow_id = "test-wf"
+        run.status = "running"
+        run.step_states = [{"status": "pending"}]
+
+        with (
+            patch("app.agent.context.current_bot_id") as mock_bot_ctx,
+            patch("app.agent.context.current_channel_id") as mock_ch_ctx,
+            patch("app.services.workflow_executor.trigger_workflow", new_callable=AsyncMock, return_value=run) as mock_trigger,
+        ):
+            mock_bot_ctx.get.return_value = "my-bot"
+            mock_ch_ctx.get.return_value = None
+
+            result = json.loads(await manage_workflow(action="trigger", id="test-wf", session_mode="shared"))
+            assert result["status"] == "running"
+
+            _, kwargs = mock_trigger.call_args
+            assert kwargs.get("session_mode") == "shared"
+
+    @pytest.mark.asyncio
+    async def test_trigger_invalid_session_mode_returns_error(self):
+        """trigger with invalid session_mode should return error without calling trigger_workflow."""
+        result = json.loads(await manage_workflow(action="trigger", id="test-wf", session_mode="bogus"))
+        assert "error" in result
+        assert "session_mode" in result["error"]
+
+    @pytest.mark.asyncio
     async def test_trigger_returns_hint(self):
         """trigger response should include a hint for monitoring."""
         run = MagicMock()

@@ -161,6 +161,16 @@ steps:
 
 **Rule of thumb:** Use `shared` when the workflow is a conversation (each step builds on prior understanding). Use `isolated` when steps are independent tasks that pass structured data.
 
+### Override at Trigger Time
+
+Session mode can be overridden per-trigger without changing the workflow definition. The cascade is: **trigger override → workflow default → "isolated"**.
+
+- **API**: `POST /workflows/{id}/trigger` with `session_mode: "shared"` or `"isolated"` in body
+- **Bot tool**: `manage_workflow(action="trigger", id="...", session_mode="shared")`
+- **Heartbeat**: Set `workflow_session_mode` on the channel heartbeat config
+
+Use case: a workflow defined as `isolated` for normal automated runs can be triggered with `shared` for interactive debugging, so the operator sees step outputs in chat.
+
 ## Condition Syntax
 
 Conditions are dict-based (no eval, no expression parsing):

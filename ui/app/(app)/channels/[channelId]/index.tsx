@@ -9,13 +9,13 @@ import { ChannelFileExplorer } from "./ChannelFileExplorer";
 import { ChannelFileViewer } from "./ChannelFileViewer";
 import { MessageBubble, extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
-import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
+import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { useChannelReadStore } from "@/src/stores/channelRead";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useChatStream, useCancelChat } from "@/src/api/hooks/useChat";
+import { useChatStream, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
@@ -66,49 +66,6 @@ function isDifferentDay(a: string, b: string): boolean {
   return da.getFullYear() !== db.getFullYear() || da.getMonth() !== db.getMonth() || da.getDate() !== db.getDate();
 }
 
-/**
- * Merge consecutive assistant messages from the same sender into a single
- * display message so they render as one continuous block (easier to copy/select).
- */
-function mergeConsecutiveAssistant(messages: Message[]): Message[] {
-  if (messages.length === 0) return messages;
-  const result: Message[] = [];
-  for (const msg of messages) {
-    const prev = result[result.length - 1];
-    if (
-      prev &&
-      msg.role === "assistant" &&
-      prev.role === "assistant" &&
-      shouldGroup(msg, prev)
-    ) {
-      const prevText = extractDisplayText(prev.content);
-      const curText = extractDisplayText(msg.content);
-      const mergedContent = [prevText, curText].filter(Boolean).join("\n\n");
-      const prevMeta = prev.metadata || {};
-      const curMeta = msg.metadata || {};
-      result[result.length - 1] = {
-        ...prev,
-        content: mergedContent,
-        tool_calls: [...(prev.tool_calls || []), ...(msg.tool_calls || [])],
-        attachments: [...(prev.attachments || []), ...(msg.attachments || [])],
-        metadata: {
-          ...prevMeta,
-          tools_used: [
-            ...((prevMeta.tools_used as string[]) || []),
-            ...((curMeta.tools_used as string[]) || []),
-          ],
-          delegations: [
-            ...((prevMeta.delegations as any[]) || []),
-            ...((curMeta.delegations as any[]) || []),
-          ],
-        },
-      };
-    } else {
-      result.push({ ...msg });
-    }
-  }
-  return result;
-}
 
 function DateSeparator({ label }: { label: string }) {
   const t = useThemeTokens();
@@ -171,6 +128,7 @@ function ChatMessageArea({
   handleListLayout,
   handleContentSizeChange,
   handleLoadMore,
+  isProcessing,
   t,
 }: {
   flatListRef: React.RefObject<FlatList | null>;
@@ -186,6 +144,7 @@ function ChatMessageArea({
   handleListLayout: (e: any) => void;
   handleContentSizeChange: (w: number, h: number) => void;
   handleLoadMore: () => void;
+  isProcessing?: boolean;
   t: ReturnType<typeof useThemeTokens>;
 }) {
   return (
@@ -218,6 +177,8 @@ function ChatMessageArea({
               botName={bot?.name}
               thinkingContent={chatState.thinkingContent}
             />
+          ) : isProcessing ? (
+            <ProcessingIndicator botName={bot?.name} />
           ) : null
         }
         ListFooterComponent={
@@ -307,6 +268,7 @@ export default function ChatScreen() {
   const startStreaming = useChatStore((s) => s.startStreaming);
   const handleSSEEvent = useChatStore((s) => s.handleSSEEvent);
   const finishStreaming = useChatStore((s) => s.finishStreaming);
+  const clearProcessing = useChatStore((s) => s.clearProcessing);
   const setError = useChatStore((s) => s.setError);
 
   const {
@@ -334,7 +296,7 @@ export default function ChatScreen() {
   });
 
   useEffect(() => {
-    if (channelId && pages && !chatState.isStreaming) {
+    if (channelId && pages && !chatState.isStreaming && !chatState.isProcessing) {
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
         .filter((m) => {
           if (m.role !== "user" && m.role !== "assistant") return false;
@@ -353,24 +315,23 @@ export default function ChatScreen() {
       setMessages(channelId, allMessages);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId, pages, chatState.isStreaming]);
+  }, [channelId, pages, chatState.isStreaming, chatState.isProcessing]);
 
-  const cancelChat = useCancelChat();
+  // Poll session status while background processing is active
+  const { data: sessionStatus } = useSessionStatus(channelId, chatState.isProcessing);
 
-  const handleCancel = useCallback(() => {
-    if (!channel || !channelId) return;
-    // Send server-side cancel (sets flag + cancels queued tasks)
-    cancelChat.mutate({
-      client_id: channel.client_id ?? "",
-      bot_id: channel.bot_id,
-    });
-    // Abort local SSE immediately so UI is responsive
-    chatStream.abort();
-    // Clear streaming state (same as receiving a "cancelled" event from server)
-    handleSSEEvent(channelId, { event: "cancelled", data: {} });
-    // Refetch messages to pick up whatever the server persisted
-    queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-  }, [channel, channelId]);
+  // When background processing completes, clear state and refetch messages
+  useEffect(() => {
+    if (
+      chatState.isProcessing &&
+      sessionStatus &&
+      !sessionStatus.processing &&
+      sessionStatus.pending_tasks === 0
+    ) {
+      if (channelId) clearProcessing(channelId);
+      queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+    }
+  }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient]);
 
   // Batch text/thinking deltas at animation-frame rate to avoid per-token rerenders
   const pendingTextRef = useRef("");
@@ -389,6 +350,30 @@ export default function ChatScreen() {
       pendingThinkRef.current = "";
     }
   }, [channelId, handleSSEEvent]);
+
+  const cancelChat = useCancelChat();
+
+  const handleCancel = useCallback(() => {
+    if (!channel || !channelId) return;
+    // Send server-side cancel (sets flag + cancels queued tasks)
+    cancelChat.mutate({
+      client_id: channel.client_id ?? "",
+      bot_id: channel.bot_id,
+    });
+    // Abort local SSE immediately so UI is responsive
+    chatStream.abort();
+    // Flush pending RAF deltas so partial content isn't lost
+    if (pendingTextRef.current || pendingThinkRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      flushPending();
+    }
+    // Materialize partial streaming content as a message, then clear streaming state
+    finishStreaming(channelId);
+    // Also clear any background processing state
+    clearProcessing(channelId);
+    // Refetch messages to replace synthetic messages with clean DB data
+    queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+  }, [channel, channelId, flushPending, finishStreaming, clearProcessing, queryClient]);
 
   const chatStream = useChatStream({
     onEvent: (event) => {
@@ -582,12 +567,11 @@ export default function ChatScreen() {
     [channelId, router, setMessages, queryClient],
   );
 
-  // Merge consecutive assistant messages then reverse for inverted FlatList
-  const mergedMessages = useMemo(
-    () => mergeConsecutiveAssistant(chatState.messages),
+  // Reverse for inverted FlatList (visual grouping is handled by shouldGroup + isGrouped on MessageBubble)
+  const invertedData = useMemo(
+    () => [...chatState.messages].reverse(),
     [chatState.messages],
   );
-  const invertedData = [...mergedMessages].reverse();
 
   const handleLoadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
@@ -863,6 +847,7 @@ export default function ChatScreen() {
               handleListLayout={handleListLayout}
               handleContentSizeChange={handleContentSizeChange}
               handleLoadMore={handleLoadMore}
+              isProcessing={chatState.isProcessing}
               t={t}
             />
             {chatState.error && (
@@ -873,7 +858,7 @@ export default function ChatScreen() {
               onSend={handleSend}
               onSendAudio={handleSendAudio}
               disabled={isPaused}
-              isStreaming={chatState.isStreaming}
+              isStreaming={chatState.isStreaming || chatState.isProcessing}
               onCancel={handleCancel}
               modelOverride={turnModelOverride}
               onModelOverrideChange={setTurnModelOverride}
@@ -915,6 +900,7 @@ export default function ChatScreen() {
                   handleListLayout={handleListLayout}
                   handleContentSizeChange={handleContentSizeChange}
                   handleLoadMore={handleLoadMore}
+                  isProcessing={chatState.isProcessing}
                   t={t}
                 />
               </View>
@@ -950,7 +936,7 @@ export default function ChatScreen() {
             onSend={handleSend}
             onSendAudio={handleSendAudio}
             disabled={isPaused}
-            isStreaming={chatState.isStreaming}
+            isStreaming={chatState.isStreaming || chatState.isProcessing}
             onCancel={handleCancel}
             modelOverride={turnModelOverride}
             onModelOverrideChange={setTurnModelOverride}

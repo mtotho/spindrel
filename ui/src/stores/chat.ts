@@ -6,6 +6,8 @@ interface ChatChannelState {
   streamingContent: string;
   thinkingContent: string;
   isStreaming: boolean;
+  isProcessing: boolean;
+  queuedTaskId: string | null;
   toolCalls: { name: string; args?: string; status: "running" | "done" }[];
   correlationId: string | null;
   error: string | null;
@@ -19,6 +21,7 @@ interface ChatState {
   startStreaming: (channelId: string) => void;
   handleSSEEvent: (channelId: string, event: SSEEvent) => void;
   finishStreaming: (channelId: string) => void;
+  clearProcessing: (channelId: string) => void;
   setError: (channelId: string, error: string) => void;
 }
 
@@ -27,6 +30,8 @@ const emptyChannel: ChatChannelState = {
   streamingContent: "",
   thinkingContent: "",
   isStreaming: false,
+  isProcessing: false,
+  queuedTaskId: null,
   toolCalls: [],
   correlationId: null,
   error: null,
@@ -89,6 +94,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             ...ch,
             messages,
             isStreaming: true,
+            isProcessing: false,
+            queuedTaskId: null,
             streamingContent: "",
             thinkingContent: "",
             toolCalls: [],
@@ -202,11 +209,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           };
         }
         case "queued": {
-          // Message was queued — SSE stream ends, re-enable input
+          // Message was queued — SSE stream ends, switch to background processing mode
+          const queuedData = event.data as { task_id?: string };
           return {
             channels: {
               ...s.channels,
-              [channelId]: { ...ch, isStreaming: false },
+              [channelId]: {
+                ...ch,
+                isStreaming: false,
+                isProcessing: true,
+                queuedTaskId: queuedData.task_id ?? null,
+              },
             },
           };
         }
@@ -264,6 +277,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             ...ch,
             messages: newMessages,
             isStreaming: false,
+            isProcessing: false,
+            queuedTaskId: null,
             streamingContent: "",
             thinkingContent: "",
             toolCalls: [],
@@ -272,6 +287,18 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         },
       };
     }),
+
+  clearProcessing: (channelId) =>
+    set((s) => ({
+      channels: {
+        ...s.channels,
+        [channelId]: {
+          ...(s.channels[channelId] ?? emptyChannel),
+          isProcessing: false,
+          queuedTaskId: null,
+        },
+      },
+    })),
 
   setError: (channelId, error) =>
     set((s) => ({

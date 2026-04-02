@@ -353,3 +353,117 @@ async def test_update_workflow_session_mode(client, db_session):
     )
     assert resp.status_code == 200
     assert resp.json()["session_mode"] == "shared"
+
+
+# ---------------------------------------------------------------------------
+# Session Mode Override on Trigger
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_trigger_override_isolated_to_shared(client, db_session, engine_session_factory):
+    """Triggering an isolated workflow with session_mode='shared' override should
+    create a run with session_mode='shared' and a session_id."""
+    await client.post("/api/v1/admin/workflows", json=_make_workflow(), headers=AUTH_HEADERS)
+
+    wf = Workflow(
+        id="test-wf", name="Test",
+        params={"name": {"type": "string", "required": True}},
+        steps=[{"id": "s1", "prompt": "Do."}],
+        defaults={"bot_id": "test-bot"}, secrets=[],
+        session_mode="isolated",
+    )
+    with (
+        patch("app.services.workflows._registry", {"test-wf": wf}),
+        patch("app.services.workflow_executor.async_session", engine_session_factory),
+        patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+    ):
+        resp = await client.post(
+            "/api/v1/admin/workflows/test-wf/run",
+            json={"params": {"name": "Test"}, "bot_id": "test-bot", "session_mode": "shared"},
+            headers=AUTH_HEADERS,
+        )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["session_mode"] == "shared", "Override should switch to shared"
+    assert body["session_id"] is not None, "Shared mode should set session_id"
+
+
+@pytest.mark.asyncio
+async def test_trigger_override_shared_to_isolated(client, db_session, engine_session_factory):
+    """Triggering a shared workflow with session_mode='isolated' override should
+    create a run with session_mode='isolated' and no session_id."""
+    await client.post("/api/v1/admin/workflows", json=_make_workflow(), headers=AUTH_HEADERS)
+
+    wf = Workflow(
+        id="test-wf", name="Test",
+        params={"name": {"type": "string", "required": True}},
+        steps=[{"id": "s1", "prompt": "Do."}],
+        defaults={"bot_id": "test-bot"}, secrets=[],
+        session_mode="shared",
+    )
+    with (
+        patch("app.services.workflows._registry", {"test-wf": wf}),
+        patch("app.services.workflow_executor.async_session", engine_session_factory),
+        patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+    ):
+        resp = await client.post(
+            "/api/v1/admin/workflows/test-wf/run",
+            json={"params": {"name": "Test"}, "bot_id": "test-bot", "session_mode": "isolated"},
+            headers=AUTH_HEADERS,
+        )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["session_mode"] == "isolated", "Override should switch to isolated"
+    assert body["session_id"] is None, "Isolated mode should not set session_id"
+
+
+@pytest.mark.asyncio
+async def test_trigger_invalid_session_mode_rejected(client, db_session):
+    """Triggering with an invalid session_mode should return 422."""
+    await client.post("/api/v1/admin/workflows", json=_make_workflow(), headers=AUTH_HEADERS)
+
+    wf = Workflow(
+        id="test-wf", name="Test",
+        params={"name": {"type": "string", "required": True}},
+        steps=[{"id": "s1", "prompt": "Do."}],
+        defaults={"bot_id": "test-bot"}, secrets=[],
+    )
+    with patch("app.services.workflows._registry", {"test-wf": wf}):
+        resp = await client.post(
+            "/api/v1/admin/workflows/test-wf/run",
+            json={"params": {"name": "Test"}, "bot_id": "test-bot", "session_mode": "bogus"},
+            headers=AUTH_HEADERS,
+        )
+
+    assert resp.status_code == 422
+    assert "session_mode" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_trigger_no_override_uses_workflow_default(client, db_session, engine_session_factory):
+    """Triggering without session_mode should use the workflow's default."""
+    await client.post("/api/v1/admin/workflows", json=_make_workflow(), headers=AUTH_HEADERS)
+
+    wf = Workflow(
+        id="test-wf", name="Test",
+        params={"name": {"type": "string", "required": True}},
+        steps=[{"id": "s1", "prompt": "Do."}],
+        defaults={"bot_id": "test-bot"}, secrets=[],
+        session_mode="shared",
+    )
+    with (
+        patch("app.services.workflows._registry", {"test-wf": wf}),
+        patch("app.services.workflow_executor.async_session", engine_session_factory),
+        patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+    ):
+        resp = await client.post(
+            "/api/v1/admin/workflows/test-wf/run",
+            json={"params": {"name": "Test"}, "bot_id": "test-bot"},
+            headers=AUTH_HEADERS,
+        )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["session_mode"] == "shared", "Should use workflow's default session_mode"

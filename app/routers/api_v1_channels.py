@@ -17,6 +17,7 @@ from app.services.channels import (
     reset_channel_session, switch_channel_session,
     bind_integration, unbind_integration, adopt_integration,
 )
+from app.services import session_locks
 from app.services.sessions import store_passive_message
 from app.tools.local.search_history import _build_query, _serialize_messages
 
@@ -901,6 +902,49 @@ async def get_attachment_stats(
         oldest_created_at=row.oldest_created_at,
         effective_config=effective,
     )
+
+
+# ---------------------------------------------------------------------------
+# Session status (for UI polling during background processing)
+# ---------------------------------------------------------------------------
+
+class SessionStatusOut(BaseModel):
+    processing: bool
+    pending_tasks: int
+
+
+@router.get("/{channel_id}/session-status", response_model=SessionStatusOut)
+async def get_session_status(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Check if the channel's active session is currently processing.
+
+    Returns whether the session lock is held (agent loop running) and how many
+    pending/running tasks are queued for the session.  Cheap enough to poll at
+    ~3 s intervals from the UI.
+    """
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    session_id = channel.active_session_id
+    if not session_id:
+        return SessionStatusOut(processing=False, pending_tasks=0)
+
+    processing = session_locks.is_active(session_id)
+
+    pending_count_result = await db.execute(
+        select(func.count())
+        .where(
+            Task.session_id == session_id,
+            Task.status.in_(["pending", "running"]),
+        )
+    )
+    pending_tasks = pending_count_result.scalar() or 0
+
+    return SessionStatusOut(processing=processing, pending_tasks=pending_tasks)
 
 
 # ---------------------------------------------------------------------------

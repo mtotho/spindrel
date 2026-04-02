@@ -57,6 +57,43 @@ function ThinkingBlock({ text, borderColor, textColor }: { text: string; borderC
   );
 }
 
+/** Shown when the agent is processing in the background (queued message). */
+export function ProcessingIndicator({ botName }: { botName?: string }) {
+  const name = botName || "Bot";
+  const letter = name[0].toUpperCase();
+  const bg = avatarColor(name);
+  const t = useThemeTokens();
+
+  return (
+    <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
+      <View style={{ paddingTop: 2 }}>
+        <View
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 6,
+            backgroundColor: bg,
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>{letter}</Text>
+        </View>
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+          <Text style={{ fontSize: 15, fontWeight: "700", color: bg }}>{name}</Text>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 }}>
+          <View className="w-2 h-2 rounded-full bg-text-dim animate-pulse" />
+          <Text style={{ fontSize: 13, color: t.textMuted }}>Processing...</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 interface Props {
   content: string;
   toolCalls: { name: string; args?: string; status: "running" | "done" }[];

@@ -15,7 +15,7 @@ from app.agent.bots import get_bot, list_bots
 from app.agent.context import set_agent_context
 from app.agent.loop import run, run_stream
 from app.agent.pending import resolve_pending
-from app.db.models import Task as TaskModel
+from app.db.models import Message as MessageModel, Task as TaskModel
 from app.dependencies import get_db, require_scopes, verify_auth_or_user
 from app.services import session_locks
 from app.services.channels import get_or_create_channel, ensure_active_session, is_integration_client_id, resolve_integration_user
@@ -631,6 +631,19 @@ async def chat_stream(
             created_at=datetime.now(timezone.utc),
         )
         db.add(queued_task)
+
+        # Persist the user message to the session so the UI's DB refetch
+        # includes it (prevents the optimistic message from vanishing).
+        now = datetime.now(timezone.utc)
+        user_msg = MessageModel(
+            session_id=session_id,
+            role="user",
+            content=message,
+            metadata_=req.msg_metadata or {},
+            created_at=now,
+        )
+        db.add(user_msg)
+
         await db.commit()
         await db.refresh(queued_task)
         _task_id = str(queued_task.id)

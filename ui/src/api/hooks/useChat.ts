@@ -1,7 +1,8 @@
 import { useRef } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { apiFetch } from "../client";
 import type { ChatRequest, SSEEvent } from "../../types/api";
 
 interface CancelRequest {
@@ -102,4 +103,19 @@ export function useChatStream(options: UseChatStreamOptions) {
   });
 
   return { ...mutation, abort: () => abortRef.current?.abort() };
+}
+
+interface SessionStatus {
+  processing: boolean;
+  pending_tasks: number;
+}
+
+/** Poll the session status endpoint while the agent is processing in the background. */
+export function useSessionStatus(channelId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["session-status", channelId],
+    queryFn: () => apiFetch<SessionStatus>(`/channels/${channelId}/session-status`),
+    enabled: !!channelId && enabled,
+    refetchInterval: enabled ? 3000 : false,
+  });
 }
