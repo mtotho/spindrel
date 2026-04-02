@@ -93,7 +93,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
     <Link href={`/admin/workflows/${run.workflow_id}?tab=runs&run=${run.id}` as any} asChild>
       <Pressable
         style={{
-          backgroundColor: t.surfaceRaised,
+          backgroundColor: t.codeBg,
           borderRadius: 8,
           borderWidth: 1,
           borderColor: t.surfaceBorder,
@@ -127,15 +127,15 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
-              <span style={{ fontSize: 11, color: t.textDim }}>
+              <span style={{ fontSize: 11, color: t.textMuted }}>
                 {run.bot_id}
               </span>
               {run.triggered_by && (
-                <span style={{ fontSize: 11, color: t.textDim }}>
+                <span style={{ fontSize: 11, color: t.textMuted }}>
                   via {run.triggered_by}
                 </span>
               )}
-              <span style={{ fontSize: 11, color: t.textDim }}>
+              <span style={{ fontSize: 11, color: t.textMuted }}>
                 {fmtTimeAgo(run.created_at)}
               </span>
             </div>
@@ -355,7 +355,7 @@ function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }
     <Link href={`/admin/workflows/${w.id}` as any} asChild>
       <Pressable
         style={{
-          backgroundColor: t.surfaceRaised,
+          backgroundColor: t.codeBg,
           borderRadius: 10,
           borderWidth: 1,
           borderColor: t.surfaceBorder,

@@ -16,6 +16,7 @@ import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { WorkflowSelector } from "@/src/components/shared/WorkflowSelector";
 import { useWorkflows } from "@/src/api/hooks/useWorkflows";
 
 import { QuietHoursPicker } from "./QuietHoursPicker";
@@ -228,49 +229,29 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
           {isWorkflowMode ? (
             /* ---- Workflow Selector ---- */
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {(!workflows || workflows.length === 0) ? (
-                <div style={{
-                  padding: "16px 12px", borderRadius: 6, textAlign: "center",
-                  background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-                }}>
-                  <div style={{ fontSize: 13, color: t.textMuted, marginBottom: 4 }}>
-                    No workflows available
+              <FormRow label="Workflow" description="This workflow will be triggered on each heartbeat interval.">
+                <WorkflowSelector
+                  value={hbForm.workflow_id}
+                  onChange={(id) => setHbForm((f: any) => ({ ...f, workflow_id: id }))}
+                />
+              </FormRow>
+              {hbForm.workflow_id && (() => {
+                const wf = workflows?.find((w: any) => w.id === hbForm.workflow_id);
+                if (!wf) return null;
+                return (
+                  <div style={{
+                    padding: "8px 12px", borderRadius: 6,
+                    background: t.codeBg, border: `1px solid ${t.codeBorder}`,
+                    fontSize: 12, color: t.textMuted, lineHeight: 1.5,
+                  }}>
+                    {wf.description && <div style={{ marginBottom: 4 }}>{wf.description}</div>}
+                    <div style={{ fontSize: 11, color: t.textDim }}>
+                      {wf.steps?.length ?? 0} step{(wf.steps?.length ?? 0) !== 1 ? "s" : ""}
+                      {wf.tags?.length ? ` · ${wf.tags.join(", ")}` : ""}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 11, color: t.textDim }}>
-                    Create a workflow in Admin &rarr; Workflows first.
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <FormRow label="Workflow" description="This workflow will be triggered on each heartbeat interval.">
-                    <SelectInput
-                      value={hbForm.workflow_id || ""}
-                      onChange={(v) => setHbForm((f: any) => ({ ...f, workflow_id: v || null }))}
-                      options={workflows.map((wf) => ({
-                        label: wf.name || wf.id,
-                        value: wf.id,
-                      }))}
-                    />
-                  </FormRow>
-                  {hbForm.workflow_id && (() => {
-                    const wf = workflows.find((w) => w.id === hbForm.workflow_id);
-                    if (!wf) return null;
-                    return (
-                      <div style={{
-                        padding: "8px 12px", borderRadius: 6,
-                        background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-                        fontSize: 12, color: t.textMuted, lineHeight: 1.5,
-                      }}>
-                        {wf.description && <div style={{ marginBottom: 4 }}>{wf.description}</div>}
-                        <div style={{ fontSize: 11, color: t.textDim }}>
-                          {wf.steps?.length ?? 0} step{(wf.steps?.length ?? 0) !== 1 ? "s" : ""}
-                          {wf.tags?.length ? ` · ${wf.tags.join(", ")}` : ""}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </>
-              )}
+                );
+              })()}
             </div>
           ) : (
             /* ---- Prompt Editor ---- */

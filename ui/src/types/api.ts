@@ -389,6 +389,7 @@ export interface ModelGroup {
 export interface CompletionItem {
   value: string;
   label: string;
+  description?: string;
 }
 
 // Session types

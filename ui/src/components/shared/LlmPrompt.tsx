@@ -272,11 +272,15 @@ export function AutocompleteMenu({
               <span style={{ fontFamily: "monospace", fontSize: 12, color: t.text }}>
                 {item.value.includes(":") ? item.value.split(":").slice(1).join(":") : item.value}
               </span>
-              {item.label !== item.value && (
+              {item.description ? (
+                <span style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.description}
+                </span>
+              ) : item.label !== item.value ? (
                 <span style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {item.label}
                 </span>
-              )}
+              ) : null}
             </div>
           );
         })}

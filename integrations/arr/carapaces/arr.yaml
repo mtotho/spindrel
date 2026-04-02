@@ -12,9 +12,10 @@ skills:
     mode: on_demand
   - id: integrations/arr/media-troubleshoot
     mode: on_demand
+  - id: integrations/arr/media-request
+    mode: on_demand
 
 local_tools:
-  - manage_workflow
   - sonarr_calendar
   - sonarr_series
   - sonarr_wanted
@@ -47,31 +48,14 @@ system_prompt_fragment: |
 
   | User says... | What to do |
   |---|---|
-  | "Request X" / "Get X on Jellyfin" / "Add X" | → **Request flow** (see below) |
+  | "Request X" / "Get X on Jellyfin" / "Add X" | → `get_skill('integrations/arr/media-request')` then follow the procedure step by step |
   | "Is X available?" / "Do we have X?" | → Quick check: `jellyfin_library(action="search")` |
   | "Why isn't X on?" / "X is missing" | → `get_skill('integrations/arr/media-troubleshoot')` then follow the procedure step by step |
-  | "Make sure X is on" / "Can you get X?" | → **Request flow** — covers check + request if needed |
+  | "Make sure X is on" / "Can you get X?" | → `get_skill('integrations/arr/media-request')` — covers check + request if needed |
   | "What's downloading?" | → `sonarr_queue()` + `radarr_queue()` + `qbit_torrents(filter="downloading")` |
   | "Fix stuck downloads" | → `qbit_torrents(filter="stalled")` → diagnose → remediate |
   | "What's new?" / "Recent additions" | → `jellyfin_library(action="recent")` |
   | "Show pending requests" | → `jellyseerr_requests(filter="pending")` |
-
-  ### Request Flow (step by step)
-
-  When someone wants media added:
-
-  1. **Check Jellyfin first**: `jellyfin_library(action="search", search="TITLE")`
-     - If found → tell the user it's already available. Done.
-  2. **Check Jellyseerr**: `jellyseerr_search(query="TITLE")`
-     - Look at the `status` field on results — if `"available"`, `"processing"`, or `"pending"`, it's already handled.
-     - If status is `"available"` → it should be in Jellyfin; if not found in step 1, there may be an import issue.
-     - If status is `"pending"` or `"processing"` → tell the user it's already requested/in progress. Done.
-  3. **Confirm the match**: Present the top TMDB result(s) to the user — title, year, overview.
-     - If ambiguous (multiple similar titles), ask which one.
-     - If TV show: ask which seasons (or all).
-  4. **Create the request**: `jellyseerr_manage(action="request", media_id=TMDB_ID, media_type="movie"|"tv")`
-     - For TV with specific seasons: add `seasons=[1,2,3]`
-  5. **Report**: Confirm the request was created, mention it will be auto-searched.
 
   ### Quality Preferences
 
@@ -102,15 +86,6 @@ system_prompt_fragment: |
   | `qbit_torrents` | List torrents; filters: stalled, downloading, etc. |
   | `qbit_manage` | Pause/resume/delete torrents |
 
-  ### Automated Workflows (for background/scheduled use, not interactive chat)
-
-  These workflows run as background tasks — use them for heartbeat-triggered checks, API-triggered batch operations, or explicit "run the workflow" requests. For interactive troubleshooting in chat, use the skills above instead.
-
-  - **Troubleshoot missing media**: `manage_workflow(action="trigger", id="media-troubleshoot", params='{"title": "Show Name", "media_type": "tv"}')`
-    Background check: Jellyfin → Sonarr/Radarr → qBit → diagnoses → auto-fixes → reports.
-  - **Request media**: `manage_workflow(action="trigger", id="media-request", params='{"title": "Movie Name"}')`
-    Background request: checks availability → searches TMDB → requests → reports.
-
   ### Pagination
 
   - `jellyseerr_requests(skip=20, limit=20)` — page 2 of requests; check `page.has_more`
@@ -136,3 +111,5 @@ system_prompt_fragment: |
   |---|---|
   | Full tool reference, all parameters, ID lookups | `get_skill('integrations/arr/media_management')` |
   | Heartbeat monitoring, stuck detection, torrent selection | `get_skill('integrations/arr/download-monitoring')` |
+  | Step-by-step media request procedure | `get_skill('integrations/arr/media-request')` |
+  | Step-by-step troubleshooting procedure | `get_skill('integrations/arr/media-troubleshoot')` |

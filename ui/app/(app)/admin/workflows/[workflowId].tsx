@@ -188,7 +188,7 @@ export default function WorkflowDetailPage() {
                 style={{
                   flexDirection: "row", alignItems: "center", gap: 4,
                   paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
-                  backgroundColor: t.surfaceRaised, borderWidth: 1, borderColor: t.surfaceBorder,
+                  backgroundColor: t.codeBg, borderWidth: 1, borderColor: t.surfaceBorder,
                 }}
               >
                 <Download size={14} color={t.textMuted} />
@@ -517,10 +517,10 @@ function ExportModal({ yaml, onClose, t }: {
         position: "fixed", top: "50%", left: "50%",
         transform: "translate(-50%, -50%)",
         width: "min(90vw, 600px)", maxHeight: "80vh",
-        background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+        background: t.codeBg, border: `1px solid ${t.surfaceBorder}`,
         borderRadius: 12, zIndex: 10001,
         display: "flex", flexDirection: "column",
-        boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+        boxShadow: `0 20px 60px ${t.overlayLight}`,
       }}>
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "space-between",

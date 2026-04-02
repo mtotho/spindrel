@@ -32,7 +32,7 @@ _SKIP_EXTENSIONS = {
     ".pdf", ".zip", ".tar", ".gz", ".bz2", ".xz", ".7z",
     ".lock", ".sum", ".mod",
 }
-_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache", ".ruff_cache", "dist", "build", ".next", ".history"}
+_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv", ".mypy_cache", ".ruff_cache", "dist", "build", ".next", ".history", ".tox", ".eggs", ".cache", ".pytest_cache"}
 
 # Workspace convention files that are auto-injected via dedicated mechanisms
 # (persona, skills, base prompt).  Indexing them would cause double-injection.
@@ -46,6 +46,46 @@ _AUTO_INJECTED_PATTERNS: list[tuple[str, ...]] = [
     ("prompts", "base.md"),
     ("common", "prompts", "base.md"),
 ]
+
+
+def _split_patterns(patterns: list[str]) -> tuple[list[str], list[str]]:
+    """Split patterns into (include, exclude) lists.
+
+    Patterns starting with ``!`` are exclusion patterns — any file matching an
+    exclusion pattern is removed from the result set even if it matches an
+    include pattern.  The leading ``!`` is stripped before returning.
+    """
+    include: list[str] = []
+    exclude: list[str] = []
+    for p in patterns:
+        stripped = p.strip()
+        if stripped.startswith("!"):
+            exclude.append(stripped[1:])
+        else:
+            include.append(stripped)
+    return include, exclude
+
+
+def _glob_with_exclusions(
+    base_dir: Path,
+    patterns: list[str],
+    accept: "callable",  # type: ignore[valid-type]
+    root_path: Path,
+) -> set[Path]:
+    """Glob *base_dir* with *patterns*, honouring ``!``-prefixed exclusions."""
+    include, exclude = _split_patterns(patterns)
+    seen: set[Path] = set()
+    for pattern in include:
+        for p in base_dir.glob(pattern):
+            if p not in seen and accept(p):
+                seen.add(p)
+    if exclude:
+        excluded: set[Path] = set()
+        for pattern in exclude:
+            for p in base_dir.glob(pattern):
+                excluded.add(p)
+        seen -= excluded
+    return seen
 
 
 def _is_auto_injected(rel_parts: tuple[str, ...]) -> bool:
@@ -531,18 +571,10 @@ async def index_directory(
                 logger.debug("Segment dir %s does not exist, skipping", seg_dir)
                 continue
             seg_patterns = seg.get("patterns") or patterns
-            for pattern in seg_patterns:
-                for p in seg_dir.glob(pattern):
-                    if p not in seen and _accept(p):
-                        seen.add(p)
+            seen |= _glob_with_exclusions(seg_dir, seg_patterns, _accept, root_path)
         candidates = list(seen)
     else:
-        seen: set[Path] = set()
-        for pattern in patterns:
-            for p in root_path.glob(pattern):
-                if p not in seen and _accept(p):
-                    seen.add(p)
-        candidates = list(seen)
+        candidates = list(_glob_with_exclusions(root_path, patterns, _accept, root_path))
 
     stats = {"indexed": 0, "skipped": 0, "removed": 0, "errors": 0, "cooldown": False}
 

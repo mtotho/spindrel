@@ -108,7 +108,7 @@ export function fmtTime(iso: string): string {
 export function MetaItem({ label, value, t, mono }: { label: string; value: string; t: ThemeTokens; mono?: boolean }) {
   return (
     <div>
-      <div style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
+      <div style={{ fontSize: 10, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.5 }}>{label}</div>
       <div style={{ fontSize: 12, color: t.text, fontFamily: mono ? "monospace" : undefined, marginTop: 1 }}>{value}</div>
     </div>
   );
@@ -168,7 +168,7 @@ export function StepCard({
   return (
     <div style={{
       borderRadius: 8, overflow: "hidden",
-      border: `1px solid ${s.border}`, background: t.surfaceRaised,
+      border: `1px solid ${s.border}`, background: t.codeBg,
     }}>
       {/* Header (always visible) */}
       <Pressable
@@ -196,7 +196,7 @@ export function StepCard({
             )}
           </div>
           {!expanded && skipReason && (
-            <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
+            <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
               Skipped: {skipReason}
             </div>
           )}

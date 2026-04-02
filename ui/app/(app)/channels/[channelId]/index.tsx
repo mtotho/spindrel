@@ -551,6 +551,37 @@ export default function ChatScreen() {
     [channelId, channel, turnModelOverride]
   );
 
+  // Slash command handler
+  const handleSlashCommand = useCallback(
+    async (id: string) => {
+      if (!channelId) return;
+      switch (id) {
+        case "context":
+          router.push(`/channels/${channelId}/settings#context` as any);
+          break;
+        case "clear":
+          try {
+            await apiFetch(`/channels/${channelId}/reset`, { method: "POST" });
+            setMessages(channelId, []);
+            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+            queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
+          } catch (err) {
+            console.error("Failed to reset session:", err);
+          }
+          break;
+        case "compact":
+          try {
+            await apiFetch(`/channels/${channelId}/compact`, { method: "POST" });
+            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          } catch (err) {
+            console.error("Failed to compact:", err);
+          }
+          break;
+      }
+    },
+    [channelId, router, setMessages, queryClient],
+  );
+
   // Merge consecutive assistant messages then reverse for inverted FlatList
   const mergedMessages = useMemo(
     () => mergeConsecutiveAssistant(chatState.messages),
@@ -836,6 +867,7 @@ export default function ChatScreen() {
               defaultModel={channel?.model_override || bot?.model}
               currentBotId={channel?.bot_id}
               channelId={channelId}
+              onSlashCommand={handleSlashCommand}
             />
           </>
         )
@@ -912,6 +944,7 @@ export default function ChatScreen() {
             defaultModel={channel?.model_override || bot?.model}
             currentBotId={channel?.bot_id}
             channelId={channelId}
+            onSlashCommand={handleSlashCommand}
           />
         </>
       )}

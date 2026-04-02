@@ -134,7 +134,7 @@ function StepCard({
     <div style={{
       borderRadius: 10,
       border: `1px solid ${expanded ? t.accentBorder : t.surfaceBorder}`,
-      background: t.surfaceRaised,
+      background: t.codeBg,
       overflow: "hidden",
     }}>
       {/* Collapsed header */}
