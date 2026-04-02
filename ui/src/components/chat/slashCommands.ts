@@ -1,5 +1,3 @@
-import { Extension } from "@tiptap/core";
-import Suggestion, { type SuggestionOptions } from "@tiptap/suggestion";
 import type { CompletionItem } from "../../types/api";
 
 export interface SlashCommandItem {
@@ -14,41 +12,14 @@ export const SLASH_COMMANDS: SlashCommandItem[] = [
   { id: "compact", label: "/compact", description: "Compress conversation" },
 ];
 
-export const SlashCommand = Extension.create<{
-  suggestion: Omit<SuggestionOptions<CompletionItem>, "editor">;
-}>({
-  name: "slashCommand",
-
-  addOptions() {
-    return {
-      suggestion: {
-        char: "/",
-        startOfLine: true,
-        items: ({ query }: { query: string }): CompletionItem[] =>
-          SLASH_COMMANDS
-            .filter(
-              (cmd) =>
-                cmd.id.startsWith(query.toLowerCase()) ||
-                cmd.label.includes(query.toLowerCase()),
-            )
-            .map((cmd): CompletionItem => ({
-              value: cmd.id,
-              label: cmd.label,
-              description: cmd.description,
-            })),
-        command: ({ editor, range }: { editor: any; range: any }) => {
-          editor.chain().focus().deleteRange(range).run();
-        },
-      },
-    };
-  },
-
-  addProseMirrorPlugins() {
-    return [
-      Suggestion({
-        editor: this.editor,
-        ...this.options.suggestion,
-      }),
-    ];
-  },
-});
+/** Filter slash commands by query string and return as CompletionItems. */
+export function filterSlashCommands(query: string): CompletionItem[] {
+  const q = query.toLowerCase();
+  return SLASH_COMMANDS
+    .filter((cmd) => cmd.id.startsWith(q) || cmd.label.includes(q))
+    .map((cmd): CompletionItem => ({
+      value: cmd.id,
+      label: cmd.label,
+      description: cmd.description,
+    }));
+}
