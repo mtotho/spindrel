@@ -74,11 +74,26 @@ export function useDeleteSkill() {
   });
 }
 
+export interface FileSyncResult {
+  ok: boolean;
+  added: number;
+  updated: number;
+  unchanged: number;
+  deleted: number;
+  errors: string[];
+  _diagnostics?: {
+    cwd: string;
+    skills_dir_resolved: string | null;
+    skills_dir_exists: boolean;
+    files_on_disk: { id: string; path: string; source_type: string }[];
+  };
+}
+
 export function useFileSync() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiFetch("/api/v1/admin/file-sync", { method: "POST" }),
+      apiFetch<FileSyncResult>("/api/v1/admin/file-sync", { method: "POST" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-skills"] });
     },

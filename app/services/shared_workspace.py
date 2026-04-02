@@ -1,5 +1,6 @@
 """Shared workspace service — container lifecycle + file ops for multi-bot workspaces."""
 import asyncio
+import fnmatch
 import logging
 import os
 import re
@@ -12,6 +13,7 @@ from pathlib import Path
 from sqlalchemy import select, update
 
 from app.config import settings
+from app.services.paths import local_workspace_base, local_to_host
 from app.db.engine import async_session
 from app.db.models import SharedWorkspace, SharedWorkspaceBot
 
@@ -42,8 +44,8 @@ class SharedWorkspaceService:
     # ── Path management ──────────────────────────────────────────
 
     def get_host_root(self, workspace_id: str) -> str:
-        """Host-side root: ~/.agent-workspaces/shared/<workspace_id>/"""
-        base = os.path.expanduser(settings.WORKSPACE_BASE_DIR)
+        """Local-side root for file I/O: ~/.agent-workspaces/shared/<workspace_id>/"""
+        base = local_workspace_base()
         return os.path.join(base, "shared", workspace_id)
 
     def ensure_host_dirs(self, workspace_id: str) -> str:
@@ -66,8 +68,6 @@ class SharedWorkspaceService:
         """Container-side cwd for a bot in a shared workspace."""
         if cwd_override:
             return cwd_override
-        if role == "orchestrator":
-            return "/workspace"
         return f"/workspace/bots/{bot_id}"
 
     def translate_path(self, workspace_id: str, container_path: str) -> str:
@@ -88,7 +88,8 @@ class SharedWorkspaceService:
         env = dict(ws.env or {})
         # Auto-inject server API access so bots inside can call back
         env.setdefault("AGENT_SERVER_URL", settings.SERVER_PUBLIC_URL)
-        env.setdefault("AGENT_SERVER_API_KEY", settings.API_KEY)
+        # NOTE: Per-bot scoped API keys are injected at exec time (see exec_bot / exec_bot_local).
+        # We intentionally do NOT inject the master API_KEY into the container environment.
         return env
 
     # ── Container lifecycle ──────────────────────────────────────
@@ -115,8 +116,8 @@ class SharedWorkspaceService:
         for k, v in env.items():
             if k:
                 cmd += ["-e", f"{k}={v}"]
-        # Workspace volume
-        cmd += ["-v", f"{host_root}:/workspace"]
+        # Workspace volume (translate to host path for docker -v)
+        cmd += ["-v", f"{local_to_host(host_root)}:/workspace"]
         # Extra mounts
         for mount in (ws.mounts or []):
             host = mount.get("host_path", "")
@@ -133,6 +134,9 @@ class SharedWorkspaceService:
                 container_port = port.get("container", "")
                 if host_port and container_port:
                     cmd += ["-p", f"{host_port}:{container_port}"]
+        # Editor port mapping (code-server)
+        if ws.editor_enabled and ws.editor_port:
+            cmd += ["-p", f"127.0.0.1:{ws.editor_port}:8443"]
         # Resource limits
         if ws.cpus:
             cmd += ["--cpus", str(ws.cpus)]
@@ -191,12 +195,98 @@ class SharedWorkspaceService:
             bot_dir = f"/workspace/bots/{swb.bot_id}"
             await self._docker_exec(container_name, f"mkdir -p {bot_dir}")
 
+        # Fix file ownership so the host user can read/write workspace files.
+        # Container processes run as root, creating root-owned files that the
+        # server process (non-root) can't overwrite.  Setting umask + chmod
+        # ensures both sides can access everything.
+        uid, gid = os.getuid(), os.getgid()
+        await self._docker_exec(
+            container_name,
+            f"chown -R {uid}:{gid} /workspace && chmod -R a+rw /workspace"
+        )
+
         # Run startup script if configured
         if ws.startup_script:
             await self._run_startup_script(container_name, ws.startup_script)
 
         logger.info("Workspace container %s started: %s", container_name, container_id)
         return container_id
+
+    # ── Write protection ───────────────────────────────────────────
+
+    # Commands that can modify files when followed by a path
+    _WRITE_COMMANDS = re.compile(
+        r'\b(?:rm|mv|touch|mkdir|chmod|chown|tee|dd|cp|rsync|install)\b'
+    )
+    _SED_INPLACE = re.compile(r'\bsed\b.*\s-i')
+    _REDIRECT = re.compile(r'>{1,2}\s*')
+
+    def _check_write_protection(
+        self,
+        bot_id: str,
+        ws: SharedWorkspace,
+        swb: "SharedWorkspaceBot | None",
+        command: str,
+        working_dir: str,
+    ) -> None:
+        """Raise SharedWorkspaceError if command would write to a protected path.
+
+        Best-effort guard — same philosophy as host_exec blocklists.
+        The container itself is the real security boundary.
+        """
+        protected: list[str] = ws.write_protected_paths or []
+        if not protected:
+            return
+
+        bot_write_access: list[str] = (swb.write_access if swb else None) or []
+
+        for pattern in protected:
+            # Skip if this bot has an exemption matching this pattern
+            if any(fnmatch.fnmatch(pattern, exempt) for exempt in bot_write_access):
+                continue
+
+            # Check 1: working directory is inside a protected path
+            if fnmatch.fnmatch(working_dir, pattern) or (
+                working_dir.startswith(pattern.rstrip("*").rstrip("/") + "/")
+            ):
+                # Any command in a protected working dir could write via relative paths
+                if self._command_has_write_intent(command):
+                    raise SharedWorkspaceError(
+                        f"Write blocked: {working_dir} is within protected path {pattern}"
+                    )
+
+            # Check 2: command explicitly references the protected path
+            # Expand glob-style pattern to regex for matching inside command string
+            path_re = fnmatch.translate(pattern).rstrip(r"\Z$").rstrip("$")
+            # Also match any sub-path under the pattern
+            base = pattern.rstrip("*").rstrip("/")
+            if base and re.search(re.escape(base), command):
+                if self._command_has_write_intent(command):
+                    raise SharedWorkspaceError(
+                        f"Write blocked: {base} is protected"
+                    )
+
+    @staticmethod
+    def _command_has_write_intent(command: str) -> bool:
+        """Heuristic: does this command look like it intends to write/modify files?"""
+        # Redirects: > or >>
+        if re.search(r'>{1,2}\s*\S', command):
+            return True
+        # Destructive / write commands
+        if re.search(
+            r'\b(?:rm|mv|touch|mkdir|chmod|chown|tee|dd|cp|rsync|install)\b',
+            command,
+        ):
+            return True
+        # sed -i (in-place edit)
+        if re.search(r'\bsed\b.*\s-i', command):
+            return True
+        # python/node/ruby with -c that could write (too broad — skip)
+        # pip install, npm install, etc.
+        if re.search(r'\b(?:pip|npm|yarn|pnpm)\s+install\b', command):
+            return True
+        # echo/printf/cat with redirect is caught by the redirect check above
+        return False
 
     async def exec(
         self,
@@ -214,29 +304,52 @@ class SharedWorkspaceService:
             async with async_session() as db:
                 ws = await db.get(SharedWorkspace, ws.id)
 
+        # Look up bot's workspace membership (needed for cwd + write protection)
+        async with async_session() as db:
+            swb = (await db.execute(
+                select(SharedWorkspaceBot).where(
+                    SharedWorkspaceBot.workspace_id == ws.id,
+                    SharedWorkspaceBot.bot_id == bot_id,
+                )
+            )).scalar_one_or_none()
+
         # Determine working directory
         if not working_dir:
-            # Look up bot's role/cwd from junction
-            async with async_session() as db:
-                swb = (await db.execute(
-                    select(SharedWorkspaceBot).where(
-                        SharedWorkspaceBot.workspace_id == ws.id,
-                        SharedWorkspaceBot.bot_id == bot_id,
-                    )
-                )).scalar_one_or_none()
             if swb:
                 working_dir = self.get_bot_cwd(bot_id, swb.role, swb.cwd_override)
             else:
                 working_dir = f"/workspace/bots/{bot_id}"
 
-        full_cmd = f"cd {shlex.quote(working_dir)} && {command}"
+        # Enforce write protection
+        self._check_write_protection(bot_id, ws, swb, command, working_dir)
+
+        full_cmd = f"umask 0000 && cd {shlex.quote(working_dir)} && {command}"
         _timeout = timeout or 30
         _max_bytes = max_bytes or 65536
+
+        # Build docker exec command, optionally injecting per-bot API key
+        exec_args = ["docker", "exec"]
+        try:
+            from app.services.api_keys import get_bot_api_key_value
+            async with async_session() as _db:
+                bot_key = await get_bot_api_key_value(_db, bot_id)
+            if bot_key:
+                exec_args += ["-e", f"AGENT_SERVER_API_KEY={bot_key}"]
+        except Exception:
+            pass  # Fall back to container-level env
+        # Inject secret values as env vars
+        try:
+            from app.services.secret_values import get_env_dict as _get_secret_env
+            for _sk, _sv in _get_secret_env().items():
+                exec_args += ["-e", f"{_sk}={_sv}"]
+        except Exception:
+            pass
+        exec_args += [ws.container_name, "sh", "-c", full_cmd]
 
         import time
         start = time.monotonic()
         proc = await asyncio.create_subprocess_exec(
-            "docker", "exec", ws.container_name, "sh", "-c", full_cmd,
+            *exec_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -350,7 +463,7 @@ class SharedWorkspaceService:
 
     def list_files(self, workspace_id: str, path: str = "/") -> list[dict]:
         """List files/dirs at a path inside the workspace (host-side)."""
-        host_root = self.get_host_root(workspace_id)
+        host_root = os.path.realpath(self.get_host_root(workspace_id))
         if path == "/" or not path:
             target = host_root
         else:
@@ -362,18 +475,32 @@ class SharedWorkspaceService:
 
         target = os.path.realpath(target)
         # Security: ensure within host_root
-        if not target.startswith(os.path.realpath(host_root)):
+        if not target.startswith(host_root):
             return []
 
         entries = []
         try:
             for entry in sorted(os.scandir(target), key=lambda e: (not e.is_dir(), e.name)):
-                entries.append({
+                stat = entry.stat()
+                item: dict = {
                     "name": entry.name,
                     "is_dir": entry.is_dir(),
-                    "size": entry.stat().st_size if entry.is_file() else None,
-                    "path": os.path.relpath(entry.path, host_root),
-                })
+                    "size": stat.st_size if entry.is_file() else None,
+                    "path": os.path.relpath(os.path.realpath(entry.path), host_root),
+                    "modified_at": stat.st_mtime,
+                }
+                # Enrich directories with .channel_info display_name
+                if entry.is_dir():
+                    info_path = os.path.join(entry.path, ".channel_info")
+                    if os.path.isfile(info_path):
+                        try:
+                            for line in open(info_path).readlines():
+                                if line.startswith("display_name:"):
+                                    item["display_name"] = line.split(":", 1)[1].strip()
+                                    break
+                        except Exception:
+                            pass
+                entries.append(item)
         except OSError:
             pass
         return entries
@@ -393,13 +520,14 @@ class SharedWorkspaceService:
     MAX_READ_SIZE = 1024 * 1024  # 1MB
 
     def read_file(self, workspace_id: str, path: str) -> dict:
-        """Read file content from workspace. Returns {path, content, size} or raises."""
+        """Read file content from workspace. Returns {path, content, size, modified_at} or raises."""
         target = self._resolve_path(workspace_id, path)
         if target is None:
             raise SharedWorkspaceError("Path escapes workspace root")
         if not os.path.isfile(target):
             raise SharedWorkspaceError("Not a file or does not exist")
-        size = os.path.getsize(target)
+        stat = os.stat(target)
+        size = stat.st_size
         if size > self.MAX_READ_SIZE:
             raise SharedWorkspaceError(f"File too large ({size} bytes, max {self.MAX_READ_SIZE})")
         try:
@@ -407,7 +535,7 @@ class SharedWorkspaceService:
                 content = f.read()
         except UnicodeDecodeError:
             raise SharedWorkspaceError("Binary file — cannot display")
-        return {"path": path, "content": content, "size": size}
+        return {"path": path, "content": content, "size": size, "modified_at": stat.st_mtime}
 
     def write_file(self, workspace_id: str, path: str, content: str) -> dict:
         """Write content to a file in the workspace. Creates parent dirs if needed."""
@@ -415,7 +543,58 @@ class SharedWorkspaceService:
         if target is None:
             raise SharedWorkspaceError("Path escapes workspace root")
         os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "w", encoding="utf-8") as f:
+        try:
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(content)
+        except PermissionError:
+            # File likely owned by root from Docker container operations.
+            # Try to fix ownership via the container and retry.
+            if not self._try_fix_file_permissions(workspace_id, target):
+                raise
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(content)
+        size = os.path.getsize(target)
+        return {"path": path, "size": size}
+
+    def _try_fix_file_permissions(self, workspace_id: str, host_path: str) -> bool:
+        """Fix ownership of a root-owned file using the workspace's Docker container."""
+        import subprocess
+        uid, gid = os.getuid(), os.getgid()
+        host_root = os.path.realpath(self.get_host_root(workspace_id))
+        rel = os.path.relpath(host_path, host_root)
+        container_path = f"/workspace/{rel}"
+
+        # Find the workspace container by the workspace ID hex prefix
+        ws_hex = workspace_id.replace("-", "")[:8]
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--format", "{{.Names}}"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except Exception:
+            return False
+        if result.returncode != 0:
+            return False
+
+        for name in result.stdout.strip().splitlines():
+            if ws_hex in name:
+                try:
+                    fix = subprocess.run(
+                        ["docker", "exec", name, "chown", f"{uid}:{gid}", container_path],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    return fix.returncode == 0
+                except Exception:
+                    return False
+        return False
+
+    def write_binary_file(self, workspace_id: str, path: str, content: bytes) -> dict:
+        """Write binary content to a file in the workspace. Creates parent dirs if needed."""
+        target = self._resolve_path(workspace_id, path)
+        if target is None:
+            raise SharedWorkspaceError("Path escapes workspace root")
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "wb") as f:
             f.write(content)
         size = os.path.getsize(target)
         return {"path": path, "size": size}
@@ -439,10 +618,70 @@ class SharedWorkspaceService:
         if not os.path.exists(target):
             raise SharedWorkspaceError("Path does not exist")
         if os.path.isdir(target):
-            shutil.rmtree(target)
+            shutil.rmtree(target, onexc=self._force_remove)
         else:
-            os.remove(target)
+            try:
+                os.remove(target)
+            except PermissionError:
+                os.chmod(target, 0o700)
+                os.remove(target)
         return {"path": path, "deleted": True}
+
+    @staticmethod
+    def _force_remove(func, path, exc):
+        """onexc handler for shutil.rmtree — chmod and retry on PermissionError."""
+        if isinstance(exc, PermissionError):
+            # Ensure the parent dir is writable (needed to unlink children)
+            parent = os.path.dirname(path)
+            os.chmod(parent, os.stat(parent).st_mode | 0o700)
+            # Ensure the path itself is writable (needed for dirs)
+            if os.path.isdir(path):
+                os.chmod(path, os.stat(path).st_mode | 0o700)
+            else:
+                os.chmod(path, os.stat(path).st_mode | 0o600)
+            func(path)
+        else:
+            raise exc
+
+    def move_path(self, workspace_id: str, src: str, dst: str) -> dict:
+        """Move a file or directory within the workspace.
+
+        If dst is an existing directory, the source is moved inside it.
+        Returns {"src": <original>, "dst": <final workspace-relative path>}.
+        """
+        host_root = os.path.realpath(self.get_host_root(workspace_id))
+        src_target = self._resolve_path(workspace_id, src)
+        if src_target is None:
+            raise SharedWorkspaceError("Source path escapes workspace root")
+        if not os.path.exists(src_target):
+            raise SharedWorkspaceError("Source path does not exist")
+        if src_target == host_root:
+            raise SharedWorkspaceError("Cannot move workspace root")
+
+        dst_target = self._resolve_path(workspace_id, dst)
+        if dst_target is None:
+            raise SharedWorkspaceError("Destination path escapes workspace root")
+
+        # If dst is an existing directory, move src inside it
+        if os.path.isdir(dst_target):
+            dst_target = os.path.join(dst_target, os.path.basename(src_target))
+
+        # Guard: can't move a directory into itself or its own child
+        if os.path.isdir(src_target):
+            real_dst = os.path.realpath(dst_target)
+            real_src = os.path.realpath(src_target)
+            if real_dst.startswith(real_src + os.sep) or real_dst == real_src:
+                raise SharedWorkspaceError("Cannot move a directory into itself")
+
+        # Final security check
+        if not os.path.realpath(dst_target).startswith(host_root):
+            raise SharedWorkspaceError("Destination escapes workspace root")
+
+        os.makedirs(os.path.dirname(dst_target), exist_ok=True)
+        shutil.move(src_target, dst_target)
+
+        final_rel = os.path.relpath(os.path.realpath(dst_target), host_root)
+        return {"src": src, "dst": final_rel}
 
     # ── Internals ────────────────────────────────────────────────
 

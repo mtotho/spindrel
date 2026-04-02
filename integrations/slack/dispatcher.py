@@ -8,14 +8,54 @@ from __future__ import annotations
 import logging
 
 from app.agent.dispatchers import register
-from integrations.slack.client import bot_attribution, post_message
-from integrations.slack.formatting import split_for_slack
+from integrations.slack.client import bot_attribution, post_message, post_message_raw, update_message
+from integrations.slack.formatting import markdown_to_slack_mrkdwn, split_for_slack
 
 logger = logging.getLogger(__name__)
 
 
 class SlackDispatcher:
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None) -> None:
+    async def notify_start(self, task) -> None:
+        """Post a thinking placeholder to Slack when a queued task starts executing.
+
+        Stores the placeholder ts in dispatch_config so deliver() can update it
+        with the final response instead of posting a new message.
+        """
+        cfg = task.dispatch_config or {}
+        channel_id = cfg.get("channel_id")
+        thread_ts = cfg.get("thread_ts")
+        token = cfg.get("token")
+        if not channel_id or not token:
+            return
+
+        attrs = bot_attribution(task.bot_id)
+        data = await post_message_raw(
+            token, channel_id, "\u23f3 _thinking..._",
+            thread_ts=thread_ts,
+            reply_in_thread=True,
+            **attrs,
+        )
+        if data:
+            # Stash placeholder info so deliver() can update it
+            cfg["_thinking_ts"] = data.get("ts")
+            cfg["_thinking_channel"] = data.get("channel")
+
+        # Remove the hourglass reaction from the user's original message
+        message_ts = cfg.get("message_ts")
+        if message_ts:
+            try:
+                import httpx as _httpx
+                async with _httpx.AsyncClient(timeout=10.0) as _client:
+                    await _client.post(
+                        "https://slack.com/api/reactions.remove",
+                        json={"channel": channel_id, "name": "hourglass_flowing_sand", "timestamp": message_ts},
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+            except Exception:
+                pass
+
+    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
+                      extra_metadata: dict | None = None) -> None:
         cfg = task.dispatch_config or {}
         channel_id = cfg.get("channel_id")
         thread_ts = cfg.get("thread_ts")
@@ -27,8 +67,25 @@ class SlackDispatcher:
         reply_in_thread = cfg.get("reply_in_thread", True)
         attrs = bot_attribution(task.bot_id)
 
-        chunks = split_for_slack(result)
+        # Prepend delegation attribution for Slack
+        _slack_text = result
+        if extra_metadata and extra_metadata.get("delegated_by_display"):
+            _slack_text = f"_Delegated by {extra_metadata['delegated_by_display']}_\n{_slack_text}"
+
+        _slack_text = markdown_to_slack_mrkdwn(_slack_text)
+        chunks = split_for_slack(_slack_text)
+
+        # If we posted a thinking placeholder via notify_start, update it with the
+        # first chunk instead of posting a new message.
+        _thinking_ts = cfg.pop("_thinking_ts", None)
+        _thinking_channel = cfg.pop("_thinking_channel", None)
         ok = True
+        if _thinking_ts and _thinking_channel and chunks:
+            ok = await update_message(
+                token, _thinking_channel, _thinking_ts, chunks[0], **attrs,
+            )
+            chunks = chunks[1:]
+
         for chunk in chunks:
             ok = await post_message(
                 token, channel_id, chunk,
@@ -39,11 +96,13 @@ class SlackDispatcher:
             if not ok:
                 break
         if not ok:
+            logger.error("SlackDispatcher.deliver: post_message failed for task %s channel %s", task.id, channel_id)
             return
 
         from app.services.sessions import store_dispatch_echo
         await store_dispatch_echo(
             task.session_id, task.client_id, task.bot_id, result,
+            extra_metadata=extra_metadata,
         )
 
         # Upload any images generated during the task
@@ -64,7 +123,8 @@ class SlackDispatcher:
                            bot_id: str | None = None, reply_in_thread: bool = True,
                            username: str | None = None, icon_emoji: str | None = None,
                            icon_url: str | None = None,
-                           client_actions: list[dict] | None = None) -> bool:
+                           client_actions: list[dict] | None = None,
+                           extra_metadata: dict | None = None) -> bool:
         """Post a message to Slack via the shared client, optionally with bot/user attribution."""
         channel_id = dispatch_config.get("channel_id")
         thread_ts = dispatch_config.get("thread_ts")
@@ -87,7 +147,7 @@ class SlackDispatcher:
             attrs = bot_attribution(bot_id) if bot_id else {}
 
         ok = await post_message(
-            token, channel_id, text,
+            token, channel_id, markdown_to_slack_mrkdwn(text),
             thread_ts=thread_ts,
             reply_in_thread=reply_in_thread,
             **attrs,
@@ -108,6 +168,168 @@ class SlackDispatcher:
                     )
 
         return ok
+
+
+    async def request_approval(
+        self,
+        *,
+        dispatch_config: dict,
+        approval_id: str,
+        bot_id: str,
+        tool_name: str,
+        arguments: dict,
+        reason: str | None,
+    ) -> None:
+        """Send a Block Kit message with Approve/Deny buttons for a tool approval.
+
+        Button layout (designed to minimize repeat approvals):
+        Row 1 (primary actions):
+          - "Allow always" (primary) — creates permanent bot-scoped rule
+          - "Approve this run" — session-scoped allow for this conversation
+          - "Deny" (danger)
+        Row 2 (rule suggestions):
+          - Up to 3 smart suggestions (global rule, narrower patterns, etc.)
+        """
+        import json as _json
+        channel_id = dispatch_config.get("channel_id")
+        thread_ts = dispatch_config.get("thread_ts")
+        token = dispatch_config.get("token")
+        if not channel_id or not token:
+            logger.warning("SlackDispatcher.request_approval: missing channel_id or token")
+            return
+
+        args_preview = _json.dumps(arguments, indent=2)[:500]
+        attrs = bot_attribution(bot_id)
+
+        # Build smart suggestions (broadest-first)
+        from app.services.approval_suggestions import build_suggestions
+        suggestions = build_suggestions(tool_name, arguments)
+
+        # --- Row 1: Primary actions (always shown) ---
+        # "Allow always" creates a permanent bot-scoped allow rule
+        primary_actions = [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": f"Allow {tool_name}"},
+                "style": "primary",
+                "action_id": "allow_rule_always",
+                "value": _json.dumps({
+                    "approval_id": approval_id,
+                    "bot_id": bot_id,
+                    "tool_name": tool_name,
+                    "conditions": {},
+                    "scope": "bot",
+                    "label": f"Allow {tool_name} always",
+                }),
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Approve this run"},
+                "action_id": "approve_tool_call",
+                "value": approval_id,
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Deny"},
+                "style": "danger",
+                "action_id": "deny_tool_call",
+                "value": approval_id,
+            },
+        ]
+
+        # --- Row 2: Smart suggestions (skip the first 2 which are the broad
+        # "all bots" and "always" options — those are covered by row 1) ---
+        suggestion_actions = []
+        # The first suggestion is "all bots" global — always include it
+        if suggestions and suggestions[0].scope == "global":
+            sug = suggestions[0]
+            suggestion_actions.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": sug.label[:75]},
+                "action_id": "allow_rule_0",
+                "value": _json.dumps({
+                    "approval_id": approval_id,
+                    "bot_id": bot_id,
+                    "tool_name": sug.tool_name,
+                    "conditions": sug.conditions,
+                    "scope": sug.scope,
+                    "label": sug.label,
+                }),
+            })
+        # Add narrower suggestions (skip the broad ones we already have)
+        narrow_start = next(
+            (i for i, s in enumerate(suggestions) if s.conditions),
+            len(suggestions),
+        )
+        for i, sug in enumerate(suggestions[narrow_start:narrow_start + 4]):
+            if len(suggestion_actions) >= 5:  # Slack max per actions block
+                break
+            suggestion_actions.append({
+                "type": "button",
+                "text": {"type": "plain_text", "text": sug.label[:75]},
+                "action_id": f"allow_rule_{narrow_start + i}",
+                "value": _json.dumps({
+                    "approval_id": approval_id,
+                    "bot_id": bot_id,
+                    "tool_name": sug.tool_name,
+                    "conditions": sug.conditions,
+                    "scope": getattr(sug, "scope", "bot"),
+                    "label": sug.label,
+                }),
+            })
+
+        blocks = [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f":lock: *Tool approval required*\n"
+                        f"*Bot:* `{bot_id}` | *Tool:* `{tool_name}`\n"
+                        f"*Reason:* {reason or 'Policy requires approval'}"
+                    ),
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"```\n{args_preview}\n```",
+                },
+            },
+            {"type": "actions", "elements": primary_actions},
+        ]
+        if suggestion_actions:
+            blocks.append({"type": "actions", "elements": suggestion_actions})
+
+        import httpx
+        payload: dict = {
+            "channel": channel_id,
+            "text": f"Tool approval required: {tool_name} (approval {approval_id})",
+            "blocks": blocks,
+        }
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        if attrs.get("username"):
+            payload["username"] = attrs["username"]
+        if attrs.get("icon_emoji"):
+            payload["icon_emoji"] = attrs["icon_emoji"]
+        elif attrs.get("icon_url"):
+            payload["icon_url"] = attrs["icon_url"]
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(
+                    "https://slack.com/api/chat.postMessage",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                r.raise_for_status()
+                data = r.json()
+                if not data.get("ok"):
+                    logger.error("Slack approval message error: %s", data.get("error"))
+        except Exception:
+            logger.exception("Failed to send approval message for %s", approval_id)
 
 
 register("slack", SlackDispatcher())

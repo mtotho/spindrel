@@ -1,56 +1,138 @@
-# GitHub Webhook Integration
+# GitHub Integration
 
-Receives GitHub webhook events and posts failure notifications to a Slack channel.
-
-## Supported Events
-
-- **`workflow_run`** — notifies when a CI workflow fails
-- **`check_run`** — notifies when a check run fails
-
-Success events are silently ignored.
+Receives GitHub webhook events, injects them into agent sessions (one channel per repo), and posts agent responses as issue/PR comments.
 
 ## Setup
 
 ### 1. Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GITHUB_WEBHOOK_SECRET` | Yes | Secret used to verify webhook signatures (`X-Hub-Signature-256`) |
-| `SLACK_CHANNEL_ID` | Yes | Slack channel ID to post notifications to (e.g. `C01ABCDEF`) |
-| `SLACK_BOT_TOKEN` | Yes | Slack bot token (`xoxb-...`) with `chat:write` scope |
-| `GITHUB_TOKEN` | No | GitHub API token for future use (phase 2 — enriched notifications) |
-
-### 2. GitHub Webhook Configuration
-
-1. Go to your repository (or org) **Settings → Webhooks → Add webhook**
-2. **Payload URL**: `https://<your-server>/api/integrations/github/webhook`
-3. **Content type**: `application/json`
-4. **Secret**: the value of `GITHUB_WEBHOOK_SECRET`
-5. **Events**: select **workflow runs** and **check runs**
-
-### 3. Slack App
-
-Ensure the Slack app associated with `SLACK_BOT_TOKEN` has:
-- `chat:write` scope
-- Has been invited to the target channel
-
-## Testing Locally
+Add to your `.env`:
 
 ```bash
-# 1. Set required env vars
-export GITHUB_WEBHOOK_SECRET="test-secret"
-export SLACK_CHANNEL_ID="C01ABCDEF"
-export SLACK_BOT_TOKEN="xoxb-test-token"
-
-# 2. Start the server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-
-# 3. Send a test webhook (workflow_run failure)
-curl -X POST http://localhost:8000/api/integrations/github/webhook \
-  -H "Content-Type: application/json" \
-  -H "X-GitHub-Event: workflow_run" \
-  -H "X-Hub-Signature-256: sha256=$(echo -n '{"workflow_run":{"conclusion":"failure","name":"CI","head_branch":"main","html_url":"https://github.com/org/repo/actions/runs/1","id":1},"repository":{"full_name":"org/repo"}}' | openssl dgst -sha256 -hmac 'test-secret' | awk '{print $2}')" \
-  -d '{"workflow_run":{"conclusion":"failure","name":"CI","head_branch":"main","html_url":"https://github.com/org/repo/actions/runs/1","id":1},"repository":{"full_name":"org/repo"}}'
+GITHUB_TOKEN=ghp_...              # PAT with `repo` scope (or fine-grained with issues:write, pull_requests:read)
+GITHUB_WEBHOOK_SECRET=your_secret # Shared secret for webhook signature verification
+GITHUB_BOT_LOGIN=my-bot           # GitHub username of the PAT owner (prevents responding to own comments)
 ```
 
-For real end-to-end testing, use [smee.io](https://smee.io) or `ngrok` to expose your local server to GitHub.
+Generate the webhook secret with: `openssl rand -hex 20`
+
+### 2. Expose Your Server to the Internet
+
+GitHub needs to reach your server to deliver webhook events. If your server is already publicly accessible, skip to step 3.
+
+#### Option A: Cloudflare Tunnel (recommended)
+
+Free, stable URL, production-grade. Runs as a system service on your host.
+
+**One-time setup:**
+
+1. In the [Cloudflare dashboard](https://dash.cloudflare.com/) go to **Networking → Tunnels → Create a tunnel**
+2. Choose **Cloudflared** as connector type, name it (e.g. `agent-server`)
+3. The dashboard gives you an install command — run it on your host. This installs `cloudflared` as a system service that starts on boot.
+4. Once the connector shows as healthy, add a **public hostname**:
+   - Subdomain: e.g. `agent` on your domain → `agent.yourdomain.com`
+   - Service type: HTTP
+   - URL: `localhost:8000`
+5. Set `BASE_URL` in your `.env` so the admin UI shows the full webhook URL:
+   ```bash
+   BASE_URL=https://agent.yourdomain.com
+   ```
+
+Your webhook URL is now `https://agent.yourdomain.com/integrations/github/webhook` — stable across restarts.
+
+> **Note:** The tunnel exposes your full server, but all endpoints require `API_KEY` bearer auth except the webhook route (which uses HMAC signature verification). Your server is safe to expose.
+
+#### Option B: ngrok (quick testing)
+
+Easiest for trying things out, but the free tier gives you a random URL that changes on restart.
+
+```bash
+# Install: https://ngrok.com/download
+ngrok http 8000
+```
+
+Copy the `https://xxxx.ngrok-free.app` URL. Your webhook URL is `https://xxxx.ngrok-free.app/integrations/github/webhook`.
+
+> Note: You'll need to update the GitHub webhook URL each time ngrok restarts (unless you have a paid plan with a static domain).
+
+### 3. Configure Webhook on GitHub
+
+Go to **Settings → Webhooks → Add webhook** on your repo (or org for all repos):
+
+| Field | Value |
+|-------|-------|
+| Payload URL | `https://your-tunnel-url/integrations/github/webhook` |
+| Content type | `application/json` |
+| Secret | Same value as `GITHUB_WEBHOOK_SECRET` |
+| Events | "Send me everything" or select specific events below |
+
+Click **Add webhook**. GitHub sends a ping event immediately — you should see a green checkmark if your tunnel and server are running.
+
+### 4. Restart the Server
+
+The integration is auto-discovered on startup. You should see:
+```
+Registered integration meta: github (prefix=github:)
+Registered local tool: github_get_pr
+Registered local tool: github_search_issues
+Registered local tool: github_post_comment
+Registered local tool: github_list_prs
+```
+
+## How It Works
+
+### Event Flow
+
+```
+GitHub webhook → POST /integrations/github/webhook
+  → Verify HMAC-SHA256 signature
+  → Parse event into human-readable message
+  → Skip if sender == GITHUB_BOT_LOGIN
+  → inject_message() into session for github:{owner}/{repo}
+  → If run_agent=True, creates a Task → agent runs → dispatcher posts comment
+```
+
+### Channel Mapping
+
+Each repo gets one channel: `github:owner/repo`. All events for that repo share context, so the agent can reference earlier PRs, issues, etc.
+
+### Event Types
+
+| Event | Action | Agent Runs? | Agent Replies? |
+|-------|--------|-------------|----------------|
+| `pull_request` opened | Logs PR details | Yes | Comment on PR |
+| `pull_request` synchronize | Logs new commits | No | — |
+| `pull_request` closed/merged | Logs status | No | — |
+| `issues` opened | Logs issue details | Yes | Comment on issue |
+| `issue_comment` created | Logs comment | Yes | Comment on issue/PR |
+| `pull_request_review` (changes_requested) | Logs review | Yes | Comment on PR |
+| `pull_request_review_comment` | Logs inline comment | Yes | Comment on PR |
+| `push` | Logs commits | No | — |
+| `release` published | Logs release | No | — |
+| `discussion` created | Logs discussion | No | — |
+| `discussion_comment` created | Logs comment | No | — |
+
+### Agent Tools
+
+The agent can proactively interact with GitHub via these tools:
+
+- **`github_get_pr`** — Fetch PR details including diff and changed files
+- **`github_search_issues`** — Search issues/PRs with GitHub search syntax
+- **`github_post_comment`** — Post a comment on any issue or PR
+- **`github_list_prs`** — List PRs for a repo (open/closed/all)
+
+### Bot Configuration
+
+By default, events use the `default` bot. To use a specific bot for a repo, configure the channel's bot in the admin UI after the first event creates the channel.
+
+## Testing
+
+```bash
+# Signature validation + event parsing + dispatcher + tools
+docker build -f Dockerfile.test -t agent-server-test .
+docker run --rm agent-server-test pytest tests/unit/test_github_integration.py integrations/github/tests/ -v
+```
+
+## Verifying the Webhook
+
+Use GitHub's webhook settings page → **Recent Deliveries** → **Redeliver** to test. The server should respond with `{"status": "processed", ...}` for handled events or `{"status": "pong"}` for ping.

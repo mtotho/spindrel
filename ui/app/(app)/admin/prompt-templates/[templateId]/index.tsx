@@ -1,18 +1,19 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Info, FileText, Pencil } from "lucide-react";
+import { ChevronLeft, Trash2, Info, FileText, Sparkles, X } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   usePromptTemplate,
   useCreatePromptTemplate,
   useUpdatePromptTemplate,
   useDeletePromptTemplate,
 } from "@/src/api/hooks/usePromptTemplates";
+import { useGeneratePrompt } from "@/src/api/hooks/usePrompts";
 import { useWorkspaces, useWorkspaceFileContent } from "@/src/api/hooks/useWorkspaces";
 import { FormRow, TextInput, Section, SelectInput } from "@/src/components/shared/FormControls";
 import { WorkspaceFilePicker } from "@/src/components/shared/WorkspaceFilePicker";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -22,19 +23,20 @@ function fmtDate(iso: string | null | undefined) {
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
+  const t = useThemeTokens();
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: "#666" }}>{label}</span>
-      <span style={{ fontSize: 11, color: "#ccc", fontFamily: "monospace" }}>{value}</span>
+      <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
+      <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
     </div>
   );
 }
 
 export default function PromptTemplateDetailScreen() {
+  const t = useThemeTokens();
   const { templateId } = useLocalSearchParams<{ templateId: string }>();
   const isNew = templateId === "new";
   const goBack = useGoBack("/admin/prompt-templates");
-  const qc = useQueryClient();
   const { data: template, isLoading } = usePromptTemplate(isNew ? undefined : templateId);
   const createMut = useCreatePromptTemplate();
   const updateMut = useUpdatePromptTemplate(templateId);
@@ -44,6 +46,10 @@ export default function PromptTemplateDetailScreen() {
   const isWide = width >= 768;
 
   const { data: workspaces } = useWorkspaces();
+  const generateMut = useGeneratePrompt();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [hasSelection, setHasSelection] = useState(false);
+  const [genFlash, setGenFlash] = useState<"success" | "error" | null>(null);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -69,6 +75,88 @@ export default function PromptTemplateDetailScreen() {
 
   const isFileManaged = template?.source_type === "file";
   const isWorkspaceFile = sourceType === "workspace_file";
+
+  // Split tags into integration compatibility tags and regular tags
+  const [newIntegrationId, setNewIntegrationId] = useState("");
+
+  const integrationIds = useMemo(() => {
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    return tagList
+      .filter((t) => t.startsWith("integration:"))
+      .map((t) => t.replace("integration:", ""));
+  }, [tags]);
+
+  const regularTags = useMemo(() => {
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    return tagList.filter((t) => !t.startsWith("integration:")).join(", ");
+  }, [tags]);
+
+  const setRegularTags = useCallback((value: string) => {
+    const regular = value.split(",").map((t) => t.trim()).filter(Boolean);
+    const integrationTags = tags.split(",").map((t) => t.trim()).filter((t) => t.startsWith("integration:"));
+    setTags([...regular, ...integrationTags].join(", "));
+  }, [tags]);
+
+  const addIntegrationCompat = useCallback(() => {
+    const id = newIntegrationId.trim().replace(/\s+/g, "_").toLowerCase();
+    if (!id) return;
+    const tag = `integration:${id}`;
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    if (!tagList.includes(tag)) {
+      setTags([...tagList, tag].join(", "));
+    }
+    setNewIntegrationId("");
+  }, [newIntegrationId, tags]);
+
+  const removeIntegrationCompat = useCallback((id: string) => {
+    const tag = `integration:${id}`;
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    setTags(tagList.filter((t) => t !== tag).join(", "));
+  }, [tags]);
+
+  const handleSelectionChange = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    setHasSelection(ta.selectionStart !== ta.selectionEnd);
+  }, []);
+
+  const handleGenerate = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta || ta.selectionStart === ta.selectionEnd) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selectedText = content.substring(start, end);
+    const surrounding = content.substring(0, start) + "[SELECTION]" + content.substring(end);
+
+    generateMut.mutate(
+      {
+        user_input: selectedText,
+        mode: "inline",
+        surrounding_context: surrounding,
+      },
+      {
+        onSuccess: (data) => {
+          const newContent = content.substring(0, start) + data.prompt + content.substring(end);
+          setContent(newContent);
+          setHasSelection(false);
+          setGenFlash("success");
+          setTimeout(() => setGenFlash(null), 1200);
+          requestAnimationFrame(() => {
+            if (textareaRef.current) {
+              const newEnd = start + data.prompt.length;
+              textareaRef.current.selectionStart = newEnd;
+              textareaRef.current.selectionEnd = newEnd;
+              textareaRef.current.focus();
+            }
+          });
+        },
+        onError: () => {
+          setGenFlash("error");
+          setTimeout(() => setGenFlash(null), 1500);
+        },
+      }
+    );
+  }, [content, generateMut]);
 
   // Preview workspace file content
   const { data: wsFilePreview, isLoading: wsFileLoading } = useWorkspaceFileContent(
@@ -99,21 +187,18 @@ export default function PromptTemplateDetailScreen() {
       if (sourceType === "manual" && !content.trim()) return;
       if (sourceType === "workspace_file" && (!workspaceId || !sourcePath.trim())) return;
       await createMut.mutateAsync(base as any);
-      qc.invalidateQueries({ queryKey: ["prompt-templates"] });
       goBack();
     } else {
       if (!name.trim()) return;
       await updateMut.mutateAsync(base as any);
-      qc.invalidateQueries({ queryKey: ["prompt-templates"] });
     }
-  }, [isNew, name, description, content, category, tags, sourceType, workspaceId, sourcePath, createMut, updateMut, qc, goBack]);
+  }, [isNew, name, description, content, category, tags, sourceType, workspaceId, sourcePath, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!templateId || !confirm("Delete this template?")) return;
     await deleteMut.mutateAsync(templateId);
-    qc.invalidateQueries({ queryKey: ["prompt-templates"] });
     goBack();
-  }, [templateId, deleteMut, qc, goBack]);
+  }, [templateId, deleteMut, goBack]);
 
   const isSaving = createMut.isPending || updateMut.isPending;
   const canSave = isNew
@@ -124,7 +209,7 @@ export default function PromptTemplateDetailScreen() {
   if (!isNew && isLoading) {
     return (
       <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color="#3b82f6" />
+        <ActivityIndicator color={t.accent} />
       </View>
     );
   }
@@ -135,12 +220,12 @@ export default function PromptTemplateDetailScreen() {
       <div style={{
         display: "flex", alignItems: "center",
         padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: "1px solid #333", gap: 8,
+        borderBottom: `1px solid ${t.surfaceBorder}`, gap: 8,
       }}>
         <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ChevronLeft size={22} color="#999" />
+          <ChevronLeft size={22} color={t.textMuted} />
         </button>
-        <span style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
+        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
           {isNew ? "New Template" : "Edit Template"}
         </span>
         <div style={{ flex: 1 }} />
@@ -152,8 +237,8 @@ export default function PromptTemplateDetailScreen() {
             style={{
               display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
               padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: "1px solid #7f1d1d", borderRadius: 6,
-              background: "transparent", color: "#fca5a5", cursor: "pointer", flexShrink: 0,
+              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
             }}
           >
             <Trash2 size={14} />
@@ -166,8 +251,8 @@ export default function PromptTemplateDetailScreen() {
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!canSave || isFileManaged) ? "#333" : "#3b82f6",
-            color: (!canSave || isFileManaged) ? "#666" : "#fff",
+            background: (!canSave || isFileManaged) ? t.surfaceBorder : t.accent,
+            color: (!canSave || isFileManaged) ? t.textDim : "#fff",
             cursor: (!canSave || isFileManaged) ? "not-allowed" : "pointer",
           }}
         >
@@ -177,7 +262,7 @@ export default function PromptTemplateDetailScreen() {
 
       {/* Error display */}
       {mutError && (
-        <div style={{ padding: "8px 20px", background: "#7f1d1d", color: "#fca5a5", fontSize: 12 }}>
+        <div style={{ padding: "8px 20px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
           {(mutError as any)?.message || "An error occurred"}
         </div>
       )}
@@ -187,13 +272,13 @@ export default function PromptTemplateDetailScreen() {
         <div style={{
           margin: isWide ? "16px 20px 0" : "12px 12px 0",
           padding: "12px 16px", borderRadius: 8,
-          background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)",
+          background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
           display: "flex", alignItems: "flex-start", gap: 10,
         }}>
-          <Info size={14} color="#93c5fd" style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 12, color: "#93c5fd", lineHeight: 1.5 }}>
+          <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, color: t.accent, lineHeight: 1.5 }}>
             This template is managed by a file (
-            <code style={{ fontSize: 11, color: "#60a5fa" }}>{template?.source_path}</code>
+            <code style={{ fontSize: 11, fontWeight: 600 }}>{template?.source_path}</code>
             ). Edit the source file to make changes.
           </div>
         </div>
@@ -204,13 +289,13 @@ export default function PromptTemplateDetailScreen() {
         <div style={{
           margin: isWide ? "16px 20px 0" : "12px 12px 0",
           padding: "12px 16px", borderRadius: 8,
-          background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)",
+          background: t.successSubtle, border: `1px solid ${t.success}33`,
           display: "flex", alignItems: "flex-start", gap: 10,
         }}>
-          <FileText size={14} color="#86efac" style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 12, color: "#86efac", lineHeight: 1.5 }}>
+          <FileText size={14} color={t.success} style={{ flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 12, color: t.success, lineHeight: 1.5 }}>
             Content is sourced from workspace file (
-            <code style={{ fontSize: 11, color: "#4ade80" }}>{sourcePath}</code>
+            <code style={{ fontSize: 11, color: t.success }}>{sourcePath}</code>
             ). Content updates automatically when the file changes.
           </div>
         </div>
@@ -222,54 +307,85 @@ export default function PromptTemplateDetailScreen() {
       }}>
         {/* Content editor */}
         <div style={{
-          ...(isWide ? { flex: 3, borderRight: "1px solid #2a2a2a" } : {}),
+          ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
           display: "flex", flexDirection: "column",
           padding: isWide ? "16px 20px" : "12px 12px",
         }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#999", marginBottom: 6 }}>
-            {isWorkspaceFile ? "Content Preview" : "Content"}
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <span>{isWorkspaceFile ? "Content Preview" : "Content"}</span>
+            {!isFileManaged && !isWorkspaceFile && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, color: t.textDim, fontWeight: 400 }}>
+                  {hasSelection ? "" : "Select text to generate"}
+                </span>
+                <button
+                  onClick={handleGenerate}
+                  disabled={!hasSelection || generateMut.isPending}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    background: "none",
+                    border: `1px solid ${hasSelection ? (genFlash === "success" ? t.success : genFlash === "error" ? t.danger : t.accent) : t.surfaceBorder}`,
+                    borderRadius: 4,
+                    color: hasSelection ? (genFlash === "success" ? t.success : genFlash === "error" ? t.danger : t.accent) : t.textDim,
+                    fontSize: 11, padding: "2px 8px", fontWeight: 500,
+                    cursor: hasSelection && !generateMut.isPending ? "pointer" : "default",
+                    opacity: hasSelection ? 1 : 0.5,
+                    transition: "all 0.15s",
+                  }}
+                >
+                  <Sparkles size={10} />
+                  {generateMut.isPending ? "Generating..." : genFlash === "success" ? "Done!" : genFlash === "error" ? "Failed" : "Generate"}
+                </button>
+              </div>
+            )}
           </div>
           {isWorkspaceFile ? (
             <div style={{
               flex: 1, minHeight: isWide ? 400 : 250,
-              background: "#0a0a0a", border: "1px solid #222", borderRadius: 8,
+              background: t.surface, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8,
               padding: 12, overflowY: "auto",
             }}>
               {!sourcePath ? (
-                <div style={{ color: "#555", fontSize: 12, fontStyle: "italic" }}>
+                <div style={{ color: t.textDim, fontSize: 12, fontStyle: "italic" }}>
                   Select a file from the workspace to preview its content.
                 </div>
               ) : wsFileLoading ? (
-                <div style={{ color: "#555", fontSize: 12 }}>Loading file content...</div>
+                <div style={{ color: t.textDim, fontSize: 12 }}>Loading file content...</div>
               ) : wsFilePreview?.content ? (
                 <pre style={{
-                  color: "#ccc", fontSize: 12, fontFamily: "monospace",
+                  color: t.text, fontSize: 12, fontFamily: "monospace",
                   whiteSpace: "pre-wrap", margin: 0, lineHeight: 1.5,
                   wordBreak: "break-all",
                 }}>
                   {wsFilePreview.content}
                 </pre>
               ) : (
-                <div style={{ color: "#555", fontSize: 12, fontStyle: "italic" }}>
+                <div style={{ color: t.textDim, fontSize: 12, fontStyle: "italic" }}>
                   {sourcePath ? "(empty file)" : "No file selected"}
                 </div>
               )}
             </div>
           ) : (
             <textarea
+              ref={textareaRef}
               value={content}
               onChange={(e) => setContent(e.target.value)}
+              onSelect={handleSelectionChange}
+              onMouseUp={handleSelectionChange}
+              onKeyUp={handleSelectionChange}
               readOnly={isFileManaged}
               placeholder="Template content that will be inserted..."
               style={{
                 flex: 1, minHeight: isWide ? 400 : 250,
-                background: isFileManaged ? "#0a0a0a" : "#111",
-                border: "1px solid #222", borderRadius: 8,
+                background: isFileManaged ? t.surface : t.inputBg,
+                border: `1px solid ${isFileManaged ? t.surfaceBorder : t.surfaceOverlay}`, borderRadius: 8,
                 padding: 12, fontSize: 13, lineHeight: 1.6,
-                color: isFileManaged ? "#888" : "#e5e5e5",
+                color: isFileManaged ? t.textMuted : t.text,
                 fontFamily: "monospace", resize: "vertical",
                 outline: "none",
-                opacity: isFileManaged ? 0.7 : 1,
               }}
             />
           )}
@@ -279,7 +395,7 @@ export default function PromptTemplateDetailScreen() {
         <div style={{
           ...(isWide ? { flex: 1.5, minWidth: 260 } : {}),
           padding: isWide ? "16px 20px" : "12px 12px",
-          borderTop: isWide ? "none" : "1px solid #2a2a2a",
+          borderTop: isWide ? "none" : `1px solid ${t.surfaceOverlay}`,
         }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {/* Source type (only for new or non-file-managed) */}
@@ -319,7 +435,7 @@ export default function PromptTemplateDetailScreen() {
                           fileFilter=".md"
                         />
                       ) : (
-                        <div style={{ fontSize: 11, color: "#666" }}>Select a workspace first</div>
+                        <div style={{ fontSize: 11, color: t.textDim }}>Select a workspace first</div>
                       )}
                     </FormRow>
                   </>
@@ -352,14 +468,106 @@ export default function PromptTemplateDetailScreen() {
                   style={isFileManaged ? { opacity: 0.5, pointerEvents: "none" } : undefined}
                 />
               </FormRow>
-              <FormRow label="Tags" description="Comma-separated tags">
+              <FormRow label="Tags" description="Comma-separated tags (excluding integration compatibility)">
                 <TextInput
-                  value={tags}
-                  onChangeText={isFileManaged ? () => {} : setTags}
+                  value={regularTags}
+                  onChangeText={isFileManaged ? () => {} : setRegularTags}
                   placeholder="e.g. python, api, backend"
                   style={isFileManaged ? { opacity: 0.5, pointerEvents: "none" } : undefined}
                 />
               </FormRow>
+            </Section>
+
+            <Section title="Integration Compatibility">
+              {integrationIds.length > 0 ? (
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                  {integrationIds.map((id) => (
+                    <span
+                      key={id}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "3px 8px",
+                        borderRadius: 4,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        background: "rgba(34,197,94,0.12)",
+                        color: "#22c55e",
+                      }}
+                    >
+                      {id.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                      {!isFileManaged && (
+                        <button
+                          onClick={() => removeIntegrationCompat(id)}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            padding: 0,
+                            display: "inline-flex",
+                            color: "#22c55e",
+                          }}
+                        >
+                          <X size={10} />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span style={{ fontSize: 11, color: t.textDim, fontStyle: "italic" }}>
+                  No integration compatibility declared
+                </span>
+              )}
+              {isFileManaged && integrationIds.length > 0 && (
+                <span style={{ fontSize: 10, color: t.textDim, marginTop: 4, display: "block" }}>
+                  Compatibility is declared in the source file via <code>compatible_integrations</code> frontmatter.
+                </span>
+              )}
+              {!isFileManaged && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <input
+                    type="text"
+                    value={newIntegrationId}
+                    onChange={(e) => setNewIntegrationId(e.target.value)}
+                    placeholder="e.g. mission_control"
+                    style={{
+                      background: t.inputBg,
+                      border: `1px solid ${t.inputBorder}`,
+                      borderRadius: 4,
+                      padding: "4px 8px",
+                      fontSize: 11,
+                      color: t.inputText,
+                      outline: "none",
+                      flex: 1,
+                      maxWidth: 200,
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addIntegrationCompat();
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={addIntegrationCompat}
+                    disabled={!newIntegrationId.trim()}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      border: "none",
+                      borderRadius: 4,
+                      background: newIntegrationId.trim() ? t.accent : t.surfaceBorder,
+                      color: newIntegrationId.trim() ? "#fff" : t.textDim,
+                      cursor: newIntegrationId.trim() ? "pointer" : "default",
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
             </Section>
 
             {template && (

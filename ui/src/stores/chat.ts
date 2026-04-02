@@ -4,8 +4,10 @@ import type { Message, SSEEvent } from "../types/api";
 interface ChatChannelState {
   messages: Message[];
   streamingContent: string;
+  thinkingContent: string;
   isStreaming: boolean;
-  toolCalls: { name: string; status: "running" | "done" }[];
+  toolCalls: { name: string; args?: string; status: "running" | "done" }[];
+  correlationId: string | null;
   error: string | null;
 }
 
@@ -23,8 +25,10 @@ interface ChatState {
 const emptyChannel: ChatChannelState = {
   messages: [],
   streamingContent: "",
+  thinkingContent: "",
   isStreaming: false,
   toolCalls: [],
+  correlationId: null,
   error: null,
 };
 
@@ -53,37 +57,126 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     }),
 
   startStreaming: (channelId) =>
-    set((s) => ({
-      channels: {
-        ...s.channels,
-        [channelId]: {
-          ...(s.channels[channelId] ?? emptyChannel),
-          isStreaming: true,
-          streamingContent: "",
-          toolCalls: [],
-          error: null,
+    set((s) => {
+      const ch = s.channels[channelId] ?? emptyChannel;
+
+      // If already streaming with partial content, materialize it as a message
+      // so it doesn't vanish when we reset the streaming buffer.
+      let messages = ch.messages;
+      if (ch.isStreaming && ch.streamingContent) {
+        const toolsUsed = ch.toolCalls.length > 0
+          ? ch.toolCalls.map((tc) => tc.name)
+          : undefined;
+        const metadata = toolsUsed ? { tools_used: toolsUsed } : undefined;
+        messages = [
+          ...messages,
+          {
+            id: `msg-${Date.now()}`,
+            session_id: "",
+            role: "assistant" as const,
+            content: ch.streamingContent,
+            created_at: new Date().toISOString(),
+            correlation_id: ch.correlationId ?? undefined,
+            metadata,
+          },
+        ];
+      }
+
+      return {
+        channels: {
+          ...s.channels,
+          [channelId]: {
+            ...ch,
+            messages,
+            isStreaming: true,
+            streamingContent: "",
+            thinkingContent: "",
+            toolCalls: [],
+            correlationId: null,
+            error: null,
+          },
         },
-      },
-    })),
+      };
+    }),
 
   handleSSEEvent: (channelId, event) =>
     set((s) => {
       const ch = s.channels[channelId] ?? emptyChannel;
       switch (event.event) {
         case "response": {
-          const data = event.data as { response?: string };
+          // Server sends: {"type": "response", "text": "...", "tools_used": [...], "correlation_id": "..."}
+          const data = event.data as { text?: string; tools_used?: string[]; correlation_id?: string };
+          // Capture tools_used from the response for persistence
+          const updatedToolCalls = data.tools_used?.length
+            ? data.tools_used.map((name) => ({ name, status: "done" as const }))
+            : ch.toolCalls;
           return {
             channels: {
               ...s.channels,
               [channelId]: {
                 ...ch,
-                streamingContent: data.response ?? ch.streamingContent,
+                streamingContent: data.text ?? ch.streamingContent,
+                toolCalls: updatedToolCalls,
+                correlationId: data.correlation_id ?? ch.correlationId,
+              },
+            },
+          };
+        }
+        case "text_delta": {
+          // Streaming text token
+          const data = event.data as { delta?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                streamingContent: ch.streamingContent + (data.delta ?? ""),
+              },
+            },
+          };
+        }
+        case "thinking": {
+          // Streaming thinking/reasoning token
+          const data = event.data as { delta?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                thinkingContent: ch.thinkingContent + (data.delta ?? ""),
+              },
+            },
+          };
+        }
+        case "thinking_content": {
+          // Consolidated thinking content (fallback for non-streaming path)
+          const data = event.data as { text?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                thinkingContent: data.text ?? ch.thinkingContent,
+              },
+            },
+          };
+        }
+        case "assistant_text": {
+          // Intermediate text emitted alongside tool calls
+          const data = event.data as { text?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                streamingContent: data.text ?? ch.streamingContent,
               },
             },
           };
         }
         case "tool_start": {
-          const data = event.data as { tool_name?: string };
+          // Server sends: {"type": "tool_start", "tool": "name", "args": "..."}
+          const data = event.data as { tool?: string; args?: string };
           return {
             channels: {
               ...s.channels,
@@ -91,7 +184,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 ...ch,
                 toolCalls: [
                   ...ch.toolCalls,
-                  { name: data.tool_name ?? "unknown", status: "running" },
+                  { name: data.tool ?? "unknown", args: data.args, status: "running" },
                 ],
               },
             },
@@ -108,12 +201,30 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             },
           };
         }
-        case "error": {
-          const data = event.data as { error?: string };
+        case "queued": {
+          // Message was queued — SSE stream ends, re-enable input
           return {
             channels: {
               ...s.channels,
-              [channelId]: { ...ch, error: data.error ?? "Unknown error" },
+              [channelId]: { ...ch, isStreaming: false },
+            },
+          };
+        }
+        case "cancelled": {
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: { ...ch, isStreaming: false, streamingContent: "", thinkingContent: "", toolCalls: [] },
+            },
+          };
+        }
+        case "error": {
+          // Server sends: {"type": "error", "message": "..."}
+          const data = event.data as { message?: string; detail?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: { ...ch, error: data.message ?? data.detail ?? "Unknown error" },
             },
           };
         }
@@ -125,6 +236,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
   finishStreaming: (channelId) =>
     set((s) => {
       const ch = s.channels[channelId] ?? emptyChannel;
+      // Build metadata with tools_used if any tool calls were made
+      const toolsUsed = ch.toolCalls.length > 0
+        ? ch.toolCalls.map((tc) => tc.name)
+        : undefined;
+      const metadata = toolsUsed ? { tools_used: toolsUsed } : undefined;
       // Convert streaming content to a real message
       const newMessages = ch.streamingContent
         ? [
@@ -135,6 +251,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               role: "assistant" as const,
               content: ch.streamingContent,
               created_at: new Date().toISOString(),
+              correlation_id: ch.correlationId ?? undefined,
+              metadata,
             },
           ]
         : ch.messages;
@@ -147,7 +265,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             messages: newMessages,
             isStreaming: false,
             streamingContent: "",
+            thinkingContent: "",
             toolCalls: [],
+            correlationId: null,
           },
         },
       };

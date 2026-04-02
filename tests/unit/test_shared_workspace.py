@@ -33,8 +33,9 @@ class TestGetHostRoot:
     def test_returns_path_under_base_dir(self):
         svc = SharedWorkspaceService()
         ws_id = "abc-123"
-        with patch("app.services.shared_workspace.settings") as mock_settings:
-            mock_settings.WORKSPACE_BASE_DIR = "/tmp/test-workspaces"
+        with patch("app.services.paths.settings") as mock_paths:
+            mock_paths.WORKSPACE_LOCAL_DIR = ""
+            mock_paths.WORKSPACE_BASE_DIR = "/tmp/test-workspaces"
             root = svc.get_host_root(ws_id)
         assert root == "/tmp/test-workspaces/shared/abc-123"
 
@@ -43,8 +44,9 @@ class TestEnsureHostDirs:
     def test_creates_directories(self):
         svc = SharedWorkspaceService()
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("app.services.shared_workspace.settings") as mock_settings:
-                mock_settings.WORKSPACE_BASE_DIR = tmpdir
+            with patch("app.services.paths.settings") as mock_paths:
+                mock_paths.WORKSPACE_LOCAL_DIR = ""
+                mock_paths.WORKSPACE_BASE_DIR = tmpdir
                 root = svc.ensure_host_dirs("test-ws-id")
 
             assert os.path.isdir(os.path.join(root, "bots"))
@@ -54,8 +56,9 @@ class TestEnsureHostDirs:
     def test_idempotent(self):
         svc = SharedWorkspaceService()
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("app.services.shared_workspace.settings") as mock_settings:
-                mock_settings.WORKSPACE_BASE_DIR = tmpdir
+            with patch("app.services.paths.settings") as mock_paths:
+                mock_paths.WORKSPACE_LOCAL_DIR = ""
+                mock_paths.WORKSPACE_BASE_DIR = tmpdir
                 root1 = svc.ensure_host_dirs("test-ws-id")
                 root2 = svc.ensure_host_dirs("test-ws-id")
             assert root1 == root2
@@ -65,8 +68,9 @@ class TestEnsureBotDir:
     def test_creates_bot_directory(self):
         svc = SharedWorkspaceService()
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("app.services.shared_workspace.settings") as mock_settings:
-                mock_settings.WORKSPACE_BASE_DIR = tmpdir
+            with patch("app.services.paths.settings") as mock_paths:
+                mock_paths.WORKSPACE_LOCAL_DIR = ""
+                mock_paths.WORKSPACE_BASE_DIR = tmpdir
                 svc.ensure_host_dirs("ws-123")
                 svc.ensure_bot_dir("ws-123", "my-bot")
 
@@ -80,10 +84,11 @@ class TestGetBotCwd:
         cwd = svc.get_bot_cwd("bot-1", "member", None)
         assert cwd == "/workspace/bots/bot-1"
 
-    def test_orchestrator_gets_workspace_root(self):
+    def test_orchestrator_gets_scoped_cwd(self):
+        """Orchestrators now get the same scoped cwd as members."""
         svc = SharedWorkspaceService()
         cwd = svc.get_bot_cwd("orch-bot", "orchestrator", None)
-        assert cwd == "/workspace"
+        assert cwd == "/workspace/bots/orch-bot"
 
     def test_cwd_override(self):
         svc = SharedWorkspaceService()
@@ -94,16 +99,18 @@ class TestGetBotCwd:
 class TestTranslatePath:
     def test_translate_absolute_path(self):
         svc = SharedWorkspaceService()
-        with patch("app.services.shared_workspace.settings") as mock_settings:
-            mock_settings.WORKSPACE_BASE_DIR = "/home/user/.agent-workspaces"
+        with patch("app.services.paths.settings") as mock_paths:
+            mock_paths.WORKSPACE_LOCAL_DIR = ""
+            mock_paths.WORKSPACE_BASE_DIR = "/home/user/.agent-workspaces"
             result = svc.translate_path("ws-123", "/workspace/bots/my-bot/file.txt")
         expected = "/home/user/.agent-workspaces/shared/ws-123/bots/my-bot/file.txt"
         assert result == expected
 
     def test_translate_root_path(self):
         svc = SharedWorkspaceService()
-        with patch("app.services.shared_workspace.settings") as mock_settings:
-            mock_settings.WORKSPACE_BASE_DIR = "/home/user/.agent-workspaces"
+        with patch("app.services.paths.settings") as mock_paths:
+            mock_paths.WORKSPACE_LOCAL_DIR = ""
+            mock_paths.WORKSPACE_BASE_DIR = "/home/user/.agent-workspaces"
             result = svc.translate_path("ws-123", "/workspace")
         expected = "/home/user/.agent-workspaces/shared/ws-123"
         assert result == expected
@@ -127,11 +134,11 @@ class TestBuildEnv:
         ws.env = {"CUSTOM": "value"}
         with patch("app.services.shared_workspace.settings") as mock_settings:
             mock_settings.SERVER_PUBLIC_URL = "http://localhost:8000"
-            mock_settings.API_KEY = "test-api-key"
             env = svc._build_env(ws)
         assert env["CUSTOM"] == "value"
         assert env["AGENT_SERVER_URL"] == "http://localhost:8000"
-        assert env["AGENT_SERVER_API_KEY"] == "test-api-key"
+        # Master API_KEY must NOT be injected (per-bot scoped keys are used at exec time)
+        assert "AGENT_SERVER_API_KEY" not in env
 
     def test_user_env_can_override_auto(self):
         """setdefault means user-provided env wins if already set."""
@@ -140,7 +147,6 @@ class TestBuildEnv:
         ws.env = {"AGENT_SERVER_URL": "http://custom.com"}
         with patch("app.services.shared_workspace.settings") as mock_settings:
             mock_settings.SERVER_PUBLIC_URL = "http://localhost:8000"
-            mock_settings.API_KEY = "key"
             env = svc._build_env(ws)
         # User-provided wins with setdefault
         assert env["AGENT_SERVER_URL"] == "http://custom.com"
@@ -150,17 +156,16 @@ class TestListFiles:
     def test_list_files_returns_entries(self):
         svc = SharedWorkspaceService()
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("app.services.shared_workspace.settings") as mock_settings:
-                mock_settings.WORKSPACE_BASE_DIR = tmpdir
+            with patch("app.services.paths.settings") as mock_paths:
+                mock_paths.WORKSPACE_LOCAL_DIR = ""
+                mock_paths.WORKSPACE_BASE_DIR = tmpdir
                 root = svc.ensure_host_dirs("ws-123")
 
-            # Create some files
-            os.makedirs(os.path.join(root, "bots", "bot-a"))
-            with open(os.path.join(root, "readme.txt"), "w") as f:
-                f.write("hello")
+                # Create some files
+                os.makedirs(os.path.join(root, "bots", "bot-a"))
+                with open(os.path.join(root, "readme.txt"), "w") as f:
+                    f.write("hello")
 
-            with patch("app.services.shared_workspace.settings") as mock_settings:
-                mock_settings.WORKSPACE_BASE_DIR = tmpdir
                 entries = svc.list_files("ws-123", "/")
 
             names = [e["name"] for e in entries]
@@ -180,16 +185,15 @@ class TestListFiles:
     def test_list_files_subdirectory(self):
         svc = SharedWorkspaceService()
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("app.services.shared_workspace.settings") as mock_settings:
-                mock_settings.WORKSPACE_BASE_DIR = tmpdir
+            with patch("app.services.paths.settings") as mock_paths:
+                mock_paths.WORKSPACE_LOCAL_DIR = ""
+                mock_paths.WORKSPACE_BASE_DIR = tmpdir
                 root = svc.ensure_host_dirs("ws-123")
 
-            os.makedirs(os.path.join(root, "bots", "bot-a"))
-            with open(os.path.join(root, "bots", "bot-a", "main.py"), "w") as f:
-                f.write("print('hi')")
+                os.makedirs(os.path.join(root, "bots", "bot-a"))
+                with open(os.path.join(root, "bots", "bot-a", "main.py"), "w") as f:
+                    f.write("print('hi')")
 
-            with patch("app.services.shared_workspace.settings") as mock_settings:
-                mock_settings.WORKSPACE_BASE_DIR = tmpdir
                 entries = svc.list_files("ws-123", "/bots/bot-a")
 
             assert len(entries) == 1
@@ -198,12 +202,10 @@ class TestListFiles:
     def test_list_files_empty_directory(self):
         svc = SharedWorkspaceService()
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("app.services.shared_workspace.settings") as mock_settings:
-                mock_settings.WORKSPACE_BASE_DIR = tmpdir
+            with patch("app.services.paths.settings") as mock_paths:
+                mock_paths.WORKSPACE_LOCAL_DIR = ""
+                mock_paths.WORKSPACE_BASE_DIR = tmpdir
                 svc.ensure_host_dirs("ws-123")
-
-            with patch("app.services.shared_workspace.settings") as mock_settings:
-                mock_settings.WORKSPACE_BASE_DIR = tmpdir
                 entries = svc.list_files("ws-123", "/users")
 
             assert entries == []

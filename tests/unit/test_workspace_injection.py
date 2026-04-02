@@ -95,7 +95,7 @@ class TestInjectWorkspaceSkillsRag:
 
         mock_svc.list_files.return_value = []
         rag = _skill("ws-1", "common/skills/rag/api.md", "rag", "API reference content")
-        mock_retrieve.return_value = (["Retrieved chunk about API"], [0.85])
+        mock_retrieve.return_value = ([("Retrieved chunk about API", "ws_skill:ws-1:common/skills/rag/api.md")], 0.85)
 
         with patch("app.services.workspace_skills.discover_workspace_skills", return_value=[rag]):
             messages = []
@@ -124,7 +124,7 @@ class TestInjectWorkspaceSkillsRag:
 
         mock_svc.list_files.return_value = []
         rag = _skill("ws-1", "common/skills/rag/api.md", "rag", "API reference content")
-        mock_retrieve.return_value = ([], [])
+        mock_retrieve.return_value = ([], 0.0)
 
         with patch("app.services.workspace_skills.discover_workspace_skills", return_value=[rag]):
             messages = []
@@ -177,7 +177,7 @@ class TestInjectWorkspaceSkillsMixed:
         from app.agent.context_assembly import _inject_workspace_skills
 
         mock_svc.list_files.return_value = []
-        mock_retrieve.return_value = (["RAG chunk"], [0.9])
+        mock_retrieve.return_value = ([("RAG chunk", "ws_skill:ws-1:common/skills/rag/b.md")], 0.9)
 
         skills = [
             _skill("ws-1", "common/skills/pinned/a.md", "pinned", "Pinned content"),

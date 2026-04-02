@@ -1,19 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, ActivityIndicator, Pressable, Platform } from "react-native";
-import { useLocalSearchParams, Link } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, FlatList, ActivityIndicator, Pressable, Platform, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { Settings, Menu, ArrowLeft } from "lucide-react";
-import { MessageBubble } from "@/src/components/chat/MessageBubble";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { Settings, Menu, ArrowLeft, Hash, ChevronDown, FolderOpen, Code, PanelLeft, Shield } from "lucide-react";
+import { ChannelFileExplorer } from "./ChannelFileExplorer";
+import { ChannelFileViewer } from "./ChannelFileViewer";
+import { MessageBubble, extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessageInput, type PendingFile } from "@/src/components/chat/MessageInput";
 import { StreamingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
+import { useChannelReadStore } from "@/src/stores/channelRead";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
-import { useChatStream } from "@/src/api/hooks/useChat";
+import { useThemeTokens } from "@/src/theme/tokens";
+import { useChatStream, useCancelChat } from "@/src/api/hooks/useChat";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
+import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { apiFetch } from "@/src/api/client";
+import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
+import { useAuthStore, getAuthToken } from "@/src/stores/auth";
+import { useFileBrowserStore } from "@/src/stores/fileBrowser";
+import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
+import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
+import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import type { Message, ChatAttachment, ChatFileMetadata, ChatRequest } from "@/src/types/api";
 
 interface MessagePage {
@@ -23,22 +35,271 @@ interface MessagePage {
 
 const PAGE_SIZE = 50;
 
+/** Should this message be grouped (compact, no avatar) with the previous? */
+function shouldGroup(current: Message, prev: Message | undefined): boolean {
+  if (!prev) return false;
+  if (current.role !== prev.role) return false;
+  // Don't group across different senders (e.g. two different bots)
+  const curSender = current.metadata?.sender_id ?? current.role;
+  const prevSender = prev.metadata?.sender_id ?? prev.role;
+  if (curSender !== prevSender) return false;
+  const dt = new Date(current.created_at).getTime() - new Date(prev.created_at).getTime();
+  return Math.abs(dt) < 5 * 60 * 1000; // 5 minutes
+}
+
+/** Format a date for the day separator: "Today", "Yesterday", or "Wed, Mar 26" */
+function formatDateSeparator(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diff = today.getTime() - msgDay.getTime();
+  if (diff === 0) return "Today";
+  if (diff === 86400000) return "Yesterday";
+  return d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+
+/** Are two timestamps on different calendar days (local time)? */
+function isDifferentDay(a: string, b: string): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  return da.getFullYear() !== db.getFullYear() || da.getMonth() !== db.getMonth() || da.getDate() !== db.getDate();
+}
+
+/**
+ * Merge consecutive assistant messages from the same sender into a single
+ * display message so they render as one continuous block (easier to copy/select).
+ */
+function mergeConsecutiveAssistant(messages: Message[]): Message[] {
+  if (messages.length === 0) return messages;
+  const result: Message[] = [];
+  for (const msg of messages) {
+    const prev = result[result.length - 1];
+    if (
+      prev &&
+      msg.role === "assistant" &&
+      prev.role === "assistant" &&
+      shouldGroup(msg, prev)
+    ) {
+      const prevText = extractDisplayText(prev.content);
+      const curText = extractDisplayText(msg.content);
+      const mergedContent = [prevText, curText].filter(Boolean).join("\n\n");
+      const prevMeta = prev.metadata || {};
+      const curMeta = msg.metadata || {};
+      result[result.length - 1] = {
+        ...prev,
+        content: mergedContent,
+        tool_calls: [...(prev.tool_calls || []), ...(msg.tool_calls || [])],
+        attachments: [...(prev.attachments || []), ...(msg.attachments || [])],
+        metadata: {
+          ...prevMeta,
+          tools_used: [
+            ...((prevMeta.tools_used as string[]) || []),
+            ...((curMeta.tools_used as string[]) || []),
+          ],
+          delegations: [
+            ...((prevMeta.delegations as any[]) || []),
+            ...((curMeta.delegations as any[]) || []),
+          ],
+        },
+      };
+    } else {
+      result.push({ ...msg });
+    }
+  }
+  return result;
+}
+
+function DateSeparator({ label }: { label: string }) {
+  const t = useThemeTokens();
+  if (Platform.OS === "web") {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 16,
+          padding: "12px 20px",
+          userSelect: "none",
+        }}
+      >
+        <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: t.textDim, whiteSpace: "nowrap" }}>
+          {label}
+        </span>
+        <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+      </div>
+    );
+  }
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 16, paddingHorizontal: 20, paddingVertical: 12 }}>
+      <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+      <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>{label}</Text>
+      <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+    </View>
+  );
+}
+
+function ErrorBanner({ error, onDismiss }: { error: string; onDismiss: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onDismiss, 8000);
+    return () => clearTimeout(timer);
+  }, [error, onDismiss]);
+
+  return (
+    <Pressable
+      onPress={onDismiss}
+      className="px-4 py-2 bg-red-500/10 border-t border-red-500/20"
+    >
+      <Text className="text-red-400 text-sm">{error}</Text>
+    </Pressable>
+  );
+}
+
+/** Extracted chat message list + scroll-to-bottom FAB so it can be reused in both mobile and desktop layouts */
+function ChatMessageArea({
+  flatListRef,
+  invertedData,
+  renderMessage,
+  chatState,
+  bot,
+  isLoading,
+  isFetchingNextPage,
+  showScrollBtn,
+  scrollToBottom,
+  handleScroll,
+  handleListLayout,
+  handleContentSizeChange,
+  handleLoadMore,
+  t,
+}: {
+  flatListRef: React.RefObject<FlatList | null>;
+  invertedData: Message[];
+  renderMessage: (info: { item: Message; index: number }) => React.JSX.Element;
+  chatState: { isStreaming: boolean; streamingContent: string; toolCalls: any[]; thinkingContent: string };
+  bot: { name?: string } | undefined;
+  isLoading: boolean;
+  isFetchingNextPage: boolean;
+  showScrollBtn: boolean;
+  scrollToBottom: () => void;
+  handleScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  handleListLayout: (e: any) => void;
+  handleContentSizeChange: (w: number, h: number) => void;
+  handleLoadMore: () => void;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  return (
+    <View style={{ flex: 1, position: "relative" }}>
+      <FlatList
+        ref={flatListRef}
+        inverted
+        style={{ flex: 1 }}
+        data={invertedData}
+        keyExtractor={(item) => item.id}
+        renderItem={renderMessage}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
+        scrollEventThrottle={100}
+        onScroll={handleScroll}
+        onLayout={handleListLayout}
+        onContentSizeChange={handleContentSizeChange}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={1.5}
+        initialNumToRender={20}
+        maxToRenderPerBatch={15}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        ListHeaderComponent={
+          chatState.isStreaming ? (
+            <StreamingIndicator
+              content={chatState.streamingContent}
+              toolCalls={chatState.toolCalls}
+              botName={bot?.name}
+              thinkingContent={chatState.thinkingContent}
+            />
+          ) : null
+        }
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <View className="items-center py-3">
+              <ActivityIndicator size="small" color="#666666" />
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 80, transform: [{ scaleY: -1 }] }}>
+            {isLoading ? (
+              <ActivityIndicator color={t.textDim} />
+            ) : (
+              <Text style={{ color: t.textDim, fontSize: 14 }}>
+                Send a message to start the conversation
+              </Text>
+            )}
+          </View>
+        }
+      />
+      {showScrollBtn && (
+        <Pressable
+          onPress={scrollToBottom}
+          style={{
+            position: "absolute",
+            bottom: 16,
+            right: 24,
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: t.surfaceRaised,
+            borderWidth: 1,
+            borderColor: t.surfaceBorder,
+            alignItems: "center",
+            justifyContent: "center",
+            ...Platform.select({
+              web: { boxShadow: "0 2px 8px rgba(0,0,0,0.3)", cursor: "pointer" } as any,
+              default: { elevation: 4 },
+            }),
+          }}
+        >
+          <ChevronDown size={20} color={t.textMuted} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
 export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const goBack = useGoBack("/");
   const flatListRef = useRef<FlatList>(null);
 
+  const queryClient = useQueryClient();
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
+  const { data: systemStatus } = useSystemStatus();
+  const isPaused = systemStatus?.paused ?? false;
   const columns = useResponsiveColumns();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
-  // Show hamburger when sidebar is not visible (mobile or collapsed)
   const showHamburger = columns === "single" || sidebarCollapsed;
+  const t = useThemeTokens();
 
-  // Per-turn model override
+  const markRead = useChannelReadStore((s) => s.markRead);
+
+  // Mark channel as read on mount / channel switch
+  useEffect(() => {
+    if (channelId) markRead(channelId);
+  }, [channelId]);
+
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [secretWarning, setSecretWarning] = useState<{
+    result: SecretCheckResult;
+    text: string;
+    files?: PendingFile[];
+  } | null>(null);
+  const secretCheck = useSecretCheck();
+  const router = useRouter();
 
   const chatState = useChatStore((s) => s.getChannel(channelId!));
   const setMessages = useChatStore((s) => s.setMessages);
@@ -48,7 +309,6 @@ export default function ChatScreen() {
   const finishStreaming = useChatStore((s) => s.finishStreaming);
   const setError = useChatStore((s) => s.setError);
 
-  // Cursor-based paginated message loading
   const {
     data: pages,
     isLoading,
@@ -73,30 +333,120 @@ export default function ChatScreen() {
     enabled: !!channel?.active_session_id,
   });
 
-  // Sync fetched pages into the chat store (reversed for inverted FlatList)
   useEffect(() => {
-    if (channelId && pages) {
-      // Combine oldest pages first, then newer pages → chronological order
-      const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages);
+    if (channelId && pages && !chatState.isStreaming) {
+      const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
+        .filter((m) => {
+          if (m.role !== "user" && m.role !== "assistant") return false;
+          const meta = (m as any).metadata ?? {};
+          // Hide passive dispatch echoes (ambient messages bot didn't respond to)
+          // But show delegated child responses (they arrive as passive with delegated_by attribution)
+          if (meta.passive && !meta.delegated_by) return false;
+          // Hide heartbeat trigger prompts (injected user messages), but keep bot responses
+          if (m.role === "user" && meta.is_heartbeat) return false;
+          // Hide assistant messages with no displayable content (tool-call-only messages)
+          // BUT keep messages that have attachments so download links are visible
+          if (m.role === "assistant" && !extractDisplayText(m.content)
+              && (!m.attachments || m.attachments.length === 0)) return false;
+          return true;
+        });
       setMessages(channelId, allMessages);
     }
-  }, [channelId, pages]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channelId, pages, chatState.isStreaming]);
+
+  const cancelChat = useCancelChat();
+
+  const handleCancel = useCallback(() => {
+    if (!channel || !channelId) return;
+    // Send server-side cancel (sets flag + cancels queued tasks)
+    cancelChat.mutate({
+      client_id: channel.client_id ?? "",
+      bot_id: channel.bot_id,
+    });
+    // Abort local SSE immediately so UI is responsive
+    chatStream.abort();
+    // Clear streaming state (same as receiving a "cancelled" event from server)
+    handleSSEEvent(channelId, { event: "cancelled", data: {} });
+    // Refetch messages to pick up whatever the server persisted
+    queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+  }, [channel, channelId]);
+
+  // Batch text/thinking deltas at animation-frame rate to avoid per-token rerenders
+  const pendingTextRef = useRef("");
+  const pendingThinkRef = useRef("");
+  const rafRef = useRef<number>(0);
+
+  const flushPending = useCallback(() => {
+    rafRef.current = 0;
+    if (!channelId) return;
+    if (pendingTextRef.current) {
+      handleSSEEvent(channelId, { event: "text_delta", data: { delta: pendingTextRef.current } });
+      pendingTextRef.current = "";
+    }
+    if (pendingThinkRef.current) {
+      handleSSEEvent(channelId, { event: "thinking", data: { delta: pendingThinkRef.current } });
+      pendingThinkRef.current = "";
+    }
+  }, [channelId, handleSSEEvent]);
 
   const chatStream = useChatStream({
     onEvent: (event) => {
-      if (channelId) handleSSEEvent(channelId, event);
+      if (!channelId) return;
+      // Batch text and thinking deltas — flush at ~60fps instead of per-token
+      if (event.event === "text_delta") {
+        pendingTextRef.current += (event.data as any).delta ?? "";
+        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushPending);
+        return;
+      }
+      if (event.event === "thinking") {
+        pendingThinkRef.current += (event.data as any).delta ?? "";
+        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushPending);
+        return;
+      }
+      // Flush pending text before processing other events (tool_start, response, etc.)
+      if (pendingTextRef.current || pendingThinkRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        flushPending();
+      }
+      handleSSEEvent(channelId, event);
     },
     onError: (error) => {
+      // Flush any pending text
+      if (pendingTextRef.current || pendingThinkRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        flushPending();
+      }
+      // Finish streaming first so any partial content is preserved in messages
+      if (channelId) finishStreaming(channelId);
       if (channelId) setError(channelId, error.message);
+      // SSE dropped but server likely still processed the message.
+      // Refetch messages after a short delay so the response appears.
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+      }, 2000);
     },
     onComplete: () => {
+      // Flush any pending text
+      if (pendingTextRef.current || pendingThinkRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        flushPending();
+      }
       if (channelId) finishStreaming(channelId);
+      // Refetch messages to get real DB records (with attachments, full metadata, etc.)
+      // persist_turn runs before the SSE connection closes, so data is ready.
+      queryClient.invalidateQueries({ queryKey: ["session-messages"] });
     },
   });
 
-  const handleSend = useCallback(
+  const doSend = useCallback(
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
+
+      // If viewing a file in non-split mode, auto-enable split so the user sees the response
+      if (activeFile && !useUIStore.getState().fileExplorerSplit) {
+        useUIStore.getState().toggleFileExplorerSplit();
+      }
 
       addMessage(channelId, {
         id: `msg-${Date.now()}`,
@@ -108,7 +458,6 @@ export default function ChatScreen() {
 
       startStreaming(channelId);
 
-      // Build attachment payloads
       let attachments: ChatAttachment[] | undefined;
       let file_metadata: ChatFileMetadata[] | undefined;
       if (files && files.length > 0) {
@@ -142,14 +491,103 @@ export default function ChatScreen() {
         ...(file_metadata?.length ? { file_metadata } : {}),
       });
 
-      // Clear per-turn override after sending
       setTurnModelOverride(undefined);
     },
     [channelId, channel, turnModelOverride]
   );
 
-  // For inverted FlatList, data must be newest-first
-  const invertedData = [...chatState.messages].reverse();
+  const handleSend = useCallback(
+    (text: string, files?: PendingFile[]) => {
+      if (!channelId || !channel) return;
+
+      // Pre-flight secret check — fail-open on error
+      secretCheck.mutate(text, {
+        onSuccess: (result) => {
+          if (result.has_secrets) {
+            setSecretWarning({ result, text, files });
+          } else {
+            doSend(text, files);
+          }
+        },
+        onError: () => {
+          // Fail open — send anyway if check fails
+          doSend(text, files);
+        },
+      });
+    },
+    [channelId, channel, doSend]
+  );
+
+  const handleSendAudio = useCallback(
+    (audioBase64: string, audioFormat: string, message?: string) => {
+      if (!channelId || !channel) return;
+
+      if (activeFile && !useUIStore.getState().fileExplorerSplit) {
+        useUIStore.getState().toggleFileExplorerSplit();
+      }
+
+      addMessage(channelId, {
+        id: `msg-${Date.now()}`,
+        session_id: channel.active_session_id ?? "",
+        role: "user",
+        content: message || "[voice message]",
+        created_at: new Date().toISOString(),
+      });
+
+      startStreaming(channelId);
+
+      chatStream.mutate({
+        message: message || "",
+        bot_id: channel.bot_id,
+        client_id: channel.client_id ?? "",
+        channel_id: channelId,
+        audio_data: audioBase64,
+        audio_format: audioFormat,
+        ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
+      });
+
+      setTurnModelOverride(undefined);
+    },
+    [channelId, channel, turnModelOverride]
+  );
+
+  // Slash command handler
+  const handleSlashCommand = useCallback(
+    async (id: string) => {
+      if (!channelId) return;
+      switch (id) {
+        case "context":
+          router.push(`/channels/${channelId}/settings#context` as any);
+          break;
+        case "clear":
+          try {
+            await apiFetch(`/channels/${channelId}/reset`, { method: "POST" });
+            setMessages(channelId, []);
+            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+            queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
+          } catch (err) {
+            console.error("Failed to reset session:", err);
+          }
+          break;
+        case "compact":
+          try {
+            await apiFetch(`/channels/${channelId}/compact`, { method: "POST" });
+            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          } catch (err) {
+            console.error("Failed to compact:", err);
+          }
+          break;
+      }
+    },
+    [channelId, router, setMessages, queryClient],
+  );
+
+  // Merge consecutive assistant messages then reverse for inverted FlatList
+  const mergedMessages = useMemo(
+    () => mergeConsecutiveAssistant(chatState.messages),
+    [chatState.messages],
+  );
+  const invertedData = [...mergedMessages].reverse();
 
   const handleLoadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
@@ -157,127 +595,387 @@ export default function ChatScreen() {
     }
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // Show hamburger/back on mobile
-  const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
+  // Auto-load older pages when content doesn't fill the viewport
+  const listHeightRef = useRef(0);
+  const handleListLayout = useCallback((e: any) => {
+    listHeightRef.current = e.nativeEvent.layout.height;
+  }, []);
+  const handleContentSizeChange = useCallback((_w: number, h: number) => {
+    if (h < listHeightRef.current && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    setShowScrollBtn(y > 300);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+  }, []);
+
+  // In inverted list: index 0 = newest, index+1 = chronologically previous (older).
+  // Show date separator when the current message starts a new day vs the older message above it.
+  const renderMessage = useCallback(
+    ({ item, index }: { item: Message; index: number }) => {
+      const prevMsg = invertedData[index + 1];
+      const grouped = shouldGroup(item, prevMsg);
+      // Show date separator above this message if it's the oldest loaded or on a different day than the one above
+      const showDateSep = index === invertedData.length - 1 || (prevMsg && isDifferentDay(item.created_at, prevMsg.created_at));
+      return (
+        <>
+          <MessageBubble message={item} botName={bot?.name} isGrouped={showDateSep ? false : grouped} />
+          {showDateSep && <DateSeparator label={formatDateSeparator(item.created_at)} />}
+        </>
+      );
+    },
+    [invertedData, bot?.name]
+  );
+
+  // Workspace header buttons
+  const workspaceEnabled = channel?.channel_workspace_enabled;
+  const workspaceId = channel?.resolved_workspace_id;
+  const enableEditorMutation = useEnableEditor(workspaceId ?? "");
+  const expandDir = useFileBrowserStore((s) => s.expandDir);
+
+  // File explorer state
+  const explorerOpen = useUIStore((s) => s.fileExplorerOpen);
+  const toggleExplorer = useUIStore((s) => s.toggleFileExplorer);
+  const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
+  const splitMode = useUIStore((s) => s.fileExplorerSplit);
+  const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
+  const fileDirtyRef = useRef(false);
+
+  // Reset file selection when switching channels
+  useEffect(() => {
+    setActiveFile(null);
+    fileDirtyRef.current = false;
+  }, [channelId]);
+
+  const showExplorer = workspaceEnabled && !!workspaceId && explorerOpen;
+  const showFileViewer = activeFile !== null;
+  const isMobile = columns === "single";
+
+  /** Gate navigation away from a dirty file with a confirm prompt */
+  const confirmIfDirty = useCallback((): boolean => {
+    if (!fileDirtyRef.current) return true;
+    return confirm("You have unsaved changes. Discard them?");
+  }, []);
+
+  const handleDirtyChange = useCallback((dirty: boolean) => {
+    fileDirtyRef.current = dirty;
+  }, []);
+
+  const handleSelectFile = useCallback((path: string) => {
+    if (path === activeFile) return;
+    if (!confirmIfDirty()) return;
+    setActiveFile(path);
+  }, [activeFile, confirmIfDirty]);
+
+  const handleCloseFile = useCallback(() => {
+    if (!confirmIfDirty()) return;
+    setActiveFile(null);
+  }, [confirmIfDirty]);
+
+  const handleCloseExplorer = useCallback(() => {
+    if (!confirmIfDirty()) return;
+    setExplorerOpen(false);
+    setActiveFile(null);
+  }, [setExplorerOpen, confirmIfDirty]);
+
+  // Mobile: back from file viewer goes to explorer, back from explorer goes to chat
+  const handleMobileBack = useCallback(() => {
+    if (activeFile) {
+      // dirty guard is handled inside ChannelFileViewer's onBack
+      setActiveFile(null);
+    } else {
+      setExplorerOpen(false);
+    }
+  }, [activeFile, setExplorerOpen]);
+
+  const handleBrowseWorkspace = useCallback(() => {
+    if (!workspaceId || !channelId) return;
+    const segments = ["channels", `channels/${channelId}`, `channels/${channelId}/workspace`];
+    for (const seg of segments) expandDir(seg);
+  }, [workspaceId, channelId, expandDir]);
+
+  const handleOpenEditor = useCallback(async () => {
+    if (!workspaceId || !channelId || Platform.OS !== "web") return;
+    try {
+      await enableEditorMutation.mutateAsync();
+      const { serverUrl } = useAuthStore.getState();
+      const token = getAuthToken();
+      const folder = `/workspace/channels/${channelId}`;
+      const editorUrl = `${serverUrl}/api/v1/workspaces/${workspaceId}/editor/?tkn=${encodeURIComponent(token || "")}&folder=${encodeURIComponent(folder)}`;
+      window.open(editorUrl, `editor-${workspaceId}`);
+    } catch (err) {
+      console.error("Failed to open editor:", err);
+    }
+  }, [workspaceId, channelId, enableEditorMutation]);
+
+  const displayName = (channel as any)?.display_name || channel?.name || channel?.client_id || "Chat";
 
   return (
-    <View className="flex-1 bg-surface" style={{ overflow: "hidden" }}>
+    <SafeAreaView className="flex-1 bg-surface" edges={["top"]} style={{ overflow: "hidden" }}>
       {/* Header */}
       <View
-        className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border bg-surface"
+        className="flex-row items-center gap-3 px-4 border-b border-surface-border bg-surface"
         style={{
           flexShrink: 0,
           zIndex: 10,
-          ...(Platform.OS === "web" ? { position: "sticky" as any, top: 0, paddingTop: "env(safe-area-inset-top, 0px)" as any } : {}),
+          minHeight: 52,
         }}
       >
         {columns === "single" && (
           <Pressable
             onPress={goBack}
-            className="items-center justify-center rounded-md hover:bg-surface-overlay"
+            className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
             style={{ width: 44, height: 44 }}
           >
-            <ArrowLeft size={20} color="#9ca3af" />
+            <ArrowLeft size={20} color={t.textMuted} />
           </Pressable>
         )}
         {showHamburger && columns !== "single" && (
           <Pressable
             onPress={toggleSidebar}
-            className="items-center justify-center rounded-md hover:bg-surface-overlay"
+            className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
             style={{ width: 44, height: 44 }}
           >
-            <Menu size={20} color="#9ca3af" />
+            <Menu size={20} color={t.textMuted} />
           </Pressable>
         )}
-        <View className="flex-1 min-w-0">
-          <Text className="text-text font-semibold" numberOfLines={1}>
-            {(channel as any)?.display_name || channel?.name || channel?.client_id || "Chat"}
+        <Hash size={18} color={t.textDim} style={{ marginLeft: 2 }} />
+        <View className="flex-1 min-w-0 py-2">
+          <Text style={{ fontSize: 16, fontWeight: "700", color: t.text }} numberOfLines={1}>
+            {displayName}
           </Text>
           {bot && (
-            <View className="flex-row items-center gap-2" style={{ flexWrap: "wrap" }}>
+            <View className="flex-row items-center gap-1.5 mt-0.5">
               <Link href={`/admin/bots/${bot.id}` as any}>
-                <Text className="text-text-muted text-xs hover:text-accent">{bot.name}</Text>
+                <Text style={{ fontSize: 12, color: t.textMuted }}>{bot.name}</Text>
               </Link>
-              <Text className="text-text-dim text-[10px]">
+              <Text style={{ fontSize: 11, color: t.textDim }}>
                 {channel?.model_override || bot?.model}
               </Text>
             </View>
           )}
         </View>
+        {workspaceEnabled && workspaceId && (
+          <>
+            <Pressable
+              onPress={toggleExplorer}
+              className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+              style={{
+                width: 36,
+                height: 36,
+                backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent",
+                borderRadius: 6,
+              }}
+              {...(Platform.OS === "web" ? { title: explorerOpen ? "Hide file explorer" : "Show file explorer" } as any : {})}
+            >
+              <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
+            </Pressable>
+            {!isMobile && (
+              <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
+                <Pressable
+                  onPress={handleBrowseWorkspace}
+                  className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+                  style={{ width: 36, height: 36 }}
+                  {...(Platform.OS === "web" ? { title: "Browse workspace" } as any : {})}
+                >
+                  <FolderOpen size={16} color={t.textDim} />
+                </Pressable>
+              </Link>
+            )}
+            {!isMobile && Platform.OS === "web" && (
+              <Pressable
+                onPress={handleOpenEditor}
+                className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+                style={{ width: 36, height: 36 }}
+                {...{ title: "Open in VS Code" } as any}
+              >
+                <Code size={16} color={t.textDim} />
+              </Pressable>
+            )}
+          </>
+        )}
         {channelId && (
           <Link href={`/channels/${channelId}/settings` as any} asChild>
             <Pressable
-              className="items-center justify-center rounded-md hover:bg-surface-overlay"
+              className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
               style={{ width: 44, height: 44 }}
             >
-              <Settings size={18} color="#999999" />
+              <Settings size={18} color={t.textDim} />
             </Pressable>
           </Link>
         )}
       </View>
 
-      {/* Messages — inverted FlatList so it naturally starts at the bottom */}
-      {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#3b82f6" />
+      {/* Protected channel warning */}
+      {channel?.client_id === "orchestrator:home" && (
+        <View
+          className="flex-row items-center gap-2 px-4 py-1.5 border-b border-amber-500/20"
+          style={{ backgroundColor: "rgba(245,158,11,0.08)" }}
+        >
+          <Shield size={13} color="#d97706" />
+          <Text style={{ fontSize: 12, color: "#d97706" }}>
+            System admin channel — this bot has unrestricted tool access and can delegate to all bots.
+          </Text>
         </View>
+      )}
+
+      {/* Content area — explorer + chat/file viewer */}
+      {isMobile ? (
+        /* ---- Mobile: full-screen modes ---- */
+        showExplorer && !showFileViewer ? (
+          /* Mobile explorer full-screen */
+          <ChannelFileExplorer
+            channelId={channelId!}
+            activeFile={activeFile}
+            onSelectFile={handleSelectFile}
+            onClose={handleCloseExplorer}
+            fullWidth
+          />
+        ) : showFileViewer ? (
+          /* Mobile file viewer full-screen */
+          <ChannelFileViewer
+            channelId={channelId!}
+            filePath={activeFile!}
+            onBack={handleMobileBack}
+            onDirtyChange={handleDirtyChange}
+          />
+        ) : (
+          /* Mobile chat (default) */
+          <>
+            <ChatMessageArea
+              flatListRef={flatListRef}
+              invertedData={invertedData}
+              renderMessage={renderMessage}
+              chatState={chatState}
+              bot={bot}
+              isLoading={isLoading}
+              isFetchingNextPage={isFetchingNextPage}
+              showScrollBtn={showScrollBtn}
+              scrollToBottom={scrollToBottom}
+              handleScroll={handleScroll}
+              handleListLayout={handleListLayout}
+              handleContentSizeChange={handleContentSizeChange}
+              handleLoadMore={handleLoadMore}
+              t={t}
+            />
+            {chatState.error && (
+              <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
+            )}
+            <ActiveWorkflowStrip channelId={channelId!} />
+            <MessageInput
+              onSend={handleSend}
+              onSendAudio={handleSendAudio}
+              disabled={isPaused}
+              isStreaming={chatState.isStreaming}
+              onCancel={handleCancel}
+              modelOverride={turnModelOverride}
+              onModelOverrideChange={setTurnModelOverride}
+              defaultModel={channel?.model_override || bot?.model}
+              currentBotId={channel?.bot_id}
+              channelId={channelId}
+              onSlashCommand={handleSlashCommand}
+            />
+          </>
+        )
       ) : (
-        <FlatList
-          ref={flatListRef}
-          inverted
-          style={{ flex: 1 }}
-          data={invertedData}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} botName={bot?.name} />}
-          contentContainerStyle={{ padding: 16 }}
-          scrollEventThrottle={100}
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          ListHeaderComponent={
-            chatState.isStreaming ? (
-              <StreamingIndicator
-                content={chatState.streamingContent}
-                toolCalls={chatState.toolCalls}
-                botName={bot?.name}
+        /* ---- Desktop/tablet: side-by-side layout ---- */
+        <>
+          <View style={{ flex: 1, flexDirection: "row", overflow: "hidden" }}>
+            {/* Explorer panel */}
+            {showExplorer && channelId && (
+              <ChannelFileExplorer
+                channelId={channelId}
+                activeFile={activeFile}
+                onSelectFile={handleSelectFile}
+                onClose={handleCloseExplorer}
               />
-            ) : null
-          }
-          ListFooterComponent={
-            isFetchingNextPage ? (
-              <View className="items-center py-3">
-                <ActivityIndicator size="small" color="#3b82f6" />
+            )}
+
+            {/* Chat area — visible when no file selected or in split mode */}
+            {(!showFileViewer || splitMode) && (
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <ChatMessageArea
+                  flatListRef={flatListRef}
+                  invertedData={invertedData}
+                  renderMessage={renderMessage}
+                  chatState={chatState}
+                  bot={bot}
+                  isLoading={isLoading}
+                  isFetchingNextPage={isFetchingNextPage}
+                  showScrollBtn={showScrollBtn}
+                  scrollToBottom={scrollToBottom}
+                  handleScroll={handleScroll}
+                  handleListLayout={handleListLayout}
+                  handleContentSizeChange={handleContentSizeChange}
+                  handleLoadMore={handleLoadMore}
+                  t={t}
+                />
               </View>
-            ) : hasNextPage ? (
-              <Pressable onPress={handleLoadMore} className="items-center py-3">
-                <Text className="text-accent text-xs">Load older messages</Text>
-              </Pressable>
-            ) : null
-          }
-          ListEmptyComponent={
-            <View className="flex-1 items-center justify-center py-20">
-              <Text className="text-text-dim text-sm">
-                Send a message to start the conversation
-              </Text>
-            </View>
-          }
+            )}
+
+            {/* File viewer — visible when a file is selected */}
+            {showFileViewer && channelId && (
+              <View style={{
+                flex: 1,
+                minWidth: 0,
+                borderLeftWidth: splitMode ? 1 : 0,
+                borderLeftColor: t.surfaceBorder,
+              }}>
+                {/* Split mode toggle in viewer header */}
+                <ChannelFileViewer
+                  channelId={channelId}
+                  filePath={activeFile!}
+                  onBack={handleCloseFile}
+                  splitMode={splitMode}
+                  onToggleSplit={toggleSplit}
+                  onDirtyChange={handleDirtyChange}
+                />
+              </View>
+            )}
+          </View>
+
+          {/* Error + Workflow strip + Input — always visible on desktop */}
+          {chatState.error && (
+            <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
+          )}
+          <ActiveWorkflowStrip channelId={channelId!} />
+          <MessageInput
+            onSend={handleSend}
+            onSendAudio={handleSendAudio}
+            disabled={isPaused}
+            isStreaming={chatState.isStreaming}
+            onCancel={handleCancel}
+            modelOverride={turnModelOverride}
+            onModelOverrideChange={setTurnModelOverride}
+            defaultModel={channel?.model_override || bot?.model}
+            currentBotId={channel?.bot_id}
+            channelId={channelId}
+            onSlashCommand={handleSlashCommand}
+          />
+        </>
+      )}
+      {secretWarning && (
+        <SecretWarningDialog
+          result={secretWarning.result}
+          onSendAnyway={() => {
+            const { text, files } = secretWarning;
+            setSecretWarning(null);
+            doSend(text, files);
+          }}
+          onCancel={() => setSecretWarning(null)}
+          onAddToSecrets={() => {
+            setSecretWarning(null);
+            router.push("/admin/secret-values" as any);
+          }}
         />
       )}
-
-      {/* Error */}
-      {chatState.error && (
-        <View className="px-4 py-2 bg-red-500/10 border-t border-red-500/20">
-          <Text className="text-red-400 text-sm">{chatState.error}</Text>
-        </View>
-      )}
-
-      {/* Input */}
-      <MessageInput
-        onSend={handleSend}
-        disabled={chatState.isStreaming}
-        modelOverride={turnModelOverride}
-        onModelOverrideChange={setTurnModelOverride}
-        defaultModel={channel?.model_override || bot?.model}
-      />
-    </View>
+    </SafeAreaView>
   );
 }

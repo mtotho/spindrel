@@ -1,8 +1,8 @@
 """Public API v1 — Channel endpoints."""
 import logging
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime, time as dt_time, timedelta, timezone
+from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -10,8 +10,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Channel, ChannelIntegration, KnowledgeAccess, Message, Session, Task
-from app.dependencies import get_db, verify_auth_or_user
+from app.db.models import Attachment, Channel, ChannelHeartbeat, ChannelIntegration, KnowledgeAccess, Message, Session, Task
+from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
     reset_channel_session, switch_channel_session,
@@ -23,6 +23,17 @@ from app.tools.local.search_history import _build_query, _serialize_messages
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/channels", tags=["Channels"])
+
+
+def _check_protected(channel: Channel, auth) -> None:
+    """Raise 403 if the channel is protected and auth is a non-admin API key."""
+    if not channel.protected:
+        return
+    if isinstance(auth, ApiKeyAuth) and "admin" not in auth.scopes:
+        raise HTTPException(
+            status_code=403,
+            detail="Protected channel — admin scope required",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -61,10 +72,15 @@ class ChannelOut(BaseModel):
     require_mention: bool
     passive_memory: bool
     private: bool = False
+    protected: bool = False
     user_id: Optional[uuid.UUID] = None
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     integrations: list[IntegrationBindingOut] = []
+    channel_workspace_enabled: Optional[bool] = None
+    workspace_id: Optional[uuid.UUID] = None
+    resolved_workspace_id: Optional[str] = None
+    tags: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -132,6 +148,148 @@ class HistoryMessageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ChannelListItemOut(ChannelOut):
+    """Extended channel item with optional heartbeat status."""
+    heartbeat_enabled: Optional[bool] = None
+    heartbeat_next_run_at: Optional[datetime] = None
+
+
+class ChannelConfigOut(BaseModel):
+    """Flat composite of channel settings + heartbeat config."""
+    # Identity (read-only)
+    id: uuid.UUID
+    name: str
+    bot_id: str
+    client_id: Optional[str] = None
+    integration: Optional[str] = None
+    active_session_id: Optional[uuid.UUID] = None
+    # Behavior
+    require_mention: bool = True
+    passive_memory: bool = True
+    allow_bot_messages: bool = False
+    workspace_rag: bool = True
+    thinking_display: str = "append"
+    max_iterations: Optional[int] = None
+    task_max_run_seconds: Optional[int] = None
+    channel_prompt: Optional[str] = None
+    # Model
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
+    # Fallback models
+    fallback_models: list[dict] = []
+    # Compaction
+    context_compaction: bool = True
+    compaction_interval: Optional[int] = None
+    compaction_keep_turns: Optional[int] = None
+    compaction_prompt_template_id: Optional[uuid.UUID] = None
+    memory_knowledge_compaction_prompt: Optional[str] = None
+    history_mode: Optional[str] = None
+    # Tool overrides
+    local_tools_override: Optional[list[str]] = None
+    local_tools_disabled: Optional[list[str]] = None
+    mcp_servers_override: Optional[list[str]] = None
+    mcp_servers_disabled: Optional[list[str]] = None
+    client_tools_override: Optional[list[str]] = None
+    client_tools_disabled: Optional[list[str]] = None
+    pinned_tools_override: Optional[list[str]] = None
+    skills_override: Optional[list[dict]] = None
+    skills_disabled: Optional[list[str]] = None
+    skills_extra: Optional[list[dict]] = None
+    workspace_skills_enabled: Optional[bool] = None
+    workspace_base_prompt_enabled: Optional[bool] = None
+    channel_workspace_enabled: Optional[bool] = None
+    workspace_schema_template_id: Optional[uuid.UUID] = None
+    workspace_schema_content: Optional[str] = None
+    index_segments: list[dict] = []
+    # Carapace overrides
+    carapaces_extra: Optional[list[str]] = None
+    carapaces_disabled: Optional[list[str]] = None
+    # Model tier overrides
+    model_tier_overrides: dict = {}
+    # Heartbeat (prefixed)
+    heartbeat_enabled: bool = False
+    heartbeat_interval_minutes: int = 60
+    heartbeat_model: str = ""
+    heartbeat_model_provider_id: Optional[str] = None
+    heartbeat_fallback_models: list[dict] = []
+    heartbeat_prompt: str = ""
+    heartbeat_prompt_template_id: Optional[uuid.UUID] = None
+    heartbeat_dispatch_results: bool = True
+    heartbeat_trigger_response: bool = False
+    heartbeat_quiet_start: Optional[str] = None
+    heartbeat_quiet_end: Optional[str] = None
+    heartbeat_timezone: Optional[str] = None
+    heartbeat_max_run_seconds: Optional[int] = None
+    heartbeat_last_run_at: Optional[datetime] = None
+    heartbeat_next_run_at: Optional[datetime] = None
+    # Timestamps
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChannelConfigUpdate(BaseModel):
+    """Writable channel + heartbeat fields. All optional, exclude_unset semantics."""
+    # Behavior
+    require_mention: Optional[bool] = None
+    passive_memory: Optional[bool] = None
+    allow_bot_messages: Optional[bool] = None
+    workspace_rag: Optional[bool] = None
+    thinking_display: Optional[str] = None
+    max_iterations: Optional[int] = None
+    task_max_run_seconds: Optional[int] = None
+    channel_prompt: Optional[str] = None
+    # Model
+    model_override: Optional[str] = None
+    model_provider_id_override: Optional[str] = None
+    # Fallback models
+    fallback_models: list[dict] = []
+    # Compaction
+    context_compaction: Optional[bool] = None
+    compaction_interval: Optional[int] = None
+    compaction_keep_turns: Optional[int] = None
+    compaction_prompt_template_id: Optional[uuid.UUID] = None
+    memory_knowledge_compaction_prompt: Optional[str] = None
+    history_mode: Optional[str] = None
+    # Tool overrides
+    local_tools_override: Optional[list[str]] = None
+    local_tools_disabled: Optional[list[str]] = None
+    mcp_servers_override: Optional[list[str]] = None
+    mcp_servers_disabled: Optional[list[str]] = None
+    client_tools_override: Optional[list[str]] = None
+    client_tools_disabled: Optional[list[str]] = None
+    pinned_tools_override: Optional[list[str]] = None
+    skills_override: Optional[list[dict]] = None
+    skills_disabled: Optional[list[str]] = None
+    skills_extra: Optional[list[dict]] = None
+    workspace_skills_enabled: Optional[bool] = None
+    workspace_base_prompt_enabled: Optional[bool] = None
+    channel_workspace_enabled: Optional[bool] = None
+    workspace_schema_template_id: Optional[uuid.UUID] = None
+    workspace_schema_content: Optional[str] = None
+    index_segments: Optional[list[dict]] = None
+    # Carapace overrides
+    carapaces_extra: Optional[list[str]] = None
+    carapaces_disabled: Optional[list[str]] = None
+    # Model tier overrides
+    model_tier_overrides: Optional[dict] = None
+    # Heartbeat (prefixed)
+    heartbeat_enabled: Optional[bool] = None
+    heartbeat_interval_minutes: Optional[int] = None
+    heartbeat_model: Optional[str] = None
+    heartbeat_model_provider_id: Optional[str] = None
+    heartbeat_fallback_models: Optional[list[dict]] = None
+    heartbeat_prompt: Optional[str] = None
+    heartbeat_prompt_template_id: Optional[uuid.UUID] = None
+    heartbeat_dispatch_results: Optional[bool] = None
+    heartbeat_trigger_response: Optional[bool] = None
+    heartbeat_quiet_start: Optional[str] = None
+    heartbeat_quiet_end: Optional[str] = None
+    heartbeat_timezone: Optional[str] = None
+    heartbeat_max_run_seconds: Optional[int] = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -140,7 +298,7 @@ class HistoryMessageOut(BaseModel):
 async def create_channel(
     body: ChannelCreate,
     db: AsyncSession = Depends(get_db),
-    auth_result=Depends(verify_auth_or_user),
+    auth_result=Depends(require_scopes("channels:write")),
 ):
     """Create or retrieve a channel."""
     from app.agent.bots import get_bot
@@ -168,12 +326,13 @@ async def create_channel(
     return ChannelOut.model_validate(channel)
 
 
-@router.get("", response_model=list[ChannelOut])
+@router.get("", response_model=Union[list[ChannelListItemOut], list[ChannelOut]])
 async def list_channels(
     integration: Optional[str] = None,
     bot_id: Optional[str] = None,
+    include_heartbeat: bool = Query(False, description="Include heartbeat_enabled and heartbeat_next_run_at"),
     db: AsyncSession = Depends(get_db),
-    auth_result=Depends(verify_auth_or_user),
+    auth_result=Depends(require_scopes("channels:read")),
 ):
     """List channels with optional filters."""
     stmt = select(Channel).options(selectinload(Channel.integrations)).order_by(Channel.created_at.desc())
@@ -183,14 +342,54 @@ async def list_channels(
     if bot_id:
         stmt = stmt.where(Channel.bot_id == bot_id)
     channels = (await db.execute(stmt)).scalars().all()
-    return [ChannelOut.model_validate(ch) for ch in channels]
+
+    def _enrich(ch: Channel) -> ChannelOut:
+        out = ChannelOut.model_validate(ch)
+        ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
+        try:
+            from app.agent.bots import get_bot
+            bot = get_bot(ch.bot_id)
+            out.resolved_workspace_id = ws_id_str or bot.shared_workspace_id
+        except Exception:
+            out.resolved_workspace_id = ws_id_str
+        out.tags = (ch.metadata_ or {}).get("tags", [])
+        return out
+
+    if not include_heartbeat:
+        return [_enrich(ch) for ch in channels]
+
+    # Batch-load heartbeat rows
+    channel_ids = [ch.id for ch in channels]
+    hb_map: dict[uuid.UUID, ChannelHeartbeat] = {}
+    if channel_ids:
+        hb_rows = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(channel_ids))
+        )).scalars().all()
+        hb_map = {hb.channel_id: hb for hb in hb_rows}
+
+    result = []
+    for ch in channels:
+        item = ChannelListItemOut.model_validate(ch)
+        ws_id_str = str(ch.workspace_id) if ch.workspace_id else None
+        try:
+            from app.agent.bots import get_bot as _get_bot
+            _b = _get_bot(ch.bot_id)
+            item.resolved_workspace_id = ws_id_str or _b.shared_workspace_id
+        except Exception:
+            item.resolved_workspace_id = ws_id_str
+        item.tags = (ch.metadata_ or {}).get("tags", [])
+        hb = hb_map.get(ch.id)
+        item.heartbeat_enabled = hb.enabled if hb else False
+        item.heartbeat_next_run_at = hb.next_run_at if hb else None
+        result.append(item)
+    return result
 
 
 @router.get("/{channel_id}", response_model=ChannelOut)
 async def get_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Get channel info."""
     result = await db.execute(
@@ -199,7 +398,224 @@ async def get_channel(
     channel = result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    return ChannelOut.model_validate(channel)
+    out = ChannelOut.model_validate(channel)
+    ws_id_str = str(channel.workspace_id) if channel.workspace_id else None
+    try:
+        from app.agent.bots import get_bot
+        bot = get_bot(channel.bot_id)
+        out.resolved_workspace_id = ws_id_str or bot.shared_workspace_id
+    except Exception:
+        out.resolved_workspace_id = ws_id_str
+        logger.debug("Could not resolve workspace_id for channel %s bot %s", channel.id, channel.bot_id)
+    out.tags = (channel.metadata_ or {}).get("tags", [])
+    return out
+
+
+@router.get("/{channel_id}/config", response_model=ChannelConfigOut)
+async def get_channel_config(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.config:read")),
+):
+    """Get all channel settings + heartbeat config in a single flat response."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    heartbeat = (await db.execute(
+        select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+    )).scalar_one_or_none()
+
+    return _build_config_out(channel, heartbeat)
+
+
+@router.api_route("/{channel_id}/config", methods=["PUT", "PATCH"], response_model=ChannelConfigOut)
+async def update_channel_config(
+    channel_id: uuid.UUID,
+    body: ChannelConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """Update any subset of channel settings + heartbeat config in one call.
+
+    Scope requirements depend on which fields are set:
+    - Heartbeat fields only → ``channels.heartbeat:write``
+    - Non-heartbeat fields (or both) → ``channels.config:write``
+    ``channels.config:write`` always covers heartbeat as a parent scope.
+    """
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    updates = body.model_dump(exclude_unset=True)
+    now = datetime.now(timezone.utc)
+
+    # Split into channel fields vs heartbeat fields
+    hb_updates: dict = {}
+    ch_updates: dict = {}
+    for key, value in updates.items():
+        if key.startswith("heartbeat_"):
+            hb_updates[key.removeprefix("heartbeat_")] = value
+        else:
+            ch_updates[key] = value
+
+    # Enforce scopes based on which fields are being modified
+    if isinstance(_auth, ApiKeyAuth):
+        from app.services.api_keys import has_scope
+        if ch_updates:
+            if not has_scope(_auth.scopes, "channels.config:write"):
+                raise HTTPException(status_code=403, detail="Missing required scope: channels.config:write")
+        if hb_updates:
+            if not has_scope(_auth.scopes, "channels.heartbeat:write"):
+                raise HTTPException(status_code=403, detail="Missing required scope: channels.heartbeat:write")
+
+    # Validate model tier override names
+    if ch_updates.get("model_tier_overrides"):
+        from app.services.server_config import VALID_TIER_NAMES
+        invalid = set(ch_updates["model_tier_overrides"].keys()) - VALID_TIER_NAMES
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"Invalid tier names: {sorted(invalid)}. Valid: {sorted(VALID_TIER_NAMES)}")
+
+    # Apply channel updates
+    if ch_updates:
+        for field, value in ch_updates.items():
+            setattr(channel, field, value)
+        channel.updated_at = now
+
+    # Apply heartbeat updates
+    heartbeat: ChannelHeartbeat | None = None
+    if hb_updates:
+        heartbeat = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+        )).scalar_one_or_none()
+
+        if heartbeat is None:
+            heartbeat = ChannelHeartbeat(channel_id=channel_id, enabled=False)
+            db.add(heartbeat)
+
+        for field, value in hb_updates.items():
+            if field == "interval_minutes" and value is not None:
+                value = max(1, value)
+            elif field == "model":
+                # model is nullable=False; coerce None → ""
+                value = value.strip() if value else ""
+            elif field == "model_provider_id" and value is not None:
+                value = value.strip() or None
+            elif field == "prompt":
+                # prompt is nullable=False; coerce None → ""
+                value = value.strip() if value else ""
+            elif field == "quiet_start":
+                value = dt_time.fromisoformat(value) if value else None
+            elif field == "quiet_end":
+                value = dt_time.fromisoformat(value) if value else None
+            setattr(heartbeat, field, value)
+
+        heartbeat.updated_at = now
+
+        # Auto-schedule / clear next_run_at
+        if heartbeat.enabled and heartbeat.next_run_at is None:
+            from app.services.heartbeat import next_aligned_time
+            heartbeat.next_run_at = next_aligned_time(now, heartbeat.interval_minutes)
+        elif not heartbeat.enabled:
+            heartbeat.next_run_at = None
+
+    await db.commit()
+    await db.refresh(channel)
+
+    if heartbeat is None:
+        heartbeat = (await db.execute(
+            select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+        )).scalar_one_or_none()
+    elif hb_updates:
+        await db.refresh(heartbeat)
+
+    return _build_config_out(channel, heartbeat)
+
+
+def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> ChannelConfigOut:
+    """Build flat ChannelConfigOut from channel + optional heartbeat."""
+    data = {
+        "id": channel.id,
+        "name": channel.name,
+        "bot_id": channel.bot_id,
+        "client_id": channel.client_id,
+        "integration": channel.integration,
+        "active_session_id": channel.active_session_id,
+        "require_mention": channel.require_mention,
+        "passive_memory": channel.passive_memory,
+        "allow_bot_messages": channel.allow_bot_messages,
+        "workspace_rag": channel.workspace_rag,
+        "thinking_display": channel.thinking_display,
+        "max_iterations": channel.max_iterations,
+        "task_max_run_seconds": channel.task_max_run_seconds,
+        "channel_prompt": channel.channel_prompt,
+        "model_override": channel.model_override,
+        "model_provider_id_override": channel.model_provider_id_override,
+        "fallback_models": channel.fallback_models or [],
+        "context_compaction": channel.context_compaction,
+        "compaction_interval": channel.compaction_interval,
+        "compaction_keep_turns": channel.compaction_keep_turns,
+        "compaction_prompt_template_id": channel.compaction_prompt_template_id,
+        "memory_knowledge_compaction_prompt": channel.memory_knowledge_compaction_prompt,
+        "history_mode": channel.history_mode,
+        "local_tools_override": channel.local_tools_override,
+        "local_tools_disabled": channel.local_tools_disabled,
+        "mcp_servers_override": channel.mcp_servers_override,
+        "mcp_servers_disabled": channel.mcp_servers_disabled,
+        "client_tools_override": channel.client_tools_override,
+        "client_tools_disabled": channel.client_tools_disabled,
+        "pinned_tools_override": channel.pinned_tools_override,
+        "skills_override": channel.skills_override,
+        "skills_disabled": channel.skills_disabled,
+        "skills_extra": channel.skills_extra,
+        "workspace_skills_enabled": channel.workspace_skills_enabled,
+        "workspace_base_prompt_enabled": channel.workspace_base_prompt_enabled,
+        "channel_workspace_enabled": channel.channel_workspace_enabled,
+        "workspace_schema_template_id": channel.workspace_schema_template_id,
+        "workspace_schema_content": channel.workspace_schema_content,
+        "index_segments": channel.index_segments or [],
+        "carapaces_extra": channel.carapaces_extra,
+        "carapaces_disabled": channel.carapaces_disabled,
+        "model_tier_overrides": channel.model_tier_overrides or {},
+        "created_at": channel.created_at,
+        "updated_at": channel.updated_at,
+    }
+
+    if heartbeat:
+        data.update({
+            "heartbeat_enabled": heartbeat.enabled,
+            "heartbeat_interval_minutes": heartbeat.interval_minutes,
+            "heartbeat_model": heartbeat.model,
+            "heartbeat_model_provider_id": heartbeat.model_provider_id,
+            "heartbeat_fallback_models": heartbeat.fallback_models or [],
+            "heartbeat_prompt": heartbeat.prompt,
+            "heartbeat_prompt_template_id": heartbeat.prompt_template_id,
+            "heartbeat_dispatch_results": heartbeat.dispatch_results,
+            "heartbeat_trigger_response": heartbeat.trigger_response,
+            "heartbeat_quiet_start": heartbeat.quiet_start.strftime("%H:%M") if heartbeat.quiet_start else None,
+            "heartbeat_quiet_end": heartbeat.quiet_end.strftime("%H:%M") if heartbeat.quiet_end else None,
+            "heartbeat_timezone": heartbeat.timezone,
+            "heartbeat_max_run_seconds": heartbeat.max_run_seconds,
+            "heartbeat_last_run_at": heartbeat.last_run_at,
+            "heartbeat_next_run_at": heartbeat.next_run_at,
+        })
+
+    return ChannelConfigOut(**data)
+
+
+@router.delete("/{channel_id}", status_code=204)
+async def delete_channel(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:write")),
+):
+    """Delete a channel and all associated data (integrations, heartbeat cascade; sessions/tasks/etc set null)."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    await db.delete(channel)
+    await db.commit()
 
 
 @router.put("/{channel_id}", response_model=ChannelOut)
@@ -207,7 +623,7 @@ async def update_channel(
     channel_id: uuid.UUID,
     body: ChannelUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Update channel settings."""
     channel = await db.get(Channel, channel_id)
@@ -245,12 +661,13 @@ async def inject_channel_message(
     channel_id: uuid.UUID,
     body: MessageInject,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.messages:write")),
 ):
     """Inject a message into a channel's active session."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    _check_protected(channel, _auth)
 
     session_id = await ensure_active_session(db, channel)
     await db.commit()
@@ -269,6 +686,10 @@ async def inject_channel_message(
 
     task_id: uuid.UUID | None = None
     if body.run_agent:
+        from app.config import settings as _settings
+        if _settings.SYSTEM_PAUSED and _settings.SYSTEM_PAUSE_BEHAVIOR == "drop":
+            raise HTTPException(status_code=503, detail="System is paused. Messages are being dropped.")
+
         task = Task(
             bot_id=channel.bot_id,
             client_id=channel.client_id,
@@ -293,12 +714,13 @@ async def inject_channel_message(
 async def reset_channel(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.messages:write")),
 ):
     """Reset a channel's session. Old session preserved, new one becomes active."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+    _check_protected(channel, _auth)
 
     previous = channel.active_session_id
     new_session_id = await reset_channel_session(db, channel)
@@ -310,6 +732,36 @@ async def reset_channel(
     )
 
 
+class CompactResponse(BaseModel):
+    status: str
+    title: str
+    summary_length: int
+
+
+@router.post("/{channel_id}/compact", response_model=CompactResponse)
+async def compact_channel(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.messages:write")),
+):
+    """Force-compact the channel's active session conversation."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    _check_protected(channel, _auth)
+    if not channel.active_session_id:
+        raise HTTPException(status_code=400, detail="Channel has no active session")
+
+    from app.agent.bots import get_bot
+    from app.services.compaction import run_compaction_forced
+
+    bot = get_bot(channel.bot_id)
+    title, summary = await run_compaction_forced(channel.active_session_id, bot, db)
+    await db.commit()
+
+    return CompactResponse(status="ok", title=title, summary_length=len(summary))
+
+
 class SwitchSessionRequest(BaseModel):
     session_id: uuid.UUID
 
@@ -319,7 +771,7 @@ async def switch_session(
     channel_id: uuid.UUID,
     body: SwitchSessionRequest,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.messages:write")),
 ):
     """Switch a channel's active session to an existing session."""
     channel = await db.get(Channel, channel_id)
@@ -343,7 +795,7 @@ async def switch_session(
 async def list_channel_knowledge(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """List knowledge entries accessible to this channel."""
     from app.db.models import BotKnowledge
@@ -385,7 +837,7 @@ async def search_channel_messages(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.messages:read")),
 ):
     """Search messages across all sessions in a channel."""
     channel = await db.get(Channel, channel_id)
@@ -422,7 +874,7 @@ class AttachmentStatsOut(BaseModel):
 async def get_attachment_stats(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Get attachment storage stats and effective retention config for a channel."""
     channel = await db.get(Channel, channel_id)
@@ -459,7 +911,7 @@ async def get_attachment_stats(
 async def list_channel_integrations(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List integration bindings for a channel."""
     channel = await db.get(Channel, channel_id)
@@ -479,21 +931,24 @@ async def bind_channel_integration(
     channel_id: uuid.UUID,
     body: IntegrationBindRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.integrations:write")),
 ):
     """Bind an integration to a channel."""
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    # Check for duplicate client_id
+    # Check for duplicate binding within the same channel
     existing = (await db.execute(
-        select(ChannelIntegration).where(ChannelIntegration.client_id == body.client_id)
+        select(ChannelIntegration).where(
+            ChannelIntegration.client_id == body.client_id,
+            ChannelIntegration.channel_id == channel_id,
+        )
     )).scalar_one_or_none()
     if existing:
         raise HTTPException(
             status_code=409,
-            detail=f"client_id '{body.client_id}' is already bound to channel {existing.channel_id}",
+            detail=f"client_id '{body.client_id}' is already bound to this channel",
         )
 
     binding = await bind_integration(
@@ -514,7 +969,7 @@ async def unbind_channel_integration(
     channel_id: uuid.UUID,
     binding_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.integrations:write")),
 ):
     """Remove an integration binding from a channel."""
     binding = await db.get(ChannelIntegration, binding_id)
@@ -531,7 +986,7 @@ async def adopt_channel_integration(
     binding_id: uuid.UUID,
     body: IntegrationAdoptRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.integrations:write")),
 ):
     """Move an integration binding to another channel."""
     binding = await db.get(ChannelIntegration, binding_id)
@@ -546,3 +1001,192 @@ async def adopt_channel_integration(
     await db.commit()
     await db.refresh(binding)
     return IntegrationBindingOut.model_validate(binding)
+
+
+# ---------------------------------------------------------------------------
+# Integration activation
+# ---------------------------------------------------------------------------
+
+class ActivationOut(BaseModel):
+    integration_type: str
+    activated: bool
+    manifest: Optional[dict] = None
+    warnings: list[dict] = []
+
+
+class AvailableIntegrationOut(BaseModel):
+    integration_type: str
+    description: str
+    requires_workspace: bool
+    activated: bool
+    carapaces: list[str] = []
+    tools: list[str] = []
+    skill_count: int = 0
+    has_system_prompt: bool = False
+    version: Optional[str] = None
+    compatible_template_tag: Optional[str] = None
+
+
+@router.post("/{channel_id}/integrations/{integration_type}/activate", response_model=ActivationOut)
+async def activate_integration(
+    channel_id: uuid.UUID,
+    integration_type: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.integrations:write")),
+):
+    """Activate an integration on a channel. Creates/updates ChannelIntegration with activated=true."""
+    from integrations import get_activation_manifests
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    manifests = get_activation_manifests()
+    manifest = manifests.get(integration_type)
+    if not manifest:
+        raise HTTPException(status_code=404, detail=f"No activation manifest for '{integration_type}'")
+
+    if manifest.get("requires_workspace") and not channel.channel_workspace_enabled:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Integration '{integration_type}' requires workspace to be enabled on this channel",
+        )
+
+    # Find or create ChannelIntegration row
+    existing = (await db.execute(
+        select(ChannelIntegration).where(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.integration_type == integration_type,
+            ChannelIntegration.activated == True,  # noqa: E712
+        )
+    )).scalar_one_or_none()
+
+    if existing:
+        # Already activated
+        return ActivationOut(
+            integration_type=integration_type,
+            activated=True,
+            manifest=manifest,
+            warnings=[],
+        )
+
+    # Check for an existing non-activated row with matching type
+    inactive = (await db.execute(
+        select(ChannelIntegration).where(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.client_id == f"mc-activated:{channel_id}",
+        )
+    )).scalar_one_or_none()
+
+    if inactive:
+        inactive.activated = True
+        db.add(inactive)
+    else:
+        ci = ChannelIntegration(
+            channel_id=channel_id,
+            integration_type=integration_type,
+            client_id=f"mc-activated:{channel_id}",
+            activated=True,
+        )
+        db.add(ci)
+
+    await db.commit()
+
+    # Run feature validation
+    warnings: list[dict] = []
+    try:
+        from app.services.feature_validation import validate_activation
+        ws = await validate_activation(channel.bot_id, integration_type)
+        warnings = [w.to_dict() for w in ws]
+    except Exception:
+        pass
+
+    return ActivationOut(
+        integration_type=integration_type,
+        activated=True,
+        manifest=manifest,
+        warnings=warnings,
+    )
+
+
+@router.post("/{channel_id}/integrations/{integration_type}/deactivate")
+async def deactivate_integration(
+    channel_id: uuid.UUID,
+    integration_type: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.integrations:write")),
+):
+    """Deactivate an integration on a channel."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    result = await db.execute(
+        select(ChannelIntegration).where(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.integration_type == integration_type,
+            ChannelIntegration.activated == True,  # noqa: E712
+        )
+    )
+    rows = result.scalars().all()
+    for row in rows:
+        row.activated = False
+        db.add(row)
+
+    await db.commit()
+    return {"ok": True, "integration_type": integration_type, "activated": False}
+
+
+@router.get("/{channel_id}/integrations/available", response_model=list[AvailableIntegrationOut])
+async def list_available_integrations(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.integrations:read")),
+):
+    """List all integrations that declare activation blocks, with current status."""
+    from integrations import get_activation_manifests
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    manifests = get_activation_manifests()
+
+    # Get currently activated integration types for this channel
+    activated_result = await db.execute(
+        select(ChannelIntegration.integration_type).where(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.activated == True,  # noqa: E712
+        )
+    )
+    activated_types = {row for row in activated_result.scalars().all()}
+
+    from app.agent.carapaces import resolve_carapaces
+
+    result = []
+    for itype, manifest in manifests.items():
+        carapace_ids = manifest.get("carapaces", [])
+        resolved = resolve_carapaces(carapace_ids) if carapace_ids else None
+        tool_names: list[str] = []
+        skill_count = 0
+        has_system_prompt = False
+        if resolved:
+            tool_names = list(resolved.local_tools)
+            skill_count = len(resolved.skills)
+            has_system_prompt = len(resolved.system_prompt_fragments) > 0
+
+        compat_tags = manifest.get("compatible_templates", [])
+        result.append(AvailableIntegrationOut(
+            integration_type=itype,
+            description=manifest.get("description", ""),
+            requires_workspace=manifest.get("requires_workspace", False),
+            activated=itype in activated_types,
+            carapaces=carapace_ids,
+            tools=tool_names,
+            skill_count=skill_count,
+            has_system_prompt=has_system_prompt,
+            version=manifest.get("version"),
+            compatible_template_tag=compat_tags[0] if compat_tags else None,
+        ))
+
+    return result

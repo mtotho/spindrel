@@ -11,6 +11,8 @@ from app.agent.context import (
     current_correlation_id,
     current_dispatch_config,
     current_dispatch_type,
+    current_model_override,
+    current_provider_id_override,
     current_session_id,
 )
 from app.tools.registry import register
@@ -23,16 +25,19 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "delegate_to_agent",
         "description": (
-            "Delegate work to another bot. Creates a background task that the child bot executes "
-            "asynchronously. The child's result is automatically posted to the originating channel "
-            "when complete. Do NOT use create_task for cross-bot work; use this tool instead."
+            "Delegate work to another bot or carapace. Creates a background task that the child "
+            "agent executes asynchronously. The child's result is automatically posted to the "
+            "originating channel when complete. Do NOT use create_task for cross-bot work; use "
+            "this tool instead.\n\n"
+            "bot_id accepts either a bot ID or a carapace ID. When a carapace ID is given, "
+            "the parent bot runs with that carapace's expertise applied."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "bot_id": {
                     "type": "string",
-                    "description": "The bot_id of the delegate agent to run.",
+                    "description": "The bot_id or carapace_id of the delegate agent to run.",
                 },
                 "prompt": {
                     "type": "string",
@@ -63,6 +68,17 @@ logger = logging.getLogger(__name__)
                         "need to react."
                     ),
                 },
+                "model_tier": {
+                    "type": "string",
+                    "enum": ["free", "fast", "standard", "capable", "frontier"],
+                    "description": (
+                        "Model tier for the delegate. Overrides the default tier from the "
+                        "delegate entry. Tiers map to concrete models via admin settings. "
+                        "free = zero-cost/rate-limited, fast = trivial extraction, "
+                        "standard = routine work, capable = multi-step reasoning, "
+                        "frontier = complex/high-stakes."
+                    ),
+                },
             },
             "required": ["bot_id", "prompt"],
         },
@@ -74,12 +90,17 @@ async def delegate_to_agent(
     scheduled_at: str | None = None,
     reply_in_thread: bool = False,
     notify_parent: bool = True,
+    model_tier: str | None = None,
 ) -> str:
     # LLMs sometimes pass "true"/"false" strings instead of booleans
     if isinstance(reply_in_thread, str):
         reply_in_thread = reply_in_thread.strip().lower() not in ("false", "0", "no", "")
+    # Normalize model_tier (LLMs may add whitespace)
+    if model_tier:
+        model_tier = model_tier.strip().lower() or None
 
     from app.agent.bots import get_bot, resolve_bot_id, list_bots
+    from app.agent.carapaces import get_carapace, resolve_carapaces
     from app.services.delegation import delegation_service, DelegationError
 
     session_id = current_session_id.get()
@@ -94,18 +115,48 @@ async def delegate_to_agent(
     except Exception as exc:
         return json.dumps({"error": f"Could not load parent bot: {exc}"})
 
-    # Global flag OR bot-level config (non-empty delegate_bots) enables delegation
-    if not parent_bot.delegate_bots:
-        return json.dumps({"error": "Delegation is disabled. Configure delegate_bots for this bot."})
-
-    # Fuzzy-resolve bot_id so partial names / aliases work
+    # Try bot resolution first, then fall back to carapace
     resolved = resolve_bot_id(bot_id)
-    if resolved is None:
-        available = ", ".join(b.id for b in list_bots())
-        return json.dumps({"error": f"No bot matching {bot_id!r}. Available: {available}"})
-    if resolved.id != bot_id:
-        logger.info("delegate_to_agent: resolved %r → %r", bot_id, resolved.id)
-        bot_id = resolved.id
+    carapace_delegate = False
+    target_carapace_id: str | None = None
+
+    if resolved is not None:
+        # Bot found — standard bot delegation
+        if resolved.id != bot_id:
+            logger.info("delegate_to_agent: resolved %r → %r", bot_id, resolved.id)
+            bot_id = resolved.id
+
+        # Self-delegation guard: child gets a fresh session with none of the
+        # parent's context, so delegating to yourself is always wrong.
+        if resolved.id == parent_bot_id:
+            return json.dumps({
+                "error": "Cannot delegate to yourself — the child gets a fresh session "
+                "with none of your current context. Execute directly or use exec_command."
+            })
+
+        # Permission check: delegate_bots must be configured for bot delegation
+        if not parent_bot.delegate_bots:
+            return json.dumps({"error": "Delegation is disabled. Configure delegate_bots for this bot."})
+    else:
+        # No bot found — try carapace resolution
+        carapace = get_carapace(bot_id)
+        if carapace is None:
+            available_bots = ", ".join(b.id for b in list_bots())
+            return json.dumps({"error": f"No bot or carapace matching {bot_id!r}. Available bots: {available_bots}"})
+
+        # Permission check: carapace must appear in delegates of an active carapace the parent wears
+        resolved_parent = resolve_carapaces(parent_bot.carapaces)
+        authorized_carapace_delegates = {d.id for d in resolved_parent.delegates if d.type == "carapace"}
+        if bot_id not in authorized_carapace_delegates:
+            return json.dumps({
+                "error": f"Carapace {bot_id!r} is not in the delegates list of any active carapace. "
+                f"Authorized carapace delegates: {sorted(authorized_carapace_delegates) or 'none'}"
+            })
+
+        carapace_delegate = True
+        target_carapace_id = bot_id
+        # For carapace delegation, the task runs under the parent bot with the target carapace applied
+        bot_id = parent_bot.id
 
     sched_dt: datetime | None = None
     if scheduled_at:
@@ -114,6 +165,17 @@ async def delegate_to_agent(
             sched_dt = _parse_scheduled_at(scheduled_at)
         except ValueError as exc:
             return json.dumps({"error": str(exc)})
+
+    # Resolve model tier: explicit param > delegate entry default > none
+    effective_tier = model_tier
+    if not effective_tier and parent_bot.carapaces:
+        # Check if the target has a default model_tier in a carapace delegate entry
+        lookup_id = target_carapace_id if carapace_delegate else bot_id
+        resolved_parent = resolve_carapaces(parent_bot.carapaces)
+        for d in resolved_parent.delegates:
+            if d.id == lookup_id and d.model_tier:
+                effective_tier = d.model_tier
+                break
 
     try:
         task_id = await delegation_service.run_deferred(
@@ -128,7 +190,11 @@ async def delegate_to_agent(
             channel_id=channel_id,
             reply_in_thread=reply_in_thread,
             notify_parent=notify_parent,
+            carapace_ids=[target_carapace_id] if carapace_delegate else None,
+            model_tier=effective_tier,
         )
+        if carapace_delegate:
+            return f"Carapace delegation task created: {task_id} (carapace: {target_carapace_id})"
         return f"Delegation task created: {task_id}"
     except DelegationError as exc:
         return json.dumps({"error": str(exc)})
@@ -256,23 +322,33 @@ async def delegate_to_harness(
         src_corr = current_correlation_id.get()
         delivery_config = dict(dispatch_config)
         delivery_config["reply_in_thread"] = reply_in_thread
-        callback_cfg: dict = {
+        # execution_config: what to run
+        exec_cfg: dict = {
             "harness_name": harness,
             "working_directory": working_directory,
             "output_dispatch_type": dispatch_type or "none",
             "output_dispatch_config": delivery_config,
         }
+        sbx = _parse_uuid_opt(sandbox_instance_id)
+        if sbx is not None:
+            exec_cfg["sandbox_instance_id"] = str(sbx)
+        if src_corr is not None:
+            exec_cfg["source_correlation_id"] = str(src_corr)
+        # callback_config: what happens after
+        callback_cfg: dict = {}
         if notify_parent and session_id is not None:
             callback_cfg["notify_parent"] = True
             callback_cfg["parent_bot_id"] = parent_bot_id
             callback_cfg["parent_session_id"] = str(session_id)
             if client_id:
                 callback_cfg["parent_client_id"] = client_id
-        sbx = _parse_uuid_opt(sandbox_instance_id)
-        if sbx is not None:
-            callback_cfg["sandbox_instance_id"] = str(sbx)
-        if src_corr is not None:
-            callback_cfg["source_correlation_id"] = str(src_corr)
+            # Propagate the parent's effective model so the callback task uses the same model
+            _mo = current_model_override.get()
+            _po = current_provider_id_override.get()
+            if _mo:
+                callback_cfg["parent_model_override"] = _mo
+            if _po:
+                callback_cfg["parent_provider_id_override"] = _po
         task = Task(
             bot_id=parent_bot_id,
             client_id=client_id,
@@ -280,9 +356,10 @@ async def delegate_to_harness(
             prompt=prompt,
             status="pending",
             task_type="harness",
-            dispatch_type="harness",
-            dispatch_config={},
-            callback_config=callback_cfg,
+            dispatch_type=dispatch_type or "none",
+            dispatch_config=delivery_config,
+            execution_config=exec_cfg,
+            callback_config=callback_cfg or None,
         )
         async with async_session() as db:
             db.add(task)

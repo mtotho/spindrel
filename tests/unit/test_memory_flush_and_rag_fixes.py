@@ -1,0 +1,382 @@
+"""Unit tests for memory flush system and RAG pipeline fixes.
+
+Covers:
+- Memory flush resolution (enabled, model, prompt fallback)
+- Embedding cache (per-request deduplication)
+- Executive summary auto-regeneration threshold
+- Tool call context in compaction summaries
+- Head+tail truncation for tool result summarization
+"""
+import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_bot(**overrides) -> BotConfig:
+    defaults = dict(
+        id="test", name="Test", model="gpt-4",
+        system_prompt="You are a test bot.",
+        local_tools=[], mcp_servers=[], client_tools=[], skills=[],
+        pinned_tools=[],
+        tool_retrieval=True,
+        context_compaction=True,
+        compaction_interval=10,
+        compaction_keep_turns=4,
+        compaction_model=None,
+        memory=MemoryConfig(),
+        knowledge=KnowledgeConfig(),
+        persona=False,
+        history_mode="summary",
+    )
+    defaults.update(overrides)
+    return BotConfig(**defaults)
+
+
+def _make_channel(**overrides):
+    ch = MagicMock()
+    ch.id = overrides.get("id", uuid.uuid4())
+    ch.name = overrides.get("name", "test-channel")
+    ch.client_id = overrides.get("client_id", "test-client")
+    ch.compaction_model = overrides.get("compaction_model", None)
+    ch.compaction_interval = overrides.get("compaction_interval", None)
+    ch.compaction_keep_turns = overrides.get("compaction_keep_turns", None)
+    ch.context_compaction = overrides.get("context_compaction", True)
+    ch.history_mode = overrides.get("history_mode", None)
+    ch.trigger_heartbeat_before_compaction = overrides.get("trigger_heartbeat_before_compaction", None)
+    ch.memory_flush_enabled = overrides.get("memory_flush_enabled", None)
+    ch.memory_flush_model = overrides.get("memory_flush_model", None)
+    ch.memory_flush_model_provider_id = overrides.get("memory_flush_model_provider_id", None)
+    ch.memory_flush_prompt = overrides.get("memory_flush_prompt", None)
+    ch.memory_flush_prompt_template_id = overrides.get("memory_flush_prompt_template_id", None)
+    ch.memory_flush_workspace_file_path = overrides.get("memory_flush_workspace_file_path", None)
+    ch.memory_flush_workspace_id = overrides.get("memory_flush_workspace_id", None)
+    return ch
+
+
+# ===================================================================
+# Memory flush resolution tests
+# ===================================================================
+
+class TestMemoryFlushResolution:
+
+    def test_resolve_memory_flush_enabled_channel_override(self):
+        from app.services.compaction import _resolve_memory_flush_enabled
+        bot = _make_bot()
+        ch = _make_channel(memory_flush_enabled=True)
+        assert _resolve_memory_flush_enabled(bot, ch) is True
+
+    def test_resolve_memory_flush_disabled_channel_override(self):
+        from app.services.compaction import _resolve_memory_flush_enabled
+        bot = _make_bot()
+        ch = _make_channel(memory_flush_enabled=False)
+        assert _resolve_memory_flush_enabled(bot, ch) is False
+
+    @patch("app.services.compaction.settings")
+    def test_resolve_memory_flush_global_default(self, mock_settings):
+        from app.services.compaction import _resolve_memory_flush_enabled
+        mock_settings.MEMORY_FLUSH_ENABLED = True
+        bot = _make_bot()
+        ch = _make_channel(memory_flush_enabled=None)
+        assert _resolve_memory_flush_enabled(bot, ch) is True
+
+    @patch("app.services.compaction.settings")
+    def test_resolve_memory_flush_no_channel(self, mock_settings):
+        from app.services.compaction import _resolve_memory_flush_enabled
+        mock_settings.MEMORY_FLUSH_ENABLED = False
+        bot = _make_bot()
+        assert _resolve_memory_flush_enabled(bot, None) is False
+
+    def test_resolve_memory_flush_model_channel_override(self):
+        from app.services.compaction import _get_memory_flush_model
+        bot = _make_bot()
+        ch = _make_channel(memory_flush_model="claude-3-opus")
+        assert _get_memory_flush_model(bot, ch) == "claude-3-opus"
+
+    @patch("app.services.compaction.settings")
+    def test_resolve_memory_flush_model_global(self, mock_settings):
+        from app.services.compaction import _get_memory_flush_model
+        mock_settings.MEMORY_FLUSH_MODEL = "gemini/gemini-2.5-flash"
+        bot = _make_bot()
+        ch = _make_channel(memory_flush_model=None)
+        assert _get_memory_flush_model(bot, ch) == "gemini/gemini-2.5-flash"
+
+    @patch("app.services.compaction.settings")
+    def test_resolve_memory_flush_model_falls_back_to_bot(self, mock_settings):
+        from app.services.compaction import _get_memory_flush_model
+        mock_settings.MEMORY_FLUSH_MODEL = ""
+        bot = _make_bot(model="gpt-4o")
+        ch = _make_channel(memory_flush_model=None)
+        assert _get_memory_flush_model(bot, ch) == "gpt-4o"
+
+
+# ===================================================================
+# Embedding cache tests
+# ===================================================================
+
+class TestEmbeddingCache:
+
+    def test_clear_embed_cache(self):
+        from app.agent.embeddings import clear_embed_cache, _get_cache
+        clear_embed_cache()
+        cache = _get_cache()
+        assert cache == {}
+
+    def test_get_cache_creates_new(self):
+        from app.agent.embeddings import _embed_cache, _get_cache
+        # Reset to ensure no existing cache
+        try:
+            _embed_cache.set({})
+        except Exception:
+            pass
+        cache = _get_cache()
+        assert isinstance(cache, dict)
+
+    @pytest.mark.asyncio
+    async def test_embed_text_caches_results(self):
+        from app.agent.embeddings import embed_text, clear_embed_cache
+
+        clear_embed_cache()
+        mock_response = MagicMock()
+        mock_response.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
+
+        with patch("app.agent.embeddings._client") as mock_client:
+            mock_client.embeddings.create = AsyncMock(return_value=mock_response)
+
+            # First call — hits API
+            result1 = await embed_text("hello world")
+            assert result1 == [0.1, 0.2, 0.3]
+            assert mock_client.embeddings.create.call_count == 1
+
+            # Second identical call — should hit cache
+            result2 = await embed_text("hello world")
+            assert result2 == [0.1, 0.2, 0.3]
+            assert mock_client.embeddings.create.call_count == 1  # no extra API call
+
+    @pytest.mark.asyncio
+    async def test_embed_text_different_texts_not_cached(self):
+        from app.agent.embeddings import embed_text, clear_embed_cache
+
+        clear_embed_cache()
+        mock_response_1 = MagicMock()
+        mock_response_1.data = [MagicMock(embedding=[0.1, 0.2])]
+        mock_response_2 = MagicMock()
+        mock_response_2.data = [MagicMock(embedding=[0.3, 0.4])]
+
+        with patch("app.agent.embeddings._client") as mock_client:
+            mock_client.embeddings.create = AsyncMock(
+                side_effect=[mock_response_1, mock_response_2]
+            )
+
+            result1 = await embed_text("hello")
+            result2 = await embed_text("world")
+            assert result1 == [0.1, 0.2]
+            assert result2 == [0.3, 0.4]
+            assert mock_client.embeddings.create.call_count == 2
+
+
+# ===================================================================
+# Tool context in compaction summaries
+# ===================================================================
+
+class TestToolContextInSummaries:
+
+    def test_assistant_tool_calls_included(self):
+        from app.services.compaction import _messages_for_summary
+
+        messages = [
+            {"role": "user", "content": "Search for cats"},
+            {
+                "role": "assistant",
+                "content": "Let me search for you.",
+                "tool_calls": [
+                    {"function": {"name": "web_search", "arguments": '{"q":"cats"}'}},
+                ],
+            },
+            {"role": "tool", "content": "Found 10 results about cats", "name": "web_search"},
+            {"role": "assistant", "content": "I found 10 results about cats."},
+        ]
+        result = _messages_for_summary(messages)
+
+        # Should have 4 entries: user, assistant+tool, tool result, assistant
+        assert len(result) == 4
+        assert result[0]["content"] == "Search for cats"
+        assert "[Used tools: web_search]" in result[1]["content"]
+        assert "Let me search for you." in result[1]["content"]
+        assert "[Tool result from web_search:" in result[2]["content"]
+        assert result[3]["content"] == "I found 10 results about cats."
+
+    def test_assistant_only_tool_calls_no_content(self):
+        from app.services.compaction import _messages_for_summary
+
+        messages = [
+            {"role": "user", "content": "Do something"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"function": {"name": "save_memory", "arguments": "{}"}},
+                ],
+            },
+        ]
+        result = _messages_for_summary(messages)
+        assert len(result) == 2
+        assert "[Used tools: save_memory]" in result[1]["content"]
+
+    def test_tool_result_truncated_at_200_chars(self):
+        from app.services.compaction import _messages_for_summary
+
+        long_result = "x" * 500
+        messages = [
+            {"role": "user", "content": "run it"},
+            {"role": "tool", "content": long_result, "name": "exec"},
+        ]
+        result = _messages_for_summary(messages)
+        tool_msg = result[1]
+        assert "..." in tool_msg["content"]
+        # The truncated content should be around 200 chars
+        assert len(tool_msg["content"]) < 250
+
+    def test_passive_messages_still_excluded(self):
+        from app.services.compaction import _messages_for_summary
+
+        messages = [
+            {"role": "user", "content": "Hey from bob", "_metadata": {"passive": True, "sender_id": "bob"}},
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi!"},
+        ]
+        result = _messages_for_summary(messages)
+        # Passive goes into system context, active stays
+        assert result[0]["role"] == "system"
+        assert "bob" in result[0]["content"]
+        assert result[1]["content"] == "Hello"
+        assert result[2]["content"] == "Hi!"
+
+
+# ===================================================================
+# Head+tail truncation for tool result summarization
+# ===================================================================
+
+class TestHeadTailTruncation:
+
+    @pytest.mark.asyncio
+    async def test_short_content_not_truncated(self):
+        from app.agent.llm import _summarize_tool_result
+
+        short = "hello world"
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock(message=MagicMock(content="summary"))]
+
+        with patch("app.services.providers.get_llm_client") as mock_get:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+            mock_get.return_value = mock_client
+
+            result = await _summarize_tool_result("test", short, "model", 300)
+            # Check the prompt sent to the LLM contains the full content
+            call_args = mock_client.chat.completions.create.call_args
+            prompt = call_args.kwargs["messages"][0]["content"]
+            assert "hello world" in prompt
+            assert "chars omitted" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_long_content_uses_head_tail(self):
+        from app.agent.llm import _summarize_tool_result
+
+        # Create content larger than 12000 chars
+        long_content = "HEAD" * 2500 + "MIDDLE" * 2000 + "TAIL" * 1500
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock(message=MagicMock(content="summary"))]
+
+        with patch("app.services.providers.get_llm_client") as mock_get:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create = AsyncMock(return_value=mock_resp)
+            mock_get.return_value = mock_client
+
+            result = await _summarize_tool_result("test", long_content, "model", 300)
+            call_args = mock_client.chat.completions.create.call_args
+            prompt = call_args.kwargs["messages"][0]["content"]
+            assert "chars omitted" in prompt
+            # Should contain beginning and end
+            assert "HEAD" in prompt
+            assert "TAIL" in prompt
+
+
+# ===================================================================
+# Server settings schema validity for new settings
+# ===================================================================
+
+class TestMemoryFlushServerSettings:
+
+    def test_memory_flush_settings_in_schema(self):
+        from app.services.server_settings import SETTINGS_SCHEMA
+        from app.config import Settings
+
+        for key in ["MEMORY_FLUSH_ENABLED", "MEMORY_FLUSH_MODEL", "MEMORY_FLUSH_DEFAULT_PROMPT", "PREVIOUS_SUMMARY_INJECT_CHARS"]:
+            assert key in SETTINGS_SCHEMA, f"{key} not in SETTINGS_SCHEMA"
+            assert key in Settings.model_fields, f"{key} not in Settings"
+
+    def test_memory_flush_settings_group(self):
+        from app.services.server_settings import SETTINGS_SCHEMA
+
+        for key in ["MEMORY_FLUSH_ENABLED", "MEMORY_FLUSH_MODEL", "MEMORY_FLUSH_DEFAULT_PROMPT", "PREVIOUS_SUMMARY_INJECT_CHARS"]:
+            assert SETTINGS_SCHEMA[key]["group"] == "Chat History"
+
+
+# ===================================================================
+# Sentence-boundary truncation
+# ===================================================================
+
+class TestTruncateAtSentence:
+
+    def test_short_text_unchanged(self):
+        from app.services.compaction import _truncate_at_sentence
+        assert _truncate_at_sentence("Hello world.", 100) == "Hello world."
+
+    def test_truncates_at_period(self):
+        from app.services.compaction import _truncate_at_sentence
+        text = "First sentence. Second sentence. Third sentence that goes on and on."
+        result = _truncate_at_sentence(text, 35)
+        assert result == "First sentence. Second sentence."
+
+    def test_truncates_at_exclamation(self):
+        from app.services.compaction import _truncate_at_sentence
+        text = "Wow! That is amazing! Something else entirely here."
+        result = _truncate_at_sentence(text, 25)
+        assert result == "Wow! That is amazing!"
+
+    def test_truncates_at_question_mark(self):
+        from app.services.compaction import _truncate_at_sentence
+        text = "Is it good? I think so. More stuff."
+        result = _truncate_at_sentence(text, 15)
+        assert result == "Is it good?"
+
+    def test_no_sentence_boundary_falls_back(self):
+        from app.services.compaction import _truncate_at_sentence
+        text = "A very long word without any punctuation at all"
+        result = _truncate_at_sentence(text, 20)
+        assert result == "A very long word wit\u2026"
+        assert len(result) <= 21  # 20 chars + ellipsis
+
+    def test_heartbeat_version_matches(self):
+        from app.services.heartbeat import _truncate_at_sentence
+        text = "First sentence. Second sentence. Third long one."
+        result = _truncate_at_sentence(text, 35)
+        assert result == "First sentence. Second sentence."
+
+    def test_heartbeat_previous_conclusion_chars_in_schema(self):
+        from app.services.server_settings import SETTINGS_SCHEMA
+        from app.config import Settings
+        assert "HEARTBEAT_PREVIOUS_CONCLUSION_CHARS" in SETTINGS_SCHEMA
+        assert "HEARTBEAT_PREVIOUS_CONCLUSION_CHARS" in Settings.model_fields
+        assert SETTINGS_SCHEMA["HEARTBEAT_PREVIOUS_CONCLUSION_CHARS"]["group"] == "Heartbeat"
+
+    def test_legacy_trigger_heartbeat_removed_from_schema(self):
+        from app.services.server_settings import SETTINGS_SCHEMA
+        assert "TRIGGER_HEARTBEAT_BEFORE_COMPACTION" not in SETTINGS_SCHEMA

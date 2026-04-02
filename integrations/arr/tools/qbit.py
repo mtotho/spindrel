@@ -9,7 +9,7 @@ import httpx
 from integrations.arr.config import settings
 from integrations._register import register
 
-from ._helpers import error, sanitize
+from integrations.arr.tools._helpers import error, sanitize, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def _qbit_client():
     """Authenticated qBittorrent client (cookie-based login)."""
+    url_err = validate_url(settings.QBIT_URL, "qBittorrent")
+    if url_err:
+        raise ValueError(url_err)
     async with httpx.AsyncClient(base_url=settings.QBIT_URL.rstrip("/")) as client:
         resp = await client.post(
             "/api/v2/auth/login",
@@ -98,6 +101,8 @@ async def qbit_torrents(filter: str = "all", limit: int = 50) -> str:
         return error(f"qBittorrent API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
         return error(f"Cannot connect to qBittorrent at {settings.QBIT_URL}")
+    except httpx.TimeoutException:
+        return error(f"qBittorrent request timed out")
     except RuntimeError as e:
         return error(str(e))
     except Exception as e:
@@ -170,6 +175,8 @@ async def qbit_manage(hashes: list[str], action: str) -> str:
         return error(f"qBittorrent API error: HTTP {e.response.status_code}")
     except httpx.ConnectError:
         return error(f"Cannot connect to qBittorrent at {settings.QBIT_URL}")
+    except httpx.TimeoutException:
+        return error(f"qBittorrent request timed out")
     except RuntimeError as e:
         return error(str(e))
     except Exception as e:

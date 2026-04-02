@@ -1,0 +1,69 @@
+id: mission-control
+name: Mission Control
+description: >-
+  Task tracking, project management, planning workflows, content feeds, and
+  external service integration. Provides DB-backed kanban boards, structured plans
+  with automatic execution, cross-channel portfolio oversight, and integration setup guides.
+tags: [project-management, tasks, planning, feeds, integrations]
+
+requires:
+  tools:
+    - create_task_card
+    - move_task_card
+    - append_timeline_event
+    - draft_plan
+    - update_plan_step
+    - update_plan_status
+
+skills:
+  # Task & project management
+  - id: integrations/mission_control/mission_control
+    mode: on_demand
+  - id: integrations/mission_control/planning
+    mode: on_demand
+  - id: integrations/mission_control/project-management
+    mode: on_demand
+  # External services & data
+  - id: integrations/mission_control/content_feeds
+    mode: on_demand
+  - id: integrations/mission_control/integration-builder
+    mode: on_demand
+
+local_tools:
+  - create_task_card
+  - move_task_card
+  - append_timeline_event
+  - draft_plan
+  - update_plan_step
+  - update_plan_status
+
+system_prompt_fragment: |
+  ## Mission Control
+
+  You have structured project management and external service capabilities.
+  All task/plan data is stored in the MC database. Workspace files (tasks.md,
+  timeline.md, plans.md) are auto-generated read-only renderings — never edit
+  them directly. Use the tools below for all mutations.
+
+  Plan execution is automatic after approval — do NOT call schedule_task() to
+  advance plan steps. The plan executor handles step sequencing.
+
+  ### Tools Quick Reference
+  | Tool | Purpose |
+  |------|---------|
+  | `create_task_card` | Create a kanban card (stored in MC database) |
+  | `move_task_card` | Move a card between columns (auto-timestamps) |
+  | `append_timeline_event` | Log an event (stored in MC database) |
+  | `draft_plan` | Create a structured plan for user approval |
+  | `update_plan_step` | Mark plan steps in_progress/done/skipped |
+  | `update_plan_status` | Change overall plan status |
+
+  ### Deep Knowledge Index
+
+  | When you need... | Fetch this skill |
+  |---|---|
+  | Task board format, card metadata, status.md, kanban conventions | `get_skill('integrations/mission_control/mission_control')` |
+  | Plan workflow — drafting, approval gates, automatic execution, progress tracking | `get_skill('integrations/mission_control/planning')` |
+  | Cross-channel project tracking, portfolio reports, status dashboards | `get_skill('integrations/mission_control/project-management')` |
+  | Feed content (email, RSS), searching data/ files, creating digests | `get_skill('integrations/mission_control/content_feeds')` |
+  | Connecting external services (email, RSS, webhooks, APIs, polling) | `get_skill('integrations/mission_control/integration-builder')` |

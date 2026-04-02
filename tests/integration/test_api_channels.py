@@ -404,3 +404,70 @@ class TestAdminListChannelKnowledge:
         assert entries[0]["content_length"] == len("Some detailed knowledge content here")
         assert entries[0]["content"] == "Some detailed knowledge content here"
         assert "updated_at" in entries[0]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/admin/channels/{id}/context-preview
+# ---------------------------------------------------------------------------
+
+class TestAdminContextPreview:
+    """Context preview should return separate prompt blocks instead of one concatenated blob."""
+
+    async def test_returns_separate_blocks(self, client, db_session):
+        ch = await _create_channel(client)
+        ch_id = ch["id"]
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{ch_id}/context-preview",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        blocks = resp.json()["blocks"]
+        labels = [b["label"] for b in blocks]
+
+        # The test bot has system_prompt="You are a test bot." and no memory,
+        # so we expect Base Prompt and Bot System Prompt as separate entries.
+        assert "Bot System Prompt" in labels
+        # Should NOT have the old monolithic "System Prompt" label
+        assert "System Prompt" not in labels
+
+    async def test_bot_system_prompt_content(self, client, db_session):
+        ch = await _create_channel(client)
+        ch_id = ch["id"]
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{ch_id}/context-preview",
+            headers=AUTH_HEADERS,
+        )
+        blocks = resp.json()["blocks"]
+        bot_block = next(b for b in blocks if b["label"] == "Bot System Prompt")
+        assert bot_block["content"] == "You are a test bot."
+        assert bot_block["role"] == "system"
+
+    async def test_global_base_prompt_shown_when_set(self, client, db_session, monkeypatch):
+        monkeypatch.setattr("app.config.settings.GLOBAL_BASE_PROMPT", "Be helpful always.")
+        ch = await _create_channel(client)
+        ch_id = ch["id"]
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{ch_id}/context-preview",
+            headers=AUTH_HEADERS,
+        )
+        blocks = resp.json()["blocks"]
+        labels = [b["label"] for b in blocks]
+        assert "Global Base Prompt" in labels
+        global_block = next(b for b in blocks if b["label"] == "Global Base Prompt")
+        assert global_block["content"] == "Be helpful always."
+
+    async def test_no_global_base_prompt_when_empty(self, client, db_session, monkeypatch):
+        monkeypatch.setattr("app.config.settings.GLOBAL_BASE_PROMPT", "")
+        ch = await _create_channel(client)
+        ch_id = ch["id"]
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{ch_id}/context-preview",
+            headers=AUTH_HEADERS,
+        )
+        blocks = resp.json()["blocks"]
+        labels = [b["label"] for b in blocks]
+        assert "Global Base Prompt" not in labels

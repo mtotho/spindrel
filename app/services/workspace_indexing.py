@@ -118,7 +118,13 @@ def resolve_indexing(
 
 
 def get_all_roots(bot, workspace_service=None) -> list[str]:
-    """Return all workspace roots for a bot: own root + include_bots roots.
+    """Return all workspace roots for a bot.
+
+    For shared workspace bots, returns the shared workspace root so that
+    segments referencing common/, hub/, etc. (outside bots/{id}/) are reachable.
+    File paths are then stored relative to the workspace root.
+
+    For standalone bots, returns the bot's own workspace directory.
 
     Args:
         bot: BotConfig instance.
@@ -127,16 +133,11 @@ def get_all_roots(bot, workspace_service=None) -> list[str]:
     Returns:
         List of host-side root paths to index/search.
     """
+    if bot.shared_workspace_id:
+        from app.services.shared_workspace import shared_workspace_service
+        return [shared_workspace_service.get_host_root(bot.shared_workspace_id)]
+
     if workspace_service is None:
         from app.services.workspace import workspace_service
     own_root = workspace_service.get_workspace_root(bot.id, bot=bot)
-    roots = [own_root]
-    if bot.workspace.indexing.include_bots and bot.shared_workspace_id:
-        from app.services.shared_workspace import shared_workspace_service
-        import os
-        sw_root = shared_workspace_service.get_host_root(bot.shared_workspace_id)
-        for other_bot_id in bot.workspace.indexing.include_bots:
-            other_root = os.path.join(sw_root, "bots", other_bot_id)
-            if other_root not in roots:
-                roots.append(other_root)
-    return roots
+    return [own_root]

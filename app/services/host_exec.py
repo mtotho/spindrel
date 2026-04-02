@@ -24,6 +24,10 @@ _HARDCODED_BLOCKED: list[re.Pattern] = [
         r"\bmkfs\b",                             # filesystem formatting
         r"\bdd\b.*of=/dev/",                     # dd to device
         r":\(\)\s*\{.*\|.*:.*&.*\}",            # fork bomb
+        r"\bcurl\b.*\blocalhost\b",              # curl to localhost
+        r"\bcurl\b.*\b127\.0\.0\.\d",           # curl to 127.x
+        r"\bwget\b.*\blocalhost\b",              # wget to localhost
+        r"\bwget\b.*\b127\.0\.0\.\d",           # wget to 127.x
     ]
 ]
 
@@ -206,7 +210,14 @@ class HostExecService:
     def _build_env(self, cfg: "HostExecConfig") -> dict:  # noqa: F821
         """Build a sanitized environment dict from passthrough lists."""
         passthrough_keys = set(settings.HOST_EXEC_ENV_PASSTHROUGH) | set(cfg.env_passthrough)
-        return {k: v for k, v in os.environ.items() if k in passthrough_keys}
+        env = {k: v for k, v in os.environ.items() if k in passthrough_keys}
+        # Inject secret values (available in host exec even if not in os.environ)
+        try:
+            from app.services.secret_values import get_env_dict
+            env.update(get_env_dict())
+        except Exception:
+            pass
+        return env
 
 
 host_exec_service = HostExecService()

@@ -8,7 +8,7 @@ import httpx
 from integrations.arr.config import settings
 from integrations._register import register
 
-from ._helpers import error, sanitize
+from integrations.arr.tools._helpers import error, sanitize, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -25,29 +25,53 @@ def _headers() -> dict[str, str]:
 
 
 async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.JELLYFIN_URL, "Jellyfin")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Jellyfin request timed out after {timeout}s: {path}"
+        )
 
 
 async def _post(path: str, payload: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.JELLYFIN_URL, "Jellyfin")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, headers=_headers(), json=payload or {}, timeout=timeout)
-        resp.raise_for_status()
-        # Some Jellyfin endpoints return empty body
-        if resp.content:
-            return resp.json()
-        return {}
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, headers=_headers(), json=payload or {}, timeout=timeout)
+            resp.raise_for_status()
+            # Some Jellyfin endpoints return empty body
+            if resp.content:
+                return resp.json()
+            return {}
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Jellyfin request timed out after {timeout}s: {path}"
+        )
 
 
 async def _delete(path: str, timeout: float = 15.0):
+    url_err = validate_url(settings.JELLYFIN_URL, "Jellyfin")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
-    async with httpx.AsyncClient() as client:
-        resp = await client.delete(url, headers=_headers(), timeout=timeout)
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(url, headers=_headers(), timeout=timeout)
+            resp.raise_for_status()
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Jellyfin request timed out after {timeout}s: {path}"
+        )
 
 
 async def _get_admin_user_id() -> str:

@@ -142,10 +142,15 @@ def _effective_system_prompt(
     workspace filesystem and uses that instead of the global base prompt.
     """
     from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
+    from app.config import settings as _settings
     parts = []
 
+    # Global base prompt: org-wide instructions prepended before everything
+    if _settings.GLOBAL_BASE_PROMPT:
+        parts.append(_settings.GLOBAL_BASE_PROMPT.rstrip())
+
     ws_base = None
-    if workspace_base_prompt_enabled and bot.shared_workspace_id:
+    if workspace_base_prompt_enabled:
         ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
 
     if ws_base:
@@ -155,9 +160,27 @@ def _effective_system_prompt(
         if base:
             parts.append(base.rstrip())
 
-    parts.append(bot.system_prompt.rstrip())
-    if bot.memory.enabled and bot.memory.prompt:
-        parts.append(bot.memory.prompt.strip())
+    # Resolve system prompt from workspace file if configured
+    _sys_prompt = bot.system_prompt
+    if getattr(bot, "system_prompt_workspace_file", False):
+        from app.services.prompt_resolution import resolve_workspace_file_prompt
+        _ws_prompt = resolve_workspace_file_prompt(
+            bot.shared_workspace_id,
+            f"bots/{bot.id}/system_prompt.md",
+            "",
+        )
+        if _ws_prompt:
+            _sys_prompt = _ws_prompt
+    parts.append(_sys_prompt.rstrip())
+    if getattr(bot, "memory_scheme", None) == "workspace-files":
+        from app.config import settings as _cfg
+        from app.services.memory_scheme import get_memory_rel_path
+        _mem_rel = get_memory_rel_path(bot)
+        from app.config import DEFAULT_MEMORY_SCHEME_PROMPT
+        _tmpl = _cfg.MEMORY_SCHEME_PROMPT.strip() if _cfg.MEMORY_SCHEME_PROMPT else ""
+        _prompt = (_tmpl or DEFAULT_MEMORY_SCHEME_PROMPT).format(memory_rel=_mem_rel).strip()
+        parts.append(_prompt)
+    # DB memory prompt injection removed (deprecated)
     return "\n\n".join(parts)
 
 
@@ -205,7 +228,7 @@ async def load_or_create(
     # Build initial message list with persona if enabled
     messages = [{"role": "system", "content": system_content}]
     if bot.persona:
-        persona_layer = await get_persona(bot.id)
+        persona_layer = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
         if persona_layer:
             messages.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
 
@@ -228,6 +251,7 @@ def _format_passive_context(passive_msgs: list[dict]) -> str:
     return "\n".join(lines)
 
 
+
 async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
     """Load messages for a session, using compacted summary when available."""
     bot = get_bot(session.bot_id)
@@ -238,7 +262,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
 
     persona_layer = None
     if bot.persona:
-        persona_layer = await get_persona(bot.id)
+        persona_layer = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
 
     def _base_messages() -> list[dict]:
         msgs = [{"role": "system", "content": _effective_system_prompt(bot, workspace_base_prompt_enabled=ws_base_enabled)}]
@@ -256,7 +280,19 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
             messages.append({"role": "system", "content": _format_passive_context(passive)})
         return messages
 
+    # Load channel once for history mode
+    _channel: Channel | None = None
+    if session.channel_id:
+        _channel = await db.get(Channel, session.channel_id)
+
+    def _convert_msgs(orm_msgs: list[Message]) -> list[dict]:
+        return [_message_to_dict(m, enrich_attachments=True) for m in orm_msgs]
+
     if session.summary and session.summary_message_id and bot.context_compaction:
+        # Resolve history mode
+        from app.services.compaction import _get_history_mode
+        _history_mode = _get_history_mode(bot, _channel)
+
         watermark_msg = await db.get(Message, session.summary_message_id)
         if watermark_msg is not None:
             recent_result = await db.execute(
@@ -266,13 +302,29 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 .where(Message.created_at > watermark_msg.created_at)
                 .order_by(Message.created_at)
             )
-            recent = [_message_to_dict(m, enrich_attachments=True)
-                       for m in recent_result.scalars().all() if m.role != "system"]
+            recent_orm = [m for m in recent_result.scalars().all() if m.role != "system"]
+            recent = _convert_msgs(recent_orm)
             passive, active = _split_passive_active(recent)
+            active = _filter_old_heartbeats(active)
             messages = _base_messages()
-            messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
+
+            if _history_mode == "file" and session.channel_id:
+                # File mode: section index is injected by context_assembly.py
+                # with proper count/verbosity — skip executive summary here to
+                # avoid duplicating section titles+summaries in context.
+                pass
+            elif _history_mode == "structured":
+                # Structured mode: inject compact executive summary (section retrieval happens in context_assembly)
+                messages.append({"role": "system", "content": f"Executive summary of conversation history:\n\n{session.summary}"})
+            else:
+                # Default summary mode
+                messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
+
             _inject_channel_context(messages, passive)
-            messages.extend(active)
+            if active:
+                messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
+                messages.extend(active)
+                messages.append({"role": "system", "content": "--- END RECENT CONVERSATION HISTORY ---"})
             return _sanitize_tool_messages(_strip_metadata_keys(messages))
         else:
             # watermark gone but summary exists — inject summary + all non-system messages
@@ -283,13 +335,21 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 .where(Message.session_id == session.id)
                 .order_by(Message.created_at)
             )
-            all_msgs = [_message_to_dict(m, enrich_attachments=True) for m in result.scalars().all()]
+            all_orm = list(result.scalars().all())
+            all_msgs = _convert_msgs(all_orm)
             non_system = [m for m in all_msgs if m["role"] != "system"]
             passive, active = _split_passive_active(non_system)
+            active = _filter_old_heartbeats(active)
             messages = _base_messages()
-            messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
+            if _history_mode != "file" or not session.channel_id:
+                # In file mode, section index is injected by context_assembly.py —
+                # skip executive summary here to avoid duplication.
+                messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             _inject_channel_context(messages, passive)
-            messages.extend(active)
+            if active:
+                messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
+                messages.extend(active)
+                messages.append({"role": "system", "content": "--- END RECENT CONVERSATION HISTORY ---"})
             return _sanitize_tool_messages(_strip_metadata_keys(messages))
 
     result = await db.execute(
@@ -298,9 +358,11 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
         .where(Message.session_id == session.id)
         .order_by(Message.created_at)
     )
-    all_msgs = [_message_to_dict(m, enrich_attachments=True) for m in result.scalars().all()]
+    all_orm = list(result.scalars().all())
+    all_msgs = _convert_msgs(all_orm)
     non_system_msgs = [m for m in all_msgs if m["role"] != "system"]
     passive, active = _split_passive_active(non_system_msgs)
+    active = _filter_old_heartbeats(active)
     messages = _base_messages()
     _inject_channel_context(messages, passive)
     messages.extend(active)
@@ -314,20 +376,54 @@ async def persist_turn(
     from_index: int,
     correlation_id: uuid.UUID | None = None,
     msg_metadata: dict | None = None,
+    channel_id: uuid.UUID | None = None,
+    is_heartbeat: bool = False,
 ) -> uuid.UUID | None:
     """Persist new messages from a turn. Returns the first user message ID (for attachment linking)."""
     # Ephemeral system messages (datetime, memory, skills, fs_context, tool_index, etc.) are
     # re-injected fresh on every turn — persisting them causes unbounded context growth.
     new_messages = [m for m in messages[from_index:] if m.get("role") != "system"]
+    roles = [m.get("role") for m in new_messages]
+    logger.info(
+        "persist_turn: session=%s from_index=%d total_msgs=%d new_msgs=%d roles=%s",
+        session_id, from_index, len(messages), len(new_messages), roles,
+    )
     now = datetime.now(timezone.utc)
     first_user = True
     first_user_msg_id: uuid.UUID | None = None
+    last_assistant_msg_id: uuid.UUID | None = None
     for i, msg in enumerate(new_messages):
         # Attach msg_metadata to the first user message in the turn
         meta = {}
         if msg_metadata and msg.get("role") == "user" and first_user:
             meta = msg_metadata
             first_user = False
+        # Auto-inject bot metadata on assistant messages
+        if msg.get("role") == "assistant" and not meta:
+            meta = {"sender_type": "bot", "sender_id": f"bot:{bot.id}", "sender_display_name": bot.name}
+        # Carry forward tools_used from the agent loop into message metadata
+        if msg.get("_tools_used"):
+            meta = {**meta, "tools_used": msg["_tools_used"]}
+        # Extract delegation info from delegate_to_agent tool calls
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            _delegations = []
+            for tc in msg["tool_calls"]:
+                fn = tc.get("function") or {}
+                if fn.get("name") == "delegate_to_agent":
+                    try:
+                        args = json.loads(fn.get("arguments", "{}"))
+                        _delegations.append({
+                            "bot_id": args.get("bot_id"),
+                            "prompt_preview": (args.get("prompt") or "")[:200],
+                            "notify_parent": args.get("notify_parent", True),
+                        })
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            if _delegations:
+                meta = {**meta, "delegations": _delegations}
+        # Tag all messages in heartbeat turns so _load_messages can filter old ones
+        if is_heartbeat:
+            meta = {**meta, "is_heartbeat": True}
         record = Message(
             session_id=session_id,
             role=msg["role"],
@@ -341,6 +437,8 @@ async def persist_turn(
         db.add(record)
         if first_user_msg_id is None and msg.get("role") == "user":
             first_user_msg_id = record.id
+        if msg.get("role") == "assistant":
+            last_assistant_msg_id = record.id
 
     await db.execute(
         update(Session)
@@ -348,6 +446,53 @@ async def persist_turn(
         .values(last_active=now)
     )
     await db.commit()
+
+    # Link orphaned attachments to the correct message in this turn.
+    # User-uploaded attachments (posted_by IS NULL) → first user message.
+    # Bot/tool-created attachments (posted_by IS NOT NULL, e.g. send_file) → last assistant message.
+    if channel_id:
+        try:
+            from app.db.models import Attachment
+            linked_count = 0
+            if first_user_msg_id:
+                res = await db.execute(
+                    update(Attachment)
+                    .where(
+                        Attachment.channel_id == channel_id,
+                        Attachment.message_id.is_(None),
+                        Attachment.posted_by.is_(None),
+                    )
+                    .values(message_id=first_user_msg_id)
+                )
+                linked_count += res.rowcount
+            if last_assistant_msg_id:
+                res = await db.execute(
+                    update(Attachment)
+                    .where(
+                        Attachment.channel_id == channel_id,
+                        Attachment.message_id.is_(None),
+                        Attachment.posted_by.isnot(None),
+                    )
+                    .values(message_id=last_assistant_msg_id)
+                )
+                linked_count += res.rowcount
+            if linked_count:
+                await db.commit()
+                logger.info(
+                    "Linked %d orphan attachment(s) in channel %s (user_msg=%s, asst_msg=%s)",
+                    linked_count, channel_id, first_user_msg_id, last_assistant_msg_id,
+                )
+            else:
+                logger.debug(
+                    "No orphan attachments to link in channel %s (user_msg=%s, asst_msg=%s)",
+                    channel_id, first_user_msg_id, last_assistant_msg_id,
+                )
+        except Exception:
+            logger.exception(
+                "Failed to link orphan attachments in channel %s (user_msg=%s, asst_msg=%s)",
+                channel_id, first_user_msg_id, last_assistant_msg_id,
+            )
+
     return first_user_msg_id
 
 
@@ -356,6 +501,7 @@ async def store_dispatch_echo(
     client_id: str | None,
     posting_bot_id: str,
     text: str,
+    extra_metadata: dict | None = None,
 ) -> None:
     """Mirror a bot-authored message into the channel session for the next agent load.
 
@@ -363,6 +509,11 @@ async def store_dispatch_echo(
     ``chat.postMessage`` results (e.g. delegated bots) never flow through
     ``store_passive_message``.  This writes the same shape of row as human passive traffic:
     ``metadata.passive`` so it appears in the channel-context system block on load.
+
+    IMPORTANT: Skips echoing if the posting bot owns the session — the assistant
+    message is already in the session via persist_turn.  Echoing it again as a
+    passive user message causes the bot to see its own output 2-3x (active history
+    + channel context + heartbeat preamble).
     """
     stripped = (text or "").strip()
     if session_id is None or not client_id or not stripped:
@@ -375,6 +526,16 @@ async def store_dispatch_echo(
     include_in_memory = True
     try:
         async with async_session() as db:
+            # Skip echo if posting bot owns this session — avoids duplication.
+            # The assistant response is already persisted via persist_turn.
+            session = await db.get(Session, session_id)
+            if session and session.bot_id == posting_bot_id:
+                logger.debug(
+                    "store_dispatch_echo: skipping self-echo for bot %s in session %s",
+                    posting_bot_id, session_id,
+                )
+                return
+
             # Check channel passive_memory setting
             from app.db.models import Channel
             from app.services.channels import is_integration_client_id
@@ -388,6 +549,13 @@ async def store_dispatch_echo(
                     if not channel.passive_memory:
                         return
                     include_in_memory = channel.passive_memory
+            # Resolve display name for UI attribution
+            _sender_display_name = posting_bot_id
+            try:
+                _bot = get_bot(posting_bot_id)
+                _sender_display_name = _bot.display_name or _bot.name or posting_bot_id
+            except Exception:
+                pass
             metadata = {
                 "passive": True,
                 "include_in_memory": include_in_memory,
@@ -395,7 +563,10 @@ async def store_dispatch_echo(
                 "source": source,
                 "sender_type": "bot",
                 "sender_id": f"bot:{posting_bot_id}",
+                "sender_display_name": _sender_display_name,
             }
+            if extra_metadata:
+                metadata.update(extra_metadata)
             await store_passive_message(db, session_id, content, metadata)
     except Exception:
         logger.exception(
@@ -600,6 +771,26 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
     if msg.metadata_:
         d["_metadata"] = msg.metadata_
     return d
+
+
+def _filter_old_heartbeats(msgs: list[dict]) -> list[dict]:
+    """Strip heartbeat *prompt* messages but keep assistant heartbeat responses.
+
+    User-role heartbeat messages are synthetic prompts that look like user
+    instructions and confuse the LLM into continuing from the heartbeat
+    context instead of the user's actual message — these are dropped.
+
+    Assistant-role heartbeat responses are kept so the bot remains aware of
+    its own heartbeat output when the user messages next.  Tool-role messages
+    from heartbeat turns are also kept (they're part of the assistant's work).
+    """
+    return [
+        m for m in msgs
+        if not (
+            (m.get("_metadata") or {}).get("is_heartbeat")
+            and m.get("role") == "user"
+        )
+    ]
 
 
 def _strip_metadata_keys(messages: list[dict]) -> list[dict]:

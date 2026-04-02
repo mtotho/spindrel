@@ -3,32 +3,32 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Attachment
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes, verify_auth_or_user
 
 router = APIRouter(prefix="/attachments", tags=["Attachments"])
 
 
 class AttachmentOut(BaseModel):
     id: uuid.UUID
-    message_id: uuid.UUID
-    channel_id: Optional[uuid.UUID]
+    message_id: Optional[uuid.UUID] = None
+    channel_id: Optional[uuid.UUID] = None
     type: str
-    url: str
+    url: Optional[str] = None
     filename: str
     mime_type: str
     size_bytes: int
-    posted_by: Optional[str]
+    posted_by: Optional[str] = None
     source_integration: str
-    description: Optional[str]
-    description_model: Optional[str]
-    described_at: Optional[datetime]
+    description: Optional[str] = None
+    description_model: Optional[str] = None
+    described_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -38,7 +38,7 @@ class AttachmentOut(BaseModel):
 async def get_attachment(
     attachment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("attachments:read")),
 ):
     att = await db.get(Attachment, attachment_id)
     if att is None:
@@ -46,17 +46,43 @@ async def get_attachment(
     return att
 
 
-def _verify_token_or_header(
+async def _verify_token_or_header(
     token: Optional[str],
     authorization: Optional[str],
+    db: AsyncSession,
 ) -> None:
+    """Accept static API key, scoped API key, or JWT — via query param or header."""
     from app.config import settings
-    if token and token == settings.API_KEY:
+
+    # Collect the raw bearer value from whichever source is available
+    raw = token
+    if not raw and authorization and authorization.startswith("Bearer "):
+        raw = authorization.removeprefix("Bearer ")
+    if not raw:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+    # Static API key
+    if raw == settings.API_KEY:
         return
-    if authorization and authorization.startswith("Bearer "):
-        if authorization.removeprefix("Bearer ") == settings.API_KEY:
+
+    # Scoped API key
+    if raw.startswith("ask_"):
+        from app.services.api_keys import validate_api_key
+        if await validate_api_key(db, raw) is not None:
             return
-    raise HTTPException(status_code=401, detail="Invalid or missing token")
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    # JWT access token
+    from app.services.auth import decode_access_token, get_user_by_id
+    import jwt as _jwt
+    try:
+        payload = decode_access_token(raw)
+    except _jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    from uuid import UUID as _UUID
+    user = await get_user_by_id(db, _UUID(payload["sub"]))
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or deactivated")
 
 
 @router.get("/{attachment_id}/file")
@@ -67,7 +93,7 @@ async def get_attachment_file(
     db: AsyncSession = Depends(get_db),
 ):
     """Serve raw file data for an attachment. Accepts auth via query param for <img> tags."""
-    _verify_token_or_header(token, authorization)
+    await _verify_token_or_header(token, authorization, db)
 
     att = await db.get(Attachment, attachment_id)
     if att is None:
@@ -88,7 +114,7 @@ async def list_attachments(
     type: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("attachments:read")),
 ):
     q = select(Attachment)
     if channel_id:
@@ -100,3 +126,29 @@ async def list_attachments(
     q = q.order_by(Attachment.created_at.desc()).limit(limit)
     result = await db.execute(q)
     return list(result.scalars().all())
+
+
+@router.post("/upload", response_model=AttachmentOut, status_code=201)
+async def upload_attachment(
+    file: UploadFile = File(...),
+    channel_id: uuid.UUID = Form(...),
+    _auth=Depends(require_scopes("attachments:write")),
+):
+    """Upload a file as a standalone attachment (no message)."""
+    from app.services.attachments import create_attachment
+
+    file_data = await file.read()
+    mime = file.content_type or "application/octet-stream"
+    filename = file.filename or "upload"
+
+    attachment = await create_attachment(
+        message_id=None,
+        channel_id=channel_id,
+        filename=filename,
+        mime_type=mime,
+        size_bytes=len(file_data),
+        posted_by=None,
+        source_integration="web",
+        file_data=file_data,
+    )
+    return attachment

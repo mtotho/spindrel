@@ -16,6 +16,7 @@ class EffectiveTools:
     client_tools: list[str] = field(default_factory=list)
     pinned_tools: list[str] = field(default_factory=list)
     skills: list[SkillConfig] = field(default_factory=list)
+    carapaces: list[str] = field(default_factory=list)
 
 
 def _resolve_list(bot_list: list[str], override: list | None, disabled: list | None) -> list[str]:
@@ -39,20 +40,23 @@ def _resolve_skills(
     bot_skills: list[SkillConfig],
     override: list | None,
     disabled: list | None,
+    extras: list | None = None,
 ) -> list[SkillConfig]:
-    """Resolve skills with override/disabled semantics.
+    """Resolve skills with override/disabled/extras semantics.
 
-    override entries are dicts: {id, mode?, similarity_threshold?}
-    disabled entries are skill id strings.
+    - override (legacy): whitelist — only matching bot skills kept
+    - extras: add new skills from global pool
+    - disabled: remove skills by id
     """
     if override is not None:
+        # Legacy override path — whitelist only bot skills
         bot_skill_map = {s.id: s for s in bot_skills}
         result = []
         for entry in override:
             sid = entry if isinstance(entry, str) else entry.get("id", "")
             base = bot_skill_map.get(sid)
             if base is None:
-                continue  # can't add skills the bot doesn't have
+                continue
             if isinstance(entry, dict):
                 result.append(SkillConfig(
                     id=sid,
@@ -62,17 +66,35 @@ def _resolve_skills(
             else:
                 result.append(base)
         return result
-    if disabled is not None:
+
+    # Start with bot skills (already includes workspace DB skills)
+    result_map = {s.id: s for s in bot_skills}
+    # Merge channel extras (new skills from global pool)
+    if extras:
+        for entry in extras:
+            sid = entry if isinstance(entry, str) else entry.get("id", "")
+            if sid and sid not in result_map:
+                if isinstance(entry, dict):
+                    result_map[sid] = SkillConfig(
+                        id=sid,
+                        mode=entry.get("mode", "on_demand"),
+                        similarity_threshold=entry.get("similarity_threshold"),
+                    )
+                else:
+                    result_map[sid] = SkillConfig(id=sid)
+    # Remove disabled
+    if disabled:
         disabled_set = set(disabled)
-        return [s for s in bot_skills if s.id not in disabled_set]
-    return list(bot_skills)
+        return [s for s in result_map.values() if s.id not in disabled_set]
+    return list(result_map.values())
 
 
 def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> EffectiveTools:
     """Resolve effective tool/skill configuration for a channel.
 
-    Channel overrides can only *restrict* what the bot offers, never expand it.
-    Returns bot defaults when channel is None or has no overrides set.
+    Tools: channel overrides restrict the bot's tool lists (override/disabled).
+    Skills: channel extras can ADD skills from the global pool; disabled removes.
+    Returns bot defaults when channel is None.
     """
     if channel is None:
         return EffectiveTools(
@@ -81,7 +103,35 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
             client_tools=list(bot.client_tools),
             pinned_tools=list(bot.pinned_tools),
             skills=list(bot.skills),
+            carapaces=list(bot.carapaces),
         )
+
+    # Resolve carapaces: extras add, activation inject, disabled removes
+    _carapaces = list(bot.carapaces)
+    _ch_extra = getattr(channel, "carapaces_extra", None) or []
+    for cid in _ch_extra:
+        if cid not in _carapaces:
+            _carapaces.append(cid)
+    _ch_disabled = set(getattr(channel, "carapaces_disabled", None) or [])
+
+    # Inject carapaces from activated integrations (mirrors context_assembly.py)
+    if channel is not None:
+        try:
+            from integrations import get_activation_manifests
+            _manifests = get_activation_manifests()
+            for _ci in (getattr(channel, "integrations", None) or []):
+                if not _ci.activated:
+                    continue
+                _manifest = _manifests.get(_ci.integration_type)
+                if _manifest:
+                    for cap_id in _manifest.get("carapaces", []):
+                        if cap_id not in _carapaces and cap_id not in _ch_disabled:
+                            _carapaces.append(cap_id)
+        except Exception:
+            pass
+
+    if _ch_disabled:
+        _carapaces = [c for c in _carapaces if c not in _ch_disabled]
 
     return EffectiveTools(
         local_tools=_resolve_list(
@@ -108,5 +158,7 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
             bot.skills,
             channel.skills_override,
             channel.skills_disabled,
+            getattr(channel, "skills_extra", None),
         ),
+        carapaces=_carapaces,
     )

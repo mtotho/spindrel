@@ -51,3 +51,23 @@ def set_channel_state(channel: str, *, bot_id=None) -> None:
     # Remove legacy session_id if present
     _channel_state[channel].pop("session_id", None)
     _save_state()
+
+
+# ---------------------------------------------------------------------------
+# Global settings (stored under "__settings__" key in slack_state.json)
+# ---------------------------------------------------------------------------
+
+def get_global_setting(key: str, default=None):
+    """Read a global Slack integration setting."""
+    return _channel_state.get("__settings__", {}).get(key, default)
+
+
+def set_global_setting(key: str, value) -> None:
+    """Write a global Slack integration setting."""
+    if "__settings__" not in _channel_state:
+        _channel_state["__settings__"] = {}
+    if value is None:
+        _channel_state["__settings__"].pop(key, None)
+    else:
+        _channel_state["__settings__"][key] = value
+    _save_state()

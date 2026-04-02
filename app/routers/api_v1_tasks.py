@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Task
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -46,7 +46,7 @@ class TaskOut(BaseModel):
 async def get_task(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("tasks:read")),
 ):
     """Poll a task's status and result."""
     task = await db.get(Task, task_id)

@@ -5,6 +5,7 @@ import type {
   WorkspaceCreate,
   WorkspaceUpdate,
   WorkspaceFileEntry,
+  CronEntry,
 } from "../../types/api";
 
 export function useWorkspaces() {
@@ -156,10 +157,10 @@ export function useAddBotToWorkspace(workspaceId: string) {
 export function useUpdateWorkspaceBot(workspaceId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { bot_id: string; role?: string; cwd_override?: string }) =>
+    mutationFn: (data: { bot_id: string; role?: string; cwd_override?: string; write_access?: string[] }) =>
       apiFetch(`/api/v1/workspaces/${workspaceId}/bots/${data.bot_id}`, {
         method: "PUT",
-        body: JSON.stringify({ role: data.role, cwd_override: data.cwd_override }),
+        body: JSON.stringify({ role: data.role, cwd_override: data.cwd_override, write_access: data.write_access }),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });
@@ -256,6 +257,209 @@ export function useDeleteWorkspaceFile(workspaceId: string) {
       qc.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
       qc.invalidateQueries({ queryKey: ["workspace-file-content", workspaceId] });
     },
+  });
+}
+
+export function useMoveWorkspaceFile(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { src: string; dst: string }) =>
+      apiFetch<{ src: string; dst: string }>(
+        `/api/v1/workspaces/${workspaceId}/files/move`,
+        { method: "POST", body: JSON.stringify(data) }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-file-content", workspaceId] });
+    },
+  });
+}
+
+// File upload (multipart — cannot use apiFetch which sets JSON content-type)
+
+export function useUploadWorkspaceFile(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ file, targetDir }: { file: File; targetDir: string }) => {
+      const { useAuthStore } = await import("../../stores/auth");
+      const { serverUrl } = useAuthStore.getState();
+      const { getAuthToken } = await import("../../stores/auth");
+      if (!serverUrl) throw new Error("Server not configured");
+
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("target_dir", targetDir);
+
+      const token = getAuthToken();
+      const res = await fetch(
+        `${serverUrl}/api/v1/workspaces/${workspaceId}/files/upload`,
+        {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        }
+      );
+      if (!res.ok) {
+        const body = await res.text().catch(() => null);
+        throw new Error(`Upload failed (${res.status}): ${body}`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-files", workspaceId] });
+    },
+  });
+}
+
+// Index status
+
+export interface FileIndexEntry {
+  chunk_count: number;
+  last_indexed: string | null;
+  bots: { bot_id: string; bot_name: string }[];
+  language: string | null;
+  embedding_model: string | null;
+  source: "memory" | "patterns" | null;
+}
+
+export function useWorkspaceIndexStatus(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["workspace-index-status", workspaceId],
+    queryFn: () =>
+      apiFetch<{ indexed_files: Record<string, FileIndexEntry> }>(
+        `/api/v1/workspaces/${workspaceId}/files/index-status`
+      ),
+    enabled: !!workspaceId,
+    staleTime: 30_000,
+  });
+}
+
+// Indexing overview (per-bot resolved configs)
+
+export interface BotIndexingInfo {
+  bot_id: string;
+  bot_name: string;
+  role: string;
+  indexing_enabled: boolean;
+  memory_scheme: string | null;
+  explicit_overrides: Record<string, any>;
+  resolved: {
+    enabled: boolean;
+    patterns: string[];
+    similarity_threshold: number;
+    top_k: number;
+    watch: boolean;
+    cooldown_seconds: number;
+    embedding_model: string;
+    segments?: any[];
+    [key: string]: any;
+  };
+}
+
+export interface WorkspaceIndexingOverview {
+  global_defaults: Record<string, any>;
+  workspace_defaults: Record<string, any> | null;
+  bots: BotIndexingInfo[];
+  supported_languages: string[];
+  skip_extensions: string[];
+  skip_directories: string[];
+}
+
+export function useWorkspaceIndexing(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["workspace-indexing", workspaceId],
+    queryFn: () =>
+      apiFetch<WorkspaceIndexingOverview>(
+        `/api/v1/workspaces/${workspaceId}/indexing`
+      ),
+    enabled: !!workspaceId,
+    staleTime: 30_000,
+  });
+}
+
+// Update bot indexing config (segments, patterns, etc.) from workspace page
+
+export function useUpdateBotIndexing(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { bot_id: string; indexing: Record<string, any> }) =>
+      apiFetch(`/api/v1/workspaces/${workspaceId}/bots/${data.bot_id}/indexing`, {
+        method: "PUT",
+        body: JSON.stringify(data.indexing),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspace-indexing", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-index-status", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["bots"] });
+    },
+  });
+}
+
+// Editor (code-server)
+
+export function useEnableEditor(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ editor_url: string; editor_port: number; editor_enabled: boolean; editor_installing?: boolean }>(
+        `/api/v1/workspaces/${workspaceId}/editor/enable`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspaces"] });
+      qc.invalidateQueries({ queryKey: ["editor-status", workspaceId] });
+    },
+  });
+}
+
+export function useDisableEditor(workspaceId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ editor_enabled: boolean }>(
+        `/api/v1/workspaces/${workspaceId}/editor/disable`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspaces"] });
+      qc.invalidateQueries({ queryKey: ["editor-status", workspaceId] });
+    },
+  });
+}
+
+export function useEditorStatus(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["editor-status", workspaceId],
+    queryFn: () =>
+      apiFetch<{
+        editor_enabled: boolean;
+        editor_port: number | null;
+        editor_running: boolean;
+        editor_url: string | null;
+      }>(`/api/v1/workspaces/${workspaceId}/editor/status`),
+    enabled: !!workspaceId,
+    refetchInterval: 10_000,
+  });
+}
+
+export async function createEditorSession(workspaceId: string): Promise<void> {
+  await apiFetch(`/api/v1/workspaces/${workspaceId}/editor/session`, {
+    method: "POST",
+  });
+}
+
+// Cron jobs
+
+export function useWorkspaceCronJobs(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: ["workspace-cron-jobs", workspaceId],
+    queryFn: () =>
+      apiFetch<{ cron_jobs: CronEntry[]; error: string | null }>(
+        `/api/v1/workspaces/${workspaceId}/cron-jobs`
+      ),
+    enabled: !!workspaceId,
   });
 }
 

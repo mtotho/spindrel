@@ -1,9 +1,7 @@
 """Turns API: /turns — high-level view of agent turns for orchestrator troubleshooting."""
 from __future__ import annotations
 
-import json
 import uuid
-from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -12,7 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Message, Session, ToolCall, TraceEvent
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
+from ._helpers import _parse_time, build_tool_call_previews
 
 router = APIRouter()
 
@@ -83,7 +82,7 @@ async def list_turns(
     has_tool_calls: Optional[bool] = Query(None, description="Filter to turns with/without tool calls"),
     search: Optional[str] = Query(None, description="Search in user message text"),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("logs:read")),
 ):
     """List recent agent turns with tool calls, token usage, errors, and timing.
 
@@ -236,24 +235,7 @@ async def list_turns(
                     response_preview = response_preview[:300] + "..."
 
         # Tool calls
-        turn_tool_calls: list[TurnToolCall] = []
-        for tc in tcs:
-            args_preview = None
-            if tc.arguments:
-                args_str = json.dumps(tc.arguments)
-                args_preview = args_str[:200] + "..." if len(args_str) > 200 else args_str
-            result_preview = None
-            if tc.result:
-                result_preview = tc.result[:200] + "..." if len(tc.result) > 200 else tc.result
-            turn_tool_calls.append(TurnToolCall(
-                tool_name=tc.tool_name,
-                tool_type=tc.tool_type,
-                iteration=tc.iteration,
-                duration_ms=tc.duration_ms,
-                error=tc.error[:300] + "..." if tc.error and len(tc.error) > 300 else tc.error,
-                arguments_preview=args_preview,
-                result_preview=result_preview,
-            ))
+        turn_tool_calls = [TurnToolCall(**d) for d in build_tool_call_previews(tcs)]
 
         has_err = len(errors) > 0 or any(tc.error for tc in tcs)
 
@@ -269,9 +251,7 @@ async def list_turns(
 
         # Bot ID from session or trace events
         sess_info = session_channel_map.get(msg_row.session_id)
-        turn_bot_id = bot_id  # if filtered
-        if not turn_bot_id and sess_info:
-            turn_bot_id = sess_info[2]
+        turn_bot_id = sess_info[2] if sess_info else None
         if not turn_bot_id:
             # Fallback: get from trace events
             for te in tes:
@@ -334,26 +314,3 @@ async def list_turns(
     )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _parse_time(value: str) -> datetime | None:
-    """Parse an ISO timestamp or relative time string like '30m', '2h', '1d'."""
-    if not value:
-        return None
-    # Relative: "30m", "2h", "1d"
-    value = value.strip()
-    if value and value[-1] in ("m", "h", "d") and value[:-1].replace(".", "").isdigit():
-        num = float(value[:-1])
-        unit = value[-1]
-        delta = {"m": timedelta(minutes=num), "h": timedelta(hours=num), "d": timedelta(days=num)}[unit]
-        return datetime.now(timezone.utc) - delta
-    # ISO 8601
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
-    except ValueError:
-        return None

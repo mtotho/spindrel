@@ -16,7 +16,7 @@ from app.agent.tools import (
 from app.config import settings
 from app.db.engine import async_session, run_migrations
 from app.tools.loader import discover_and_load_tools
-from app.tools.mcp import load_mcp_config
+from app.services.mcp_servers import load_mcp_servers, seed_from_yaml as seed_mcp_from_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -53,23 +53,92 @@ async def _index_filesystems_and_start_watchers() -> None:
 
     Runs as a background task so it doesn't block server startup.
     """
-    from app.agent.fs_indexer import index_directory
+    from sqlalchemy import delete
+
+    from app.agent.fs_indexer import index_directory, cleanup_stale_roots
     from app.agent.fs_watcher import start_watchers
+    from app.db.models import FilesystemChunk
     from app.services.workspace import workspace_service
+    from app.services.memory_indexing import index_memory_for_bot
 
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
+    # Clean up chunks from stale roots (e.g. after workspace root path changes)
+    logger.info("Background: cleaning up stale filesystem index roots...")
+    _cleaned_bot_ids: set[str] = set()
+    for bot in list_bots():
+        if bot.workspace.enabled and bot.workspace.indexing.enabled:
+            try:
+                valid = get_all_roots(bot, workspace_service)
+                removed = await cleanup_stale_roots(bot.id, valid)
+                if removed:
+                    logger.info("Cleaned up %d stale chunks for bot %s", removed, bot.id)
+                _cleaned_bot_ids.add(bot.id)
+            except Exception:
+                logger.exception("Failed to clean up stale roots for bot %s", bot.id)
+    # Also clean up memory-only bots (workspace-files but no general indexing)
+    for bot in list_bots():
+        if bot.id in _cleaned_bot_ids:
+            continue
+        if bot.workspace.enabled and bot.memory_scheme == "workspace-files":
+            try:
+                valid = get_all_roots(bot, workspace_service)
+                removed = await cleanup_stale_roots(bot.id, valid)
+                if removed:
+                    logger.info("Cleaned up %d stale memory chunks for bot %s", removed, bot.id)
+            except Exception:
+                logger.exception("Failed to clean up stale roots for bot %s", bot.id)
+
+    # Phase 1: Index memory files for workspace-files bots (independent of indexing toggle)
+    logger.info("Background: indexing memory files for workspace-files bots...")
+    for bot in list_bots():
+        if bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
+            try:
+                stats = await index_memory_for_bot(bot, force=True)
+                if stats:
+                    logger.info("Memory index for bot %s: %s", bot.id, stats)
+            except Exception:
+                logger.exception("Failed to index memory for bot %s", bot.id)
+
+    # Phase 2: Segment-based workspace indexing (only for bots with indexing.enabled)
+    # For shared workspace bots, indexing REQUIRES segments — without segments,
+    # only memory (Phase 1) is indexed.  Standalone bots use blanket patterns.
     logger.info("Background: indexing configured filesystem directories...")
     for bot in list_bots():
         # Workspace-based indexing
         if bot.workspace.enabled and bot.workspace.indexing.enabled:
             _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+            _patterns = _resolved["patterns"]
+            _segments = _resolved.get("segments")
+            # Shared workspace bots without segments: skip Phase 2 entirely.
+            # Only memory gets indexed (Phase 1).  Clean up any stale non-memory
+            # chunks from previous blanket indexing runs.
+            if not _segments:
+                from app.services.memory_scheme import get_memory_index_prefix
+                _mem_prefix = get_memory_index_prefix(bot)
+                for root in get_all_roots(bot, workspace_service):
+                    try:
+                        _resolved_root = str(Path(root).resolve())
+                        async with async_session() as _db:
+                            _del = await _db.execute(
+                                delete(FilesystemChunk).where(
+                                    FilesystemChunk.bot_id == bot.id,
+                                    FilesystemChunk.root == _resolved_root,
+                                    ~FilesystemChunk.file_path.like(_mem_prefix.rstrip("/") + "/%"),
+                                )
+                            )
+                            if _del.rowcount:
+                                logger.info("Cleaned up %d non-memory chunks for bot %s (no segments)", _del.rowcount, bot.id)
+                            await _db.commit()
+                    except Exception:
+                        logger.exception("Failed to clean up non-memory chunks for bot %s", bot.id)
+                continue
             for root in get_all_roots(bot, workspace_service):
                 try:
                     stats = await index_directory(
-                        root, bot.id, _resolved["patterns"], force=True,
+                        root, bot.id, _patterns, force=True,
                         embedding_model=_resolved["embedding_model"],
-                        segments=_resolved.get("segments"),
+                        segments=_segments,
                     )
                     logger.info("Indexed workspace root %s for bot %s: %s", root, bot.id, stats)
                 except Exception:
@@ -93,18 +162,91 @@ async def lifespan(app: FastAPI):
     from app.services.log_buffer import install as _install_log_buffer
     _install_log_buffer(capacity=10_000)
     logger.info("Running database migrations...")
-    await run_migrations()
+    try:
+        await run_migrations()
+    except Exception:
+        logger.critical("Database migration failed — refusing to start with stale schema", exc_info=True)
+        raise
+    logger.info("Loading server settings from DB...")
+    from app.services.server_settings import load_settings_from_db
+    await load_settings_from_db()
+    logger.info("Loading integration settings from DB...")
+    from app.services.integration_settings import load_from_db as load_integration_settings
+    await load_integration_settings()
     logger.info("Loading provider configs from DB...")
     from app.services.providers import load_providers
     await load_providers()
+    # Check encryption status: hard error if encrypted secrets exist without key,
+    # soft warning if plaintext secrets exist without key.
+    from app.services.encryption import is_encryption_enabled
+    if not is_encryption_enabled():
+        from app.services.providers import has_encrypted_secrets
+        if await has_encrypted_secrets():
+            raise RuntimeError(
+                "ENCRYPTION_KEY is not set but the database contains encrypted secrets (enc: prefix). "
+                "These values cannot be decrypted without the original key. "
+                "Set ENCRYPTION_KEY in .env to the key used to encrypt them."
+            )
+        from app.services.providers import list_providers as _list_providers
+        if any(p.api_key for p in _list_providers()):
+            logger.warning(
+                "ENCRYPTION_KEY is not set — provider API keys are stored as plaintext in the database. "
+                "Set ENCRYPTION_KEY in .env to enable encryption at rest."
+            )
+    logger.info("Loading usage limits...")
+    from app.services.usage_limits import load_limits, start_refresh_task
+    await load_limits()
+    start_refresh_task()
+    logger.info("Loading server config (global fallback models)...")
+    from app.services.server_config import load_server_config
+    await load_server_config()
+    # Restore config state from file on first boot (empty DB)
+    if settings.CONFIG_STATE_FILE:
+        from sqlalchemy import select as sa_sel, func as sa_func
+        from app.db.models import Bot as BotModel
+        async with async_session() as _cs_db:
+            bot_count = (await _cs_db.execute(sa_sel(sa_func.count()).select_from(BotModel))).scalar() or 0
+        if bot_count == 0:
+            from app.services.config_export import restore_from_file
+            await restore_from_file()
+            # Reload providers/settings/server_config/integration_settings after restore
+            await load_providers()
+            from app.services.server_settings import load_settings_from_db as _reload_ss
+            await _reload_ss()
+            from app.services.server_config import load_server_config as _reload_sc
+            await _reload_sc()
+            await load_integration_settings()
+            await load_mcp_servers()
+
     logger.info("Seeding bots from YAML (seed-once)...")
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")
     await load_bots()
+
+    # Auto-create default workspace and enroll all bots
+    from app.services.workspace_bootstrap import ensure_default_workspace, ensure_all_bots_enrolled
+    async with async_session() as _ws_db:
+        default_ws = await ensure_default_workspace(_ws_db)
+        added = await ensure_all_bots_enrolled(_ws_db, default_ws.id)
+        if added:
+            logger.info("Auto-enrolled %d bot(s) into workspace", added)
+            await load_bots()  # Reload so shared_workspace_id is populated
+
+    logger.info("Loading secret values from DB...")
+    from app.services.secret_values import load_from_db as load_secret_values
+    await load_secret_values()
+    logger.info("Building secret registry...")
+    from app.services.secret_registry import rebuild as rebuild_secret_registry
+    await rebuild_secret_registry()
+    logger.info("Ensuring orchestrator landing channel...")
+    from app.services.channels import ensure_orchestrator_channel
+    await ensure_orchestrator_channel()
     from app.agent.base_prompt import load_base_prompt
     load_base_prompt()
-    logger.info("Loading MCP server config...")
-    load_mcp_config()
+    logger.info("Seeding MCP servers from YAML (if empty)...")
+    await seed_mcp_from_yaml()
+    logger.info("Loading MCP servers from DB...")
+    await load_mcp_servers()
     extra_tool_dirs = [Path(p.strip()) for p in settings.TOOL_DIRS.split(":") if p.strip()]
     logger.info("Discovering extra tool directories...")
     discover_and_load_tools(extra_tool_dirs)
@@ -120,12 +262,38 @@ async def lifespan(app: FastAPI):
     await warm_mcp_tool_index_for_all_bots()
     await validate_pinned_tools()
 
+    # Feature validation (carapace requires, memory scheme tools, etc.)
+    from app.services.feature_validation import validate_features
+    _feature_warnings = await validate_features()
+    if _feature_warnings:
+        logger.warning("Feature validation found %d warning(s)", len(_feature_warnings))
+
     logger.info("Syncing file-sourced skills and knowledge...")
     await file_sync.sync_all_files()
     logger.info("Loading skills from DB...")
     await load_skills()
+    # Carapace YAML seeding is handled by sync_all_files() above; just load registry.
+    from app.agent.carapaces import load_carapaces
+    logger.info("Loading carapaces from DB...")
+    await load_carapaces()
+    # Workflow YAML seeding is handled by sync_all_files() above; just load registry.
+    from app.services.workflows import load_workflows
+    logger.info("Loading workflows from DB...")
+    await load_workflows()
+    # Register workflow task completion hook
+    from app.services.workflow_hooks import register_workflow_hooks
+    register_workflow_hooks()
     logger.info("Starting file watcher...")
     asyncio.create_task(file_sync.watch_files())
+
+    # Bootstrap memory scheme for workspace-files bots (idempotent, creates MEMORY.md if missing)
+    from app.services.memory_scheme import bootstrap_memory_scheme
+    for bot in list_bots():
+        if bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
+            try:
+                bootstrap_memory_scheme(bot)
+            except Exception:
+                logger.exception("Failed to bootstrap memory scheme for bot %s", bot.id)
 
     # Ensure workspace host dirs exist (fast, doesn't block)
     from app.services.workspace import workspace_service
@@ -146,14 +314,21 @@ async def lifespan(app: FastAPI):
                 await shared_workspace_service.ensure_container(_sw)
             except Exception:
                 logger.warning("Failed to auto-start shared workspace %s", _sw.name)
-    # Embed workspace skills for all workspaces
+    # Embed workspace skills + start shared workspace watchers
     from app.services.workspace_skills import embed_workspace_skills as _embed_ws_skills
+    _sw_watch_targets: list[tuple[str, str, bool]] = []
     for _sw in _sw_rows:
         if _sw.workspace_skills_enabled:
             try:
                 await _embed_ws_skills(str(_sw.id))
             except Exception:
                 logger.warning("Failed to embed workspace skills for %s", _sw.name)
+        _sw_watch_targets.append(
+            (str(_sw.id), shared_workspace_service.get_host_root(str(_sw.id)), bool(_sw.workspace_skills_enabled))
+        )
+    if _sw_watch_targets:
+        from app.agent.fs_watcher import start_shared_workspace_watchers
+        asyncio.create_task(start_shared_workspace_watchers(_sw_watch_targets))
     # Index filesystem directories + start watchers in background (doesn't block startup)
     asyncio.create_task(_index_filesystems_and_start_watchers())
 
@@ -171,11 +346,24 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(task_worker())
     from app.services.heartbeat import heartbeat_worker
     asyncio.create_task(heartbeat_worker())
+    from app.agent.fs_watcher import periodic_reindex_worker
+    asyncio.create_task(periodic_reindex_worker())
     from app.services.attachment_summarizer import attachment_sweep_worker
     asyncio.create_task(attachment_sweep_worker())
     from app.services.attachment_retention import attachment_retention_worker
     asyncio.create_task(attachment_retention_worker())
-    yield
+    if settings.CONFIG_STATE_FILE:
+        from app.services.config_export import config_export_worker
+        asyncio.create_task(config_export_worker())
+
+    # Start integration background processes (non-blocking, like other workers)
+    from app.services.integration_processes import process_manager
+    asyncio.create_task(process_manager.start_auto_start_processes())
+
+    try:
+        yield
+    finally:
+        await process_manager.shutdown_all()
 
 
 app = FastAPI(
@@ -200,33 +388,72 @@ if _cors_origins:
         allow_headers=["*"],
     )
 
+# Config-mutation middleware: mark config dirty after admin mutations.
+# Uses raw ASGI (not BaseHTTPMiddleware) to avoid buffering streaming responses.
+from app.services.config_export import is_config_mutation, mark_config_dirty  # noqa: E402
+
+
+class ConfigExportMiddleware:
+    """ASGI middleware that marks config dirty on successful admin mutations."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "")
+        path = scope.get("path", "")
+
+        # Fast path: skip non-mutation requests entirely (zero overhead)
+        if not is_config_mutation(method, path):
+            await self.app(scope, receive, send)
+            return
+
+        status_code = None
+
+        async def send_wrapper(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+        if status_code is not None and status_code < 300:
+            mark_config_dirty()
+
+
+if settings.CONFIG_STATE_FILE:
+    app.add_middleware(ConfigExportMiddleware)
+
 # Register routers
-from app.routers import admin, auth, chat, sessions, transcribe  # noqa: E402
-from app.routers.admin_channels import api_router as _slack_api_router  # noqa: E402
+from app.routers import auth, chat, sessions, transcribe  # noqa: E402
 from app.routers.api_v1 import router as _api_v1_router  # noqa: E402
-from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 app.include_router(auth.router)
 app.include_router(chat.router)
 app.include_router(sessions.router)
 app.include_router(transcribe.router)
-app.include_router(admin.router)
-app.include_router(_slack_api_router, prefix="/api")
 app.include_router(_api_v1_router)
-
-app.mount("/admin/static", StaticFiles(directory="app/static"), name="admin-static")
 
 # Auto-discover and register integrations from integrations/*/router.py
 from integrations import discover_integrations as _discover_integrations  # noqa: E402
 for _integration_id, _integration_router in _discover_integrations():
-    app.include_router(
-        _integration_router,
-        prefix=f"/integrations/{_integration_id}",
-        tags=[f"Integration: {_integration_id}"],
-    )
-    logger.info("Registered integration: %s", _integration_id)
+    try:
+        app.include_router(
+            _integration_router,
+            prefix=f"/integrations/{_integration_id}",
+            tags=[f"Integration: {_integration_id}"],
+        )
+        logger.info("Registered integration: %s", _integration_id)
+    except Exception:
+        logger.exception("Failed to register integration router: %s", _integration_id)
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    from app.config import VERSION
+    return {"status": "ok", "version": VERSION}

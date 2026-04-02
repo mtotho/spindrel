@@ -15,8 +15,10 @@ async def retrieve_context(
     skill_ids: list[str] | None = None,
     similarity_threshold: float | None = None,
     sources: list[str] | None = None,
-) -> tuple[list[str], float]:
+) -> tuple[list[tuple[str, str]], float]:
     """Retrieve relevant skill chunks via pgvector cosine similarity search.
+
+    Returns (chunks, best_similarity) where each chunk is (content, source).
 
     If skill_ids is provided, only search those skills (source = "skill:{id}").
     If sources is provided, filter by exact source values (overrides skill_ids).
@@ -36,14 +38,14 @@ async def retrieve_context(
     if sources:
         # Use explicit source list (for workspace skills, etc.)
         stmt = (
-            select(Document.content, distance_expr.label("distance"))
+            select(Document.content, Document.source, distance_expr.label("distance"))
             .where(Document.source.in_(sources))
             .order_by(distance_expr)
             .limit(settings.RAG_TOP_K)
         )
     else:
         stmt = (
-            select(Document.content, distance_expr.label("distance"))
+            select(Document.content, Document.source, distance_expr.label("distance"))
             .where(Document.source.like("skill:%"))
             .order_by(distance_expr)
             .limit(settings.RAG_TOP_K)
@@ -65,7 +67,7 @@ async def retrieve_context(
         logger.info("Skill retrieval: no documents found for query: %s...", query[:80])
         return [], 0.0
 
-    best_distance = rows[0][1]
+    best_distance = rows[0][2]
     best_similarity = 1.0 - best_distance
     logger.info(
         "Skill retrieval: best_similarity=%.3f threshold=%.3f query=%s...",
@@ -73,11 +75,11 @@ async def retrieve_context(
     )
 
     chunks = []
-    for content, distance in rows:
+    for content, source, distance in rows:
         similarity = 1.0 - distance
         if similarity >= threshold:
-            chunks.append(content)
-            logger.debug("  chunk (sim=%.3f): %s...", similarity, content[:80])
+            chunks.append((content, source))
+            logger.debug("  chunk (sim=%.3f, src=%s): %s...", similarity, source, content[:80])
         else:
             break
 

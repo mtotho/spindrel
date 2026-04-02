@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "ui",
-    "slug": "ui",
+    "name": "spindrel",
+    "slug": "spindrel",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "ui",
+    "scheme": "spindrel",
     "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/images/splash-icon.png",
@@ -26,7 +26,7 @@
     },
     "web": {
       "bundler": "metro",
-      "output": "static",
+      "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [

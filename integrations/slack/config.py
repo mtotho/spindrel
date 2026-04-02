@@ -6,4 +6,9 @@ IDENTITY_FIELDS = [
         "label": "Slack User ID",
         "description": "Find in Slack profile > \u22ee > Copy member ID",
     },
+    {
+        "key": "icon_emoji",
+        "label": "Icon Emoji",
+        "description": "Emoji used when mirroring your messages to Slack (e.g. :wave:)",
+    },
 ]

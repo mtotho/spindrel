@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.agent.tags import ResolvedTag, _TAG_RE, resolve_tags
+from app.agent.tags import ResolvedTag, _TAG_RE, _match_skill_short_name, resolve_tags
 
 
 # ---------------------------------------------------------------------------
@@ -53,6 +53,39 @@ class TestTagRegex:
     def test_digit_start_rejected(self):
         # Name must start with letter/underscore, not digit
         assert self._find_all("@123abc") == []
+
+    def test_path_style_name(self):
+        assert self._find_all("@packages/slides/slides") == ["@packages/slides/slides"]
+
+    def test_skill_prefix_with_path(self):
+        assert self._find_all("@skill:packages/slides/slides") == ["@skill:packages/slides/slides"]
+
+    def test_path_in_sentence(self):
+        tags = self._find_all("use @packages/slides/slides for the presentation")
+        assert tags == ["@packages/slides/slides"]
+
+
+# ---------------------------------------------------------------------------
+# _match_skill_short_name
+# ---------------------------------------------------------------------------
+
+class TestMatchSkillShortName:
+    def test_matches_final_segment(self):
+        skills = {"packages/slides/slides", "arch_linux"}
+        assert _match_skill_short_name("slides", skills) == "packages/slides/slides"
+
+    def test_no_match(self):
+        skills = {"packages/slides/slides", "arch_linux"}
+        assert _match_skill_short_name("cooking", skills) is None
+
+    def test_exact_match_not_duplicated(self):
+        skills = {"arch_linux", "packages/foo/arch_linux"}
+        # Ambiguous — two skills end with "arch_linux"
+        assert _match_skill_short_name("arch_linux", skills) is None
+
+    def test_plain_skill_matched(self):
+        skills = {"cooking", "packages/slides/slides"}
+        assert _match_skill_short_name("cooking", skills) == "cooking"
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +160,33 @@ class TestResolveTags:
         # mybot is current bot, should not resolve as bot tag
         # Falls through to knowledge lookup
         assert all(t.tag_type != "bot" for t in result)
+
+    async def test_short_name_resolves_to_full_path(self):
+        result = await resolve_tags(
+            "@slides",
+            ["packages/slides/slides", "arch_linux"], [], [], "mybot", "client1"
+        )
+        assert len(result) == 1
+        assert result[0].tag_type == "skill"
+        assert result[0].name == "packages/slides/slides"
+
+    async def test_full_path_resolves(self):
+        result = await resolve_tags(
+            "@packages/slides/slides",
+            ["packages/slides/slides"], [], [], "mybot", "client1"
+        )
+        assert len(result) == 1
+        assert result[0].tag_type == "skill"
+        assert result[0].name == "packages/slides/slides"
+
+    async def test_forced_skill_with_path(self):
+        result = await resolve_tags(
+            "@skill:packages/slides/slides",
+            [], [], [], "mybot", "client1"
+        )
+        assert len(result) == 1
+        assert result[0].tag_type == "skill"
+        assert result[0].name == "packages/slides/slides"
 
     async def test_deduplicates(self):
         result = await resolve_tags(

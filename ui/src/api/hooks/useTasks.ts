@@ -1,12 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
+import type { CronEntry } from "../../types/api";
 
 export interface TaskDetail {
   id: string;
   status: string;
   bot_id: string;
   prompt: string;
+  title?: string | null;
   prompt_template_id?: string | null;
+  workspace_file_path?: string | null;
+  workspace_id?: string | null;
   result?: string | null;
   error?: string | null;
   dispatch_type: string;
@@ -18,6 +22,13 @@ export interface TaskDetail {
   parent_task_id?: string | null;
   dispatch_config?: Record<string, any> | null;
   callback_config?: Record<string, any> | null;
+  execution_config?: Record<string, any> | null;
+  delegation_session_id?: string | null;
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
+  fallback_models?: { model: string; provider_id?: string | null }[] | null;
+  max_run_seconds?: number | null;
+  trigger_rag_loop?: boolean;
   retry_count: number;
   correlation_id?: string | null;
   run_count: number;
@@ -31,11 +42,16 @@ export interface TaskDetail {
 export interface TaskCreatePayload {
   prompt: string;
   bot_id: string;
+  title?: string | null;
   channel_id?: string | null;
   prompt_template_id?: string | null;
+  workspace_file_path?: string | null;
+  workspace_id?: string | null;
   scheduled_at?: string | null;
   recurrence?: string | null;
   task_type?: string;
+  fallback_models?: { model: string; provider_id?: string | null }[] | null;
+  max_run_seconds?: number | null;
   trigger_rag_loop?: boolean;
   model_override?: string | null;
   model_provider_id_override?: string | null;
@@ -44,11 +60,16 @@ export interface TaskCreatePayload {
 export interface TaskUpdatePayload {
   prompt?: string;
   bot_id?: string;
+  title?: string | null;
   prompt_template_id?: string | null;
+  workspace_file_path?: string | null;
+  workspace_id?: string | null;
   status?: string;
   scheduled_at?: string | null;
   recurrence?: string | null;
   task_type?: string;
+  fallback_models?: { model: string; provider_id?: string | null }[] | null;
+  max_run_seconds?: number | null;
   trigger_rag_loop?: boolean;
   model_override?: string | null;
   model_provider_id_override?: string | null;
@@ -101,5 +122,24 @@ export function useDeleteTask() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
     },
+  });
+}
+
+export function useTaskChildren(taskId: string | undefined) {
+  return useQuery({
+    queryKey: ["admin-task-children", taskId],
+    queryFn: () => apiFetch<TaskDetail[]>(`/api/v1/admin/tasks/${taskId}/children`),
+    enabled: !!taskId,
+  });
+}
+
+export function useCronJobs(workspaceId?: string) {
+  const params = workspaceId ? `?workspace_id=${workspaceId}` : "";
+  return useQuery({
+    queryKey: ["admin-cron-jobs", workspaceId ?? "all"],
+    queryFn: () =>
+      apiFetch<{ cron_jobs: CronEntry[]; errors: string[] }>(
+        `/api/v1/admin/cron-jobs${params}`
+      ),
   });
 }

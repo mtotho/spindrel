@@ -6,7 +6,7 @@ from typing import Optional
 
 import httpx
 
-from app.config import settings
+from integrations.frigate.config import settings
 from integrations._register import register
 
 logger = logging.getLogger(__name__)
@@ -332,7 +332,12 @@ async def _download_media(
     max_bytes: int | None = None,
     timeout: float = 30.0,
 ) -> str:
-    """Download binary from Frigate → persist as attachment → return attachment_id."""
+    """Download binary from Frigate → persist as attachment → return attachment_id.
+
+    The attachment is linked to the current channel so persist_turn's
+    orphan-linking attaches it to the assistant message automatically.
+    A client_action is included for immediate Slack display.
+    """
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
     from app.services.attachments import create_attachment
 
@@ -360,15 +365,33 @@ async def _download_media(
         bot_id=bot_id,
     )
 
-    return json.dumps({
+    result: dict = {
         "attachment_id": str(att.id),
         "filename": filename,
         "size_bytes": len(data),
-    })
+    }
+
+    # Include client_action for immediate Slack/streaming display.
+    # When client_action is present, the LLM only sees the "message" field,
+    # so we include the attachment_id there for follow-up analysis.
+    # Only for images — video clips can be 50MB+ and shouldn't be base64'd.
+    if is_image:
+        import base64
+        result["client_action"] = {
+            "type": "upload_image",
+            "data": base64.b64encode(data).decode("ascii"),
+            "filename": filename,
+        }
+        result["message"] = (
+            f"Image saved and displayed in channel. "
+            f"attachment_id={att.id} filename={filename} size={len(data)} bytes"
+        )
+
+    return json.dumps(result)
 
 
 # ---------------------------------------------------------------------------
-# Media download tools (return attachment_id — use post_attachment to display)
+# Media download tools (auto-displayed in channel via orphan-linking)
 # ---------------------------------------------------------------------------
 
 
@@ -377,8 +400,9 @@ async def _download_media(
     "function": {
         "name": "frigate_snapshot",
         "description": (
-            "Download the latest snapshot from a Frigate camera and save it as an attachment. "
-            "Returns an attachment_id. Use post_attachment to display it in chat."
+            "Download the latest snapshot from a Frigate camera. "
+            "The image is automatically displayed in the channel — do NOT call send_file afterward. "
+            "Returns an attachment_id you can pass to describe_attachment for analysis."
         ),
         "parameters": {
             "type": "object",
@@ -431,8 +455,9 @@ async def frigate_snapshot(
     "function": {
         "name": "frigate_event_snapshot",
         "description": (
-            "Download the snapshot image from a Frigate detection event and save it as an attachment. "
-            "Returns an attachment_id. Use post_attachment to display it in chat."
+            "Download the snapshot image from a Frigate detection event. "
+            "The image is automatically displayed in the channel — do NOT call send_file afterward. "
+            "Returns an attachment_id you can pass to describe_attachment for analysis."
         ),
         "parameters": {
             "type": "object",
@@ -467,8 +492,8 @@ async def frigate_event_snapshot(event_id: str) -> str:
     "function": {
         "name": "frigate_event_clip",
         "description": (
-            "Download the video clip from a Frigate detection event and save it as an attachment. "
-            "Returns an attachment_id. Use post_attachment to display it in chat. "
+            "Download the video clip from a Frigate detection event. "
+            "The clip is automatically delivered to the channel — do NOT call send_file afterward. "
             "Max file size: 50 MB."
         ),
         "parameters": {
@@ -506,10 +531,9 @@ async def frigate_event_clip(event_id: str) -> str:
     "function": {
         "name": "frigate_recording_clip",
         "description": (
-            "Download a recording clip from a Frigate camera for a specific time range "
-            "and save it as an attachment. Returns an attachment_id. Use post_attachment "
-            "to display it in chat. Max duration: 10 minutes. Max file size: 50 MB. "
-            "Timestamps are Unix epoch seconds."
+            "Download a recording clip from a Frigate camera for a specific time range. "
+            "The clip is automatically delivered to the channel — do NOT call send_file afterward. "
+            "Max duration: 10 minutes. Max file size: 50 MB. Timestamps are Unix epoch seconds."
         ),
         "parameters": {
             "type": "object",

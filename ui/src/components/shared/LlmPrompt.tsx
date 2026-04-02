@@ -1,5 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useCompletions } from "../../api/hooks/useModels";
+import { useGeneratePrompt } from "../../api/hooks/usePrompts";
+import { useThemeTokens } from "../../theme/tokens";
 import type { CompletionItem } from "../../types/api";
 
 interface Props {
@@ -9,6 +11,10 @@ interface Props {
   placeholder?: string;
   rows?: number;
   helpText?: string;
+  generateContext?: string;
+  fieldType?: string;
+  botId?: string;
+  channelId?: string;
 }
 
 export function scoreMatch(value: string, label: string, query: string): number {
@@ -28,12 +34,167 @@ export function scoreMatch(value: string, label: string, query: string): number 
   return 1;
 }
 
+// TAG_COLORS uses intentional domain-specific dark background colors
+// paired with semantic token foregrounds where possible
 const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
-  skill: { bg: "#1e1b4b", fg: "#a5b4fc" },
-  tool: { bg: "#14532d", fg: "#86efac" },
-  "tool-pack": { bg: "#14532d", fg: "#86efac" },
-  knowledge: { bg: "#3b0764", fg: "#d8b4fe" },
+  skill: { bg: "#1e1b4b", fg: "#4f46e5" },
+  tool: { bg: "#14532d", fg: "#16a34a" },
+  "tool-pack": { bg: "#14532d", fg: "#16a34a" },
+  knowledge: { bg: "#3b0764", fg: "#7c3aed" },
+  bot: { bg: "#1e3a5f", fg: "#38bdf8" },
 };
+
+// ---------------------------------------------------------------------------
+// Generate button (shared between inline + fullscreen + standalone)
+// ---------------------------------------------------------------------------
+export function GenerateButton({
+  generateContext,
+  fieldType,
+  botId,
+  channelId,
+  value,
+  onChange,
+  size = "small",
+}: {
+  generateContext?: string;
+  fieldType?: string;
+  botId?: string;
+  channelId?: string;
+  value: string;
+  onChange: (text: string) => void;
+  size?: "small" | "normal";
+}) {
+  const t = useThemeTokens();
+  const gen = useGeneratePrompt();
+  const [flash, setFlash] = useState<"success" | "error" | null>(null);
+  const [showGuidance, setShowGuidance] = useState(false);
+  const [guidance, setGuidance] = useState("");
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  const handleGenerate = useCallback((guidanceText: string) => {
+    gen.mutate(
+      {
+        field_type: fieldType || undefined,
+        bot_id: botId || undefined,
+        channel_id: channelId || undefined,
+        context: generateContext || undefined,
+        user_input: value,
+        guidance: guidanceText || undefined,
+      },
+      {
+        onSuccess: (data) => {
+          onChange(data.prompt);
+          setFlash("success");
+          setShowGuidance(false);
+          setGuidance("");
+          setTimeout(() => setFlash(null), 1200);
+        },
+        onError: () => {
+          setFlash("error");
+          setTimeout(() => setFlash(null), 1500);
+        },
+      }
+    );
+  }, [gen, fieldType, botId, channelId, generateContext, value, onChange]);
+
+  const isSmall = size === "small";
+  const baseStyle: React.CSSProperties = isSmall
+    ? {
+        background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+        color: t.textDim, fontSize: 11, padding: "2px 8px", cursor: "pointer",
+        transition: "all 0.15s", whiteSpace: "nowrap",
+      }
+    : {
+        background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+        color: t.textMuted, fontSize: 13, padding: "6px 16px", cursor: "pointer",
+        transition: "all 0.15s", fontWeight: 600, whiteSpace: "nowrap",
+      };
+
+  const flashColor = flash === "success" ? t.success : flash === "error" ? t.danger : undefined;
+
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button
+        ref={btnRef}
+        onClick={() => setShowGuidance(!showGuidance)}
+        disabled={gen.isPending}
+        style={{
+          ...baseStyle,
+          ...(flash ? { borderColor: flashColor, color: flashColor } : {}),
+          ...(gen.isPending ? { opacity: 0.6, cursor: "wait" } : {}),
+        }}
+        onMouseEnter={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = t.textDim; e.currentTarget.style.color = t.textMuted; } }}
+        onMouseLeave={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = t.surfaceBorder; e.currentTarget.style.color = isSmall ? t.textDim : t.textMuted; } }}
+      >
+        {gen.isPending ? "Generating..." : flash === "success" ? "Done!" : flash === "error" ? "Failed" : "Generate"}
+      </button>
+
+      {showGuidance && !gen.isPending && typeof document !== "undefined" && (() => {
+        const ReactDOM = require("react-dom");
+        return ReactDOM.createPortal(
+          <>
+            <div onClick={() => { setShowGuidance(false); setGuidance(""); }} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
+            <div style={{
+              position: "fixed",
+              top: (btnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+              left: Math.min(btnRef.current?.getBoundingClientRect().left ?? 0, window.innerWidth - 320),
+              width: 300,
+              zIndex: 10011,
+              background: t.surfaceRaised,
+              border: `1px solid ${t.surfaceBorder}`,
+              borderRadius: 8,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+              padding: 10,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>What should be generated?</div>
+              <input
+                type="text"
+                autoFocus
+                value={guidance}
+                onChange={(e: any) => setGuidance(e.target.value)}
+                onKeyDown={(e: any) => {
+                  if (e.key === "Enter") { handleGenerate(guidance); }
+                  if (e.key === "Escape") { setShowGuidance(false); setGuidance(""); }
+                }}
+                placeholder="Optional — describe what you want..."
+                style={{
+                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                  padding: "6px 10px", fontSize: 12, color: t.text, outline: "none", width: "100%",
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 6 }}>
+                <button
+                  onClick={() => { setShowGuidance(false); setGuidance(""); }}
+                  style={{
+                    padding: "4px 10px", fontSize: 11,
+                    background: "transparent", border: `1px solid ${t.surfaceBorder}`,
+                    borderRadius: 4, color: t.textMuted, cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleGenerate(guidance)}
+                  style={{
+                    padding: "4px 12px", fontSize: 11, fontWeight: 600,
+                    background: t.accent, color: "#fff", border: "none",
+                    borderRadius: 4, cursor: "pointer",
+                  }}
+                >
+                  Go
+                </button>
+              </div>
+            </div>
+          </>,
+          document.body
+        );
+      })()}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Autocomplete dropdown (portal-based)
@@ -57,6 +218,7 @@ export function AutocompleteMenu({
   onClose: () => void;
   anchor?: "top" | "bottom";
 }) {
+  const t = useThemeTokens();
   if (!show || items.length === 0 || typeof document === "undefined") return null;
   const ReactDOM = require("react-dom");
   const posStyle: React.CSSProperties =
@@ -74,8 +236,8 @@ export function AutocompleteMenu({
           width: menuPos.width,
           maxHeight: 200,
           zIndex: 10011,
-          background: "#1a1a1a",
-          border: "1px solid #333",
+          background: t.surfaceRaised,
+          border: `1px solid ${t.surfaceBorder}`,
           borderRadius: 8,
           boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
           overflowY: "auto",
@@ -83,7 +245,7 @@ export function AutocompleteMenu({
       >
         {items.map((item, i) => {
           const prefix = item.value.includes(":") ? item.value.split(":")[0] : "";
-          const colors = TAG_COLORS[prefix] || { bg: "#374151", fg: "#d1d5db" };
+          const colors = TAG_COLORS[prefix] || { bg: "#374151", fg: t.contentText };
           return (
             <div
               key={item.value}
@@ -95,7 +257,7 @@ export function AutocompleteMenu({
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                background: i === activeIdx ? "#2a2a2a" : "transparent",
+                background: i === activeIdx ? t.surfaceOverlay : "transparent",
               }}
             >
               {prefix && (
@@ -107,14 +269,18 @@ export function AutocompleteMenu({
                   {prefix}
                 </span>
               )}
-              <span style={{ fontFamily: "monospace", fontSize: 12, color: "#e5e5e5" }}>
+              <span style={{ fontFamily: "monospace", fontSize: 12, color: t.text }}>
                 {item.value.includes(":") ? item.value.split(":").slice(1).join(":") : item.value}
               </span>
-              {item.label !== item.value && (
-                <span style={{ fontSize: 11, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {item.description ? (
+                <span style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.description}
+                </span>
+              ) : item.label !== item.value ? (
+                <span style={{ fontSize: 11, color: t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {item.label}
                 </span>
-              )}
+              ) : null}
             </div>
           );
         })}
@@ -132,14 +298,23 @@ function FullscreenEditor({
   onChange,
   label,
   placeholder,
+  generateContext,
+  fieldType,
+  botId,
+  channelId,
   onClose,
 }: {
   value: string;
   onChange: (text: string) => void;
   label?: string;
   placeholder?: string;
+  generateContext?: string;
+  fieldType?: string;
+  botId?: string;
+  channelId?: string;
   onClose: () => void;
 }) {
+  const t = useThemeTokens();
   const { data: completions } = useCompletions();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -214,21 +389,26 @@ function FullscreenEditor({
       {/* Header */}
       <div style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "12px 20px", borderBottom: "1px solid #333",
+        padding: "12px 20px", borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
-        <div style={{ color: "#e5e5e5", fontSize: 14, fontWeight: 600 }}>
+        <div style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>
           {label || "Edit Prompt"}
-          <span style={{ color: "#555", fontWeight: 400, fontSize: 12, marginLeft: 8 }}>(type @ to insert tags, Esc to close)</span>
+          <span style={{ color: t.textDim, fontWeight: 400, fontSize: 12, marginLeft: 8 }}>(type @ to insert tags, Esc to close)</span>
         </div>
-        <button
-          onClick={onClose}
-          style={{
-            background: "#3b82f6", color: "#fff", border: "none", borderRadius: 6,
-            padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-          }}
-        >
-          Done
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {(generateContext || fieldType) && (
+            <GenerateButton generateContext={generateContext} fieldType={fieldType} botId={botId} channelId={channelId} value={value} onChange={onChange} size="normal" />
+          )}
+          <button
+            onClick={onClose}
+            style={{
+              background: t.accent, color: "#fff", border: "none", borderRadius: 6,
+              padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Done
+          </button>
+        </div>
       </div>
 
       {/* Editor */}
@@ -245,11 +425,11 @@ function FullscreenEditor({
             flex: 1, width: "100%",
             fontFamily: "monospace", fontSize: 16, lineHeight: "1.6",
             padding: "16px 20px", borderRadius: 10,
-            border: "1px solid #333", background: "#0a0a0a", color: "#e5e7eb",
+            border: `1px solid ${t.surfaceBorder}`, background: t.surface, color: t.text,
             resize: "none", outline: "none",
           }}
-          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; }}
-          onBlurCapture={(e) => { e.target.style.borderColor = "#333"; }}
+          onFocus={(e) => { e.target.style.borderColor = t.accent; }}
+          onBlurCapture={(e) => { e.target.style.borderColor = t.surfaceBorder; }}
         />
       </div>
 
@@ -277,7 +457,12 @@ export function LlmPrompt({
   placeholder = "Enter prompt...",
   rows = 5,
   helpText,
+  generateContext,
+  fieldType,
+  botId,
+  channelId,
 }: Props) {
+  const t = useThemeTokens();
   const { data: completions } = useCompletions();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -345,23 +530,28 @@ export function LlmPrompt({
   return (
     <div>
       {label && (
-        <div style={{ color: "#999", fontSize: 12, marginBottom: 4, fontWeight: 500, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ color: t.textMuted, fontSize: 12, marginBottom: 4, fontWeight: 500, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>
             {label}{" "}
-            <span style={{ color: "#555", fontWeight: 400 }}>(type @ to insert tags)</span>
+            <span style={{ color: t.textDim, fontWeight: 400 }}>(type @ to insert tags)</span>
           </span>
-          <button
-            onClick={() => setExpanded(true)}
-            style={{
-              background: "none", border: "1px solid #333", borderRadius: 4,
-              color: "#666", fontSize: 11, padding: "2px 8px", cursor: "pointer",
-              transition: "all 0.15s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#555"; e.currentTarget.style.color = "#999"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#333"; e.currentTarget.style.color = "#666"; }}
-          >
-            Expand
-          </button>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {(generateContext || fieldType) && (
+              <GenerateButton generateContext={generateContext} fieldType={fieldType} botId={botId} channelId={channelId} value={value} onChange={onChange} />
+            )}
+            <button
+              onClick={() => setExpanded(true)}
+              style={{
+                background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                color: t.textDim, fontSize: 11, padding: "2px 8px", cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.textDim; e.currentTarget.style.color = t.textMuted; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceBorder; e.currentTarget.style.color = t.textDim; }}
+            >
+              Expand
+            </button>
+          </div>
         </div>
       )}
       <div ref={containerRef}>
@@ -376,15 +566,15 @@ export function LlmPrompt({
           style={{
             fontFamily: "monospace", fontSize: 16, lineHeight: "1.5",
             padding: "8px 12px", borderRadius: 8, width: "100%",
-            border: "1px solid #333", background: "#111", color: "#e5e7eb",
+            border: `1px solid ${t.surfaceBorder}`, background: t.inputBg, color: t.text,
             resize: "vertical", outline: "none", transition: "border-color 0.15s",
           }}
-          onFocus={(e) => { e.target.style.borderColor = "#3b82f6"; }}
-          onBlurCapture={(e) => { e.target.style.borderColor = "#333"; }}
+          onFocus={(e) => { e.target.style.borderColor = t.accent; }}
+          onBlurCapture={(e) => { e.target.style.borderColor = t.surfaceBorder; }}
         />
       </div>
       {helpText && (
-        <div style={{ color: "#555", fontSize: 11, marginTop: 4 }}>{helpText}</div>
+        <div style={{ color: t.textDim, fontSize: 11, marginTop: 4 }}>{helpText}</div>
       )}
 
       <AutocompleteMenu
@@ -403,6 +593,10 @@ export function LlmPrompt({
           onChange={onChange}
           label={label}
           placeholder={placeholder}
+          generateContext={generateContext}
+          fieldType={fieldType}
+          botId={botId}
+          channelId={channelId}
           onClose={() => setExpanded(false)}
         />
       )}

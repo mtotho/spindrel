@@ -1,17 +1,18 @@
 """HMAC-SHA256 signature validation for GitHub webhooks."""
+from __future__ import annotations
 
 import hashlib
 import hmac
 
-from integrations.github.config import github_config
+from integrations.github.config import settings
 
 
 def validate_signature(payload: bytes, signature_header: str | None) -> bool:
     """Validate X-Hub-Signature-256 header against the payload.
 
-    Returns True if the signature is valid, False otherwise.
+    Returns True if valid. When no secret is configured, skips validation (dev mode).
     """
-    if not github_config.GITHUB_WEBHOOK_SECRET:
+    if not settings.GITHUB_WEBHOOK_SECRET:
         # No secret configured — fail-secure (reject webhook)
         import logging
         logging.getLogger(__name__).warning(
@@ -20,14 +21,11 @@ def validate_signature(payload: bytes, signature_header: str | None) -> bool:
         )
         return False
 
-    if not signature_header:
-        return False
-
-    if not signature_header.startswith("sha256="):
+    if not signature_header or not signature_header.startswith("sha256="):
         return False
 
     expected = hmac.new(
-        github_config.GITHUB_WEBHOOK_SECRET.encode(),
+        settings.GITHUB_WEBHOOK_SECRET.encode(),
         payload,
         hashlib.sha256,
     ).hexdigest()

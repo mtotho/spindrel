@@ -5,11 +5,11 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import User
-from app.dependencies import get_db, verify_auth_or_user
+from app.db.models import Message, User
+from app.dependencies import get_db, require_scopes
 from app.services.auth import create_local_user, get_user_by_id, hash_password
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ def _user_out(u: User) -> UserOut:
 @router.get("", response_model=list[UserOut])
 async def list_users(
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("users:read")),
 ):
     result = await db.execute(select(User).order_by(User.created_at))
     return [_user_out(u) for u in result.scalars().all()]
@@ -71,7 +71,7 @@ async def list_users(
 async def create_user(
     req: CreateUserRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("users:write")),
 ):
     user = await create_local_user(db, req.email, req.display_name, req.password)
     return _user_out(user)
@@ -82,7 +82,7 @@ async def update_user(
     user_id: str,
     req: UpdateUserRequest,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("users:write")),
 ):
     from uuid import UUID
     user = await get_user_by_id(db, UUID(user_id))
@@ -95,13 +95,28 @@ async def update_user(
     if req.integration_config is not None:
         user.integration_config = req.integration_config
     if req.is_admin is not None:
+        role_changed = req.is_admin != user.is_admin
         user.is_admin = req.is_admin
+    else:
+        role_changed = False
     if req.is_active is not None:
         user.is_active = req.is_active
     if req.password is not None and user.auth_method == "local":
         user.password_hash = hash_password(req.password)
     await db.commit()
     await db.refresh(user)
+
+    # Sync API key scopes when role changes
+    if role_changed and user.api_key_id:
+        from app.services.api_keys import ensure_entity_api_key, SCOPE_PRESETS
+        preset_name = "admin_user" if user.is_admin else "member_user"
+        scopes = SCOPE_PRESETS[preset_name]["scopes"]
+        await ensure_entity_api_key(
+            db, name=f"user:{user.email}", scopes=scopes,
+            existing_key_id=user.api_key_id,
+        )
+        await db.commit()
+
     return _user_out(user)
 
 
@@ -109,7 +124,7 @@ async def update_user(
 async def deactivate_user(
     user_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("users:write")),
 ):
     from uuid import UUID
     user = await get_user_by_id(db, UUID(user_id))
@@ -118,3 +133,28 @@ async def deactivate_user(
     user.is_active = False
     await db.commit()
     return {"status": "deactivated"}
+
+
+@router.get("/identity-suggestions/{integration}")
+async def identity_suggestions(
+    integration: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("users:read")),
+):
+    """Return distinct sender IDs for an integration, excluding already-claimed ones."""
+    prefix = f"{integration}:"
+    stmt = select(distinct(Message.metadata_["sender_id"].astext)).where(
+        Message.metadata_["sender_id"].astext.like(f"{prefix}%"),
+        Message.metadata_["sender_type"].astext == "human",
+    )
+    result = await db.execute(stmt)
+    all_ids = [row[0].removeprefix(prefix) for row in result.all()]
+
+    # Filter out claimed
+    users_result = await db.execute(select(User))
+    users = users_result.scalars().all()
+    claimed = {
+        u.integration_config.get(integration, {}).get("user_id")
+        for u in users if u.integration_config
+    }
+    return [uid for uid in all_ids if uid not in claimed]

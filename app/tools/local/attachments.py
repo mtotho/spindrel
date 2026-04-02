@@ -1,9 +1,10 @@
-"""Local tools: get_attachment, list_attachments, post_attachment — attachment access for the agent."""
+"""Local tools: get_attachment, list_attachments, save_attachment — attachment access for the agent."""
 
 import base64
 import json
 import logging
 import uuid
+from pathlib import Path
 
 from app.tools.registry import register
 
@@ -108,8 +109,8 @@ async def list_attachments(
     from app.db.engine import async_session
     from app.db.models import Attachment
 
-    limit = max(1, min(limit, 50))
-    page = max(1, page)
+    limit = max(1, min(int(limit), 50))
+    page = max(1, int(page))
     offset = (page - 1) * limit
 
     # Resolve channel_id
@@ -173,30 +174,28 @@ async def list_attachments(
 @register({
     "type": "function",
     "function": {
-        "name": "post_attachment",
+        "name": "view_attachment",
         "description": (
-            "Post an attachment (image, video, or file) into the chat. "
-            "Looks up the attachment by ID and uploads it inline. "
-            "Works with any attachment — Frigate snapshots/clips, generated images, "
-            "uploaded files, etc."
+            "Load an image attachment into the conversation so YOU can see it directly. "
+            "Unlike describe_attachment (which uses a separate vision model call), this "
+            "injects the image into your own context — you see the actual pixels and can "
+            "analyze them with your full capabilities. Use this for detailed visual "
+            "assessment where your own judgment matters (e.g. dough assessment, plant "
+            "health, photo comparison). Works with image attachments only."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "attachment_id": {
                     "type": "string",
-                    "description": "The UUID of the attachment to post.",
-                },
-                "caption": {
-                    "type": "string",
-                    "description": "Optional caption to display with the attachment.",
+                    "description": "The UUID of the image attachment to view.",
                 },
             },
             "required": ["attachment_id"],
         },
     },
 })
-async def post_attachment(attachment_id: str, caption: str = "") -> str:
+async def view_attachment(attachment_id: str) -> str:
     from app.services.attachments import get_attachment_by_id
 
     try:
@@ -208,21 +207,17 @@ async def post_attachment(attachment_id: str, caption: str = "") -> str:
     if att is None:
         return json.dumps({"error": f"Attachment {attachment_id} not found."})
 
+    mime = att.mime_type or ""
+    if not mime.startswith("image/"):
+        return json.dumps({"error": f"view_attachment only supports images, got {mime}"})
+
     if not att.file_data:
         return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
 
-    mime = att.mime_type or ""
-    action_type = "upload_image" if mime.startswith("image/") else "upload_file"
-
     b64 = base64.b64encode(att.file_data).decode("ascii")
     return json.dumps({
-        "message": f"Posted {att.filename or attachment_id}" + (f": {caption}" if caption else ""),
-        "client_action": {
-            "type": action_type,
-            "data": b64,
-            "filename": att.filename or "attachment",
-            "caption": caption,
-        },
+        "injected_images": [{"mime_type": mime, "base64": b64}],
+        "message": f"Image '{att.filename}' loaded — analyze it and respond.",
     })
 
 
@@ -318,4 +313,77 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
         "attachment_id": attachment_id,
         "filename": att.filename,
         "description": description,
+    })
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "save_attachment",
+        "description": (
+            "Save an attachment's file data to a path on disk. "
+            "Use this to download images or files from the conversation to the filesystem — "
+            "for example, to include Slack images in a slide deck or process uploaded files locally."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "attachment_id": {
+                    "type": "string",
+                    "description": "The UUID of the attachment to save.",
+                },
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Destination file path. If a directory, the original filename is used. "
+                        "Parent directories are created automatically."
+                    ),
+                },
+            },
+            "required": ["attachment_id", "path"],
+        },
+    },
+})
+async def save_attachment(attachment_id: str, path: str) -> str:
+    from app.agent.context import current_bot_id
+    from app.services.attachments import get_attachment_by_id
+
+    try:
+        att_uuid = uuid.UUID(attachment_id)
+    except ValueError:
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+
+    att = await get_attachment_by_id(att_uuid)
+    if att is None:
+        return json.dumps({"error": f"Attachment {attachment_id} not found."})
+
+    if not att.file_data:
+        return json.dumps({"error": f"Attachment {attachment_id} has no stored file data."})
+
+    # Translate workspace container paths (e.g. /workspace/...) to server-local paths
+    resolved_path = path
+    bot_id = current_bot_id.get()
+    if bot_id:
+        try:
+            from app.agent.bots import get_bot
+            from app.services.workspace import workspace_service
+            bot = get_bot(bot_id)
+            if bot:
+                translated = workspace_service.translate_path(bot_id, path, bot.workspace, bot=bot)
+                if translated != path:
+                    resolved_path = translated
+        except Exception:
+            pass
+
+    dest = Path(resolved_path).expanduser()
+    if dest.is_dir():
+        dest = dest / (att.filename or f"attachment_{attachment_id}")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(att.file_data)
+
+    return json.dumps({
+        "saved": str(dest),
+        "filename": att.filename,
+        "size_bytes": len(att.file_data),
     })

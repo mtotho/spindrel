@@ -36,26 +36,30 @@ current_memory_cross_bot: ContextVar[bool | None] = ContextVar(
 current_dispatch_type: ContextVar[str | None] = ContextVar("current_dispatch_type", default=None)
 current_dispatch_config: ContextVar[dict | None] = ContextVar("current_dispatch_config", default=None)
 
+# Effective model/provider for the current agent run (after override resolution).
+# Tools (e.g. delegate_to_harness) read these to propagate the model to callback tasks.
+current_model_override: ContextVar[str | None] = ContextVar("current_model_override", default=None)
+current_provider_id_override: ContextVar[str | None] = ContextVar("current_provider_id_override", default=None)
+
+# Dynamically injected tool schemas (e.g. heartbeat_post_to_thread for channel_and_thread mode).
+# Set explicitly in run_stream; NOT managed by set_agent_context.
+current_injected_tools: ContextVar[list[dict] | None] = ContextVar("current_injected_tools", default=None)
+
+current_allowed_secrets: ContextVar[list[str] | None] = ContextVar("current_allowed_secrets", default=None)
+
 current_session_depth: ContextVar[int] = ContextVar("current_session_depth", default=0)
 current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root_session_id", default=None)
 current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])
+current_ephemeral_skills: ContextVar[list] = ContextVar("current_ephemeral_skills", default=[])
+# All skill IDs available to the bot after carapace resolution + channel overrides.
+# Set by context_assembly; read by get_skill to authorize carapace-injected skills.
+current_resolved_skill_ids: ContextVar[set | None] = ContextVar("current_resolved_skill_ids", default=None)
 
-# Stores the pre-compression conversation messages for the get_message_detail drill-down tool.
-# Keyed by session_id (str) — NOT a ContextVar because _with_keepalive in chat.py wraps
-# each __anext__() in ensure_future(), isolating ContextVar changes across yields.
-_compression_histories: dict[str, list[dict]] = {}
-
-
-def set_compression_history(session_id, history: list[dict] | None) -> None:
-    key = str(session_id)
-    if history is None:
-        _compression_histories.pop(key, None)
-    else:
-        _compression_histories[key] = history
-
-
-def get_compression_history(session_id) -> list[dict] | None:
-    return _compression_histories.get(str(session_id))
+# Channel-level model tier overrides (sparse dict, e.g. {"fast": {"model": "...", "provider_id": null}}).
+# Set from context_assembly; read by delegation tools.
+current_channel_model_tier_overrides: ContextVar[dict | None] = ContextVar(
+    "current_channel_model_tier_overrides", default=None
+)
 
 # Accumulates child-bot Slack posts from immediate delegation so run_stream() can
 # emit them as delegation_post events BEFORE the parent's response event.
@@ -97,6 +101,7 @@ def set_agent_context(
         current_memory_cross_bot.set(memory_cross_bot)
     current_dispatch_type.set(dispatch_type)
     current_dispatch_config.set(dispatch_config)
+    current_channel_model_tier_overrides.set(None)
     if session_depth is not None:
         current_session_depth.set(session_depth)
     if root_session_id is not None:
@@ -106,6 +111,11 @@ def set_agent_context(
 def set_ephemeral_delegates(bot_ids: list[str]) -> None:
     """Set ephemeral @-tagged bot IDs that bypass delegation allowlist for this request."""
     current_ephemeral_delegates.set(list(bot_ids))
+
+
+def set_ephemeral_skills(skill_ids: list[str]) -> None:
+    """Set ephemeral @-tagged skill IDs that bypass bot skill allowlist for this request."""
+    current_ephemeral_skills.set(list(skill_ids))
 
 
 @dataclass
@@ -123,9 +133,14 @@ class AgentContextSnapshot:
     memory_cross_bot: bool | None
     dispatch_type: str | None
     dispatch_config: dict | None
+    injected_tools: list[dict] | None
     session_depth: int
     root_session_id: uuid.UUID | None
     ephemeral_delegates: list
+    ephemeral_skills: list
+    model_override: str | None
+    provider_id_override: str | None
+    channel_model_tier_overrides: dict | None
 
 
 def snapshot_agent_context() -> AgentContextSnapshot:
@@ -141,9 +156,14 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         memory_cross_bot=current_memory_cross_bot.get(),
         dispatch_type=current_dispatch_type.get(),
         dispatch_config=current_dispatch_config.get(),
+        injected_tools=current_injected_tools.get(),
         session_depth=current_session_depth.get(),
         root_session_id=current_root_session_id.get(),
         ephemeral_delegates=list(current_ephemeral_delegates.get() or []),
+        ephemeral_skills=list(current_ephemeral_skills.get() or []),
+        model_override=current_model_override.get(),
+        provider_id_override=current_provider_id_override.get(),
+        channel_model_tier_overrides=current_channel_model_tier_overrides.get(),
     )
 
 
@@ -159,6 +179,11 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_memory_cross_bot.set(snap.memory_cross_bot)
     current_dispatch_type.set(snap.dispatch_type)
     current_dispatch_config.set(snap.dispatch_config)
+    current_injected_tools.set(snap.injected_tools)
     current_session_depth.set(snap.session_depth)
     current_root_session_id.set(snap.root_session_id)
     current_ephemeral_delegates.set(list(snap.ephemeral_delegates))
+    current_ephemeral_skills.set(list(snap.ephemeral_skills))
+    current_model_override.set(snap.model_override)
+    current_provider_id_override.set(snap.provider_id_override)
+    current_channel_model_tier_overrides.set(snap.channel_model_tier_overrides)

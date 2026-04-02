@@ -42,9 +42,6 @@ async def get_workspace_skill(skill_path: str) -> str:
     except Exception:
         return "Error: bot not found."
 
-    if not bot.shared_workspace_id:
-        return "Error: bot is not in a shared workspace."
-
     # Validate path is within skill directories
     if not skill_path.endswith(".md"):
         return "Error: skill path must end with .md"

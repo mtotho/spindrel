@@ -1,9 +1,10 @@
 """Slack message and app_mention → agent /chat."""
 import base64
 import logging
+import time
 
-from agent_client import http, ensure_channel, store_passive_message_http, stream_chat
-from formatting import format_response_for_slack, format_tool_status, split_for_slack
+from agent_client import http, ensure_channel, store_passive_message_http, stream_chat, cancel_session
+from formatting import format_response_for_slack, format_thinking_for_slack, format_tool_status, split_for_slack
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info, get_channel_config
 from state import get_channel_state
@@ -49,13 +50,15 @@ async def _process_slack_files(files: list[dict], user: str = "") -> tuple[str, 
         except Exception as e:
             text_parts.append(f"\n[Could not fetch {name}: {e}]")
             continue
-        # Track file metadata for server-side attachment persistence (includes bytes)
+        # Track file metadata for server-side attachment persistence (includes bytes).
+        # posted_by must be None for user uploads so that persist_turn's orphan-
+        # linking associates them with the user message (not the assistant message).
         file_metadata.append({
             "url": url,
             "filename": name,
             "mime_type": mime,
             "size_bytes": size,
-            "posted_by": f"slack:{user}" if user else None,
+            "posted_by": None,
             "file_data": base64.b64encode(data).decode("ascii"),
         })
         if mime in TEXT_MIMES or mime.startswith("text/"):
@@ -76,6 +79,56 @@ async def _process_slack_files(files: list[dict], user: str = "") -> tuple[str, 
 
 _DEFAULT_UPLOAD_USERNAME = "Attachment"
 _DEFAULT_UPLOAD_ICON = ":camera:"
+
+_STREAM_FLUSH_INTERVAL = 0.8  # seconds between Slack chat_update calls
+_STREAM_MAX_CHARS = 3500  # Slack message limit during streaming
+
+
+class SlackStreamBuffer:
+    """Accumulates streaming text_delta/thinking tokens and flushes to Slack periodically."""
+
+    def __init__(self, client, channel: str, ts: str, identity: dict, thinking_display: str):
+        self._client = client
+        self._channel = channel
+        self._ts = ts
+        self._identity = identity
+        self._thinking_display = thinking_display
+        self._content: list[str] = []
+        self._last_flush: float = 0.0
+        self.has_streamed: bool = False
+
+    def add_content(self, delta: str) -> None:
+        self._content.append(delta)
+
+    async def maybe_flush(self) -> None:
+        now = time.monotonic()
+        if now - self._last_flush >= _STREAM_FLUSH_INTERVAL:
+            await self.flush()
+
+    async def flush(self) -> None:
+        text = self._build_display()
+        if not text:
+            return
+        self.has_streamed = True
+        self._last_flush = time.monotonic()
+        try:
+            await self._client.chat_update(
+                channel=self._channel,
+                ts=self._ts,
+                text=text,
+                **self._identity,
+            )
+        except Exception:
+            logger.debug("SlackStreamBuffer flush failed", exc_info=True)
+
+    def _build_display(self) -> str:
+        content_text = "".join(self._content).lstrip()
+        if not content_text:
+            return ""
+        result = content_text + " ..."
+        if len(result) > _STREAM_MAX_CHARS:
+            result = result[-_STREAM_MAX_CHARS:]
+        return result
 
 
 async def _handle_client_actions(client, channel: str, actions: list, *,
@@ -136,6 +189,8 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
     dispatch_config = payload["dispatch_config"]
     thread_ts = payload["thread_ts"]
     msg_metadata = payload["msg_metadata"]
+    thinking_display = payload.get("thinking_display", "append")
+    logger.info("Channel %s thinking_display=%s", channel, thinking_display)
 
     # Defer posting the thinking placeholder until we know the server is actually
     # running the agent.  If the first event back is `queued`, we skip posting
@@ -146,11 +201,14 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
     async def _ensure_thinking() -> None:
         nonlocal thinking_ts, thinking_channel
         if thinking_ts is None:
-            msg = await client.chat_postMessage(
-                channel=channel,
-                text="⏳ _thinking..._",
+            post_kwargs: dict = {
+                "channel": channel,
+                "text": "⏳ _thinking..._",
                 **identity,
-            )
+            }
+            if thread_ts:
+                post_kwargs["thread_ts"] = thread_ts
+            msg = await client.chat_postMessage(**post_kwargs)
             thinking_ts = msg["ts"]
             thinking_channel = msg["channel"]
 
@@ -158,6 +216,7 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
         client_actions: list = []
         _delegation_posts_seen = False
         _assistant_texts_posted = False
+        stream_buffer: SlackStreamBuffer | None = None
         async for event in stream_chat(
             message=full_message,
             bot_id=bot_id,
@@ -171,10 +230,84 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
             etype = event.get("type")
             if etype == "queued":
                 # Server queued the message — response will arrive later via
-                # the task dispatcher.  Nothing was posted, nothing to clean up.
+                # the task dispatcher.  React with hourglass so user knows it's queued.
+                message_ts = dispatch_config.get("message_ts")
+                if message_ts:
+                    try:
+                        await client.reactions_add(channel=channel, name="hourglass_flowing_sand", timestamp=message_ts)
+                    except Exception:
+                        logger.debug("Failed to add queued reaction", exc_info=True)
                 return
             await _ensure_thinking()
-            if etype == "tool_start":
+            if etype == "text_delta":
+                if stream_buffer is None:
+                    stream_buffer = SlackStreamBuffer(
+                        client, thinking_channel, thinking_ts, identity, thinking_display,
+                    )
+                stream_buffer.add_content(event.get("delta", ""))
+                await stream_buffer.maybe_flush()
+            elif etype == "thinking":
+                # Don't stream thinking tokens to Slack — let thinking_content
+                # handle the batch display with proper 💭 formatting
+                pass
+            elif etype == "thinking_content":
+                # Show formatted thinking with 💭 cloud (same as assistant_text handler)
+                _tc_text = (event.get("text") or "").strip()
+                if _tc_text and thinking_display != "hidden":
+                    _assistant_texts_posted = True
+                    formatted_tc = format_thinking_for_slack(_tc_text)
+                    chunks_tc = split_for_slack(formatted_tc)
+                    if thinking_display == "replace":
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text=chunks_tc[0],
+                            **identity,
+                        )
+                    else:
+                        # Append mode: replace placeholder with thinking, post new placeholder
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text=chunks_tc[0],
+                            **identity,
+                        )
+                        for chunk in chunks_tc[1:]:
+                            await client.chat_postMessage(
+                                channel=thinking_channel,
+                                text=chunk,
+                                thread_ts=thread_ts,
+                                **identity,
+                            )
+                        _tc_ph: dict = {
+                            "channel": thinking_channel,
+                            "text": "⏳ _working..._",
+                            **identity,
+                        }
+                        if thread_ts:
+                            _tc_ph["thread_ts"] = thread_ts
+                        msg = await client.chat_postMessage(**_tc_ph)
+                        thinking_ts = msg["ts"]
+                        thinking_channel = msg["channel"]
+            elif etype == "tool_start":
+                # Force flush any streaming content before showing tool status
+                if stream_buffer and stream_buffer.has_streamed:
+                    await stream_buffer.flush()
+                    _assistant_texts_posted = True
+                    stream_buffer = None
+                    # In append mode, preserve the streamed content in its message
+                    # and post a new placeholder for the tool status
+                    if thinking_display == "append":
+                        _tool_ph: dict = {
+                            "channel": thinking_channel,
+                            "text": "⏳ _working..._",
+                            **identity,
+                        }
+                        if thread_ts:
+                            _tool_ph["thread_ts"] = thread_ts
+                        msg = await client.chat_postMessage(**_tool_ph)
+                        thinking_ts = msg["ts"]
+                        thinking_channel = msg["channel"]
                 tool = event.get("tool", "tool")
                 status = format_tool_status(tool, event.get("args"))
                 await client.chat_update(
@@ -184,37 +317,161 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     **identity,
                 )
             elif etype == "assistant_text":
-                # Intermediate text the LLM produced alongside tool calls.
-                # Turn the current thinking placeholder into a real message,
-                # then post a fresh thinking placeholder for the next tool cycle.
+                # If streaming already showed this content, skip the batch event
+                if stream_buffer and stream_buffer.has_streamed:
+                    _assistant_texts_posted = True
+                    await stream_buffer.flush()
+                    stream_buffer = None
+                    # In append mode, post a fresh placeholder for the next iteration
+                    if thinking_display == "append":
+                        _working_kwargs: dict = {
+                            "channel": thinking_channel,
+                            "text": "⏳ _working..._",
+                            **identity,
+                        }
+                        if thread_ts:
+                            _working_kwargs["thread_ts"] = thread_ts
+                        msg = await client.chat_postMessage(**_working_kwargs)
+                        thinking_ts = msg["ts"]
+                        thinking_channel = msg["channel"]
+                    continue
+
                 _at_text = (event.get("text") or "").strip()
                 if _at_text:
-                    _assistant_texts_posted = True
-                    formatted_at = format_response_for_slack(_at_text)
-                    chunks_at = split_for_slack(formatted_at)
-                    # First chunk replaces the thinking placeholder
+                    if thinking_display == "hidden":
+                        # Hidden mode: skip thought content, just show working status
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text="⏳ _working..._",
+                            **identity,
+                        )
+                    elif thinking_display == "replace":
+                        # Replace mode: update the single thinking message with latest thought
+                        _assistant_texts_posted = True
+                        formatted_at = format_thinking_for_slack(_at_text)
+                        chunks_at = split_for_slack(formatted_at)
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text=chunks_at[0],
+                            **identity,
+                        )
+                    else:
+                        # Append mode (default): post each thought as a new message
+                        _assistant_texts_posted = True
+                        formatted_at = format_thinking_for_slack(_at_text)
+                        chunks_at = split_for_slack(formatted_at)
+                        # First chunk replaces the thinking placeholder
+                        await client.chat_update(
+                            channel=thinking_channel,
+                            ts=thinking_ts,
+                            text=chunks_at[0],
+                            **identity,
+                        )
+                        # Extra chunks as follow-up messages
+                        for chunk in chunks_at[1:]:
+                            await client.chat_postMessage(
+                                channel=thinking_channel,
+                                text=chunk,
+                                thread_ts=thread_ts,
+                                **identity,
+                            )
+                        # Post a fresh thinking placeholder for the next iteration
+                        _wk: dict = {
+                            "channel": thinking_channel,
+                            "text": "⏳ _working..._",
+                            **identity,
+                        }
+                        if thread_ts:
+                            _wk["thread_ts"] = thread_ts
+                        msg = await client.chat_postMessage(**_wk)
+                        thinking_ts = msg["ts"]
+                        thinking_channel = msg["channel"]
+            elif etype == "tool_result":
+                # Tool finished — update status message to show completion
+                tool = event.get("tool", "tool")
+                error = event.get("error")
+                if error:
+                    status = f"⚠️ {tool}: _{error[:100]}_"
+                else:
+                    status = f"✅ _{tool} done_"
+                try:
                     await client.chat_update(
                         channel=thinking_channel,
                         ts=thinking_ts,
-                        text=chunks_at[0],
+                        text=status,
                         **identity,
                     )
-                    # Extra chunks as follow-up messages
-                    for chunk in chunks_at[1:]:
-                        await client.chat_postMessage(
-                            channel=thinking_channel,
-                            text=chunk,
-                            thread_ts=thread_ts,
-                            **identity,
-                        )
-                    # Post a fresh thinking placeholder for the next iteration
-                    msg = await client.chat_postMessage(
+                except Exception:
+                    pass
+            elif etype == "llm_retry":
+                attempt = event.get("attempt", "?")
+                max_att = event.get("max_retries", "?")
+                reason = event.get("reason", "timeout")
+                status = f"⏳ _LLM {reason}, retrying ({attempt}/{max_att})..._"
+                try:
+                    await client.chat_update(
                         channel=thinking_channel,
-                        text="⏳ _working..._",
+                        ts=thinking_ts,
+                        text=status,
                         **identity,
                     )
-                    thinking_ts = msg["ts"]
-                    thinking_channel = msg["channel"]
+                except Exception:
+                    pass
+            elif etype == "llm_fallback":
+                fallback_model = event.get("to_model", "fallback")
+                status = f"⏳ _Switching to fallback model ({fallback_model})..._"
+                try:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=status,
+                        **identity,
+                    )
+                except Exception:
+                    pass
+            elif etype == "approval_request":
+                tool = event.get("tool", "tool")
+                reason = event.get("reason", "")
+                status = f"🔒 _{tool}_ needs approval"
+                if reason:
+                    status += f": {reason[:100]}"
+                try:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=status,
+                        **identity,
+                    )
+                except Exception:
+                    pass
+            elif etype == "approval_resolved":
+                verdict = event.get("verdict", "unknown")
+                tool = event.get("tool", "tool")
+                if verdict == "approved":
+                    status = f"✅ _{tool}_ approved — running..."
+                else:
+                    status = f"❌ _{tool}_ {verdict}"
+                try:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text=status,
+                        **identity,
+                    )
+                except Exception:
+                    pass
+            elif etype == "cancelled":
+                # Agent loop was cancelled via STOP
+                if thinking_ts and thinking_channel:
+                    await client.chat_update(
+                        channel=thinking_channel,
+                        ts=thinking_ts,
+                        text="_Cancelled._",
+                        **identity,
+                    )
+                return
             elif etype == "warning":
                 _warn_code = event.get("code", "unknown")
                 _warn_msg = event.get("message", "")
@@ -259,10 +516,13 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     child_identity["icon_emoji"] = child_display["icon_emoji"]
                 elif child_display.get("icon_url"):
                     child_identity["icon_url"] = child_display["icon_url"]
+                # Add parent attribution
+                _parent_display = identity.get("username") or bot_id
+                _attributed_text = f"_Delegated by {_parent_display}_\n{format_response_for_slack(child_text)}"
                 try:
                     await client.chat_postMessage(
                         channel=thinking_channel,
-                        text=format_response_for_slack(child_text),
+                        text=_attributed_text,
                         thread_ts=thread_ts if child_reply_in_thread else None,
                         **child_identity,
                     )
@@ -274,12 +534,34 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                     await _handle_client_actions(client, thinking_channel, child_actions,
                                                 thread_ts=thread_ts, identity=child_identity)
             elif etype == "response":
+                # Streaming already showed the content — response handler will
+                # update the same message with final formatted text (no new msg)
+                if stream_buffer and stream_buffer.has_streamed:
+                    stream_buffer = None
+
                 reply = (event.get("text") or "").strip()
                 client_actions = event.get("client_actions") or []
 
                 # If the final response is empty but we already posted intermediate
-                # messages, just delete the trailing thinking placeholder.
+                # messages, clean up the trailing thinking placeholder.
+                # In "append" mode, thinking_ts is a separate placeholder we can delete.
+                # In "replace" mode, thinking_ts IS the thought content — leave it.
                 if not reply and _assistant_texts_posted:
+                    if thinking_display == "replace":
+                        # Leave the last thought content in place as the final message
+                        pass
+                    else:
+                        try:
+                            await client.chat_delete(
+                                channel=thinking_channel,
+                                ts=thinking_ts,
+                            )
+                        except Exception:
+                            pass
+                        # Clear thinking_ts so we don't try to update a deleted msg
+                        thinking_ts = None
+                elif not reply and not _assistant_texts_posted:
+                    # No response and no thoughts — just remove the placeholder
                     try:
                         await client.chat_delete(
                             channel=thinking_channel,
@@ -287,7 +569,6 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
                         )
                     except Exception:
                         pass
-                    # Clear thinking_ts so we don't try to update a deleted msg
                     thinking_ts = None
                 else:
                     formatted = format_response_for_slack(reply)
@@ -347,6 +628,7 @@ async def dispatch(
     files: list | None = None,
     thread_ts: str | None = None,
     mentioned: bool = False,
+    message_ts: str | None = None,
 ):
     text = (text or "").strip()
 
@@ -357,6 +639,37 @@ async def dispatch(
 
     # Ensure Channel row exists on the server (idempotent, best-effort)
     await ensure_channel(client_id, bot_id)
+
+    # STOP intercept: cancel in-progress agent loop (works regardless of require_mention)
+    if text.upper() == "STOP":
+        try:
+            result = await cancel_session(client_id, bot_id)
+            if result.get("cancelled") or result.get("queued_tasks_cancelled", 0) > 0:
+                parts = []
+                if result.get("cancelled"):
+                    parts.append("active request cancelled")
+                q = result.get("queued_tasks_cancelled", 0)
+                if q:
+                    parts.append(f"{q} queued message(s) cancelled")
+                await client.chat_postMessage(
+                    channel=channel,
+                    text=f"_Cancellation requested: {', '.join(parts)}._",
+                    thread_ts=thread_ts,
+                )
+            else:
+                await client.chat_postMessage(
+                    channel=channel,
+                    text="_Nothing running to cancel._",
+                    thread_ts=thread_ts,
+                )
+        except Exception:
+            logger.exception("STOP cancel failed for channel %s", channel)
+            await client.chat_postMessage(
+                channel=channel,
+                text="_Failed to cancel — server may be unreachable._",
+                thread_ts=thread_ts,
+            )
+        return
 
     appended, attachments, file_metadata = await _process_slack_files(files or [], user)
 
@@ -371,14 +684,16 @@ async def dispatch(
     # Determine if this should be passive (stored but no agent run).
     # require_mention=True (default): only @mentions trigger the agent.
     # require_mention=False: all messages trigger the agent.
-    is_passive = not mentioned and config["require_mention"]
+    # allow_bot_messages=True: bot messages are always active (bypass require_mention).
+    is_bot_sender = user.startswith("bot:")
+    is_passive = not mentioned and config["require_mention"] and not (is_bot_sender and config.get("allow_bot_messages"))
 
     msg_metadata = {
         "passive": is_passive,
         "include_in_memory": config["passive_memory"],
-        "trigger_rag": mentioned or not config["require_mention"],
+        "trigger_rag": mentioned or not config["require_mention"] or (is_bot_sender and config.get("allow_bot_messages")),
         "source": "slack",
-        "sender_type": "human",
+        "sender_type": "bot" if is_bot_sender else "human",
         "sender_id": f"slack:{user}",
         "recipient_id": f"bot:{bot_id}" if mentioned else None,
     }
@@ -401,6 +716,7 @@ async def dispatch(
     dispatch_config = {
         "channel_id": channel,
         "thread_ts": thread_ts,
+        "message_ts": message_ts,
         "token": BOT_TOKEN,
     }
     identity = _get_identity(bot_id)
@@ -413,24 +729,51 @@ async def dispatch(
         "dispatch_config": dispatch_config,
         "thread_ts": thread_ts,
         "msg_metadata": msg_metadata,
+        "thinking_display": config.get("thinking_display", "append"),
     }
     await _run_dispatch(channel, payload, client, identity)
 
 
+def _handle_bot_message(event):
+    """Check if a bot message should be processed. Returns (user, should_process)."""
+    config = get_channel_config(event.get("channel", ""))
+    if not config.get("allow_bot_messages", False):
+        return None, False
+    sender = event.get("bot_id") or event.get("username") or "unknown"
+    return f"bot:{sender}", True
+
+
 def register_message_handlers(app):
+    # Slack Bolt only matches messages with NO subtype via @app.event("message").
+    # Bot messages have subtype="bot_message" and need a dedicated handler.
+    @app.event({"type": "message", "subtype": "bot_message"})
+    async def on_bot_message(event, say, client):
+        user, ok = _handle_bot_message(event)
+        if not ok:
+            return
+        thread_ts = event.get("thread_ts")
+        await dispatch(
+            event["channel"],
+            user,
+            event.get("text", ""),
+            say,
+            client,
+            event.get("files"),
+            thread_ts=thread_ts,
+            mentioned=False,
+            message_ts=event.get("ts"),
+        )
+
     @app.event("message")
     async def on_message(event, say, client):
         st = event.get("subtype")
-        is_bot_msg = st == "bot_message" or bool(event.get("bot_id"))
+        is_bot_msg = bool(event.get("bot_id"))
 
         if is_bot_msg:
-            # Only pass through bot messages if the channel has opted in.
-            config = get_channel_config(event.get("channel", ""))
-            if not config.get("allow_bot_messages", False):
+            # Bot messages without subtype="bot_message" (rare but possible).
+            user, ok = _handle_bot_message(event)
+            if not ok:
                 return
-            # Identify the sender as bot:<bot_id> or bot:<username>
-            sender = event.get("bot_id") or event.get("username") or "unknown"
-            user = f"bot:{sender}"
         else:
             # Most subtypes (channel_join, message_changed, …) are noise;
             # file uploads often use file_share.
@@ -442,7 +785,7 @@ def register_message_handlers(app):
                 return
             user = event.get("user", "")
 
-        thread_ts = event.get("thread_ts") or event.get("ts")
+        thread_ts = event.get("thread_ts")
         await dispatch(
             event["channel"],
             user,
@@ -452,6 +795,7 @@ def register_message_handlers(app):
             event.get("files"),
             thread_ts=thread_ts,
             mentioned=False,
+            message_ts=event.get("ts"),
         )
 
     @app.event("app_mention")
@@ -459,7 +803,7 @@ def register_message_handlers(app):
         if event.get("bot_id"):
             return
         text = (event.get("text") or "").split(">", 1)[-1].strip()
-        thread_ts = event.get("thread_ts") or event.get("ts")
+        thread_ts = event.get("thread_ts")
         await dispatch(
             event["channel"],
             event["user"],
@@ -469,4 +813,5 @@ def register_message_handlers(app):
             event.get("files"),
             thread_ts=thread_ts,
             mentioned=True,
+            message_ts=event.get("ts"),
         )

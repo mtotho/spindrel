@@ -1,3 +1,12 @@
+// Secret check types
+export interface SecretCheckResult {
+  has_secrets: boolean;
+  exact_matches: number;
+  pattern_matches: Array<{
+    type: string;
+  }>;
+}
+
 // Bot types
 export interface MemoryConfig {
   enabled?: boolean;
@@ -23,7 +32,8 @@ export interface BotConfig {
   name: string;
   model: string;
   system_prompt?: string;
-  model_provider_id?: string;
+  model_provider_id?: string | null;
+  fallback_models?: Array<{ model: string; provider_id?: string | null }>;
   display_name?: string;
   avatar_url?: string;
   local_tools?: string[];
@@ -34,13 +44,15 @@ export interface BotConfig {
   tool_retrieval?: boolean;
   tool_similarity_threshold?: number | null;
   tool_result_config?: Record<string, any>;
-  compression_config?: Record<string, any>;
   persona?: boolean;
   persona_content?: string;
+  persona_from_workspace?: boolean;
+  workspace_persona_content?: string | null;
   context_compaction?: boolean;
   compaction_interval?: number | null;
   compaction_keep_turns?: number | null;
   compaction_model?: string | null;
+  history_mode?: string | null;
   audio_input?: string;
   memory?: MemoryConfig;
   memory_max_inject_chars?: number | null;
@@ -56,21 +68,108 @@ export interface BotConfig {
   user_id?: string | null;
   shared_workspace_id?: string | null;
   shared_workspace_role?: string | null;
-  elevation_enabled?: boolean | null;
-  elevation_threshold?: number | null;
-  elevated_model?: string | null;
   attachment_summarization_enabled?: boolean | null;
   attachment_summary_model?: string | null;
   attachment_text_max_chars?: number | null;
   attachment_vision_concurrency?: number | null;
+  api_permissions?: string[] | null;
+  api_docs_mode?: string | null;  // "pinned"|"rag"|"on_demand"|null
+  memory_scheme?: string | null;  // "workspace-files"|null
+  carapaces?: string[];
+  workspace_only?: boolean;
+  system_prompt_workspace_file?: boolean;
+  system_prompt_write_protected?: boolean;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface Carapace {
+  id: string;
+  name: string;
+  description?: string | null;
+  skills: SkillConfig[];
+  local_tools: string[];
+  mcp_tools: string[];
+  pinned_tools: string[];
+  system_prompt_fragment?: string | null;
+  includes: string[];
+  tags: string[];
+  source_type: string;
+  source_path?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Workflows
+export interface Workflow {
+  id: string;
+  name: string;
+  description?: string | null;
+  params: Record<string, any>;
+  secrets: string[];
+  defaults: Record<string, any>;
+  steps: WorkflowStep[];
+  triggers: Record<string, boolean>;
+  tags: string[];
+  session_mode: string;
+  source_type: string;
+  source_path?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowStep {
+  id: string;
+  prompt: string;
+  when?: Record<string, any> | null;
+  requires_approval?: boolean;
+  on_failure?: string;
+  secrets?: string[];
+  tools?: string[];
+  carapaces?: string[];
+  model?: string | null;
+  timeout?: number | null;
+  inject_prior_results?: boolean;
+  prior_result_max_chars?: number | null;
+  result_max_chars?: number | null;
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflow_id: string;
+  bot_id: string;
+  channel_id?: string | null;
+  session_id?: string | null;
+  params: Record<string, any>;
+  status: string;
+  current_step_index: number;
+  step_states: WorkflowStepState[];
+  dispatch_type: string;
+  dispatch_config?: Record<string, any> | null;
+  triggered_by?: string | null;
+  session_mode?: string;
+  error?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface WorkflowStepState {
+  status: string;
+  task_id?: string | null;
+  result?: string | null;
+  error?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  correlation_id?: string | null;
+  retry_count?: number;
 }
 
 // Tool group from editor data
 export interface ToolPack {
   pack: string;
-  tools: { name: string }[];
+  label: string;
+  warning?: string | null;
+  tools: { name: string; description?: string | null }[];
 }
 
 export interface ToolGroup {
@@ -135,6 +234,27 @@ export interface IntegrationBinding {
   updated_at: string;
 }
 
+// Integration activation
+export interface ActivatableIntegration {
+  integration_type: string;
+  description: string;
+  requires_workspace: boolean;
+  activated: boolean;
+  carapaces: string[];
+  tools: string[];
+  skill_count: number;
+  has_system_prompt: boolean;
+  version?: string | null;
+  compatible_template_tag?: string | null;
+}
+
+export interface ActivationResult {
+  integration_type: string;
+  activated: boolean;
+  manifest?: Record<string, any> | null;
+  warnings: Array<{ code: string; message: string }>;
+}
+
 // Channel types (matches server ChannelOut)
 export interface Channel {
   id: string;
@@ -146,11 +266,18 @@ export interface Channel {
   require_mention: boolean;
   passive_memory: boolean;
   private: boolean;
+  protected?: boolean;
   user_id?: string;
   display_name?: string;
-  model_override?: string;
-  model_provider_id_override?: string;
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
   integrations?: IntegrationBinding[];
+  heartbeat_enabled?: boolean;
+  heartbeat_in_quiet_hours?: boolean;
+  channel_workspace_enabled?: boolean;
+  workspace_id?: string | null;
+  resolved_workspace_id?: string | null;
+  tags?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -165,29 +292,40 @@ export interface ChannelSettings {
   active_session_id?: string;
   require_mention: boolean;
   passive_memory: boolean;
+  private: boolean;
+  protected?: boolean;
+  user_id?: string | null;
+  allow_bot_messages: boolean;
   workspace_rag: boolean;
+  thinking_display?: string;
+  max_iterations?: number;
+  task_max_run_seconds?: number | null;
+  channel_prompt?: string;
+  channel_prompt_workspace_file_path?: string | null;
+  channel_prompt_workspace_id?: string | null;
   context_compaction: boolean;
   compaction_interval?: number;
   compaction_keep_turns?: number;
   memory_knowledge_compaction_prompt?: string;
   compaction_prompt_template_id?: string | null;
-  context_compression?: boolean;
-  compression_model?: string;
-  compression_threshold?: number;
-  compression_keep_turns?: number;
-  compression_prompt?: string;
-  // Summarizer (auto-resume after idle)
-  summarizer_enabled?: boolean;
-  summarizer_threshold_minutes?: number;
-  summarizer_message_count?: number;
-  summarizer_target_size?: number;
-  summarizer_prompt?: string;
-  summarizer_model?: string;
-  elevation_enabled?: boolean;
-  elevation_threshold?: number;
-  elevated_model?: string;
-  model_override?: string;
-  model_provider_id_override?: string;
+  compaction_workspace_file_path?: string | null;
+  compaction_workspace_id?: string | null;
+  history_mode?: string | null;
+  compaction_model?: string;
+  trigger_heartbeat_before_compaction?: boolean | null;
+  // Memory flush (dedicated pre-compaction memory save)
+  memory_flush_enabled?: boolean | null;
+  memory_flush_model?: string | null;
+  memory_flush_model_provider_id?: string | null;
+  memory_flush_prompt?: string | null;
+  memory_flush_prompt_template_id?: string | null;
+  memory_flush_workspace_file_path?: string | null;
+  memory_flush_workspace_id?: string | null;
+  section_index_count?: number | null;
+  section_index_verbosity?: string | null;
+  model_override?: string | null;
+  model_provider_id_override?: string | null;
+  fallback_models?: Array<{ model: string; provider_id?: string | null }>;
   // Tool / skill overrides
   local_tools_override?: string[] | null;
   local_tools_disabled?: string[] | null;
@@ -198,9 +336,27 @@ export interface ChannelSettings {
   pinned_tools_override?: string[] | null;
   skills_override?: { id: string; mode?: string; similarity_threshold?: number }[] | null;
   skills_disabled?: string[] | null;
+  skills_extra?: { id: string; mode?: string; similarity_threshold?: number }[] | null;
   // Workspace overrides
   workspace_skills_enabled?: boolean | null;
   workspace_base_prompt_enabled?: boolean | null;
+  // Channel workspace
+  channel_workspace_enabled?: boolean | null;
+  workspace_schema_template_id?: string | null;
+  workspace_schema_content?: string | null;
+  index_segments?: Array<{ path_prefix: string; patterns?: string[]; embedding_model?: string | null; similarity_threshold?: number; top_k?: number }>;
+  index_segment_defaults?: {
+    embedding_model: string;
+    patterns: string[];
+    similarity_threshold: number;
+    top_k: number;
+  } | null;
+  // Carapace overrides
+  carapaces_extra?: string[] | null;
+  carapaces_disabled?: string[] | null;
+  workspace_id?: string | null;
+  resolved_workspace_id?: string | null;
+  tags?: string[];
 }
 
 export interface EffectiveTools {
@@ -208,48 +364,12 @@ export interface EffectiveTools {
   mcp_servers: string[];
   client_tools: string[];
   pinned_tools: string[];
-  skills: { id: string; mode: string; similarity_threshold?: number }[];
+  skills: { id: string; mode: string; similarity_threshold?: number; name?: string }[];
   mode: Record<string, "inherit" | "override" | "disabled">;
-}
-
-// Elevation types
-export interface ElevationLogEntry {
-  id: string;
-  turn_id?: string;
-  bot_id: string;
-  channel_id?: string;
-  iteration: number;
-  base_model: string;
-  model_chosen: string;
-  was_elevated: boolean;
-  classifier_score: number;
-  elevation_reason?: string;
-  rules_fired: string[];
-  signal_scores: Record<string, number>;
-  tokens_used?: number;
-  latency_ms?: number;
-  created_at: string;
-}
-
-export interface ElevationConfigOut {
-  enabled?: boolean;
-  threshold?: number;
-  elevated_model?: string;
-  effective_enabled: boolean;
-  effective_threshold: number;
-  effective_elevated_model: string;
-}
-
-export interface ElevationOverview {
-  config: ElevationConfigOut;
-  recent: ElevationLogEntry[];
-  stats: {
-    total_decisions: number;
-    elevated_count: number;
-    elevation_rate: number;
-    avg_score: number;
-    avg_latency_ms?: number;
-  };
+  disabled: Record<string, string[]>;
+  skills_extra: { id: string; mode?: string; similarity_threshold?: number }[];
+  carapaces: string[];
+  carapace_sources: Record<string, string>;
 }
 
 // Model types
@@ -257,6 +377,8 @@ export interface LlmModel {
   id: string;
   display: string;
   max_tokens?: number;
+  download_status?: "cached" | "not_downloaded" | "downloading";
+  size_mb?: number;
 }
 
 export interface ModelGroup {
@@ -270,6 +392,7 @@ export interface ModelGroup {
 export interface CompletionItem {
   value: string;
   label: string;
+  description?: string;
 }
 
 // Session types
@@ -306,13 +429,26 @@ export interface Message {
   correlation_id?: string;
   tool_calls?: ToolCall[];
   attachments?: AttachmentBrief[];
+  metadata?: Record<string, any>;
   created_at: string;
 }
 
+/** OpenAI function-call format as stored in DB */
 export interface ToolCall {
   id: string;
-  name: string;
-  arguments: string;
+  type?: string;
+  function?: { name: string; arguments: string };
+  // Flattened form (for convenience)
+  name?: string;
+  arguments?: string;
+}
+
+/** Extract name and arguments from a ToolCall regardless of format */
+export function normalizeToolCall(tc: ToolCall): { name: string; arguments: string } {
+  if (tc.function) {
+    return { name: tc.function.name, arguments: tc.function.arguments };
+  }
+  return { name: tc.name ?? "unknown", arguments: tc.arguments ?? "{}" };
 }
 
 // Chat types
@@ -339,6 +475,9 @@ export interface ChatRequest {
   model_override?: string;
   attachments?: ChatAttachment[];
   file_metadata?: ChatFileMetadata[];
+  audio_data?: string;
+  audio_format?: string;
+  audio_native?: boolean;
 }
 
 export interface ChatResponse {
@@ -360,12 +499,18 @@ export type SSEEventType =
   | "tool_start"
   | "tool_request"
   | "tool_result"
+  | "assistant_text"
+  | "text_delta"
+  | "thinking"
+  | "thinking_content"
   | "transcript"
   | "response"
   | "compaction_start"
   | "compaction_done"
+  | "warning"
   | "error"
   | "queued"
+  | "cancelled"
   | "passive_stored";
 
 export interface SSEEvent {
@@ -401,6 +546,7 @@ export interface WorkspaceBot {
   bot_name: string;
   role: string;
   cwd_override?: string | null;
+  write_access?: string[];
   user_id?: string | null;
 }
 
@@ -420,6 +566,10 @@ export interface SharedWorkspace {
   startup_script?: string | null;
   workspace_skills_enabled: boolean;
   workspace_base_prompt_enabled: boolean;
+  editor_enabled: boolean;
+  editor_port?: number | null;
+  write_protected_paths?: string[];
+  skills?: { id: string; mode?: string; similarity_threshold?: number }[];
   container_id?: string | null;
   container_name?: string | null;
   status: string;
@@ -446,6 +596,8 @@ export interface WorkspaceCreate {
   startup_script?: string;
   workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
+  write_protected_paths?: string[];
+  skills?: { id: string; mode?: string; similarity_threshold?: number }[];
   created_by_user_id?: string;
 }
 
@@ -464,6 +616,8 @@ export interface WorkspaceUpdate {
   startup_script?: string;
   workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
+  write_protected_paths?: string[];
+  skills?: { id: string; mode?: string; similarity_threshold?: number }[];
 }
 
 export interface WorkspaceFileEntry {
@@ -471,6 +625,8 @@ export interface WorkspaceFileEntry {
   is_dir: boolean;
   size?: number | null;
   path: string;
+  modified_at?: number | null; // unix timestamp (seconds)
+  display_name?: string | null; // from .channel_info for channel UUID dirs
 }
 
 // Context breakdown types
@@ -495,13 +651,13 @@ export interface CompactionState {
   turns_until_next: number | null;
 }
 
-export interface CompressionState {
+export interface RerankState {
   enabled: boolean;
   model: string;
-  threshold: number;
-  keep_turns: number;
-  conversation_chars: number;
-  would_compress: boolean;
+  threshold_chars: number;
+  max_chunks: number;
+  total_rag_chars: number;
+  would_rerank: boolean;
 }
 
 export interface EffectiveSetting {
@@ -517,7 +673,7 @@ export interface ContextBreakdown {
   total_chars: number;
   total_tokens_approx: number;
   compaction: CompactionState;
-  compression: CompressionState;
+  reranking: RerankState;
   effective_settings: Record<string, EffectiveSetting>;
   disclaimer: string;
 }
@@ -535,6 +691,33 @@ export interface PromptTemplate {
   source_path?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Cron job types
+export interface CronEntry {
+  expression: string;
+  command: string;
+  source_type: "container" | "host";
+  source_name: string;
+  workspace_id?: string | null;
+  workspace_name?: string | null;
+  user: string;
+}
+
+// Heartbeat types
+export interface HeartbeatHistoryRun {
+  id: string;
+  status: string;
+  run_at: string;
+  completed_at?: string | null;
+  result?: string | null;
+  error?: string | null;
+  correlation_id?: string | null;
+  repetition_detected?: boolean | null;
+  tool_calls: { tool_name: string; tool_type: string; iteration?: number | null; duration_ms?: number | null; error?: string | null }[];
+  total_tokens: number;
+  iterations: number;
+  duration_ms?: number | null;
 }
 
 // Admin types

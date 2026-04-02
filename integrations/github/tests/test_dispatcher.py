@@ -1,71 +1,81 @@
-"""Tests for GitHub event dispatcher."""
+"""Tests for GitHub dispatcher — posting comments via GitHub API."""
 
-import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-# Mock heavy dependencies before importing dispatcher
-_fake_utils = MagicMock()
-_fake_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": "s1", "task_id": None})
-sys.modules.setdefault("integrations.utils", _fake_utils)
-
-if "app.config" not in sys.modules:
-    _fake_config = MagicMock()
-    _fake_config.settings = MagicMock()
-    sys.modules["app.config"] = _fake_config
-
-from integrations.github.dispatcher import dispatch, EVENT_HANDLERS  # noqa: E402
+from integrations.github.dispatcher import GitHubDispatcher, _split_body
 
 
-class TestDispatcher:
-    def test_event_handlers_registered(self):
-        assert "workflow_run" in EVENT_HANDLERS
-        assert "check_run" in EVENT_HANDLERS
+class TestSplitBody:
+    def test_short_body_no_split(self):
+        assert _split_body("hello", 100) == ["hello"]
 
+    def test_long_body_splits(self):
+        text = "a" * 200
+        chunks = _split_body(text, 100)
+        assert len(chunks) >= 2
+        assert "".join(chunks) == text
+
+    def test_splits_at_newline(self):
+        text = "line1\nline2\nline3\nline4"
+        chunks = _split_body(text, 15)
+        assert all(len(c) <= 15 for c in chunks)
+
+
+class TestGitHubDispatcher:
     @pytest.mark.asyncio
-    async def test_dispatch_unknown_event_returns_none(self):
-        db = AsyncMock()
-        result = await dispatch("unknown_event", {}, db)
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_dispatch_workflow_run_success_is_ignored(self):
-        """workflow_run with conclusion=success should not inject a message."""
-        db = AsyncMock()
-        payload = {
-            "workflow_run": {"conclusion": "success", "name": "CI", "head_branch": "main", "html_url": "", "id": 1},
-            "repository": {"full_name": "org/repo"},
+    async def test_deliver_posts_comment(self):
+        dispatcher = GitHubDispatcher()
+        task = MagicMock()
+        task.id = "task-1"
+        task.session_id = "sess-1"
+        task.client_id = "github:org/repo"
+        task.bot_id = "default"
+        task.dispatch_config = {
+            "type": "github",
+            "owner": "org",
+            "repo": "myrepo",
+            "comment_target": {"type": "issue_comment", "issue_number": 42},
         }
-        result = await dispatch("workflow_run", payload, db)
-        assert result is None
+
+        with patch("integrations.github.dispatcher._post_comment", new_callable=AsyncMock, return_value=True) as mock_post, \
+             patch("integrations.github.dispatcher._get_token", return_value="ghp_test"), \
+             patch("app.services.sessions.store_dispatch_echo", new_callable=AsyncMock):
+            await dispatcher.deliver(task, "Here is the review.")
+            mock_post.assert_called_once_with("ghp_test", "org", "myrepo", 42, "Here is the review.")
 
     @pytest.mark.asyncio
-    async def test_dispatch_workflow_run_failure_posts_to_slack(self):
-        """workflow_run with conclusion=failure should post to Slack."""
-        db = AsyncMock()
-        payload = {
-            "workflow_run": {"conclusion": "failure", "name": "CI", "head_branch": "main", "html_url": "https://example.com", "id": 42},
-            "repository": {"full_name": "org/repo"},
-        }
-        with patch("integrations.github.handlers.github_config") as mock_cfg, \
-             patch("integrations.github.handlers.post_message", new_callable=AsyncMock, return_value=True):
-            mock_cfg.SLACK_CHANNEL_ID = "C01ABCDEF"
-            mock_cfg.SLACK_BOT_TOKEN = "xoxb-test"
-            result = await dispatch("workflow_run", payload, db)
-        assert result is not None
+    async def test_deliver_skips_informational_events(self):
+        """No comment_target means informational — no comment posted."""
+        dispatcher = GitHubDispatcher()
+        task = MagicMock()
+        task.dispatch_config = {"type": "github", "owner": "org", "repo": "myrepo"}
+
+        with patch("integrations.github.dispatcher._post_comment", new_callable=AsyncMock) as mock_post:
+            await dispatcher.deliver(task, "Push notification")
+            mock_post.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_dispatch_check_run_failure_posts_to_slack(self):
-        """check_run with conclusion=failure should post to Slack."""
-        db = AsyncMock()
-        payload = {
-            "check_run": {"conclusion": "failure", "name": "lint", "html_url": "https://example.com"},
-            "repository": {"full_name": "org/repo"},
+    async def test_post_message_returns_false_without_target(self):
+        dispatcher = GitHubDispatcher()
+        result = await dispatcher.post_message(
+            {"type": "github", "owner": "org", "repo": "repo"},
+            "text",
+        )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_post_message_with_target(self):
+        dispatcher = GitHubDispatcher()
+        cfg = {
+            "type": "github",
+            "owner": "org",
+            "repo": "repo",
+            "comment_target": {"type": "issue_comment", "issue_number": 7},
         }
-        with patch("integrations.github.handlers.github_config") as mock_cfg, \
-             patch("integrations.github.handlers.post_message", new_callable=AsyncMock, return_value=True):
-            mock_cfg.SLACK_CHANNEL_ID = "C01ABCDEF"
-            mock_cfg.SLACK_BOT_TOKEN = "xoxb-test"
-            result = await dispatch("check_run", payload, db)
-        assert result is not None
+        with patch("integrations.github.dispatcher._post_comment", new_callable=AsyncMock, return_value=True) as mock_post, \
+             patch("integrations.github.dispatcher._get_token", return_value="ghp_test"):
+            result = await dispatcher.post_message(cfg, "hello")
+            assert result is True
+            mock_post.assert_called_once_with("ghp_test", "org", "repo", 7, "hello")

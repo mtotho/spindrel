@@ -63,3 +63,62 @@ async def resolve_prompt_template(
             return row.content or fallback
 
     return row.content or fallback
+
+
+def resolve_workspace_file_prompt(
+    workspace_id: str | None,
+    file_path: str | None,
+    fallback: str,
+) -> str:
+    """Read a workspace file directly and return its content, or *fallback* on failure."""
+    if not workspace_id or not file_path:
+        return fallback
+    try:
+        from app.services.shared_workspace import shared_workspace_service
+        result = shared_workspace_service.read_file(workspace_id, file_path)
+        return result["content"]
+    except Exception:
+        logger.warning(
+            "Failed to read workspace file %s/%s — using fallback",
+            workspace_id, file_path, exc_info=True,
+        )
+        return fallback
+
+
+async def resolve_prompt(
+    *,
+    workspace_id: str | None = None,
+    workspace_file_path: str | None = None,
+    template_id: str | None = None,
+    inline_prompt: str,
+    db: AsyncSession,
+) -> str:
+    """Unified prompt resolution with priority: workspace_file > template > inline.
+
+    Parameters
+    ----------
+    workspace_id:
+        Shared workspace UUID string for direct file linking.
+    workspace_file_path:
+        Path within the workspace to read as the prompt.
+    template_id:
+        PromptTemplate UUID string (legacy path).
+    inline_prompt:
+        Fallback inline prompt text.
+    db:
+        Async DB session (needed for template resolution).
+    """
+    # 1. Direct workspace file takes highest priority
+    if workspace_id and workspace_file_path:
+        result = resolve_workspace_file_prompt(workspace_id, workspace_file_path, "")
+        if result:
+            return result
+
+    # 2. Prompt template
+    if template_id:
+        result = await resolve_prompt_template(template_id, "", db)
+        if result:
+            return result
+
+    # 3. Inline prompt
+    return inline_prompt

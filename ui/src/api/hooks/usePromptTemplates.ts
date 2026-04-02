@@ -2,10 +2,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { PromptTemplate } from "../../types/api";
 
-export function usePromptTemplates(workspaceId?: string) {
-  const qs = workspaceId ? `?workspace_id=${workspaceId}` : "";
+export function usePromptTemplates(workspaceId?: string, category?: string) {
+  const params = new URLSearchParams();
+  if (workspaceId) params.set("workspace_id", workspaceId);
+  if (category) params.set("category", category);
+  const qs = params.toString() ? `?${params.toString()}` : "";
   return useQuery({
-    queryKey: ["prompt-templates", workspaceId ?? "all"],
+    queryKey: ["prompt-templates", workspaceId ?? "all", category ?? "all"],
     queryFn: () => apiFetch<PromptTemplate[]>(`/api/v1/prompt-templates${qs}`),
   });
 }

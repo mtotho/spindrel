@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Folder, FileText, ChevronRight } from "lucide-react";
 import { useWorkspaceFiles } from "../../api/hooks/useWorkspaces";
+import { useThemeTokens } from "../../theme/tokens";
 import type { WorkspaceFileEntry } from "../../types/api";
 
 interface WorkspaceFilePickerProps {
@@ -11,6 +12,7 @@ interface WorkspaceFilePickerProps {
 }
 
 export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }: WorkspaceFilePickerProps) {
+  const t = useThemeTokens();
   const [path, setPath] = useState(() => {
     // Start in the directory of the current value if set
     if (value) {
@@ -45,46 +47,51 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {/* Breadcrumb */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 0, fontSize: 12, flexWrap: "wrap" }}>
         <button
           onClick={() => navigateTo("/")}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            color: "#93c5fd", fontSize: 12, padding: 0,
+            color: path === "/" ? t.text : t.accent, fontSize: 12, padding: 0,
+            fontFamily: "monospace",
           }}
         >
           /workspace
         </button>
-        {path !== "/" && (
-          <>
-            <span style={{ color: "#555" }}>/</span>
-            <span style={{ color: "#999", fontFamily: "monospace" }}>
-              {path.replace(/^\//, "")}
-            </span>
-            <button
-              onClick={navigateUp}
-              style={{
-                background: "none", border: "1px solid #333", borderRadius: 4,
-                cursor: "pointer", color: "#999", fontSize: 10, padding: "1px 6px",
-                marginLeft: 4,
-              }}
-            >
-              Up
-            </button>
-          </>
-        )}
+        {path !== "/" && (() => {
+          const segments = path.replace(/^\//, "").split("/").filter(Boolean);
+          return segments.map((seg, i) => {
+            const segPath = "/" + segments.slice(0, i + 1).join("/");
+            const isLast = i === segments.length - 1;
+            return (
+              <span key={segPath} style={{ display: "inline-flex", alignItems: "center" }}>
+                <span style={{ color: t.textDim, margin: "0 1px" }}>/</span>
+                <button
+                  onClick={() => navigateTo(segPath)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer",
+                    color: isLast ? t.text : t.accent, fontSize: 12, padding: 0,
+                    fontFamily: "monospace",
+                  }}
+                >
+                  {seg}
+                </button>
+              </span>
+            );
+          });
+        })()}
       </div>
 
       {/* Entries */}
       {isLoading ? (
-        <div style={{ color: "#555", fontSize: 12, padding: 12 }}>Loading...</div>
+        <div style={{ color: t.textDim, fontSize: 12, padding: 12 }}>Loading...</div>
       ) : (
         <div style={{
-          background: "#0a0a0a", borderRadius: 8, border: "1px solid #1a1a1a",
+          background: t.inputBg, borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
           overflow: "hidden", maxHeight: 250, overflowY: "auto",
         }}>
           {(!data?.entries || data.entries.length === 0) && (
-            <div style={{ color: "#555", fontSize: 12, padding: 12 }}>Empty directory</div>
+            <div style={{ color: t.textDim, fontSize: 12, padding: 12 }}>Empty directory</div>
           )}
           {data?.entries?.map((entry) => {
             const matches = matchesFilter(entry);
@@ -105,9 +112,9 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
                 style={{
                   display: "flex", alignItems: "center", gap: 8, width: "100%",
                   padding: "6px 12px",
-                  background: isSelected ? "rgba(59,130,246,0.12)" : "transparent",
-                  borderBottom: "1px solid #111",
-                  border: "none", borderBlockEnd: "1px solid #111",
+                  background: isSelected ? t.accentSubtle : "transparent",
+                  borderBottom: `1px solid ${t.surfaceBorder}`,
+                  border: "none", borderBlockEnd: `1px solid ${t.surfaceBorder}`,
                   cursor: (entry.is_dir || matches) ? "pointer" : "default",
                   textAlign: "left",
                   opacity: matches ? 1 : 0.35,
@@ -122,22 +129,22 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
                 }}
               >
                 {entry.is_dir ? (
-                  <Folder size={13} color="#93c5fd" />
+                  <Folder size={13} color={t.accent} />
                 ) : (
-                  <FileText size={13} color={isSelected ? "#93c5fd" : "#666"} />
+                  <FileText size={13} color={isSelected ? t.accent : t.textDim} />
                 )}
                 <span style={{
                   flex: 1, fontSize: 12,
-                  color: isSelected ? "#93c5fd" : entry.is_dir ? "#e5e5e5" : "#999",
+                  color: isSelected ? t.accent : entry.is_dir ? t.text : t.textMuted,
                   fontFamily: "monospace",
                   fontWeight: isSelected ? 600 : 400,
                 }}>
-                  {entry.name}
+                  {entry.display_name ? `${entry.display_name} (${entry.name})` : entry.name}
                 </span>
                 {!entry.is_dir && entry.size != null && (
-                  <span style={{ fontSize: 10, color: "#555" }}>{formatSize(entry.size)}</span>
+                  <span style={{ fontSize: 10, color: t.textDim }}>{formatSize(entry.size)}</span>
                 )}
-                {entry.is_dir && <ChevronRight size={12} color="#555" />}
+                {entry.is_dir && <ChevronRight size={12} color={t.textDim} />}
               </button>
             );
           })}
@@ -147,9 +154,9 @@ export function WorkspaceFilePicker({ workspaceId, value, onChange, fileFilter }
       {/* Selected path display */}
       {value && (
         <div style={{
-          fontSize: 11, color: "#86efac", fontFamily: "monospace",
-          padding: "4px 8px", background: "rgba(34,197,94,0.08)",
-          borderRadius: 4, border: "1px solid rgba(34,197,94,0.15)",
+          fontSize: 11, color: t.success, fontFamily: "monospace",
+          padding: "4px 8px", background: t.successSubtle,
+          borderRadius: 4, border: `1px solid ${t.successBorder}`,
         }}>
           Selected: {value}
         </div>

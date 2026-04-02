@@ -124,12 +124,12 @@ class TestEffectiveSystemPromptWorkspace:
 
     @patch("app.agent.base_prompt.resolve_workspace_base_prompt")
     @patch("app.agent.base_prompt.render_base_prompt")
-    def test_no_workspace_id_uses_global(self, mock_render, mock_resolve):
-        """When bot has no shared_workspace_id, always use global."""
+    def test_workspace_prompt_none_falls_back_to_global(self, mock_render, mock_resolve):
+        """When workspace prompt resolution returns None, falls back to global."""
         from app.services.sessions import _effective_system_prompt
         mock_render.return_value = "Global base."
+        mock_resolve.return_value = None
 
-        bot = self._make_bot(shared_workspace_id=None)
+        bot = self._make_bot(shared_workspace_id="ws-123")
         result = _effective_system_prompt(bot, workspace_base_prompt_enabled=True)
         assert "Global base." in result
-        mock_resolve.assert_not_called()

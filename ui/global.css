@@ -2,15 +2,62 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Prevent horizontal overflow on mobile browsers */
-html, body, #root {
-  overflow-x: hidden;
-  max-width: 100vw;
+/* ── Theme variables ──────────────────────────────────── */
+
+:root {
+  --color-surface: 250 250 250;
+  --color-surface-raised: 255 255 255;
+  --color-surface-overlay: 243 244 246;
+  --color-surface-border: 229 231 235;
+  --color-text: 23 23 23;
+  --color-text-muted: 115 115 115;
+  --color-text-dim: 163 163 163;
+  --color-accent: 59 130 246;
+  --color-accent-hover: 37 99 235;
+  --color-accent-muted: 219 234 254;
 }
 
-/* Prevent white flash on overscroll (mobile) */
+.dark {
+  --color-surface: 17 17 17;
+  --color-surface-raised: 26 26 26;
+  --color-surface-overlay: 34 34 34;
+  --color-surface-border: 51 51 51;
+  --color-text: 229 229 229;
+  --color-text-muted: 153 153 153;
+  --color-text-dim: 102 102 102;
+  --color-accent: 59 130 246;
+  --color-accent-hover: 37 99 235;
+  --color-accent-muted: 30 58 95;
+}
+
+/* ── Mobile-native feel ─────────────────────────────────── */
+
+/* Kill the blue/grey tap highlight on iOS/Android browsers */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent text selection on interactive elements */
+button, [role="button"], nav, a {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Prevent horizontal overflow */
 html, body {
-  background-color: #111111;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+/* Prevent iOS auto-zoom on input focus (16px is the threshold) */
+input, textarea, select {
+  font-size: 16px !important;
+}
+
+/* Theme-aware background */
+html, body {
+  background-color: rgb(var(--color-surface));
 }
 
 /* Prevent pull-to-overscroll bounce revealing background */
@@ -18,7 +65,16 @@ body {
   overscroll-behavior: none;
 }
 
-/* Custom scrollbar styling */
+/* System font stack */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────── */
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -29,16 +85,74 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: rgb(var(--color-surface-border));
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: rgb(var(--color-text-dim));
 }
 
 /* Firefox */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #333 transparent;
+  scrollbar-color: rgb(var(--color-surface-border)) transparent;
+}
+
+/* Hide scrollbar for horizontal scroll containers */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ── Form inputs ───────────────────────────────────────── */
+
+input::placeholder,
+textarea::placeholder {
+  color: rgb(var(--color-text-dim));
+  opacity: 1;
+}
+
+/* ── Chat ───────────────────────────────────────────────── */
+
+/* Message hover effect (Slack-style, pointer devices only) */
+.msg-hover {
+  position: relative;
+  transition: background-color 0.08s ease;
+}
+@media (hover: hover) {
+  .dark .msg-hover:hover {
+    background-color: rgba(255, 255, 255, 0.02);
+  }
+  :not(.dark) .msg-hover:hover {
+    background-color: rgba(0, 0, 0, 0.02);
+  }
+}
+
+/* Message action bar (copy + trace buttons) — revealed on hover */
+.msg-actions {
+  position: absolute;
+  top: 4px;
+  right: 16px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+  z-index: 5;
+}
+@media (hover: hover) {
+  .msg-hover:hover .msg-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* Blinking cursor for streaming */
+@keyframes blink {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 0; }
 }

@@ -8,7 +8,7 @@ import httpx
 from integrations.arr.config import settings
 from integrations._register import register
 
-from ._helpers import error, sanitize
+from integrations.arr.tools._helpers import error, sanitize, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -18,25 +18,41 @@ def _base_url() -> str:
 
 
 async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.BAZARR_URL, "Bazarr")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
     p = dict(params or {})
     p["apikey"] = settings.BAZARR_API_KEY
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, params=p, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params=p, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Bazarr request timed out after {timeout}s: {path}"
+        )
 
 
 async def _post(path: str, params: dict | None = None, payload: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.BAZARR_URL, "Bazarr")
+    if url_err:
+        raise ValueError(url_err)
     url = f"{_base_url()}{path}"
     p = dict(params or {})
     p["apikey"] = settings.BAZARR_API_KEY
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(url, params=p, json=payload or {}, timeout=timeout)
-        resp.raise_for_status()
-        if resp.content:
-            return resp.json()
-        return {}
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, params=p, json=payload or {}, timeout=timeout)
+            resp.raise_for_status()
+            if resp.content:
+                return resp.json()
+            return {}
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Bazarr request timed out after {timeout}s: {path}"
+        )
 
 
 # ---------------------------------------------------------------------------

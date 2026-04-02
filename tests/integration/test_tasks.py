@@ -465,6 +465,7 @@ class TestRunTask:
             mock_locks.acquire.return_value = True
             mock_settings.TASK_RATE_LIMIT_RETRIES = 3
             mock_settings.LLM_RATE_LIMIT_INITIAL_WAIT = 60
+            mock_settings.TASK_MAX_RUN_SECONDS = 1200
             from app.agent.tasks import run_task
             await run_task(task)
 

@@ -169,6 +169,9 @@ async def auth_login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Account is deactivated")
     if not verify_password(req.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    # Auto-provision API key for existing users (backward compat)
+    from app.services.auth import ensure_user_api_key
+    await ensure_user_api_key(db, user)
     return await _make_token_response(user, db)
 
 
@@ -187,6 +190,9 @@ async def auth_google(req: GoogleAuthRequest, db: AsyncSession = Depends(get_db)
     )
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated")
+    # Auto-provision API key for existing users (backward compat)
+    from app.services.auth import ensure_user_api_key
+    await ensure_user_api_key(db, user)
     return await _make_token_response(user, db)
 
 

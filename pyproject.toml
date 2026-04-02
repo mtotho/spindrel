@@ -26,6 +26,15 @@ dependencies = [
     "pathspec",
     "pyjwt",
     "bcrypt",
+    "cryptography",
+    "tree-sitter>=0.23",
+    "tree-sitter-typescript",
+    "tree-sitter-javascript",
+    "tree-sitter-go",
+    "tree-sitter-rust",
+    "websockets",
+    "fastembed",
+    "ddgs",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +42,13 @@ dev = [
     "pytest",
     "pytest-asyncio",
     "aiosqlite",
+]
+setup = [
+    "questionary",
+    "pyyaml",
+]
+docs = [
+    "mkdocs-material",
 ]
 
 [tool.setuptools.packages.find]

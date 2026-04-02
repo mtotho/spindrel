@@ -1,13 +1,15 @@
 """Shared helpers for admin sub-modules."""
 from __future__ import annotations
 
+import json
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Message, Task, TraceEvent
+from app.db.models import Message, Task, ToolCall, TraceEvent
 
 from ._schemas import (
     BotOut,
@@ -27,7 +29,14 @@ def _to_dict(obj: Any) -> dict:
     return {"enabled": False}
 
 
-def _bot_to_out(bot, *, persona_content: str | None = None) -> BotOut:
+def _bot_to_out(
+    bot,
+    *,
+    persona_content: str | None = None,
+    persona_from_workspace: bool = False,
+    workspace_persona_content: str | None = None,
+    api_permissions: list[str] | None = None,
+) -> BotOut:
     """Convert a BotConfig dataclass to a BotOut Pydantic model."""
     return BotOut(
         id=bot.id,
@@ -47,9 +56,10 @@ def _bot_to_out(bot, *, persona_content: str | None = None) -> BotOut:
         tool_retrieval=bot.tool_retrieval,
         tool_similarity_threshold=bot.tool_similarity_threshold,
         tool_result_config=getattr(bot, "tool_result_config", {}),
-        compression_config=getattr(bot, "compression_config", {}),
         persona=bot.persona,
         persona_content=persona_content,
+        persona_from_workspace=persona_from_workspace,
+        workspace_persona_content=workspace_persona_content,
         context_compaction=bot.context_compaction,
         compaction_interval=bot.compaction_interval,
         compaction_keep_turns=bot.compaction_keep_turns,
@@ -69,26 +79,34 @@ def _bot_to_out(bot, *, persona_content: str | None = None) -> BotOut:
         delegate_bots=bot.delegate_bots,
         harness_access=bot.harness_access,
         model_provider_id=bot.model_provider_id,
+        fallback_models=getattr(bot, "fallback_models", []),
         integration_config=getattr(bot, "integration_config", {}),
         workspace=_to_dict(getattr(bot, "workspace", {"enabled": False})),
         docker_sandbox_profiles=getattr(bot, "docker_sandbox_profiles", []),
-        elevation_enabled=getattr(bot, "elevation_enabled", None),
-        elevation_threshold=getattr(bot, "elevation_threshold", None),
-        elevated_model=getattr(bot, "elevated_model", None),
         attachment_summarization_enabled=getattr(bot, "attachment_summarization_enabled", None),
         attachment_summary_model=getattr(bot, "attachment_summary_model", None),
         attachment_text_max_chars=getattr(bot, "attachment_text_max_chars", None),
         attachment_vision_concurrency=getattr(bot, "attachment_vision_concurrency", None),
+        context_pruning=getattr(bot, "context_pruning", None),
+        context_pruning_keep_turns=getattr(bot, "context_pruning_keep_turns", None),
+        history_mode=getattr(bot, "history_mode", "summary"),
         model_params=getattr(bot, "model_params", {}),
         delegation_config={
             "delegate_bots": bot.delegate_bots or [],
             "harness_access": bot.harness_access or [],
+            "cross_workspace_access": bot.cross_workspace_access,
         },
         user_id=getattr(bot, "user_id", None),
         shared_workspace_id=getattr(bot, "shared_workspace_id", None),
         shared_workspace_role=getattr(bot, "shared_workspace_role", None),
         created_at=bot.created_at.isoformat() if hasattr(bot, "created_at") and bot.created_at else None,
         updated_at=bot.updated_at.isoformat() if hasattr(bot, "updated_at") and bot.updated_at else None,
+        api_permissions=api_permissions,
+        api_docs_mode=getattr(bot, "api_docs_mode", None),
+        memory_scheme=getattr(bot, "memory_scheme", None),
+        workspace_only=getattr(bot, "workspace_only", False),
+        system_prompt_workspace_file=getattr(bot, "system_prompt_workspace_file", False),
+        system_prompt_write_protected=getattr(bot, "system_prompt_write_protected", False),
     )
 
 
@@ -152,3 +170,48 @@ async def _heartbeat_correlation_ids(
                     break
 
     return result
+
+
+def build_tool_call_previews(tool_calls: list[ToolCall]) -> list[dict]:
+    """Build TurnToolCall-compatible dicts from ToolCall ORM objects.
+
+    Truncation: args JSON → 200 chars, result → 200 chars, error → 300 chars.
+    """
+    out: list[dict] = []
+    for tc in tool_calls:
+        args_preview = None
+        if tc.arguments:
+            args_str = json.dumps(tc.arguments)
+            args_preview = args_str[:200] + "..." if len(args_str) > 200 else args_str
+        result_preview = None
+        if tc.result:
+            result_preview = tc.result[:200] + "..." if len(tc.result) > 200 else tc.result
+        out.append({
+            "tool_name": tc.tool_name,
+            "tool_type": tc.tool_type,
+            "iteration": tc.iteration,
+            "duration_ms": tc.duration_ms,
+            "error": tc.error[:300] + "..." if tc.error and len(tc.error) > 300 else tc.error,
+            "arguments_preview": args_preview,
+            "result_preview": result_preview,
+        })
+    return out
+
+
+def _parse_time(value: str) -> datetime | None:
+    """Parse an ISO timestamp or relative time string like '30m', '2h', '1d'."""
+    if not value:
+        return None
+    value = value.strip()
+    if value and value[-1] in ("m", "h", "d") and value[:-1].replace(".", "").isdigit():
+        num = float(value[:-1])
+        unit = value[-1]
+        delta = {"m": timedelta(minutes=num), "h": timedelta(hours=num), "d": timedelta(days=num)}[unit]
+        return datetime.now(timezone.utc) - delta
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except ValueError:
+        return None

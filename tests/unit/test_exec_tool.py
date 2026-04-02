@@ -108,6 +108,7 @@ class FakeBot:
     bot_sandbox: FakeBotSandbox = field(default_factory=FakeBotSandbox)
     docker_sandbox_profiles: list = field(default_factory=list)
     workspace: FakeWorkspace = field(default_factory=FakeWorkspace)
+    shared_workspace_id: str | None = None
 
 
 class TestDelegateToExecAccessControl:

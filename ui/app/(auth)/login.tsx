@@ -9,10 +9,12 @@ import {
 import { Server, Mail, Lock, Key, ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
 import { useRouter } from "expo-router";
 import { useAuthStore } from "@/src/stores/auth";
+import { useThemeTokens } from "@/src/theme/tokens";
 import type { AuthStatus, TokenResponse } from "@/src/types/api";
 
 export default function LoginScreen() {
   const router = useRouter();
+  const t = useThemeTokens();
   const setServer = useAuthStore((s) => s.setServer);
   const setAuth = useAuthStore((s) => s.setAuth);
 
@@ -132,7 +134,7 @@ export default function LoginScreen() {
       <View className="flex-1 bg-surface items-center justify-center p-6">
         <View className="w-full max-w-sm gap-6">
           <View className="items-center gap-2 mb-4">
-            <Text className="text-text text-2xl font-bold">Agent Server</Text>
+            <Text className="text-text text-2xl font-bold">Spindrel</Text>
             <Text className="text-text-muted text-sm">
               Enter your server URL to get started
             </Text>
@@ -140,13 +142,13 @@ export default function LoginScreen() {
 
           <View className="gap-2">
             <View className="flex-row items-center gap-2">
-              <Server size={16} color="#999999" />
+              <Server size={16} color={t.textMuted} />
               <Text className="text-text-muted text-sm">Server URL</Text>
             </View>
             <TextInput
               className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
               placeholder="http://localhost:8000"
-              placeholderTextColor="#666666"
+              placeholderTextColor={t.textDim}
               value={serverUrl}
               onChangeText={setServerUrl}
               autoCapitalize="none"
@@ -193,13 +195,13 @@ export default function LoginScreen() {
         {/* Email */}
         <View className="gap-2">
           <View className="flex-row items-center gap-2">
-            <Mail size={16} color="#999999" />
+            <Mail size={16} color={t.textMuted} />
             <Text className="text-text-muted text-sm">Email</Text>
           </View>
           <TextInput
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="you@example.com"
-            placeholderTextColor="#666666"
+            placeholderTextColor={t.textDim}
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
@@ -211,13 +213,13 @@ export default function LoginScreen() {
         {/* Password */}
         <View className="gap-2">
           <View className="flex-row items-center gap-2">
-            <Lock size={16} color="#999999" />
+            <Lock size={16} color={t.textMuted} />
             <Text className="text-text-muted text-sm">Password</Text>
           </View>
           <TextInput
             className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
             placeholder="Password"
-            placeholderTextColor="#666666"
+            placeholderTextColor={t.textDim}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -253,9 +255,9 @@ export default function LoginScreen() {
         >
           <Text className="text-text-dim text-xs">Use API Key instead</Text>
           {showApiKey ? (
-            <ChevronUp size={12} color="#666666" />
+            <ChevronUp size={12} color={t.textDim} />
           ) : (
-            <ChevronDown size={12} color="#666666" />
+            <ChevronDown size={12} color={t.textDim} />
           )}
         </Pressable>
 
@@ -263,13 +265,13 @@ export default function LoginScreen() {
           <View className="gap-4">
             <View className="gap-2">
               <View className="flex-row items-center gap-2">
-                <Key size={16} color="#999999" />
+                <Key size={16} color={t.textMuted} />
                 <Text className="text-text-muted text-sm">API Key</Text>
               </View>
               <TextInput
                 className="bg-surface-raised border border-surface-border rounded-lg px-4 py-3 text-text"
                 placeholder="Bearer token"
-                placeholderTextColor="#666666"
+                placeholderTextColor={t.textDim}
                 value={apiKey}
                 onChangeText={setApiKey}
                 secureTextEntry

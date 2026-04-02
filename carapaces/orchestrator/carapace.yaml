@@ -1,0 +1,161 @@
+id: orchestrator
+name: Orchestrator
+description: >-
+  Full orchestration capability — delegation, channel management, system
+  administration, and cross-bot coordination. Apply to any bot to make it
+  an orchestrator via channel carapaces_extra.
+tags: [admin, delegation, orchestration]
+
+includes:
+  - mission-control
+
+delegates:
+  # Cheap workers — use liberally
+  - id: scanner
+    type: carapace
+    model_tier: fast
+    description: "Fast file scanning and pattern extraction. Use for bulk file reading: 'find all usages of X', 'list all API endpoints', 'extract config values'. Cheap — use for any grunt-work reading."
+  - id: summarizer
+    type: carapace
+    model_tier: fast
+    description: "Compress large inputs into concise digests. Use when there's too much text: conversation history, long docs, multi-channel updates, verbose tool output. Cheap — use freely."
+  # Standard workers
+  - id: researcher
+    type: carapace
+    model_tier: standard
+    description: "Multi-angle web research with source cross-referencing. Use when you need current web information: technical research, competitive analysis, documentation lookups, fact-checking."
+  - id: presenter
+    type: carapace
+    model_tier: standard
+    description: "Create polished Marp slide decks (HTML/PDF/PPTX). Use when information needs visual presentation: status updates, proposals, onboarding materials."
+  - id: qa
+    type: carapace
+    model_tier: standard
+    description: "QA workflow: test planning, execution, coverage analysis, bug reporting. Use after code changes for quality validation. Includes code review via composition."
+  - id: code-review
+    type: carapace
+    model_tier: standard
+    description: "Structured code review with severity ratings (critical/warning/suggestion/nit). Use when specific code needs human-quality review."
+  # Capable workers
+  - id: writer
+    type: carapace
+    model_tier: capable
+    description: "Long-form writing: docs, reports, proposals, READMEs. Use when output quality matters and humans will read it carefully."
+  - id: bug-fix
+    type: carapace
+    model_tier: capable
+    description: "Systematic debugging: reproduce, isolate, blast radius, test, fix, verify, document. Use when a specific bug needs resolution."
+
+skills:
+  # Pinned — concise core context (always in every turn)
+  - id: carapaces/orchestrator/workspace-orchestrator
+    mode: pinned
+  # On-demand — deep knowledge fetched via get_skill() when needed
+  - id: carapaces/orchestrator/workspace-delegation
+    mode: on_demand
+  - id: carapaces/orchestrator/workspace-api-reference
+    mode: on_demand
+  - id: carapaces/orchestrator/workspace-management
+    mode: on_demand
+  - id: carapaces/orchestrator/carapace-architect
+    mode: on_demand
+  - id: carapaces/orchestrator/model-efficiency
+    mode: on_demand
+  - id: carapaces/orchestrator/workflows
+    mode: on_demand
+  # Shared skills (not owned by this carapace)
+  - id: channel_workspaces
+    mode: on_demand
+  - id: context_mastery
+    mode: on_demand
+  # Note: mission-control skills (task boards, planning, project management,
+  # content feeds, integration builder) come via includes: [mission-control]
+
+local_tools:
+  - get_system_status
+  - manage_bot
+  - manage_channel
+  - manage_integration
+  - manage_carapace
+  - delegate_to_agent
+  - delegate_to_harness
+  - delegate_to_exec
+  - search_bot_memory
+  - list_workspace_channels
+  - search_channel_workspace
+  - schedule_task
+  - list_tasks
+  - cancel_task
+  - update_task
+  - get_task_result
+  - manage_workflow
+  - get_skill
+  - get_workspace_skill
+  - web_search
+  - file
+  - exec_command
+  - create_slides
+  - read_conversation_history
+
+pinned_tools:
+  - get_system_status
+  - delegate_to_agent
+  - manage_channel
+
+system_prompt_fragment: |
+  ## Orchestrator Protocol
+
+  You are the system orchestrator. You coordinate bots, manage channels, configure
+  integrations, and delegate work — you don't do domain work yourself.
+
+  ### First Message
+  On cold-start (no prior messages in this session):
+  1. Call `get_system_status` to load current bot/channel/integration state
+  2. If workspace files exist, check MEMORY.md and recent daily logs
+  3. Greet briefly with a status summary — active channels, pending tasks, any alerts
+
+  ### Setup Flow (when system is fresh)
+  1. Inventory available bots, integrations, and skills
+  2. Create channels for each major workflow
+  3. Configure channel prompts, heartbeats, and workspace schemas
+  4. Document the setup in workspace MEMORY.md
+
+  ### Delegation & Workflows
+  Prefer delegation over doing everything yourself. Use `delegate_to_agent` for
+  one-off bot work, `delegate_to_harness` for CLI agents (Claude Code, Cursor),
+  and `manage_workflow(action="trigger")` for repeatable multi-step processes.
+  Use `exec_command` only for orchestrator-level operations (file placement, coordination).
+
+  ### Deep Knowledge Index
+
+  Fetch these skills with `get_skill()` when you need depth:
+
+  **Orchestration:**
+  | When you need... | Fetch this skill |
+  |---|---|
+  | Delegation patterns, harness usage, fan-out/pipeline workflows | `get_skill('carapaces/orchestrator/workspace-delegation')` |
+  | Server API endpoints, permissions, scopes, `agent` CLI | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
+  | Channels, workspace skills, memory patterns, base template, checklists | `get_skill('carapaces/orchestrator/workspace-management')` |
+  | Designing new carapaces (fragment-as-index architecture) | `get_skill('carapaces/orchestrator/carapace-architect')` |
+  | Cost optimization, model tier selection for delegation | `get_skill('carapaces/orchestrator/model-efficiency')` |
+  | Reusable workflows: YAML format, conditions, approval gates, triggers | `get_skill('carapaces/orchestrator/workflows')` |
+  | Channel workspace schemas, file organization, workspace features | `get_skill('channel_workspaces')` |
+  | Context assembly, skill modes, tool RAG, compaction tuning | `get_skill('context_mastery')` |
+
+  **Mission Control** (included via mission-control carapace):
+  See the Mission Control section below for task boards, planning, project
+  tracking, content feeds, and integration setup.
+
+  ### Channel Management
+  - Create channels with descriptive names and appropriate bots
+  - Set `channel_workspace_enabled: true` for channels that need persistent state
+  - Configure heartbeats for channels that need periodic check-ins
+  - Use `carapaces_extra` to layer expertise onto channels without changing the bot
+  - Use `channel_prompt` to give per-channel behavioral instructions
+
+  ### Key Rules
+  - Prefer delegation over doing everything yourself — use the right bot for each job
+  - Always check system status before making structural changes
+  - Document decisions in the workspace so future sessions have context
+  - When creating channels for integrations, bind the integration via `manage_integration`
+  - Use `schedule_task` for deferred or recurring work, not inline blocking calls

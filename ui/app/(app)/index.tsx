@@ -1,21 +1,104 @@
-import { View, Text, Pressable, ScrollView } from "react-native";
-import { Link } from "expo-router";
-import { useChannels } from "@/src/api/hooks/useChannels";
+import { View, Text, Pressable } from "react-native";
+import { Link, useRouter } from "expo-router";
+import { useChannels, useEnsureOrchestrator } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
+import { useThemeTokens } from "@/src/theme/tokens";
+import { useAuthStore } from "@/src/stores/auth";
 import {
-  MessageSquare,
+  Hash,
   Bot,
   Activity,
   Plus,
+  Home,
+  ChevronRight,
 } from "lucide-react";
+import type { Channel } from "@/src/types/api";
+
+function isOrchestratorChannel(channel: Channel): boolean {
+  return channel.client_id === "orchestrator:home";
+}
+
+function ChannelCard({ channel, bot, t, isOrchestrator }: {
+  channel: Channel;
+  bot: { name: string } | undefined;
+  t: ReturnType<typeof useThemeTokens>;
+  isOrchestrator: boolean;
+}) {
+  const Icon = isOrchestrator ? Home : Hash;
+  return (
+    <Link
+      href={`/channels/${channel.id}` as any}
+      asChild
+    >
+      <Pressable
+        className="bg-surface-raised border rounded-lg flex-row items-center gap-4 hover:border-accent/40 active:bg-surface-overlay cursor-pointer"
+        style={{
+          padding: 16,
+          borderColor: isOrchestrator ? t.accent + "40" : t.surfaceBorder,
+        }}
+      >
+        <View style={{
+          width: 44, height: 44, borderRadius: 8,
+          backgroundColor: isOrchestrator ? t.accent + "20" : t.accentSubtle,
+          alignItems: "center", justifyContent: "center",
+        }}>
+          <Icon size={22} color={t.accent} />
+        </View>
+        <View className="flex-1 min-w-0">
+          <Text style={{ fontSize: 15, fontWeight: "600", color: t.text }} numberOfLines={1}>
+            {channel.display_name || channel.name || channel.client_id}
+          </Text>
+          <View className="flex-row items-center gap-2 mt-1">
+            {isOrchestrator ? (
+              <Text style={{ fontSize: 13, color: t.textMuted }}>
+                Setup, projects, and system management
+              </Text>
+            ) : (
+              <>
+                <Bot size={13} color={t.textMuted} />
+                <Text style={{ fontSize: 13, color: t.textMuted }}>
+                  {bot?.name ?? channel.bot_id}
+                </Text>
+                {(channel.integrations?.length ?? 0) > 0 ? (
+                  channel.integrations!.map((b) => (
+                    <Text key={b.id} className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
+                      {b.integration_type}
+                    </Text>
+                  ))
+                ) : channel.integration ? (
+                  <Text className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
+                    {channel.integration}
+                  </Text>
+                ) : null}
+              </>
+            )}
+          </View>
+        </View>
+      </Pressable>
+    </Link>
+  );
+}
 
 export default function HomeScreen() {
   const { data: channels, isLoading: channelsLoading, error: channelsError } = useChannels();
   const { data: bots } = useBots();
   const columns = useResponsiveColumns();
+  const { refreshing, onRefresh } = usePageRefresh();
+  const t = useThemeTokens();
+  const router = useRouter();
+  const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
+  const ensureOrchestrator = useEnsureOrchestrator();
   const botMap = new Map(bots?.map((b) => [b.id, b]) ?? []);
+
+  // Separate orchestrator channel from the rest, pin it at top
+  const orchestratorChannel = channels?.find(isOrchestratorChannel);
+  const otherChannels = channels?.filter((ch) => !isOrchestratorChannel(ch)) ?? [];
+
+  const hasChannels = (channels?.length ?? 0) > 0;
 
   return (
     <View className="flex-1 bg-surface">
@@ -35,8 +118,85 @@ export default function HomeScreen() {
         }
       />
 
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: columns === "single" ? 12 : 24 }}>
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ padding: columns === "single" ? 16 : 28 }}>
         <View className="max-w-2xl w-full mx-auto gap-6">
+
+        {/* Orchestrator hero */}
+        {!channelsLoading && orchestratorChannel && (
+          <Link href={`/channels/${orchestratorChannel.id}` as any} asChild>
+            <Pressable
+              className="rounded-xl border hover:opacity-90 active:opacity-80 cursor-pointer"
+              style={{
+                padding: 20,
+                borderColor: t.accent + "50",
+                backgroundColor: t.accent + "08",
+              }}
+            >
+              <View className="flex-row items-center gap-3">
+                <View style={{
+                  width: 48, height: 48, borderRadius: 12,
+                  backgroundColor: t.accent + "20",
+                  alignItems: "center", justifyContent: "center",
+                }}>
+                  <Home size={24} color={t.accent} />
+                </View>
+                <View className="flex-1">
+                  <Text style={{ fontSize: 17, fontWeight: "700", color: t.text }}>
+                    Home
+                  </Text>
+                  <Text style={{ fontSize: 13, color: t.textMuted, marginTop: 2 }}>
+                    Setup, projects, and system management
+                  </Text>
+                </View>
+                <ChevronRight size={18} color={t.textDim} />
+              </View>
+            </Pressable>
+          </Link>
+        )}
+
+        {/* Setup orchestrator prompt when it doesn't exist (admin only) */}
+        {!channelsLoading && !orchestratorChannel && isAdmin && (
+          <Pressable
+            onPress={() => {
+              ensureOrchestrator.mutate(undefined, {
+                onSuccess: (data) => {
+                  router.push(`/channels/${data.id}` as any);
+                },
+              });
+            }}
+            disabled={ensureOrchestrator.isPending}
+            className="rounded-xl border hover:opacity-90 active:opacity-80 cursor-pointer"
+            style={{
+              padding: 20,
+              borderColor: t.surfaceBorder,
+              borderStyle: "dashed" as any,
+            }}
+          >
+            <View className="flex-row items-center gap-3">
+              <View style={{
+                width: 48, height: 48, borderRadius: 12,
+                backgroundColor: t.accentSubtle,
+                alignItems: "center", justifyContent: "center",
+              }}>
+                <Home size={24} color={t.textDim} />
+              </View>
+              <View className="flex-1">
+                <Text style={{ fontSize: 17, fontWeight: "700", color: t.text }}>
+                  {ensureOrchestrator.isPending ? "Setting up..." : "Set Up Home"}
+                </Text>
+                <Text style={{ fontSize: 13, color: t.textMuted, marginTop: 2 }}>
+                  Create the orchestrator channel for setup, projects, and management
+                </Text>
+                {ensureOrchestrator.isError && (
+                  <Text style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>
+                    {ensureOrchestrator.error instanceof Error ? ensureOrchestrator.error.message : "Failed to create orchestrator"}
+                  </Text>
+                )}
+              </View>
+              <ChevronRight size={18} color={t.textDim} />
+            </View>
+          </Pressable>
+        )}
 
         {/* Channel list */}
         {channelsError ? (
@@ -48,57 +208,36 @@ export default function HomeScreen() {
           </View>
         ) : channelsLoading ? (
           <View className="items-center py-12">
-            <Activity size={24} color="#666666" className="animate-spin" />
+            <Activity size={24} color={t.textDim} className="animate-spin" />
           </View>
-        ) : channels?.length === 0 ? (
-          <View className="items-center py-12 gap-2">
-            <MessageSquare size={32} color="#666666" />
-            <Text className="text-text-muted">No channels yet</Text>
+        ) : !hasChannels ? (
+          <View className="items-center py-16 gap-3">
+            <Hash size={36} color={t.textDim} />
+            <Text className="text-text-muted text-base">
+              No channels yet
+            </Text>
+            <Text className="text-text-dim text-sm">
+              Create a channel to get started
+            </Text>
           </View>
-        ) : (
-          <View className="gap-2">
-            {channels?.map((channel) => {
-              const bot = botMap.get(channel.bot_id);
-              return (
-                <Link
-                  key={channel.id}
-                  href={`/channels/${channel.id}` as any}
-                  asChild
-                >
-                  <View className="bg-surface-raised border border-surface-border rounded-lg p-4 flex-row items-center gap-4 hover:border-accent/50 cursor-pointer">
-                    <View className="w-10 h-10 rounded-full bg-accent/20 items-center justify-center">
-                      <MessageSquare size={20} color="#3b82f6" />
-                    </View>
-                    <View className="flex-1 min-w-0">
-                      <Text className="text-text font-medium" numberOfLines={1}>
-                        {channel.display_name || channel.name || channel.client_id}
-                      </Text>
-                      <View className="flex-row items-center gap-2 mt-1">
-                        <Bot size={12} color="#999999" />
-                        <Text className="text-text-muted text-xs">
-                          {bot?.name ?? channel.bot_id}
-                        </Text>
-                        {(channel.integrations?.length ?? 0) > 0 ? (
-                          channel.integrations!.map((b) => (
-                            <Text key={b.id} className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
-                              {b.integration_type}
-                            </Text>
-                          ))
-                        ) : channel.integration ? (
-                          <Text className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
-                            {channel.integration}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                  </View>
-                </Link>
-              );
-            })}
+        ) : otherChannels.length > 0 ? (
+          <View className="gap-1">
+            <Text style={{ fontSize: 13, fontWeight: "600", color: t.textDim, letterSpacing: 0.5, marginBottom: 4 }}>
+              CHANNELS
+            </Text>
+            {otherChannels.map((channel) => (
+              <ChannelCard
+                key={channel.id}
+                channel={channel}
+                bot={botMap.get(channel.bot_id)}
+                t={t}
+                isOrchestrator={false}
+              />
+            ))}
           </View>
-        )}
+        ) : null}
         </View>
-      </ScrollView>
+      </RefreshableScrollView>
     </View>
   );
 }

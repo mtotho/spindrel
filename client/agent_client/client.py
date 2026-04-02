@@ -125,5 +125,18 @@ class AgentClient:
         resp.raise_for_status()
         return resp.json()
 
+    def list_tools(self) -> list[dict]:
+        resp = self._http.get("/api/v1/admin/tools")
+        resp.raise_for_status()
+        return resp.json()
+
+    def execute_tool(self, tool_name: str, arguments: dict | None = None) -> dict:
+        resp = self._http.post(
+            f"/api/v1/admin/tools/{tool_name}/execute",
+            json={"arguments": arguments or {}},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def close(self):
         self._http.close()

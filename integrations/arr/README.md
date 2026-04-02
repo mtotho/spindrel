@@ -1,10 +1,10 @@
 # ARR Media Stack Integration
 
-Controls Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr via their APIs. Provides 16 agent tools for browsing, searching, and managing your media stack.
+Controls Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr via their APIs. Provides 19 agent tools for browsing, searching, and managing your media stack.
 
 ## Setup
 
-Add the env vars for the services you use to `.env`. Unconfigured services are fine — their tools return a clear "not configured" error.
+Add the env vars for the services you use to `.env` (or configure via the admin integrations page). Unconfigured services are fine — their tools return a clear "not configured" error.
 
 ```env
 # Sonarr (TV shows)
@@ -42,7 +42,14 @@ BAZARR_API_KEY=your-bazarr-api-key
 
 ## Bot Configuration
 
-Add the tools you want to the bot's `local_tools` list in `bots/*.yaml`:
+Add the `arr` carapace to your bot for full media stack support:
+
+```yaml
+carapaces:
+  - arr
+```
+
+Or add individual tools to the bot's `local_tools` list in `bots/*.yaml`:
 
 ```yaml
 local_tools:
@@ -52,9 +59,12 @@ local_tools:
   - sonarr_wanted
   - sonarr_queue
   - sonarr_command
+  - sonarr_releases
   # Radarr
   - radarr_movies
   - radarr_command
+  - radarr_queue
+  - radarr_releases
   # qBittorrent
   - qbit_torrents
   - qbit_manage
@@ -70,10 +80,11 @@ local_tools:
   - bazarr_subtitles
 
 skills:
-  - integrations/arr/media_management
+  - id: integrations/arr/media_management
+    mode: on_demand
+  - id: integrations/arr/download-monitoring
+    mode: on_demand
 ```
-
-Or let tool retrieval pick them up automatically — the skill doc gives the agent enough context to know when to use each tool.
 
 ## Tools
 
@@ -84,8 +95,11 @@ Or let tool retrieval pick them up automatically — the skill doc gives the age
 | Sonarr | `sonarr_wanted` | Read | Missing episodes |
 | Sonarr | `sonarr_queue` | Read | Download queue |
 | Sonarr | `sonarr_command` | Write | Trigger SeriesSearch, EpisodeSearch, MissingEpisodeSearch |
+| Sonarr | `sonarr_releases` | Both | Browse available releases or grab a specific one |
 | Radarr | `radarr_movies` | Read | List movies or search TMDB; filter missing/wanted |
 | Radarr | `radarr_command` | Write | Trigger MoviesSearch, MissingMoviesSearch |
+| Radarr | `radarr_queue` | Read | Download queue |
+| Radarr | `radarr_releases` | Both | Browse available releases or grab a specific one |
 | qBit | `qbit_torrents` | Read | List torrents + global speeds |
 | qBit | `qbit_manage` | Write | Pause/resume/delete torrents |
 | Jellyfin | `jellyfin_now_playing` | Read | Active streams |
@@ -95,3 +109,19 @@ Or let tool retrieval pick them up automatically — the skill doc gives the age
 | Jellyseerr | `jellyseerr_search` | Read | Search TMDB |
 | Jellyseerr | `jellyseerr_manage` | Write | Approve/decline/create requests |
 | Bazarr | `bazarr_subtitles` | Both | View wanted subs, trigger search, check status |
+
+## Key Workflows
+
+### Check availability → Request
+1. `jellyfin_library(action="search", search="The Bear")` — check if already available
+2. If not: `jellyseerr_search(query="The Bear")` — find TMDB ID
+3. `jellyseerr_manage(action="request", media_id=12345, media_type="tv", seasons=[3])` — request it
+
+### Fix stuck downloads
+1. `qbit_torrents(filter="stalled")` — find stuck torrents
+2. `qbit_manage(hashes=["abc123"], action="delete")` — remove bad torrent
+3. `sonarr_releases(action="search", series_id=123)` — browse alternatives
+4. `sonarr_releases(action="grab", guid="...", indexer_id=1)` — grab best release
+
+### Heartbeat monitoring
+Configure a channel heartbeat to periodically check queues, detect stuck downloads, and update workspace tracking. See the `download-monitoring` skill for the full protocol.

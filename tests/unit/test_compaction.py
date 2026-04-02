@@ -3,66 +3,8 @@ import pytest
 from unittest.mock import MagicMock
 
 from app.services.compaction import (
-    _messages_for_memory_phase,
     _messages_for_summary,
 )
-
-
-# ---------------------------------------------------------------------------
-# _messages_for_memory_phase
-# ---------------------------------------------------------------------------
-
-class TestMessagesForMemoryPhase:
-    def test_includes_user_and_assistant(self):
-        messages = [
-            {"role": "user", "content": "What is X?"},
-            {"role": "assistant", "content": "X is a thing."},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert len(result) == 2
-        assert result[0]["role"] == "user"
-        assert result[1]["role"] == "assistant"
-
-    def test_truncates_tool_results(self):
-        long_content = "a" * 600
-        messages = [
-            {"role": "tool", "content": long_content},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert len(result) == 1
-        assert len(result[0]["content"]) < len(long_content)
-        assert result[0]["content"].endswith("...")
-
-    def test_short_tool_result_not_truncated(self):
-        messages = [
-            {"role": "tool", "content": "short result"},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert result[0]["content"] == "short result"
-
-    def test_passive_messages_get_prefix(self):
-        messages = [
-            {"role": "user", "content": "ambient msg", "_metadata": {"passive": True}},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert result[0]["content"].startswith("[passive]")
-
-    def test_skips_none_content(self):
-        messages = [
-            {"role": "user", "content": None},
-            {"role": "assistant", "content": "ok"},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert len(result) == 1
-
-    def test_system_messages_excluded(self):
-        messages = [
-            {"role": "system", "content": "You are a bot"},
-            {"role": "user", "content": "hi"},
-        ]
-        result = _messages_for_memory_phase(messages)
-        assert len(result) == 1
-        assert result[0]["role"] == "user"
 
 
 # ---------------------------------------------------------------------------
@@ -131,3 +73,53 @@ class TestMessagesForSummary:
         result = _messages_for_summary(messages)
         roles = [m["role"] for m in result]
         assert "system" not in roles
+
+    def test_heartbeat_messages_excluded(self):
+        """Heartbeat messages must never leak into summaries or section files."""
+        messages = [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+            {"role": "user", "content": "hb prompt", "_metadata": {"is_heartbeat": True}},
+            {"role": "assistant", "content": "hb response", "_metadata": {"is_heartbeat": True}},
+            {"role": "user", "content": "real question"},
+            {"role": "assistant", "content": "real answer"},
+        ]
+        result = _messages_for_summary(messages)
+        contents = [m["content"] for m in result]
+        assert "hb prompt" not in contents
+        assert "hb response" not in contents
+        assert "hi" in contents
+        assert "hello" in contents
+        assert "real question" in contents
+        assert "real answer" in contents
+        assert len(result) == 4
+
+    def test_only_heartbeats_returns_empty(self):
+        """If all messages are heartbeats, result should be empty."""
+        messages = [
+            {"role": "user", "content": "hb1", "_metadata": {"is_heartbeat": True}},
+            {"role": "assistant", "content": "r1", "_metadata": {"is_heartbeat": True}},
+            {"role": "user", "content": "hb2", "_metadata": {"is_heartbeat": True}},
+            {"role": "assistant", "content": "r2", "_metadata": {"is_heartbeat": True}},
+        ]
+        result = _messages_for_summary(messages)
+        assert result == []
+
+    def test_heartbeat_tool_messages_excluded(self):
+        """Heartbeat exchanges that include tool calls are also filtered."""
+        messages = [
+            {"role": "user", "content": "real msg"},
+            {"role": "user", "content": "hb prompt", "_metadata": {"is_heartbeat": True}},
+            {"role": "assistant", "content": "hb thinking", "_metadata": {"is_heartbeat": True}},
+            {"role": "tool", "content": "tool output", "_metadata": {"is_heartbeat": True}},
+            {"role": "assistant", "content": "hb final", "_metadata": {"is_heartbeat": True}},
+            {"role": "assistant", "content": "real reply"},
+        ]
+        result = _messages_for_summary(messages)
+        contents = [m["content"] for m in result]
+        assert "hb prompt" not in contents
+        assert "hb thinking" not in contents
+        assert "tool output" not in contents
+        assert "hb final" not in contents
+        assert "real msg" in contents
+        assert "real reply" in contents

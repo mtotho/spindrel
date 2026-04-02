@@ -5,14 +5,21 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy import func, select
+
+# Task types allowed to be created/updated via the admin API.
+# Internal types like 'exec', 'harness', 'claude_code', 'delegation' are only
+# created programmatically by the system (task worker, delegation service, etc.).
+ALLOWED_TASK_TYPES = {"scheduled", "agent"}
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes as sa_attributes
 
 from app.agent.bots import get_bot
-from app.db.models import Channel, Task
+from app.db.models import Channel, Session, Task
 from app.dependencies import get_db, verify_auth_or_user
 from ._helpers import _heartbeat_correlation_ids
 
@@ -28,7 +35,10 @@ class TaskDetailOut(BaseModel):
     status: str
     bot_id: str
     prompt: str
+    title: Optional[str] = None
     prompt_template_id: Optional[uuid.UUID] = None
+    workspace_file_path: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     result: Optional[str] = None
     error: Optional[str] = None
     dispatch_type: str = "none"
@@ -40,11 +50,15 @@ class TaskDetailOut(BaseModel):
     parent_task_id: Optional[uuid.UUID] = None
     dispatch_config: Optional[dict] = None
     callback_config: Optional[dict] = None
+    execution_config: Optional[dict] = None
     correlation_id: Optional[str] = None
-    # Surfaced from callback_config for convenience
+    delegation_session_id: Optional[uuid.UUID] = None
+    # Surfaced from execution_config/callback_config for convenience
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    fallback_models: Optional[list[dict]] = None
     trigger_rag_loop: bool = False
+    max_run_seconds: Optional[int] = None
     retry_count: int = 0
     run_count: int = 0
     created_at: datetime
@@ -56,33 +70,61 @@ class TaskDetailOut(BaseModel):
 
     @model_validator(mode="after")
     def _surface_callback_fields(self):
+        # Surface model overrides from execution_config (new) or callback_config (legacy)
+        ec = self.execution_config or {}
         cb = self.callback_config or {}
-        if cb.get("model_override") and self.model_override is None:
-            self.model_override = cb["model_override"]
-        if cb.get("model_provider_id_override") and self.model_provider_id_override is None:
-            self.model_provider_id_override = cb["model_provider_id_override"]
-        if cb.get("trigger_rag_loop") and not self.trigger_rag_loop:
-            self.trigger_rag_loop = cb["trigger_rag_loop"]
+        if self.model_override is None:
+            self.model_override = ec.get("model_override") or cb.get("model_override") or None
+        if self.model_provider_id_override is None:
+            self.model_provider_id_override = ec.get("model_provider_id_override") or cb.get("model_provider_id_override") or None
+        if self.fallback_models is None:
+            self.fallback_models = ec.get("fallback_models") or cb.get("fallback_models") or None
+        if not self.trigger_rag_loop:
+            self.trigger_rag_loop = cb.get("trigger_rag_loop", False)
         return self
+
+
+def _validate_recurrence(v: str | None) -> str | None:
+    if v is not None:
+        from app.agent.tasks import validate_recurrence
+        validate_recurrence(v)
+    return v
 
 
 class TaskCreateIn(BaseModel):
     prompt: str
     bot_id: str
+    title: Optional[str] = None
     channel_id: Optional[uuid.UUID] = None
     prompt_template_id: Optional[uuid.UUID] = None
+    workspace_file_path: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     scheduled_at: Optional[str] = None
     recurrence: Optional[str] = None
     task_type: str = "scheduled"
     trigger_rag_loop: bool = False
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    fallback_models: Optional[list[dict]] = None
+    max_run_seconds: Optional[int] = None
+
+    _check_recurrence = field_validator("recurrence")(_validate_recurrence)
+
+    @field_validator("task_type")
+    @classmethod
+    def _validate_task_type(cls, v: str) -> str:
+        if v not in ALLOWED_TASK_TYPES:
+            raise ValueError(f"task_type must be one of {sorted(ALLOWED_TASK_TYPES)}, got '{v}'")
+        return v
 
 
 class TaskUpdateIn(BaseModel):
     prompt: Optional[str] = None
     bot_id: Optional[str] = None
+    title: Optional[str] = None
     prompt_template_id: Optional[uuid.UUID] = None
+    workspace_file_path: Optional[str] = None
+    workspace_id: Optional[uuid.UUID] = None
     status: Optional[str] = None
     scheduled_at: Optional[str] = None
     recurrence: Optional[str] = None
@@ -90,6 +132,17 @@ class TaskUpdateIn(BaseModel):
     trigger_rag_loop: Optional[bool] = None
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
+    fallback_models: Optional[list[dict]] = None
+    max_run_seconds: Optional[int] = None
+
+    _check_recurrence = field_validator("recurrence")(_validate_recurrence)
+
+    @field_validator("task_type")
+    @classmethod
+    def _validate_task_type(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_TASK_TYPES:
+            raise ValueError(f"task_type must be one of {sorted(ALLOWED_TASK_TYPES)}, got '{v}'")
+        return v
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +157,7 @@ async def admin_list_tasks(
     task_type: Optional[str] = None,
     after: Optional[str] = None,
     before: Optional[str] = None,
+    include_children: bool = False,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -113,10 +167,16 @@ async def admin_list_tasks(
 
     Returns both concrete tasks (filtered by date range) and active schedule templates
     (always returned, not filtered by date range — the frontend expands them into virtual entries).
+    By default, child tasks (callbacks with parent_task_id set) are hidden. Use include_children=true to show them.
     """
     # Concrete tasks query (excludes active schedule templates)
     stmt = select(Task).where(Task.status != "active").order_by(Task.scheduled_at.asc().nullslast(), Task.created_at.asc())
     count_stmt = select(func.count()).select_from(Task).where(Task.status != "active")
+
+    # By default, hide child tasks (callbacks/concrete schedule runs with parent_task_id)
+    if not include_children:
+        stmt = stmt.where(Task.parent_task_id.is_(None))
+        count_stmt = count_stmt.where(Task.parent_task_id.is_(None))
 
     # Schedule templates query (always returned)
     sched_stmt = select(Task).where(Task.status == "active", Task.recurrence.isnot(None))
@@ -157,6 +217,7 @@ async def admin_list_tasks(
     corr_map = await _heartbeat_correlation_ids(db, list(tasks))
 
     def _task_dict(t: Task) -> dict:
+        ec = t.execution_config or {}
         cb = t.callback_config or {}
         cid = corr_map.get(t.id)
         return {
@@ -164,7 +225,10 @@ async def admin_list_tasks(
             "status": t.status,
             "bot_id": t.bot_id,
             "prompt": t.prompt,
+            "title": t.title,
             "prompt_template_id": str(t.prompt_template_id) if t.prompt_template_id else None,
+            "workspace_file_path": t.workspace_file_path,
+            "workspace_id": str(t.workspace_id) if t.workspace_id else None,
             "result": t.result[:500] if t.result else None,
             "error": t.error,
             "dispatch_type": t.dispatch_type,
@@ -174,9 +238,10 @@ async def admin_list_tasks(
             "channel_id": str(t.channel_id) if t.channel_id else None,
             "parent_task_id": str(t.parent_task_id) if t.parent_task_id else None,
             "correlation_id": str(cid) if cid else None,
-            "model_override": cb.get("model_override"),
-            "model_provider_id_override": cb.get("model_provider_id_override"),
+            "model_override": ec.get("model_override") or cb.get("model_override"),
+            "model_provider_id_override": ec.get("model_provider_id_override") or cb.get("model_provider_id_override"),
             "trigger_rag_loop": cb.get("trigger_rag_loop", False),
+            "max_run_seconds": t.max_run_seconds,
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
             "run_at": t.run_at.isoformat() if t.run_at else None,
@@ -207,7 +272,33 @@ async def admin_get_task(
     cid = corr_map.get(task.id)
     if cid:
         out.correlation_id = str(cid)
+    # Look up delegation child session if this task created one
+    if task.task_type == "delegation":
+        del_session = (await db.execute(
+            select(Session.id).where(Session.source_task_id == task.id).limit(1)
+        )).scalar_one_or_none()
+        if del_session:
+            out.delegation_session_id = del_session
     return out
+
+
+@router.get("/tasks/{task_id}/children")
+async def admin_list_task_children(
+    task_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """List child tasks (callbacks, concrete schedule runs) of a parent task."""
+    parent = await db.get(Task, task_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Task not found")
+    stmt = (
+        select(Task)
+        .where(Task.parent_task_id == task_id)
+        .order_by(Task.created_at.asc())
+    )
+    children = (await db.execute(stmt)).scalars().all()
+    return [TaskDetailOut.model_validate(c) for c in children]
 
 
 @router.post("/tasks", response_model=TaskDetailOut, status_code=201)
@@ -242,15 +333,21 @@ async def admin_create_task(
             dispatch_config = dict(channel.dispatch_config)
 
     callback_config = None
-    extras: dict = {}
+    execution_config = None
+    cb_extras: dict = {}
+    ec_extras: dict = {}
     if body.trigger_rag_loop:
-        extras["trigger_rag_loop"] = True
+        cb_extras["trigger_rag_loop"] = True
     if body.model_override:
-        extras["model_override"] = body.model_override
+        ec_extras["model_override"] = body.model_override
     if body.model_provider_id_override:
-        extras["model_provider_id_override"] = body.model_provider_id_override
-    if extras:
-        callback_config = extras
+        ec_extras["model_provider_id_override"] = body.model_provider_id_override
+    if body.fallback_models:
+        ec_extras["fallback_models"] = body.fallback_models
+    if cb_extras:
+        callback_config = cb_extras
+    if ec_extras:
+        execution_config = ec_extras
 
     # If recurrence is set, create as an active schedule template
     initial_status = "active" if body.recurrence else "pending"
@@ -258,7 +355,10 @@ async def admin_create_task(
     task = Task(
         bot_id=body.bot_id,
         prompt=body.prompt,
+        title=body.title,
         prompt_template_id=body.prompt_template_id,
+        workspace_file_path=body.workspace_file_path,
+        workspace_id=body.workspace_id,
         status=initial_status,
         task_type=body.task_type,
         scheduled_at=scheduled,
@@ -266,9 +366,11 @@ async def admin_create_task(
         dispatch_type=dispatch_type,
         dispatch_config=dispatch_config,
         callback_config=callback_config,
+        execution_config=execution_config,
         client_id=client_id,
         session_id=session_id,
         channel_id=channel_id,
+        max_run_seconds=body.max_run_seconds,
     )
     db.add(task)
     await db.commit()
@@ -276,7 +378,7 @@ async def admin_create_task(
     return TaskDetailOut.model_validate(task)
 
 
-@router.put("/tasks/{task_id}", response_model=TaskDetailOut)
+@router.api_route("/tasks/{task_id}", methods=["PUT", "PATCH"], response_model=TaskDetailOut)
 async def admin_update_task(
     task_id: uuid.UUID,
     body: TaskUpdateIn,
@@ -290,39 +392,58 @@ async def admin_update_task(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if body.prompt is not None:
-        task.prompt = body.prompt
-    if body.prompt_template_id is not None:
-        task.prompt_template_id = body.prompt_template_id
-    if body.bot_id is not None:
-        task.bot_id = body.bot_id
-    if body.status is not None:
-        task.status = body.status
-    if body.task_type is not None:
-        task.task_type = body.task_type
-    if body.recurrence is not None:
-        task.recurrence = body.recurrence or None
+    updates = body.model_dump(exclude_unset=True)
 
-    if body.scheduled_at is not None:
+    for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title", "max_run_seconds"):
+        if field in updates:
+            setattr(task, field, updates[field])
+    if "recurrence" in updates:
+        task.recurrence = updates["recurrence"] or None
+
+    if "scheduled_at" in updates:
         try:
-            task.scheduled_at = _parse_scheduled_at(body.scheduled_at)
+            task.scheduled_at = _parse_scheduled_at(updates["scheduled_at"])
         except ValueError as e:
             raise HTTPException(status_code=422, detail=str(e))
 
-    if body.trigger_rag_loop is not None or body.model_override is not None or body.model_provider_id_override is not None:
+    # trigger_rag_loop goes in callback_config; model overrides go in execution_config
+    if "trigger_rag_loop" in updates:
         cb = dict(task.callback_config or {})
-        if body.trigger_rag_loop is not None:
-            cb["trigger_rag_loop"] = body.trigger_rag_loop
-        if body.model_override is not None:
-            cb["model_override"] = body.model_override or None
-        if body.model_provider_id_override is not None:
-            cb["model_provider_id_override"] = body.model_provider_id_override or None
+        cb["trigger_rag_loop"] = updates["trigger_rag_loop"]
         task.callback_config = cb
         sa_attributes.flag_modified(task, "callback_config")
+
+    ec_fields = {"model_override", "model_provider_id_override", "fallback_models"}
+    if ec_fields & updates.keys():
+        ec = dict(task.execution_config or {})
+        if "model_override" in updates:
+            ec["model_override"] = updates["model_override"] or None
+        if "model_provider_id_override" in updates:
+            ec["model_provider_id_override"] = updates["model_provider_id_override"] or None
+        if "fallback_models" in updates:
+            ec["fallback_models"] = updates["fallback_models"] or None
+        task.execution_config = ec
+        sa_attributes.flag_modified(task, "execution_config")
 
     await db.commit()
     await db.refresh(task)
     return TaskDetailOut.model_validate(task)
+
+
+@router.get("/cron-jobs")
+async def admin_list_cron_jobs(
+    workspace_id: Optional[str] = None,
+    _auth=Depends(verify_auth_or_user),
+):
+    """Discover cron jobs across workspace containers and host OS."""
+    from app.services.cron_discovery import discover_crons
+    from dataclasses import asdict
+
+    result = await discover_crons(workspace_id=workspace_id)
+    return {
+        "cron_jobs": [asdict(e) for e in result.cron_jobs],
+        "errors": result.errors,
+    }
 
 
 @router.delete("/tasks/{task_id}", status_code=204)

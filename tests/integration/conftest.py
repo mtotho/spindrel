@@ -19,7 +19,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 # Register SQLite-compatible compilers for PostgreSQL-specific types
 from pgvector.sqlalchemy import Vector  # noqa: E402
 from sqlalchemy.ext.compiler import compiles  # noqa: E402
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID, TIMESTAMP as PG_TIMESTAMP  # noqa: E402
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID, TIMESTAMP as PG_TIMESTAMP, TSVECTOR as PG_TSVECTOR  # noqa: E402
 
 
 @compiles(Vector, "sqlite")
@@ -35,6 +35,11 @@ def _compile_jsonb_sqlite(type_, compiler, **kw):
 @compiles(PG_UUID, "sqlite")
 def _compile_uuid_sqlite(type_, compiler, **kw):
     return "CHAR(32)"
+
+
+@compiles(PG_TSVECTOR, "sqlite")
+def _compile_tsvector_sqlite(type_, compiler, **kw):
+    return "TEXT"
 
 
 @compiles(PG_TIMESTAMP, "sqlite")
@@ -147,10 +152,12 @@ def _build_test_app():
     from fastapi import FastAPI
     from app.routers.api_v1 import router as api_v1_router
     from app.routers.chat import router as chat_router
+    from integrations.mission_control.router import router as mc_router
 
     test_app = FastAPI()
     test_app.include_router(api_v1_router)
     test_app.include_router(chat_router)
+    test_app.include_router(mc_router, prefix="/integrations/mission_control")
     return test_app
 
 

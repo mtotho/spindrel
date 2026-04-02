@@ -1,10 +1,13 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { View, Text, TextInput, Pressable, Platform } from "react-native";
-import { Send, Paperclip, X, Cpu } from "lucide-react";
-import { useCompletions } from "../../api/hooks/useModels";
+import { Send, Square, Paperclip, X, Cpu, Mic } from "lucide-react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
-import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
-import type { CompletionItem } from "../../types/api";
+import { useAudioRecorder } from "../../hooks/useAudioRecorder";
+import { RecordingOverlay } from "./RecordingOverlay";
+import { useThemeTokens } from "../../theme/tokens";
+import { useDraftsStore, type DraftFile } from "../../stores/drafts";
+import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
 
 export interface PendingFile {
   file: File;
@@ -14,44 +17,131 @@ export interface PendingFile {
 
 interface Props {
   onSend: (message: string, files?: PendingFile[]) => void;
+  onSendAudio?: (audioBase64: string, audioFormat: string, message?: string) => void;
   disabled?: boolean;
+  isStreaming?: boolean;
+  onCancel?: () => void;
   modelOverride?: string;
   onModelOverrideChange?: (m: string | undefined) => void;
   defaultModel?: string;
+  /** Current channel's bot ID — excluded from @-mention completions */
+  currentBotId?: string;
+  /** Channel ID for persisting drafts across navigation */
+  channelId?: string;
+  /** Handler for slash commands typed in the input */
+  onSlashCommand?: (id: string) => void;
 }
 
-export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideChange, defaultModel }: Props) {
+/** Rebuild PendingFile objects from serialized DraftFiles (restores File + preview). */
+function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
+  return draftFiles.map((df) => {
+    const byteString = atob(df.base64);
+    const bytes = new Uint8Array(byteString.length);
+    for (let i = 0; i < byteString.length; i++) bytes[i] = byteString.charCodeAt(i);
+    const file = new File([bytes], df.name, { type: df.type });
+    const preview = df.type.startsWith("image/") ? `data:${df.type};base64,${df.base64}` : undefined;
+    return { file, base64: df.base64, preview };
+  });
+}
+
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, onModelOverrideChange, defaultModel, currentBotId, channelId, onSlashCommand }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
-  const [text, setText] = useState("");
-  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const insets = useSafeAreaInsets();
+  const t = useThemeTokens();
+  const recorder = useAudioRecorder();
+
+  // Persisted draft state (per-channel)
+  const draft = useDraftsStore((s) => channelId ? s.getDraft(channelId) : null);
+  const setDraftText = useDraftsStore((s) => s.setDraftText);
+  const setDraftFiles = useDraftsStore((s) => s.setDraftFiles);
+  const clearDraft = useDraftsStore((s) => s.clearDraft);
+
+  // Fallback to local state when no channelId (shouldn't happen in practice)
+  const [localText, setLocalText] = useState("");
+  const [localFiles, setLocalFiles] = useState<PendingFile[]>([]);
+
+  const text = draft?.text ?? localText;
+  const setText = useCallback((t: string) => {
+    if (channelId) setDraftText(channelId, t);
+    else setLocalText(t);
+  }, [channelId, setDraftText]);
+
+  // Rebuild PendingFile objects from persisted draft files
+  const pendingFiles = useMemo(
+    () => draft?.files.length ? draftFilesToPending(draft.files) : localFiles,
+    [draft?.files, localFiles],
+  );
+  const setPendingFiles = useCallback((updater: PendingFile[] | ((prev: PendingFile[]) => PendingFile[])) => {
+    const newFiles = typeof updater === "function" ? updater(pendingFiles) : updater;
+    if (channelId) {
+      setDraftFiles(channelId, newFiles.map((pf) => ({
+        name: pf.file.name,
+        type: pf.file.type,
+        size: pf.file.size,
+        base64: pf.base64,
+      })));
+    } else {
+      setLocalFiles(newFiles);
+    }
+  }, [channelId, pendingFiles, setDraftFiles]);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modelPickerRef = useRef<HTMLDivElement>(null);
-
-  // Autocomplete state (web only)
-  const { data: completions } = useCompletions();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [showMenu, setShowMenu] = useState(false);
-  const [menuPos, setMenuPos] = useState({ top: 0, left: 0, width: 0 });
-  const [atStart, setAtStart] = useState(-1);
-  const [filtered, setFiltered] = useState<CompletionItem[]>([]);
-  const [activeIdx, setActiveIdx] = useState(0);
+  const editorRef = useRef<TiptapChatInputHandle>(null);
+  const editorWrapperRef = useRef<HTMLDivElement>(null);
 
   const handleSend = useCallback(() => {
-    const trimmed = text.trim();
-    if ((!trimmed && pendingFiles.length === 0) || disabled) return;
-    onSend(trimmed, pendingFiles.length > 0 ? pendingFiles : undefined);
-    setText("");
-    setPendingFiles([]);
+    // On web, read directly from editor to avoid stale React state
+    const message = Platform.OS === "web"
+      ? (editorRef.current?.getMarkdown() ?? text).trim()
+      : text.trim();
+    if ((!message && pendingFiles.length === 0) || disabled) return;
+    onSend(message, pendingFiles.length > 0 ? pendingFiles : undefined);
+    if (channelId) clearDraft(channelId);
+    else { setLocalText(""); setLocalFiles([]); }
     if (Platform.OS === "web") {
-      textareaRef.current?.focus();
+      editorRef.current?.clear();
+      editorRef.current?.focus();
     } else {
       inputRef.current?.focus();
     }
-  }, [text, pendingFiles, disabled, onSend]);
+  }, [text, pendingFiles, disabled, onSend, channelId, clearDraft]);
+
+  // --- Audio recording ---
+  const handleMicToggle = useCallback(async () => {
+    if (recorder.isRecording) {
+      const result = await recorder.stopRecording();
+      if (result && onSendAudio) {
+        onSendAudio(result.base64, result.format, text.trim() || undefined);
+        if (channelId) clearDraft(channelId);
+        else { setLocalText(""); setLocalFiles([]); }
+        if (Platform.OS === "web") {
+          editorRef.current?.clear();
+          editorRef.current?.focus();
+        }
+      }
+    } else {
+      await recorder.startRecording();
+    }
+  }, [recorder.isRecording, recorder.stopRecording, recorder.startRecording, onSendAudio, text, channelId, clearDraft]);
+
+  // Global keyboard listener for recording mode (editor is hidden, so onKeyDown won't fire)
+  useEffect(() => {
+    if (!recorder.isRecording || Platform.OS !== "web") return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        recorder.cancelRecording();
+      } else if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleMicToggle();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [recorder.isRecording, recorder.cancelRecording, handleMicToggle]);
 
   // --- File handling ---
   const handleFileSelect = useCallback(async (files: FileList | null) => {
@@ -76,117 +166,12 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
     });
   }, []);
 
-  // --- Web autocomplete logic ---
-  const handleWebInput = useCallback(
-    (newText: string) => {
-      setText(newText);
-      const ta = textareaRef.current;
-      if (!ta || !completions) return;
-      const pos = ta.selectionStart;
-      const before = newText.substring(0, pos);
-      const atIdx = before.lastIndexOf("@");
-      if (atIdx === -1 || (atIdx > 0 && /\w/.test(before[atIdx - 1]))) {
-        setShowMenu(false);
-        return;
-      }
-      const query = before.substring(atIdx + 1);
-      if (/\s/.test(query)) {
-        setShowMenu(false);
-        return;
-      }
-      setAtStart(atIdx);
-      const scored = completions
-        .map((c) => ({ c, s: scoreMatch(c.value, c.label, query) }))
-        .filter((x) => x.s > 0)
-        .sort((a, b) => b.s - a.s)
-        .map((x) => x.c)
-        .slice(0, 10);
-      setActiveIdx(0);
-      setFiltered(scored);
-      if (scored.length > 0 && containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setMenuPos({
-          top: rect.top - 4,
-          left: rect.left,
-          width: Math.min(rect.width, 500),
-        });
-        setShowMenu(true);
-      } else {
-        setShowMenu(false);
-      }
-    },
-    [completions]
-  );
-
-  const selectItem = useCallback(
-    (item: CompletionItem) => {
-      const ta = textareaRef.current;
-      if (!ta) return;
-      const before = text.substring(0, atStart);
-      const after = text.substring(ta.selectionStart);
-      const newText = before + "@" + item.value + " " + after;
-      setText(newText);
-      setShowMenu(false);
-      requestAnimationFrame(() => {
-        const cur = atStart + item.value.length + 2;
-        ta.selectionStart = ta.selectionEnd = cur;
-        ta.focus();
-      });
-    },
-    [text, atStart]
-  );
-
-  const handleWebKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (showMenu) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setActiveIdx((i) => Math.min(i + 1, filtered.length - 1));
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setActiveIdx((i) => Math.max(i - 1, 0));
-          return;
-        }
-        if (e.key === "Enter" || e.key === "Tab") {
-          if (filtered.length > 0) {
-            e.preventDefault();
-            selectItem(filtered[activeIdx]);
-          }
-          return;
-        }
-        if (e.key === "Escape") {
-          setShowMenu(false);
-          return;
-        }
-      }
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
-    },
-    [showMenu, filtered, activeIdx, selectItem, handleSend]
-  );
-
-  // Handle paste with images
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const imageFiles: File[] = [];
-      for (const item of Array.from(items)) {
-        if (item.type.startsWith("image/")) {
-          const file = item.getAsFile();
-          if (file) imageFiles.push(file);
-        }
-      }
-      if (imageFiles.length > 0) {
-        e.preventDefault();
-        const dt = new DataTransfer();
-        imageFiles.forEach((f) => dt.items.add(f));
-        handleFileSelect(dt.files);
-      }
+  // Handle image paste from Tiptap editor — images go to pendingFiles
+  const handleImagePaste = useCallback(
+    (files: File[]) => {
+      const dt = new DataTransfer();
+      files.forEach((f) => dt.items.add(f));
+      handleFileSelect(dt.files);
     },
     [handleFileSelect]
   );
@@ -203,19 +188,30 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
     }
   };
 
-  const canSend = (text.trim() || pendingFiles.length > 0) && !disabled;
+  const hasContent = !!(text.trim() || pendingFiles.length > 0);
+  const canSend = hasContent && !disabled;
+  // Show stop button when streaming and user hasn't typed anything
+  const showStop = !!isStreaming && !hasContent;
+  // Show mic icon when input is empty and onSendAudio is available
+  const showMic = !hasContent && !!onSendAudio && !isStreaming && Platform.OS === "web";
 
-  // Web: use raw textarea for selectionStart access
+  // Web: Tiptap rich editor
   if (Platform.OS === "web") {
     return (
-      <View className="border-t border-surface-border bg-surface" style={{ flexShrink: 0, paddingBottom: "env(safe-area-inset-bottom, 0px)" as any }}>
+      <View style={{ flexShrink: 0, paddingBottom: insets.bottom, borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
+        {/* Audio recorder error */}
+        {recorder.error && (
+          <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>
+            <Text style={{ color: "#ef4444", fontSize: 12 }}>{recorder.error}</Text>
+          </div>
+        )}
         {/* Pending file previews */}
         {pendingFiles.length > 0 && (
           <div
             style={{
               display: "flex",
               gap: 8,
-              padding: "8px 16px 0",
+              padding: "8px 20px 0",
               flexWrap: "wrap",
             }}
           >
@@ -226,7 +222,7 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                   position: "relative",
                   borderRadius: 8,
                   overflow: "hidden",
-                  border: "1px solid #333",
+                  border: `1px solid ${t.overlayBorder}`,
                 }}
               >
                 {pf.preview ? (
@@ -248,9 +244,9 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      background: "#222",
+                      background: t.surfaceRaised,
                       fontSize: 10,
-                      color: "#999",
+                      color: t.textMuted,
                       padding: 4,
                       textAlign: "center",
                       wordBreak: "break-all",
@@ -284,20 +280,21 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
           </div>
         )}
 
-        <View className={`flex-row items-end ${isMobile ? "gap-2 p-3" : "gap-3 p-4"}`}>
+        <View className={`flex-row items-end ${isMobile ? "gap-1.5 px-2 py-2" : "gap-3 px-5 py-3"}`}>
           {/* Attach button */}
           <Pressable
             onPress={() => fileInputRef.current?.click()}
-            disabled={disabled}
-            className="w-11 h-11 rounded-xl items-center justify-center bg-surface-raised"
+            disabled={disabled || recorder.isRecording}
+            className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
+            style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44, flexShrink: 0, opacity: recorder.isRecording ? 0.3 : 1 }}
           >
-            <Paperclip size={18} color="#666666" />
+            <Paperclip size={isMobile ? 18 : 20} color={t.textDim} />
           </Pressable>
           <input
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*,.pdf,.txt,.csv,.json,.md"
+            accept="image/*,.pdf,.txt,.csv,.json,.md,.yaml,.yml,.xml,.html,.log,.py,.js,.ts,.sh,.doc,.docx,.xlsx,.xls,.pptx"
             style={{ display: "none" }}
             onChange={(e) => {
               handleFileSelect(e.target.files);
@@ -305,44 +302,48 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
             }}
           />
 
-          <div ref={containerRef} style={{ flex: 1, display: "flex" }}>
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(e) => handleWebInput(e.target.value)}
-              onKeyDown={handleWebKeyDown}
-              onPaste={handlePaste}
-              onBlur={() => setTimeout(() => setShowMenu(false), 200)}
-              placeholder="Type a message..."
-              disabled={disabled}
-              autoFocus
-              rows={1}
-              style={{
-                flex: 1,
-                fontFamily: "inherit",
-                fontSize: 16,
-                lineHeight: "1.4",
-                padding: "10px 16px",
-                borderRadius: 12,
-                border: "1px solid var(--color-surface-border, #333)",
-                background: "var(--color-surface-raised, #1a1a1a)",
-                color: "var(--color-text, #e5e5e5)",
-                resize: "none",
-                outline: "none",
-                minHeight: 44,
-                maxHeight: 120,
-                overflow: "auto",
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = "#3b82f6";
-              }}
-              onBlurCapture={(e) => {
-                e.target.style.borderColor = "";
-              }}
-            />
+          {/* Editor wrapper */}
+          <div
+            ref={editorWrapperRef}
+            onFocusCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.borderColor = t.overlayBorder; }}
+            onBlurCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.borderColor = t.overlayLight; }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              minHeight: isMobile ? 36 : 44,
+              maxHeight: 280,
+              background: t.surfaceRaised,
+              borderRadius: 10,
+              border: `1px solid ${t.overlayLight}`,
+              overflow: "hidden",
+              display: "flex",
+            }}
+          >
+            {recorder.isRecording ? (
+              <RecordingOverlay
+                durationMs={recorder.durationMs}
+                onCancel={recorder.cancelRecording}
+                isMobile={isMobile}
+              />
+            ) : (
+              <TiptapChatInput
+                ref={editorRef}
+                key={channelId}
+                text={text}
+                onTextChange={setText}
+                onSubmit={handleSend}
+                onImagePaste={handleImagePaste}
+                onSlashCommand={onSlashCommand}
+                disabled={disabled}
+                autoFocus={!isMobile}
+                isMobile={isMobile}
+                currentBotId={currentBotId}
+              />
+            )}
           </div>
-          {/* Per-turn model picker */}
-          {Platform.OS === "web" && onModelOverrideChange && (
+
+          {/* Per-turn model picker — hidden on mobile to save space */}
+          {Platform.OS === "web" && onModelOverrideChange && !isMobile && (
             <div ref={modelPickerRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
               {modelOverride ? (
                 <div
@@ -350,12 +351,12 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
                     display: "flex",
                     alignItems: "center",
                     gap: 4,
-                    background: "rgba(59,130,246,0.12)",
-                    border: "1px solid rgba(59,130,246,0.3)",
-                    borderRadius: 8,
+                    background: t.purpleSubtle,
+                    border: `1px solid ${t.purpleBorder}`,
+                    borderRadius: 6,
                     padding: "4px 8px",
                     fontSize: 11,
-                    color: "#3b82f6",
+                    color: t.purple,
                     cursor: "pointer",
                     whiteSpace: "nowrap",
                     maxWidth: 180,
@@ -377,10 +378,10 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
               ) : (
                 <Pressable
                   onPress={() => setShowModelPicker(true)}
-                  className="w-11 h-11 rounded-xl items-center justify-center bg-surface-raised"
-                  style={{ opacity: 0.7 }}
+                  className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
+                  style={{ width: 44, height: 44, opacity: 0.6 }}
                 >
-                  <Cpu size={16} color="#666666" />
+                  <Cpu size={16} color={t.textDim} />
                 </Pressable>
               )}
               {showModelPicker && (() => {
@@ -414,28 +415,36 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
             </div>
           )}
           <Pressable
-            onPress={handleSend}
-            disabled={!canSend}
-            className={`w-11 h-11 rounded-xl items-center justify-center ${
-              canSend ? "bg-accent" : "bg-surface-raised"
-            }`}
-          >
-            <Send size={18} color={canSend ? "white" : "#666666"} />
-          </Pressable>
-          <AutocompleteMenu
-            show={showMenu}
-            items={filtered}
-            activeIdx={activeIdx}
-            menuPos={{
-              top: menuPos.top,
-              left: menuPos.left,
-              width: menuPos.width,
+            onPress={
+              showStop ? onCancel
+              : recorder.isRecording ? handleMicToggle
+              : showMic ? handleMicToggle
+              : handleSend
+            }
+            disabled={!canSend && !showStop && !showMic && !recorder.isRecording}
+            className="items-center justify-center rounded-lg"
+            style={{
+              width: isMobile ? 36 : 44,
+              height: isMobile ? 36 : 44,
+              flexShrink: 0,
+              backgroundColor: showStop ? "#ef4444"
+                : recorder.isRecording ? "#ef4444"
+                : canSend ? t.accent
+                : showMic ? "transparent"
+                : "transparent",
+              opacity: canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4,
             }}
-            onSelect={selectItem}
-            onHover={setActiveIdx}
-            onClose={() => setShowMenu(false)}
-            anchor="bottom"
-          />
+          >
+            {showStop ? (
+              <Square size={16} color="white" fill="white" />
+            ) : recorder.isRecording ? (
+              <Send size={isMobile ? 16 : 18} color="white" />
+            ) : showMic ? (
+              <Mic size={isMobile ? 16 : 18} color={t.textDim} />
+            ) : (
+              <Send size={isMobile ? 16 : 18} color={canSend ? "white" : t.textDim} />
+            )}
+          </Pressable>
         </View>
       </View>
     );
@@ -443,12 +452,13 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
 
   // Native: keep RN TextInput
   return (
-    <View className="flex-row items-end gap-3 p-4 border-t border-surface-border bg-surface">
+    <View className="flex-row items-end gap-2 px-4 py-3" style={{ borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
       <TextInput
         ref={inputRef}
-        className="flex-1 bg-surface-raised border border-surface-border rounded-xl px-4 py-3 text-text text-sm min-h-[44px] max-h-[120px]"
+        className="flex-1 bg-surface-raised rounded-xl px-4 py-3 text-text text-[15px] min-h-[44px] max-h-[280px]"
+        style={{ borderWidth: 1, borderColor: t.overlayLight }}
         placeholder="Type a message..."
-        placeholderTextColor="#666666"
+        placeholderTextColor={t.textDim}
         value={text}
         onChangeText={setText}
         onKeyPress={handleKeyPress}
@@ -456,16 +466,21 @@ export function MessageInput({ onSend, disabled, modelOverride, onModelOverrideC
         editable={!disabled}
       />
       <Pressable
-        onPress={handleSend}
-        disabled={!text.trim() || disabled}
-        className={`w-11 h-11 rounded-xl items-center justify-center ${
-          text.trim() && !disabled ? "bg-accent" : "bg-surface-raised"
-        }`}
+        onPress={showStop ? onCancel : handleSend}
+        disabled={!(text.trim() && !disabled) && !showStop}
+        className="items-center justify-center rounded-lg"
+        style={{
+          width: 44,
+          height: 44,
+          backgroundColor: showStop ? "#ef4444" : text.trim() && !disabled ? t.accent : "transparent",
+          opacity: (text.trim() && !disabled) || showStop ? 1 : 0.4,
+        }}
       >
-        <Send
-          size={18}
-          color={text.trim() && !disabled ? "white" : "#666666"}
-        />
+        {showStop ? (
+          <Square size={16} color="white" fill="white" />
+        ) : (
+          <Send size={18} color={text.trim() && !disabled ? "white" : t.textDim} />
+        )}
       </Pressable>
     </View>
   );

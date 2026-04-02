@@ -9,14 +9,14 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import async_session
-from app.db.models import Channel, ChannelIntegration, Session
+from app.db.models import Channel, ChannelIntegration, ChannelMember, Session
 
 if TYPE_CHECKING:
     from app.db.models import User
 
 logger = logging.getLogger(__name__)
 
-INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:")
+INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:", "github:")
 
 
 def derive_channel_id(client_id: str) -> uuid.UUID:
@@ -31,20 +31,57 @@ def derive_channel_id(client_id: str) -> uuid.UUID:
 def is_integration_client_id(client_id: str | None) -> bool:
     if not client_id:
         return False
-    return any(client_id.startswith(p) for p in INTEGRATION_CLIENT_PREFIXES)
+    from app.agent.hooks import get_all_client_id_prefixes
+    prefixes = get_all_client_id_prefixes()
+    if not prefixes:
+        # Fallback before integrations are loaded at startup
+        prefixes = INTEGRATION_CLIENT_PREFIXES
+    return any(client_id.startswith(p) for p in prefixes)
 
 
 async def resolve_channel_by_client_id(
     db: AsyncSession,
     client_id: str,
 ) -> Channel | None:
-    """Find a channel via channel_integrations binding by client_id."""
+    """Find a channel via channel_integrations binding by client_id.
+
+    Returns the first match. For multi-channel fan-out use
+    ``resolve_all_channels_by_client_id`` instead.
+    """
     result = await db.execute(
         select(Channel)
         .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
         .where(ChannelIntegration.client_id == client_id)
+        .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+async def resolve_all_channels_by_client_id(
+    db: AsyncSession,
+    client_id: str,
+) -> list[tuple[Channel, ChannelIntegration]]:
+    """Return all (Channel, ChannelIntegration) pairs bound to *client_id*.
+
+    Used for multi-channel fan-out: the same GitHub repo (or other source)
+    can be bound to multiple channels with different event filters.
+    """
+    result = await db.execute(
+        select(Channel, ChannelIntegration)
+        .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
+        .where(ChannelIntegration.client_id == client_id)
+    )
+    return list(result.tuples().all())
+
+
+def _auto_set_workspace_id(channel: Channel) -> None:
+    """Set workspace_id on a newly created channel from the bot's shared workspace."""
+    try:
+        from app.agent.bots import get_bot
+        bot = get_bot(channel.bot_id)
+        channel.workspace_id = uuid.UUID(bot.shared_workspace_id)
+    except Exception:
+        logger.debug("Could not auto-set workspace_id for channel bot_id=%s (bot not loaded yet?)", channel.bot_id)
 
 
 async def get_or_create_channel(
@@ -120,8 +157,14 @@ async def get_or_create_channel(
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
+        _auto_set_workspace_id(ch)
         db.add(ch)
         await db.flush()
+
+        # Auto-join creator as channel member
+        if user_id:
+            db.add(ChannelMember(channel_id=ch.id, user_id=user_id))
+            await db.flush()
 
         # Also create a ChannelIntegration row for new integration channels
         if integration:
@@ -148,8 +191,15 @@ async def get_or_create_channel(
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
+    _auto_set_workspace_id(ch)
     db.add(ch)
     await db.flush()
+
+    # Auto-join creator as channel member
+    if user_id:
+        db.add(ChannelMember(channel_id=ch.id, user_id=user_id))
+        await db.flush()
+
     return ch
 
 
@@ -340,3 +390,158 @@ async def resolve_integration_user(
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
+
+
+async def _ensure_orchestrator_bot_exists() -> bool:
+    """Ensure the orchestrator bot exists in DB, creating it if needed.
+
+    Returns True if the bot exists (or was just created), False on failure.
+    """
+    from app.db.models import Bot as BotModel
+
+    async with async_session() as db:
+        existing = (await db.execute(
+            select(BotModel).where(BotModel.id == "orchestrator")
+        )).scalar_one_or_none()
+        if existing:
+            return True
+
+        # Try YAML seeding first (preferred — keeps system_prompt in sync with file)
+        from app.agent.bots import SYSTEM_BOTS_DIR
+        yaml_path = SYSTEM_BOTS_DIR / "orchestrator.yaml"
+        if yaml_path.exists():
+            try:
+                import yaml as _yaml
+                from app.agent.bots import _yaml_data_to_row_dict
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                with open(yaml_path) as f:
+                    data = _yaml.safe_load(f)
+                if data and "id" in data:
+                    row_dict = _yaml_data_to_row_dict(data)
+                    stmt = pg_insert(BotModel).values(**row_dict).on_conflict_do_nothing(
+                        index_elements=["id"]
+                    )
+                    await db.execute(stmt)
+                    await db.commit()
+                    logger.info("Seeded orchestrator bot from YAML: %s", yaml_path)
+                    return True
+            except Exception:
+                logger.warning("YAML seeding failed for orchestrator, falling back to inline", exc_info=True)
+                await db.rollback()
+
+        # Inline fallback — create directly
+        bot = BotModel(
+            id="orchestrator",
+            name="Orchestrator",
+            model="gemini/gemini-2.5-flash",
+            system_prompt=(
+                "You are the Orchestrator — the central hub for this Spindrel instance.\n\n"
+                "On EVERY first message, call `get_system_status` before responding.\n"
+                "If `is_fresh_install: true`, walk the user through setup (provider, first bot, "
+                "integrations, first channel). Otherwise, offer management.\n\n"
+                "## Guidelines\n"
+                "- Be concise and direct — just use tools, don't explain them.\n"
+                "- Use sensible defaults. Don't ask questions you can answer yourself.\n"
+                "- Never suggest editing YAML or .env — do everything through tools.\n"
+                "- When creating bots, enable workspace + workspace-files memory by default.\n"
+                "- If an LLM error occurs, use `manage_bot` to update your model."
+            ),
+            local_tools=["get_system_status", "manage_bot", "manage_channel",
+                          "manage_integration", "web_search", "get_skill"],
+            skills=[
+                {"id": "integration-builder", "mode": "on_demand"},
+                {"id": "project-management", "mode": "on_demand"},
+            ],
+            tool_retrieval=True,
+            context_compaction=True,
+            workspace={"enabled": True},
+            memory_scheme="workspace-files",
+            history_mode="file",
+            delegation_config={
+                "delegate_bots": ["*"],
+                "harness_access": [],
+                "cross_workspace_access": True,
+            },
+        )
+        try:
+            db.add(bot)
+            await db.commit()
+            logger.info("Created orchestrator bot via inline fallback")
+            return True
+        except Exception:
+            logger.error("Failed to create orchestrator bot", exc_info=True)
+            return False
+
+
+async def ensure_orchestrator_channel() -> None:
+    """Create the orchestrator bot (if needed) and its landing channel.
+
+    Called from lifespan after load_bots(). Idempotent.
+    """
+    from app.agent.bots import _registry, load_bots
+
+    if "orchestrator" not in _registry:
+        # Bot not in registry — try to ensure it exists in DB and reload
+        created = await _ensure_orchestrator_bot_exists()
+        if created:
+            await load_bots()
+
+    if "orchestrator" not in _registry:
+        logger.warning(
+            "Orchestrator bot could not be created — skipping orchestrator channel. "
+            "Available bots: %s",
+            list(_registry.keys()),
+        )
+        return
+
+    async with async_session() as db:
+        ch = await get_or_create_channel(
+            db,
+            client_id="orchestrator:home",
+            bot_id="orchestrator",
+            name="Orchestrator",
+            private=True,
+        )
+        # Ensure admin-only visibility (no user_id + private)
+        changed = False
+        if not ch.private:
+            ch.private = True
+            changed = True
+        if not ch.protected:
+            ch.protected = True
+            changed = True
+        # Rename legacy "Home" label
+        if ch.name == "Home":
+            ch.name = "Orchestrator"
+            changed = True
+        if changed:
+            ch.updated_at = datetime.now(timezone.utc)
+        await ensure_active_session(db, ch)
+        # Auto-apply orchestrator carapace if not already present
+        existing = ch.carapaces_extra or []
+        if "orchestrator" not in existing:
+            ch.carapaces_extra = existing + ["orchestrator"]
+            ch.updated_at = datetime.now(timezone.utc)
+
+        # Ensure orchestrator has an allow-all tool policy rule
+        from app.db.models import ToolPolicyRule
+        has_rule = (await db.execute(
+            select(ToolPolicyRule).where(
+                ToolPolicyRule.bot_id == "orchestrator",
+                ToolPolicyRule.tool_name == "*",
+                ToolPolicyRule.action == "allow",
+            )
+        )).scalar_one_or_none()
+        if not has_rule:
+            db.add(ToolPolicyRule(
+                bot_id="orchestrator",
+                tool_name="*",
+                action="allow",
+                priority=0,
+                reason="Orchestrator needs full tool access for system management",
+                enabled=True,
+            ))
+            logger.info("Created allow-all tool policy rule for orchestrator bot")
+
+        await db.commit()
+    logger.info("Orchestrator landing channel ready (orchestrator:home)")
