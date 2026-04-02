@@ -480,8 +480,9 @@ def discover_web_uis() -> list[dict]:
                 continue
             static_path = (candidate / static_dir).resolve()
             if not static_path.is_dir():
-                logger.debug(
-                    "Integration %r declares web_ui but static dir does not exist: %s",
+                logger.warning(
+                    "Integration %r declares web_ui but static dir does not exist: %s "
+                    "(run 'npm run build' inside the dashboard directory)",
                     integration_id, static_path,
                 )
                 continue

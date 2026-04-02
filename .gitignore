@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 *.egg
 dist/
+!integrations/*/dashboard/dist/
 build/
 .eggs/
 
