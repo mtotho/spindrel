@@ -410,3 +410,224 @@ class TestConfigurableResultTruncation:
         import inspect
         source = inspect.getsource(on_step_task_completed)
         assert "result_max_chars" in source
+
+
+# ---------------------------------------------------------------------------
+# Workflow event dispatch tests
+# ---------------------------------------------------------------------------
+
+class TestWorkflowEventDispatch:
+    """Tests for _dispatch_workflow_event and dispatch integration points."""
+
+    @pytest.mark.asyncio
+    async def test_dispatch_skipped_for_none_type(self):
+        """Dispatch should be skipped when dispatch_type is 'none'."""
+        from app.services.workflow_executor import _dispatch_workflow_event
+        run = MagicMock()
+        run.dispatch_type = "none"
+        run.dispatch_config = {"channel": "test"}
+        # Should not raise
+        await _dispatch_workflow_event(run, "Test WF", "started")
+
+    @pytest.mark.asyncio
+    async def test_dispatch_skipped_for_no_config(self):
+        """Dispatch should be skipped when dispatch_config is None."""
+        from app.services.workflow_executor import _dispatch_workflow_event
+        run = MagicMock()
+        run.dispatch_type = "slack"
+        run.dispatch_config = None
+        await _dispatch_workflow_event(run, "Test WF", "started")
+
+    @pytest.mark.asyncio
+    async def test_dispatch_calls_post_message(self):
+        """Dispatch should call dispatcher.post_message with the right text."""
+        from app.services.workflow_executor import _dispatch_workflow_event
+        run = MagicMock()
+        run.id = uuid.uuid4()
+        run.dispatch_type = "slack"
+        run.dispatch_config = {"channel": "C123"}
+        run.bot_id = "test-bot"
+
+        mock_dispatcher = AsyncMock()
+        mock_dispatcher.post_message = AsyncMock()
+
+        with patch("app.agent.dispatchers.get", return_value=mock_dispatcher):
+            await _dispatch_workflow_event(run, "My Workflow", "started", "3 steps")
+
+        mock_dispatcher.post_message.assert_called_once()
+        call_args = mock_dispatcher.post_message.call_args
+        text = call_args[0][1]  # positional arg: text
+        assert "My Workflow" in text
+        assert "started" in text
+        assert "3 steps" in text
+
+    @pytest.mark.asyncio
+    async def test_dispatch_errors_swallowed(self):
+        """Dispatch failures should not propagate."""
+        from app.services.workflow_executor import _dispatch_workflow_event
+        run = MagicMock()
+        run.id = uuid.uuid4()
+        run.dispatch_type = "slack"
+        run.dispatch_config = {"channel": "C123"}
+        run.bot_id = "test-bot"
+
+        mock_dispatcher = AsyncMock()
+        mock_dispatcher.post_message = AsyncMock(side_effect=RuntimeError("boom"))
+
+        with patch("app.agent.dispatchers.get", return_value=mock_dispatcher):
+            # Should NOT raise
+            await _dispatch_workflow_event(run, "Test", "completed")
+
+    @pytest.mark.asyncio
+    async def test_trigger_workflow_dispatches_started(self):
+        """trigger_workflow should call _dispatch_workflow_event with 'started'."""
+        from app.services.workflow_executor import trigger_workflow
+
+        wf = MagicMock()
+        wf.name = "Test WF"
+        wf.defaults = {"bot_id": "test-bot"}
+        wf.params = {}
+        wf.secrets = []
+        wf.steps = [{"id": "s1", "prompt": "Go."}]
+        wf.session_mode = "isolated"
+
+        with (
+            patch("app.services.workflows.get_workflow", return_value=wf),
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock) as mock_dispatch,
+        ):
+            mock_db = AsyncMock()
+            mock_db.add = MagicMock()
+            mock_db.commit = AsyncMock()
+            mock_db.refresh = AsyncMock()
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            await trigger_workflow("test-wf", {})
+
+        mock_dispatch.assert_called_once()
+        call_args = mock_dispatch.call_args
+        assert call_args[0][2] == "started"  # event
+        assert "1 steps" in call_args[0][3]  # detail
+
+    @pytest.mark.asyncio
+    async def test_on_step_completed_dispatches_step_done(self):
+        """on_step_task_completed should dispatch step_done for successful steps."""
+        run_id = str(uuid.uuid4())
+        run = MagicMock()
+        run.id = uuid.UUID(run_id)
+        run.workflow_id = "test-wf"
+        run.dispatch_type = "slack"
+        run.dispatch_config = {"channel": "C123"}
+        run.bot_id = "test-bot"
+        run.step_states = [
+            {"status": "running", "result": None, "task_id": None,
+             "error": None, "started_at": "2025-01-01T00:00:00", "completed_at": None},
+        ]
+
+        workflow = MagicMock()
+        workflow.name = "Test WF"
+        workflow.steps = [{"id": "step1", "prompt": "Do.", "on_failure": "abort"}]
+        workflow.defaults = {}
+
+        task = MagicMock()
+        task.id = uuid.uuid4()
+        task.result = "All good"
+        task.error = None
+        task.status = "complete"
+        task.correlation_id = None
+
+        fresh_task = MagicMock()
+        fresh_task.correlation_id = None
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(side_effect=lambda model, id_: {
+            "WorkflowRun": run, "Workflow": workflow, "Task": fresh_task,
+        }.get(model.__name__, None))
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock) as mock_dispatch,
+        ):
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            await on_step_task_completed(run_id, 0, "complete", task)
+
+        mock_dispatch.assert_called_once()
+        assert mock_dispatch.call_args[0][2] == "step_done"
+
+    @pytest.mark.asyncio
+    async def test_on_step_failed_abort_dispatches_failed(self):
+        """on_step_task_completed with abort should dispatch step_failed + failed."""
+        run_id = str(uuid.uuid4())
+        run = MagicMock()
+        run.id = uuid.UUID(run_id)
+        run.workflow_id = "test-wf"
+        run.status = "running"
+        run.dispatch_type = "slack"
+        run.dispatch_config = {"channel": "C123"}
+        run.bot_id = "test-bot"
+        run.step_states = [
+            {"status": "running", "result": None, "task_id": None,
+             "error": None, "started_at": "2025-01-01T00:00:00", "completed_at": None},
+        ]
+
+        workflow = MagicMock()
+        workflow.name = "Test WF"
+        workflow.steps = [{"id": "step1", "prompt": "Do.", "on_failure": "abort"}]
+        workflow.defaults = {}
+
+        task = MagicMock()
+        task.id = uuid.uuid4()
+        task.result = None
+        task.error = "Boom"
+        task.status = "failed"
+        task.correlation_id = None
+
+        fresh_task = MagicMock()
+        fresh_task.correlation_id = None
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(side_effect=lambda model, id_: {
+            "WorkflowRun": run, "Workflow": workflow, "Task": fresh_task,
+        }.get(model.__name__, None))
+        mock_db.commit = AsyncMock()
+
+        with (
+            patch("app.services.workflow_executor.async_session") as mock_session,
+            patch("app.services.workflow_executor.advance_workflow", new_callable=AsyncMock),
+            patch("app.services.workflow_executor._dispatch_workflow_event", new_callable=AsyncMock) as mock_dispatch,
+            patch("app.services.workflow_executor._fire_after_workflow_complete", new_callable=AsyncMock) as mock_hook,
+        ):
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            await on_step_task_completed(run_id, 0, "failed", task)
+
+        # Should have dispatched step_failed AND failed (abort)
+        assert mock_dispatch.call_count == 2
+        events = [c[0][2] for c in mock_dispatch.call_args_list]
+        assert "step_failed" in events
+        assert "failed" in events
+        # after_workflow_complete hook should fire
+        mock_hook.assert_called_once()
+
+    def test_dispatch_helper_exists_in_source(self):
+        """_dispatch_workflow_event should exist in workflow_executor."""
+        from app.services.workflow_executor import _dispatch_workflow_event
+        assert callable(_dispatch_workflow_event)
+
+    def test_after_workflow_complete_hook_helper_exists(self):
+        """_fire_after_workflow_complete should exist in workflow_executor."""
+        from app.services.workflow_executor import _fire_after_workflow_complete
+        assert callable(_fire_after_workflow_complete)

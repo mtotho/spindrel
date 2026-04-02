@@ -36,15 +36,24 @@ manage_workflow(action="list")
 # Get full workflow definition
 manage_workflow(action="get", id="system-diagnostics")
 
-# Trigger a workflow run
+# Trigger a workflow run (bot_id and channel_id auto-default from context)
 manage_workflow(
     action="trigger",
     id="media-troubleshoot",
     params='{"title": "The Pitt S02E13", "media_type": "tv"}',
-    bot_id="media-bot",           # Optional: overrides workflow default
-    channel_id="<uuid>",          # Optional: channel context
 )
 # Returns: {"run_id": "...", "status": "running", "step_count": 4}
+# bot_id defaults to current bot, channel_id defaults to current channel.
+# Override explicitly only when triggering for a different bot:
+#   bot_id="media-bot", channel_id="<uuid>"
+
+# Check run status and step progress
+manage_workflow(action="get_run", run_id="<run_id>")
+# Returns: status, per-step progress (status, result preview, errors), timestamps
+
+# List recent runs for a workflow (last 10)
+manage_workflow(action="list_runs", id="media-troubleshoot")
+# Returns: run_id, status, progress summary, timestamps
 
 # Create a new workflow from bot
 manage_workflow(
@@ -56,6 +65,25 @@ manage_workflow(
     defaults='{"bot_id": "helper-bot", "model": "gemini/gemini-2.5-flash"}',
 )
 ```
+
+### Monitoring Workflow Runs
+
+After triggering a workflow, use `get_run` to check progress:
+
+```python
+# Trigger and capture the run_id
+result = manage_workflow(action="trigger", id="system-diagnostics")
+# result.run_id = "abc-123..."
+
+# Check progress (can call repeatedly)
+manage_workflow(action="get_run", run_id="abc-123...")
+# Shows: status, done/failed/skipped counts, per-step details
+
+# See all recent runs for a workflow
+manage_workflow(action="list_runs", id="system-diagnostics")
+```
+
+**Completion notifications** dispatch automatically to the originating channel's integration (Slack, webhook, etc.) at three points: workflow started, each step done/failed, and workflow completed/failed. No manual notification needed.
 
 ## YAML Workflow Format
 
@@ -225,14 +253,14 @@ All under `/api/v1/admin/`:
 
 ## Execution Model
 
-1. `trigger_workflow()` validates params + secrets, creates `WorkflowRun`
+1. `trigger_workflow()` validates params + secrets, creates `WorkflowRun` → dispatches "started" event
 2. `advance_workflow()` loops through pending steps:
    - Evaluates `when` condition → skip if false
    - Checks `requires_approval` → pause if true
    - Creates a `Task` (type=`workflow`) → task worker executes it
-3. Task completes → `after_task_complete` hook fires → `on_step_task_completed()`
+3. Task completes → `after_task_complete` hook fires → `on_step_task_completed()` → dispatches "step_done"/"step_failed"
 4. Step result captured, `on_failure` policy applied, then `advance_workflow()` again
-5. All steps terminal → run marked `complete` or `failed`
+5. All steps terminal → run marked `complete` or `failed` → dispatches "completed"/"failed" → fires `after_workflow_complete` hook
 
 Each step's task gets a `correlation_id` in `step_states` for token/cost tracking.
 
@@ -326,6 +354,7 @@ Pin `manage_workflow` in the heartbeat bot's tools. Heartbeat prompt:
 Check download queues. If any torrents are stalled for >1 hour:
 manage_workflow(action="trigger", id="media-troubleshoot",
   params='{"title": "<stalled item name>", "media_type": "tv"}')
+# bot_id and channel_id auto-resolve from current context
 ```
 
 ### Pattern 5: Integration Composition

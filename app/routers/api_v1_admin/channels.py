@@ -31,6 +31,7 @@ from app.db.models import (
     Task,
     ToolCall,
     TraceEvent,
+    WorkflowRun,
 )
 from app.config import settings
 from app.dependencies import get_db, verify_auth_or_user
@@ -1288,6 +1289,32 @@ async def admin_channel_tasks(
             for t in tasks
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Workflow runs
+# ---------------------------------------------------------------------------
+
+@router.get("/channels/{channel_id}/workflow-runs")
+async def admin_channel_workflow_runs(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+    all: bool = False,
+):
+    """List workflow runs for a channel. By default only active runs."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    stmt = select(WorkflowRun).where(WorkflowRun.channel_id == channel_id)
+    if not all:
+        stmt = stmt.where(WorkflowRun.status.in_(("running", "awaiting_approval")))
+    stmt = stmt.order_by(WorkflowRun.created_at.desc()).limit(20)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    from app.routers.api_v1_admin.workflows import WorkflowRunOut
+    return [WorkflowRunOut.model_validate(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
