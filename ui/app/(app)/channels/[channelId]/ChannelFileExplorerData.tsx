@@ -5,7 +5,7 @@
 import { useState, useRef, useEffect } from "react";
 import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
 import {
-  Archive, Database, ChevronDown, ChevronRight,
+  Archive, ChevronDown, ChevronRight,
   Folder, Upload,
   FileJson, FileCode, FileSpreadsheet, Image, FileType, FileText, File as FileIcon,
 } from "lucide-react";
@@ -55,33 +55,68 @@ export function estimateTokens(bytes: number): string {
   return `~${(tokens / 1000).toFixed(1)}k`;
 }
 
+// Seti-inspired icon colors (VS Code's default icon theme)
+const IC = {
+  md: "#519aba",    // blue
+  json: "#cbcb41",  // yellow
+  yaml: "#a074c4",  // purple
+  py: "#519aba",    // blue
+  js: "#cbcb41",    // yellow
+  ts: "#519aba",    // blue
+  go: "#519aba",    // blue
+  rs: "#dea584",    // orange
+  rb: "#cc3e44",    // red
+  sh: "#4d5a5e",    // grey
+  html: "#e37933",  // orange
+  css: "#519aba",   // blue
+  csv: "#89e051",   // green
+  img: "#a074c4",   // purple
+  pdf: "#cc3e44",   // red
+};
+
 export function getFileIcon(name: string, section: string, color: string, accentColor: string) {
-  if (section === "archive") return <Archive size={13} color={color} />;
+  if (section === "archive") return <Archive size={14} color={color} />;
   const ext = name.includes(".") ? name.substring(name.lastIndexOf(".")).toLowerCase() : "";
   switch (ext) {
     case ".md": case ".txt": case ".rst":
-      return <FileText size={13} color={section === "active" ? accentColor : color} />;
+      return <FileText size={14} color={section === "active" ? accentColor : IC.md} />;
     case ".json":
-      return <FileJson size={13} color={color} />;
+      return <FileJson size={14} color={IC.json} />;
     case ".yaml": case ".yml": case ".toml": case ".ini": case ".cfg":
-      return <FileCode size={13} color={color} />;
-    case ".py": case ".js": case ".ts": case ".tsx": case ".jsx":
-    case ".sh": case ".go": case ".rs": case ".rb": case ".java":
-    case ".c": case ".cpp": case ".h": case ".hpp": case ".swift":
-      return <FileCode size={13} color={color} />;
+      return <FileCode size={14} color={IC.yaml} />;
+    case ".py":
+      return <FileCode size={14} color={IC.py} />;
+    case ".js": case ".jsx":
+      return <FileCode size={14} color={IC.js} />;
+    case ".ts": case ".tsx":
+      return <FileCode size={14} color={IC.ts} />;
+    case ".go":
+      return <FileCode size={14} color={IC.go} />;
+    case ".rs":
+      return <FileCode size={14} color={IC.rs} />;
+    case ".rb":
+      return <FileCode size={14} color={IC.rb} />;
+    case ".sh":
+      return <FileCode size={14} color={IC.sh} />;
+    case ".java": case ".c": case ".cpp": case ".h": case ".hpp": case ".swift":
+      return <FileCode size={14} color={color} />;
     case ".csv": case ".tsv": case ".xls": case ".xlsx":
-      return <FileSpreadsheet size={13} color={color} />;
+      return <FileSpreadsheet size={14} color={IC.csv} />;
     case ".png": case ".jpg": case ".jpeg": case ".gif": case ".svg":
     case ".webp": case ".ico": case ".bmp":
-      return <Image size={13} color={color} />;
+      return <Image size={14} color={IC.img} />;
     case ".pdf":
-      return <FileType size={13} color={color} />;
-    case ".html": case ".css": case ".xml": case ".sql":
-      return <FileCode size={13} color={color} />;
+      return <FileType size={14} color={IC.pdf} />;
+    case ".html": case ".xml":
+      return <FileCode size={14} color={IC.html} />;
+    case ".css":
+      return <FileCode size={14} color={IC.css} />;
+    case ".sql":
+      return <FileCode size={14} color={color} />;
     default:
       return section === "active"
-        ? <FileText size={13} color={accentColor} />
-        : <FileIcon size={13} color={color} />;
+        ? <FileText size={14} color={accentColor} />
+        : <FileIcon size={14} color={color} />;
   }
 }
 
@@ -316,7 +351,7 @@ export function DataFolderRow({
     },
   } : {};
 
-  const indent = 10 + depth * 12;
+  const indent = 20 + depth * 16;
 
   return (
     <View {...folderDropProps as any}>
@@ -328,29 +363,26 @@ export function DataFolderRow({
           flexDirection: "row",
           alignItems: "center",
           height: 22,
-          paddingLeft: indent,
-          paddingRight: 6,
+          paddingLeft: indent - 16,
+          paddingRight: 8,
           gap: 4,
           backgroundColor: osDragOver
             ? `${t.accent}15`
             : hovered
-              ? t.surfaceOverlay
+              ? `${t.text}08`
               : "transparent",
-          borderLeftWidth: osDragOver ? 2 : 0,
-          borderLeftColor: osDragOver ? t.accent : "transparent",
           cursor: "pointer",
         } as any}
       >
         {open
-          ? <ChevronDown size={10} color={t.textDim} />
-          : <ChevronRight size={10} color={t.textDim} />}
-        <Folder size={13} color={osDragOver ? t.accent : t.textMuted} />
+          ? <ChevronDown size={16} color={t.textDim} style={{ marginRight: -2 }} />
+          : <ChevronRight size={16} color={t.textDim} style={{ marginRight: -2 }} />}
+        <Folder size={14} color={osDragOver ? t.accent : "#dcb67a"} />
         <Text
           style={{
             flex: 1,
             color: osDragOver ? t.accent : t.text,
             fontSize: 12,
-            fontWeight: "400",
             lineHeight: 22,
           }}
           numberOfLines={1}
@@ -368,25 +400,16 @@ export function DataFolderRow({
       </Pressable>
       {open && (
         <View style={{ position: "relative" }}>
-          {/* Indent guide */}
+          {/* Indent guide line */}
           <View style={{
             position: "absolute",
-            left: indent + 5,
+            left: indent + 1,
             top: 0,
             bottom: 0,
             width: 1,
-            backgroundColor: t.surfaceBorder,
+            backgroundColor: `${t.text}12`,
           }} />
           {isLoading && <ActivityIndicator color={t.accent} size="small" style={{ padding: 6 }} />}
-          {childFiles.map((f) => (
-            <FileRowComponent
-              key={f.path}
-              file={f as WorkspaceFile}
-              channelId={channelId}
-              selected={activeFile === f.path}
-              onSelect={onSelectFile}
-            />
-          ))}
           {childFolders.map((f) => (
             <DataFolderRow
               key={f.name}
@@ -396,6 +419,15 @@ export function DataFolderRow({
               onSelectFile={onSelectFile}
               FileRowComponent={FileRowComponent}
               depth={depth + 1}
+            />
+          ))}
+          {childFiles.map((f) => (
+            <FileRowComponent
+              key={f.path}
+              file={f as WorkspaceFile}
+              channelId={channelId}
+              selected={activeFile === f.path}
+              onSelect={onSelectFile}
             />
           ))}
         </View>
@@ -518,23 +550,21 @@ export function DataSection({
           flexDirection: "row",
           alignItems: "center",
           height: 22,
-          paddingHorizontal: 6,
-          gap: 4,
-          borderBottomWidth: 1,
-          borderBottomColor: t.surfaceBorder,
+          paddingLeft: 2,
+          paddingRight: 8,
+          gap: 2,
           cursor: "pointer",
         } as any}
       >
         {open
-          ? <ChevronDown size={10} color={t.textDim} />
-          : <ChevronRight size={10} color={t.textDim} />}
-        <Database size={10} color={t.textDim} />
+          ? <ChevronDown size={16} color={t.textMuted} style={{ marginRight: -2 }} />
+          : <ChevronRight size={16} color={t.textMuted} style={{ marginRight: -2 }} />}
         <Text style={{
           color: t.textMuted,
           fontSize: 11,
           fontWeight: "700",
           textTransform: "uppercase",
-          letterSpacing: 0.8,
+          letterSpacing: 0.5,
           flex: 1,
         }}>
           Data
@@ -544,15 +574,7 @@ export function DataSection({
 
       {open && (
         <View style={{ minHeight: 22, position: "relative" }}>
-          {rootFiles.map((f) => (
-            <FileRowComponent
-              key={f.path}
-              file={f as WorkspaceFile}
-              channelId={channelId}
-              selected={activeFile === f.path}
-              onSelect={onSelectFile}
-            />
-          ))}
+          {/* Folders before files (VS Code convention) */}
           {folders.map((f) => (
             <DataFolderRow
               key={f.name}
@@ -561,6 +583,15 @@ export function DataSection({
               activeFile={activeFile}
               onSelectFile={onSelectFile}
               FileRowComponent={FileRowComponent}
+            />
+          ))}
+          {rootFiles.map((f) => (
+            <FileRowComponent
+              key={f.path}
+              file={f as WorkspaceFile}
+              channelId={channelId}
+              selected={activeFile === f.path}
+              onSelect={onSelectFile}
             />
           ))}
           {uploadStatus && (
