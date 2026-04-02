@@ -7,7 +7,7 @@ import { apiFetch } from "@/src/api/client";
 import { Link } from "expo-router";
 import {
   Loader2, CheckCircle2, XCircle, ShieldCheck, Clock, X, Minus,
-  CircleDot, ChevronRight, ExternalLink,
+  CircleDot, ChevronDown, ChevronRight, ExternalLink,
 } from "lucide-react";
 import type { WorkflowRun, WorkflowStepState } from "@/src/types/api";
 
@@ -123,85 +123,197 @@ export function WorkflowsTab({ channelId }: { channelId: string }) {
 }
 
 function RunCard({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
-  const done = run.step_states.filter((s) =>
-    s.status === "done" || s.status === "skipped" || s.status === "failed"
-  ).length;
+  const [expanded, setExpanded] = useState(
+    run.status === "running" || run.status === "awaiting_approval"
+  );
+  const done = run.step_states.filter((s) => s.status === "done").length;
+  const failed = run.step_states.filter((s) => s.status === "failed").length;
+  const skipped = run.step_states.filter((s) => s.status === "skipped").length;
   const total = run.step_states.length;
 
   return (
     <div style={{
       backgroundColor: t.surfaceRaised, borderRadius: 8,
-      border: `1px solid ${t.surfaceBorder}`, padding: 12,
+      border: `1px solid ${t.surfaceBorder}`,
     }}>
-      {/* Top row: workflow id + status + step count */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Link href={`/admin/workflows/${run.workflow_id}` as any}>
-            <Text style={{ fontSize: 13, fontWeight: 600, color: t.accent }}>{run.workflow_id}</Text>
-          </Link>
-          <StatusBadge status={run.status} t={t} />
+      {/* Clickable header */}
+      <Pressable
+        onPress={() => setExpanded(!expanded)}
+        style={{ padding: 12 }}
+      >
+        {/* Top row: workflow id + status + step count */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {expanded
+              ? <ChevronDown size={14} color={t.textDim} />
+              : <ChevronRight size={14} color={t.textDim} />}
+            <Text style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{run.workflow_id}</Text>
+            <StatusBadge status={run.status} t={t} />
+          </div>
+          <span style={{ fontSize: 11, color: t.textDim }}>
+            {done + failed + skipped}/{total} steps
+          </span>
         </div>
-        <span style={{ fontSize: 11, color: t.textDim }}>
-          {done}/{total} steps
-        </span>
-      </div>
 
-      {/* Meta row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
-          {run.id.slice(0, 8)}
-        </span>
-        {run.triggered_by && (
-          <span style={{ fontSize: 11, color: t.textDim }}>via {run.triggered_by}</span>
-        )}
-        <span style={{ fontSize: 11, color: t.textDim }}>{fmtTime(run.created_at)}</span>
-        {run.completed_at && (
-          <span style={{ fontSize: 11, color: t.textDim }}>completed {fmtTime(run.completed_at)}</span>
-        )}
-      </div>
+        {/* Meta row */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, marginLeft: 22, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+            {run.id.slice(0, 8)}
+          </span>
+          {run.triggered_by && (
+            <span style={{ fontSize: 11, color: t.textDim }}>via {run.triggered_by}</span>
+          )}
+          <span style={{ fontSize: 11, color: t.textDim }}>{fmtTime(run.created_at)}</span>
+          {run.completed_at && (
+            <span style={{ fontSize: 11, color: t.textDim }}>completed {fmtTime(run.completed_at)}</span>
+          )}
+        </div>
 
-      {/* Mini step bar */}
-      <div style={{ display: "flex", gap: 2, marginTop: 8, height: 4, borderRadius: 2, overflow: "hidden" }}>
-        {run.step_states.map((s, i) => {
-          const color =
-            s.status === "done" ? t.success :
-            s.status === "running" ? t.accent :
-            s.status === "failed" ? t.danger :
-            s.status === "skipped" ? t.surfaceBorder :
-            t.surfaceOverlay;
-          return <div key={i} style={{ flex: 1, background: color, borderRadius: 1 }} />;
-        })}
-      </div>
+        {/* Mini step bar */}
+        <div style={{ display: "flex", gap: 2, marginTop: 8, height: 4, borderRadius: 2, overflow: "hidden" }}>
+          {run.step_states.map((s, i) => {
+            const color =
+              s.status === "done" ? t.success :
+              s.status === "running" ? t.accent :
+              s.status === "failed" ? t.danger :
+              s.status === "skipped" ? t.surfaceBorder :
+              t.surfaceOverlay;
+            return <div key={i} style={{ flex: 1, background: color, borderRadius: 1 }} />;
+          })}
+        </div>
+      </Pressable>
 
-      {/* Error */}
-      {run.error && (
-        <div style={{
-          marginTop: 8, padding: 6, borderRadius: 6,
-          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
-          fontSize: 11, color: t.danger, fontFamily: "monospace",
-          whiteSpace: "pre-wrap", maxHeight: 60, overflow: "auto",
-        }}>
-          {run.error}
+      {/* Expanded: step timeline */}
+      {expanded && (
+        <div style={{ borderTop: `1px solid ${t.surfaceBorder}`, padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+          {/* Error */}
+          {run.error && (
+            <div style={{
+              padding: 6, borderRadius: 6, marginBottom: 4,
+              background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+              fontSize: 11, color: t.danger, fontFamily: "monospace",
+              whiteSpace: "pre-wrap", maxHeight: 80, overflow: "auto",
+            }}>
+              {run.error}
+            </div>
+          )}
+
+          {/* Step list */}
+          {run.step_states.map((state, i) => (
+            <StepRow key={i} index={i} state={state} t={t} />
+          ))}
+
+          {/* Links row */}
+          <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+            <Link href={`/admin/workflows/${run.workflow_id}` as any}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+                <ExternalLink size={10} />
+                Workflow
+              </span>
+            </Link>
+            <Link href={`/admin/workflows/${run.workflow_id}#runs` as any}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+                <ExternalLink size={10} />
+                Full run details
+              </span>
+            </Link>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* Links row */}
-      <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-        <Link href={`/admin/workflows/${run.workflow_id}` as any}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
-            <ExternalLink size={10} />
-            Workflow
-          </span>
-        </Link>
-        {run.step_states.some((s) => s.task_id) && (
-          <Link href={`/admin/tasks/${run.step_states.find((s) => s.task_id)?.task_id}` as any}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
-              <ExternalLink size={10} />
-              Task
-            </span>
-          </Link>
-        )}
-      </div>
+function StepRow({ index, state, t }: { index: number; state: WorkflowStepState; t: ThemeTokens }) {
+  const [showDetail, setShowDetail] = useState(
+    state.status === "running" || state.status === "failed"
+  );
+  const s = getStatusStyle(state.status, t);
+  const Icon = s.icon;
+
+  return (
+    <div style={{ borderRadius: 6, border: `1px solid ${s.border}`, overflow: "hidden" }}>
+      <Pressable
+        onPress={() => setShowDetail(!showDetail)}
+        style={{
+          flexDirection: "row", alignItems: "center", gap: 8,
+          paddingVertical: 6, paddingHorizontal: 10,
+        }}
+      >
+        <div style={{
+          width: 20, height: 20, borderRadius: 10, flexShrink: 0,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: s.bg,
+        }}>
+          <Icon size={11} color={s.text} />
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 500, color: t.text, flex: 1 }}>
+          Step {index}
+        </span>
+        <StatusBadge status={state.status} t={t} />
+        {showDetail ? <ChevronDown size={12} color={t.textDim} /> : <ChevronRight size={12} color={t.textDim} />}
+      </Pressable>
+
+      {showDetail && (
+        <div style={{ padding: "0 10px 8px 10px", borderTop: `1px solid ${t.surfaceBorder}` }}>
+          {/* Timing + links */}
+          <div style={{ display: "flex", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+            {state.started_at && (
+              <span style={{ fontSize: 11, color: t.textDim }}>
+                Started: {fmtTime(state.started_at)}
+              </span>
+            )}
+            {state.completed_at && (
+              <span style={{ fontSize: 11, color: t.textDim }}>
+                Completed: {fmtTime(state.completed_at)}
+              </span>
+            )}
+            {state.retry_count != null && state.retry_count > 0 && (
+              <span style={{ fontSize: 11, color: t.warning }}>
+                Retries: {state.retry_count}
+              </span>
+            )}
+            {state.task_id && (
+              <Link href={`/admin/tasks/${state.task_id}` as any}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+                  <ExternalLink size={10} />
+                  Task
+                </span>
+              </Link>
+            )}
+            {state.correlation_id && (
+              <Link href={`/admin/logs/${state.correlation_id}` as any}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+                  <ExternalLink size={10} />
+                  Trace
+                </span>
+              </Link>
+            )}
+          </div>
+
+          {/* Result */}
+          {state.result && (
+            <div style={{
+              marginTop: 6, padding: 6, borderRadius: 6,
+              background: t.successSubtle, border: `1px solid ${t.successBorder}`,
+              fontSize: 11, color: t.text, whiteSpace: "pre-wrap", maxHeight: 150, overflow: "auto",
+            }}>
+              {state.result}
+            </div>
+          )}
+
+          {/* Error */}
+          {state.error && (
+            <div style={{
+              marginTop: 6, padding: 6, borderRadius: 6,
+              background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+              fontSize: 11, color: t.danger, fontFamily: "monospace", whiteSpace: "pre-wrap",
+            }}>
+              {state.error}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

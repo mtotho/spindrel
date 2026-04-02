@@ -2,12 +2,12 @@ import { useState, useMemo } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useWorkflows } from "@/src/api/hooks/useWorkflows";
+import { useWorkflows, useRecentWorkflowRuns } from "@/src/api/hooks/useWorkflows";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
-import { Plus, Search, Zap, ChevronRight, HelpCircle } from "lucide-react";
+import { Plus, Search, Zap, ChevronRight, HelpCircle, Loader2, CheckCircle2, XCircle, ShieldCheck } from "lucide-react";
 import { Link, useRouter } from "expo-router";
-import type { Workflow } from "@/src/types/api";
+import type { Workflow, WorkflowRun } from "@/src/types/api";
 
 type RenderItem =
   | { type: "header"; key: string; label: string; count: number }
@@ -36,8 +36,19 @@ export default function WorkflowsPage() {
   const t = useThemeTokens();
   const router = useRouter();
   const { data: workflows, isLoading } = useWorkflows();
-  const { refreshing, onRefresh } = usePageRefresh([["workflows"]]);
+  const { data: recentRuns } = useRecentWorkflowRuns();
+  const { refreshing, onRefresh } = usePageRefresh([["workflows"], ["workflow-runs-recent"]]);
   const [search, setSearch] = useState("");
+
+  // Map: workflow_id -> latest run
+  const latestRunByWorkflow = useMemo(() => {
+    const map = new Map<string, WorkflowRun>();
+    if (!recentRuns) return map;
+    for (const run of recentRuns) {
+      if (!map.has(run.workflow_id)) map.set(run.workflow_id, run);
+    }
+    return map;
+  }, [recentRuns]);
 
   const filtered = useMemo(() => {
     if (!workflows) return [];
@@ -161,7 +172,7 @@ export default function WorkflowsPage() {
                 <SectionHeader key={item.key} label={item.label} count={item.count} />
               ) : (
                 <View key={item.key} style={{ marginBottom: 8 }}>
-                  <WorkflowCard workflow={item.workflow} t={t} />
+                  <WorkflowCard workflow={item.workflow} t={t} latestRun={latestRunByWorkflow.get(item.workflow.id)} />
                 </View>
               ),
             )}
@@ -172,7 +183,40 @@ export default function WorkflowsPage() {
   );
 }
 
-function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }) {
+function getRunStatusStyle(status: string, t: ThemeTokens) {
+  switch (status) {
+    case "running":
+      return { color: t.accent, icon: Loader2, label: "running" };
+    case "complete":
+    case "done":
+      return { color: t.success, icon: CheckCircle2, label: "complete" };
+    case "failed":
+      return { color: t.danger, icon: XCircle, label: "failed" };
+    case "awaiting_approval":
+      return { color: t.warning, icon: ShieldCheck, label: "awaiting approval" };
+    default:
+      return { color: t.textDim, icon: HelpCircle, label: status };
+  }
+}
+
+function fmtTimeAgo(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    if (diffMs < 60000) return "just now";
+    if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`;
+    if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  } catch {
+    return iso;
+  }
+}
+
+function WorkflowCard({ workflow: w, t, latestRun }: { workflow: Workflow; t: ThemeTokens; latestRun?: WorkflowRun }) {
+  const runStyle = latestRun ? getRunStatusStyle(latestRun.status, t) : null;
+  const RunIcon = runStyle?.icon;
+
   return (
     <Link href={`/admin/workflows/${w.id}` as any} asChild>
       <Pressable
@@ -246,6 +290,21 @@ function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }
                     </View>
                   ))}
                 </View>
+              )}
+              {/* Latest run status */}
+              {latestRun && runStyle && RunIcon && (
+                <>
+                  <View style={{ width: 1, height: 10, backgroundColor: t.surfaceBorder }} />
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <RunIcon size={11} color={runStyle.color} />
+                    <Text style={{ color: runStyle.color, fontSize: 11, fontWeight: "500" }}>
+                      {runStyle.label}
+                    </Text>
+                    <Text style={{ color: t.textDim, fontSize: 10 }}>
+                      {fmtTimeAgo(latestRun.created_at)}
+                    </Text>
+                  </View>
+                </>
               )}
             </View>
           </View>

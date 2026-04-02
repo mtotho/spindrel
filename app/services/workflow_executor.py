@@ -57,8 +57,17 @@ async def _dispatch_workflow_event(
 async def _fire_after_workflow_complete(run: WorkflowRun, workflow: Workflow) -> None:
     """Fire the after_workflow_complete lifecycle hook."""
     try:
-        from app.agent.hooks import fire_hook
-        await fire_hook("after_workflow_complete", run=run, workflow=workflow)
+        from app.agent.hooks import HookContext, fire_hook
+        ctx = HookContext(
+            bot_id=run.bot_id,
+            channel_id=run.channel_id,
+            extra={
+                "run_id": str(run.id),
+                "workflow_id": run.workflow_id,
+                "status": run.status,
+            },
+        )
+        await fire_hook("after_workflow_complete", ctx, run=run, workflow=workflow)
     except Exception:
         logger.debug("after_workflow_complete hook failed for run %s", run.id, exc_info=True)
 
@@ -520,11 +529,16 @@ async def _create_step_task(
         "workflow_step_index": step_index,
     }
 
+    # For isolated mode (session_id=None), generate a per-step session so the
+    # task worker doesn't resolve it to the channel's active session — that
+    # would pollute the chat feed with step prompts.
+    step_session_id = run.session_id or uuid.uuid4()
+
     task = Task(
         id=uuid.uuid4(),
         bot_id=run.bot_id,
         channel_id=run.channel_id,
-        session_id=run.session_id,
+        session_id=step_session_id,
         prompt=prompt,
         title=f"Workflow: {workflow.name} — {step_def.get('id', f'step_{step_index}')}",
         status="pending",

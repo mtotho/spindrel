@@ -13,9 +13,11 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "manage_workflow",
         "description": (
-            "List, inspect, trigger, monitor, or create reusable workflow templates. "
-            "Workflows are parameterized multi-step sequences with conditionals, "
-            "approval gates, and scoped secrets. Each step runs an independent LLM call."
+            "Manage reusable workflow templates and monitor workflow runs. "
+            "Actions: list (all workflows), get (workflow definition by id), "
+            "trigger (start a run, returns run_id), get_run (check run status/progress by run_id), "
+            "list_runs (recent runs for a workflow id), create (new workflow). "
+            "IMPORTANT: After triggering, use get_run with the returned run_id to monitor progress."
         ),
         "parameters": {
             "type": "object",
@@ -23,7 +25,11 @@ logger = logging.getLogger(__name__)
                 "action": {
                     "type": "string",
                     "enum": ["list", "get", "trigger", "create", "get_run", "list_runs"],
-                    "description": "The action to perform.",
+                    "description": (
+                        "list=all workflows, get=workflow definition (needs id), "
+                        "trigger=start a run (needs id), get_run=check run status (needs run_id), "
+                        "list_runs=recent runs for a workflow (needs id), create=new workflow."
+                    ),
                 },
                 "id": {
                     "type": "string",
@@ -31,7 +37,7 @@ logger = logging.getLogger(__name__)
                 },
                 "run_id": {
                     "type": "string",
-                    "description": "Workflow run ID (required for get_run).",
+                    "description": "Workflow run ID — the UUID returned by trigger. Use with action=get_run to check status.",
                 },
                 "params": {
                     "type": "string",
@@ -97,25 +103,29 @@ async def manage_workflow(
         return json.dumps({"workflows": items, "count": len(items)}, indent=2)
 
     if action == "get":
-        if not id:
+        if not id and run_id:
+            # Common confusion: bot passed run_id to "get" — redirect to get_run
+            action = "get_run"
+        elif not id:
             return json.dumps({"error": "id is required for get"})
-        from app.services.workflows import get_workflow
-        w = get_workflow(id)
-        if not w:
-            return json.dumps({"error": f"Workflow '{id}' not found"})
-        return json.dumps({
-            "id": w.id,
-            "name": w.name,
-            "description": w.description,
-            "params": w.params,
-            "secrets": w.secrets,
-            "defaults": w.defaults,
-            "steps": w.steps,
-            "triggers": w.triggers,
-            "tags": w.tags,
-            "session_mode": w.session_mode,
-            "source_type": w.source_type,
-        }, indent=2)
+        else:
+            from app.services.workflows import get_workflow
+            w = get_workflow(id)
+            if not w:
+                return json.dumps({"error": f"Workflow '{id}' not found"})
+            return json.dumps({
+                "id": w.id,
+                "name": w.name,
+                "description": w.description,
+                "params": w.params,
+                "secrets": w.secrets,
+                "defaults": w.defaults,
+                "steps": w.steps,
+                "triggers": w.triggers,
+                "tags": w.tags,
+                "session_mode": w.session_mode,
+                "source_type": w.source_type,
+            }, indent=2)
 
     if action == "trigger":
         if not id:
@@ -123,7 +133,7 @@ async def manage_workflow(
 
         # Default bot_id/channel_id from context (follows schedule_task pattern)
         from app.agent.context import current_bot_id, current_channel_id
-        effective_bot_id = bot_id or current_bot_id.get()
+        effective_bot_id = bot_id or current_bot_id.get() or "default"
         effective_channel_id = channel_id
 
         parsed_params = {}
@@ -154,7 +164,7 @@ async def manage_workflow(
                 channel_id=parsed_channel_id,
                 triggered_by="tool",
             )
-        except ValueError as e:
+        except Exception as e:
             return json.dumps({"error": str(e)})
 
         return json.dumps({
@@ -162,8 +172,46 @@ async def manage_workflow(
             "workflow_id": run.workflow_id,
             "status": run.status,
             "step_count": len(run.step_states),
+            "hint": "Use action=get_run with this run_id to check progress.",
         })
 
+    if action == "list_runs":
+        if not id and run_id:
+            # Probably meant get_run — redirect
+            action = "get_run"
+        elif not id:
+            return json.dumps({"error": "id is required for list_runs"})
+        else:
+            from sqlalchemy import select
+            from app.db.engine import async_session
+            from app.db.models import WorkflowRun
+
+            async with async_session() as db:
+                stmt = (
+                    select(WorkflowRun)
+                    .where(WorkflowRun.workflow_id == id)
+                    .order_by(WorkflowRun.created_at.desc())
+                    .limit(10)
+                )
+                rows = (await db.execute(stmt)).scalars().all()
+
+            runs = []
+            for r in rows:
+                done = sum(1 for s in r.step_states if s["status"] == "done")
+                failed = sum(1 for s in r.step_states if s["status"] == "failed")
+                total = len(r.step_states)
+                runs.append({
+                    "run_id": str(r.id),
+                    "status": r.status,
+                    "progress": f"{done}/{total} done, {failed} failed",
+                    "triggered_by": r.triggered_by,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                    "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+                })
+
+            return json.dumps({"workflow_id": id, "runs": runs, "count": len(runs)}, indent=2)
+
+    # get_run placed after list_runs so redirects from "get" and "list_runs" can reach it
     if action == "get_run":
         if not run_id:
             return json.dumps({"error": "run_id is required for get_run"})
@@ -190,9 +238,9 @@ async def manage_workflow(
                 "status": state["status"],
             }
             if state.get("result"):
-                summary["result_preview"] = state["result"][:200]
+                summary["result_preview"] = str(state["result"])[:200]
             if state.get("error"):
-                summary["error"] = state["error"][:200]
+                summary["error"] = str(state["error"])[:200]
             if state.get("started_at"):
                 summary["started_at"] = state["started_at"]
             if state.get("completed_at"):
@@ -208,7 +256,7 @@ async def manage_workflow(
             "run_id": str(run.id),
             "workflow_id": run.workflow_id,
             "status": run.status,
-            "progress": f"{done + failed + skipped}/{total} steps complete",
+            "progress": f"{done}/{total} done, {failed} failed, {skipped} skipped",
             "done": done,
             "failed": failed,
             "skipped": skipped,
@@ -217,39 +265,6 @@ async def manage_workflow(
             "completed_at": run.completed_at.isoformat() if run.completed_at else None,
             "steps": step_summaries,
         }, indent=2)
-
-    if action == "list_runs":
-        if not id:
-            return json.dumps({"error": "id is required for list_runs"})
-
-        from sqlalchemy import select
-        from app.db.engine import async_session
-        from app.db.models import WorkflowRun
-
-        async with async_session() as db:
-            stmt = (
-                select(WorkflowRun)
-                .where(WorkflowRun.workflow_id == id)
-                .order_by(WorkflowRun.created_at.desc())
-                .limit(10)
-            )
-            rows = (await db.execute(stmt)).scalars().all()
-
-        runs = []
-        for r in rows:
-            done = sum(1 for s in r.step_states if s["status"] == "done")
-            failed = sum(1 for s in r.step_states if s["status"] == "failed")
-            total = len(r.step_states)
-            runs.append({
-                "run_id": str(r.id),
-                "status": r.status,
-                "progress": f"{done}/{total} done, {failed} failed",
-                "triggered_by": r.triggered_by,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "completed_at": r.completed_at.isoformat() if r.completed_at else None,
-            })
-
-        return json.dumps({"workflow_id": id, "runs": runs, "count": len(runs)}, indent=2)
 
     if action == "create":
         if not id or not name:

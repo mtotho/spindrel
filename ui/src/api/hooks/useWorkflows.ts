@@ -59,6 +59,20 @@ export function useDeleteWorkflow() {
   });
 }
 
+// --- Recent Runs (cross-workflow, for list page) ---
+
+export function useRecentWorkflowRuns() {
+  return useQuery({
+    queryKey: ["workflow-runs-recent"],
+    queryFn: () => apiFetch<WorkflowRun[]>("/api/v1/admin/workflow-runs/recent?limit=30"),
+    refetchInterval: (query) => {
+      const runs = query.state.data;
+      if (runs?.some((r) => r.status === "running" || r.status === "awaiting_approval")) return 5000;
+      return false;
+    },
+  });
+}
+
 // --- Workflow Runs ---
 
 export function useWorkflowRuns(workflowId?: string) {
@@ -66,6 +80,11 @@ export function useWorkflowRuns(workflowId?: string) {
     queryKey: ["workflow-runs", workflowId],
     queryFn: () => apiFetch<WorkflowRun[]>(`/api/v1/admin/workflows/${workflowId}/runs`),
     enabled: !!workflowId,
+    refetchInterval: (query) => {
+      const runs = query.state.data;
+      if (runs?.some((r) => r.status === "running" || r.status === "awaiting_approval")) return 3000;
+      return false;
+    },
   });
 }
 
