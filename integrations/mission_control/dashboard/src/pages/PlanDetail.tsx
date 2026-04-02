@@ -246,7 +246,14 @@ function StepCard({ step, plan, isNext }: { step: PlanStep; plan: Plan; isNext: 
               <span className="text-[10px] text-gray-500">started {timeAgo(step.started_at)}</span>
             )}
             {step.task_id && (
-              <span className="text-[10px] text-gray-600 font-mono">task:{step.task_id.slice(0, 8)}</span>
+              <a
+                href={`/admin/tasks`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] text-gray-600 font-mono hover:text-accent transition-colors"
+              >
+                task:{step.task_id.slice(0, 8)}
+              </a>
             )}
           </div>
 

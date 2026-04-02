@@ -15,6 +15,7 @@ import { botColor, channelColor } from "../lib/colors";
 import StatCard from "../components/StatCard";
 import ChannelCard from "../components/ChannelCard";
 import SetupGuide from "../components/SetupGuide";
+import InfoPanel from "../components/InfoPanel";
 import EmptyState from "../components/EmptyState";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ErrorBanner from "../components/ErrorBanner";
@@ -61,6 +62,16 @@ export default function Overview() {
         </div>
         <ScopeToggle />
       </div>
+
+      <InfoPanel
+        id="overview"
+        description="Your fleet at a glance — channels, bots, tasks, and activity."
+        tips={[
+          "Use the scope toggle (top-right) to switch between fleet-wide and personal views.",
+          "Click any channel card to see its workspace, tasks, and config.",
+          "The task distribution bar shows kanban column totals across all channels.",
+        ]}
+      />
 
       {needsSetup && (
         <div className="mb-8">
@@ -322,6 +333,11 @@ function QuickNav() {
                 )}
               </div>
               <span className="text-[10px] text-gray-500 group-hover:text-gray-300">{l.label}</span>
+              {ready === false && (
+                <Link to="/setup" className="text-[9px] text-yellow-500/80 hover:text-yellow-400 leading-none" onClick={(e) => e.stopPropagation()}>
+                  Setup needed
+                </Link>
+              )}
             </Link>
           );
         })}

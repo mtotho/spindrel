@@ -4,6 +4,7 @@ import { useOverview } from "../hooks/useOverview";
 import { useScope } from "../lib/ScopeContext";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ErrorBanner from "../components/ErrorBanner";
+import InfoPanel from "../components/InfoPanel";
 import ScopeToggle from "../components/ScopeToggle";
 
 export default function Settings() {
@@ -77,6 +78,15 @@ export default function Settings() {
           <ScopeToggle />
         </div>
       </div>
+
+      <InfoPanel
+        id="settings"
+        description="Control which channels and bots appear in your dashboard."
+        tips={[
+          "Default is all — select specific ones to narrow your view.",
+          "Settings affect all dashboard pages (Kanban, Journal, Memory, etc.).",
+        ]}
+      />
 
       {/* Tracked Channels */}
       <div className="bg-surface-2 rounded-xl border border-surface-3 p-4 mb-6">

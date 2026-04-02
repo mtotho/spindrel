@@ -1,4 +1,4 @@
-import { CheckCircle, AlertTriangle } from "lucide-react";
+import { CheckCircle, AlertTriangle, RefreshCw } from "lucide-react";
 import { useReadiness, useSetupGuide } from "../hooks/useMC";
 import MarkdownViewer from "../components/MarkdownViewer";
 import LoadingSpinner from "../components/LoadingSpinner";
@@ -36,7 +36,7 @@ function ReadinessRow({ name, feature }: { name: string; feature: FeatureReadine
 }
 
 export default function Setup() {
-  const { data: readiness, isLoading: loadingReadiness, error: readinessError } = useReadiness();
+  const { data: readiness, isLoading: loadingReadiness, error: readinessError, refetch: refetchReadiness, isFetching: fetchingReadiness } = useReadiness();
   const { data: guide, isLoading: loadingGuide } = useSetupGuide();
 
   return (
@@ -47,7 +47,17 @@ export default function Setup() {
       </div>
 
       <div className="bg-surface-2 rounded-xl border border-surface-3 p-4 mb-6">
-        <h2 className="text-sm font-semibold text-gray-200 mb-3">Feature Readiness</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-gray-200">Feature Readiness</h2>
+          <button
+            onClick={() => refetchReadiness()}
+            disabled={fetchingReadiness}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md border border-surface-3 text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={fetchingReadiness ? "animate-spin" : ""} />
+            Re-check
+          </button>
+        </div>
         {loadingReadiness ? (
           <LoadingSpinner />
         ) : readinessError ? (

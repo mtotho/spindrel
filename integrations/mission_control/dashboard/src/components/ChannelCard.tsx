@@ -34,8 +34,23 @@ export default function ChannelCard({ channel }: { channel: ChannelSummary }) {
           <span className="flex-shrink-0 w-2 h-2 rounded-full bg-status-green mt-1.5" />
         )}
       </div>
+      {/* Badges row */}
+      {(channel.task_count > 0 || channel.template_name) && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {channel.task_count > 0 && (
+            <span className="text-[10px] text-gray-400 bg-surface-3 rounded-full px-2 py-px">
+              {channel.task_count} task{channel.task_count !== 1 ? "s" : ""}
+            </span>
+          )}
+          {channel.template_name && (
+            <span className="text-[10px] text-gray-400 bg-surface-3 rounded-full px-2 py-px truncate max-w-[120px]">
+              {channel.template_name}
+            </span>
+          )}
+        </div>
+      )}
       {channel.updated_at && (
-        <p className="text-xs text-gray-600 mt-2">
+        <p className="text-xs text-gray-600 mt-1.5">
           {timeAgo(channel.updated_at)}
         </p>
       )}

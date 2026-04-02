@@ -11,6 +11,7 @@ import ChannelFilterBar from "../components/ChannelFilterBar";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ErrorBanner from "../components/ErrorBanner";
 import EmptyState from "../components/EmptyState";
+import InfoPanel from "../components/InfoPanel";
 import ScopeToggle from "../components/ScopeToggle";
 
 export default function Kanban() {
@@ -47,6 +48,16 @@ export default function Kanban() {
         <ScopeToggle />
       </div>
 
+      <InfoPanel
+        id="kanban"
+        description="Aggregated task board across all tracked channels. Drag cards between columns."
+        tips={[
+          "Cards are grouped into swimlanes by channel for easy scanning.",
+          "Click any card to see full details and edit inline.",
+          "Task data is stored in each channel's workspace database.",
+        ]}
+      />
+
       {/* Channel filter */}
       {channels.length > 1 && (
         <div className="mb-3">
@@ -75,6 +86,11 @@ export default function Kanban() {
           icon="▦"
           title="No kanban data"
           description="Channels need tasks.md files. Ask your bots to create task cards or use the kanban tools."
+          tips={[
+            "Channels need workspace enabled to track tasks.",
+            "Ask a bot to create a task, or use + Add Card on the board.",
+          ]}
+          links={[{ label: "Go to Setup", to: "/setup" }]}
         />
       )}
     </div>

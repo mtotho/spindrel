@@ -7,6 +7,7 @@ import MarkdownViewer from "../components/MarkdownViewer";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ErrorBanner from "../components/ErrorBanner";
 import EmptyState from "../components/EmptyState";
+import InfoPanel from "../components/InfoPanel";
 import ScopeToggle from "../components/ScopeToggle";
 
 export default function Memory() {
@@ -53,6 +54,16 @@ export default function Memory() {
         </div>
         <ScopeToggle />
       </div>
+
+      <InfoPanel
+        id="memory"
+        description="MEMORY.md and reference files from each bot. Search across all memories."
+        tips={[
+          "MEMORY.md holds curated facts the bot maintains over time.",
+          "Reference files store structured data (location, people, config).",
+          "Vector search matches your query against all indexed memory content.",
+        ]}
+      />
 
       {/* Search input */}
       <div className="relative mb-6">
@@ -119,6 +130,11 @@ export default function Memory() {
           icon="◇"
           title="No memory data"
           description="Memory sections will appear here for bots using memory_scheme: workspace-files."
+          tips={[
+            "Set memory_scheme: workspace-files in your bot YAML.",
+            "MEMORY.md is created after the bot's first run.",
+          ]}
+          links={[{ label: "Go to Setup", to: "/setup" }]}
         />
       ) : (
         <div className="space-y-6">

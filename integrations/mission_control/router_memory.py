@@ -140,10 +140,12 @@ async def memory_search(
     auth=Depends(verify_auth_or_user),
 ):
     """Semantic search over bot memory files (proxy to core search, filtered by tracked bots)."""
+    from pathlib import Path
+
     from app.agent.bots import get_bot as get_bot_config, list_bots
     from app.services.memory_scheme import get_memory_index_prefix
     from app.services.memory_search import hybrid_memory_search
-    from app.services.workspace import workspace_service
+    from app.services.workspace_indexing import get_all_roots, resolve_indexing
 
     if not body.query.strip():
         return {"results": []}
@@ -166,10 +168,13 @@ async def memory_search(
         if bot.memory_scheme != "workspace-files":
             continue
         try:
-            ws_root = workspace_service.get_workspace_root(bot.id, bot)
+            roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
             prefix = get_memory_index_prefix(bot)
+            _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+            embedding_model = _resolved["embedding_model"]
             hits = await hybrid_memory_search(
-                body.query, bot.id, root=ws_root, memory_prefix=prefix, top_k=body.top_k,
+                body.query, bot.id, roots=roots, memory_prefix=prefix,
+                embedding_model=embedding_model, top_k=body.top_k,
             )
             for h in hits:
                 results.append({
@@ -180,7 +185,7 @@ async def memory_search(
                     "bot_name": bot.name,
                 })
         except Exception:
-            logger.debug("Memory search failed for bot %s", bot_id, exc_info=True)
+            logger.warning("Memory search failed for bot %s", bot_id, exc_info=True)
 
     results.sort(key=lambda r: r["score"], reverse=True)
     return {"results": results[: body.top_k]}

@@ -8,6 +8,7 @@ import MarkdownViewer from "../components/MarkdownViewer";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ErrorBanner from "../components/ErrorBanner";
 import EmptyState from "../components/EmptyState";
+import InfoPanel from "../components/InfoPanel";
 import ScopeToggle from "../components/ScopeToggle";
 
 const DAY_OPTIONS = [7, 14, 30, 60];
@@ -55,6 +56,15 @@ export default function Journal() {
         </div>
         <ScopeToggle />
       </div>
+
+      <InfoPanel
+        id="journal"
+        description="Daily logs written by bots. Requires memory_scheme: workspace-files."
+        tips={[
+          "Group by date or by bot using the toggle above.",
+          "Entries come from each bot's memory/logs/ directory.",
+        ]}
+      />
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-2 mb-6">
@@ -125,6 +135,11 @@ export default function Journal() {
           icon="◉"
           title="No journal entries"
           description="Daily logs will appear here as bots work. Requires memory_scheme: workspace-files."
+          tips={[
+            "Set memory_scheme: workspace-files in your bot YAML.",
+            "Logs appear after the bot's next interaction.",
+          ]}
+          links={[{ label: "Go to Setup", to: "/setup" }]}
         />
       ) : (
         <div className="space-y-6">

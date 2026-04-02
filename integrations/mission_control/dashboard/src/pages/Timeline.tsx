@@ -9,6 +9,7 @@ import ChannelFilterBar from "../components/ChannelFilterBar";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ErrorBanner from "../components/ErrorBanner";
 import EmptyState from "../components/EmptyState";
+import InfoPanel from "../components/InfoPanel";
 import ScopeToggle from "../components/ScopeToggle";
 
 const DAY_OPTIONS = [7, 14, 30, 60];
@@ -70,6 +71,15 @@ export default function Timeline() {
         <ScopeToggle />
       </div>
 
+      <InfoPanel
+        id="timeline"
+        description="Activity events from task operations and plan state changes."
+        tips={[
+          "Events are auto-logged when cards are moved/created and plan statuses change.",
+          "Filter by channel or time range to find specific events.",
+        ]}
+      />
+
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-2 mb-6">
         <div className="flex gap-1">
@@ -106,6 +116,9 @@ export default function Timeline() {
           icon="◉"
           title="No timeline events"
           description="Events from kanban moves, plan updates, and task completions will appear here."
+          tips={[
+            "Events are auto-logged on card moves and plan changes.",
+          ]}
         />
       ) : (
         <div className="space-y-6">

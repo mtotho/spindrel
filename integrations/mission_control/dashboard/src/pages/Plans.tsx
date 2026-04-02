@@ -24,6 +24,7 @@ import type { StepDraft } from "../components/StepListEditor";
 import LoadingSpinner from "../components/LoadingSpinner";
 import ErrorBanner from "../components/ErrorBanner";
 import EmptyState from "../components/EmptyState";
+import InfoPanel from "../components/InfoPanel";
 import ScopeToggle from "../components/ScopeToggle";
 import type { Plan, PlanStep } from "../lib/types";
 
@@ -68,6 +69,17 @@ export default function Plans() {
         </div>
       </div>
 
+      <InfoPanel
+        id="plans"
+        description="Plans track multi-step execution with approval gates and human oversight."
+        tips={[
+          "Plans are channel-scoped — each plan belongs to one channel.",
+          "Approval gates pause execution until you approve or skip.",
+          "For cross-bot automation, use Workflows instead.",
+        ]}
+        links={[{ label: "Workflows (Admin)", to: "/admin/workflows", external: true }]}
+      />
+
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-6">
         <div className="flex gap-1">
@@ -109,6 +121,10 @@ export default function Plans() {
           icon="▷"
           title="No plans found"
           description="Plans are created by bots or manually. They track multi-step execution with optional approval gates."
+          tips={[
+            "Ask a bot to 'draft a plan for...' to get started.",
+            "Or click + New Plan above to create one manually.",
+          ]}
         />
       ) : (
         <div className="space-y-4">
@@ -302,7 +318,14 @@ function StepRow({
             <span className="text-[10px] text-gray-500">started {timeAgo(step.started_at)}</span>
           )}
           {step.task_id && (
-            <span className="text-[10px] text-gray-600 font-mono">task:{step.task_id.slice(0, 8)}</span>
+            <a
+              href="/admin/tasks"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-gray-600 font-mono hover:text-accent transition-colors"
+            >
+              task:{step.task_id.slice(0, 8)}
+            </a>
           )}
         </div>
         {step.result_summary && (
