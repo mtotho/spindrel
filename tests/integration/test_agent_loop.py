@@ -137,7 +137,9 @@ class TestLlmCall:
 
         assert result is success
         assert mock_client.chat.completions.create.call_count == 2
-        mock_sleep.assert_called_once_with(1)  # 1 * 2^0
+        mock_sleep.assert_called_once()
+        wait = mock_sleep.call_args[0][0]
+        assert 0.5 <= wait <= 1  # truncated jitter: max(0.5, uniform(0, 1))
 
     @pytest.mark.asyncio
     async def test_retries_on_timeout(self):
@@ -158,7 +160,9 @@ class TestLlmCall:
             result = await _llm_call("test/model", [], None, None)
 
         assert result is success
-        mock_sleep.assert_called_once_with(2)
+        mock_sleep.assert_called_once()
+        wait = mock_sleep.call_args[0][0]
+        assert 1.0 <= wait <= 2  # truncated jitter: max(1.0, uniform(0, 2))
 
     @pytest.mark.asyncio
     async def test_gives_up_after_max_retries(self):
@@ -209,9 +213,11 @@ class TestLlmCall:
             from app.agent.loop import _llm_call
             await _llm_call("test/model", [], None, None)
 
-        # Backoff: 5*2^0=5, 5*2^1=10
-        assert mock_sleep.call_args_list[0][0][0] == 5
-        assert mock_sleep.call_args_list[1][0][0] == 10
+        # Truncated jitter: max(2.5, uniform(0, 5)), max(2.5, uniform(0, 10))
+        wait0 = mock_sleep.call_args_list[0][0][0]
+        wait1 = mock_sleep.call_args_list[1][0][0]
+        assert 2.5 <= wait0 <= 5
+        assert 2.5 <= wait1 <= 10
 
 
 # ---------------------------------------------------------------------------

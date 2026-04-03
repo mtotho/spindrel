@@ -174,7 +174,9 @@ class TestLlmCall:
             result = await _llm_call("gpt-4", [], None, None)
             assert result is mock_resp
             assert mock_client.chat.completions.create.await_count == 2
-            mock_sleep.assert_awaited_once_with(1)  # 1 * 2^0
+            mock_sleep.assert_awaited_once()
+            wait = mock_sleep.await_args[0][0]
+            assert 0.5 <= wait <= 1  # truncated jitter: max(0.5, uniform(0, 1))
 
     @pytest.mark.asyncio
     async def test_gives_up_after_max_retries(self):
@@ -233,9 +235,11 @@ class TestLlmCall:
              patch("app.agent.llm.settings", _default_mock_settings(LLM_RATE_LIMIT_INITIAL_WAIT=10)), \
              patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
             await _llm_call("gpt-4", [], None, None)
-            # First retry: 10 * 2^0 = 10, second: 10 * 2^1 = 20
-            assert mock_sleep.await_args_list[0].args == (10,)
-            assert mock_sleep.await_args_list[1].args == (20,)
+            # Truncated jitter: max(5, uniform(0, 10)), max(5, uniform(0, 20))
+            wait0 = mock_sleep.await_args_list[0].args[0]
+            wait1 = mock_sleep.await_args_list[1].args[0]
+            assert 5.0 <= wait0 <= 10
+            assert 5.0 <= wait1 <= 20
 
     @pytest.mark.asyncio
     async def test_retries_on_5xx_server_error(self):
@@ -260,7 +264,9 @@ class TestLlmCall:
             result = await _llm_call("gpt-4", [], None, None)
             assert result is mock_resp
             assert mock_client.chat.completions.create.await_count == 2
-            mock_sleep.assert_awaited_once_with(2)  # 2 * 2^0
+            mock_sleep.assert_awaited_once()
+            wait = mock_sleep.await_args[0][0]
+            assert 1.0 <= wait <= 2  # truncated jitter: max(1.0, uniform(0, 2))
 
     @pytest.mark.asyncio
     async def test_retries_on_connection_error(self):
@@ -1257,3 +1263,149 @@ class TestSanitizeLlmText:
             # XML tool call fragments should be stripped
             assert "<invoke" not in response_events[0]["text"]
             assert "Answer." in response_events[0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# Sanitized content persisted to messages (DB history) tests
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizedContentPersistedToMessages:
+    """Verify that sanitized text (not raw LLM output) is what ends up in the
+    messages list that gets persisted to DB, so reloaded history is clean."""
+
+    @pytest.mark.asyncio
+    async def test_silent_tags_stripped_from_persisted_message(self):
+        """[silent] tags must be removed from the message saved to history."""
+        from app.agent.loop import run_agent_tool_loop
+
+        raw = "Clean text.[silent]I'm ready to help the user.[/silent]"
+        acc = _mock_accumulated(raw)
+        bot = _make_bot()
+        messages = [{"role": "user", "content": "test"}]
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc)), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
+            async for _ in run_agent_tool_loop(messages, bot):
+                pass
+
+        # The assistant message in the list should be sanitized
+        assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+        assert assistant_msgs
+        assert "[silent]" not in assistant_msgs[-1]["content"]
+        assert "Clean text." in assistant_msgs[-1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_think_tags_stripped_from_persisted_message(self):
+        """<think> tags must be removed from the message saved to history."""
+        from app.agent.loop import run_agent_tool_loop
+
+        raw = "<think>internal reasoning</think>Real answer"
+        acc = _mock_accumulated(raw)
+        bot = _make_bot()
+        messages = [{"role": "user", "content": "test"}]
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc)), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
+            async for _ in run_agent_tool_loop(messages, bot):
+                pass
+
+        assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+        assert assistant_msgs
+        assert "<think>" not in assistant_msgs[-1]["content"]
+        assert "Real answer" in assistant_msgs[-1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_unclosed_silent_tag_stripped_from_persisted_message(self):
+        """Unclosed [silent] must be stripped — everything from tag to end removed."""
+        from app.agent.loop import run_agent_tool_loop
+
+        raw = "Answer here.[silent]model monologue that never closes"
+        acc = _mock_accumulated(raw)
+        bot = _make_bot()
+        messages = [{"role": "user", "content": "test"}]
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc)), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
+            async for _ in run_agent_tool_loop(messages, bot):
+                pass
+
+        assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+        assert assistant_msgs
+        assert "[silent]" not in assistant_msgs[-1]["content"]
+        assert "monologue" not in assistant_msgs[-1]["content"]
+        assert "Answer here." in assistant_msgs[-1]["content"]
+
+    @pytest.mark.asyncio
+    async def test_post_loop_response_sanitized_in_persisted_message(self):
+        """Post-loop forced response must also persist sanitized content."""
+        from app.agent.loop import run_agent_tool_loop
+        from app.agent.tool_dispatch import ToolCallResult
+
+        tc = _mock_tool_call("test_tool", '{"x": 1}', "tc_1")
+        acc_with_tc = _mock_accumulated(content=None, tool_calls=[tc])
+        bot = _make_bot(local_tools=["test_tool"])
+
+        forced_resp = _mock_response(
+            content='Result.[silent]inner thoughts[/silent] <invoke name="foo"><parameter name="x">1</parameter></invoke>'
+        )
+
+        mock_tc_result = ToolCallResult(
+            result='{"ok": true}', result_for_llm='{"ok": true}',
+            tool_event={"type": "tool_result", "tool": "test_tool", "result": '{"ok": true}'},
+        )
+
+        messages = [{"role": "user", "content": "test"}]
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_with_tc)), \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value=forced_resp), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.dispatch_tool_call", new_callable=AsyncMock, return_value=mock_tc_result), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None):
+            async for _ in run_agent_tool_loop(messages, bot, max_iterations=1):
+                pass
+
+        assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+        assert assistant_msgs
+        last = assistant_msgs[-1]["content"]
+        assert "[silent]" not in last
+        assert "<invoke" not in last
+        assert "Result." in last
+
+    @pytest.mark.asyncio
+    async def test_clean_text_not_mutated(self):
+        """When text has nothing to sanitize, the message should still be correct."""
+        from app.agent.loop import run_agent_tool_loop
+
+        acc = _mock_accumulated("Just a normal response")
+        bot = _make_bot()
+        messages = [{"role": "user", "content": "test"}]
+
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc)), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.get_local_tool_schemas", return_value=[]), \
+             patch("app.agent.loop.fetch_mcp_tools", new_callable=AsyncMock, return_value=[]), \
+             patch("app.agent.loop.get_client_tool_schemas", return_value=[]), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
+            async for _ in run_agent_tool_loop(messages, bot):
+                pass
+
+        assistant_msgs = [m for m in messages if m.get("role") == "assistant"]
+        assert assistant_msgs
+        assert assistant_msgs[-1]["content"] == "Just a normal response"

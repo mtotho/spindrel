@@ -10,6 +10,12 @@ tags:
   - development
   - engineering
   - mission-control
+group: "Technical"
+recommended_heartbeat:
+  prompt: "Review the task board and project status. Summarize in-progress work, flag any blockers, and update status.md with current progress."
+  interval: "daily"
+  quiet_start: "18:00"
+  quiet_end: "08:00"
 ---
 
 ## Workspace File Organization — Software Development

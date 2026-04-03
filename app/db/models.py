@@ -934,6 +934,8 @@ class PromptTemplate(Base):
         ForeignKey("shared_workspaces.id", ondelete="CASCADE"),
         nullable=True,
     )
+    group: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recommended_heartbeat: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)

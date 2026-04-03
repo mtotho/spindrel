@@ -348,12 +348,11 @@ def _build_usage(anthropic_usage: Any) -> _Usage:
     input_tokens = getattr(anthropic_usage, "input_tokens", 0) or 0
     output_tokens = getattr(anthropic_usage, "output_tokens", 0) or 0
     cache_read = getattr(anthropic_usage, "cache_read_input_tokens", 0) or 0
-    cache_creation = getattr(anthropic_usage, "cache_creation_input_tokens", 0) or 0
     return _Usage(
         prompt_tokens=input_tokens,
         completion_tokens=output_tokens,
         total_tokens=input_tokens + output_tokens,
-        prompt_tokens_details=_PromptTokensDetails(cached_tokens=cache_read + cache_creation),
+        prompt_tokens_details=_PromptTokensDetails(cached_tokens=cache_read),
     )
 
 
@@ -416,6 +415,7 @@ class _StreamAdapter:
         self._tool_name = ""
         self._input_json_buf = ""  # accumulated JSON for current tool
         self._inner_iter: AsyncIterator[_ChatCompletionChunk] | None = None
+        self._start_usage: _Usage | None = None  # usage from message_start (input tokens)
 
     @classmethod
     async def create(cls, stream_manager: Any, model: str) -> _StreamAdapter:
@@ -476,11 +476,12 @@ class _StreamAdapter:
 
         if event_type == "message_start":
             self._message_id = event.message.id
-            usage = _build_usage(event.message.usage) if event.message.usage else None
-            # Emit a role chunk + usage
+            if event.message.usage:
+                self._start_usage = _build_usage(event.message.usage)
+            # Emit a role chunk + initial usage (has input tokens, 0 output)
             chunks.append(self._make_chunk(
                 delta=_ChoiceDelta(role="assistant"),
-                usage=usage,
+                usage=self._start_usage,
             ))
 
         elif event_type == "content_block_start":
@@ -528,9 +529,22 @@ class _StreamAdapter:
 
         elif event_type == "message_delta":
             finish = _translate_stop_reason(event.delta.stop_reason)
+            # Merge usage: message_start has input tokens, message_delta has output tokens.
+            # Anthropic's MessageDeltaUsage only carries output_tokens; input/cache tokens
+            # come from message_start.  Build combined usage so StreamAccumulator gets
+            # the correct totals.
             usage = None
             if event.usage:
-                usage = _build_usage(event.usage)
+                delta_output = getattr(event.usage, "output_tokens", 0) or 0
+                if self._start_usage:
+                    usage = _Usage(
+                        prompt_tokens=self._start_usage.prompt_tokens,
+                        completion_tokens=delta_output,
+                        total_tokens=self._start_usage.prompt_tokens + delta_output,
+                        prompt_tokens_details=self._start_usage.prompt_tokens_details,
+                    )
+                else:
+                    usage = _build_usage(event.usage)
             chunks.append(self._make_chunk(finish_reason=finish, usage=usage))
 
         elif event_type == "message_stop":
@@ -572,16 +586,19 @@ class _Completions:
         if system:
             api_kwargs["system"] = system
 
-        if anthropic_tools:
+        # Only send tools if tool_choice is not "none"
+        tc = _translate_tool_choice(tool_choice) if anthropic_tools else None
+        if anthropic_tools and tc is not None:
             api_kwargs["tools"] = anthropic_tools
-            tc = _translate_tool_choice(tool_choice)
-            if tc is not None:
-                api_kwargs["tool_choice"] = tc
+            api_kwargs["tool_choice"] = tc
 
-        # Pass through simple params
-        for param in ("temperature", "top_p", "stop", "top_k"):
+        # Pass through simple params (translate stop → stop_sequences)
+        for param in ("temperature", "top_p", "top_k"):
             if param in kwargs and kwargs[param] is not None:
                 api_kwargs[param] = kwargs[param]
+        if "stop" in kwargs and kwargs["stop"] is not None:
+            stop = kwargs["stop"]
+            api_kwargs["stop_sequences"] = [stop] if isinstance(stop, str) else stop
 
         try:
             if stream:

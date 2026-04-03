@@ -10,6 +10,12 @@ tags:
   - qa
   - quality-assurance
   - mission-control
+group: "Technical"
+recommended_heartbeat:
+  prompt: "Review test results and bug tracker. Summarize pass/fail rates, flag new critical bugs, and update coverage.md metrics."
+  interval: "daily"
+  quiet_start: "18:00"
+  quiet_end: "08:00"
 ---
 
 ## Workspace File Organization — Software Testing / QA

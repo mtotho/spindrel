@@ -52,14 +52,27 @@ async def _embed_skill_row(skill_id: str, content: str, content_hash: str) -> No
         logger.warning("Skill '%s' produced no chunks, skipping embed", skill_id)
         return
 
-    # For embedding: prepend context_prefix for better retrieval
-    # For storage: keep only the content (context_prefix is metadata)
+    # --- Contextual retrieval: generate LLM descriptions for chunks ---
+    from app.agent.contextual_retrieval import (
+        build_embed_text,
+        generate_batch_contexts,
+        get_effective_chunking_version,
+    )
+
+    cr_chunks = [{"text": cr.content, "index": i} for i, cr in enumerate(chunk_results)]
+    cr_descriptions = await generate_batch_contexts(cr_chunks, body, display_name, content_hash)
+
+    # For embedding: compose context_prefix + contextual_description + content
     embed_texts = []
-    for cr in chunk_results:
-        if cr.context_prefix:
-            embed_texts.append(f"{cr.context_prefix}\n\n{cr.content}")
-        else:
-            embed_texts.append(f"{source_label}\n\n{cr.content}")
+    for i, cr in enumerate(chunk_results):
+        embed_texts.append(build_embed_text(
+            cr.content,
+            context_prefix=cr.context_prefix,
+            contextual_description=cr_descriptions[i],
+            source_label=source_label,
+        ))
+
+    effective_version = get_effective_chunking_version(CHUNKING_VERSION)
 
     logger.info("Embedding skill '%s' (%d chunks)...", skill_id, len(chunk_results))
     try:
@@ -73,18 +86,21 @@ async def _embed_skill_row(skill_id: str, content: str, content_hash: str) -> No
         for i, (cr, embedding) in enumerate(zip(chunk_results, embeddings)):
             # Store the content with the source label prefix for display
             stored_content = f"{source_label}\n\n{cr.content}"
-            doc = Document(
-                content=stored_content,
-                embedding=embedding,
-                source=f"skill:{skill_id}",
-                metadata_={
+            doc_meta = {
                     "content_hash": content_hash,
-                    "chunking_version": CHUNKING_VERSION,
+                    "chunking_version": effective_version,
                     "chunk_index": i,
                     "skill_id": skill_id,
                     "skill_name": display_name,
                     "context_prefix": cr.context_prefix,
-                },
+            }
+            if cr_descriptions[i]:
+                doc_meta["contextual_description"] = cr_descriptions[i]
+            doc = Document(
+                content=stored_content,
+                embedding=embedding,
+                source=f"skill:{skill_id}",
+                metadata_=doc_meta,
             )
             db.add(doc)
         await db.commit()
@@ -162,19 +178,36 @@ async def load_skills(skills_dir: Path = SKILLS_DIR) -> None:
             )).first()
 
         if existing_doc:
+            from app.agent.contextual_retrieval import get_effective_chunking_version
+            effective_version = get_effective_chunking_version(CHUNKING_VERSION)
             existing_hash, existing_version = existing_doc
-            if existing_hash == content_hash and existing_version == CHUNKING_VERSION:
+            if existing_hash == content_hash and existing_version == effective_version:
                 logger.debug("Skill '%s' unchanged, skipping", skill_id)
                 _loaded_skills.add(skill_id)
                 continue
-            if existing_version != CHUNKING_VERSION:
+            if existing_version != effective_version:
                 logger.info("Skill '%s' chunking version stale (%s → %s), re-embedding",
-                            skill_id, existing_version, CHUNKING_VERSION)
+                            skill_id, existing_version, effective_version)
 
         await _embed_skill_row(skill_id, row.content, content_hash)
         loaded += 1
 
     logger.info("Skill loading complete (%d new/updated, %d total)", loaded, len(_loaded_skills))
+
+    # Warm contextual retrieval cache from existing skill embeddings
+    if settings.CONTEXTUAL_RETRIEVAL_ENABLED:
+        from app.agent.contextual_retrieval import warm_cache_from_metadata
+        async with async_session() as db:
+            cr_rows = (await db.execute(
+                select(
+                    Document.metadata_["content_hash"].as_string(),
+                    Document.metadata_["chunk_index"].as_integer(),
+                    Document.metadata_["contextual_description"].as_string(),
+                ).where(Document.source.like("skill:%"))
+            )).all()
+        warmed = warm_cache_from_metadata(cr_rows)
+        if warmed:
+            logger.info("Warmed contextual retrieval cache from %d skill chunk(s)", warmed)
 
 
 async def re_embed_skill(skill_id: str) -> None:

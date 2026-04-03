@@ -39,6 +39,7 @@ def send_streaming(
             client_id=ctx.get("client_id", "cli"),
             channel_id=ctx.get("channel_id"),
             model_override=ctx.get("model_override"),
+            model_provider_id_override=ctx.get("model_provider_id_override"),
             attachments=ctx.get("_attachments"),
             audio_data=audio_data,
             audio_format=audio_format,

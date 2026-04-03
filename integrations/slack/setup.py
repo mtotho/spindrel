@@ -7,6 +7,8 @@ SETUP = {
         {"key": "SLACK_APP_TOKEN", "required": True, "description": "App-level token (xapp-...) for Socket Mode", "secret": True},
         {"key": "AGENT_API_KEY", "required": True, "description": "API key for the agent server", "secret": True},
         {"key": "AGENT_BASE_URL", "required": False, "description": "Agent server URL (default: http://localhost:8000)"},
+        {"key": "SLACK_SUGGEST_CHANNELS", "required": False, "description": "Show channel dropdown when binding (default: true)"},
+        {"key": "SLACK_SUGGEST_COUNT", "required": False, "description": "Number of channels to show in binding dropdown (default: 20, max: 100)"},
     ],
     "api_permissions": "slack_integration",
     "webhook": None,
@@ -16,5 +18,6 @@ SETUP = {
         "client_id_placeholder": "slack:C01ABC123",
         "client_id_description": "Slack channel ID (starts with C)",
         "display_name_placeholder": "#general",
+        "suggestions_endpoint": "/integrations/slack/binding-suggestions",
     },
 }

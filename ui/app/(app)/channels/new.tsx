@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
-import { View, Text, Pressable, ScrollView } from "react-native";
+import { View, Text, Pressable, ScrollView, TextInput as RNTextInput } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, ArrowRight, Check } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Search } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useBots } from "@/src/api/hooks/useBots";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
@@ -39,6 +39,7 @@ export default function NewChannelScreen() {
   const [isPrivate, setIsPrivate] = useState(false);
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [enabledIntegrations, setEnabledIntegrations] = useState<string[]>([]);
+  const [templateFilter, setTemplateFilter] = useState("");
 
   // Pre-select template from query param (e.g., from home page onboarding)
   useEffect(() => {
@@ -62,6 +63,17 @@ export default function NewChannelScreen() {
     );
   }, [existingCategories, category]);
 
+  const filteredTemplates = useMemo(() => {
+    if (!templates) return [];
+    if (!templateFilter.trim()) return templates;
+    const q = templateFilter.toLowerCase();
+    return templates.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        (t.description ?? "").toLowerCase().includes(q),
+    );
+  }, [templates, templateFilter]);
+
   const hasActivatable = (activatableIntegrations?.length ?? 0) > 0;
 
   const handleToggleIntegration = (intType: string) => {
@@ -70,6 +82,15 @@ export default function NewChannelScreen() {
         ? prev.filter((x) => x !== intType)
         : [...prev, intType],
     );
+  };
+
+  /** Advance from template step to next step or create */
+  const handleTemplateNext = () => {
+    if (hasActivatable) {
+      setStep("integrations");
+    } else {
+      handleSubmit();
+    }
   };
 
   /** Build shared request body from common fields */
@@ -118,6 +139,12 @@ export default function NewChannelScreen() {
 
   const canProceed = name.trim().length > 0;
 
+  const errorBanner = createChannel.isError ? (
+    <Text className="text-red-400 text-xs" style={{ marginTop: 8 }}>
+      {createChannel.error instanceof Error ? createChannel.error.message : "Failed to create channel"}
+    </Text>
+  ) : null;
+
   return (
     <View className="flex-1 bg-surface">
       {/* Header */}
@@ -148,13 +175,13 @@ export default function NewChannelScreen() {
         </View>
       </View>
 
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ padding: 20, maxWidth: 520 }}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Step 1: Basics */}
-        {step === "basics" && (
+      {/* Step 1: Basics */}
+      {step === "basics" && (
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{ padding: 20, maxWidth: 520 }}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={{ gap: 16 }}>
             <Section title="Channel Name">
               <TextInput
@@ -271,28 +298,73 @@ export default function NewChannelScreen() {
               </Pressable>
             </View>
           </View>
-        )}
+          {errorBanner}
+        </ScrollView>
+      )}
 
-        {/* Step 2: Template */}
-        {step === "template" && (
-          <View style={{ gap: 16 }}>
-            <View>
-              <Text className="text-text font-semibold text-sm">Choose a Template</Text>
-              <Text className="text-text-muted text-xs" style={{ marginTop: 4 }}>
-                Templates organize your workspace with structured files and schemas.
-                Selecting a template enables the channel workspace.
-              </Text>
-            </View>
+      {/* Step 2: Template — pinned header + scrollable cards + sticky footer */}
+      {step === "template" && (
+        <View style={{ flex: 1 }}>
+          {/* Fixed header + search */}
+          <View style={{ padding: 20, paddingBottom: 12, maxWidth: 520 }}>
+            <Text className="text-text font-semibold text-sm">Choose a Template</Text>
+            <Text className="text-text-muted text-xs" style={{ marginTop: 4 }}>
+              Templates organize your workspace with structured files and schemas.
+            </Text>
+            {(templates?.length ?? 0) > 4 && (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  backgroundColor: theme.surfaceOverlay,
+                  borderWidth: 1,
+                  borderColor: theme.surfaceBorder,
+                  borderRadius: 6,
+                  paddingHorizontal: 8,
+                  paddingVertical: 6,
+                  marginTop: 12,
+                }}
+              >
+                <Search size={13} color={theme.textDim} />
+                <RNTextInput
+                  value={templateFilter}
+                  onChangeText={setTemplateFilter}
+                  placeholder="Search templates..."
+                  placeholderTextColor={theme.textDim}
+                  style={{ flex: 1, color: theme.text, fontSize: 12 }}
+                />
+              </View>
+            )}
+          </View>
 
+          {/* Scrollable template cards */}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12, maxWidth: 520 }}
+            keyboardShouldPersistTaps="handled"
+          >
             <TemplateCardGrid
-              templates={templates ?? []}
+              templates={filteredTemplates}
               selectedId={templateId}
-              onSelect={setTemplateId}
+              onSelect={(id) => setTemplateId(id === templateId ? null : id)}
               highlightIntegrations={enabledIntegrations}
+              hideSkip
             />
+          </ScrollView>
 
-            {/* Navigation */}
-            <View className="flex-row" style={{ gap: 10, marginTop: 8 }}>
+          {/* Sticky footer */}
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderColor: theme.surfaceBorder,
+              paddingHorizontal: 20,
+              paddingVertical: 14,
+              maxWidth: 520,
+            }}
+          >
+            {errorBanner}
+            <View style={{ flexDirection: "row", gap: 10 }}>
               <Pressable
                 onPress={() => setStep("basics")}
                 style={{
@@ -308,69 +380,73 @@ export default function NewChannelScreen() {
                 <Text className="text-text-muted text-sm">Back</Text>
               </Pressable>
 
-              {hasActivatable ? (
-                <Pressable
-                  onPress={() => setStep("integrations")}
-                  style={{
-                    backgroundColor: theme.accent,
-                    paddingHorizontal: 20,
-                    paddingVertical: 12,
-                    borderRadius: 8,
-                    alignItems: "center",
-                    flexDirection: "row",
-                    justifyContent: "center",
-                    gap: 8,
-                    flex: 1,
-                  }}
-                >
-                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>Continue</Text>
-                  <ArrowRight size={16} color="#fff" />
-                </Pressable>
-              ) : (
-                <Pressable
-                  onPress={handleSubmit}
-                  disabled={createChannel.isPending}
-                  style={{
-                    backgroundColor: theme.accent,
-                    paddingHorizontal: 20,
-                    paddingVertical: 12,
-                    borderRadius: 8,
-                    alignItems: "center",
-                    flexDirection: "row",
-                    justifyContent: "center",
-                    gap: 8,
-                    flex: 1,
-                  }}
-                >
-                  <Check size={16} color="#fff" />
-                  <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
-                    {createChannel.isPending ? "Creating..." : "Create Channel"}
-                  </Text>
-                </Pressable>
-              )}
+              <Pressable
+                onPress={handleTemplateNext}
+                disabled={createChannel.isPending}
+                style={{
+                  backgroundColor: theme.accent,
+                  paddingHorizontal: 20,
+                  paddingVertical: 12,
+                  borderRadius: 8,
+                  alignItems: "center",
+                  flexDirection: "row",
+                  justifyContent: "center",
+                  gap: 8,
+                  flex: 1,
+                }}
+              >
+                {!hasActivatable && <Check size={16} color="#fff" />}
+                <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
+                  {createChannel.isPending
+                    ? "Creating..."
+                    : hasActivatable
+                      ? templateId ? "Continue" : "Skip — no workspace"
+                      : templateId ? "Create Channel" : "Create without workspace"}
+                </Text>
+                {hasActivatable && <ArrowRight size={16} color="#fff" />}
+              </Pressable>
             </View>
           </View>
-        )}
+        </View>
+      )}
 
-        {/* Step 3: Integrations */}
-        {step === "integrations" && (
-          <View style={{ gap: 16 }}>
-            <View>
-              <Text className="text-text font-semibold text-sm">Activate Integrations</Text>
-              <Text className="text-text-muted text-xs" style={{ marginTop: 4 }}>
-                Integrations inject specialized tools and skills into your channel.
-              </Text>
+      {/* Step 3: Integrations — scrollable content + sticky footer */}
+      {step === "integrations" && (
+        <View style={{ flex: 1 }}>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: 20, maxWidth: 520 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={{ gap: 16 }}>
+              <View>
+                <Text className="text-text font-semibold text-sm">Activate Integrations</Text>
+                <Text className="text-text-muted text-xs" style={{ marginTop: 4 }}>
+                  Integrations inject specialized tools and skills into your channel.
+                </Text>
+              </View>
+
+              <IntegrationActivationList
+                integrations={activatableIntegrations ?? []}
+                enabled={enabledIntegrations}
+                onToggle={handleToggleIntegration}
+                workspaceEnabled={workspaceEnabled}
+              />
             </View>
+          </ScrollView>
 
-            <IntegrationActivationList
-              integrations={activatableIntegrations ?? []}
-              enabled={enabledIntegrations}
-              onToggle={handleToggleIntegration}
-              workspaceEnabled={workspaceEnabled}
-            />
-
-            {/* Navigation */}
-            <View className="flex-row" style={{ gap: 10, marginTop: 8 }}>
+          {/* Sticky footer */}
+          <View
+            style={{
+              borderTopWidth: 1,
+              borderColor: theme.surfaceBorder,
+              paddingHorizontal: 20,
+              paddingVertical: 14,
+              maxWidth: 520,
+            }}
+          >
+            {errorBanner}
+            <View style={{ flexDirection: "row", gap: 10 }}>
               <Pressable
                 onPress={() => setStep("template")}
                 style={{
@@ -408,14 +484,8 @@ export default function NewChannelScreen() {
               </Pressable>
             </View>
           </View>
-        )}
-
-        {createChannel.isError && (
-          <Text className="text-red-400 text-xs" style={{ marginTop: 8 }}>
-            {createChannel.error instanceof Error ? createChannel.error.message : "Failed to create channel"}
-          </Text>
-        )}
-      </ScrollView>
+        </View>
+      )}
     </View>
   );
 }

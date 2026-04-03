@@ -313,10 +313,17 @@ class Settings(BaseSettings):
     WHISPER_LANGUAGE: str = "en"
 
     # RAG / embeddings (skills, memory, knowledge).
-    # `dimensions` is always passed on every embeddings.create() call, so models that
-    # support Matryoshka truncation (text-embedding-3-*) are automatically truncated to
-    # EMBEDDING_DIMENSIONS.  If you switch to a model whose native size < EMBEDDING_DIMENSIONS,
-    # you must re-embed everything (wipe documents/memories/bot_knowledge or run a migration).
+    # Use "local/<hf-org>/<model>" for fastembed models (ONNX, no API calls, free),
+    # or a plain model name for OpenAI-compatible API calls via LLM_BASE_URL
+    # (e.g. "text-embedding-3-small").
+    #
+    # DIMENSION HANDLING — all models produce 1536-dim vectors stored in the same DB:
+    #   - Local models (e.g. nomic 768-dim): zero-padded to 1536 — lossless for cosine similarity
+    #   - OpenAI text-embedding-3-*: Matryoshka-truncated to 1536 via `dimensions=` param
+    #   - Other API models: must natively produce 1536-dim output
+    #
+    # DO NOT change EMBEDDING_DIMENSIONS — DB columns and indexes are hardcoded to 1536.
+    # If you switch EMBEDDING_MODEL, re-embed everything (restart re-indexes automatically).
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSIONS: int = 1536
     RAG_TOP_K: int = 5
@@ -325,6 +332,13 @@ class Settings(BaseSettings):
     # Hybrid search (BM25 + vector fusion via Reciprocal Rank Fusion)
     HYBRID_SEARCH_ENABLED: bool = True
     HYBRID_SEARCH_RRF_K: int = 60  # RRF parameter: higher = more weight on top results
+
+    # Contextual retrieval — LLM-generated chunk descriptions for better RAG
+    CONTEXTUAL_RETRIEVAL_ENABLED: bool = False
+    CONTEXTUAL_RETRIEVAL_MODEL: str = ""  # empty = use COMPACTION_MODEL
+    CONTEXTUAL_RETRIEVAL_MAX_TOKENS: int = 150
+    CONTEXTUAL_RETRIEVAL_BATCH_SIZE: int = 5  # concurrent LLM calls during indexing
+    CONTEXTUAL_RETRIEVAL_PROVIDER_ID: str = ""  # empty = default provider
 
     # Prompt caching (Anthropic cache_control breakpoints)
     PROMPT_CACHE_ENABLED: bool = True

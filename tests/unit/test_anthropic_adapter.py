@@ -340,7 +340,7 @@ class TestBuildUsage:
         assert usage.prompt_tokens == 100
         assert usage.completion_tokens == 50
         assert usage.total_tokens == 150
-        assert usage.prompt_tokens_details.cached_tokens == 30
+        assert usage.prompt_tokens_details.cached_tokens == 20  # cache reads only, not writes
 
     def test_usage_without_cache(self):
         mock_usage = MagicMock()
@@ -449,6 +449,7 @@ class TestStreamAdapter:
         adapter._message_id = ""
         adapter._model = "claude-sonnet-4-6"
         adapter._tool_index = -1
+        adapter._start_usage = None
 
         msg = MagicMock()
         msg.id = "msg_001"
@@ -461,6 +462,9 @@ class TestStreamAdapter:
         assert chunks[0].choices[0].delta.role == "assistant"
         assert chunks[0].usage is not None
         assert chunks[0].usage.prompt_tokens == 10
+        # _start_usage should be saved for merging with message_delta
+        assert adapter._start_usage is not None
+        assert adapter._start_usage.prompt_tokens == 10
 
     def test_translate_text_delta(self):
         adapter = _StreamAdapter.__new__(_StreamAdapter)
@@ -521,6 +525,7 @@ class TestStreamAdapter:
         adapter._message_id = "msg_001"
         adapter._model = "test"
         adapter._tool_index = -1
+        adapter._start_usage = None
 
         delta = MagicMock()
         delta.stop_reason = "end_turn"
@@ -537,6 +542,7 @@ class TestStreamAdapter:
         adapter._message_id = "msg_001"
         adapter._model = "test"
         adapter._tool_index = 0
+        adapter._start_usage = None
 
         delta = MagicMock()
         delta.stop_reason = "tool_use"
@@ -545,6 +551,45 @@ class TestStreamAdapter:
 
         chunks = adapter._translate_event(event)
         assert chunks[0].choices[0].finish_reason == "tool_calls"
+
+    def test_streaming_usage_merge(self):
+        """message_delta merges output tokens with input tokens from message_start."""
+        adapter = _StreamAdapter.__new__(_StreamAdapter)
+        adapter._message_id = "msg_001"
+        adapter._model = "test"
+        adapter._tool_index = -1
+        adapter._start_usage = None
+
+        # Step 1: message_start provides input tokens
+        msg = MagicMock()
+        msg.id = "msg_001"
+        msg.usage = MagicMock(
+            input_tokens=500, output_tokens=0,
+            cache_read_input_tokens=100, cache_creation_input_tokens=50,
+        )
+        start_event = self._make_event("message_start", message=msg)
+        start_chunks = adapter._translate_event(start_event)
+        assert start_chunks[0].usage.prompt_tokens == 500
+        assert start_chunks[0].usage.prompt_tokens_details.cached_tokens == 100
+
+        # Step 2: message_delta provides output tokens (input=None in delta usage)
+        delta = MagicMock()
+        delta.stop_reason = "end_turn"
+        # Anthropic MessageDeltaUsage only has output_tokens; input fields are None
+        delta_usage = MagicMock(spec=[])
+        delta_usage.output_tokens = 200
+        delta_usage.input_tokens = None
+        delta_usage.cache_read_input_tokens = None
+        delta_usage.cache_creation_input_tokens = None
+        delta_event = self._make_event("message_delta", delta=delta, usage=delta_usage)
+
+        delta_chunks = adapter._translate_event(delta_event)
+        final_usage = delta_chunks[0].usage
+        # Should have merged input from start + output from delta
+        assert final_usage.prompt_tokens == 500
+        assert final_usage.completion_tokens == 200
+        assert final_usage.total_tokens == 700
+        assert final_usage.prompt_tokens_details.cached_tokens == 100
 
     def test_content_block_stop_noop(self):
         adapter = _StreamAdapter.__new__(_StreamAdapter)
@@ -755,8 +800,60 @@ class TestCompletionsCreate:
         assert call_kwargs["temperature"] == 0.7
 
     @pytest.mark.asyncio
+    async def test_stop_translated_to_stop_sequences_string(self):
+        """stop='\\n' should become stop_sequences=['\\n']."""
+        adapter = AnthropicOpenAIAdapter(api_key="sk-test")
+        mock_response = MagicMock()
+        mock_response.id = "msg_t"
+        mock_response.model = "test"
+        mock_response.stop_reason = "end_turn"
+        mock_response.content = []
+        mock_response.usage = MagicMock(
+            input_tokens=0, output_tokens=0,
+            cache_read_input_tokens=0, cache_creation_input_tokens=0,
+        )
+        adapter._anthropic.messages.create = AsyncMock(return_value=mock_response)
+
+        await adapter.chat.completions.create(
+            model="test",
+            messages=[{"role": "user", "content": "Hi"}],
+            stop="\n",
+            stream=False,
+        )
+
+        call_kwargs = adapter._anthropic.messages.create.call_args[1]
+        assert call_kwargs["stop_sequences"] == ["\n"]
+        assert "stop" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_stop_translated_to_stop_sequences_list(self):
+        """stop=['\\n', '###'] should pass through as stop_sequences."""
+        adapter = AnthropicOpenAIAdapter(api_key="sk-test")
+        mock_response = MagicMock()
+        mock_response.id = "msg_t"
+        mock_response.model = "test"
+        mock_response.stop_reason = "end_turn"
+        mock_response.content = []
+        mock_response.usage = MagicMock(
+            input_tokens=0, output_tokens=0,
+            cache_read_input_tokens=0, cache_creation_input_tokens=0,
+        )
+        adapter._anthropic.messages.create = AsyncMock(return_value=mock_response)
+
+        await adapter.chat.completions.create(
+            model="test",
+            messages=[{"role": "user", "content": "Hi"}],
+            stop=["\n", "###"],
+            stream=False,
+        )
+
+        call_kwargs = adapter._anthropic.messages.create.call_args[1]
+        assert call_kwargs["stop_sequences"] == ["\n", "###"]
+        assert "stop" not in call_kwargs
+
+    @pytest.mark.asyncio
     async def test_tool_choice_none_omits_tools(self):
-        """tool_choice='none' should not send tool_choice (Anthropic: omit to disable)."""
+        """tool_choice='none' should not send tools OR tool_choice to Anthropic."""
         adapter = AnthropicOpenAIAdapter(api_key="sk-test")
 
         mock_response = MagicMock()
@@ -783,8 +880,9 @@ class TestCompletionsCreate:
         )
 
         call_kwargs = adapter._anthropic.messages.create.call_args[1]
-        # tool_choice should not be in kwargs when "none"
+        # Neither tools nor tool_choice should be sent when tool_choice="none"
         assert "tool_choice" not in call_kwargs
+        assert "tools" not in call_kwargs
 
 
 # ---------------------------------------------------------------------------

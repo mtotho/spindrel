@@ -9,6 +9,7 @@ tags:
   - mission-control
   - kanban
   - task-tracking
+group: "Core"
 ---
 
 ## Workspace File Organization — Mission Control

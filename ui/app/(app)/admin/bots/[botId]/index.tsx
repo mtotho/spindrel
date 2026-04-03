@@ -1,11 +1,11 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AlertTriangle, ArrowLeft, Save, Search, Trash2, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Save, Search, Trash2, X } from "lucide-react";
 import { useBotEditorData, useUpdateBot, useCreateBot, useDeleteBot } from "@/src/api/hooks/useBots";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useHashTab } from "@/src/hooks/useHashTab";
-import { useCarapaces } from "@/src/api/hooks/useCarapaces";
+import { CarapacesSection } from "./CarapacesSection";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt, GenerateButton } from "@/src/components/shared/LlmPrompt";
@@ -474,7 +474,7 @@ export default function BotEditorScreen() {
           )}
 
           {activeSection === "carapaces" && (
-            <CarapacesSection draft={draft} update={update} t={t} />
+            <CarapacesSection draft={draft} update={update} />
           )}
 
           {activeSection === "memory" && (
@@ -818,78 +818,3 @@ export default function BotEditorScreen() {
   );
 }
 
-function CarapacesSection({
-  draft,
-  update,
-  t,
-}: {
-  draft: BotConfig;
-  update: (patch: Partial<BotConfig>) => void;
-  t: ReturnType<typeof useThemeTokens>;
-}) {
-  const { data: allCarapaces } = useCarapaces();
-  const selected = draft.carapaces || [];
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Carapaces</div>
-      <div style={{ fontSize: 11, color: t.textDim }}>
-        Carapaces are composable skill+tool bundles. Select carapaces to equip this bot with pre-configured expertise.
-      </div>
-      {!allCarapaces || allCarapaces.length === 0 ? (
-        <div style={{ color: t.textDim, fontSize: 12, padding: 12, textAlign: "center" }}>
-          No carapaces available. Create one in the Carapaces admin page.
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 2 }}>
-          {allCarapaces.map((c) => {
-            const on = selected.includes(c.id);
-            const isAutoInjected = c.id === "mission-control";
-            return (
-              <label
-                key={c.id}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
-                  borderRadius: 6, cursor: "pointer", fontSize: 12,
-                  background: on ? t.accentSubtle : isAutoInjected ? `${t.surfaceOverlay}` : "transparent",
-                  opacity: isAutoInjected && !on ? 0.7 : 1,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={on}
-                  style={{ accentColor: t.accent }}
-                  onChange={() => {
-                    const next = on
-                      ? selected.filter((x) => x !== c.id)
-                      : [...selected, c.id];
-                    update({ carapaces: next });
-                  }}
-                />
-                <span style={{ fontWeight: 500, color: on ? t.accent : t.text }}>{c.name}</span>
-                <span style={{ color: t.textDim, fontFamily: "monospace", fontSize: 10 }}>{c.id}</span>
-                {isAutoInjected && !on && (
-                  <span style={{
-                    display: "inline-flex", alignItems: "center", gap: 3,
-                    fontSize: 9, fontWeight: 600, color: t.accent,
-                    background: `${t.accent}15`, borderRadius: 4, padding: "1px 5px",
-                  }}>
-                    <Zap size={8} />
-                    AUTO
-                  </span>
-                )}
-                {isAutoInjected && !on ? (
-                  <span style={{ color: t.textDim, fontSize: 10, marginLeft: "auto" }}>
-                    Auto-injected for workspace-enabled channels
-                  </span>
-                ) : c.description ? (
-                  <span style={{ color: t.textDim, fontSize: 10, marginLeft: "auto" }}>{c.description}</span>
-                ) : null}
-              </label>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}

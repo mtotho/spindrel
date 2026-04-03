@@ -217,13 +217,57 @@ class TestSystemBotSeeding:
 
         assert data["id"] == "orchestrator"
         assert data["name"] == "Orchestrator"
-        assert "model" in data
+        # model intentionally omitted — falls back to DEFAULT_MODEL
         assert "system_prompt" in data
         assert "get_system_status" in data["local_tools"]
         assert "manage_bot" in data["local_tools"]
         assert "manage_channel" in data["local_tools"]
         assert "manage_integration" in data["local_tools"]
         assert "*" in data["delegate_bots"]
+
+    async def test_orchestrator_prompt_no_hardcoded_models(self):
+        """orchestrator.yaml system_prompt should not hardcode provider-specific models."""
+        import yaml
+        from app.agent.bots import SYSTEM_BOTS_DIR
+
+        with open(SYSTEM_BOTS_DIR / "orchestrator.yaml") as f:
+            data = yaml.safe_load(f)
+
+        prompt = data["system_prompt"].lower()
+        # Should not hardcode specific model names or provider suggestions
+        assert "gemma4:26b" not in prompt
+        assert "guide the user to add an ollama" not in prompt
+
+    async def test_default_bot_yaml_exists(self):
+        """default.yaml should exist in system_bots/ for channel creation flow."""
+        from app.agent.bots import SYSTEM_BOTS_DIR
+
+        path = SYSTEM_BOTS_DIR / "default.yaml"
+        assert path.exists(), "default.yaml must exist — channel wizard sends bot_id='default'"
+
+    async def test_default_bot_yaml_valid(self):
+        """default.yaml should have sensible defaults for a general-purpose bot."""
+        import yaml
+        from app.agent.bots import SYSTEM_BOTS_DIR
+
+        with open(SYSTEM_BOTS_DIR / "default.yaml") as f:
+            data = yaml.safe_load(f)
+
+        assert data["id"] == "default"
+        assert data["name"] == "Default"
+        assert "system_prompt" in data
+        assert data.get("tool_retrieval") is True
+        assert data.get("workspace", {}).get("enabled") is True
+
+    async def test_all_system_bots_have_valid_ids(self):
+        """Every YAML in system_bots/ must have an id field."""
+        import yaml
+        from app.agent.bots import SYSTEM_BOTS_DIR
+
+        for path in SYSTEM_BOTS_DIR.glob("*.yaml"):
+            with open(path) as f:
+                data = yaml.safe_load(f)
+            assert data and "id" in data, f"{path.name} missing 'id' field"
 
     async def test_yaml_data_to_row_dict(self):
         """_yaml_data_to_row_dict should handle orchestrator YAML fields."""
@@ -237,6 +281,20 @@ class TestSystemBotSeeding:
         assert row_dict["id"] == "orchestrator"
         assert row_dict["local_tools"] == data["local_tools"]
         assert row_dict["delegation_config"]["delegate_bots"] == ["*"]
+
+    async def test_yaml_data_to_row_dict_default_bot(self):
+        """_yaml_data_to_row_dict should handle default bot YAML (no model field)."""
+        import yaml
+        from app.agent.bots import SYSTEM_BOTS_DIR, _yaml_data_to_row_dict
+        from app.config import settings
+
+        with open(SYSTEM_BOTS_DIR / "default.yaml") as f:
+            data = yaml.safe_load(f)
+
+        row_dict = _yaml_data_to_row_dict(data)
+        assert row_dict["id"] == "default"
+        # No model in YAML → falls back to DEFAULT_MODEL
+        assert row_dict["model"] == settings.DEFAULT_MODEL
 
 
 # ---------------------------------------------------------------------------
@@ -257,8 +315,24 @@ class TestGetSystemStatus:
             result = json.loads(await get_system_status())
 
         assert result["is_fresh_install"] is True
-        assert result["bots"] == []  # orchestrator excluded
+        assert result["bots"] == []  # system bots excluded
         assert result["channels"] == []
+
+    async def test_fresh_install_with_default_bot(self, db_session):
+        """Fresh install with both system bots (orchestrator + default) still detects as fresh."""
+        default_bot = _make_test_bot("default", name="Default")
+        with patch("app.agent.bots.list_bots", return_value=[_make_orchestrator_bot(), default_bot]), \
+             patch("app.tools.local.admin_system.async_session") as mock_session_ctx, \
+             patch("integrations.discover_setup_status", return_value=[]), \
+             patch("app.services.providers.list_providers", return_value=[]):
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=db_session)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            from app.tools.local.admin_system import get_system_status
+            result = json.loads(await get_system_status())
+
+        assert result["is_fresh_install"] is True
+        assert result["bots"] == []  # both system bots excluded
 
     async def test_returns_existing_system(self, db_session):
         """get_system_status returns is_fresh_install=False when user bots exist."""

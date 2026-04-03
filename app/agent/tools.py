@@ -318,7 +318,8 @@ async def retrieve_tools(
         logger.exception("Failed to embed query for tool retrieval")
         return [], 0.0, []
 
-    distance_expr = ToolEmbedding.embedding.cosine_distance(query_embedding)
+    from app.agent.vector_ops import halfvec_cosine_distance
+    distance_expr = halfvec_cosine_distance(ToolEmbedding.embedding, query_embedding)
 
     stmt = (
         select(ToolEmbedding.schema_, distance_expr.label("distance"))

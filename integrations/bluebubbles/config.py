@@ -49,5 +49,20 @@ class _Settings:
     def BB_SEND_METHOD(self) -> str:
         return _get("BB_SEND_METHOD", "")
 
+    @property
+    def BB_SUGGEST_CHATS(self) -> bool:
+        return _get("BB_SUGGEST_CHATS", "true").lower() in ("true", "1", "yes")
+
+    @property
+    def BB_SUGGEST_COUNT(self) -> int:
+        try:
+            return max(1, min(50, int(_get("BB_SUGGEST_COUNT", "10"))))
+        except ValueError:
+            return 10
+
+    @property
+    def BB_SUGGEST_PREVIEW(self) -> bool:
+        return _get("BB_SUGGEST_PREVIEW", "true").lower() in ("true", "1", "yes")
+
 
 settings = _Settings()

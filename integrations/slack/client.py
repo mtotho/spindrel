@@ -134,6 +134,49 @@ async def post_message_raw(
         return None
 
 
+async def list_conversations(
+    token: str,
+    *,
+    exclude_archived: bool = True,
+    types: str = "public_channel,private_channel",
+    limit: int = 200,
+) -> list[dict] | None:
+    """List Slack channels the bot is a member of via conversations.list.
+
+    Requires ``channels:read`` scope (and ``groups:read`` for private channels).
+    Automatically paginates up to ``limit`` total results.
+    """
+    channels: list[dict] = []
+    cursor: str | None = None
+    while len(channels) < limit:
+        params: dict = {
+            "exclude_archived": str(exclude_archived).lower(),
+            "types": types,
+            "limit": min(200, limit - len(channels)),
+        }
+        if cursor:
+            params["cursor"] = cursor
+        try:
+            r = await _http.get(
+                "https://slack.com/api/conversations.list",
+                params=params,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            if not data.get("ok"):
+                logger.error("Slack conversations.list error: %s", data.get("error"))
+                return None
+            channels.extend(data.get("channels", []))
+            cursor = (data.get("response_metadata") or {}).get("next_cursor")
+            if not cursor:
+                break
+        except Exception:
+            logger.exception("Failed to list Slack conversations")
+            return None
+    return channels
+
+
 async def update_message(
     token: str,
     channel_id: str,

@@ -11,6 +11,13 @@ Connects the agent server to Slack via [Bolt for Python](https://slack.dev/bolt-
 | `AGENT_API_KEY` | API key for the agent server |
 | `AGENT_BASE_URL` | Agent server URL (default: `http://localhost:8000`) |
 
+## Optional Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SLACK_SUGGEST_CHANNELS` | `true` | Show channel dropdown when creating a binding. Set to `false` to disable. |
+| `SLACK_SUGGEST_COUNT` | `20` | Number of channels to show in the binding dropdown (max: 100). |
+
 ## Slash Commands
 
 Register these in your Slack app's slash command config.
@@ -52,6 +59,19 @@ Log every tool call across all bots to a designated Slack channel:
 ```
 
 Each tool call posts a one-liner: `` `web_search` by `my-bot` (1200ms) ``
+
+## Binding Suggestions (Channel Picker)
+
+When adding a Slack binding in the admin UI, a **channel dropdown** appears showing Slack channels the bot can see. Clicking a channel auto-fills the Client ID and Display Name fields.
+
+This uses the `conversations.list` API, which requires the `channels:read` scope (already standard for the Slack bot token). Private channels also require `groups:read`.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `SLACK_SUGGEST_CHANNELS` | `true` | Set to `false` to disable the dropdown |
+| `SLACK_SUGGEST_COUNT` | `20` | Number of channels to show (max: 100) |
+
+Results are cached server-side for 5 minutes.
 
 ## Files
 

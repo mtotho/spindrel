@@ -535,23 +535,37 @@ def _cmd_channel(parts: list[str], client: AgentClient, ctx: dict) -> bool:
 
 
 def _cmd_model(parts: list[str], ctx: dict) -> bool:
+    """Set per-turn model override.  /model provider_id:model_name  or  /model model_name"""
     if len(parts) < 2:
         current = ctx.get("model_override")
+        pid = ctx.get("model_provider_id_override")
         if current:
-            console.print(f"  Model override: [bold]{current}[/bold]")
+            display = f"{pid}:{current}" if pid else current
+            console.print(f"  Model override: [bold]{display}[/bold]")
         else:
-            console.print("  No model override. Use /model <name> to set, /model reset to clear.")
+            console.print("  No model override. Use /model [provider:]<name> to set, /model reset to clear.")
         return True
 
     arg = parts[1].strip()
     if arg.lower() == "reset":
         ctx["model_override"] = None
+        ctx["model_provider_id_override"] = None
         save_model_override(None)
         console.print("  Model override cleared.")
     else:
-        ctx["model_override"] = arg
-        save_model_override(arg)
-        console.print(f"  Model override: [bold]{arg}[/bold]")
+        # Support provider_id:model syntax for explicit provider pairing.
+        # Provider IDs are simple slugs (no slashes), so "ollama/llama3:8b"
+        # is a model with a tag, not a provider:model pair.
+        first_colon = arg.find(":")
+        if first_colon > 0 and "/" not in arg[:first_colon] and not arg.startswith("http"):
+            provider_id, model = arg[:first_colon], arg[first_colon + 1:]
+        else:
+            provider_id, model = None, arg
+        ctx["model_override"] = model
+        ctx["model_provider_id_override"] = provider_id
+        save_model_override(model, provider_id)
+        display = f"{provider_id}:{model}" if provider_id else model
+        console.print(f"  Model override: [bold]{display}[/bold]")
     return True
 
 

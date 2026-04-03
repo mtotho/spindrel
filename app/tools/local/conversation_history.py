@@ -179,6 +179,7 @@ async def search_sections(channel_id: uuid.UUID, query: str) -> list[dict]:
         if len(results) < 10:
             try:
                 from app.agent.embeddings import embed_text
+                from app.agent.vector_ops import halfvec_cosine_distance
                 query_vec = await embed_text(query)
                 sem_result = await db.execute(
                     select(ConversationSection)
@@ -186,7 +187,7 @@ async def search_sections(channel_id: uuid.UUID, query: str) -> list[dict]:
                         ConversationSection.channel_id == channel_id,
                         ConversationSection.embedding.is_not(None),
                     )
-                    .order_by(ConversationSection.embedding.cosine_distance(query_vec))
+                    .order_by(halfvec_cosine_distance(ConversationSection.embedding, query_vec))
                     .limit(5)
                 )
                 for s in sem_result.scalars().all():

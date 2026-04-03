@@ -7,6 +7,7 @@ new-message webhooks from BlueBubbles Server.
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 
 import httpx
@@ -161,27 +162,58 @@ async def list_chats(limit: int = 25, offset: int = 0, _auth=Depends(verify_admi
         raise HTTPException(status_code=502, detail=f"BlueBubbles server error: {e}")
 
 
+# ---------------------------------------------------------------------------
+# Binding suggestions — cached, configurable
+# ---------------------------------------------------------------------------
+
+_suggestions_cache: dict[str, object] = {"data": [], "ts": 0.0}
+_SUGGESTIONS_CACHE_TTL = 300  # 5 minutes
+
+
 @router.get("/binding-suggestions")
 async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
-    """Return the 10 most recent BB chats as binding suggestions for the admin UI.
+    """Return the most recent BB chats as binding suggestions for the admin UI.
 
-    Each suggestion has ``client_id``, ``display_name``, and an optional
-    ``description`` (last message preview) so the user can quickly pick
-    the right chat when creating a channel binding.
+    Controlled by three settings:
+    - ``BB_SUGGEST_CHATS`` — enable/disable (default true)
+    - ``BB_SUGGEST_COUNT`` — how many to return (default 10, max 50)
+    - ``BB_SUGGEST_PREVIEW`` — include last message text (default true)
+
+    Results are cached server-side for 5 minutes to avoid hammering BB.
     """
+    from integrations.bluebubbles.config import settings as bb_settings
+
+    if not bb_settings.BB_SUGGEST_CHATS:
+        return []
+
+    count = bb_settings.BB_SUGGEST_COUNT
+    show_preview = bb_settings.BB_SUGGEST_PREVIEW
+
+    # Return cached results if fresh
+    now = time.monotonic()
+    if _suggestions_cache["data"] and (now - _suggestions_cache["ts"]) < _SUGGESTIONS_CACHE_TTL:
+        cached = _suggestions_cache["data"]
+        result = cached[:count]
+        if not show_preview:
+            return [{k: v for k, v in s.items() if k != "description"} for s in result]
+        return result
+
     server_url = _get_server_url()
     password = _get_password()
     if not server_url or not password:
         raise HTTPException(status_code=503, detail="BlueBubbles not configured")
+
+    # BB applies limit at the DB level BEFORE its last-message sort, so a
+    # small limit just returns the N oldest-created chats.  Fetch a large
+    # batch so our client-side sort actually sees all recent conversations.
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             r = await client.post(
                 f"{server_url}/api/v1/chat/query",
                 params={"password": password},
                 json={
-                    "limit": 25,
+                    "limit": 200,
                     "offset": 0,
-                    "sort": "lastmessage",
                     "with": ["lastMessage", "participants"],
                 },
             )
@@ -190,28 +222,26 @@ async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"BlueBubbles server error: {e}")
 
-    # BB's server-side sort can be unreliable — re-sort client-side by
-    # lastMessage date descending so the most recent conversations appear first.
+    # Re-sort client-side by lastMessage date descending
     def _last_msg_ts(c: dict) -> int:
         lm = c.get("lastMessage") or {}
         return lm.get("dateCreated") or lm.get("dateDelivered") or 0
 
     chats.sort(key=_last_msg_ts, reverse=True)
 
-    suggestions: list[dict] = []
-    for chat in chats[:10]:
+    # Build full suggestions list (cache with previews; strip on output if disabled)
+    all_suggestions: list[dict] = []
+    for chat in chats[:50]:
         guid = chat.get("guid", "")
         if not guid:
             continue
 
-        # Build a human-friendly display name
         display_name = chat.get("displayName") or ""
         if not display_name:
             participants = chat.get("participants") or []
             addrs = [p.get("address", "") for p in participants if p.get("address")]
             display_name = ", ".join(addrs) if addrs else guid
 
-        # Last message preview for extra context
         description = ""
         last_msg = chat.get("lastMessage")
         if last_msg:
@@ -219,13 +249,19 @@ async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
             if text:
                 description = text
 
-        suggestions.append({
+        all_suggestions.append({
             "client_id": f"bb:{guid}",
             "display_name": display_name,
             "description": description,
         })
 
-    return suggestions
+    _suggestions_cache["data"] = all_suggestions
+    _suggestions_cache["ts"] = now
+
+    result = all_suggestions[:count]
+    if not show_preview:
+        return [{k: v for k, v in s.items() if k != "description"} for s in result]
+    return result
 
 
 @router.get("/status")

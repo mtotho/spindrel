@@ -137,7 +137,6 @@ def write_env_file(config: dict[str, str]) -> None:
         ("Auth", ["API_KEY", "ADMIN_API_KEY"]),
         ("Database", ["DATABASE_URL"]),
         ("Default Model", ["DEFAULT_MODEL"]),
-        ("Embeddings", ["EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS"]),
         ("Web Search", ["WEB_SEARCH_MODE", "SEARXNG_URL", "PLAYWRIGHT_WS_URL", "COMPOSE_PROFILES"]),
     ]
 
@@ -389,11 +388,6 @@ def main() -> None:
             return
         env_config["API_KEY"] = custom_key
 
-    # ── Defaults ───────────────────────────────────────────────────────────
-
-    env_config["EMBEDDING_MODEL"] = "text-embedding-3-small"
-    env_config["EMBEDDING_DIMENSIONS"] = "1536"
-
     # ── Generate .env ──────────────────────────────────────────────────────
 
     print()
@@ -442,9 +436,8 @@ def main() -> None:
             if rc != 0:
                 print(f"\n  \033[31mDocker compose failed (exit {rc}). Start manually: docker compose up -d\033[0m")
             elif SEED_FILE.exists():
-                # Seed file is baked into the image; clean up the host copy
-                SEED_FILE.unlink()
-                print("  \033[32m✓\033[0m Cleaned up provider-seed.yaml (baked into Docker image)")
+                # Server reads seed file from the bind-mounted volume on first boot
+                print(f"  \033[2m  provider-seed.yaml will be consumed on first server boot\033[0m")
     else:
         print("  \033[1mNext steps:\033[0m")
         print("  1. bash scripts/dev-server.sh")

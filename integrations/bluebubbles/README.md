@@ -23,6 +23,10 @@ Add to your `.env` file or set via the Integration Settings UI:
 | `BB_DEFAULT_BOT` | No | Default bot ID for Socket.IO client (default: `default`). Not used by webhook. |
 | `BB_WAKE_WORDS` | No | Extra wake words (comma-separated), added on top of automatic bot name/id. See [Wake Words](#wake-words). |
 | `BB_WEBHOOK_TOKEN` | No | Shared secret for webhook auth. If set, BB must send `?token=` in the webhook URL. |
+| `BB_SEND_METHOD` | No | iMessage send method: `apple-script` (default, reliable) or `private-api` (requires Private API helper). |
+| `BB_SUGGEST_CHATS` | No | Show recent chats dropdown when creating a binding (default: `true`). Set to `false` to disable. |
+| `BB_SUGGEST_COUNT` | No | Number of recent chats to show in the binding dropdown (default: `10`, max: `50`). |
+| `BB_SUGGEST_PREVIEW` | No | Show last message preview text in the binding dropdown (default: `true`). Set to `false` to hide message content. |
 
 Example `.env`:
 ```env
@@ -221,6 +225,7 @@ Note: Chat bot mappings are in-memory and reset on server restart. For persisten
 | `/integrations/bluebubbles/config/chat-bot-map` | POST | Set per-chat bot mapping |
 | `/integrations/bluebubbles/config/chat-bot-map/{chat_guid}` | DELETE | Remove per-chat mapping |
 | `/integrations/bluebubbles/chats` | GET | List BB chats (proxied from BB server) |
+| `/integrations/bluebubbles/binding-suggestions` | GET | Recent chats formatted for the binding dropdown |
 | `/integrations/bluebubbles/status` | GET | Check BB server connectivity |
 | `/integrations/bluebubbles/diagnose` | GET | Full diagnostic of the integration path |
 | `/integrations/bluebubbles/test-send` | POST | Send a test message to verify the send path |
@@ -264,6 +269,20 @@ Note: Chat bot mappings are in-memory and reset on server restart. For persisten
 
 > The Socket.IO client (`bb_client.py`) maintains a connection for status
 > diagnostics but is **not** used for message delivery.
+
+## Binding Suggestions (Channel Picker)
+
+When adding a BlueBubbles binding in the admin UI, a **Recent Chats** dropdown appears showing your most recently active iMessage conversations. Clicking a chat auto-fills the Client ID and Display Name fields.
+
+This is controlled by three optional settings:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `BB_SUGGEST_CHATS` | `true` | Set to `false` to disable the dropdown entirely |
+| `BB_SUGGEST_COUNT` | `10` | Number of chats to show (1–50) |
+| `BB_SUGGEST_PREVIEW` | `true` | Set to `false` to hide last message text from the dropdown |
+
+Results are cached server-side for 5 minutes to avoid repeated calls to the BlueBubbles server.
 
 ## Troubleshooting
 

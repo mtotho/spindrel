@@ -9,6 +9,12 @@ tags:
   - general
   - project
   - mission-control
+group: "Core"
+recommended_heartbeat:
+  prompt: "Review task board and status. Summarize current progress, highlight blockers, and update status.md."
+  interval: "weekly"
+  quiet_start: "20:00"
+  quiet_end: "08:00"
 ---
 
 ## Workspace File Organization — General Project

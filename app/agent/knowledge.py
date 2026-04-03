@@ -437,7 +437,8 @@ async def retrieve_knowledge(
     """Semantic RAG via knowledge_access. Falls back to legacy filter if no access entries exist."""
     fb = fallback_threshold if fallback_threshold is not None else settings.KNOWLEDGE_SIMILARITY_THRESHOLD
     embedding = await _embed(query)
-    distance_expr = BotKnowledge.embedding.cosine_distance(embedding)
+    from app.agent.vector_ops import halfvec_cosine_distance
+    distance_expr = halfvec_cosine_distance(BotKnowledge.embedding, embedding)
 
     # Primary: knowledge_access-based retrieval
     stmt = (

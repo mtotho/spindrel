@@ -28,6 +28,8 @@ class PromptTemplateOut(BaseModel):
     content: str
     category: Optional[str] = None
     tags: list[str] = []
+    group: Optional[str] = None
+    recommended_heartbeat: Optional[dict] = None
     workspace_id: Optional[UUID] = None
     source_type: str = "manual"
     source_path: Optional[str] = None
@@ -68,11 +70,12 @@ async def list_prompt_templates(
     workspace_id: Optional[UUID] = None,
     category: Optional[str] = None,
     tag: Optional[str] = None,
+    group: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("settings:read")),
 ):
-    """List prompt templates. Supports workspace_id, category, and tag filters."""
-    stmt = select(PromptTemplate).order_by(PromptTemplate.category, PromptTemplate.name)
+    """List prompt templates. Supports workspace_id, category, tag, and group filters."""
+    stmt = select(PromptTemplate).order_by(PromptTemplate.group, PromptTemplate.name)
     if workspace_id is not None:
         stmt = stmt.where(
             (PromptTemplate.workspace_id == workspace_id)
@@ -82,6 +85,8 @@ async def list_prompt_templates(
         stmt = stmt.where(PromptTemplate.category == category)
     if tag is not None:
         stmt = stmt.where(PromptTemplate.tags.contains([tag]))
+    if group is not None:
+        stmt = stmt.where(PromptTemplate.group == group)
     rows = (await db.execute(stmt)).scalars().all()
     return rows
 

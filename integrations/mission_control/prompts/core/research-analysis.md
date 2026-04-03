@@ -10,6 +10,12 @@ tags:
   - analysis
   - investigation
   - mission-control
+group: "Core"
+recommended_heartbeat:
+  prompt: "Review research progress. Summarize findings status, check for sources needing review, and update status.md."
+  interval: "weekly"
+  quiet_start: "20:00"
+  quiet_end: "08:00"
 ---
 
 ## Workspace File Organization — Research / Analysis

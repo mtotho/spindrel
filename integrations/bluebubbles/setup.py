@@ -11,8 +11,11 @@ SETUP = {
         {"key": "BB_WAKE_WORDS", "required": False, "description": "Extra wake words (comma-separated). Added on top of automatic bot name/id wake words."},
         {"key": "BB_WEBHOOK_TOKEN", "required": False, "description": "Shared secret for webhook auth (?token=). If empty, webhook is unauthenticated.", "secret": True},
         {"key": "BB_SEND_METHOD", "required": False, "description": "iMessage send method: 'apple-script' (default, reliable) or 'private-api' (requires Private API helper)"},
+        {"key": "BB_SUGGEST_CHATS", "required": False, "description": "Show recent chats dropdown when binding (default: true)"},
+        {"key": "BB_SUGGEST_COUNT", "required": False, "description": "Number of recent chats to show in binding dropdown (default: 10, max: 50)"},
+        {"key": "BB_SUGGEST_PREVIEW", "required": False, "description": "Show last message preview in binding dropdown (default: true)"},
     ],
-    "api_permissions": "slack_integration",
+    "api_permissions": "bluebubbles_integration",
     "webhook": {
         "path": "/integrations/bluebubbles/webhook",
         "description": "BlueBubbles new-message webhook receiver (optional ?token=BB_WEBHOOK_TOKEN auth)",

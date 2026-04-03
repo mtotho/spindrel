@@ -24,7 +24,9 @@ cd slack-integration && python slack_bot.py
 
 Required **Bot token scopes**: `app_mentions:read`, `chat:write`, `channels:history`, `channels:read`, `commands`, `files:read`, `files:write`
 
-Optional (for custom display names per bot): `chat:write.customize`
+Optional scopes:
+- `chat:write.customize` — custom display names per bot
+- `groups:read` — show private channels in the binding dropdown (public channels work with `channels:read` alone)
 
 **Event subscriptions**: `message.channels`, `app_mention`
 
@@ -38,6 +40,19 @@ Optional (for custom display names per bot): `chat:write.customize`
 | `/context` | Show the current context window breakdown (chars per role). |
 | `/plan [subcommand]` | View and manage agent plans (see plans documentation). |
 | `/compact` | Force session compaction (summarize + memory write) now. |
+
+## Binding Suggestions
+
+When creating a Slack binding in the admin UI, a channel picker dropdown shows all channels the bot can see. This uses the `conversations.list` API (requires `channels:read`, already a required scope).
+
+To also show private channels, add the `groups:read` scope to your Slack app.
+
+| Setting | Default | Description |
+|---|---|---|
+| `SLACK_SUGGEST_CHANNELS` | `true` | Set to `false` to disable the channel picker |
+| `SLACK_SUGGEST_COUNT` | `20` | Number of channels to show (max 100) |
+
+Results are cached server-side for 5 minutes.
 
 ## Session Model
 

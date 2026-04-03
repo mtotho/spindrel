@@ -193,7 +193,7 @@ def main() -> None:
     client = AgentClient(config.agent_url, config.api_key)
     session_id = load_session_id()
     channel_id = args.channel or load_channel_id()
-    model_override = load_model_override()
+    model_override, model_provider_id_override = load_model_override()
 
     ctx = {
         "session_id": session_id,
@@ -201,6 +201,7 @@ def main() -> None:
         "client_id": "cli",
         "channel_id": channel_id,
         "model_override": model_override,
+        "model_provider_id_override": model_provider_id_override,
         "tts": tts_on,
         "piper_model": config.piper_model,
         "piper_model_dir": config.piper_model_dir,

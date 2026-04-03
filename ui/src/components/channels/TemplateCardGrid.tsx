@@ -25,6 +25,16 @@ interface TemplateCardGridProps {
 export function TemplateCardGrid({ templates, selectedId, onSelect, highlightIntegrations, hideSkip }: TemplateCardGridProps) {
   const t = useThemeTokens();
 
+  // Group templates by group field for visual sections
+  const groupOrder = ["Core", "Technical", "Business", "Personal", "Operations"];
+  const sortedTemplates = [...templates].sort((a, b) => {
+    const aIdx = groupOrder.indexOf(a.group || "");
+    const bIdx = groupOrder.indexOf(b.group || "");
+    const aSort = aIdx >= 0 ? aIdx : groupOrder.length;
+    const bSort = bIdx >= 0 ? bIdx : groupOrder.length;
+    return aSort - bSort;
+  });
+
   return (
     <View style={{ gap: 10 }}>
       {/* Skip option */}
@@ -43,7 +53,9 @@ export function TemplateCardGrid({ templates, selectedId, onSelect, highlightInt
         </Pressable>
       )}
 
-      {templates.map((tpl) => {
+      {sortedTemplates.map((tpl, idx) => {
+        const prevTpl = idx > 0 ? sortedTemplates[idx - 1] : null;
+        const showGroupHeader = tpl.group && tpl.group !== prevTpl?.group;
         const selected = selectedId === tpl.id;
         const integrationTags = (tpl.tags ?? []).filter((tag) => tag.startsWith("integration:"));
         const isRecommended = highlightIntegrations?.length
@@ -54,8 +66,21 @@ export function TemplateCardGrid({ templates, selectedId, onSelect, highlightInt
         const files = parseFiles(tpl.content);
 
         return (
+          <View key={tpl.id}>
+            {showGroupHeader && (
+              <Text style={{
+                fontSize: 10,
+                fontWeight: "700",
+                color: t.textDim,
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                marginTop: idx > 0 ? 8 : 0,
+                marginBottom: 4,
+              }}>
+                {tpl.group}
+              </Text>
+            )}
           <Pressable
-            key={tpl.id}
             onPress={() => onSelect(tpl.id)}
             style={{
               borderWidth: 1,
@@ -147,6 +172,7 @@ export function TemplateCardGrid({ templates, selectedId, onSelect, highlightInt
               </View>
             )}
           </Pressable>
+          </View>
         );
       })}
     </View>

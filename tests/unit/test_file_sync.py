@@ -16,16 +16,43 @@ from app.services.file_sync import (
 
 # All workspace schema template files shipped via mission_control integration
 _MC_PROMPTS_DIR = Path(__file__).resolve().parents[2] / "integrations" / "mission_control" / "prompts"
-_EXPECTED_TEMPLATES = [
-    "software-development",
-    "research-analysis",
-    "creative-project",
-    "general-project",
-    "project-management-hub",
-    "mission-control",
-    "software-testing-qa",
-    "life-goals",
-    "restaurant-manager",
+
+# Templates organized by category subfolder
+_EXPECTED_TEMPLATES = {
+    "core": [
+        "mission-control",
+        "general-project",
+        "research-analysis",
+        "creative-project",
+    ],
+    "technical": [
+        "software-development",
+        "software-testing-qa",
+        "sprint-agile",
+        "incident-response",
+    ],
+    "business": [
+        "project-management-hub",
+        "product-roadmap",
+        "content-editorial",
+        "consulting-engagement",
+    ],
+    "personal": [
+        "life-goals",
+        "learning-track",
+        "budget-financial",
+    ],
+    "operations": [
+        "restaurant-manager",
+        "home-property",
+    ],
+}
+
+# Flat list for parametrize
+_ALL_TEMPLATES = [
+    (category, stem)
+    for category, stems in _EXPECTED_TEMPLATES.items()
+    for stem in stems
 ]
 
 
@@ -86,6 +113,49 @@ class TestCollectPromptTemplateFiles:
         assert items[0][1] == "bar"
         assert items[0][2] == SOURCE_INTEGRATION
 
+    def test_recursive_discovery_top_level(self, tmp_path):
+        """prompts/**/*.md finds files in subdirectories."""
+        prompts_dir = tmp_path / "prompts"
+        sub = prompts_dir / "technical"
+        sub.mkdir(parents=True)
+        (sub / "dev.md").write_text("# dev")
+        (prompts_dir / "base.md").write_text("# base")
+
+        with patch("app.services.file_sync._integration_dirs", return_value=[]):
+            old_cwd = os.getcwd()
+            os.chdir(tmp_path)
+            try:
+                items = _collect_prompt_template_files()
+            finally:
+                os.chdir(old_cwd)
+
+        names = [name for _, name, _ in items]
+        assert "base" in names
+        assert "dev" in names
+
+    def test_recursive_discovery_integration(self, tmp_path):
+        """integrations/*/prompts/**/*.md finds files in subdirectories."""
+        intg_prompts = tmp_path / "integrations" / "mc" / "prompts"
+        sub = intg_prompts / "business"
+        sub.mkdir(parents=True)
+        (sub / "roadmap.md").write_text("# roadmap")
+        (intg_prompts / "base.md").write_text("# base")
+
+        with patch("app.services.file_sync._integration_dirs", return_value=[tmp_path / "integrations"]):
+            old_cwd = os.getcwd()
+            os.chdir(tmp_path)
+            try:
+                items = _collect_prompt_template_files()
+            finally:
+                os.chdir(old_cwd)
+
+        names = [name for _, name, _ in items]
+        assert "base" in names
+        assert "roadmap" in names
+        # Both should be SOURCE_INTEGRATION
+        for _, _, src in items:
+            assert src == SOURCE_INTEGRATION
+
 
 class TestClassifyPath:
     """Tests for _classify_path() — mapping filesystem paths to sync types."""
@@ -111,6 +181,26 @@ class TestClassifyPath:
         assert bot_id is None
         assert source_type == SOURCE_INTEGRATION
 
+    def test_integration_prompt_in_subfolder(self, tmp_path):
+        """integrations/{id}/prompts/{category}/*.md → prompt_template."""
+        sub = tmp_path / "integrations" / "mc" / "prompts" / "technical"
+        sub.mkdir(parents=True)
+        md = sub / "sprint-agile.md"
+        md.write_text("# sprint")
+
+        old_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            result = _classify_path(md)
+        finally:
+            os.chdir(old_cwd)
+
+        assert result is not None
+        kind, name, bot_id, source_type = result
+        assert kind == "prompt_template"
+        assert name == "sprint-agile"
+        assert source_type == SOURCE_INTEGRATION
+
     def test_top_level_prompt_regression(self, tmp_path):
         """prompts/*.md still works after adding the integration rule."""
         prompts_dir = tmp_path / "prompts"
@@ -132,6 +222,26 @@ class TestClassifyPath:
         assert bot_id is None
         assert source_type == SOURCE_FILE
 
+    def test_top_level_prompt_in_subfolder(self, tmp_path):
+        """prompts/{category}/*.md → prompt_template with SOURCE_FILE."""
+        sub = tmp_path / "prompts" / "personal"
+        sub.mkdir(parents=True)
+        md = sub / "goals.md"
+        md.write_text("# goals")
+
+        old_cwd = os.getcwd()
+        os.chdir(tmp_path)
+        try:
+            result = _classify_path(md)
+        finally:
+            os.chdir(old_cwd)
+
+        assert result is not None
+        kind, name, bot_id, source_type = result
+        assert kind == "prompt_template"
+        assert name == "goals"
+        assert source_type == SOURCE_FILE
+
     def test_unrelated_path_returns_none(self, tmp_path):
         """Random paths are not classified."""
         random_file = tmp_path / "random" / "file.md"
@@ -151,16 +261,16 @@ class TestClassifyPath:
 class TestMissionControlTemplateFiles:
     """Verify all shipped workspace schema templates exist with valid frontmatter."""
 
-    @pytest.mark.parametrize("stem", _EXPECTED_TEMPLATES)
-    def test_template_file_exists(self, stem):
-        """Each expected template file exists on disk."""
-        path = _MC_PROMPTS_DIR / f"{stem}.md"
+    @pytest.mark.parametrize("category,stem", _ALL_TEMPLATES)
+    def test_template_file_exists(self, category, stem):
+        """Each expected template file exists on disk in its category subfolder."""
+        path = _MC_PROMPTS_DIR / category / f"{stem}.md"
         assert path.exists(), f"Missing template file: {path}"
 
-    @pytest.mark.parametrize("stem", _EXPECTED_TEMPLATES)
-    def test_template_has_valid_frontmatter(self, stem):
-        """Each template has YAML frontmatter with category=workspace_schema."""
-        path = _MC_PROMPTS_DIR / f"{stem}.md"
+    @pytest.mark.parametrize("category,stem", _ALL_TEMPLATES)
+    def test_template_has_valid_frontmatter(self, category, stem):
+        """Each template has YAML frontmatter with required fields."""
+        path = _MC_PROMPTS_DIR / category / f"{stem}.md"
         content = path.read_text()
 
         # Parse YAML frontmatter
@@ -174,10 +284,79 @@ class TestMissionControlTemplateFiles:
             f"{stem}.md category should be 'workspace_schema', got {fm.get('category')!r}"
         )
         assert fm.get("tags"), f"{stem}.md missing 'tags' in frontmatter"
+        assert fm.get("group"), f"{stem}.md missing 'group' in frontmatter"
 
-    def test_no_extra_template_files(self):
-        """No unexpected .md files in prompts dir (catch accidental additions)."""
-        actual_stems = {p.stem for p in _MC_PROMPTS_DIR.glob("*.md")}
-        expected_stems = set(_EXPECTED_TEMPLATES)
-        extra = actual_stems - expected_stems
-        assert not extra, f"Unexpected template files: {extra}"
+    @pytest.mark.parametrize("category,stem", _ALL_TEMPLATES)
+    def test_template_group_matches_folder(self, category, stem):
+        """The group frontmatter field matches the category subfolder name."""
+        path = _MC_PROMPTS_DIR / category / f"{stem}.md"
+        content = path.read_text()
+        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+        fm = yaml.safe_load(match.group(1))
+
+        # Group should match the folder name (title-cased)
+        assert fm.get("group", "").lower() == category.lower(), (
+            f"{stem}.md group '{fm.get('group')}' doesn't match folder '{category}'"
+        )
+
+    def test_no_stale_flat_template_files(self):
+        """No .md files should remain at the prompts root (all should be in subfolders)."""
+        flat_files = list(_MC_PROMPTS_DIR.glob("*.md"))
+        assert not flat_files, f"Template files should be in subfolders, found at root: {[p.name for p in flat_files]}"
+
+    def test_no_unexpected_category_folders(self):
+        """Only expected category folders exist."""
+        actual_folders = {p.name for p in _MC_PROMPTS_DIR.iterdir() if p.is_dir()}
+        expected_folders = set(_EXPECTED_TEMPLATES.keys())
+        extra = actual_folders - expected_folders
+        assert not extra, f"Unexpected category folders: {extra}"
+
+    def test_all_templates_have_mc_compatibility(self):
+        """All templates should declare mission_control compatibility."""
+        for category, stems in _EXPECTED_TEMPLATES.items():
+            for stem in stems:
+                path = _MC_PROMPTS_DIR / category / f"{stem}.md"
+                content = path.read_text()
+                match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+                fm = yaml.safe_load(match.group(1))
+                compat = fm.get("compatible_integrations", [])
+                assert "mission_control" in compat, (
+                    f"{stem}.md should have 'mission_control' in compatible_integrations"
+                )
+
+
+class TestRecommendedHeartbeat:
+    """Verify recommended_heartbeat frontmatter on templates that have it."""
+
+    # All templates except mission-control (core) should have recommended_heartbeat
+    _TEMPLATES_WITH_HEARTBEAT = [
+        (cat, stem)
+        for cat, stems in _EXPECTED_TEMPLATES.items()
+        for stem in stems
+        if not (cat == "core" and stem == "mission-control")
+    ]
+
+    @pytest.mark.parametrize("category,stem", _TEMPLATES_WITH_HEARTBEAT)
+    def test_heartbeat_has_required_fields(self, category, stem):
+        """recommended_heartbeat must include prompt and interval."""
+        path = _MC_PROMPTS_DIR / category / f"{stem}.md"
+        content = path.read_text()
+        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+        fm = yaml.safe_load(match.group(1))
+
+        hb = fm.get("recommended_heartbeat")
+        assert hb is not None, f"{stem}.md should have recommended_heartbeat"
+        assert isinstance(hb, dict), f"{stem}.md recommended_heartbeat should be a dict"
+        assert hb.get("prompt"), f"{stem}.md recommended_heartbeat missing 'prompt'"
+        assert hb.get("interval") in ("hourly", "daily", "weekly", "monthly"), (
+            f"{stem}.md recommended_heartbeat interval should be hourly/daily/weekly/monthly, "
+            f"got {hb.get('interval')!r}"
+        )
+
+    def test_mission_control_has_no_heartbeat(self):
+        """The base mission-control template doesn't recommend a heartbeat."""
+        path = _MC_PROMPTS_DIR / "core" / "mission-control.md"
+        content = path.read_text()
+        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+        fm = yaml.safe_load(match.group(1))
+        assert fm.get("recommended_heartbeat") is None

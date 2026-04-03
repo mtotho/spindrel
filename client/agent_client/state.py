@@ -65,14 +65,21 @@ def save_channel_id(channel_id: str | None) -> None:
     _save_state(state)
 
 
-def load_model_override() -> str | None:
-    return _load_state().get("model_override")
+def load_model_override() -> tuple[str | None, str | None]:
+    """Return (model, provider_id) tuple."""
+    state = _load_state()
+    return state.get("model_override"), state.get("model_provider_id_override")
 
 
-def save_model_override(model: str | None) -> None:
+def save_model_override(model: str | None, provider_id: str | None = None) -> None:
     state = _load_state()
     if model is None:
         state.pop("model_override", None)
+        state.pop("model_provider_id_override", None)
     else:
         state["model_override"] = model
+        if provider_id:
+            state["model_provider_id_override"] = provider_id
+        else:
+            state.pop("model_provider_id_override", None)
     _save_state(state)

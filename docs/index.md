@@ -170,3 +170,17 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
     Production setup with the sibling container pattern.
 
 </div>
+
+## Reference
+
+<div class="grid cards" markdown>
+
+-   [:material-cube-outline: **Architecture**](reference/architecture.md)
+
+    System overview, request flow, and key components.
+
+-   [:material-database-search-outline: **RAG Pipeline**](reference/rag-pipeline.md)
+
+    Indexing, retrieval, hybrid search, reranking, halfvec acceleration, contextual retrieval, and LLM retry infrastructure.
+
+</div>

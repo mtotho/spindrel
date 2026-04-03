@@ -19,6 +19,13 @@ curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | b
 
 ### What the wizard does
 
+The setup wizard generates two files and optionally starts the server:
+
+1. **`.env`** — runtime configuration (database URL, API key, web search mode)
+2. **`provider-seed.yaml`** — LLM provider config, consumed on first server boot and then deleted
+
+It does **not** create bot YAML files or modify any code. Two system bots (`default` and `orchestrator`) are auto-seeded on first boot from `app/data/system_bots/`. The Orchestrator handles the rest of the onboarding conversationally.
+
 ### Prerequisites
 
 - **Python 3.12+** with `pip` or `ensurepip` (on Debian/Ubuntu: `apt install python3-pip python3-venv`)
@@ -28,18 +35,18 @@ curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | b
 The setup wizard is an interactive TUI that checks these prerequisites, then walks you through:
 
 1. **Deployment mode** — Docker (recommended) or local dev
-2. **LLM provider** — Pick from presets (OpenAI, OpenRouter, Google Gemini, LiteLLM proxy, Ollama/vLLM) or enter a custom OpenAI-compatible endpoint
+2. **LLM provider** — Pick from presets (Ollama, OpenAI, Anthropic, Google Gemini, OpenRouter, LiteLLM proxy) or enter a custom OpenAI-compatible endpoint
 3. **Default model** — Provider-specific model list with option for custom model names
 4. **Web search backend** — SearXNG (built-in or external), DuckDuckGo, or disabled
 5. **API authentication** — Auto-generate a random key or enter your own
 
-The wizard generates `.env` and offers to start the server immediately. The whole process takes about 60 seconds.
+The wizard generates `.env` and a `provider-seed.yaml` file. On first server boot, the seed file is consumed to create a typed provider in the database — giving you full driver features (model management, connection testing, model pull/delete for Ollama). The whole process takes about 60 seconds.
 
 ### After setup
 
 Open the UI and the **Orchestrator** bot will greet you in the Home channel. It walks you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
 
-> **Tip:** You can add more LLM providers later via **Admin UI > Providers** (Anthropic direct, additional OpenAI-compatible endpoints, etc.). The wizard just configures the default.
+> **Tip:** You can add more LLM providers later via **Admin UI > Providers**. The wizard just configures the first one.
 
 ## Manual Setup
 
@@ -57,8 +64,11 @@ Edit `.env` with your settings. Required fields:
 |----------|-------------|
 | `API_KEY` | Bearer token for API authentication |
 | `DATABASE_URL` | PostgreSQL connection string |
-| `LITELLM_BASE_URL` | LLM API endpoint (LiteLLM proxy, OpenAI, etc.) |
-| `LITELLM_API_KEY` | API key for LLM provider |
+| `DEFAULT_MODEL` | Default LLM model (e.g. `gemma4:e4b` for Ollama) |
+
+Then configure your LLM provider via **Admin UI > Providers**, or create a `provider-seed.yaml` for first-boot seeding (see `scripts/setup.py` for the format).
+
+For backward compatibility, you can also set `LLM_BASE_URL` and `LLM_API_KEY` in `.env` for a typeless OpenAI-compatible fallback — but a proper DB provider is recommended.
 
 > **Tip:** These `.env` values and all other configured secrets (provider keys, integration tokens, etc.) are automatically redacted from tool results and LLM output. You can also store additional secrets via **Admin > Security > Secrets** — see the [Secrets & Redaction guide](guides/secrets.md).
 

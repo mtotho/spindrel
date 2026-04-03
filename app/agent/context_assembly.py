@@ -1044,6 +1044,7 @@ async def assemble_context(
             if _hist_mode == "structured" and user_message:
                 # Semantic retrieval of relevant conversation sections
                 from app.agent.embeddings import embed_text as _sec_embed
+                from app.agent.vector_ops import halfvec_cosine_distance as _hv_dist
                 from app.db.models import ConversationSection as _CS
                 from sqlalchemy import select as _sec_select
                 _query_vec = await _sec_embed(user_message)
@@ -1051,7 +1052,7 @@ async def assemble_context(
                     _sec_rows = (await _sec_db2.execute(
                         _sec_select(_CS)
                         .where(_CS.channel_id == channel_id, _CS.embedding.is_not(None))
-                        .order_by(_CS.embedding.cosine_distance(_query_vec))
+                        .order_by(_hv_dist(_CS.embedding, _query_vec))
                         .limit(3)
                     )).scalars().all()
                 if _sec_rows:

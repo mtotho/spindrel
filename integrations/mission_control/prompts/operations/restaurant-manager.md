@@ -10,6 +10,12 @@ tags:
   - small-business
   - operations
   - mission-control
+group: "Operations"
+recommended_heartbeat:
+  prompt: "Review daily operations. Check inventory levels against par, flag items needing reorder, summarize yesterday's revenue and covers, and update status.md."
+  interval: "daily"
+  quiet_start: "22:00"
+  quiet_end: "06:00"
 ---
 
 ## Workspace File Organization — Restaurant / Small Business

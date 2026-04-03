@@ -86,6 +86,12 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- Hybrid Search ---
     "HYBRID_SEARCH_ENABLED": {"group": "Embeddings & RAG", "label": "Hybrid Search", "description": "Combine BM25 keyword search with vector search via Reciprocal Rank Fusion", "type": "bool"},
     "HYBRID_SEARCH_RRF_K": {"group": "Embeddings & RAG", "label": "RRF K Parameter", "description": "Reciprocal Rank Fusion k: higher values give more weight to top results", "type": "int", "min": 1, "max": 200},
+    # --- Contextual Retrieval ---
+    "CONTEXTUAL_RETRIEVAL_ENABLED": {"group": "Embeddings & RAG", "label": "Contextual Retrieval", "description": "Generate LLM descriptions per chunk during indexing for better retrieval", "type": "bool"},
+    "CONTEXTUAL_RETRIEVAL_MODEL": {"group": "Embeddings & RAG", "label": "Context Gen Model", "description": "Model for context generation (empty = compaction model)", "type": "string", "widget": "model"},
+    "CONTEXTUAL_RETRIEVAL_MAX_TOKENS": {"group": "Embeddings & RAG", "label": "Context Gen Max Tokens", "description": "Max tokens for contextual description generation", "type": "int", "min": 50, "max": 500},
+    "CONTEXTUAL_RETRIEVAL_BATCH_SIZE": {"group": "Embeddings & RAG", "label": "Context Gen Batch Size", "description": "Concurrent LLM calls during indexing", "type": "int", "min": 1, "max": 20},
+    "CONTEXTUAL_RETRIEVAL_PROVIDER_ID": {"group": "Embeddings & RAG", "label": "Context Gen Provider", "description": "Provider for context generation (empty = default)", "type": "string", "nullable": True},
     # --- Prompt Caching ---
     "PROMPT_CACHE_ENABLED": {"group": "Agent", "label": "Prompt Caching", "description": "Add Anthropic cache_control breakpoints for Claude models (reduces cost on repeated context)", "type": "bool"},
     "PROMPT_CACHE_MIN_TOKENS": {"group": "Agent", "label": "Cache Min Tokens", "description": "Min estimated tokens in a system message before applying cache breakpoint", "type": "int", "min": 128, "max": 10000},

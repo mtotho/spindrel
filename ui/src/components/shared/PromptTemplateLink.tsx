@@ -211,6 +211,10 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
                         // Section headers when highlightTag is set
                         const showCompatHeader = highlightTag && compatCount > 0 && idx === 0 && isHighlighted;
                         const showOtherHeader = highlightTag && compatCount > 0 && idx === compatCount;
+                        // Group headers within sections (show when group changes)
+                        const prevTpl = idx > 0 ? manual[idx - 1] : null;
+                        const showGroupHeader = !showCompatHeader
+                          && tpl.group && tpl.group !== prevTpl?.group;
                         return (
                         <div key={tpl.id}>
                           {showCompatHeader && (
@@ -237,6 +241,19 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
                               marginTop: 4,
                             }}>
                               Other templates
+                            </div>
+                          )}
+                          {showGroupHeader && (
+                            <div style={{
+                              padding: `${idx > 0 ? 8 : 4}px 12px 2px`,
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: t.textDim,
+                              textTransform: "uppercase",
+                              letterSpacing: 0.8,
+                              ...(idx > 0 ? { borderTop: `1px solid ${t.surfaceBorder}`, marginTop: 2 } : {}),
+                            }}>
+                              {tpl.group}
                             </div>
                           )}
                           <button

@@ -10,8 +10,8 @@ Supported directories:
   bots/{id}/knowledge/*.md           → bot_knowledge (bot_id=id, source_type='file')
   integrations/{id}/skills/*.md      → skills (source_type='integration')
   integrations/{id}/knowledge/*.md   → bot_knowledge (bot_id=NULL, source_type='integration')
-  prompts/*.md                       → prompt_templates (source_type='file')
-  integrations/{id}/prompts/*.md     → prompt_templates (source_type='integration')
+  prompts/**/*.md                    → prompt_templates (source_type='file')
+  integrations/{id}/prompts/**/*.md  → prompt_templates (source_type='integration')
 """
 from __future__ import annotations
 
@@ -212,15 +212,17 @@ def _collect_knowledge_files() -> list[tuple[Path, str, str | None, str]]:
 def _collect_prompt_template_files() -> list[tuple[Path, str, str]]:
     """Return (path, name, source_type) for all discoverable prompt template .md files.
 
-    Scans prompts/*.md (global) and integrations/*/prompts/*.md (integration-shipped).
+    Scans prompts/**/*.md (global, recursive) and integrations/*/prompts/**/*.md
+    (integration-shipped, recursive).  Subdirectories are supported for organizational
+    grouping — the template name is always the file stem (not the path).
     """
     items: list[tuple[Path, str, str]] = []
-    # prompts/*.md (global)
+    # prompts/**/*.md (global, recursive)
     prompts_dir = Path("prompts")
     if prompts_dir.is_dir():
-        for p in sorted(prompts_dir.glob("*.md")):
+        for p in sorted(prompts_dir.glob("**/*.md")):
             items.append((p, p.stem, SOURCE_FILE))
-    # integrations/*/prompts/*.md (in-repo + external)
+    # integrations/*/prompts/**/*.md (in-repo + external, recursive)
     for base_dir in _integration_dirs():
         if not base_dir.is_dir():
             continue
@@ -229,7 +231,7 @@ def _collect_prompt_template_files() -> list[tuple[Path, str, str]]:
                 continue
             intg_prompts = intg_dir / "prompts"
             if intg_prompts.is_dir():
-                for p in sorted(intg_prompts.glob("*.md")):
+                for p in sorted(intg_prompts.glob("**/*.md")):
                     items.append((p, p.stem, SOURCE_INTEGRATION))
     return items
 
@@ -439,6 +441,8 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
         display_name = meta.get("name", name.replace("_", " ").replace("-", " ").title())
         category = meta.get("category")
         description = meta.get("description")
+        group = meta.get("group")
+        recommended_heartbeat = meta.get("recommended_heartbeat")
         tags = meta.get("tags", [])
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
@@ -471,6 +475,8 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                     content=raw,
                     category=category,
                     tags=tags if tags else [],
+                    group=group,
+                    recommended_heartbeat=recommended_heartbeat,
                     source_type=source_type,
                     source_path=source_path,
                     content_hash=content_hash,
@@ -485,6 +491,8 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                 existing.content = raw
                 existing.category = category
                 existing.tags = tags if tags else []
+                existing.group = group
+                existing.recommended_heartbeat = recommended_heartbeat
                 existing.content_hash = content_hash
                 existing.source_path = source_path
                 existing.source_type = source_type
@@ -863,6 +871,8 @@ async def sync_changed_file(path: Path) -> None:
         display_name = meta.get("name", name.replace("_", " ").replace("-", " ").title())
         category = meta.get("category")
         description = meta.get("description")
+        group = meta.get("group")
+        recommended_heartbeat = meta.get("recommended_heartbeat")
         tags = meta.get("tags", [])
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
@@ -893,6 +903,8 @@ async def sync_changed_file(path: Path) -> None:
                     content=raw,
                     category=category,
                     tags=tags if tags else [],
+                    group=group,
+                    recommended_heartbeat=recommended_heartbeat,
                     source_type=source_type,
                     source_path=path_str,
                     content_hash=content_hash,
@@ -906,6 +918,8 @@ async def sync_changed_file(path: Path) -> None:
                 existing.content = raw
                 existing.category = category
                 existing.tags = tags if tags else []
+                existing.group = group
+                existing.recommended_heartbeat = recommended_heartbeat
                 existing.content_hash = content_hash
                 existing.updated_at = datetime.now(timezone.utc)
                 await session.commit()
@@ -1047,13 +1061,13 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
     if len(parts) == 4 and parts[0] == "integrations" and parts[2] == "knowledge" and parts[3].endswith(".md"):
         return ("knowledge", Path(parts[3]).stem, None, SOURCE_INTEGRATION)
 
-    # prompts/*.md
-    if len(parts) == 2 and parts[0] == "prompts" and parts[1].endswith(".md"):
-        return ("prompt_template", Path(parts[1]).stem, None, SOURCE_FILE)
+    # prompts/**/*.md (recursive — supports category subfolders)
+    if len(parts) >= 2 and parts[0] == "prompts" and parts[-1].endswith(".md"):
+        return ("prompt_template", Path(parts[-1]).stem, None, SOURCE_FILE)
 
-    # integrations/{id}/prompts/*.md
-    if len(parts) == 4 and parts[0] == "integrations" and parts[2] == "prompts" and parts[3].endswith(".md"):
-        return ("prompt_template", Path(parts[3]).stem, None, SOURCE_INTEGRATION)
+    # integrations/{id}/prompts/**/*.md (recursive — supports category subfolders)
+    if len(parts) >= 4 and parts[0] == "integrations" and parts[2] == "prompts" and parts[-1].endswith(".md"):
+        return ("prompt_template", Path(parts[-1]).stem, None, SOURCE_INTEGRATION)
 
     # carapaces/*.yaml
     if len(parts) == 2 and parts[0] == "carapaces" and parts[1].endswith(".yaml"):

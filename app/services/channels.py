@@ -449,6 +449,7 @@ async def _ensure_orchestrator_bot_exists() -> bool:
                 "- Use sensible defaults. Don't ask questions you can answer yourself.\n"
                 "- Never suggest editing YAML or .env — do everything through tools.\n"
                 "- When creating bots, enable workspace + workspace-files memory by default.\n"
+                "- Use models available from the configured provider (check get_system_status).\n"
                 "- If an LLM error occurs, use `manage_bot` to update your model."
             ),
             local_tools=["get_system_status", "manage_bot", "manage_channel",

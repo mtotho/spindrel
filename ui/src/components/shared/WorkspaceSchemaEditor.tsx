@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { View, Text, Pressable, ScrollView } from "react-native";
-import { FileText, File, Pencil, RotateCcw, Save, BookTemplate, X, Sparkles, Plug } from "lucide-react";
+import { FileText, File, Pencil, RotateCcw, Save, BookTemplate, X, Sparkles, Plug, Timer } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { prettyIntegrationName } from "../../utils/format";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
@@ -162,7 +162,7 @@ export function WorkspaceSchemaEditor({
                         {tpl.description}
                       </Text>
                     )}
-                    {/* File preview chips + provenance */}
+                    {/* File preview chips + provenance + heartbeat hint */}
                     {(files.length > 0 || slug) && (
                       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
                         {files.slice(0, 4).map((f) => (
@@ -186,6 +186,22 @@ export function WorkspaceSchemaEditor({
                           <Text style={{ fontSize: 9, color: t.textDim, alignSelf: "center" }}>
                             +{files.length - 4}
                           </Text>
+                        )}
+                        {tpl.recommended_heartbeat && (
+                          <View style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 3,
+                            backgroundColor: t.accent + "12",
+                            paddingHorizontal: 5,
+                            paddingVertical: 2,
+                            borderRadius: 3,
+                          }}>
+                            <Timer size={8} color={t.accent} />
+                            <Text style={{ fontSize: 9, color: t.accent, fontWeight: "500" }}>
+                              {tpl.recommended_heartbeat.interval.charAt(0).toUpperCase() + tpl.recommended_heartbeat.interval.slice(1)}
+                            </Text>
+                          </View>
                         )}
                         {slug && (
                           <View style={{
@@ -301,6 +317,33 @@ export function WorkspaceSchemaEditor({
           </View>
         );
       })()}
+
+      {/* Heartbeat recommendation */}
+      {hasTemplate && linkedTemplate.recommended_heartbeat && !hasOverride && (
+        <View style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          marginTop: 6,
+          padding: 8,
+          borderRadius: 6,
+          backgroundColor: t.accent + "08",
+          borderWidth: 1,
+          borderColor: t.accent + "20",
+        }}>
+          <Timer size={12} color={t.accent} />
+          <Text style={{ fontSize: 11, color: t.textMuted, flex: 1 }}>
+            <Text style={{ fontWeight: "600", color: t.accent }}>
+              {linkedTemplate.recommended_heartbeat.interval.charAt(0).toUpperCase()
+                + linkedTemplate.recommended_heartbeat.interval.slice(1)} heartbeat recommended
+            </Text>
+            {" — "}
+            {linkedTemplate.recommended_heartbeat.prompt.length > 80
+              ? linkedTemplate.recommended_heartbeat.prompt.slice(0, 80) + "..."
+              : linkedTemplate.recommended_heartbeat.prompt}
+          </Text>
+        </View>
+      )}
 
       {hasOverride && (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2, marginBottom: 4 }}>

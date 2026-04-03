@@ -1,14 +1,19 @@
 """Slack integration router — serves config to the Slack bot process."""
 from __future__ import annotations
 
+import logging
 import os
+import time
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from app.db.engine import async_session
 from app.db.models import Bot as BotRow, Channel
+from app.dependencies import verify_admin_auth
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -66,3 +71,84 @@ async def slack_config(request: Request):
         "channels": channels,
         "bots": bots,
     })
+
+
+# ---------------------------------------------------------------------------
+# Binding suggestions — cached, configurable
+# ---------------------------------------------------------------------------
+
+_suggestions_cache: dict[str, object] = {"data": [], "ts": 0.0}
+_SUGGESTIONS_CACHE_TTL = 300  # 5 minutes
+
+
+def _get_slack_setting(key: str, default: str = "") -> str:
+    """Get a Slack setting: DB cache > env var > default."""
+    try:
+        from app.services.integration_settings import get_value
+        return get_value("slack", key, default)
+    except ImportError:
+        return os.environ.get(key, default)
+
+
+@router.get("/binding-suggestions")
+async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
+    """Return Slack channels the bot can see, formatted as binding suggestions.
+
+    Controlled by:
+    - ``SLACK_SUGGEST_CHANNELS`` — enable/disable (default true)
+    - ``SLACK_SUGGEST_COUNT`` — how many to return (default 20, max 100)
+
+    Results are cached server-side for 5 minutes.
+    Requires ``channels:read`` scope (already standard).
+    """
+    enabled = _get_slack_setting("SLACK_SUGGEST_CHANNELS", "true").lower() in ("true", "1", "yes")
+    if not enabled:
+        return []
+
+    try:
+        count = max(1, min(100, int(_get_slack_setting("SLACK_SUGGEST_COUNT", "20"))))
+    except ValueError:
+        count = 20
+
+    # Return cached results if fresh
+    now = time.monotonic()
+    if _suggestions_cache["data"] and (now - _suggestions_cache["ts"]) < _SUGGESTIONS_CACHE_TTL:
+        return _suggestions_cache["data"][:count]
+
+    # Get bot token
+    token = _get_slack_setting("SLACK_BOT_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="SLACK_BOT_TOKEN not configured")
+
+    from integrations.slack.client import list_conversations
+
+    channels = await list_conversations(token, limit=200)
+    if channels is None:
+        raise HTTPException(status_code=502, detail="Failed to fetch Slack channels (check channels:read scope)")
+
+    # Sort: channels with more recent activity first (Slack doesn't guarantee order).
+    # Use 'updated' timestamp if available, else 'created'.
+    channels.sort(key=lambda c: c.get("updated", c.get("created", 0)), reverse=True)
+
+    all_suggestions: list[dict] = []
+    for ch in channels:
+        ch_id = ch.get("id", "")
+        if not ch_id:
+            continue
+        name = ch.get("name_normalized") or ch.get("name") or ch_id
+        is_private = ch.get("is_private", False)
+        prefix = "" if is_private else "#"
+        topic = (ch.get("topic") or {}).get("value", "")
+        purpose = (ch.get("purpose") or {}).get("value", "")
+        description = topic or purpose
+
+        all_suggestions.append({
+            "client_id": f"slack:{ch_id}",
+            "display_name": f"{prefix}{name}",
+            "description": description[:80] if description else "",
+        })
+
+    _suggestions_cache["data"] = all_suggestions
+    _suggestions_cache["ts"] = now
+
+    return all_suggestions[:count]

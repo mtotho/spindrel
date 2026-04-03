@@ -154,6 +154,28 @@ async def _index_filesystems_and_start_watchers() -> None:
     await start_watchers(list_bots())
     logger.info("Background: filesystem indexing complete.")
 
+    # Warm contextual retrieval cache from existing filesystem chunk metadata
+    if settings.CONTEXTUAL_RETRIEVAL_ENABLED:
+        try:
+            from sqlalchemy import select as _sel
+            from app.agent.contextual_retrieval import warm_cache_from_metadata
+            from app.db.models import FilesystemChunk
+            async with async_session() as _db:
+                cr_rows = (await _db.execute(
+                    _sel(
+                        FilesystemChunk.content_hash,
+                        FilesystemChunk.chunk_index,
+                        FilesystemChunk.metadata_["contextual_description"].as_string(),
+                    ).where(
+                        FilesystemChunk.metadata_["contextual_description"].as_string().is_not(None)
+                    ).limit(10_000)
+                )).all()
+            warmed = warm_cache_from_metadata(cr_rows)
+            if warmed:
+                logger.info("Warmed contextual retrieval cache from %d filesystem chunk(s)", warmed)
+        except Exception:
+            logger.debug("Contextual retrieval cache warm-up failed", exc_info=True)
+
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
@@ -162,6 +184,13 @@ async def lifespan(application: FastAPI):
     # Install in-memory ring buffer handler for /api/v1/admin/server-logs
     from app.services.log_buffer import install as _install_log_buffer
     _install_log_buffer(capacity=10_000)
+    # Validate EMBEDDING_DIMENSIONS — DB columns and halfvec indexes are built for 1536
+    if settings.EMBEDDING_DIMENSIONS != 1536:
+        raise RuntimeError(
+            f"EMBEDDING_DIMENSIONS={settings.EMBEDDING_DIMENSIONS} but DB columns and indexes "
+            f"are hardcoded to 1536. Do not change this value — models with different native "
+            f"dimensions are zero-padded or Matryoshka-truncated automatically."
+        )
     logger.info("Running database migrations...")
     try:
         await run_migrations()

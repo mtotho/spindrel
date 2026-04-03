@@ -14,7 +14,8 @@ from typing import Any
 
 from sqlalchemy import delete, func, select
 
-from app.agent.chunking import ChunkResult, chunk_markdown as _shared_chunk_markdown, chunk_sliding_window as _shared_chunk_sliding_window
+from app.agent.chunking import CHUNKING_VERSION, ChunkResult, chunk_markdown as _shared_chunk_markdown, chunk_sliding_window as _shared_chunk_sliding_window
+from app.agent.contextual_retrieval import build_embed_text, generate_batch_contexts, get_effective_chunking_version
 from app.agent.embeddings import embed_batch, embed_text
 from app.config import settings
 from app.db.engine import async_session
@@ -364,6 +365,7 @@ async def _process_file(
     segments: list[dict] | None,
     existing_hashes: dict[str, str],
     existing_models: dict[str, str | None],
+    existing_versions: dict[str, str | None],
     scope_conds: list,
     sem: asyncio.Semaphore,
     progress_state: dict | None,
@@ -389,17 +391,32 @@ async def _process_file(
             seg = _match_segment(rel, segments)
             effective_model = seg["embedding_model"] if seg else base_model
 
-            # Skip if content and model unchanged
+            # Skip if content, model, and chunking version unchanged
             # Treat existing_model=None as matching the default embedding model
             # (legacy rows pre-dating the embedding_model column)
             existing_model = existing_models.get(rel)
             model_matches = (existing_model == effective_model) or (existing_model is None and effective_model == base_model)
-            if existing_hashes.get(rel) == file_hash and model_matches:
+            effective_version = get_effective_chunking_version(CHUNKING_VERSION)
+            version_matches = existing_versions.get(rel) == effective_version
+            if existing_hashes.get(rel) == file_hash and model_matches and version_matches:
                 result = _FileResult(status="skipped", rel_path=rel)
 
         if result is None:
-            # Embed all chunks
-            texts = [c.content for c in chunks]
+            # Contextual retrieval: generate LLM descriptions for chunks
+            file_text = raw.decode("utf-8", errors="replace")
+
+            cr_chunks = [{"text": c.content, "index": i} for i, c in enumerate(chunks)]
+            cr_descriptions = await generate_batch_contexts(cr_chunks, file_text, rel, file_hash)
+
+            # Build embedding texts with contextual descriptions
+            texts = []
+            for i, c in enumerate(chunks):
+                texts.append(build_embed_text(
+                    c.content,
+                    context_prefix=f"File: {rel}",
+                    contextual_description=cr_descriptions[i],
+                ))
+
             try:
                 embeddings: list[list[float]] = []
                 for i in range(0, len(texts), 50):
@@ -433,6 +450,9 @@ async def _process_file(
                         )
                     )
                     for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+                        chunk_meta = {"chunking_version": effective_version}
+                        if cr_descriptions[i]:
+                            chunk_meta["contextual_description"] = cr_descriptions[i]
                         db.add(FilesystemChunk(
                             bot_id=bot_id,
                             client_id=client_id,
@@ -447,6 +467,7 @@ async def _process_file(
                             start_line=chunk.start_line,
                             end_line=chunk.end_line,
                             embedding_model=effective_model,
+                            metadata_=chunk_meta,
                         ))
                     await db.commit()
             except Exception:
@@ -591,13 +612,14 @@ async def index_directory(
             conds.append(FilesystemChunk.client_id == client_id)
         return conds
 
-    # Fetch existing content_hashes + embedding_model in bulk for this (bot_id, client_id, root)
+    # Fetch existing content_hashes + embedding_model + chunking_version in bulk
     async with async_session() as db:
         _fs_sub = (
             select(
                 FilesystemChunk.file_path,
                 FilesystemChunk.content_hash,
                 FilesystemChunk.embedding_model,
+                FilesystemChunk.metadata_["chunking_version"].as_string().label("chunking_version"),
                 func.row_number().over(
                     partition_by=FilesystemChunk.file_path,
                     order_by=FilesystemChunk.id,
@@ -607,11 +629,12 @@ async def index_directory(
             .subquery()
         )
         rows = (await db.execute(
-            select(_fs_sub.c.file_path, _fs_sub.c.content_hash, _fs_sub.c.embedding_model)
+            select(_fs_sub.c.file_path, _fs_sub.c.content_hash, _fs_sub.c.embedding_model, _fs_sub.c.chunking_version)
             .where(_fs_sub.c._rn == 1)
         )).all()
     existing_hashes: dict[str, str] = {row.file_path: row.content_hash for row in rows}
     existing_models: dict[str, str | None] = {row.file_path: row.embedding_model for row in rows}
+    existing_versions: dict[str, str | None] = {row.file_path: row.chunking_version for row in rows}
 
     # Resolve the base embedding model for this index run
     base_model = embedding_model or settings.EMBEDDING_MODEL
@@ -631,7 +654,7 @@ async def index_directory(
         _process_file(
             path, root_path, bot_id, client_id,
             base_model, segments,
-            existing_hashes, existing_models,
+            existing_hashes, existing_models, existing_versions,
             scope_conds, sem, progress_state,
         )
         for path in candidates
@@ -910,7 +933,8 @@ async def retrieve_filesystem_context(
             logger.exception("Failed to embed query for filesystem retrieval")
             return [], 0.0
 
-        distance_expr = FilesystemChunk.embedding.cosine_distance(query_embedding)
+        from app.agent.vector_ops import halfvec_cosine_distance
+        distance_expr = halfvec_cosine_distance(FilesystemChunk.embedding, query_embedding)
         # Match chunks with this model or legacy NULL (embedded with default model)
         model_filter = or_(
             FilesystemChunk.embedding_model == model,
@@ -955,7 +979,7 @@ async def retrieve_filesystem_context(
             logger.exception("Failed to embed query with model %s", model)
             continue
 
-        distance_expr = FilesystemChunk.embedding.cosine_distance(query_embedding)
+        distance_expr = halfvec_cosine_distance(FilesystemChunk.embedding, query_embedding)
         model_filter = or_(
             FilesystemChunk.embedding_model == model,
             # Legacy NULL chunks only queried with default model

@@ -141,7 +141,8 @@ async def retrieve_memory_matches(
         logger.exception("Failed to embed query for memory retrieval")
         return [], 0.0
 
-    distance_expr = Memory.embedding.cosine_distance(query_embedding)
+    from app.agent.vector_ops import halfvec_cosine_distance
+    distance_expr = halfvec_cosine_distance(Memory.embedding, query_embedding)
     stmt = (
         select(Memory.id, Memory.content, Memory.created_at, distance_expr.label("distance"))
         .order_by(distance_expr)

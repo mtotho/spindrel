@@ -32,11 +32,12 @@ async def get_system_status() -> str:
     from app.agent.bots import list_bots
     from app.services.providers import list_providers
 
-    # Bots (exclude orchestrator from user-facing list)
+    # Bots (exclude system bots from user-facing list)
+    _SYSTEM_BOT_IDS = {"orchestrator", "default"}
     bots = [
         {"id": b.id, "name": b.name, "model": b.model}
         for b in list_bots()
-        if b.id != "orchestrator"
+        if b.id not in _SYSTEM_BOT_IDS
     ]
 
     # Channels (exclude orchestrator landing)

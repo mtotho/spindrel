@@ -209,7 +209,7 @@ export function useBindingSuggestions(suggestionsEndpoint: string | undefined) {
     queryKey: ["binding-suggestions", suggestionsEndpoint],
     queryFn: () => apiFetch<BindingSuggestion[]>(suggestionsEndpoint!),
     enabled: !!suggestionsEndpoint,
-    staleTime: 30_000,
+    staleTime: 5 * 60_000, // server caches for 5 min, no point refetching sooner
   });
 }
 

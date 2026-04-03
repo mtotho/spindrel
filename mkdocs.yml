@@ -58,6 +58,7 @@ nav:
     - Design Philosophy: integrations/design.md
   - Reference:
     - Architecture: reference/architecture.md
+    - RAG Pipeline: reference/rag-pipeline.md
 
 markdown_extensions:
   - admonition

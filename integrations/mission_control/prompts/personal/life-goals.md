@@ -9,6 +9,12 @@ tags:
   - personal
   - goals
   - mission-control
+group: "Personal"
+recommended_heartbeat:
+  prompt: "Weekly reflection: review habit streaks, check goal progress, note any life area rating changes, and prompt for a brief journal entry."
+  interval: "weekly"
+  quiet_start: "22:00"
+  quiet_end: "08:00"
 ---
 
 ## Workspace File Organization — Life Goals / Personal

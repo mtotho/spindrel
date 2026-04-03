@@ -28,6 +28,8 @@ _no_tools_models: set[str] = set()
 _plan_billed_models: set[str] = set()
 # Reverse index: model_id → provider_id (built from provider_models table)
 _model_to_provider: dict[str, str] = {}
+# Volatile reverse index: populated from live model listings (fallback for models not in DB)
+_live_model_to_provider: dict[str, str] = {}
 
 
 async def seed_provider_from_file(path: Path = Path("provider-seed.yaml")) -> None:
@@ -123,7 +125,7 @@ async def _warm_model_info_cache() -> None:
 
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
-    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _plan_billed_models, _model_to_provider
+    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _plan_billed_models, _model_to_provider, _live_model_to_provider
     _registry = {}
     _client_cache = {}
     _tpm_windows = {}
@@ -132,6 +134,7 @@ async def load_providers() -> None:
     _no_tools_models = set()
     _plan_billed_models = set()
     _model_to_provider = {}
+    _live_model_to_provider = {}
 
     async with async_session() as db:
         rows = (
@@ -296,16 +299,17 @@ def get_default_provider() -> ProviderConfigRow | None:
 def resolve_provider_for_model(model: str) -> str | None:
     """Look up the provider_id that owns *model* via the reverse index.
 
-    Only returns providers whose driver declares chat_completions=True.
-    All current drivers support this (OpenAI-compatible drivers natively,
-    Anthropic drivers via the AnthropicOpenAIAdapter shim).
+    Checks the DB-backed index first, then the volatile index (populated
+    from live model listings).  Only returns providers whose driver declares
+    chat_completions=True.
 
     Returns None if the model isn't in any provider's model list (caller
     should fall back to the .env default client).
     """
     from app.services.provider_drivers import get_driver
 
-    provider_id = _model_to_provider.get(model)
+    # Try DB index, then volatile live-listing index
+    provider_id = _model_to_provider.get(model) or _live_model_to_provider.get(model)
     if provider_id is None:
         return None
     provider = _registry.get(provider_id)
@@ -554,5 +558,20 @@ async def get_available_models_grouped() -> list[dict]:
                 "provider_type": provider.provider_type,
                 "models": [],
             })
+
+    # Update volatile model→provider index from live listing data.
+    # This allows resolve_provider_for_model to find models that haven't
+    # been synced to the provider_models DB table yet.
+    global _live_model_to_provider
+    new_idx: dict[str, str] = {}
+    for g in groups:
+        pid = g.get("provider_id")
+        if pid is None:
+            continue
+        for m in g.get("models", []):
+            mid = m.get("id", "")
+            if mid and mid not in new_idx:
+                new_idx[mid] = pid
+    _live_model_to_provider = new_idx
 
     return groups

@@ -38,6 +38,7 @@ class AgentClient:
         client_id: str = "cli",
         channel_id: str | None = None,
         model_override: str | None = None,
+        model_provider_id_override: str | None = None,
         attachments: list[dict] | None = None,
         audio_data: str | None = None,
         audio_format: str | None = None,
@@ -54,6 +55,8 @@ class AgentClient:
             body["channel_id"] = channel_id
         if model_override is not None:
             body["model_override"] = model_override
+        if model_provider_id_override is not None:
+            body["model_provider_id_override"] = model_provider_id_override
         if attachments:
             body["attachments"] = attachments
         if audio_data is not None:

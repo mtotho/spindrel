@@ -132,6 +132,44 @@ class TestResolveProviderForModel:
             providers._model_to_provider = old_idx
             providers._registry = old_reg
 
+    def test_falls_back_to_live_index(self):
+        """resolve_provider_for_model uses volatile live index when DB index misses."""
+        from app.services import providers
+
+        old_idx, old_live, old_reg = (
+            providers._model_to_provider,
+            providers._live_model_to_provider,
+            providers._registry,
+        )
+        try:
+            providers._model_to_provider = {}  # DB index empty
+            providers._live_model_to_provider = {"minimax/MiniMax-M2.7": "mini-max"}
+            providers._registry = {"mini-max": _fake_provider("anthropic-compatible")}
+            assert providers.resolve_provider_for_model("minimax/MiniMax-M2.7") == "mini-max"
+        finally:
+            providers._model_to_provider = old_idx
+            providers._live_model_to_provider = old_live
+            providers._registry = old_reg
+
+    def test_db_index_takes_priority_over_live(self):
+        """DB index is preferred over volatile live index."""
+        from app.services import providers
+
+        old_idx, old_live, old_reg = (
+            providers._model_to_provider,
+            providers._live_model_to_provider,
+            providers._registry,
+        )
+        try:
+            providers._model_to_provider = {"gpt-4o": "openai-db"}
+            providers._live_model_to_provider = {"gpt-4o": "openai-live"}
+            providers._registry = {"openai-db": _fake_provider("openai-compatible")}
+            assert providers.resolve_provider_for_model("gpt-4o") == "openai-db"
+        finally:
+            providers._model_to_provider = old_idx
+            providers._live_model_to_provider = old_live
+            providers._registry = old_reg
+
 
 # ---------------------------------------------------------------------------
 # llm.py: _prepare_call_params auto-resolution

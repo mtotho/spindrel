@@ -83,7 +83,8 @@ async def retrieve_context(
         logger.exception("Failed to embed query for retrieval")
         return [], 0.0
 
-    distance_expr = Document.embedding.cosine_distance(query_embedding)
+    from app.agent.vector_ops import halfvec_cosine_distance
+    distance_expr = halfvec_cosine_distance(Document.embedding, query_embedding)
 
     # Fetch more results when hybrid search will fuse them
     vector_limit = settings.RAG_TOP_K

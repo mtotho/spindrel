@@ -304,7 +304,7 @@ async def run_agent_tool_loop(
         from app.services.providers import check_rate_limit, resolve_provider_for_model
         from app.services.secret_registry import redact as _redact_secrets
 
-        # Resolve provider once so rate-limit checks use the correct provider
+        # Resolve provider once — used for rate limiting AND the actual LLM call.
         effective_provider_id = provider_id
         if effective_provider_id is None:
             effective_provider_id = resolve_provider_for_model(model)
@@ -355,7 +355,7 @@ async def run_agent_tool_loop(
             if _wait:
                 logger.info("Provider TPM limit: waiting %ds before LLM call", _wait)
                 yield _event_with_compaction_tag(
-                    {"type": "rate_limit_wait", "wait_seconds": _wait, "provider_id": provider_id or ""},
+                    {"type": "rate_limit_wait", "wait_seconds": _wait, "provider_id": effective_provider_id or ""},
                     compaction,
                 )
                 await asyncio.sleep(_wait)
@@ -374,7 +374,7 @@ async def run_agent_tool_loop(
                     "model": effective_model,
                     "message_count": len(messages),
                     "tools_count": len(tools_param) if tools_param else 0,
-                    "provider_id": provider_id,
+                    "provider_id": effective_provider_id,
                     "iteration": iteration + 1,
                 },
             )))
@@ -384,7 +384,7 @@ async def run_agent_tool_loop(
             _llm_cancelled = False
             async for item in _llm_call_stream(
                 effective_model, messages, tools_param, tool_choice,
-                provider_id=provider_id, model_params=bot.model_params,
+                provider_id=effective_provider_id, model_params=bot.model_params,
                 fallback_models=fallback_models,
             ):
                 if isinstance(item, AccumulatedMessage):
@@ -416,7 +416,7 @@ async def run_agent_tool_loop(
                 "fallback_used": _fb_info_for_hook is not None,
                 "fallback_model": _fb_info_for_hook.fallback_model if _fb_info_for_hook else None,
                 "iteration": iteration + 1,
-                "provider_id": provider_id,
+                "provider_id": effective_provider_id,
             }
             asyncio.create_task(fire_hook("after_llm_call", HookContext(
                 bot_id=bot.id, session_id=session_id, channel_id=channel_id,
@@ -475,7 +475,7 @@ async def run_agent_tool_loop(
                         "total_tokens": accumulated_msg.usage.total_tokens,
                         "iteration": iteration + 1,
                         "model": effective_model,
-                        "provider_id": provider_id,
+                        "provider_id": effective_provider_id,
                         "channel_id": str(channel_id) if channel_id else None,
                     }
                     if accumulated_msg.cached_tokens is not None:
@@ -514,6 +514,11 @@ async def run_agent_tool_loop(
             if not accumulated_msg.tool_calls:
                 text = _sanitize_llm_text(accumulated_msg.content or "")
                 text = _redact_secrets(text)
+
+                # Update persisted message with sanitized content so
+                # [silent] tags / malformed tool calls don't leak into DB history.
+                if text != (accumulated_msg.content or ""):
+                    messages[-1] = {**messages[-1], "content": text}
 
                 if not text.strip():
                     # Distinguish genuine silent completion from model API failures.
@@ -560,12 +565,14 @@ async def run_agent_tool_loop(
                                 model, messages,
                                 tools_param,
                                 "none" if tools_param is not None else None,
-                                provider_id=provider_id,
+                                provider_id=effective_provider_id,
                                 fallback_models=fallback_models,
                             )
                             text = _sanitize_llm_text(retry.choices[0].message.content or "")
                             text = _redact_secrets(text)
-                            messages.append(retry.choices[0].message.model_dump(exclude_none=True))
+                            _retry_msg = retry.choices[0].message.model_dump(exclude_none=True)
+                            _retry_msg["content"] = text
+                            messages.append(_retry_msg)
                         except Exception as exc:
                             logger.error("Forced-response retry failed: %s", exc)
                             if correlation_id is not None:
@@ -660,7 +667,7 @@ async def run_agent_tool_loop(
                     correlation_id=correlation_id,
                     channel_id=channel_id,
                     iteration=iteration,
-                    provider_id=provider_id,
+                    provider_id=effective_provider_id,
                     summarize_enabled=_eff_summarize_enabled,
                     summarize_threshold=_eff_summarize_threshold,
                     summarize_model=_eff_summarize_model,
@@ -708,7 +715,7 @@ async def run_agent_tool_loop(
                             correlation_id=correlation_id,
                             channel_id=channel_id,
                             iteration=iteration,
-                            provider_id=provider_id,
+                            provider_id=effective_provider_id,
                             summarize_enabled=_eff_summarize_enabled,
                             summarize_threshold=_eff_summarize_threshold,
                             summarize_model=_eff_summarize_model,
@@ -826,7 +833,7 @@ async def run_agent_tool_loop(
                 model, messages,
                 tools_param,
                 "none" if tools_param is not None else None,
-                provider_id=provider_id,
+                provider_id=effective_provider_id,
                 fallback_models=fallback_models,
             )
             msg = response.choices[0].message
@@ -849,7 +856,11 @@ async def run_agent_tool_loop(
             }, compaction)
             return
 
-        messages.append(msg.model_dump(exclude_none=True))
+        text = _sanitize_llm_text(msg.content or "")
+        text = _redact_secrets(text)
+        _post_loop_msg = msg.model_dump(exclude_none=True)
+        _post_loop_msg["content"] = text
+        messages.append(_post_loop_msg)
         if response.usage and correlation_id is not None:
             _usage_data2 = {
                 "prompt_tokens": response.usage.prompt_tokens,
@@ -857,7 +868,7 @@ async def run_agent_tool_loop(
                 "total_tokens": response.usage.total_tokens,
                 "iteration": iteration + 2,  # +1 for 0-index, +1 for this forced call
                 "model": model,
-                "provider_id": provider_id,
+                "provider_id": effective_provider_id,
                 "channel_id": str(channel_id) if channel_id else None,
                 **_extract_usage_extras(response),
             }
@@ -869,9 +880,6 @@ async def run_agent_tool_loop(
                 event_type="token_usage",
                 data=_usage_data2,
             ))
-
-        text = _sanitize_llm_text(msg.content or "")
-        text = _redact_secrets(text)
         _fin_events, transcript_emitted = _finalize_response(
             text,
             messages=messages, bot=bot, session_id=session_id,

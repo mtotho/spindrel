@@ -10,6 +10,12 @@ tags:
   - portfolio
   - hub
   - mission-control
+group: "Business"
+recommended_heartbeat:
+  prompt: "Pull status from all tracked project channels. Update dashboard.md with current health indicators and flag any projects that changed status. Generate a brief portfolio summary."
+  interval: "weekly"
+  quiet_start: "20:00"
+  quiet_end: "08:00"
 ---
 
 ## Workspace File Organization — Project Management Hub

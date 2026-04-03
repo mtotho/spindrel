@@ -704,6 +704,13 @@ export interface PromptTemplate {
   content: string;
   category?: string | null;
   tags: string[];
+  group?: string | null;
+  recommended_heartbeat?: {
+    prompt: string;
+    interval: string;
+    quiet_start?: string | null;
+    quiet_end?: string | null;
+  } | null;
   workspace_id?: string | null;
   source_type: string;
   source_path?: string | null;
