@@ -262,9 +262,6 @@ For a full walkthrough including carapaces, workspace templates, and a Home Assi
 
 Workspaces provide persistent file storage for bots. Each bot with `workspace.enabled: true` gets a directory for memory files, daily logs, and reference documents.
 
-![Channel workspace](images/channel_workspace.png)
-*Channel workspace — schema templates, active files, and workspace access.*
-
 ```bash
 # .env
 WORKSPACE_BASE_DIR=~/.spindrel-workspaces
