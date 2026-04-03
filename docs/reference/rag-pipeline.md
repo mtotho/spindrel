@@ -97,7 +97,7 @@ When enabled, the effective chunking version becomes `"{CHUNKING_VERSION}+cr"`, 
 
 `app/agent/embeddings.py` handles all embedding operations.
 
-- **Default model**: `local/nomic-ai/nomic-embed-text-v1.5` (ONNX via fastembed, zero API cost)
+- **Default model**: `local/BAAI/bge-small-en-v1.5` (ONNX via fastembed, zero API cost)
 - **API models**: Any OpenAI-compatible endpoint (prefix-less model names route to `LLM_BASE_URL`)
 - **Dimensions**: All vectors are 1536-dimensional (`EMBEDDING_DIMENSIONS`). API models use the `dimensions=` parameter (Matryoshka truncation). Local models are zero-padded.
 - **Truncation**: Input text capped at 16,000 chars before embedding
@@ -243,8 +243,10 @@ After context assembly, a post-processing step scores all RAG-injected chunks an
 |---------|---------|-------------|
 | `RAG_RERANK_ENABLED` | `false` | Master switch |
 | `RAG_RERANK_BACKEND` | `"cross-encoder"` | `"cross-encoder"` or `"llm"` |
+| `RAG_RERANK_MODEL` | `""` | LLM backend model (empty = `COMPACTION_MODEL`) |
 | `RAG_RERANK_THRESHOLD_CHARS` | `5000` | Min total chars to trigger reranking |
 | `RAG_RERANK_MAX_CHUNKS` | `20` | Max chunks to keep after reranking |
+| `RAG_RERANK_MAX_TOKENS` | `1000` | Max output tokens for LLM backend |
 | `RAG_RERANK_SCORE_THRESHOLD` | `0.01` | Cross-encoder min score (0-1) |
 | `RAG_RERANK_CROSS_ENCODER_MODEL` | `"Xenova/ms-marco-MiniLM-L-6-v2"` | ONNX reranker model |
 
@@ -353,8 +355,8 @@ Index entries are 16-bit float (50% storage reduction). Column data stays float3
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `EMBEDDING_MODEL` | `"local/nomic-ai/nomic-embed-text-v1.5"` | `"local/"` prefix = fastembed ONNX; plain = OpenAI-compatible API |
-| `EMBEDDING_DIMENSIONS` | `1536` | Must match DB vector columns |
+| `EMBEDDING_MODEL` | `"local/BAAI/bge-small-en-v1.5"` | `"local/"` prefix = fastembed ONNX; plain = OpenAI-compatible API |
+| `EMBEDDING_DIMENSIONS` | `1536` | Must match DB vector columns. Do not change without re-creating indexes. |
 
 ### Skills RAG
 
@@ -374,6 +376,7 @@ Index entries are 16-bit float (50% storage reduction). Column data stays float3
 | `FS_INDEX_COOLDOWN_SECONDS` | `300` | Min seconds between full re-indexes |
 | `FS_INDEX_MAX_FILE_BYTES` | `500000` | Skip files larger than this |
 | `FS_INDEX_CONCURRENCY` | `8` | Concurrent file embeddings |
+| `FS_INDEX_PERIODIC_MINUTES` | `30` | Periodic re-verify interval (0 = disabled); catches watcher crashes |
 
 ### Tool RAG
 

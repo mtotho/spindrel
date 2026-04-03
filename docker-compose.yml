@@ -17,7 +17,7 @@ services:
       # External integrations (uncomment and adjust path):
       # - /path/to/my-integrations:/app/ext-integrations:ro
       - /var/run/docker.sock:/var/run/docker.sock        # sibling container management
-      - ${WORKSPACE_HOST_DIR:-~/.agent-workspaces}:/workspace-data  # workspace files
+      - ${WORKSPACE_HOST_DIR:-~/.spindrel-workspaces}:/workspace-data  # workspace files
       - fastembed-cache:/app/.fastembed-cache  # local embedding model cache
       # Config state auto-export: uncomment after first run creates the file
       # (bind-mounting a non-existent file makes Docker create a directory)

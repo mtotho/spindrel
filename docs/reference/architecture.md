@@ -85,7 +85,7 @@ During context assembly, the system checks each channel's active integrations an
 
 Per-channel file stores with schema-guided organization.
 
-- **Storage:** `~/.agent-workspaces/{bot_id_or_shared}/channels/{channel_id}/`
+- **Storage:** `~/.spindrel-workspaces/{bot_id_or_shared}/channels/{channel_id}/`
 - **Active files** (`.md` at root): auto-injected into context every request
 - **Archive files** (`archive/`): searchable via tool, not auto-injected
 - **Data files** (`data/`): listed but not injected; referenced via search tool

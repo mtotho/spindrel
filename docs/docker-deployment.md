@@ -43,7 +43,7 @@ Your workspace data at `~/.spindrel-workspaces/` is untouched either way.
 
 | Component | Before | After |
 |-----------|--------|-------|
-| Docker CLI | Not in image | Installed (`docker.io` package) |
+| Docker CLI | Not in image | Installed (`docker-ce-cli` from official Docker repo) |
 | docker-compose.yml | No socket mount | Mounts `/var/run/docker.sock` + workspace volume |
 | Path handling | `os.path.expanduser(WORKSPACE_BASE_DIR)` everywhere | `local_workspace_base()` for file I/O, `local_to_host()` for docker `-v` args |
 | Config | — | `WORKSPACE_HOST_DIR`, `WORKSPACE_LOCAL_DIR` in `app/config.py` |

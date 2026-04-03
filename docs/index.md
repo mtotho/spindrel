@@ -169,6 +169,10 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
     Outgoing events for monitoring, cost analytics, and audit.
 
+-   [:material-message-text-outline: **BlueBubbles Integration**](guides/bluebubbles.md)
+
+    iMessage integration via BlueBubbles.
+
 -   [:material-cellphone-link: **Agent Client**](guides/clients.md)
 
     Remote voice assistant + local tool executor.
