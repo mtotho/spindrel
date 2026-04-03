@@ -357,8 +357,8 @@ export default function ChatScreen() {
       client_id: channel.client_id ?? "",
       bot_id: channel.bot_id,
     });
-    // Abort local SSE immediately so UI is responsive
-    chatStream.abort();
+    // Abort local SSE for THIS channel immediately so UI is responsive
+    chatStream.abort(channelId);
     // Flush pending RAF deltas so partial content isn't lost
     if (pendingTextRef.current || pendingThinkRef.current) {
       cancelAnimationFrame(rafRef.current);

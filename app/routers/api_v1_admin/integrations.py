@@ -299,6 +299,36 @@ async def provision_or_regenerate_integration_api_key(
     }
 
 
+# ---------------------------------------------------------------------------
+# Hot-reload endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post("/integrations/reload")
+async def reload_integrations():
+    """Discover and load new integrations without restarting the server.
+
+    Scans INTEGRATION_DIRS for new integration directories, registers routers,
+    loads tools, re-indexes, and syncs skills/carapaces/workflows.
+
+    Note: Only loads NEW integrations. Changed code in existing integrations
+    requires a server restart.
+    """
+    from app.tools.local.admin_integrations import _reload_integrations
+
+    try:
+        from app.main import app as application
+        result = await _reload_integrations(app=application)
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to reload integrations")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.delete("/integrations/{integration_id}/api-key")
 async def revoke_integration_api_key_endpoint(
     integration_id: str,

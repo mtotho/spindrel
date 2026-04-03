@@ -85,3 +85,28 @@ def discover_and_load_tools(extra_dirs: list[Path] | None = None) -> None:
             p = p.strip()
             if p:
                 _scan_integration_tools(Path(p).expanduser().resolve())
+
+
+def load_integration_tools(integration_dir: Path) -> list[str]:
+    """Load tools from a single integration directory.
+
+    Scans {integration_dir}/tools/*.py, imports each via _import_tool_file().
+    Returns list of newly registered tool names.
+    """
+    import app.tools.registry as _registry
+
+    tools_dir = integration_dir / "tools"
+    if not tools_dir.is_dir():
+        return []
+
+    before = set(_registry._tools.keys())
+    integration_id = integration_dir.name
+    _registry._current_source_integration = integration_id
+    try:
+        for py_file in sorted(tools_dir.glob("*.py")):
+            if not py_file.name.startswith("_"):
+                _import_tool_file(py_file)
+    finally:
+        _registry._current_source_integration = None
+
+    return list(set(_registry._tools.keys()) - before)

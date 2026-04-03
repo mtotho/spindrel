@@ -78,6 +78,12 @@ For backward compatibility, you can also set `LLM_BASE_URL` and `LLM_API_KEY` in
 docker compose up -d
 ```
 
+> **Tip:** The Docker image builds integration dashboards (e.g. Mission Control) by default. To skip this step and save build time:
+> ```bash
+> docker compose build --build-arg BUILD_DASHBOARDS=false
+> ```
+> Dashboards are optional — all core features work without them.
+
 ## Web Search
 
 The `web_search` tool backend is controlled by `WEB_SEARCH_MODE` (configurable at runtime in **Settings > Web Search**):

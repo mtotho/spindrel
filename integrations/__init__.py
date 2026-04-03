@@ -27,6 +27,9 @@ logger = logging.getLogger(__name__)
 _INTEGRATIONS_DIR = Path(__file__).parent
 _PACKAGES_DIR = _INTEGRATIONS_DIR.parent / "packages"
 
+# Tracks integration IDs loaded during discover_integrations() and load_new_integrations().
+_loaded_ids: set[str] = set()
+
 
 def _all_integration_dirs() -> list[Path]:
     """Return all integration directories: in-repo integrations/, packages/, + INTEGRATION_DIRS."""
@@ -104,48 +107,86 @@ def _iter_integration_candidates() -> list[tuple[Path, str, bool, str]]:
     return results
 
 
+def _load_single_integration(
+    candidate: Path, integration_id: str, is_external: bool, source: str,
+) -> APIRouter | None:
+    """Load dispatcher, hooks, and router for a single integration.
+
+    Returns the APIRouter if one exists, else None.
+    """
+    # Auto-import dispatcher.py to trigger register() (independent of router.py)
+    dispatcher_file = candidate / "dispatcher.py"
+    if dispatcher_file.exists():
+        try:
+            _import_module(integration_id, "dispatcher", dispatcher_file, is_external, source)
+            logger.debug("Loaded dispatcher for integration: %s", integration_id)
+        except Exception:
+            logger.exception("Failed to load dispatcher for integration %r", integration_id)
+
+    # Auto-import hooks.py to trigger register_integration() / register_hook()
+    hooks_file = candidate / "hooks.py"
+    if hooks_file.exists():
+        try:
+            _import_module(integration_id, "hooks", hooks_file, is_external, source)
+            logger.debug("Loaded hooks for integration: %s", integration_id)
+        except Exception:
+            logger.exception("Failed to load hooks for integration %r", integration_id)
+
+    # Register router if present
+    router_file = candidate / "router.py"
+    if not router_file.exists():
+        return None
+
+    try:
+        module = _import_module(integration_id, "router", router_file, is_external, source)
+    except Exception:
+        logger.exception("Failed to load integration %r — skipping", integration_id)
+        return None
+
+    router = getattr(module, "router", None)
+    if router is None or not isinstance(router, APIRouter):
+        logger.warning("Integration %r has no APIRouter named 'router' — skipping", integration_id)
+        return None
+
+    return router
+
+
 def discover_integrations() -> list[tuple[str, APIRouter]]:
     """Discover and load all integrations. Returns [(integration_id, router)]."""
+    global _loaded_ids
     results: list[tuple[str, APIRouter]] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        # Auto-import dispatcher.py to trigger register() (independent of router.py)
-        dispatcher_file = candidate / "dispatcher.py"
-        if dispatcher_file.exists():
-            try:
-                _import_module(integration_id, "dispatcher", dispatcher_file, is_external, source)
-                logger.debug("Loaded dispatcher for integration: %s", integration_id)
-            except Exception:
-                logger.exception("Failed to load dispatcher for integration %r", integration_id)
-
-        # Auto-import hooks.py to trigger register_integration() / register_hook()
-        hooks_file = candidate / "hooks.py"
-        if hooks_file.exists():
-            try:
-                _import_module(integration_id, "hooks", hooks_file, is_external, source)
-                logger.debug("Loaded hooks for integration: %s", integration_id)
-            except Exception:
-                logger.exception("Failed to load hooks for integration %r", integration_id)
-
-        # Register router if present
-        router_file = candidate / "router.py"
-        if not router_file.exists():
-            continue
-
-        try:
-            module = _import_module(integration_id, "router", router_file, is_external, source)
-        except Exception:
-            logger.exception("Failed to load integration %r — skipping", integration_id)
-            continue
-
-        router = getattr(module, "router", None)
-        if router is None or not isinstance(router, APIRouter):
-            logger.warning("Integration %r has no APIRouter named 'router' — skipping", integration_id)
-            continue
-
-        results.append((integration_id, router))
+        router = _load_single_integration(candidate, integration_id, is_external, source)
+        _loaded_ids.add(integration_id)
+        if router is not None:
+            results.append((integration_id, router))
 
     return results
+
+
+def load_new_integrations(app) -> list[tuple[str, Path]]:
+    """Discover integrations added since last discover/reload, register their routers.
+
+    Returns [(integration_id, candidate_dir)] for each newly loaded integration.
+    """
+    global _loaded_ids
+    newly_loaded: list[tuple[str, Path]] = []
+
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        if integration_id in _loaded_ids:
+            continue
+
+        logger.info("Hot-loading new integration: %s (from %s)", integration_id, candidate)
+        router = _load_single_integration(candidate, integration_id, is_external, source)
+        _loaded_ids.add(integration_id)
+
+        if router is not None:
+            app.include_router(router, prefix=f"/integrations/{integration_id}")
+
+        newly_loaded.append((integration_id, candidate))
+
+    return newly_loaded
 
 
 def discover_identity_fields() -> list[dict]:

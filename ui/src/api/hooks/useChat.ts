@@ -42,19 +42,23 @@ interface UseChatStreamOptions {
 }
 
 export function useChatStream(options: UseChatStreamOptions) {
-  const abortRef = useRef<AbortController | null>(null);
+  // Per-channel abort controllers so concurrent streams on different channels
+  // don't interfere. Keyed by channel_id (falls back to client_id).
+  const abortsRef = useRef<Map<string, AbortController>>(new Map());
 
   const mutation = useMutation({
     mutationFn: async (request: ChatRequest) => {
-      // Abort any previous SSE stream so its stale callbacks don't fire
-      abortRef.current?.abort();
+      const key = request.channel_id ?? request.client_id;
+
+      // Abort any previous stream for the SAME channel only
+      abortsRef.current.get(key)?.abort();
 
       const { serverUrl } = useAuthStore.getState();
       if (!serverUrl) throw new Error("Server not configured");
 
       const token = getAuthToken();
       const ctrl = new AbortController();
-      abortRef.current = ctrl;
+      abortsRef.current.set(key, ctrl);
 
       try {
         await fetchEventSource(`${serverUrl}/chat/stream`, {
@@ -81,13 +85,14 @@ export function useChatStream(options: UseChatStreamOptions) {
             }
           },
           onerror(err) {
-            // Don't report abort errors — they're intentional from starting a new stream
+            // Don't report abort errors — they're intentional
             if (ctrl.signal.aborted) throw err;
             options.onError?.(err instanceof Error ? err : new Error(String(err)));
             throw err; // stop retrying
           },
           onclose() {
-            // Don't fire onComplete for aborted streams — the new stream owns the state now
+            abortsRef.current.delete(key);
+            // Don't fire onComplete for aborted streams
             if (!ctrl.signal.aborted) {
               options.onComplete?.();
             }
@@ -98,11 +103,24 @@ export function useChatStream(options: UseChatStreamOptions) {
         // Swallow abort errors — they're expected when a new stream replaces the old one
         if (err && (err as any).name === "AbortError") return;
         throw err;
+      } finally {
+        abortsRef.current.delete(key);
       }
     },
   });
 
-  return { ...mutation, abort: () => abortRef.current?.abort() };
+  return {
+    ...mutation,
+    abort: (channelId?: string) => {
+      if (channelId) {
+        abortsRef.current.get(channelId)?.abort();
+        abortsRef.current.delete(channelId);
+      } else {
+        for (const ctrl of abortsRef.current.values()) ctrl.abort();
+        abortsRef.current.clear();
+      }
+    },
+  };
 }
 
 interface SessionStatus {

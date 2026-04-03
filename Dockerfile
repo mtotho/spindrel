@@ -24,13 +24,19 @@ COPY packages/ packages/
 COPY alembic.ini .
 COPY migrations/ migrations/
 
-# Build integration web UIs (dashboards served as static files via iframe)
-RUN for d in integrations/*/dashboard; do \
-      [ -f "$d/package.json" ] || continue; \
-      echo "Building integration UI: $d"; \
-      cd /app/"$d" && npm ci --ignore-scripts && npx vite build && rm -rf node_modules; \
-      cd /app; \
-    done
+# Build integration web UIs (dashboards served as static files via iframe).
+# Set --build-arg BUILD_DASHBOARDS=false to skip (saves ~30s + avoids npm).
+ARG BUILD_DASHBOARDS=true
+RUN if [ "$BUILD_DASHBOARDS" = "true" ]; then \
+      for d in integrations/*/dashboard; do \
+        [ -f "$d/package.json" ] || continue; \
+        echo "Building integration UI: $d"; \
+        cd /app/"$d" && npm ci --ignore-scripts && npx vite build && rm -rf node_modules; \
+        cd /app; \
+      done; \
+    else \
+      echo "Skipping integration dashboard builds (BUILD_DASHBOARDS=false)"; \
+    fi
 
 # bots/ and skills/ are volume-mounted (see docker-compose.yml).
 # Create empty dirs as fallback if not mounted.

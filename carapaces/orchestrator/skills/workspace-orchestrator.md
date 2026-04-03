@@ -67,6 +67,7 @@ Memory files are auto-indexed and injected each turn. For safe write patterns (a
 | Server API reference, permissions, scopes, `agent` CLI, file/task operations | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
 | Channels, workspace skills, memory patterns, base template, common mistakes | `get_skill('carapaces/orchestrator/workspace-management')` |
 | Optimize workflow, convert agent→tool/exec, analyze runs, compile to script | `get_skill('carapaces/orchestrator/workflow-compiler')` |
+| Create custom integration, scaffold→reload flow, SETUP manifest, tool patterns | `get_skill('carapaces/orchestrator/integration-builder')` |
 
 ## Quick Dispatch Reference
 
@@ -79,6 +80,7 @@ Memory files are auto-indexed and injected each turn. For safe write patterns (a
 | Periodic detection → multi-step remediation | Heartbeat with `workflow_id` set |
 | Optimize/refactor workflow, convert steps to tool calls | `get_skill('carapaces/orchestrator/workflow-compiler')` then `manage_workflow` (get_run + create) |
 | Analyze what a workflow run did | `manage_workflow(action="get_run", ..., include_definitions=true, full_results=true)` |
+| Create a custom integration | `manage_integration(action="scaffold")` then `manage_integration(action="reload")` |
 | Code editing / debugging / refactoring | `run_claude_code` |
 | Coordination / file placement / synthesis | `exec_command` directly |
 | Checking a bot's prior work | `search_bot_memory` |

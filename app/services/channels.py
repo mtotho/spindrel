@@ -112,11 +112,6 @@ async def get_or_create_channel(
     if channel_id is not None:
         ch = await db.get(Channel, channel_id)
         if ch is not None:
-            # Update bot_id if changed
-            if ch.bot_id != bot_id:
-                ch.bot_id = bot_id
-                ch.updated_at = datetime.now(timezone.utc)
-                await db.flush()
             return ch
 
     # 2. client_id lookup
@@ -132,16 +127,6 @@ async def get_or_create_channel(
             ch = await resolve_channel_by_client_id(db, client_id)
 
         if ch is not None:
-            changed = False
-            if ch.bot_id != bot_id:
-                ch.bot_id = bot_id
-                changed = True
-            if dispatch_config and ch.dispatch_config != dispatch_config:
-                ch.dispatch_config = dispatch_config
-                changed = True
-            if changed:
-                ch.updated_at = datetime.now(timezone.utc)
-                await db.flush()
             return ch
 
         # Create new channel for this client_id
