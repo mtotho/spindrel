@@ -194,6 +194,8 @@ homeassistant:
 mcp_servers: [homeassistant]
 ```
 
+For a full walkthrough including carapaces, workspace templates, and a Home Assistant worked example, see the [MCP Servers guide](guides/mcp-servers.md).
+
 ## Workspaces
 
 Workspaces provide persistent file storage for bots. Each bot with `workspace.enabled: true` gets a directory for memory files, daily logs, and reference documents.

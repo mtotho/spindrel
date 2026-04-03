@@ -299,6 +299,9 @@ skills:
 - Automation not firing: check conditions, time ranges, entity IDs
 ```
 
+!!! tip "Shipped Home Assistant carapace"
+    Spindrel ships a comprehensive `home-assistant` carapace with preference learning, routine tracking, device inventory, and daily health checks. Use `carapaces: [home-assistant]` in your bot YAML — no need to build your own. See the [MCP Servers guide](mcp-servers.md#worked-example-home-assistant) for the full walkthrough.
+
 **`my-tools/skills/cooking-tips.md`** — A standalone skill (not part of a carapace).
 
 ```markdown

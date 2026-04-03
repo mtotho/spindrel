@@ -327,7 +327,7 @@ class Settings(BaseSettings):
     #
     # DO NOT change EMBEDDING_DIMENSIONS — DB columns and indexes are hardcoded to 1536.
     # If you switch EMBEDDING_MODEL, re-embed everything (restart re-indexes automatically).
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_MODEL: str = "local/BAAI/bge-small-en-v1.5"
     EMBEDDING_DIMENSIONS: int = 1536
     RAG_TOP_K: int = 5
     RAG_SIMILARITY_THRESHOLD: float = 0.3

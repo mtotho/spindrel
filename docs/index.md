@@ -145,6 +145,10 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
     Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and workflow triggers.
 
+-   [:material-connection: **MCP Servers**](guides/mcp-servers.md)
+
+    Connect external tool servers (Home Assistant, databases, APIs). Pair with carapaces for domain expertise.
+
 -   [:material-wrench: **Custom Tools & Extensions**](guides/custom-tools.md)
 
     Create custom tools, manage a personal extensions repo, load external carapaces and skills.

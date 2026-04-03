@@ -92,6 +92,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | [Usage & Billing](docs/guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting |
 | [Workflows](docs/guides/workflows.md) | Multi-step automations with conditions and approval gates |
 | [Heartbeats](docs/guides/heartbeats.md) | Periodic check-ins, quiet hours, dispatch modes |
+| [MCP Servers](docs/guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs) |
 | [Custom Tools & Extensions](docs/guides/custom-tools.md) | Create tools, manage a personal extensions repo |
 | [Creating Integrations](docs/integrations/index.md) | Build custom integrations |
 | [Backup & Restore](docs/backup.md) | Automated Postgres + config backups to S3 |
