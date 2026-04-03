@@ -209,9 +209,9 @@ async def lifespan(application: FastAPI):
     from app.services.providers import seed_provider_from_file, load_providers
     await seed_provider_from_file()
     await load_providers()
-    # Check encryption status: hard error if encrypted secrets exist without key,
-    # soft warning if plaintext secrets exist without key.
-    from app.services.encryption import is_encryption_enabled
+    # Auto-generate ENCRYPTION_KEY on first boot if not set and no encrypted
+    # secrets exist yet.  Writes the key to .env so it persists across restarts.
+    from app.services.encryption import is_encryption_enabled, generate_key, reset as _reset_encryption
     if not is_encryption_enabled():
         from app.services.providers import has_encrypted_secrets
         if await has_encrypted_secrets():
@@ -220,11 +220,37 @@ async def lifespan(application: FastAPI):
                 "These values cannot be decrypted without the original key. "
                 "Set ENCRYPTION_KEY in .env to the key used to encrypt them."
             )
-        from app.services.providers import list_providers as _list_providers
-        if any(p.api_key for p in _list_providers()):
+        # No encrypted secrets — safe to generate a new key
+        import re as _re
+        new_key = generate_key()
+        settings.ENCRYPTION_KEY = new_key
+        _reset_encryption()  # clear cached state so next check picks up the new key
+        # Persist to .env file
+        _env_path = os.path.join(os.getcwd(), ".env")
+        try:
+            if os.path.isfile(_env_path):
+                with open(_env_path) as f:
+                    _env_content = f.read()
+                if "ENCRYPTION_KEY=" in _env_content:
+                    _env_content = _re.sub(
+                        r"^#?\s*ENCRYPTION_KEY=.*$",
+                        f"ENCRYPTION_KEY={new_key}",
+                        _env_content,
+                        count=1,
+                        flags=_re.MULTILINE,
+                    )
+                else:
+                    _env_content += f"\nENCRYPTION_KEY={new_key}\n"
+                with open(_env_path, "w") as f:
+                    f.write(_env_content)
+            else:
+                with open(_env_path, "w") as f:
+                    f.write(f"ENCRYPTION_KEY={new_key}\n")
+            logger.info("Auto-generated ENCRYPTION_KEY and saved to .env — back this up!")
+        except OSError:
             logger.warning(
-                "ENCRYPTION_KEY is not set — provider API keys are stored as plaintext in the database. "
-                "Set ENCRYPTION_KEY in .env to enable encryption at rest."
+                "Auto-generated ENCRYPTION_KEY but could not write to .env. "
+                "Add the key from the running config to your environment to persist it."
             )
     logger.info("Loading usage limits...")
     from app.services.usage_limits import load_limits, start_refresh_task

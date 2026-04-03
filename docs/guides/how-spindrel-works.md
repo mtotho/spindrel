@@ -141,7 +141,7 @@ The result: the bot has exactly the right tools, knowledge, and context for this
 | **Activation** | Enabling an integration's full capabilities on a channel | Channel > Integrations tab |
 | **Carapace** | Bundle of tools + skills + behavior | `carapaces/*/carapace.yaml` |
 | **Skill** | Markdown knowledge document | `skills/*.md` or carapace subdirectory |
-| **Workspace** | Per-channel file store | `~/.agent-workspaces/` on disk |
+| **Workspace** | Per-channel file store | `~/.spindrel-workspaces/` on disk |
 
 ---
 

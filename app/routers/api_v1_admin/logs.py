@@ -152,6 +152,7 @@ async def admin_logs(
             literal(None).label("event_type"),
             literal(None).label("event_name"),
             literal(None).label("count"),
+            literal(None).label("data"),
         )
         .where(*tc_filters)
     )
@@ -175,6 +176,7 @@ async def admin_logs(
             TraceEvent.event_type,
             TraceEvent.event_name,
             TraceEvent.count,
+            TraceEvent.data,
         )
         .where(*te_filters)
     )
@@ -190,7 +192,6 @@ async def admin_logs(
     else:
         combined = union_all(tc_q, te_q).subquery()
 
-    # Count + paginated fetch in parallel-ish (two queries)
     count_stmt = select(func.count()).select_from(combined)
     data_stmt = (
         select(combined)
@@ -199,7 +200,8 @@ async def admin_logs(
         .offset(pg_offset)
     )
 
-    total_result, data_result = await db.execute(count_stmt), await db.execute(data_stmt)
+    total_result = await db.execute(count_stmt)
+    data_result = await db.execute(data_stmt)
     total = total_result.scalar() or 0
     raw_rows = data_result.all()
 
@@ -227,6 +229,7 @@ async def admin_logs(
             event_type=r.event_type if r.kind == "trace_event" else None,
             event_name=r.event_name if r.kind == "trace_event" else None,
             count=r.count if r.kind == "trace_event" else None,
+            data=r.data if r.kind == "trace_event" else None,
         ))
 
     return LogListOut(

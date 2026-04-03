@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import type { Channel, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult } from "../../types/api";
+import { useChatStore } from "../../stores/chat";
+import { useDraftsStore } from "../../stores/drafts";
+import { useChannelReadStore } from "../../stores/channelRead";
 
 interface ChannelListResponse {
   channels: Channel[];
@@ -61,8 +64,12 @@ export function useDeleteChannel() {
   return useMutation({
     mutationFn: (channelId: string) =>
       apiFetch(`/api/v1/channels/${channelId}`, { method: "DELETE" }),
-    onSuccess: () => {
+    onSuccess: (_data, channelId) => {
       queryClient.invalidateQueries({ queryKey: ["channels"] });
+      // Clean up per-channel state in stores to prevent memory leaks
+      useChatStore.getState().deleteChannel(channelId);
+      useDraftsStore.getState().clearDraft(channelId);
+      useChannelReadStore.getState().deleteChannel(channelId);
     },
   });
 }

@@ -10,6 +10,8 @@ interface ChannelReadState {
   markRead: (channelId: string) => void;
   /** Returns true if channel has activity after last visit */
   isUnread: (channelId: string, updatedAt: string | undefined) => boolean;
+  /** Remove tracking for a deleted channel */
+  deleteChannel: (channelId: string) => void;
 }
 
 const storage =
@@ -34,6 +36,11 @@ export const useChannelReadStore = create<ChannelReadState>()(
         if (!lastVisit) return true; // never visited = unread
         return new Date(updatedAt).getTime() > new Date(lastVisit).getTime();
       },
+      deleteChannel: (channelId) =>
+        set((s) => {
+          const { [channelId]: _, ...rest } = s.lastVisitedAt;
+          return { lastVisitedAt: rest };
+        }),
     }),
     { name: "channel-read", storage }
   )

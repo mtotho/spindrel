@@ -61,10 +61,7 @@ def _check_rate_limit(request: Request) -> None:
         _LOGIN_ATTEMPTS[ip] = recent
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
     recent.append(now)
-    if recent:
-        _LOGIN_ATTEMPTS[ip] = recent
-    else:
-        _LOGIN_ATTEMPTS.pop(ip, None)
+    _LOGIN_ATTEMPTS[ip] = recent
 
 
 # ---------------------------------------------------------------------------

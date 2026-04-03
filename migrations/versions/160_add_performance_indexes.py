@@ -3,8 +3,6 @@
 Revision ID: 160
 Revises: 159
 """
-import sqlalchemy as sa
-
 from alembic import op
 
 revision = "160"
