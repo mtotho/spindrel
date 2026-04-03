@@ -1,7 +1,7 @@
 """Tests for /integrations/slack/config — verifies both legacy (Channel.integration='slack')
 and modern (ChannelIntegration table) bindings are returned correctly."""
 import os
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 import uuid

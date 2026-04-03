@@ -208,12 +208,14 @@ class TestChannelApprovalHandlers:
         ack = AsyncMock()
         respond = AsyncMock()
 
-        with patch("agent_client.ensure_channel", new_callable=AsyncMock, return_value={"id": "test"}) as mock_ensure, \
-             patch("channel_approval._set_approval") as mock_set:
+        with patch("agent_client.ensure_channel", new_callable=AsyncMock, return_value={"id": "test-uuid"}) as mock_ensure, \
+             patch("channel_approval._set_approval") as mock_set, \
+             patch("channel_approval_handlers._create_slack_binding", new_callable=AsyncMock) as mock_bind:
             await handlers["approve_channel_create"](ack=ack, body=body, respond=respond)
 
         ack.assert_called_once()
         mock_ensure.assert_called_once_with("slack:CNEW001", "bot-a")
+        mock_bind.assert_called_once_with("test-uuid", "slack:CNEW001")
         mock_set.assert_called_once_with("CNEW001", "approved")
         respond.assert_called_once()
         call_kwargs = respond.call_args[1]

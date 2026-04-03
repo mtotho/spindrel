@@ -2,72 +2,151 @@
 name: Home Assistant Smart Home Management
 description: >-
   Comprehensive reference for managing a smart home via Home Assistant MCP tools —
-  entity domains, service call patterns, automation creation, debugging, helper entities,
-  dashboard management, energy monitoring, and household preference tracking.
+  covers both the official HA MCP integration (Hass* tools) and the community ha-mcp
+  server (ha_* tools). Entity domains, service call patterns, automation creation,
+  debugging, preference tracking, and routine management.
 ---
 
 # Home Assistant — Deep Reference
 
+## Two MCP Servers, Two Tool Sets
+
+| | Official HA MCP Integration | Community ha-mcp |
+|---|---|---|
+| **Tool prefix** | `Hass*` (e.g., `HassTurnOn`) | `ha_*` (e.g., `ha_call_service`) |
+| **Scope** | Device control only (intents) | Full HA API (92+ tools) |
+| **Setup** | Built into HAOS, enable in integrations | Separate add-on or Docker container |
+| **Entity exposure** | Only entities exposed to voice assistants | All entities |
+| **Automation CRUD** | No | Yes (`ha_config_set_automation`, etc.) |
+| **History/Logbook** | No | Yes (`ha_get_history`, `ha_get_logbook`) |
+| **Dashboard editing** | No | Yes (`ha_config_set_dashboard`, etc.) |
+| **System admin** | No | Yes (backups, updates, HACS, etc.) |
+| **Custom scripts** | Exposed as named tools (e.g., `bedroom_set_scene_based_on_time`) | Via `ha_call_service("script", ...)` |
+
+Use whichever tools are available. Sections marked **(ha-mcp only)** require the community server.
+
+---
+
+## Official HA MCP Tools Reference
+
+These intent-based tools are available when using the built-in HA MCP integration.
+
+### Core Control Tools
+
+| Tool | What it does | Key parameters |
+|------|-------------|----------------|
+| `HassTurnOn` | Turn on any entity | `name` (friendly name or entity_id) |
+| `HassTurnOff` | Turn off any entity | `name` |
+| `HassLightSet` | Set light brightness and color | `name`, `brightness` (0-100%), `color`, `temperature` |
+| `HassClimateSetTemperature` | Set thermostat temperature | `name`, `temperature` |
+| `HassFanSetSpeed` | Set fan speed | `name`, `percentage` (0-100%) |
+| `HassSetVolume` | Set media player volume | `name`, `volume_level` (0-100) |
+| `HassSetVolumeRelative` | Adjust volume up/down | `name`, `volume_level_relative` |
+| `HassMediaPause` | Pause media playback | `name` |
+| `HassMediaUnpause` | Resume media playback | `name` |
+| `HassMediaNext` | Next track | `name` |
+| `HassMediaPrevious` | Previous track | `name` |
+| `HassMediaPlayerMute` | Mute | `name` |
+| `HassMediaPlayerUnmute` | Unmute | `name` |
+| `HassMediaSearchAndPlay` | Search and play media | `name`, `query` |
+| `HassCancelAllTimers` | Cancel all running timers | — |
+| `GetDateTime` | Get current date/time | — |
+| `GetLiveContext` | Get live entity states | — |
+
+### Custom Script Tools
+
+HA scripts that are exposed to voice assistants appear as named tools — e.g.,
+`bedroom_set_scene_based_on_time`, `kitchen_set_scene_based_on_time`. These
+run the full script sequence when called. Track what each one does in `routines.md`.
+
+### Exposing More Entities
+
+To add entities to the official HA MCP tools:
+1. Go to **Settings > Voice Assistants** in Home Assistant
+2. Click the **Expose** tab
+3. Toggle on entities you want the AI to control
+4. Only exposed entities are visible to `HassTurnOn`, `HassLightSet`, etc.
+
+**Tip**: Expose liberally — the AI benefits from seeing more of the home. At minimum, expose all lights, switches, climate, media players, covers, and locks.
+
+---
+
 ## Entity Domains Quick Reference
 
-Home Assistant organizes devices by domain. Know the domain to pick the right service calls.
+Home Assistant organizes devices by domain. This matters for ha-mcp service calls
+and for understanding what the official tools can control.
 
-| Domain | Examples | Key Services |
-|--------|----------|--------------|
-| `light` | Bulbs, strips, groups | `turn_on` (brightness, color_temp, rgb_color), `turn_off`, `toggle` |
-| `switch` | Smart plugs, relays | `turn_on`, `turn_off`, `toggle` |
-| `climate` | Thermostats, AC, heaters | `set_temperature`, `set_hvac_mode`, `set_fan_mode`, `set_preset_mode` |
-| `cover` | Blinds, shades, garage doors | `open_cover`, `close_cover`, `set_cover_position`, `stop_cover` |
-| `fan` | Ceiling fans, air purifiers | `turn_on` (speed, percentage), `turn_off`, `set_percentage` |
-| `media_player` | Speakers, TVs, Chromecasts | `turn_on`, `play_media`, `volume_set`, `media_pause`, `select_source` |
-| `lock` | Smart locks | `lock`, `unlock` |
-| `vacuum` | Robot vacuums | `start`, `stop`, `return_to_base`, `send_command` |
-| `camera` | Security cameras | Use `ha_get_camera_image` for snapshots |
-| `sensor` | Temperature, humidity, power | Read-only — query state for current value |
-| `binary_sensor` | Motion, door/window, occupancy | Read-only — `on`/`off` state |
-| `automation` | HA automations | `trigger`, `turn_on` (enable), `turn_off` (disable) |
-| `script` | HA scripts | `turn_on` (run with variables) |
-| `scene` | HA scenes | `turn_on` (activate scene) |
-| `input_boolean` | Virtual toggles | `turn_on`, `turn_off`, `toggle` |
-| `input_number` | Virtual sliders | `set_value` |
-| `input_select` | Virtual dropdowns | `select_option` |
-| `timer` | Countdown timers | `start`, `cancel`, `pause`, `finish` |
-| `button` | One-shot triggers | `press` |
-| `number` | Device numeric controls | `set_value` |
-| `select` | Device option selectors | `select_option` |
+| Domain | Examples | Key Services (ha-mcp) | Official Tool |
+|--------|----------|----------------------|---------------|
+| `light` | Bulbs, strips, groups | `turn_on` (brightness, color_temp, rgb_color) | `HassLightSet` |
+| `switch` | Smart plugs, relays | `turn_on`, `turn_off`, `toggle` | `HassTurnOn/Off` |
+| `climate` | Thermostats, AC | `set_temperature`, `set_hvac_mode` | `HassClimateSetTemperature` |
+| `cover` | Blinds, shades, garage | `open_cover`, `close_cover`, `set_cover_position` | `HassTurnOn/Off` |
+| `fan` | Ceiling fans, purifiers | `turn_on`, `set_percentage` | `HassFanSetSpeed` |
+| `media_player` | Speakers, TVs | `play_media`, `volume_set`, `media_pause` | `HassMediaPause`, `HassSetVolume` |
+| `lock` | Smart locks | `lock`, `unlock` | `HassTurnOn/Off` (lock/unlock) |
+| `vacuum` | Robot vacuums | `start`, `stop`, `return_to_base` | `HassTurnOn/Off` |
+| `camera` | Security cameras | `ha_get_camera_image` (ha-mcp only) | — |
+| `sensor` | Temperature, humidity | Read-only — query state | `GetLiveContext` |
+| `binary_sensor` | Motion, door/window | Read-only — `on`/`off` | `GetLiveContext` |
+| `automation` | HA automations | `trigger`, `turn_on` (enable) | — |
+| `script` | HA scripts | `turn_on` (run with variables) | Exposed as named tools |
+| `scene` | HA scenes | `turn_on` (activate) | `HassTurnOn` |
+| `input_boolean` | Virtual toggles | `turn_on`, `turn_off`, `toggle` | `HassTurnOn/Off` |
+| `input_number` | Virtual sliders | `set_value` | — |
+| `input_select` | Virtual dropdowns | `select_option` | — |
+| `timer` | Countdown timers | `start`, `cancel` | `HassCancelAllTimers` |
 
-## Service Call Patterns
+## Brightness & Color Temperature Reference
+
+### Brightness Guide
+
+When talking to users, use percentages. When calling tools:
+- **Official HA MCP** (`HassLightSet`): uses **0-100%** directly
+- **ha-mcp** (`ha_call_service`): uses **0-255** scale
+
+| User Says | Percentage | ha-mcp value (0-255) | Use Case |
+|-----------|-----------|---------------------|----------|
+| "Full brightness" | 100% | 255 | Cleaning, task work |
+| "Bright" | ~78% | 200 | Daytime comfortable |
+| "Medium" | 50% | 128 | Evening general use |
+| "Dim" | 25% | 64 | Relaxed evening |
+| "Nightlight" | ~10% | 25 | Nightlight |
+| "Barely on" | ~1% | 1 | Minimum |
+
+### Color Temperature Guide
+
+Color temperature in mireds (lower = cooler/bluer, higher = warmer/amber):
+
+| Mireds | Kelvin | Feel | Good For |
+|--------|--------|------|----------|
+| 153 | 6500K | Daylight blue-white | Energizing, task lighting |
+| 250 | 4000K | Neutral white | Balanced daytime |
+| 370 | 2700K | Warm white | Relaxed evening (most common default) |
+| 454 | 2200K | Candlelight | Wind-down, cozy |
+| 500 | 2000K | Ultra warm | Nightlight |
+
+---
+
+## Service Call Patterns (ha-mcp only)
+
+These patterns use `ha_call_service`. Skip this section if you only have official HA MCP tools.
 
 ### Lights
 
 ```
-# Turn on at specific brightness (0-255) and color temperature (mireds)
+# Brightness (0-255) + color temperature (mireds)
 ha_call_service("light", "turn_on", entity_id="light.living_room",
     data={"brightness": 128, "color_temp": 370})
 
-# Turn on with RGB color
+# RGB color
 ha_call_service("light", "turn_on", entity_id="light.accent_strip",
-    data={"rgb_color": [255, 147, 41]})  # warm amber
+    data={"rgb_color": [255, 147, 41]})
 
 # Transition over 5 seconds
 ha_call_service("light", "turn_on", entity_id="light.bedroom",
     data={"brightness": 50, "transition": 5})
 ```
-
-**Brightness guide** (for preferences.md):
-- `255` = 100% — full blast, cleaning/task work
-- `200` = ~78% — bright, daytime comfortable
-- `128` = 50% — moderate, evening general use
-- `64` = 25% — dim, relaxed evening
-- `25` = ~10% — nightlight level
-- `1` = minimum — barely on
-
-**Color temperature guide** (in mireds, lower = cooler):
-- `153` = 6500K — daylight blue-white (energizing, task lighting)
-- `250` = 4000K — neutral white (balanced, daytime)
-- `370` = 2700K — warm white (relaxed, evening default)
-- `454` = 2200K — candlelight warm (very cozy, wind-down)
-- `500` = 2000K — ultra warm (nightlight)
 
 ### Climate
 
@@ -76,16 +155,28 @@ ha_call_service("light", "turn_on", entity_id="light.bedroom",
 ha_call_service("climate", "set_temperature", entity_id="climate.thermostat",
     data={"temperature": 72})
 
-# Set mode (heat, cool, auto, off)
+# Set mode
 ha_call_service("climate", "set_hvac_mode", entity_id="climate.thermostat",
     data={"hvac_mode": "auto"})
 
-# Set range (dual setpoint)
+# Dual setpoint
 ha_call_service("climate", "set_temperature", entity_id="climate.thermostat",
     data={"target_temp_low": 68, "target_temp_high": 74})
 ```
 
-### Covers (Blinds/Shades)
+### Media
+
+```
+# Set volume (0.0 to 1.0)
+ha_call_service("media_player", "volume_set", entity_id="media_player.tv",
+    data={"volume_level": 0.4})
+
+# Select input
+ha_call_service("media_player", "select_source", entity_id="media_player.tv",
+    data={"source": "HDMI 1"})
+```
+
+### Covers
 
 ```
 # Position: 0 = closed, 100 = fully open
@@ -93,47 +184,31 @@ ha_call_service("cover", "set_cover_position", entity_id="cover.living_room_blin
     data={"position": 50})
 ```
 
-### Media
-
-```
-# Play/pause
-ha_call_service("media_player", "media_play_pause", entity_id="media_player.living_room_speaker")
-
-# Set volume (0.0 to 1.0)
-ha_call_service("media_player", "volume_set", entity_id="media_player.living_room_speaker",
-    data={"volume_level": 0.4})
-
-# Select input/source
-ha_call_service("media_player", "select_source", entity_id="media_player.tv",
-    data={"source": "HDMI 1"})
-```
-
 ### Bulk Operations
-
-Use `ha_bulk_control` to execute multiple commands atomically — ideal for routines:
 
 ```
 ha_bulk_control(commands=[
-    {"domain": "light", "service": "turn_on", "entity_id": "light.living_room", "data": {"brightness": 128, "color_temp": 370}},
+    {"domain": "light", "service": "turn_on", "entity_id": "light.living_room",
+     "data": {"brightness": 128, "color_temp": 370}},
     {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"},
-    {"domain": "cover", "service": "close_cover", "entity_id": "cover.living_room_blinds"},
+    {"domain": "cover", "service": "close_cover", "entity_id": "cover.blinds"},
     {"domain": "media_player", "service": "turn_on", "entity_id": "media_player.tv"}
 ])
 ```
 
-## Finding Entities
-
-When you don't know the exact entity_id:
+## Finding Entities (ha-mcp only)
 
 1. **Fuzzy search**: `ha_search_entities("living room light")` — best first try
 2. **By area**: `ha_get_states(area="living_room")` — all entities in a room
 3. **By domain**: `ha_get_states(domain="light")` — all lights
 4. **Deep search**: `ha_deep_search("motion sensor kitchen")` — searches configs too
-5. **System overview**: `ha_get_overview()` — high-level view of areas, devices, entities
+5. **System overview**: `ha_get_overview()` — areas, devices, entity counts
 
-**Entity ID conventions**: `{domain}.{descriptive_name}` — e.g., `light.kitchen_ceiling`, `sensor.outdoor_temperature`, `binary_sensor.front_door_contact`
+For the official HA MCP: use `GetLiveContext` to see currently exposed entity states.
 
-## Automation Management
+---
+
+## Automation Management (ha-mcp only)
 
 ### Creating Automations
 
@@ -144,7 +219,7 @@ ha_config_set_automation(
     trigger=[{
         "trigger": "sun",
         "event": "sunset",
-        "offset": "-00:15:00"  # 15 minutes before
+        "offset": "-00:15:00"
     }],
     action=[{
         "action": "light.turn_on",
@@ -163,75 +238,44 @@ ha_config_set_automation(
 
 | Trigger | Use When |
 |---------|----------|
-| `state` | Entity changes state (e.g., motion detected, door opened) |
+| `state` | Entity changes state (motion detected, door opened) |
 | `sun` | Sunrise/sunset with optional offset |
 | `time` | Specific time of day |
 | `time_pattern` | Recurring (every N minutes/hours) |
-| `numeric_state` | Value crosses a threshold (e.g., temperature above 80) |
+| `numeric_state` | Value crosses a threshold (temp above 80) |
 | `zone` | Person enters/leaves a zone |
-| `device` | Device-specific triggers (button press, etc.) |
+| `device` | Device-specific (button press, etc.) |
 | `calendar` | Calendar event starts/ends |
 | `template` | Custom Jinja2 condition becomes true |
 
 ### Debugging Automations
 
-1. **Check traces**: `ha_get_automation_traces(automation_id)` — see execution history, what triggered, what ran, what failed
-2. **Check logbook**: `ha_get_logbook(entity_id="automation.name")` — when it fired
-3. **Check entity state**: Verify trigger entities are in expected states
-4. **Common issues**:
-   - Automation disabled — `ha_get_state("automation.name")` should be `on`
-   - Wrong entity_id in trigger/action — use `ha_search_entities` to verify
+1. `ha_get_automation_traces(automation_id)` — execution history, what triggered, what failed
+2. `ha_get_logbook(entity_id="automation.name")` — when it fired
+3. Verify trigger entities are in expected states
+4. Common issues:
+   - Automation disabled — state should be `on`
+   - Wrong entity_id — use `ha_search_entities` to verify
    - Condition blocking — traces show which condition failed
-   - Service call data wrong — check domain docs for required fields
+   - Service call data wrong — check domain reference
 
-## Helper Entities
+## Helper Entities (ha-mcp only)
 
-Helpers are virtual entities for storing state, useful for preferences and modes.
+Virtual entities for storing state — useful for preferences and modes.
 
 | Helper Type | Good For | Creation |
 |-------------|----------|----------|
-| `input_boolean` | Mode toggles (guest mode, vacation mode, sleep mode) | `ha_config_set_helper(type="input_boolean", name="...", icon="...")` |
-| `input_number` | Preferred values (default brightness, temp setpoint) | `ha_config_set_helper(type="input_number", name="...", min=0, max=100)` |
-| `input_select` | Mode selectors (lighting scene, HVAC preset) | `ha_config_set_helper(type="input_select", name="...", options=[...])` |
-| `input_datetime` | Schedules (wake time, bedtime) | `ha_config_set_helper(type="input_datetime", name="...", has_time=true)` |
-| `timer` | Countdown triggers (turn off in 30 min) | `ha_config_set_helper(type="timer", name="...", duration="00:30:00")` |
-| `counter` | Event counting (door opens today) | `ha_config_set_helper(type="counter", name="...", step=1)` |
+| `input_boolean` | Mode toggles (guest, vacation, sleep) | `ha_config_set_helper(type="input_boolean", ...)` |
+| `input_number` | Preferred values (brightness, temp) | `ha_config_set_helper(type="input_number", ...)` |
+| `input_select` | Mode selectors (scene, HVAC preset) | `ha_config_set_helper(type="input_select", ...)` |
+| `input_datetime` | Schedules (wake time, bedtime) | `ha_config_set_helper(type="input_datetime", ...)` |
+| `timer` | Countdown triggers | `ha_config_set_helper(type="timer", ...)` |
+| `counter` | Event counting | `ha_config_set_helper(type="counter", ...)` |
 
-**Pro tip**: Combine helpers with automations for user-configurable behavior. E.g., `input_number.default_evening_brightness` → automation reads it when turning on lights at sunset.
+**Pro tip**: Combine helpers with automations for user-configurable behavior. E.g.,
+`input_number.default_evening_brightness` → automation reads it at sunset.
 
-## Script Management
-
-Scripts are reusable sequences — perfect for routines that get triggered in multiple ways.
-
-```
-ha_config_set_script(
-    alias="movie_mode",
-    sequence=[
-        {"action": "light.turn_on", "target": {"entity_id": "light.living_room"}, "data": {"brightness": 30, "color_temp": 454}},
-        {"action": "cover.close_cover", "target": {"entity_id": "cover.living_room_blinds"}},
-        {"action": "media_player.turn_on", "target": {"entity_id": "media_player.tv"}},
-        {"delay": "00:00:03"},
-        {"action": "media_player.select_source", "target": {"entity_id": "media_player.tv"}, "data": {"source": "HDMI 1"}}
-    ]
-)
-```
-
-## Dashboard Tips
-
-- `ha_config_get_dashboard()` — list all dashboards
-- `ha_config_get_dashboard(dashboard_id)` — get full YAML config
-- `ha_config_set_dashboard(dashboard_id, config)` — update dashboard
-- `ha_dashboard_find_card(dashboard_id, query)` — find specific cards
-- Prefer modifying existing dashboards over creating new ones
-- Use `type: entities` for status views, `type: grid` for controls
-
-## Energy & Monitoring
-
-For energy-aware responses:
-- Query power sensors: `ha_get_states(domain="sensor")` → filter for `_power`, `_energy` entities
-- Historical usage: `ha_get_history(entity_id="sensor.total_energy", start=..., end=...)`
-- Statistics: `ha_get_statistics(entity_id, period="day")` for daily/weekly/monthly aggregates
-- When suggesting automations, consider energy impact (e.g., "this automation could save ~$X/month by turning off [devices] when not in use")
+---
 
 ## Preference Tracking (preferences.md)
 
@@ -260,7 +304,6 @@ Maintain preferences.md as a living document. Structure it by room and category:
 ### Lighting
 - **Evening**: 25% brightness, 2200K — never above 40% after 9 PM
 - **Wake-up**: gradual from 0→60% over 15 min starting at alarm time
-...
 ```
 
 **When to update preferences.md**:
@@ -272,26 +315,25 @@ Maintain preferences.md as a living document. Structure it by room and category:
 
 ## Routine Definitions (routines.md)
 
-Track named routines with exact service calls:
+Track named routines with the exact tool calls for each step. Adapt to whichever
+tools are available:
 
 ```markdown
 ## Morning
 
 **Trigger phrases**: "good morning", "I'm up", "start the day"
 
-1. Living room lights → 80%, 4000K neutral
-2. Kitchen lights → 100%, 4000K
-3. Blinds → open all
-4. Thermostat → daytime setpoint (72°F)
-5. Coffee maker → turn on (if smart plug connected)
+### Steps (Official HA MCP)
+1. `HassLightSet` → Living room, brightness 80%
+2. `HassLightSet` → Kitchen, brightness 100%
+3. `HassTurnOn` → Cover: living room blinds
+4. `HassClimateSetTemperature` → 72°F
 
-## Wind Down
-
-**Trigger phrases**: "wind down", "relaxing time", "evening mode"
-
-1. All lights → 40%, 2700K warm, 10s transition
-2. Living room TV → turn on
-3. Thermostat → evening setpoint (70°F)
+### Steps (ha-mcp)
+1. `ha_call_service("light", "turn_on", "light.living_room", {"brightness": 204, "color_temp": 250})`
+2. `ha_call_service("light", "turn_on", "light.kitchen", {"brightness": 255, "color_temp": 250})`
+3. `ha_call_service("cover", "open_cover", "cover.living_room_blinds")`
+4. `ha_call_service("climate", "set_temperature", "climate.thermostat", {"temperature": 72})`
 
 ## Good Night
 
@@ -299,26 +341,33 @@ Track named routines with exact service calls:
 
 1. All lights → off (except nightlights)
 2. All doors → lock
-3. Thermostat → night setpoint (68°F)
+3. Thermostat → 68°F (night setpoint)
 4. Blinds → close all
 5. TV/speakers → off
-6. Set alarm integration (if available)
 ```
 
-## System Health Checks
+**Tip**: If the user has custom script tools (like `bedroom_set_scene_based_on_time`),
+record what they do and use them directly — they're often better than manual service
+calls because they encapsulate HA-side logic.
+
+## System Health Checks (ha-mcp only)
 
 For heartbeats or status requests:
 1. `ha_get_system_health()` — overall HA health
-2. `ha_get_updates()` — pending updates for HA core, OS, add-ons
-3. `ha_get_states(domain="binary_sensor")` → check for `unavailable` entities (disconnected devices)
-4. `ha_get_states(domain="sensor")` → look for battery sensors below threshold
+2. `ha_get_updates()` — pending updates
+3. `ha_get_states(domain="binary_sensor")` → check for `unavailable` entities
+4. `ha_get_states(domain="sensor")` → battery sensors below threshold
 5. `ha_get_logbook(hours=24)` → unusual events or errors
+
+For the official HA MCP: use `GetLiveContext` for a status snapshot. No detailed
+health checks available — note this limitation in status.md.
 
 ## Common Pitfalls
 
-- **Entity unavailable**: Device offline or integration issue — check `ha_get_device` for the parent device status
-- **Service call fails silently**: Verify entity supports the service — not all lights support color_temp or rgb
-- **Automation not firing**: Check if it's enabled (`state: on`), review traces for condition failures
-- **Wrong brightness scale**: HA uses 0-255 for brightness in service calls but 0-100% in UI — convert when talking to users
-- **Color temp units**: Mireds (153-500 typical range) — lower number = cooler/bluer, higher = warmer
-- **Template errors**: If using `ha_eval_template`, test with simple templates first
+- **Entity unavailable**: Device offline — power cycle, check WiFi, re-pair Zigbee/Z-Wave
+- **Wrong brightness scale**: Official uses 0-100%, ha-mcp uses 0-255. Convert when talking to users (always speak in percentages).
+- **Color temp units**: Mireds (153-500) — lower = cooler/bluer, higher = warmer. Not all bulbs support the full range.
+- **Service call fails silently**: Verify entity supports the service — not all lights support color_temp or RGB
+- **Automation not firing** (ha-mcp): Check enabled state, review traces for condition failures
+- **Official MCP "entity not found"**: Entity isn't exposed to voice assistants — go to Settings > Voice Assistants > Expose
+- **Custom scripts don't appear**: Script must be exposed to voice assistants to show as a tool

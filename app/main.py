@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from app.agent.bots import list_bots, load_bots, seed_bots_from_yaml
+from app.agent.bots import ensure_default_bot, list_bots, load_bots, seed_bots_from_yaml
 from app.agent.skills import load_skills, seed_skills_from_files
 from app.services import file_sync
 from app.agent.tools import (
@@ -257,6 +257,7 @@ async def lifespan(application: FastAPI):
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")
     await load_bots()
+    await ensure_default_bot()
 
     # Auto-create default workspace and enroll all bots
     from app.services.workspace_bootstrap import ensure_default_workspace, ensure_all_bots_enrolled

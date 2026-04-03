@@ -110,25 +110,48 @@ See the [Custom Tools & Extensions](custom-tools.md) guide for the full walkthro
 
 This walks through connecting Home Assistant to Spindrel with full smart home management.
 
-### Prerequisites
+### Two MCP Server Options
 
-- A running Home Assistant instance
-- The [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) MCP server (community, 92+ tools) or the [official HA MCP integration](https://www.home-assistant.io/integrations/mcp_server/) (built-in, fewer tools)
+There are two ways to connect Home Assistant via MCP — you can use either or both:
 
-### Step 1: Install ha-mcp
+| | Official HA MCP Integration | Community ha-mcp |
+|---|---|---|
+| **What it is** | Built into Home Assistant (2024.12+) | Separate [add-on / Docker container](https://github.com/homeassistant-ai/ha-mcp) |
+| **Tools** | ~20 intent-based (`HassTurnOn`, `HassLightSet`, etc.) + exposed scripts | 92+ full API tools (`ha_call_service`, `ha_get_state`, etc.) |
+| **Can do** | Control devices, run scripts, get states | Everything: automations, history, dashboards, debugging, HACS, backups |
+| **Can't do** | Create/edit automations, query history, manage dashboards | — |
+| **Setup** | Enable in HA Integrations page | Add repository to Add-on Store |
+| **Entity access** | Only entities exposed to voice assistants | All entities |
 
-The community ha-mcp server is recommended for the richest tool set. Follow the [ha-mcp setup guide](https://homeassistant-ai.github.io/ha-mcp/) for your deployment method (add-on, Docker, or standalone).
+**Recommendation**: Install ha-mcp for the full toolset. Keep the official integration too if you already have it — the `home-assistant` carapace handles both tool naming conventions automatically.
 
-For **Home Assistant OS**, install the add-on:
+### Option A: Official HA MCP Integration (quick start)
 
-1. Add the ha-mcp repository in **Settings > Add-ons > Add-on Store > ⋮ > Repositories**
-2. Install **"Home Assistant MCP Server"**
-3. Start the add-on and note the MCP URL from the logs
+If you already have this enabled (you'll see `HassTurnOn`, `HassLightSet` tools), you're set. To expose more entities:
 
-For **Docker / standalone**, run ha-mcp alongside your HA instance:
+1. Go to **Settings > Voice Assistants** in Home Assistant
+2. Click the **Expose** tab
+3. Toggle on all entities you want the AI to control (lights, switches, climate, media, covers, locks)
+4. Exposed scripts appear as named tools (e.g., `bedroom_set_scene_based_on_time`)
+
+The MCP URL is typically `http://your-ha-host:8123/mcp_server` — configure this in Spindrel's Admin UI or `mcp.yaml`.
+
+### Option B: Community ha-mcp (recommended for full control)
+
+ha-mcp is **not in HACS** — it's a standalone HA add-on with its own repository.
+
+**Home Assistant OS** (add-on):
+
+1. Go to **Settings > Add-ons > Add-on Store**
+2. Click **⋮** (three dots, top right) → **Repositories**
+3. Add: `https://github.com/homeassistant-ai/ha-mcp`
+4. Find **"Home Assistant MCP Server"** in the store and install it
+5. Click **Start**, then check the **Logs** tab for your MCP URL
+6. No token setup needed — the add-on connects to HA automatically
+
+**Docker / standalone**:
 
 ```bash
-# Example — adjust HA_URL and HA_TOKEN for your setup
 docker run -d \
   -e HOMEASSISTANT_URL=http://homeassistant:8123 \
   -e HOMEASSISTANT_TOKEN=your_long_lived_access_token \
@@ -136,19 +159,29 @@ docker run -d \
   ghcr.io/homeassistant-ai/ha-mcp:latest
 ```
 
-### Step 2: Connect to Spindrel
+Create a [long-lived access token](https://www.home-assistant.io/docs/authentication/#your-account-profile) in your HA profile page.
 
-**Admin UI**: Go to **Admin > MCP Servers > New Server**, enter the ha-mcp URL (e.g., `http://ha-mcp:8000/mcp`), add the API key if needed, and test.
+### Connect to Spindrel
+
+**Admin UI**: Go to **Admin > MCP Servers > New Server**, enter the MCP URL, add the API key if needed, and test the connection.
 
 **Or via mcp.yaml** (first boot only):
 
 ```yaml
+# For ha-mcp add-on (check add-on logs for exact URL)
 homeassistant:
-  url: http://ha-mcp:8000/mcp
+  url: http://your-ha-host:8000/mcp
   api_key: ${HA_MCP_KEY}
+
+# For official HA MCP integration
+# homeassistant:
+#   url: http://your-ha-host:8123/mcp_server
+#   api_key: ${HA_LONG_LIVED_TOKEN}
 ```
 
-### Step 3: Configure your bot
+If you're running both, add them as separate MCP servers with different names.
+
+### Configure your bot
 
 ```yaml
 # bots/assistant.yaml
@@ -215,7 +248,11 @@ Next time:
 If your bot always needs certain MCP tools (not just when retrieval finds them), pin them:
 
 ```yaml
+# For ha-mcp (community)
 pinned_tools: [ha_call_service, ha_get_state, ha_search_entities]
+
+# For official HA MCP
+pinned_tools: [HassTurnOn, HassTurnOff, HassLightSet, HassClimateSetTemperature]
 ```
 
 Pinned tools bypass retrieval and are always sent to the LLM.
@@ -249,3 +286,6 @@ Each server's tools are indexed independently and retrieved based on relevance.
 | "Connection refused" | MCP server may not be running. Check its logs. For Docker, ensure both containers are on the same network. |
 | Tools work but bot doesn't know *how* | Add a carapace. Without one, the bot has tools but no domain expertise. |
 | Stale tool list after MCP server update | Tool schemas are cached for 60s. Wait or restart the Spindrel server. |
+| Official HA MCP: "entity not found" | Entity isn't exposed to voice assistants. Go to HA **Settings > Voice Assistants > Expose**. |
+| ha-mcp not in HACS | ha-mcp is an **add-on repository**, not a HACS integration. Add `https://github.com/homeassistant-ai/ha-mcp` in **Settings > Add-ons > Add-on Store > ⋮ > Repositories**. |
+| Only see ~20 tools from official HA MCP | That's expected — the official integration only exposes intent-based tools. Install ha-mcp for the full 92+ toolset. |

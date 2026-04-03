@@ -315,8 +315,13 @@ async def create_channel(
     model_override, channel_workspace_enabled, workspace_schema_template_id,
     category, activate_integrations.
     """
-    from app.agent.bots import get_bot
+    from app.agent.bots import ensure_default_bot, get_bot
     from app.db.models import PromptTemplate, User
+
+    # Self-heal: if the default bot was deleted or never seeded, re-create it
+    if body.bot_id == "default":
+        await ensure_default_bot()
+
     try:
         get_bot(body.bot_id)
     except HTTPException:

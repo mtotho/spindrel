@@ -28,6 +28,10 @@ def register_channel_approval_handlers(app) -> None:
         client_id = slack_client_id(channel)
         result = await ensure_channel(client_id, bot_id)
         if result:
+            # Also create a ChannelIntegration binding so /config includes this channel
+            channel_uuid = result.get("id")
+            if channel_uuid:
+                await _create_slack_binding(channel_uuid, client_id)
             _set_approval(channel, "approved")
             await _update_message(
                 respond, body,
@@ -53,6 +57,27 @@ def register_channel_approval_handlers(app) -> None:
             respond, body,
             f":no_entry_sign: *Channel denied* by <@{user_id}> — messages will be ignored. @mention the bot to re-prompt.",
         )
+
+
+async def _create_slack_binding(channel_uuid: str, client_id: str) -> None:
+    """Create a ChannelIntegration binding so /config picks up the approved channel."""
+    from slack_settings import AGENT_BASE_URL, API_KEY
+    import httpx
+
+    url = f"{AGENT_BASE_URL}/api/v1/channels/{channel_uuid}/integrations"
+    payload = {"integration_type": "slack", "client_id": client_id}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                url, json=payload,
+                headers={"Authorization": f"Bearer {API_KEY}"},
+            )
+            if r.status_code == 409:
+                logger.debug("Slack binding already exists for channel %s", channel_uuid)
+            elif r.status_code >= 400:
+                logger.warning("Failed to create Slack binding: %d %s", r.status_code, r.text)
+    except Exception:
+        logger.warning("Failed to create Slack binding for channel %s", channel_uuid, exc_info=True)
 
 
 async def _update_message(respond, body, text: str) -> None:

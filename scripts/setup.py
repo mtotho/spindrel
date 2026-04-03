@@ -462,6 +462,44 @@ def main() -> None:
         if start_now:
             os.execvp("bash", ["bash", str(REPO_ROOT / "scripts" / "dev-server.sh")])
 
+    # ── Install CLI ─────────────────────────────────────────────────────────
+    _install_cli()
+
+
+def _install_cli() -> None:
+    """Offer to install the spindrel CLI symlink."""
+    cli_script = REPO_ROOT / "scripts" / "spindrel"
+    cli_link = Path("/usr/local/bin/spindrel")
+
+    if not cli_script.exists():
+        return
+
+    # Already installed and pointing to the right place
+    if cli_link.is_symlink() and cli_link.resolve() == cli_script.resolve():
+        return
+
+    install_cli = questionary.confirm(
+        "Install 'spindrel' CLI? (adds to /usr/local/bin)",
+        default=True,
+        style=STYLE,
+    ).ask()
+    if not install_cli:
+        return
+
+    rc = os.system(f"sudo ln -sf {cli_script} {cli_link}")
+    if rc == 0:
+        print()
+        print("  \033[32m✓\033[0m CLI installed. Commands:")
+        print("    spindrel status    — Show service status")
+        print("    spindrel restart   — Restart services")
+        print("    spindrel logs      — Tail logs")
+        print("    spindrel pull      — Git pull + rebuild + restart")
+        print("    spindrel --help    — All commands")
+    else:
+        print()
+        print(f"  \033[33m⚠\033[0m  Could not install CLI. Run manually:")
+        print(f"    sudo ln -sf {cli_script} {cli_link}")
+
 
 if __name__ == "__main__":
     main()

@@ -1,17 +1,31 @@
 #!/usr/bin/env python3
-"""Spindrel CLI — single entry point for service management."""
+"""Spindrel CLI — single entry point for service management.
+
+Auto-detects deployment mode:
+  - Docker: uses docker compose commands
+  - Systemd (host): uses systemctl commands
+
+Install: ln -sf /path/to/scripts/spindrel /usr/local/bin/spindrel
+"""
 
 import argparse
 import os
 import subprocess
 import sys
 
-SERVICES = ["spindrel", "spindrel-slack"]
+def _discover_systemd_services():
+    """Discover installed spindrel systemd services dynamically."""
+    services = []
+    systemd_dir = "/etc/systemd/system"
+    if os.path.isdir(systemd_dir):
+        for f in sorted(os.listdir(systemd_dir)):
+            if f.startswith("spindrel") and f.endswith(".service"):
+                services.append(f.removesuffix(".service"))
+    return services or ["spindrel"]  # fallback to main service
 
 
 def get_repo_dir():
     """Auto-detect repo directory from script location, cwd, or env var."""
-    # Check env var first
     for var in ("SPINDREL_HOME", "SPINDREL_REPO_PATH"):
         path = os.environ.get(var)
         if path and os.path.isdir(os.path.join(path, ".git")):
@@ -23,13 +37,22 @@ def get_repo_dir():
     if os.path.isdir(os.path.join(repo_dir, ".git")):
         return repo_dir
 
-    # Current directory
     cwd = os.getcwd()
     if os.path.isdir(os.path.join(cwd, ".git")):
         return cwd
 
     print("error: Could not find repo directory. Set SPINDREL_HOME or run from the repo.", file=sys.stderr)
     sys.exit(1)
+
+
+def is_docker_mode(repo):
+    """Detect if running in Docker mode (docker-compose.yml exists and no systemd services)."""
+    has_compose = os.path.isfile(os.path.join(repo, "docker-compose.yml"))
+    has_systemd = os.path.isfile("/etc/systemd/system/spindrel.service")
+    # If both exist, prefer systemd (explicit install-service.sh was run)
+    if has_systemd:
+        return False
+    return has_compose
 
 
 def run(cmd, check=True, shell=True, **kwargs):
@@ -41,36 +64,113 @@ def run(cmd, check=True, shell=True, **kwargs):
     return result
 
 
+def dc(repo, *args):
+    """Run a docker compose command in the repo directory."""
+    cmd = f"docker compose -f {repo}/docker-compose.yml {' '.join(args)}"
+    return run(cmd)
+
+
+# ── Docker mode commands ─────────────────────────────────────────────────────
+
+def docker_start(repo, args):
+    print("Starting containers...")
+    dc(repo, "up -d")
+
+
+def docker_stop(repo, args):
+    print("Stopping containers...")
+    dc(repo, "down")
+
+
+def docker_restart(repo, args):
+    svc = getattr(args, "service", None)
+    if svc:
+        print(f"Restarting {svc}...")
+        dc(repo, f"restart {svc}")
+    else:
+        print("Restarting all containers...")
+        dc(repo, "restart")
+
+
+def docker_pull(repo, args):
+    print(f"Pulling latest in {repo}...")
+    result = run(f"git -C {repo} fetch origin && git -C {repo} pull --rebase origin master")
+    if result.returncode != 0:
+        print("Pull failed — skipping rebuild.", file=sys.stderr)
+        return
+    print("Rebuilding containers...")
+    dc(repo, "build")
+    dc(repo, "up -d")
+
+
+def docker_status(repo, args):
+    dc(repo, "ps")
+
+
+def docker_logs(repo, args):
+    svc = getattr(args, "service", None)
+    tail = getattr(args, "lines", 50)
+    follow = "-f" if not getattr(args, "no_follow", False) else ""
+    target = svc or ""
+    print(f"Tailing logs ({svc or 'all services'})... (Ctrl+C to stop)")
+    try:
+        dc(repo, f"logs --tail {tail} {follow} {target}")
+    except KeyboardInterrupt:
+        pass
+
+
+def docker_rebuild(repo, args):
+    print("Rebuilding and restarting...")
+    dc(repo, "build")
+    dc(repo, "up -d")
+
+
+def docker_backup(repo, args):
+    script = os.path.join(repo, "scripts", "backup.sh")
+    if not os.path.isfile(script):
+        print(f"error: {script} not found", file=sys.stderr)
+        sys.exit(1)
+    run(f"bash {script}", check=False)
+
+
+def docker_restore(repo, args):
+    script = os.path.join(repo, "scripts", "restore.sh")
+    if not os.path.isfile(script):
+        print(f"error: {script} not found", file=sys.stderr)
+        sys.exit(1)
+    cmd = f"bash {script}"
+    if args.backup_file:
+        cmd += f" {args.backup_file}"
+    run(cmd)
+
+
+# ── Systemd mode commands ────────────────────────────────────────────────────
+
 def _daemon_reload():
-    """Reload systemd unit files if they changed on disk."""
     run("sudo systemctl daemon-reload")
 
 
-def cmd_start(args):
-    """Start spindrel services."""
+def systemd_start(repo, args):
     _daemon_reload()
     print("Starting services...")
-    for svc in SERVICES:
+    for svc in _discover_systemd_services():
         run(f"sudo systemctl start {svc}.service")
 
 
-def cmd_stop(args):
-    """Stop spindrel services."""
+def systemd_stop(repo, args):
     print("Stopping services...")
-    for svc in reversed(SERVICES):
+    for svc in reversed(_discover_systemd_services()):
         run(f"sudo systemctl stop {svc}.service")
 
 
-def cmd_restart(args):
-    """Restart spindrel services."""
+def systemd_restart(repo, args):
     _daemon_reload()
     print("Restarting services...")
-    for svc in SERVICES:
+    for svc in _discover_systemd_services():
         run(f"sudo systemctl restart {svc}.service")
 
 
 def _build_workspace_image(repo):
-    """Rebuild the workspace Docker image if Dockerfile.workspace exists."""
     dockerfile = os.path.join(repo, "Dockerfile.workspace")
     if not os.path.isfile(dockerfile):
         return
@@ -79,7 +179,6 @@ def _build_workspace_image(repo):
 
 
 def _rebuild_ui(repo):
-    """Rebuild and restart the UI container if ui/Dockerfile exists."""
     dockerfile = os.path.join(repo, "ui", "Dockerfile")
     if not os.path.isfile(dockerfile):
         return
@@ -92,7 +191,6 @@ def _rebuild_ui(repo):
 
 
 def _build_integration_uis(repo):
-    """Build integration web UIs (dashboards served via iframe)."""
     integrations_dir = os.path.join(repo, "integrations")
     if not os.path.isdir(integrations_dir):
         return
@@ -107,9 +205,7 @@ def _build_integration_uis(repo):
             print(f"warning: Integration UI build failed for {name}.", file=sys.stderr)
 
 
-def cmd_pull(args):
-    """Pull latest code and restart services."""
-    repo = get_repo_dir()
+def systemd_pull(repo, args):
     print(f"Pulling latest in {repo}...")
     result = run(f"git -C {repo} fetch origin && git -C {repo} pull --rebase origin master")
     if result.returncode != 0:
@@ -118,60 +214,29 @@ def cmd_pull(args):
     _build_workspace_image(repo)
     _build_integration_uis(repo)
     _rebuild_ui(repo)
-    cmd_restart(args)
+    systemd_restart(repo, args)
 
 
-def cmd_backup(args):
-    """Run backup.sh."""
-    repo = get_repo_dir()
-    script = os.path.join(repo, "scripts", "backup.sh")
-    if not os.path.isfile(script):
-        print(f"error: {script} not found", file=sys.stderr)
-        sys.exit(1)
-    print("Running backup...")
-    result = run(f"bash {script}", check=False)
-    if result.returncode != 0:
-        print("warning: Backup completed with errors.", file=sys.stderr)
-
-
-def cmd_restore(args):
-    """Run restore.sh with optional backup file."""
-    repo = get_repo_dir()
-    script = os.path.join(repo, "scripts", "restore.sh")
-    if not os.path.isfile(script):
-        print(f"error: {script} not found", file=sys.stderr)
-        sys.exit(1)
-    cmd = f"bash {script}"
-    if args.backup_file:
-        cmd += f" {args.backup_file}"
-    print("Running restore...")
-    run(cmd)
-
-
-def cmd_status(args):
-    """Show service status, docker containers, and disk usage."""
+def systemd_status(repo, args):
     print("=== Systemd Services ===")
-    for svc in SERVICES:
+    for svc in _discover_systemd_services():
         run(f"systemctl status {svc}.service --no-pager -l", check=False)
         print()
-
     print("=== Docker Containers ===")
-    run("docker ps --format 'table {{{{.Names}}}}\\t{{{{.Status}}}}\\t{{{{.Ports}}}}'", check=False)
+    run("docker ps --format 'table {{.Names}}\\t{{.Status}}\\t{{.Ports}}'", check=False)
     print()
-
     print("=== Disk Usage ===")
     run("df -h / | tail -1", check=False)
     run("docker system df 2>/dev/null", check=False)
 
 
-def cmd_logs(args):
-    """Tail journalctl logs for services."""
-    svc = args.service
-    if svc and svc not in SERVICES:
-        print(f"error: Unknown service '{svc}'. Choose from: {', '.join(SERVICES)}", file=sys.stderr)
+def systemd_logs(repo, args):
+    svc = getattr(args, "service", None)
+    services = _discover_systemd_services()
+    if svc and svc not in services:
+        print(f"error: Unknown service '{svc}'. Choose from: {', '.join(services)}", file=sys.stderr)
         sys.exit(1)
-
-    units = [f"-u {svc}"] if svc else [f"-u {s}" for s in SERVICES]
+    units = [f"-u {svc}"] if svc else [f"-u {s}" for s in services]
     cmd = f"journalctl {' '.join(units)} -f --no-pager -n 50"
     print(f"Tailing logs ({svc or 'all services'})... (Ctrl+C to stop)")
     try:
@@ -180,6 +245,16 @@ def cmd_logs(args):
         pass
 
 
+def systemd_backup(repo, args):
+    docker_backup(repo, args)  # same implementation
+
+
+def systemd_restore(repo, args):
+    docker_restore(repo, args)  # same implementation
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
 def main():
     parser = argparse.ArgumentParser(
         prog="spindrel",
@@ -187,33 +262,63 @@ def main():
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("start", help="Start spindrel services")
-    sub.add_parser("stop", help="Stop spindrel services")
-    sub.add_parser("restart", help="Restart spindrel services")
-    sub.add_parser("pull", help="Git pull + restart")
+    sub.add_parser("start", help="Start services")
+    sub.add_parser("stop", help="Stop services")
+
+    restart_p = sub.add_parser("restart", help="Restart services")
+    restart_p.add_argument("service", nargs="?", default=None,
+                           help="Specific service to restart (Docker mode)")
+
+    sub.add_parser("pull", help="Git pull + rebuild + restart")
+    sub.add_parser("rebuild", help="Rebuild containers and restart (Docker mode)")
     sub.add_parser("backup", help="Run backup")
+    sub.add_parser("status", help="Show service status")
 
     restore_p = sub.add_parser("restore", help="Restore from backup")
-    restore_p.add_argument("backup_file", nargs="?", default=None, help="Path to backup archive")
-
-    sub.add_parser("status", help="Show service/container/disk status")
+    restore_p.add_argument("backup_file", nargs="?", default=None,
+                           help="Path to backup archive")
 
     logs_p = sub.add_parser("logs", help="Tail service logs")
-    logs_p.add_argument("service", nargs="?", default=None, help="Service name (spindrel or spindrel-slack)")
+    logs_p.add_argument("service", nargs="?", default=None,
+                        help="Service name to filter")
+    logs_p.add_argument("-n", "--lines", type=int, default=50,
+                        help="Number of lines to show (default: 50)")
+    logs_p.add_argument("--no-follow", action="store_true",
+                        help="Don't follow (print and exit)")
 
     args = parser.parse_args()
+    repo = get_repo_dir()
+    docker = is_docker_mode(repo)
 
-    commands = {
-        "start": cmd_start,
-        "stop": cmd_stop,
-        "restart": cmd_restart,
-        "pull": cmd_pull,
-        "backup": cmd_backup,
-        "restore": cmd_restore,
-        "status": cmd_status,
-        "logs": cmd_logs,
-    }
-    commands[args.command](args)
+    if docker:
+        mode_label = "Docker"
+        commands = {
+            "start": docker_start,
+            "stop": docker_stop,
+            "restart": docker_restart,
+            "pull": docker_pull,
+            "rebuild": docker_rebuild,
+            "status": docker_status,
+            "logs": docker_logs,
+            "backup": docker_backup,
+            "restore": docker_restore,
+        }
+    else:
+        mode_label = "Systemd"
+        commands = {
+            "start": systemd_start,
+            "stop": systemd_stop,
+            "restart": systemd_restart,
+            "pull": systemd_pull,
+            "rebuild": lambda r, a: print("Rebuild is only for Docker mode. Use 'spindrel pull' instead."),
+            "status": systemd_status,
+            "logs": systemd_logs,
+            "backup": systemd_backup,
+            "restore": systemd_restore,
+        }
+
+    print(f"  [{mode_label} mode]")
+    commands[args.command](repo, args)
 
 
 if __name__ == "__main__":

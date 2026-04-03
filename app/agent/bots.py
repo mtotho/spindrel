@@ -636,6 +636,38 @@ async def reload_bots() -> None:
     await load_bots()
 
 
+async def ensure_default_bot() -> None:
+    """Guarantee the 'default' bot exists in DB and registry.
+
+    If missing (deleted by user, failed seed, fresh DB), re-seed it from
+    the system_bots YAML and reload the registry.
+    """
+    if "default" in _registry:
+        return
+
+    logger.warning("Default bot missing from registry — re-seeding from system YAML")
+    yaml_path = SYSTEM_BOTS_DIR / "default.yaml"
+    if not yaml_path.exists():
+        logger.error("Cannot re-seed default bot: %s not found", yaml_path)
+        return
+
+    try:
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f)
+        if not data or "id" not in data:
+            return
+        row_dict = _yaml_data_to_row_dict(data)
+        row_dict["source_type"] = "system"
+        async with async_session() as db:
+            stmt = pg_insert(BotRow).values(**row_dict).on_conflict_do_nothing(index_elements=["id"])
+            await db.execute(stmt)
+            await db.commit()
+        await load_bots()
+        logger.info("Re-seeded default bot successfully")
+    except Exception:
+        logger.error("Failed to re-seed default bot", exc_info=True)
+
+
 def list_bots() -> list[BotConfig]:
     return list(_registry.values())
 
