@@ -287,6 +287,52 @@ This creates:
 - `logs/YYYY-MM-DD.md` — daily session logs
 - `reference/` — longer guides and documentation
 
+### Docker Workspace Container
+
+The Default Workspace runs a Docker container where bots can execute code, install packages, and run scripts. The workspace image is built during setup:
+
+```bash
+docker build -t agent-workspace:latest -f Dockerfile.workspace .
+```
+
+The default image (`agent-workspace:latest`) ships with Python, Node.js, git, ripgrep, and common utilities. You can configure the container via **Admin UI > Workspaces > Docker** tab:
+
+- **Image** — use any Docker image you want (e.g. your own with extra tools pre-installed)
+- **Network** — `bridge` (default, internet access) or `none` (isolated)
+- **Startup Script** — runs every time the container starts or is recreated
+- **Resources** — CPU and memory limits
+
+#### Startup Script (recommended)
+
+Containers are ephemeral — anything installed at runtime (pip packages, apt packages, config files) is lost when the container restarts. Use the startup script to reinstall persistent dependencies:
+
+1. Create `/workspace/startup.sh` inside the workspace (via the Files tab or bot)
+2. Add your install commands:
+   ```bash
+   #!/bin/bash
+   pip install -q numpy scipy matplotlib
+   apt-get update && apt-get install -y -qq ffmpeg
+   ```
+3. The path `/workspace/startup.sh` is the default — it runs automatically on every container start
+
+Since `/workspace/` is a bind-mounted volume, the script persists across container restarts and recreations.
+
+#### Custom Images
+
+If you need a more specialized environment, build your own image and set it in the Docker tab:
+
+```dockerfile
+FROM agent-workspace:latest
+RUN apt-get update && apt-get install -y ffmpeg imagemagick
+RUN pip install numpy pandas matplotlib
+```
+
+```bash
+docker build -t my-workspace:latest -f Dockerfile.my-workspace .
+```
+
+Then set the image to `my-workspace:latest` in the workspace Docker settings. This is faster than a startup script since everything is baked into the image.
+
 ## Integrations
 
 Integrations are discovered from `integrations/*/` directories. Each can provide:

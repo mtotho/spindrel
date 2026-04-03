@@ -454,6 +454,7 @@ async def start_workspace(
     try:
         await shared_workspace_service.ensure_container(ws)
     except Exception as exc:
+        logger.exception("Workspace start failed for %s", workspace_id)
         raise HTTPException(500, f"Start failed: {exc}")
     await db.refresh(ws)
     sw_bots = (await db.execute(
