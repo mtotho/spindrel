@@ -655,13 +655,15 @@ async def ensure_default_bot() -> None:
                 "You are a helpful, concise assistant.\n\n"
                 "Respond directly to the user's question. Be clear and to the point.\n"
                 "Use tools when they would help answer the question — don't explain\n"
-                "what tools do, just use them."
+                "what tools do, just use them.\n\n"
+                "When asked about current events, news, or anything requiring up-to-date\n"
+                "information, use the web_search tool."
             ),
             "source_type": "system",
             "local_tools": [],
             "mcp_servers": [],
             "client_tools": [],
-            "pinned_tools": [],
+            "pinned_tools": ["web_search"],
             "skills": [],
             "docker_sandbox_profiles": [],
             "tool_retrieval": True,

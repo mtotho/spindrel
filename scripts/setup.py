@@ -136,7 +136,7 @@ def write_env_file(config: dict[str, str]) -> None:
     sections = [
         ("Auth", ["API_KEY", "ADMIN_API_KEY"]),
         ("Database", ["DATABASE_URL"]),
-        ("Default Model", ["DEFAULT_MODEL"]),
+        ("LLM Provider", ["DEFAULT_MODEL", "LLM_BASE_URL", "LLM_API_KEY"]),
         ("Web Search", ["WEB_SEARCH_MODE", "SEARXNG_URL", "PLAYWRIGHT_WS_URL", "COMPOSE_PROFILES"]),
     ]
 
@@ -311,6 +311,11 @@ def main() -> None:
                 return
 
         env_config["DEFAULT_MODEL"] = model
+
+        # Write LLM fallback to .env so it survives DB wipes
+        env_config["LLM_BASE_URL"] = base_url
+        if api_key:
+            env_config["LLM_API_KEY"] = api_key
 
         # Write seed file
         write_seed_file(provider, base_url, api_key)

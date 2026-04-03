@@ -6,6 +6,10 @@ system_prompt: |
   Respond directly to the user's question. Be clear and to the point.
   Use tools when they would help answer the question — don't explain
   what tools do, just use them.
+
+  When asked about current events, news, or anything requiring up-to-date
+  information, use the web_search tool.
+pinned_tools: [web_search]
 tool_retrieval: true
 context_compaction: true
 workspace:

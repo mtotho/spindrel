@@ -40,11 +40,32 @@ The setup wizard is an interactive TUI that checks these prerequisites, then wal
 4. **Web search backend** — SearXNG (built-in or external), DuckDuckGo, or disabled
 5. **API authentication** — Auto-generate a random key or enter your own
 
+![Setup wizard — provider selection](images/setup-1.png)
+*The setup wizard checks prerequisites and lets you pick an LLM provider.*
+
+![Model selection](images/setup-3-modelname.png)
+*Choose a default model (provider-specific list with custom option).*
+
+![Web search configuration](images/setup-4-websearch-select.png)
+*Configure web search — SearXNG (self-hosted), DuckDuckGo, or disabled.*
+
+![Starting services](images/setup-5-start.png)
+*The wizard generates `.env` and starts Docker services.*
+
 The wizard generates `.env` and a `provider-seed.yaml` file. On first server boot, the seed file is consumed to create a typed provider in the database — giving you full driver features (model management, connection testing, model pull/delete for Ollama). The whole process takes about 60 seconds.
 
 ### After setup
 
 Open the UI and the **Orchestrator** bot will greet you in the Home channel. It walks you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
+
+![Login screen](images/setup-6-login-screen.png)
+*Log in with your API key.*
+
+![First channel creation](images/setup-7-first-channel.png)
+*Create your first channel — the Orchestrator guides you through it.*
+
+![First chat](images/setup-10-first-chat.png)
+*Your first conversation — the sidebar shows channels, workspace, and navigation.*
 
 > **Tip:** You can add more LLM providers later via **Admin UI > Providers**. The wizard just configures the first one.
 
@@ -68,7 +89,9 @@ Edit `.env` with your settings. Required fields:
 
 Then configure your LLM provider via **Admin UI > Providers**, or create a `provider-seed.yaml` for first-boot seeding (see `scripts/setup.py` for the format).
 
-For backward compatibility, you can also set `LLM_BASE_URL` and `LLM_API_KEY` in `.env` for a typeless OpenAI-compatible fallback — but a proper DB provider is recommended.
+You can also set `LLM_BASE_URL` and `LLM_API_KEY` in `.env` for a typeless OpenAI-compatible fallback — but a proper DB provider (created by the setup wizard or Admin UI) is recommended for full features.
+
+> **Note:** `LITELLM_BASE_URL` and `LITELLM_API_KEY` are accepted as aliases for backward compatibility.
 
 > **Tip:** These `.env` values and all other configured secrets (provider keys, integration tokens, etc.) are automatically redacted from tool results and LLM output. You can also store additional secrets via **Admin > Security > Secrets** — see the [Secrets & Redaction guide](guides/secrets.md).
 
@@ -186,7 +209,12 @@ format works:
 ### Additional providers (Admin UI)
 
 You can configure multiple LLM providers simultaneously via **Admin UI > Providers**.
-Each provider has its own API key, base URL, and rate limits. Supported provider types:
+Each provider has its own API key, base URL, and rate limits.
+
+![Providers screen](images/providers-screen-v1.png)
+*Admin > Providers — manage multiple LLM providers with connection testing.*
+
+Supported provider types:
 
 | Type | Description |
 |------|-------------|
@@ -233,6 +261,9 @@ For a full walkthrough including carapaces, workspace templates, and a Home Assi
 ## Workspaces
 
 Workspaces provide persistent file storage for bots. Each bot with `workspace.enabled: true` gets a directory for memory files, daily logs, and reference documents.
+
+![Channel workspace](images/channel_workspace.png)
+*Channel workspace — schema templates, active files, and workspace access.*
 
 ```bash
 # .env

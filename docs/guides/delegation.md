@@ -47,7 +47,7 @@ orchestrator → LLM sees child result → forms its own response
 
 **On Slack:** the child bot's response is also posted to the originating channel, attributed to the child bot (using its `slack_display_name` / `slack_icon_emoji`). By default the post goes to the channel level (not threaded). Pass `reply_in_thread=true` to post it as a thread reply instead.
 
-The Socket Mode integration ignores `bot_message` events, so after a successful `chat.postMessage` the server also appends a **passive** row on the parent channel session (when that Slack channel has **Passive memory** enabled in `/admin/slack`). That row uses the same `metadata` shape as ambient human messages so the orchestrator sees the delegate’s text in the channel-context block on the next turn.
+The Socket Mode integration ignores `bot_message` events, so after a successful `chat.postMessage` the server also appends a **passive** row on the parent channel session (when that Slack channel has **Passive memory** enabled in the channel's Integrations settings). That row uses the same `metadata` shape as ambient human messages so the orchestrator sees the delegate’s text in the channel-context block on the next turn.
 
 ### Deferred
 
@@ -65,7 +65,7 @@ delegate_to_agent(
 
 **Use deferred when:** the delegate's work takes a long time, should run at a specific time, or you don't need the result in the current turn.
 
-Deferred delegations appear in `/admin/delegations` once the task runs and a child session is created.
+Deferred delegations appear in **Admin > Tasks** once the task runs and a child session is created.
 
 ---
 
@@ -141,7 +141,7 @@ This also works for skills and tools: `@skill-name` injects a skill, `@tool-name
 
 ## Delegation Chain Visualization
 
-All delegation chains (both immediate and deferred cross-bot tasks) are visible at `/admin/delegations`.
+All delegation chains (both immediate and deferred cross-bot tasks) are visible in **Admin > Tasks**.
 
 Each chain shows the full tree:
 
@@ -154,7 +154,7 @@ Each chain shows the full tree:
 
 Each node links to its Trace (tool call timeline) and Session (message history).
 
-The **Sessions page** (`/admin/sessions`) also shows delegation depth badges and a `▶ N children` expand button per session.
+The **Tasks page** also shows delegation depth badges and parent/child relationships per task.
 
 ---
 
@@ -181,7 +181,7 @@ Both tools can run a different bot. Prefer `delegate_to_agent`:
 | **When to use** | Sub-agent work, cross-bot orchestration | Self-scheduling, reminders, deferred own-bot work |
 | **Immediate mode** | Yes — synchronous result in same turn | No |
 | **Session linkage** | Creates child session with full parent/root lineage | Cross-bot tasks get proper linkage too (since v028) |
-| **Delegation tree** | Always visible in `/admin/delegations` | Visible after task executes (creates child session) |
+| **Delegation tree** | Always visible in **Admin > Tasks** | Visible after task executes (creates child session) |
 | **Allowlist check** | Enforced via `delegate_bots` | No — use sparingly for cross-bot work |
 
 `create_task` with `bot_id` is handled correctly (creates a proper child session with delegation linkage) but `delegate_to_agent` is the right tool for the job.

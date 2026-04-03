@@ -50,7 +50,7 @@ docker compose up
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # Dev server with Slack bot auto-started (if SLACK_* vars set)
-python scripts/dev-server.py
+./scripts/dev-server.sh
 
 # Run migrations manually
 alembic upgrade head

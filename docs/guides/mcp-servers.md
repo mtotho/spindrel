@@ -4,6 +4,9 @@ MCP (Model Context Protocol) servers expose external tools to your bots — Home
 
 When you connect an MCP server, its tools are automatically discovered, indexed for retrieval, and available to any bot you assign it to. Pair with a [carapace](#carapaces-the-intelligence-layer) to teach the bot *how* to use the tools effectively.
 
+![MCP servers list showing connected servers with tool counts and connection status](../images/mcp-list.png)
+*Admin > MCP Servers — connected servers with discovered tool counts and live connection status.*
+
 ## Setup
 
 ### Option 1: Admin UI (recommended)

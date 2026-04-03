@@ -17,7 +17,7 @@ SLACK_DEFAULT_BOT=default         # Fallback bot when no channel mapping exists
 When both Slack tokens are set, `dev-server.sh` starts the bot automatically. To run standalone:
 
 ```bash
-cd slack-integration && python slack_bot.py
+cd integrations/slack && python slack_bot.py
 ```
 
 ## Slack App Configuration
@@ -87,19 +87,19 @@ A message is passive when it arrives without @mentioning the app and `require_me
 1. **Stored in the channel session** as user-role messages with `metadata.passive = true`
 2. **Not sent to the agent** — no LLM call, no response
 3. **Injected as context** on the next active turn, as a system block: `[Channel context — ambient messages not directed at the bot]`
-4. **Included in compaction** (if `passive_memory = true`) — when the memory/knowledge phase runs, passive messages are visible in the transcript with a `[passive]` prefix, so the bot can extract relevant facts into long-term knowledge
+4. **Included in compaction** (if `passive_memory = true`) — when compaction runs, passive messages are visible in the transcript with a `[passive]` prefix, so the bot can extract relevant facts into `MEMORY.md` during the memory flush phase
 
 This lets the bot stay aware of conversations happening around it without interrupting them.
 
 ## Channel Configuration
 
-Configure per-channel behavior at `/admin/slack`. Each channel can have:
+Configure per-channel behavior in **Admin > Channels** (select a channel, then the **Integrations** tab). Each channel can have:
 
 | Setting | Default | Description |
 |---|---|---|
 | **Default Bot** | `SLACK_DEFAULT_BOT` | The bot that responds to @mentions in this channel. Other bots can be addressed with `/ask <bot-id>`. |
 | **Require @mention** | `true` | When checked, only @mentions trigger the agent. All other messages are stored passively as channel context. When unchecked, the bot replies to every message. |
-| **Passive memory** | `true` | When compaction runs, passive channel messages are included in the memory/knowledge phase transcript so the bot can extract channel activity into knowledge. |
+| **Passive memory** | `true` | When compaction runs, passive channel messages are included in the transcript so the bot can extract channel activity into `MEMORY.md`. |
 
 The derived session ID for each channel is shown in the channel list (first 8 chars of the UUID).
 

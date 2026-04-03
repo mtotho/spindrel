@@ -2,6 +2,9 @@
 
 Heartbeats are periodic autonomous check-ins. Configure a heartbeat on a channel and the bot runs a prompt on a schedule — monitoring, summarizing, alerting, or triggering workflows without human intervention.
 
+![Heartbeat configuration UI showing interval, prompt, dispatch mode, and quiet hours settings](../images/channel-heartbeat.png)
+*Channel heartbeat settings — configure the interval, prompt, dispatch mode, and quiet hours.*
+
 ---
 
 ## Quick Start

@@ -2,7 +2,7 @@
 
 ## System Overview
 
-Spindrel is a FastAPI application backed by PostgreSQL with pgvector. It supports multiple LLM provider types: OpenAI-compatible endpoints (OpenAI, Gemini, Ollama, OpenRouter, LiteLLM, vLLM), native Anthropic (direct API and Bedrock), and any custom provider configured via the admin UI. Each bot can use a different provider via `model_provider_id`. The default provider is configured via `LITELLM_BASE_URL`/`LITELLM_API_KEY` in `.env`.
+Spindrel is a FastAPI application backed by PostgreSQL with pgvector. It supports multiple LLM provider types: OpenAI-compatible endpoints (OpenAI, Gemini, Ollama, OpenRouter, LiteLLM, vLLM), native Anthropic (direct API and Bedrock), and any custom provider configured via the admin UI. Each bot can use a different provider via `model_provider_id`. The default provider is configured via `LLM_BASE_URL`/`LLM_API_KEY` in `.env` (aliases `LITELLM_BASE_URL`/`LITELLM_API_KEY` also accepted).
 
 ## Request Flow
 

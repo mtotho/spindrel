@@ -4,6 +4,12 @@ Workflows are reusable multi-step automations. They support conditions, approval
 
 Create workflows from the **Admin UI** (visual editor) or from **YAML files** (drop in `workflows/` directory).
 
+![Workflow step editor showing agent, tool, and exec step types with conditions and approval gates](../images/workflow-editor-1.png)
+*The workflow step editor — each step is an expandable card with type-specific fields, conditions, and failure handling.*
+
+![Workflow lifecycle messages in channel chat with collapsed step cards](../images/workflow-2-chat.png)
+*Workflow runs post lifecycle messages to the channel — started, step results, and completion summary.*
+
 ---
 
 ## Quick Start

@@ -2,6 +2,9 @@
 
 Spindrel includes a secret redaction system that prevents known secrets from leaking through tool results, LLM output, or conversation history. It also provides a **Secret Values vault** for storing encrypted environment variables that are injected into workspace containers but never visible to the LLM.
 
+![Secret Values vault showing encrypted secrets with names, descriptions, and management controls](../images/secret-store.png)
+*The Secret Values vault in Admin > Security — encrypted at rest, never returned in plaintext via the API.*
+
 ## How It Works
 
 ### Redaction Engine

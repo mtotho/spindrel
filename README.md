@@ -21,6 +21,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Smart orchestrator bot** — Ships with an orchestrator that guides you through setup conversationally.
 - **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
 - **Bot-to-bot delegation** — Orchestrator bots delegate to specialists, synchronously or as background tasks, up to 3 levels deep.
+- **Docker sandboxes** — Long-lived Docker containers with `docker exec`. Session, client, agent, or shared scope modes. Assign sandbox profiles per bot for safe code execution.
 - **Custom tools & extensions** — Drop a `.py` file in `tools/` to add a tool. Keep a personal extensions repo with tools, carapaces, and skills — load it via `INTEGRATION_DIRS` with no boilerplate.
 
 ## Quick Start
@@ -39,7 +40,14 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 
 ## Screenshots
 
-*Coming soon — screenshots of the chat interface, bot editor, workspace browser, and admin dashboard.*
+| | |
+|---|---|
+| ![Setup wizard](docs/images/setup-1.png) | ![First chat](docs/images/setup-10-first-chat.png) |
+| Interactive setup wizard — pick your provider, model, and search backend | Chat interface with sidebar navigation, workspace, and Mission Control |
+| ![Bot management](docs/images/bots-list-1-v1.png) | ![Channel workspace](docs/images/channel_workspace.png) |
+| Bot management — create and configure bots with different providers | Channel workspace — schema-guided file organization with active context injection |
+| ![Workflow editor](docs/images/workflow-editor-1.png) | ![Usage tracking](docs/images/usage-and-forecast.png) |
+| Workflow editor — multi-step automations with approval gates | Usage tracking — cost breakdown, forecasting, and budget alerts |
 
 ## Architecture
 
@@ -94,6 +102,9 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | [Heartbeats](docs/guides/heartbeats.md) | Periodic check-ins, quiet hours, dispatch modes |
 | [MCP Servers](docs/guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs) |
 | [Custom Tools & Extensions](docs/guides/custom-tools.md) | Create tools, manage a personal extensions repo |
+| [BlueBubbles Integration](docs/guides/bluebubbles.md) | iMessage integration via BlueBubbles |
+| [Developer API](docs/guides/api.md) | REST API authentication, scopes, streaming |
+| [Lifecycle Webhooks](docs/guides/webhooks.md) | Webhook notifications for agent events |
 | [Creating Integrations](docs/integrations/index.md) | Build custom integrations |
 | [Backup & Restore](docs/backup.md) | Automated Postgres + config backups to S3 |
 | [Docker Deployment](docs/docker-deployment.md) | Production Docker setup |

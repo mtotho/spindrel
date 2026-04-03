@@ -71,7 +71,7 @@ Before leaving the old machine, record:
 | Git | Clone the repo |
 | Docker + Docker Compose | Required for all deployment modes |
 | rclone | For pulling the backup from S3. `brew install rclone` (macOS) or `sudo pacman -S rclone` (Arch) |
-| Python 3.11+ (native mode only) | Not needed if running fully in Docker |
+| Python 3.12+ (native mode only) | Not needed if running fully in Docker |
 
 ### 2a. Clone the repo
 
@@ -133,7 +133,7 @@ vim .env
 | Variable | Why |
 |----------|-----|
 | `DATABASE_URL` | Use `postgres` hostname for Docker, `localhost` for native |
-| `LITELLM_BASE_URL` | Update if LiteLLM is on a different host |
+| `LLM_BASE_URL` | Update if your LLM provider is on a different host |
 | `WORKSPACE_BASE_DIR` | Path may differ on the new machine |
 | `WORKSPACE_HOST_DIR` | Required for Docker mode (see below) |
 | `WORKSPACE_LOCAL_DIR` | Required for Docker mode (see below) |
@@ -315,12 +315,12 @@ WORKSPACE_HOST_DIR=/Users/yourname/.spindrel-workspaces
 
 Docker Desktop for Mac handles socket permissions automatically. No `docker` group setup needed (unlike Linux).
 
-### LiteLLM location
+### LLM provider location
 
-If LiteLLM was running on the old machine, you need it accessible from the new one too. Options:
-- Run LiteLLM on the new machine (separate Docker Compose or container)
-- Point `LITELLM_BASE_URL` at a cloud provider directly (OpenAI, OpenRouter, Gemini — see [setup.md](setup.md) for URLs)
-- Keep LiteLLM on the old machine and update the URL
+If your LLM provider was running on the old machine (e.g., Ollama, LiteLLM proxy), you need it accessible from the new one too. Options:
+- Run the provider on the new machine (separate Docker Compose or container)
+- Point `LLM_BASE_URL` at a cloud provider directly (OpenAI, OpenRouter, Gemini — see [setup.md](setup.md) for URLs)
+- Keep the provider on the old machine and update the URL
 
 ### Migrations run automatically
 

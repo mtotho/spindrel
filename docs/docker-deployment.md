@@ -7,7 +7,7 @@ By default the server runs on the host with Python directly. This guide covers r
 1. Add two lines to `.env`:
 
 ```bash
-WORKSPACE_HOST_DIR=/home/you/.agent-workspaces
+WORKSPACE_HOST_DIR=/home/you/.spindrel-workspaces
 WORKSPACE_LOCAL_DIR=/workspace-data
 ```
 
@@ -17,14 +17,14 @@ WORKSPACE_LOCAL_DIR=/workspace-data
 docker compose up
 ```
 
-That's it. Your existing workspace data at `~/.agent-workspaces/` is mounted into the container. Existing workspace containers keep running (they're sibling containers on the host Docker daemon).
+That's it. Your existing workspace data at `~/.spindrel-workspaces/` is mounted into the container. Existing workspace containers keep running (they're sibling containers on the host Docker daemon).
 
 ## How It Works
 
 - The host Docker socket is mounted into the server container (`/var/run/docker.sock`)
 - The server container has the Docker CLI installed (not the daemon)
 - `WORKSPACE_LOCAL_DIR` (`/workspace-data`) is where the server reads/writes workspace files inside its own container
-- `WORKSPACE_HOST_DIR` (`/home/you/.agent-workspaces`) is what gets passed to `docker -v` for child containers, since those mounts are resolved by the host daemon
+- `WORKSPACE_HOST_DIR` (`/home/you/.spindrel-workspaces`) is what gets passed to `docker -v` for child containers, since those mounts are resolved by the host daemon
 - When both vars are empty (default), the path translation is a no-op — identical to running on the host
 
 ## Switching Back to Host Mode
@@ -37,7 +37,7 @@ Comment out or remove the two env vars, then run the server on the host as befor
 ./scripts/dev-server.sh
 ```
 
-Your workspace data at `~/.agent-workspaces/` is untouched either way.
+Your workspace data at `~/.spindrel-workspaces/` is untouched either way.
 
 ## What Changed
 

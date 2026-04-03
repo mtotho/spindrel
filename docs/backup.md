@@ -102,7 +102,7 @@ Both scripts support environment variable overrides:
 
 | Asset | Why |
 |-------|-----|
-| Postgres database (`pg_dump -Fc`) | All agent state: messages, memories, knowledge, sessions, etc. |
+| Postgres database (`pg_dump -Fc`) | All agent state: messages, channels, sessions, tasks, workflows, etc. |
 | `.env` | Runtime config and API keys |
 | `bots/*.yaml` | Bot configurations |
 | `skills/*.md` | Skill definitions |
@@ -118,6 +118,6 @@ Quick version:
 1. On old host: `./scripts/backup.sh`
 2. On new host: clone repo, install Docker + rclone, set the same AWS/rclone env vars
 3. Run `./scripts/restore.sh`
-4. Review `.env` for host-specific values (`LITELLM_BASE_URL`, paths, etc.)
+4. Review `.env` for host-specific values (`LLM_BASE_URL`, paths, etc.)
 5. Set up cron on the new host
 6. Re-point Cloudflare tunnel connector (install `cloudflared` on new host)

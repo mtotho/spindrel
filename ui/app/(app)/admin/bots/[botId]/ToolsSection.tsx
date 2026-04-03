@@ -39,10 +39,19 @@ export function ToolsSection({
   }
 
   const toggleTool = (name: string) => {
-    const next = localTools.includes(name)
-      ? localTools.filter((t) => t !== name)
-      : [...localTools, name];
-    update({ local_tools: next });
+    if (localTools.includes(name)) {
+      // Disabling: remove from both local_tools and pinned_tools
+      update({
+        local_tools: localTools.filter((t) => t !== name),
+        pinned_tools: pinnedTools.filter((t) => t !== name),
+      });
+    } else {
+      // Enabling: add to both local_tools and pinned_tools (pinned by default)
+      update({
+        local_tools: [...localTools, name],
+        pinned_tools: pinnedTools.includes(name) ? pinnedTools : [...pinnedTools, name],
+      });
+    }
   };
 
   const togglePin = (name: string) => {
@@ -73,10 +82,17 @@ export function ToolsSection({
   const togglePack = (toolNames: string[]) => {
     const allEnabled = toolNames.every((n) => localTools.includes(n));
     if (allEnabled) {
-      update({ local_tools: localTools.filter((t) => !toolNames.includes(t)) });
+      update({
+        local_tools: localTools.filter((t) => !toolNames.includes(t)),
+        pinned_tools: pinnedTools.filter((t) => !toolNames.includes(t)),
+      });
     } else {
       const toAdd = toolNames.filter((n) => !localTools.includes(n));
-      update({ local_tools: [...localTools, ...toAdd] });
+      const toPin = toolNames.filter((n) => !pinnedTools.includes(n));
+      update({
+        local_tools: [...localTools, ...toAdd],
+        pinned_tools: [...pinnedTools, ...toPin],
+      });
     }
   };
 
@@ -85,10 +101,17 @@ export function ToolsSection({
     const allNames = group.packs.flatMap((p) => p.tools.map((t) => t.name));
     const allEnabled = allNames.every((n) => localTools.includes(n));
     if (allEnabled) {
-      update({ local_tools: localTools.filter((t) => !allNames.includes(t)) });
+      update({
+        local_tools: localTools.filter((t) => !allNames.includes(t)),
+        pinned_tools: pinnedTools.filter((t) => !allNames.includes(t)),
+      });
     } else {
       const toAdd = allNames.filter((n) => !localTools.includes(n));
-      update({ local_tools: [...localTools, ...toAdd] });
+      const toPin = allNames.filter((n) => !pinnedTools.includes(n));
+      update({
+        local_tools: [...localTools, ...toAdd],
+        pinned_tools: [...pinnedTools, ...toPin],
+      });
     }
   };
 
@@ -129,7 +152,7 @@ export function ToolsSection({
       <div style={{ display: "flex", gap: 16, fontSize: 10, color: t.textDim, flexWrap: "wrap" }}>
         <span>✓ = enabled</span>
         {autoInjectedTools.size > 0 && <span style={{ color: t.purple }}>auto = injected by memory scheme</span>}
-        {draft.tool_retrieval && <span style={{ color: "#eab308" }}>📌 = pinned (bypass RAG)</span>}
+        {draft.tool_retrieval && <span style={{ color: "#eab308" }}>📌 = pinned (always available · click to demote to RAG-only)</span>}
         <span style={{ color: "#f97316" }}>🔇 = skip summarization</span>
       </div>
 

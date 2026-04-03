@@ -3,21 +3,23 @@ import { useCallback } from "react";
 import { Platform } from "react-native";
 
 /**
- * Safe go-back that falls back to a parent route when there's no history.
- * Prevents "GO_BACK was not handled by any navigator" warnings.
+ * Safe go-back that falls back to a parent route when there's no in-app history.
  *
- * On web, prefers browser history (window.history) since Expo Router's
- * canGoBack() doesn't always reflect actual browser history state.
+ * Uses React Navigation's canGoBack() to detect real in-app history.
+ * If there's no in-app stack (direct page load, refresh, external link),
+ * navigates to the fallback route instead of relying on browser history
+ * (which can exit the app or go to unrelated pages).
  */
 export function useGoBack(fallback: string) {
   const router = useRouter();
   const nav = useNavigationContainerRef();
 
   return useCallback(() => {
-    if (Platform.OS === "web" && window.history.length > 1) {
+    if (nav?.canGoBack()) {
       router.back();
-    } else if (nav?.canGoBack()) {
-      router.back();
+    } else if (Platform.OS === "web") {
+      // No in-app history — replace so the dead-end page isn't left in history
+      router.replace(fallback as any);
     } else {
       router.push(fallback as any);
     }

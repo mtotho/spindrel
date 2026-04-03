@@ -2,6 +2,9 @@
 
 Spindrel tracks every LLM call — tokens, latency, cost — and provides analytics, budget limits, and spend forecasting from the admin UI.
 
+![Usage dashboard showing cost forecast cards, spend breakdown by model, and budget limit progress bars](../images/usage-and-forecast.png)
+*The Usage dashboard — forecast cards, spend breakdown, and budget limit tracking at a glance.*
+
 !!! danger "Do not rely on Spindrel for billing accuracy"
     Cost data is **best-effort** — it depends on correct pricing configuration, provider-reported token counts, and cached model metadata that can drift. **Always cross-check against your LLM provider's billing dashboard** before making spending decisions. Treat Spindrel's numbers as directional estimates until you've verified they match your provider invoices.
 
@@ -225,11 +228,13 @@ Providers are configured in two ways:
 ### Default Provider (`.env`)
 
 ```bash
-LITELLM_BASE_URL=http://localhost:11434/v1  # Default: Ollama (any OpenAI-compatible endpoint works)
-LITELLM_API_KEY=
+LLM_BASE_URL=http://localhost:11434/v1  # Default: Ollama (any OpenAI-compatible endpoint works)
+LLM_API_KEY=
 ```
 
-| Provider | `LITELLM_BASE_URL` | Notes |
+> **Note:** `LITELLM_BASE_URL` and `LITELLM_API_KEY` are accepted as aliases for backward compatibility.
+
+| Provider | `LLM_BASE_URL` | Notes |
 |----------|-------------------|-------|
 | **Ollama** (default) | `http://localhost:11434/v1` | Local models, no API key needed |
 | LiteLLM proxy | `http://litellm:4000/v1` | Self-hosted, 100+ models, auto pricing |
@@ -327,8 +332,8 @@ Toggle the usage badge in the sidebar via the eye icon on the Usage page. The ba
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LITELLM_BASE_URL` | — | Default LLM endpoint |
-| `LITELLM_API_KEY` | — | Default LLM API key |
+| `LLM_BASE_URL` | — | Default LLM endpoint (alias: `LITELLM_BASE_URL`) |
+| `LLM_API_KEY` | — | Default LLM API key (alias: `LITELLM_API_KEY`) |
 | `TIMEZONE` | `America/New_York` | Period boundaries for limits and forecasts |
 | `LLM_TIMEOUT` | `120` | HTTP timeout (seconds) |
 | `LLM_MAX_RETRIES` | `3` | Transient error retries |

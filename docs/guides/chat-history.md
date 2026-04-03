@@ -12,6 +12,9 @@ Spindrel archives conversations into searchable sections that persist across fre
 
 Starting fresh with `/clear` creates a new conversation, but the section index carries over — the bot retains continuity across fresh starts.
 
+![History mode settings showing file, structured, and summary options with compaction configuration](../images/channel_history_mode.png)
+*Channel history settings — choose the history mode and configure compaction behavior.*
+
 ## History Modes
 
 Configure via `history_mode` in bot YAML or per-channel in settings.
