@@ -2,7 +2,7 @@
 name = "spindrel"
 version = "0.1.0"
 description = "Self-hosted AI agent server with persistent channels, composable expertise, and a pluggable integration framework"
-license = {text = "MIT"}
+license = {text = "AGPL-3.0"}
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",
