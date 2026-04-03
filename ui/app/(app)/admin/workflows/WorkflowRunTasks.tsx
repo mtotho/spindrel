@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Pressable, ActivityIndicator } from "react-native";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText } from "lucide-react";
 import { Link } from "expo-router";
 import { type ThemeTokens } from "@/src/theme/tokens";
 import { useWorkflowRunTasks } from "@/src/api/hooks/useWorkflows";
@@ -66,8 +66,12 @@ export default function WorkflowRunTasks({ runId, steps, t }: {
             tasks.map((task) => {
               const duration = formatStepDuration(task.run_at || task.created_at, task.completed_at);
               const step = stepLabel(task.workflow_step_index);
+              // Prefer trace view (logs) when available; fall back to task editor
+              const href = task.correlation_id
+                ? `/admin/logs/${task.correlation_id}`
+                : `/admin/tasks/${task.id}`;
               return (
-                <Link key={task.id} href={`/admin/tasks/${task.id}` as any}>
+                <Link key={task.id} href={href as any}>
                   <div
                     onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceRaised; }}
                     onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
@@ -98,6 +102,10 @@ export default function WorkflowRunTasks({ runId, steps, t }: {
                     <TaskStatusBadge status={task.status} />
                     {/* Type */}
                     {task.task_type && <TypeBadge type={task.task_type} />}
+                    {/* Trace indicator */}
+                    {task.correlation_id && (
+                      <FileText size={10} color={t.textDim} style={{ flexShrink: 0 }} />
+                    )}
                     {/* Duration */}
                     {duration && (
                       <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>

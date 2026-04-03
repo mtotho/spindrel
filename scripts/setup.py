@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Spindrel interactive setup wizard.
 
-Generates .env from user prompts. The Orchestrator bot (auto-seeded on first
-boot) handles everything else — bot creation, integrations, workspace config.
+Generates .env from user prompts and a provider-seed.yaml for first-boot
+DB seeding.  The Orchestrator bot (auto-seeded on first boot) handles
+everything else — bot creation, integrations, workspace config.
 
 Run via setup.sh or directly:
     python scripts/setup.py
@@ -21,10 +22,17 @@ except ImportError:
     print("Error: questionary not installed. Run via setup.sh or: pip install questionary")
     sys.exit(1)
 
+try:
+    import yaml
+except ImportError:
+    print("Error: pyyaml not installed. Run via setup.sh or: pip install pyyaml")
+    sys.exit(1)
+
 # ── Paths ───────────────────────────────────────────────────────────────────
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE = REPO_ROOT / ".env"
+SEED_FILE = REPO_ROOT / "provider-seed.yaml"
 
 # ── Style ───────────────────────────────────────────────────────────────────
 
@@ -37,74 +45,78 @@ STYLE = Style([
     ("selected", "fg:cyan"),
 ])
 
-# ── Provider presets ────────────────────────────────────────────────────────
+# ── Typed provider presets ──────────────────────────────────────────────────
 
-PROVIDERS = {
-    "LiteLLM proxy (self-hosted, most flexible)": {
-        "ask": [
-            ("LITELLM_BASE_URL", "LiteLLM base URL", "http://litellm:4000/v1"),
-            ("LITELLM_API_KEY", "LiteLLM API key (if required)", ""),
-        ],
+PROVIDERS = [
+    {
+        "label": "Ollama (local, no API key)",
+        "id": "ollama",
+        "provider_type": "ollama",
+        "base_url_default": "http://localhost:11434",
+        "base_url_docker": "http://host.docker.internal:11434",
+        "ask_base_url": True,
+        "ask_api_key": False,
+        "models": [],  # free-text input
+    },
+    {
+        "label": "OpenAI",
+        "id": "openai",
+        "provider_type": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "ask_base_url": False,
+        "ask_api_key": True,
+        "models": ["gpt-4.1", "gpt-4.1-mini", "o3", "o4-mini"],
+    },
+    {
+        "label": "Anthropic",
+        "id": "anthropic",
+        "provider_type": "anthropic",
+        "base_url": "https://api.anthropic.com",
+        "ask_base_url": False,
+        "ask_api_key": True,
+        "models": ["claude-sonnet-4-5", "claude-opus-4"],
+    },
+    {
+        "label": "Google Gemini",
+        "id": "gemini",
+        "provider_type": "openai-compatible",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "ask_base_url": False,
+        "ask_api_key": True,
+        "models": ["gemini-2.5-flash", "gemini-2.5-pro"],
+    },
+    {
+        "label": "OpenRouter (Anthropic, Google, Meta, etc.)",
+        "id": "openrouter",
+        "provider_type": "openai-compatible",
+        "base_url": "https://openrouter.ai/api/v1",
+        "ask_base_url": False,
+        "ask_api_key": True,
+        "models": ["anthropic/claude-sonnet-4-5", "google/gemini-2.5-flash"],
+    },
+    {
+        "label": "LiteLLM proxy (self-hosted)",
+        "id": "litellm",
+        "provider_type": "litellm",
+        "base_url_default": "http://litellm:4000/v1",
+        "ask_base_url": True,
+        "ask_api_key": "optional",  # optional — may not need a key
         "models": [
             "gemini/gemini-2.5-flash",
-            "gemini/gemini-2.5-pro",
             "claude-sonnet-4-5",
-            "claude-opus-4",
             "gpt-4.1",
-            "gpt-4.1-mini",
         ],
     },
-    "OpenAI API": {
-        "ask": [
-            ("LITELLM_API_KEY", "OpenAI API key", ""),
-        ],
-        "set": {
-            "LITELLM_BASE_URL": "https://api.openai.com/v1",
-        },
-        "models": [
-            "gpt-4.1",
-            "gpt-4.1-mini",
-            "gpt-4.1-nano",
-            "o3",
-            "o4-mini",
-        ],
+    {
+        "label": "Other OpenAI-compatible endpoint",
+        "id": "custom",
+        "provider_type": "openai-compatible",
+        "base_url_default": "http://localhost:8080/v1",
+        "ask_base_url": True,
+        "ask_api_key": "optional",
+        "models": [],  # free-text input
     },
-    # OpenRouter provides Claude, Gemini, Llama, etc. through one API key.
-    # For direct Anthropic API, add a provider in Admin UI > Providers after setup.
-    "OpenRouter (Anthropic, Google, Meta, etc.)": {
-        "ask": [
-            ("LITELLM_API_KEY", "OpenRouter API key", ""),
-        ],
-        "set": {
-            "LITELLM_BASE_URL": "https://openrouter.ai/api/v1",
-        },
-        "models": [
-            "anthropic/claude-sonnet-4-5",
-            "anthropic/claude-opus-4",
-            "google/gemini-2.5-flash",
-            "meta-llama/llama-4-maverick",
-        ],
-    },
-    "Google Gemini API": {
-        "ask": [
-            ("LITELLM_API_KEY", "Gemini API key", ""),
-        ],
-        "set": {
-            "LITELLM_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        },
-        "models": [
-            "gemini-2.5-flash",
-            "gemini-2.5-pro",
-        ],
-    },
-    "OpenAI-compatible (Ollama, vLLM, etc.)": {
-        "ask": [
-            ("LITELLM_BASE_URL", "API base URL", "http://localhost:11434/v1"),
-            ("LITELLM_API_KEY", "API key (if required)", ""),
-        ],
-        "models": [],
-    },
-}
+]
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -124,7 +136,7 @@ def write_env_file(config: dict[str, str]) -> None:
     sections = [
         ("Auth", ["API_KEY", "ADMIN_API_KEY"]),
         ("Database", ["DATABASE_URL"]),
-        ("LLM Provider", ["LITELLM_BASE_URL", "LITELLM_API_KEY"]),
+        ("Default Model", ["DEFAULT_MODEL"]),
         ("Embeddings", ["EMBEDDING_MODEL", "EMBEDDING_DIMENSIONS"]),
         ("Web Search", ["WEB_SEARCH_MODE", "SEARXNG_URL", "PLAYWRIGHT_WS_URL", "COMPOSE_PROFILES"]),
     ]
@@ -150,6 +162,21 @@ def write_env_file(config: dict[str, str]) -> None:
         lines.append("")
 
     ENV_FILE.write_text("\n".join(lines) + "\n")
+
+
+def write_seed_file(provider: dict, base_url: str, api_key: str) -> None:
+    """Write provider-seed.yaml for server first-boot consumption."""
+    seed = {
+        "id": provider["id"],
+        "provider_type": provider["provider_type"],
+        "display_name": provider["label"],
+        "base_url": base_url,
+        "api_key": api_key,
+    }
+    SEED_FILE.write_text(
+        "# Auto-generated by setup wizard. Server consumes this on first boot.\n"
+        + yaml.dump(seed, default_flow_style=False, sort_keys=False)
+    )
 
 
 # ── Main wizard ─────────────────────────────────────────────────────────────
@@ -197,61 +224,96 @@ def main() -> None:
 
     # ── 2. LLM Provider ────────────────────────────────────────────────────
 
-    provider_name = questionary.select(
+    provider_choices = [
+        questionary.Choice(p["label"], value=i) for i, p in enumerate(PROVIDERS)
+    ] + [questionary.Choice("Skip — configure in UI later", value="skip")]
+
+    provider_idx = questionary.select(
         "LLM Provider:",
-        choices=list(PROVIDERS.keys()),
+        choices=provider_choices,
         style=STYLE,
     ).ask()
-    if provider_name is None:
+    if provider_idx is None:
         return
 
-    provider = PROVIDERS[provider_name]
+    provider_name_label = "None (configure later)"
+    model = ""
+    seed_written = False
 
-    # Set fixed values
-    for key, val in provider.get("set", {}).items():
-        env_config[key] = val
+    if provider_idx != "skip":
+        provider = PROVIDERS[provider_idx]
+        provider_name_label = provider["label"]
 
-    # Ask for configurable values
-    for key, label, default in provider.get("ask", []):
-        is_secret = "key" in label.lower() or "secret" in label.lower()
-        val = questionary.password(
-            f"{label}:",
-            style=STYLE,
-        ).ask() if is_secret and default == "" else questionary.text(
-            f"{label}:",
-            default=default,
-            style=STYLE,
-        ).ask()
-        if val is None:
-            return
-        if val:
-            env_config[key] = val
+        # Ask for base URL if needed
+        if provider.get("ask_base_url"):
+            # Use Docker-aware default when available
+            if deploy == "docker" and "base_url_docker" in provider:
+                default_url = provider["base_url_docker"]
+            else:
+                default_url = provider.get("base_url_default", "")
+            base_url = questionary.text(
+                "Base URL:",
+                default=default_url,
+                style=STYLE,
+            ).ask()
+            if base_url is None:
+                return
+        else:
+            base_url = provider.get("base_url", "")
 
-    # ── 3. Model selection ─────────────────────────────────────────────────
+        # Ask for API key if needed
+        api_key = ""
+        if provider.get("ask_api_key") is True:
+            # Required key
+            api_key = questionary.password(
+                "API key:",
+                style=STYLE,
+            ).ask()
+            if api_key is None:
+                return
+            if not api_key:
+                print("  \033[33m⚠\033[0m  API key is required for this provider.")
+                return
+        elif provider.get("ask_api_key") == "optional":
+            api_key = questionary.password(
+                "API key (leave empty if not required):",
+                style=STYLE,
+            ).ask()
+            if api_key is None:
+                return
 
-    model_choices = provider.get("models", [])
-    if model_choices:
-        model = questionary.select(
-            "Default model (used by the Orchestrator bot):",
-            choices=model_choices + [questionary.Choice("Enter custom model", value="__custom__")],
-            style=STYLE,
-        ).ask()
-        if model is None:
-            return
-        if model == "__custom__":
-            model = questionary.text("Model name:", style=STYLE).ask()
+        # ── 3. Model selection ─────────────────────────────────────────────
+
+        model_choices = provider.get("models", [])
+        if model_choices:
+            model = questionary.select(
+                "Default model:",
+                choices=model_choices + [questionary.Choice("Enter custom model", value="__custom__")],
+                style=STYLE,
+            ).ask()
+            if model is None:
+                return
+            if model == "__custom__":
+                model = questionary.text("Model name:", style=STYLE).ask()
+                if not model:
+                    return
+        else:
+            example = "llama3.1:latest" if provider["provider_type"] == "ollama" else "model-name"
+            model = questionary.text(
+                f"Model name (e.g. {example}):",
+                style=STYLE,
+            ).ask()
             if not model:
                 return
-    else:
-        model = questionary.text(
-            "Model name (e.g. llama3.1:latest):",
-            style=STYLE,
-        ).ask()
-        if not model:
-            return
 
-    # Store the model for the orchestrator bot to pick up via config state
-    env_config["DEFAULT_MODEL"] = model
+        env_config["DEFAULT_MODEL"] = model
+
+        # Write seed file
+        write_seed_file(provider, base_url, api_key)
+        seed_written = True
+    else:
+        # Skip: no seed file, no DEFAULT_MODEL
+        pass
 
     # ── 4. Web search ─────────────────────────────────────────────────────
 
@@ -340,6 +402,8 @@ def main() -> None:
 
     write_env_file(env_config)
     print(f"  \033[32m✓\033[0m .env")
+    if seed_written:
+        print(f"  \033[32m✓\033[0m provider-seed.yaml (consumed on first server boot)")
 
     # ── Summary ────────────────────────────────────────────────────────────
 
@@ -349,8 +413,9 @@ def main() -> None:
     print("\033[1m  └─────────────────────────────────┘\033[0m")
     print()
     print(f"  API Key: {env_config['API_KEY'][:20]}...")
-    print(f"  Provider: {provider_name}")
-    print(f"  Model: {model}")
+    print(f"  Provider: {provider_name_label}")
+    if model:
+        print(f"  Model: {model}")
     web_labels = {"searxng": "SearXNG (built-in)", "searxng-external": "SearXNG (external)", "ddgs": "DuckDuckGo (lightweight)", "none": "Disabled"}
     print(f"  Web Search: {web_labels.get(web_mode, web_mode)}")
     print()
@@ -376,6 +441,10 @@ def main() -> None:
             rc = os.system("docker compose up -d")
             if rc != 0:
                 print(f"\n  \033[31mDocker compose failed (exit {rc}). Start manually: docker compose up -d\033[0m")
+            elif SEED_FILE.exists():
+                # Seed file is baked into the image; clean up the host copy
+                SEED_FILE.unlink()
+                print("  \033[32m✓\033[0m Cleaned up provider-seed.yaml (baked into Docker image)")
     else:
         print("  \033[1mNext steps:\033[0m")
         print("  1. bash scripts/dev-server.sh")

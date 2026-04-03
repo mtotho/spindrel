@@ -90,7 +90,7 @@ secrets:                      # Required secrets (must exist in Admin > Secrets)
   - MY_API_TOKEN
 
 defaults:                     # Applied to all steps unless overridden
-  model: gemini/gemini-2.5-flash
+  model: gemma4:e4b
   timeout: 120
   tools: [web_search]
   carapaces: [researcher]

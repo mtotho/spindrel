@@ -92,20 +92,20 @@ class TestDriverCapabilities:
 
     def test_anthropic_capabilities(self):
         caps = get_driver("anthropic").capabilities()
-        assert caps.chat_completions is False
+        assert caps.chat_completions is True
         assert caps.list_models is False
         assert caps.requires_api_key is True
         assert caps.pull_model is False
 
     def test_anthropic_compatible_capabilities(self):
         caps = get_driver("anthropic-compatible").capabilities()
-        assert caps.chat_completions is False
+        assert caps.chat_completions is True
         assert caps.list_models is True
         assert caps.requires_base_url is True
 
     def test_anthropic_subscription_capabilities(self):
         caps = get_driver("anthropic-subscription").capabilities()
-        assert caps.chat_completions is False
+        assert caps.chat_completions is True
         assert caps.requires_api_key is True
 
     def test_litellm_capabilities(self):
@@ -173,18 +173,28 @@ class TestMakeClient:
         assert "anthropic.com" in str(client.base_url)
 
     @patch("app.services.provider_drivers.anthropic_driver.settings")
-    def test_anthropic_client_has_version_header(self, mock_settings):
+    def test_anthropic_client_is_adapter(self, mock_settings):
         mock_settings.LLM_TIMEOUT = 60
+        from app.services.anthropic_adapter import AnthropicOpenAIAdapter
         config = _mock_config(api_key="sk-ant-test", base_url=None)
         client = get_driver("anthropic").make_client(config)
-        # The client should have the anthropic-version header set
-        assert client._custom_headers.get("anthropic-version") == "2023-06-01"
+        assert isinstance(client, AnthropicOpenAIAdapter)
+        assert hasattr(client.chat, "completions")
+
+    @patch("app.services.provider_drivers.anthropic_driver.settings")
+    def test_anthropic_compatible_client_is_adapter(self, mock_settings):
+        mock_settings.LLM_TIMEOUT = 60
+        from app.services.anthropic_adapter import AnthropicOpenAIAdapter
+        config = _mock_config(api_key="sk-ant-test", base_url="https://api.minimax.io/anthropic")
+        client = get_driver("anthropic-compatible").make_client(config)
+        assert isinstance(client, AnthropicOpenAIAdapter)
+        assert "minimax" in str(client.base_url)
 
     @patch("app.services.provider_drivers.litellm_driver.settings")
     def test_litellm_client_fallback_settings(self, mock_settings):
         mock_settings.LLM_TIMEOUT = 60
-        mock_settings.LITELLM_BASE_URL = "http://litellm.local:4000"
-        mock_settings.LITELLM_API_KEY = "key-from-env"
+        mock_settings.LLM_BASE_URL = "http://litellm.local:4000"
+        mock_settings.LLM_API_KEY = "key-from-env"
         config = _mock_config(api_key=None, base_url=None)
         client = get_driver("litellm").make_client(config)
         assert "litellm.local" in str(client.base_url)

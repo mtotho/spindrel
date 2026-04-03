@@ -5,9 +5,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from openai import AsyncOpenAI
-
 from app.config import settings
+from app.services.anthropic_adapter import AnthropicOpenAIAdapter
 
 from .base import ProviderCapabilities, ProviderDriver
 
@@ -30,15 +29,14 @@ class AnthropicDriver(ProviderDriver):
     provider_type = "anthropic"
 
     def capabilities(self) -> ProviderCapabilities:
-        return ProviderCapabilities(chat_completions=False, requires_api_key=True)
+        return ProviderCapabilities(chat_completions=True, requires_api_key=True)
 
-    def make_client(self, config: ProviderConfigRow) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            base_url=config.base_url or "https://api.anthropic.com/v1",
-            api_key=config.api_key,
+    def make_client(self, config: ProviderConfigRow) -> AnthropicOpenAIAdapter:
+        return AnthropicOpenAIAdapter(
+            api_key=config.api_key or "",
+            base_url=config.base_url or "https://api.anthropic.com",
             timeout=settings.LLM_TIMEOUT,
             max_retries=0,
-            default_headers={"anthropic-version": "2023-06-01"},
         )
 
     async def test_connection(
@@ -56,16 +54,15 @@ class AnthropicCompatibleDriver(ProviderDriver):
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
-            chat_completions=False, list_models=True, requires_base_url=True, requires_api_key=True
+            chat_completions=True, list_models=True, requires_base_url=True, requires_api_key=True
         )
 
-    def make_client(self, config: ProviderConfigRow) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            base_url=config.base_url or "https://api.anthropic.com/v1",
-            api_key=config.api_key,
+    def make_client(self, config: ProviderConfigRow) -> AnthropicOpenAIAdapter:
+        return AnthropicOpenAIAdapter(
+            api_key=config.api_key or "",
+            base_url=config.base_url or "https://api.anthropic.com",
             timeout=settings.LLM_TIMEOUT,
             max_retries=0,
-            default_headers={"anthropic-version": "2023-06-01"},
         )
 
     async def test_connection(
@@ -73,11 +70,14 @@ class AnthropicCompatibleDriver(ProviderDriver):
     ) -> tuple[bool, str]:
         import httpx
 
-        url = (base_url or "https://api.anthropic.com/v1").rstrip("/")
+        url = (base_url or "https://api.anthropic.com").rstrip("/")
+        # Strip /v1 if present (Anthropic endpoints don't use it)
+        if url.endswith("/v1"):
+            url = url[:-3]
         try:
             async with httpx.AsyncClient(timeout=15.0) as hc:
                 resp = await hc.post(
-                    f"{url}/messages",
+                    f"{url}/v1/messages",
                     headers={
                         "x-api-key": api_key or "",
                         "anthropic-version": "2023-06-01",
@@ -92,12 +92,24 @@ class AnthropicCompatibleDriver(ProviderDriver):
             return False, str(exc)[:200]
 
     async def list_models(self, config: ProviderConfigRow) -> list[str]:
-        from app.services.providers import get_llm_client
+        import httpx
 
+        url = (config.base_url or "https://api.anthropic.com").rstrip("/")
+        if url.endswith("/v1"):
+            url = url[:-3]
         try:
-            client = get_llm_client(config.id)
-            models = await client.models.list()
-            return sorted(m.id for m in models.data)
+            async with httpx.AsyncClient(timeout=15.0) as hc:
+                resp = await hc.get(
+                    f"{url}/v1/models",
+                    headers={
+                        "x-api-key": config.api_key or "",
+                        "anthropic-version": "2023-06-01",
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    models = data.get("data", [])
+                    return sorted(m.get("id", "") for m in models if m.get("id"))
         except Exception:
             logger.warning("Failed to list models for anthropic-compatible provider %s", config.id, exc_info=True)
-            return []
+        return []

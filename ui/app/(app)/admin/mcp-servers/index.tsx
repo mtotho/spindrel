@@ -142,7 +142,7 @@ export default function MCPServersScreen() {
             padding: 40, textAlign: "center", fontSize: 13,
           }}>
             <div style={{ color: t.textDim, marginBottom: 8 }}>No MCP servers configured.</div>
-            <div style={{ color: t.surfaceBorder, fontSize: 12 }}>
+            <div style={{ color: t.textDim, fontSize: 12 }}>
               Add an MCP server above, or place a <code style={{ color: t.textDim }}>mcp.yaml</code> file in the server root to auto-seed on first boot.
             </div>
           </div>

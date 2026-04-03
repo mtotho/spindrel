@@ -15,11 +15,24 @@ from agent_client.audio import (
 )
 from agent_client.client import AgentClient
 from agent_client.config import load_config
-from agent_client.state import load_bot_id, load_session_id
+from agent_client.state import (
+    load_bot_id,
+    load_channel_id,
+    load_model_override,
+    load_session_id,
+)
 
 from agent_client.cli.actions import handle_client_actions
 from agent_client.cli.commands import handle_command
-from agent_client.cli.display import short_id, strip_silent
+from agent_client.cli.display import (
+    console,
+    make_prompt,
+    print_banner,
+    print_error,
+    print_warning,
+    short_id,
+    strip_silent,
+)
 from agent_client.cli.streaming import send_streaming
 from agent_client.cli.voice import (
     apply_bot_audio,
@@ -39,11 +52,17 @@ def _run_tool_subcommand(args, config):
                 import json
                 print(json.dumps(tools, indent=2))
             else:
+                from rich.table import Table
+                table = Table(show_header=True, header_style="bold", box=None, padding=(0, 1))
+                table.add_column("Tool", max_width=35)
+                table.add_column("Source", style="dim")
+                table.add_column("Description", max_width=60, style="dim")
                 for t in tools:
                     src = t.get("server_name") or t.get("source_integration") or "local"
                     desc = (t.get("description") or "")[:60]
-                    print(f"  {t['tool_name']:<35} [{src}]  {desc}")
-                print(f"\n  {len(tools)} tools total")
+                    table.add_row(t["tool_name"], src, desc)
+                console.print(table)
+                console.print(f"  [dim]{len(tools)} tools total[/dim]")
 
         elif args.tool_action == "exec":
             import json as _json
@@ -52,18 +71,16 @@ def _run_tool_subcommand(args, config):
                 for pair in args.tool_args:
                     if "=" in pair:
                         k, v = pair.split("=", 1)
-                        # Auto-parse numbers and booleans
                         try:
                             v = _json.loads(v)
                         except (_json.JSONDecodeError, ValueError):
                             pass
                         tool_args[k] = v
                     else:
-                        # Try parsing as full JSON object
                         try:
                             tool_args = _json.loads(pair)
                         except _json.JSONDecodeError:
-                            print(f"Error: Cannot parse argument '{pair}'. Use key=value or JSON.")
+                            print_error(f"Cannot parse argument '{pair}'. Use key=value or JSON.")
                             sys.exit(1)
             result = client.execute_tool(args.tool_name, tool_args)
             if result.get("error"):
@@ -78,18 +95,20 @@ def _run_tool_subcommand(args, config):
             tools = client.list_tools()
             match = next((t for t in tools if t["tool_name"] == args.tool_name), None)
             if not match:
-                print(f"Tool '{args.tool_name}' not found.", file=sys.stderr)
+                print_error(f"Tool '{args.tool_name}' not found.")
                 sys.exit(1)
-            print(_json.dumps(match.get("schema_") or match.get("parameters", {}), indent=2))
+            from rich.syntax import Syntax
+            schema = match.get("schema_") or match.get("parameters", {})
+            console.print(Syntax(_json.dumps(schema, indent=2), "json"))
 
         else:
-            print(f"Unknown tool action: {args.tool_action}")
+            print_error(f"Unknown tool action: {args.tool_action}")
             sys.exit(1)
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 404:
-            print(f"Tool '{getattr(args, 'tool_name', '?')}' not found.", file=sys.stderr)
+            print_error(f"Tool '{getattr(args, 'tool_name', '?')}' not found.")
         else:
-            print(f"Error: {e.response.status_code} — {e.response.text[:200]}", file=sys.stderr)
+            print_error(f"Error: {e.response.status_code} — {e.response.text[:200]}")
         sys.exit(1)
     finally:
         client.close()
@@ -104,12 +123,10 @@ def main() -> None:
     parser.add_argument("--no-tts", dest="tts", action="store_false", help="Disable TTS")
     parser.add_argument("--voice", action="store_true", help="Enable voice input (install deps)")
     parser.add_argument("--listen", action="store_true", help="Start in wake word listen mode")
+    parser.add_argument("--channel", help="Channel ID to use")
 
     sub = parser.add_subparsers(dest="subcommand")
 
-    # agent tool list [--json]
-    # agent tool exec <name> [key=value ...]
-    # agent tool schema <name>
     tool_parser = sub.add_parser("tool", help="Direct tool execution")
     tool_sub = tool_parser.add_subparsers(dest="tool_action")
 
@@ -143,7 +160,7 @@ def main() -> None:
         config.tts_enabled = args.tts
 
     if not config.api_key:
-        print("Error: API_KEY not set. Set it in ~/.config/agent-client/config.env or pass --key.")
+        print_error("API_KEY not set. Set it in ~/.config/agent-client/config.env or pass --key.")
         sys.exit(1)
 
     # Handle non-interactive subcommands
@@ -155,31 +172,35 @@ def main() -> None:
 
     tts_on = False
     if config.tts_enabled:
-        print("Checking TTS...")
+        console.print("[dim]Checking TTS...[/dim]")
         tts_err = check_tts_ready(config.piper_model, config.piper_model_dir)
         if tts_err:
-            print(f"Error: {tts_err}")
+            print_error(tts_err)
             sys.exit(1)
         tts_on = True
-        print("TTS ready.")
+        console.print("[dim]TTS ready.[/dim]")
 
     if args.voice:
-        print("Checking voice input...")
+        console.print("[dim]Checking voice input...[/dim]")
         stt_err = check_stt_ready()
         if stt_err:
-            print(f"Error: {stt_err}")
+            print_error(stt_err)
             sys.exit(1)
         import sounddevice as sd
-
         default_input = sd.query_devices(kind="input")
-        print(f"Voice ready. Mic: {default_input['name']}")  # type: ignore[index]
+        console.print(f"[dim]Voice ready. Mic: {default_input['name']}[/dim]")  # type: ignore[index]
 
     client = AgentClient(config.agent_url, config.api_key)
     session_id = load_session_id()
+    channel_id = args.channel or load_channel_id()
+    model_override = load_model_override()
 
     ctx = {
         "session_id": session_id,
         "bot_id": config.bot_id,
+        "client_id": "cli",
+        "channel_id": channel_id,
+        "model_override": model_override,
         "tts": tts_on,
         "piper_model": config.piper_model,
         "piper_model_dir": config.piper_model_dir,
@@ -198,12 +219,14 @@ def main() -> None:
         client.health()
         apply_bot_audio(client, ctx)
     except httpx.HTTPError:
-        print(f"Warning: Cannot reach server at {config.agent_url}")
+        print_warning(f"Cannot reach server at {config.agent_url}")
 
-    tts_status = "on" if ctx["tts"] else "off"
-    audio_mode = "native" if ctx.get("audio_native") else "transcribe"
-    print(f"Agent Chat — session {short_id(ctx['session_id'])} | bot {ctx['bot_id']} | tts {tts_status} | audio {audio_mode}")
-    print("Type /help for commands.\n")
+    print_banner(
+        ctx["bot_id"],
+        str(ctx["session_id"]),
+        ctx.get("channel_id"),
+        ctx["tts"],
+    )
 
     pending_input = "/listen" if args.listen else None
 
@@ -214,10 +237,10 @@ def main() -> None:
                     line = pending_input
                     pending_input = None
                 else:
-                    prompt = f"[{ctx['bot_id']}|{short_id(ctx['session_id'])}] > "
+                    prompt = make_prompt(ctx["bot_id"], ctx.get("channel_id"), ctx.get("model_override"))
                     line = input(prompt)
             except EOFError:
-                print("\nGoodbye.")
+                console.print("\n[dim]Goodbye.[/dim]")
                 break
 
             line = line.strip()
@@ -226,6 +249,7 @@ def main() -> None:
 
             if line.startswith("/"):
                 if handle_command(line, client, ctx):
+                    # Clear attachments after command (they're not sent)
                     continue
                 if "_voice_audio" in ctx:
                     voice_audio = ctx.pop("_voice_audio")
@@ -235,142 +259,118 @@ def main() -> None:
                             client, "", ctx,
                             audio_data=b64, audio_format="wav", audio_native=True,
                         )
-                        response_text = result["response"]
-                        display_text, speakable_text, _ = strip_silent(response_text)
-                        print(f"\n{display_text}\n")
-                        handle_client_actions(result.get("client_actions", []), client, ctx)
-                        if ctx["tts"] and speakable_text:
-                            if ctx.get("_wake_word_mode"):
-                                if speak_interruptible(speakable_text, ctx):
-                                    play_tone(preset=ctx.get("listen_sound", "chime"))
-                                    ctx["_wakeword_predetected"] = True
-                            else:
-                                speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
+                        _handle_response(result, client, ctx)
+                        if not result.get("cancelled"):
+                            _voice_loop(client, ctx, native=True)
                     except KeyboardInterrupt:
-                        if ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
-                            print("\nVoice mode ended.")
-                            ctx.pop("_voice_conversation", None)
-                            ctx.pop("_wake_word_mode", None)
-                        else:
-                            raise
+                        _exit_voice(ctx)
                     except httpx.HTTPError as e:
                         ctx.pop("_voice_conversation", None)
-                        print(f"HTTP error: {e}")
-
-                    while ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
-                        if ctx.get("_wake_word_mode") and not ctx.pop("_wakeword_predetected", False):
-                            detected = listen_for_wakeword(ctx["wake_words"])
-                            if detected is None:
-                                ctx.pop("_wake_word_mode", None)
-                                break
-                            play_tone(preset=ctx.get("listen_sound", "chime"))
-
-                        audio = record_audio()
-                        if audio is None:
-                            if ctx.get("_wake_word_mode"):
-                                continue
-                            print("Voice conversation ended.")
-                            ctx.pop("_voice_conversation", None)
-                            break
-                        b64 = audio_to_base64(audio)
-                        result = send_streaming(
-                            client, "", ctx,
-                            audio_data=b64, audio_format="wav", audio_native=True,
-                        )
-                        response_text = result["response"]
-                        display_text, speakable_text, _ = strip_silent(response_text)
-                        print(f"\n{display_text}\n")
-                        handle_client_actions(result.get("client_actions", []), client, ctx)
-                        if ctx["tts"] and speakable_text:
-                            if ctx.get("_wake_word_mode"):
-                                if speak_interruptible(speakable_text, ctx):
-                                    play_tone(preset=ctx.get("listen_sound", "chime"))
-                                    ctx["_wakeword_predetected"] = True
-                            else:
-                                speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
+                        print_error(f"HTTP error: {e}")
                     continue
                 elif "_voice_text" in ctx:
                     line = ctx.pop("_voice_text")
                 else:
                     continue
 
+            # Send message
             try:
                 result = send_streaming(client, line, ctx)
-                response_text = result["response"]
-                display_text, speakable_text, _ = strip_silent(response_text)
-                print(f"\n{display_text}\n")
-                handle_client_actions(result.get("client_actions", []), client, ctx)
-                if ctx["tts"] and speakable_text:
-                    if ctx.get("_wake_word_mode"):
-                        if speak_interruptible(speakable_text, ctx):
-                            play_tone(preset=ctx.get("listen_sound", "chime"))
-                            ctx["_wakeword_predetected"] = True
-                    else:
-                        speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
-
-                while ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
-                    if ctx.get("_wake_word_mode") and not ctx.pop("_wakeword_predetected", False):
-                        detected = listen_for_wakeword(ctx["wake_words"])
-                        if detected is None:
-                            ctx.pop("_wake_word_mode", None)
-                            break
-                        play_tone(preset=ctx.get("listen_sound", "chime"))
-
-                    audio = record_audio()
-                    if audio is None:
-                        if ctx.get("_wake_word_mode"):
-                            continue
-                        print("Voice conversation ended.")
-                        ctx.pop("_voice_conversation", None)
-                        break
-                    text = transcribe(audio, client, ctx)
-                    if text is None:
-                        if ctx.get("_wake_word_mode"):
-                            continue
-                        print("Voice conversation ended.")
-                        ctx.pop("_voice_conversation", None)
-                        break
-                    print(f"  You said: {text}")
-                    result = send_streaming(client, text, ctx)
-                    response_text = result["response"]
-                    display_text, speakable_text, _ = strip_silent(response_text)
-                    print(f"\n{display_text}\n")
-                    handle_client_actions(result.get("client_actions", []), client, ctx)
-                    if ctx["tts"] and speakable_text:
-                        if ctx.get("_wake_word_mode"):
-                            if speak_interruptible(speakable_text, ctx):
-                                play_tone(preset=ctx.get("listen_sound", "chime"))
-                                ctx["_wakeword_predetected"] = True
-                        else:
-                            speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
+                _handle_response(result, client, ctx)
+                # Clear attachments after send
+                ctx.pop("_attachments", None)
+                if not result.get("cancelled"):
+                    _voice_loop(client, ctx, native=False)
 
             except KeyboardInterrupt:
-                if ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
-                    print("\nVoice mode ended.")
-                    ctx.pop("_voice_conversation", None)
-                    ctx.pop("_wake_word_mode", None)
-                else:
-                    raise
+                _exit_voice(ctx)
             except httpx.HTTPStatusError as e:
                 ctx.pop("_voice_conversation", None)
                 if e.response.status_code == 401:
-                    print("Authentication failed. Check your API key.")
+                    print_error("Authentication failed. Check your API key.")
                 elif e.response.status_code == 404:
-                    print(f"Bot '{ctx['bot_id']}' not found.")
+                    print_error(f"Bot '{ctx['bot_id']}' not found.")
                 else:
-                    print(f"Server error ({e.response.status_code}): {e.response.text}")
+                    print_error(f"Server error ({e.response.status_code}): {e.response.text}")
             except httpx.ConnectError:
                 ctx.pop("_voice_conversation", None)
-                print(f"Cannot connect to server at {config.agent_url}")
+                print_error(f"Cannot connect to server at {config.agent_url}")
             except httpx.TimeoutException:
                 ctx.pop("_voice_conversation", None)
-                print("Request timed out. The server may be processing a complex request.")
+                print_error("Request timed out. The server may be processing a complex request.")
             except httpx.HTTPError as e:
                 ctx.pop("_voice_conversation", None)
-                print(f"HTTP error: {e}")
+                print_error(f"HTTP error: {e}")
 
     except KeyboardInterrupt:
-        print("\nGoodbye.")
+        console.print("\n[dim]Goodbye.[/dim]")
     finally:
         close_mic()
         client.close()
+
+
+def _handle_response(result: dict, client: AgentClient, ctx: dict) -> None:
+    """Process a streaming result: client actions + TTS.
+
+    Note: markdown display is already handled by StreamDisplay.finish() in streaming.py.
+    """
+    # Always process client actions, even if response text is empty
+    handle_client_actions(result.get("client_actions", []), client, ctx)
+
+    response_text = result.get("response", "")
+    if not response_text:
+        return
+    _display_text, speakable_text, _ = strip_silent(response_text)
+    if ctx["tts"] and speakable_text:
+        if ctx.get("_wake_word_mode"):
+            if speak_interruptible(speakable_text, ctx):
+                play_tone(preset=ctx.get("listen_sound", "chime"))
+                ctx["_wakeword_predetected"] = True
+        else:
+            speak(speakable_text, ctx["piper_model"], ctx["piper_model_dir"], ctx.get("tts_speed", 1.0))
+
+
+def _voice_loop(client: AgentClient, ctx: dict, native: bool) -> None:
+    """Continue voice conversation / wake word loop if active."""
+    while ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
+        if ctx.get("_wake_word_mode") and not ctx.pop("_wakeword_predetected", False):
+            detected = listen_for_wakeword(ctx["wake_words"])
+            if detected is None:
+                ctx.pop("_wake_word_mode", None)
+                break
+            play_tone(preset=ctx.get("listen_sound", "chime"))
+
+        audio = record_audio()
+        if audio is None:
+            if ctx.get("_wake_word_mode"):
+                continue
+            console.print("  [dim]Voice conversation ended.[/dim]")
+            ctx.pop("_voice_conversation", None)
+            break
+
+        if native or ctx.get("audio_native"):
+            b64 = audio_to_base64(audio)
+            result = send_streaming(
+                client, "", ctx,
+                audio_data=b64, audio_format="wav", audio_native=True,
+            )
+        else:
+            text = transcribe(audio, client, ctx)
+            if text is None:
+                if ctx.get("_wake_word_mode"):
+                    continue
+                console.print("  [dim]Voice conversation ended.[/dim]")
+                ctx.pop("_voice_conversation", None)
+                break
+            console.print(f"  [dim]You said: {text}[/dim]")
+            result = send_streaming(client, text, ctx)
+
+        _handle_response(result, client, ctx)
+
+
+def _exit_voice(ctx: dict) -> None:
+    """Clean up voice mode flags on interrupt."""
+    if ctx.get("_voice_conversation") or ctx.get("_wake_word_mode"):
+        console.print("\n  [dim]Voice mode ended.[/dim]")
+        ctx.pop("_voice_conversation", None)
+        ctx.pop("_wake_word_mode", None)

@@ -184,6 +184,7 @@ export interface SkillOption {
   id: string;
   name: string;
   description?: string;
+  source_type?: string;
 }
 
 export interface WorkspaceSkill {

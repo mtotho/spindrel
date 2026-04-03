@@ -102,6 +102,24 @@ def strip_think_tags(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
 
 
+def strip_silent_tags(text: str) -> str:
+    """Remove [silent]...[/silent] blocks from text.
+
+    Some models (Gemma, roleplay fine-tunes) emit inner-monologue text wrapped
+    in [silent] tags.  This is not useful to end users — strip entirely.
+
+    Also strips unpaired [silent] tags (e.g. model opened but never closed)
+    and any orphaned [/silent] close tags.
+    """
+    # Strip paired tags first
+    cleaned = re.sub(r"\[silent\].*?\[/silent\]", "", text, flags=re.DOTALL | re.IGNORECASE)
+    # Strip unclosed [silent] — everything from [silent] to end of text
+    cleaned = re.sub(r"\[silent\].*", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    # Strip orphaned [/silent] tags
+    cleaned = re.sub(r"\[/silent\]", "", cleaned, flags=re.IGNORECASE)
+    return cleaned
+
+
 # Pattern to match XML-style tool calls that models sometimes emit as plain text
 # instead of using the proper OpenAI tool_calls format.  Covers:
 #   <invoke name="...">...</invoke>
@@ -564,8 +582,7 @@ def _prepare_call_params(
     from app.services.providers import get_llm_client, model_supports_tools, requires_system_message_folding, resolve_provider_for_model
 
     # Auto-resolve provider when caller didn't specify one and the model is
-    # registered under a specific provider.  Only resolves to providers that
-    # support the OpenAI chat/completions format (skips anthropic-compatible etc.).
+    # registered under a specific provider.
     if provider_id is None:
         provider_id = resolve_provider_for_model(model)
 
@@ -575,6 +592,13 @@ def _prepare_call_params(
     eff_msgs = messages
     if requires_system_message_folding(model):
         eff_msgs = _fold_system_messages(messages)
+    else:
+        # Apply prompt cache breakpoints for Anthropic/Claude models.
+        # Mutually exclusive with folding — folded models don't support
+        # native system messages, so cache_control wouldn't apply.
+        from app.agent.prompt_cache import should_apply_cache_control, apply_cache_breakpoints
+        if should_apply_cache_control(model, provider_id):
+            eff_msgs = apply_cache_breakpoints(eff_msgs)
 
     eff_tools = tools_param
     eff_tool_choice = tool_choice

@@ -414,7 +414,7 @@ class TestSecretCollection:
         ):
             mock_settings.API_KEY = "settings-api-key-abc"
             mock_settings.ADMIN_API_KEY = "admin-key-def"
-            mock_settings.LITELLM_API_KEY = "litellm-key-ghi"
+            mock_settings.LLM_API_KEY = "litellm-key-ghi"
             mock_settings.ENCRYPTION_KEY = "enc-key-jkl"
             mock_settings.JWT_SECRET = "jwt-secret-mno"
             mock_settings.GOOGLE_CLIENT_SECRET = None
@@ -435,7 +435,7 @@ class TestSecretCollection:
         with patch("app.services.secret_registry.settings") as mock_settings:
             mock_settings.API_KEY = None
             mock_settings.ADMIN_API_KEY = None
-            mock_settings.LITELLM_API_KEY = None
+            mock_settings.LLM_API_KEY = None
             mock_settings.ENCRYPTION_KEY = None
             mock_settings.JWT_SECRET = None
             mock_settings.GOOGLE_CLIENT_SECRET = None
@@ -454,7 +454,7 @@ class TestSecretCollection:
         with patch("app.services.secret_registry.settings") as mock_settings:
             mock_settings.API_KEY = "ab"  # too short
             mock_settings.ADMIN_API_KEY = "x"  # too short
-            mock_settings.LITELLM_API_KEY = "long-enough-key-123"
+            mock_settings.LLM_API_KEY = "long-enough-key-123"
             mock_settings.ENCRYPTION_KEY = None
             mock_settings.JWT_SECRET = None
             mock_settings.GOOGLE_CLIENT_SECRET = None
@@ -476,7 +476,7 @@ class TestSecretCollection:
         ):
             mock_settings.API_KEY = None
             mock_settings.ADMIN_API_KEY = None
-            mock_settings.LITELLM_API_KEY = None
+            mock_settings.LLM_API_KEY = None
             mock_settings.ENCRYPTION_KEY = None
             mock_settings.JWT_SECRET = None
             mock_settings.GOOGLE_CLIENT_SECRET = None
@@ -683,7 +683,7 @@ class TestRegistryRebuildIntegration:
         ):
             mock_settings.API_KEY = None
             mock_settings.ADMIN_API_KEY = None
-            mock_settings.LITELLM_API_KEY = None
+            mock_settings.LLM_API_KEY = None
             mock_settings.ENCRYPTION_KEY = None
             mock_settings.JWT_SECRET = None
             mock_settings.GOOGLE_CLIENT_SECRET = None
@@ -712,7 +712,7 @@ class TestRegistryRebuildIntegration:
         ):
             mock_settings.API_KEY = "new-api-key-only"
             mock_settings.ADMIN_API_KEY = None
-            mock_settings.LITELLM_API_KEY = None
+            mock_settings.LLM_API_KEY = None
             mock_settings.ENCRYPTION_KEY = None
             mock_settings.JWT_SECRET = None
             mock_settings.GOOGLE_CLIENT_SECRET = None

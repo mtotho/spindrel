@@ -329,7 +329,7 @@ function BotCard({
             </>
           )}
           {(!usage || usage.calls === 0) && (
-            <span style={{ fontSize: 11, color: t.surfaceBorder }}>No usage data</span>
+            <span style={{ fontSize: 11, color: t.textDim }}>No usage data</span>
           )}
         </div>
       </div>
@@ -499,7 +499,7 @@ export default function BotsScreen() {
               color: t.textDim,
             }}
           >
-            <span title="30-day totals" style={{ color: t.surfaceBorder, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 10 }}>
+            <span title="30-day totals" style={{ color: t.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 10 }}>
               30d
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
@@ -542,7 +542,7 @@ export default function BotsScreen() {
         {(!bots || bots.length === 0) && (
           <div style={{ padding: 40, textAlign: "center", fontSize: 13 }}>
             <div style={{ color: t.textDim, marginBottom: 8 }}>No bots configured yet.</div>
-            <div style={{ color: t.surfaceBorder, fontSize: 12 }}>Create a bot to get started.</div>
+            <div style={{ color: t.textDim, fontSize: 12 }}>Create a bot to get started.</div>
           </div>
         )}
 

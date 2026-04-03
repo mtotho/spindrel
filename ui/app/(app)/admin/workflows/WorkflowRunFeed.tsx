@@ -436,15 +436,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
           </span>
         )}
         {state.task_id && (
-          <TaskLink taskId={state.task_id} t={t} />
-        )}
-        {state.correlation_id && (
-          <Link href={`/admin/logs/${state.correlation_id}` as any}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, color: t.accent }}>
-              <ExternalLink size={9} />
-              Trace
-            </span>
-          </Link>
+          <TaskLink taskId={state.task_id} correlationId={state.correlation_id} t={t} />
         )}
       </div>
     </div>
@@ -455,7 +447,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
 // Clickable task link (navigates to task detail + copy button)
 // ---------------------------------------------------------------------------
 
-function TaskLink({ taskId, t }: { taskId: string; t: ThemeTokens }) {
+function TaskLink({ taskId, correlationId, t }: { taskId: string; correlationId?: string | null; t: ThemeTokens }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = (e: React.MouseEvent) => {
@@ -466,9 +458,14 @@ function TaskLink({ taskId, t }: { taskId: string; t: ThemeTokens }) {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  // Prefer trace view when available — task editor is useless for ephemeral tasks
+  const href = correlationId
+    ? `/admin/logs/${correlationId}`
+    : `/admin/tasks/${taskId}`;
+
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
-      <Link href={`/admin/tasks/${taskId}` as any}>
+      <Link href={href as any}>
         <span style={{
           display: "inline-flex", alignItems: "center", gap: 3,
           fontSize: 10, color: t.accent, fontFamily: "monospace",

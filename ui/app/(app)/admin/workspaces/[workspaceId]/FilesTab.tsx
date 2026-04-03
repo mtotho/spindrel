@@ -274,7 +274,7 @@ function FileBrowser({ workspaceId }: { workspaceId: string }) {
                 disabled={deleteMut.isPending}
                 style={{
                   background: "none", border: "none", cursor: "pointer",
-                  color: t.surfaceBorder, padding: 2, flexShrink: 0,
+                  color: t.textDim, padding: 2, flexShrink: 0,
                 }}
                 title="Delete"
               >

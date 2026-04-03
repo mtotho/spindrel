@@ -1,9 +1,13 @@
-"""RAG re-ranking: LLM-based cross-source relevance filtering.
+"""RAG re-ranking: cross-source relevance filtering.
 
 After context assembly injects RAG chunks from multiple sources (skills, memory,
 knowledge, filesystem), this module evaluates all chunks against the user query
 and keeps only the most relevant ones.  Tagged content (explicitly @-mentioned)
 and non-RAG system messages are never re-ranked.
+
+Supports two backends:
+- "cross-encoder" (default): Fast ONNX cross-encoder via fastembed (~120ms, zero API cost)
+- "llm": Full LLM call (~2s, API cost, may have parse failures)
 """
 from __future__ import annotations
 
@@ -31,9 +35,8 @@ _RAG_PREFIXES: list[tuple[str, str]] = [
     ("Workspace pinned skills:\n\n", "ws_skill_pinned"),
     ("Relevant workspace skills:\n\n", "ws_skill_rag"),
     ("Relevant conversation history sections:\n\n", "conversation_sections"),
-    ("Your persistent memory (memory/MEMORY.md", "memory_bootstrap"),
-    ("Today's daily log (memory/logs/", "memory_today_log"),
-    ("Yesterday's daily log (memory/logs/", "memory_yesterday_log"),
+    # Note: memory bootstrap/log messages are in _EXCLUDED_PREFIXES — they're
+    # structural (always auto-injected) and should never be reranked.
 ]
 
 # Prefixes that are NEVER re-ranked (user explicitly requested, or structural)
@@ -106,6 +109,10 @@ def _identify_rag_messages(messages: list[dict]) -> list[_RagMessage]:
     return result
 
 
+# ---------------------------------------------------------------------------
+# LLM backend
+# ---------------------------------------------------------------------------
+
 def _build_rerank_prompt(
     rag_messages: list[_RagMessage],
     user_message: str,
@@ -174,12 +181,90 @@ def _parse_keep_indices(text: str, total_chunks: int) -> list[int] | None:
     return valid
 
 
+async def _rerank_via_llm(
+    rag_msgs: list[_RagMessage],
+    all_chunks: list[tuple[_RagMessage, int, str]],
+    user_message: str,
+    provider_id: str | None,
+) -> set[int] | None:
+    """Score chunks via LLM call. Returns set of global indices to keep, or None on failure."""
+    model = settings.RAG_RERANK_MODEL or settings.COMPACTION_MODEL
+    rerank_messages = _build_rerank_prompt(rag_msgs, user_message)
+
+    try:
+        from app.services.providers import get_llm_client
+        client = get_llm_client(provider_id)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=rerank_messages,
+            temperature=0.0,
+            max_tokens=settings.RAG_RERANK_MAX_TOKENS,
+        )
+        result_text = response.choices[0].message.content or ""
+    except Exception:
+        logger.warning("RAG re-ranking LLM call failed, skipping", exc_info=True)
+        return None
+
+    keep_indices = _parse_keep_indices(result_text, len(all_chunks))
+    if keep_indices is None:
+        logger.warning("RAG re-ranking: failed to parse LLM response: %s", result_text[:200])
+        return None
+
+    return set(keep_indices[:settings.RAG_RERANK_MAX_CHUNKS])
+
+
+# ---------------------------------------------------------------------------
+# Cross-encoder backend
+# ---------------------------------------------------------------------------
+
+async def _rerank_via_cross_encoder(
+    all_chunks: list[tuple[_RagMessage, int, str]],
+    user_message: str,
+) -> set[int] | None:
+    """Score chunks via cross-encoder. Returns set of global indices to keep, or None on failure."""
+    try:
+        from app.services.cross_encoder import rerank_async
+    except ImportError:
+        logger.warning("fastembed not available for cross-encoder reranking, skipping")
+        return None
+
+    documents = [chunk_text[:500] for _, _, chunk_text in all_chunks]
+
+    try:
+        scores = await rerank_async(
+            user_message,
+            documents,
+            model_name=settings.RAG_RERANK_CROSS_ENCODER_MODEL,
+        )
+    except Exception:
+        logger.warning("Cross-encoder reranking failed, skipping", exc_info=True)
+        return None
+
+    # Pair scores with indices, sort descending
+    scored = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
+
+    # Apply score threshold and max chunks
+    keep: set[int] = set()
+    for idx, score in scored:
+        if score < settings.RAG_RERANK_SCORE_THRESHOLD:
+            break
+        keep.add(idx)
+        if len(keep) >= settings.RAG_RERANK_MAX_CHUNKS:
+            break
+
+    return keep
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 async def rerank_rag_context(
     messages: list[dict],
     user_message: str,
     provider_id: str | None = None,
 ) -> RerankResult | None:
-    """Re-rank RAG context chunks using an LLM.
+    """Re-rank RAG context chunks.
 
     Modifies ``messages`` in-place: removes or trims RAG system messages
     whose chunks were not selected by the re-ranker.
@@ -206,33 +291,18 @@ async def rerank_rag_context(
     if total_chars < settings.RAG_RERANK_THRESHOLD_CHARS:
         return None
 
-    # Build prompt and call LLM
-    model = settings.RAG_RERANK_MODEL or settings.COMPACTION_MODEL
-    rerank_messages = _build_rerank_prompt(rag_msgs, user_message)
-
-    try:
-        from app.services.providers import get_llm_client
-        client = get_llm_client(provider_id)
-        response = await client.chat.completions.create(
-            model=model,
-            messages=rerank_messages,
-            temperature=0.0,
-            max_tokens=settings.RAG_RERANK_MAX_TOKENS,
-        )
-        result_text = response.choices[0].message.content or ""
-    except Exception:
-        logger.warning("RAG re-ranking LLM call failed, skipping", exc_info=True)
+    # Dispatch to backend
+    backend = settings.RAG_RERANK_BACKEND
+    if backend == "cross-encoder":
+        keep_set = await _rerank_via_cross_encoder(all_chunks, user_message)
+    elif backend == "llm":
+        keep_set = await _rerank_via_llm(rag_msgs, all_chunks, user_message, provider_id)
+    else:
+        logger.warning("Unknown RAG_RERANK_BACKEND=%r, skipping", backend)
         return None
 
-    # Parse response
-    keep_indices = _parse_keep_indices(result_text, len(all_chunks))
-    if keep_indices is None:
-        logger.warning("RAG re-ranking: failed to parse LLM response: %s", result_text[:200])
+    if keep_set is None:
         return None
-
-    # Cap at max chunks
-    keep_indices = keep_indices[:settings.RAG_RERANK_MAX_CHUNKS]
-    keep_set = set(keep_indices)
 
     # Build a mapping: for each _RagMessage, which local chunk indices survive
     surviving: dict[int, list[int]] = {}  # msg_index -> list of local chunk indices

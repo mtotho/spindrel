@@ -71,7 +71,7 @@ def _resolve_image_client(provider_id: str | None = None):
     1. Explicit provider_id parameter (from tool call)
     2. IMAGE_GENERATION_PROVIDER_ID config setting
     3. Current bot's model_provider_id (from context)
-    4. .env fallback (LITELLM_BASE_URL / LITELLM_API_KEY)
+    4. .env fallback (LLM_BASE_URL / LLM_API_KEY)
     """
     from app.services.providers import get_llm_client
 

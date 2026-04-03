@@ -225,17 +225,17 @@ Providers are configured in two ways:
 ### Default Provider (`.env`)
 
 ```bash
-LITELLM_BASE_URL=http://litellm:4000/v1  # Any OpenAI-compatible endpoint
-LITELLM_API_KEY=your-key
+LITELLM_BASE_URL=http://localhost:11434/v1  # Default: Ollama (any OpenAI-compatible endpoint works)
+LITELLM_API_KEY=
 ```
 
 | Provider | `LITELLM_BASE_URL` | Notes |
 |----------|-------------------|-------|
+| **Ollama** (default) | `http://localhost:11434/v1` | Local models, no API key needed |
 | LiteLLM proxy | `http://litellm:4000/v1` | Self-hosted, 100+ models, auto pricing |
 | OpenAI | `https://api.openai.com/v1` | Direct API |
 | Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | OpenAI-compatible |
 | OpenRouter | `https://openrouter.ai/api/v1` | Multi-provider |
-| Ollama | `http://localhost:11434/v1` | Local models |
 
 ### Additional Providers (Admin UI)
 

@@ -29,9 +29,9 @@ export function FilePane({ workspaceId, pane, indexMap }: FilePaneProps) {
           gap: 12,
         }}
       >
-        <FileText size={40} color={t.surfaceBorder} />
+        <FileText size={40} color={t.textDim} />
         <span style={{ fontSize: 13 }}>Select a file to view</span>
-        <span style={{ fontSize: 11, color: t.surfaceBorder }}>Click any file in the explorer</span>
+        <span style={{ fontSize: 11, color: t.textDim }}>Click any file in the explorer</span>
       </div>
     );
   }

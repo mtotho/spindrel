@@ -50,3 +50,29 @@ def save_bot_id(bot_id: str) -> None:
     state = _load_state()
     state["bot_id"] = bot_id
     _save_state(state)
+
+
+def load_channel_id() -> str | None:
+    return _load_state().get("channel_id")
+
+
+def save_channel_id(channel_id: str | None) -> None:
+    state = _load_state()
+    if channel_id is None:
+        state.pop("channel_id", None)
+    else:
+        state["channel_id"] = channel_id
+    _save_state(state)
+
+
+def load_model_override() -> str | None:
+    return _load_state().get("model_override")
+
+
+def save_model_override(model: str | None) -> None:
+    state = _load_state()
+    if model is None:
+        state.pop("model_override", None)
+    else:
+        state["model_override"] = model
+    _save_state(state)

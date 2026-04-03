@@ -2,12 +2,14 @@
 import json
 import subprocess
 
+from agent_client.cli.display import console
+
 
 def execute_client_tool(tool_name: str, arguments: dict) -> str:
     """Execute a client-side tool and return the result as a string."""
     if tool_name == "shell_exec":
         command = arguments.get("command", "")
-        print(f"  [shell] $ {command}")
+        console.print(f"  [dim]$ {command}[/dim]")
         try:
             proc = subprocess.run(
                 command,

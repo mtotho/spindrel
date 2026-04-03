@@ -435,7 +435,7 @@ export default function BotEditorScreen() {
                         <div style={{ fontSize: 10, color: t.textDim, marginTop: 2, fontFamily: "monospace" }}>
                           {ws.source_path}
                         </div>
-                        <div style={{ fontSize: 10, color: t.surfaceBorder, marginTop: 2 }}>
+                        <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
                           {ws.chunk_count} chunks {ws.workspace_name && <span>· {ws.workspace_name}</span>}
                         </div>
                       </div>
@@ -599,7 +599,7 @@ export default function BotEditorScreen() {
                               update({ delegation_config: dc });
                             }} />
                           <span style={{ color: on ? t.purple : t.textDim }}>{b.name}</span>
-                          <span style={{ color: t.surfaceBorder, fontFamily: "monospace", fontSize: 10 }}>{b.id}</span>
+                          <span style={{ color: t.textDim, fontFamily: "monospace", fontSize: 10 }}>{b.id}</span>
                         </label>
                       );
                     })}

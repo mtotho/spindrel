@@ -48,16 +48,16 @@ def format_thinking_for_discord(text: str) -> str:
 
 
 def format_response_for_discord(response: str) -> str:
-    """Format agent response for Discord. Handles [silent] tags and empty responses."""
+    """Format agent response for Discord. Handles [nospeech] tags and empty responses."""
     if not response or not response.strip():
         return "*(no response)*"
     formatted = re.sub(
-        r"\[silent\](.*?)\[/silent\]",
+        r"\[nospeech\](.*?)\[/nospeech\]",
         lambda m: f"*:mute: {m.group(1).strip()}*",
         response,
         flags=re.DOTALL | re.IGNORECASE,
     )
-    formatted = re.sub(r"\[/?silent\]", "", formatted, flags=re.IGNORECASE).strip()
+    formatted = re.sub(r"\[/?nospeech\]", "", formatted, flags=re.IGNORECASE).strip()
     if not formatted:
         return "*(no response)*"
     return formatted

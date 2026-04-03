@@ -86,12 +86,12 @@ def format_response_for_slack(response: str) -> str:
     if not response or not response.strip():
         return "_(no response)_"
     formatted = re.sub(
-        r"\[silent\](.*?)\[/silent\]",
+        r"\[nospeech\](.*?)\[/nospeech\]",
         lambda m: f"_🔇 {m.group(1).strip()}_",
         response,
         flags=re.DOTALL | re.IGNORECASE,
     )
-    formatted = re.sub(r"\[/?silent\]", "", formatted, flags=re.IGNORECASE).strip()
+    formatted = re.sub(r"\[/?nospeech\]", "", formatted, flags=re.IGNORECASE).strip()
     if not formatted:
         return "_(no response)_"
     return markdown_to_slack_mrkdwn(formatted)

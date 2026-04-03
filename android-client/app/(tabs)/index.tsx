@@ -20,8 +20,8 @@ import { startForegroundService } from "../../src/native/VoiceServiceBridge";
 import { hasOverlayPermission, requestOverlayPermission } from "../../src/native/OverlayBridge";
 import { warmUp as ttsWarmUp } from "../../src/voice/tts";
 
-const SILENT_SPLIT_RE = /(\[silent\][\s\S]*?\[\/silent\])/g;
-const SILENT_UNWRAP_RE = /^\[silent\]([\s\S]*?)\[\/silent\]$/;
+const NOSPEECH_SPLIT_RE = /(\[nospeech\][\s\S]*?\[\/nospeech\])/g;
+const NOSPEECH_UNWRAP_RE = /^\[nospeech\]([\s\S]*?)\[\/nospeech\]$/;
 const TRANSCRIPT_TAG_RE = /\[transcript\][\s\S]*?\[\/transcript\]\s*/g;
 
 function stripTranscriptTags(text: string): string {
@@ -29,15 +29,15 @@ function stripTranscriptTags(text: string): string {
 }
 
 function MessageText({ text, style }: { text: string; style: any }) {
-  if (!text.includes("[silent]")) {
+  if (!text.includes("[nospeech]")) {
     return <Text style={style}>{text}</Text>;
   }
 
-  const parts = text.split(SILENT_SPLIT_RE);
+  const parts = text.split(NOSPEECH_SPLIT_RE);
   return (
     <Text style={style}>
       {parts.map((part, i) => {
-        const match = part.match(SILENT_UNWRAP_RE);
+        const match = part.match(NOSPEECH_UNWRAP_RE);
         if (match) {
           return (
             <Text key={i} style={{ fontStyle: "italic", opacity: 0.6 }}>

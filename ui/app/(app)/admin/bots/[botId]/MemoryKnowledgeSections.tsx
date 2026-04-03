@@ -130,7 +130,7 @@ function BotMemoriesSection({ botId }: { botId: string | undefined }) {
       )}
 
       {!isLoading && (!memories || memories.length === 0) && (
-        <div style={{ padding: 12, color: t.surfaceBorder, fontSize: 12, fontStyle: "italic" }}>
+        <div style={{ padding: 12, color: t.textDim, fontSize: 12, fontStyle: "italic" }}>
           No memories stored yet.
         </div>
       )}

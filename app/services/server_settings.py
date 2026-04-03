@@ -75,11 +75,20 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "KNOWLEDGE_MAX_INJECT_CHARS": {"group": "Embeddings & RAG", "label": "Knowledge Max Inject Chars", "description": "Max chars per knowledge doc injected", "type": "int", "min": 500, "max": 50000},
     "MEMORY_MAX_INJECT_CHARS": {"group": "Embeddings & RAG", "label": "Memory Max Inject Chars", "description": "Max chars per memory item injected", "type": "int", "min": 500, "max": 50000},
     # --- RAG Re-ranking ---
-    "RAG_RERANK_ENABLED": {"group": "RAG Re-ranking", "label": "Enabled", "description": "Re-rank RAG chunks across sources using an LLM", "type": "bool"},
-    "RAG_RERANK_MODEL": {"group": "RAG Re-ranking", "label": "Model", "description": "Model for re-ranking (empty = compaction model)", "type": "string", "widget": "model"},
+    "RAG_RERANK_ENABLED": {"group": "RAG Re-ranking", "label": "Enabled", "description": "Re-rank RAG chunks across sources for relevance", "type": "bool"},
+    "RAG_RERANK_BACKEND": {"group": "RAG Re-ranking", "label": "Backend", "description": "cross-encoder: fast ONNX model (~120ms, zero API cost). llm: full LLM call (~2s, API cost)", "type": "string", "options": ["cross-encoder", "llm"]},
+    "RAG_RERANK_MODEL": {"group": "RAG Re-ranking", "label": "LLM Model", "description": "Model for LLM re-ranking backend (empty = compaction model)", "type": "string", "widget": "model"},
     "RAG_RERANK_THRESHOLD_CHARS": {"group": "RAG Re-ranking", "label": "Threshold (chars)", "description": "Only re-rank when total RAG chars exceed this", "type": "int", "min": 500, "max": 100000},
     "RAG_RERANK_MAX_CHUNKS": {"group": "RAG Re-ranking", "label": "Max Chunks", "description": "Max chunks to keep after re-ranking", "type": "int", "min": 1, "max": 100},
-    "RAG_RERANK_MAX_TOKENS": {"group": "RAG Re-ranking", "label": "Max Tokens", "description": "Max output tokens for re-ranker response", "type": "int", "min": 100, "max": 4000},
+    "RAG_RERANK_MAX_TOKENS": {"group": "RAG Re-ranking", "label": "Max Tokens", "description": "Max output tokens for LLM re-ranker response", "type": "int", "min": 100, "max": 4000},
+    "RAG_RERANK_CROSS_ENCODER_MODEL": {"group": "RAG Re-ranking", "label": "Cross-Encoder Model", "description": "ONNX cross-encoder model name for cross-encoder backend", "type": "string"},
+    "RAG_RERANK_SCORE_THRESHOLD": {"group": "RAG Re-ranking", "label": "Score Threshold", "description": "Min cross-encoder score to keep a chunk (0-1)", "type": "float", "min": 0.0, "max": 1.0},
+    # --- Hybrid Search ---
+    "HYBRID_SEARCH_ENABLED": {"group": "Embeddings & RAG", "label": "Hybrid Search", "description": "Combine BM25 keyword search with vector search via Reciprocal Rank Fusion", "type": "bool"},
+    "HYBRID_SEARCH_RRF_K": {"group": "Embeddings & RAG", "label": "RRF K Parameter", "description": "Reciprocal Rank Fusion k: higher values give more weight to top results", "type": "int", "min": 1, "max": 200},
+    # --- Prompt Caching ---
+    "PROMPT_CACHE_ENABLED": {"group": "Agent", "label": "Prompt Caching", "description": "Add Anthropic cache_control breakpoints for Claude models (reduces cost on repeated context)", "type": "bool"},
+    "PROMPT_CACHE_MIN_TOKENS": {"group": "Agent", "label": "Cache Min Tokens", "description": "Min estimated tokens in a system message before applying cache breakpoint", "type": "int", "min": 128, "max": 10000},
     # --- Tool Summarization ---
     "TOOL_RESULT_SUMMARIZE_ENABLED": {"group": "Tool Summarization", "label": "Enabled", "description": "Auto-summarize long tool results", "type": "bool"},
     "TOOL_RESULT_SUMMARIZE_THRESHOLD": {"group": "Tool Summarization", "label": "Threshold (chars)", "description": "Summarize tool results above this character count", "type": "int", "min": 500, "max": 50000},

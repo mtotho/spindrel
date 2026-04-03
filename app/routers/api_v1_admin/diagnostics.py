@@ -47,7 +47,7 @@ async def diagnostics_indexing(
     result["systems"]["embedding"] = {
         "healthy": embed_ok,
         "model": settings.EMBEDDING_MODEL,
-        "litellm_base_url": settings.LITELLM_BASE_URL,
+        "llm_base_url": settings.LLM_BASE_URL,
         "error": embed_error,
     }
 

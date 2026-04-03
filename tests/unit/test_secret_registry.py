@@ -28,7 +28,7 @@ def _fake_settings(**overrides):
         "SECRET_REDACTION_ENABLED": True,
         "API_KEY": "test-api-key-12345",
         "ADMIN_API_KEY": "admin-key-67890",
-        "LITELLM_API_KEY": "litellm-key-abc",
+        "LLM_API_KEY": "litellm-key-abc",
         "ENCRYPTION_KEY": "enc-key-def",
         "JWT_SECRET": "jwt-secret-ghi",
         "GOOGLE_CLIENT_SECRET": "google-secret-jkl",
@@ -71,7 +71,7 @@ async def test_rebuild_collects_settings_values():
                         secrets.add(val)
                 _add(fake.API_KEY)
                 _add(fake.ADMIN_API_KEY)
-                _add(fake.LITELLM_API_KEY)
+                _add(fake.LLM_API_KEY)
                 _add(fake.ENCRYPTION_KEY)
                 _add(fake.JWT_SECRET)
                 _add(fake.GOOGLE_CLIENT_SECRET)

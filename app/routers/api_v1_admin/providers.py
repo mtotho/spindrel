@@ -141,8 +141,8 @@ async def admin_list_providers(
     )).scalars().all()
     return ProviderListOut(
         providers=[_provider_to_out(r) for r in rows],
-        env_fallback_base_url=_settings.LITELLM_BASE_URL or None,
-        env_fallback_has_key=bool(_settings.LITELLM_API_KEY),
+        env_fallback_base_url=_settings.LLM_BASE_URL or None,
+        env_fallback_has_key=bool(_settings.LLM_API_KEY),
     )
 
 

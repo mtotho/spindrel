@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import time
-from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -34,7 +33,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # Rate limiting for login/setup endpoints
 # ---------------------------------------------------------------------------
 
-_LOGIN_ATTEMPTS: dict[str, list[float]] = defaultdict(list)
+_LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 _MAX_ATTEMPTS = 5
 _WINDOW_SECONDS = 60
 
@@ -43,12 +42,14 @@ def _check_rate_limit(request: Request) -> None:
     """Raise 429 if too many login attempts from the same IP."""
     ip = request.client.host if request.client else "unknown"
     now = time.time()
-    attempts = _LOGIN_ATTEMPTS[ip]
-    # Prune old entries
-    _LOGIN_ATTEMPTS[ip] = [t for t in attempts if now - t < _WINDOW_SECONDS]
-    if len(_LOGIN_ATTEMPTS[ip]) >= _MAX_ATTEMPTS:
+    attempts = _LOGIN_ATTEMPTS.get(ip, [])
+    # Prune old entries; remove key entirely if empty to avoid slow memory leak
+    recent = [t for t in attempts if now - t < _WINDOW_SECONDS]
+    if len(recent) >= _MAX_ATTEMPTS:
+        _LOGIN_ATTEMPTS[ip] = recent
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
-    _LOGIN_ATTEMPTS[ip].append(now)
+    recent.append(now)
+    _LOGIN_ATTEMPTS[ip] = recent
 
 
 # ---------------------------------------------------------------------------

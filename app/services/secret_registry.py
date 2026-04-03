@@ -81,7 +81,7 @@ async def _collect_secrets() -> set[str]:
     # 1. Settings (config.py)
     _add(settings.API_KEY)
     _add(settings.ADMIN_API_KEY)
-    _add(settings.LITELLM_API_KEY)
+    _add(settings.LLM_API_KEY)
     _add(settings.ENCRYPTION_KEY)
     _add(settings.JWT_SECRET)
     _add(settings.GOOGLE_CLIENT_SECRET)

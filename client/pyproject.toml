@@ -5,6 +5,7 @@ description = "CLI client for the agent server"
 requires-python = ">=3.12"
 dependencies = [
     "httpx",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]

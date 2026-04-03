@@ -1,6 +1,8 @@
-"""Tests for model→provider auto-resolution."""
+"""Tests for model→provider auto-resolution and provider seeding."""
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 
@@ -30,28 +32,28 @@ class TestResolveProviderForModel:
             providers._model_to_provider = old_idx
             providers._registry = old_reg
 
-    def test_skips_anthropic_compatible_provider(self):
-        """Anthropic-compatible providers are skipped (not chat/completions compatible)."""
+    def test_resolves_anthropic_compatible_provider(self):
+        """Anthropic-compatible providers now resolve (adapter makes them chat-compatible)."""
         from app.services import providers
 
         old_idx, old_reg = providers._model_to_provider, providers._registry
         try:
             providers._model_to_provider = {"MiniMax-Text-01": "mini-max"}
             providers._registry = {"mini-max": _fake_provider("anthropic-compatible")}
-            assert providers.resolve_provider_for_model("MiniMax-Text-01") is None
+            assert providers.resolve_provider_for_model("MiniMax-Text-01") == "mini-max"
         finally:
             providers._model_to_provider = old_idx
             providers._registry = old_reg
 
-    def test_skips_anthropic_provider(self):
-        """Direct anthropic providers are skipped."""
+    def test_resolves_anthropic_provider(self):
+        """Direct anthropic providers now resolve (adapter makes them chat-compatible)."""
         from app.services import providers
 
         old_idx, old_reg = providers._model_to_provider, providers._registry
         try:
             providers._model_to_provider = {"claude-opus-4-6": "claude-direct"}
             providers._registry = {"claude-direct": _fake_provider("anthropic")}
-            assert providers.resolve_provider_for_model("claude-opus-4-6") is None
+            assert providers.resolve_provider_for_model("claude-opus-4-6") == "claude-direct"
         finally:
             providers._model_to_provider = old_idx
             providers._registry = old_reg
@@ -82,15 +84,15 @@ class TestResolveProviderForModel:
             providers._model_to_provider = old_idx
             providers._registry = old_reg
 
-    def test_skips_anthropic_subscription_provider(self):
-        """anthropic-subscription providers are skipped (not chat/completions compatible)."""
+    def test_resolves_anthropic_subscription_provider(self):
+        """anthropic-subscription providers now resolve (adapter makes them chat-compatible)."""
         from app.services import providers
 
         old_idx, old_reg = providers._model_to_provider, providers._registry
         try:
             providers._model_to_provider = {"claude-opus-4-6": "claude-sub"}
             providers._registry = {"claude-sub": _fake_provider("anthropic-subscription")}
-            assert providers.resolve_provider_for_model("claude-opus-4-6") is None
+            assert providers.resolve_provider_for_model("claude-opus-4-6") == "claude-sub"
         finally:
             providers._model_to_provider = old_idx
             providers._registry = old_reg
@@ -203,3 +205,211 @@ class TestPrepareCallParamsAutoResolution:
         )
         mock_resolve.assert_called_once_with("some-litellm-model")
         mock_client.assert_called_once_with(None)
+
+
+# ---------------------------------------------------------------------------
+# providers.py: get_default_provider (any type)
+# ---------------------------------------------------------------------------
+
+
+class TestGetDefaultProviderAnyType:
+    """get_default_provider should return the first enabled provider of any type."""
+
+    def test_returns_first_enabled_provider(self):
+        from app.services import providers
+
+        ollama_prov = SimpleNamespace(id="ollama", provider_type="ollama", is_enabled=True)
+        old_reg = providers._registry
+        try:
+            providers._registry = {"ollama": ollama_prov}
+            result = providers.get_default_provider()
+            assert result is not None
+            assert result.id == "ollama"
+        finally:
+            providers._registry = old_reg
+
+    def test_returns_openai_provider(self):
+        from app.services import providers
+
+        openai_prov = SimpleNamespace(id="openai", provider_type="openai", is_enabled=True)
+        old_reg = providers._registry
+        try:
+            providers._registry = {"openai": openai_prov}
+            result = providers.get_default_provider()
+            assert result is not None
+            assert result.id == "openai"
+        finally:
+            providers._registry = old_reg
+
+    def test_returns_none_when_empty(self):
+        from app.services import providers
+
+        old_reg = providers._registry
+        try:
+            providers._registry = {}
+            assert providers.get_default_provider() is None
+        finally:
+            providers._registry = old_reg
+
+    def test_skips_disabled_provider(self):
+        from app.services import providers
+
+        disabled = SimpleNamespace(id="disabled", provider_type="ollama", is_enabled=False)
+        enabled = SimpleNamespace(id="enabled", provider_type="openai", is_enabled=True)
+        old_reg = providers._registry
+        try:
+            providers._registry = {"disabled": disabled, "enabled": enabled}
+            result = providers.get_default_provider()
+            assert result is not None
+            assert result.id == "enabled"
+        finally:
+            providers._registry = old_reg
+
+
+# ---------------------------------------------------------------------------
+# providers.py: get_llm_client prefers DB provider
+# ---------------------------------------------------------------------------
+
+
+class TestGetLlmClientPrefersDB:
+    """When provider_id is None, get_llm_client should use DB provider if available."""
+
+    @patch("app.services.providers._make_client")
+    def test_uses_db_provider_when_available(self, mock_make):
+        from app.services import providers
+
+        fake_client = MagicMock()
+        mock_make.return_value = fake_client
+        prov = SimpleNamespace(id="ollama", provider_type="ollama", is_enabled=True)
+
+        old_reg, old_cache = providers._registry, providers._client_cache
+        try:
+            providers._registry = {"ollama": prov}
+            providers._client_cache = {}
+            result = providers.get_llm_client(None)
+            mock_make.assert_called_once_with(prov)
+            assert result is fake_client
+        finally:
+            providers._registry = old_reg
+            providers._client_cache = old_cache
+
+    @patch("app.services.providers._fallback_client")
+    def test_falls_back_to_env_when_no_db_providers(self, mock_fallback):
+        from app.services import providers
+
+        fake_client = MagicMock()
+        mock_fallback.return_value = fake_client
+
+        old_reg, old_cache = providers._registry, providers._client_cache
+        try:
+            providers._registry = {}
+            providers._client_cache = {}
+            result = providers.get_llm_client(None)
+            mock_fallback.assert_called_once()
+            assert result is fake_client
+        finally:
+            providers._registry = old_reg
+            providers._client_cache = old_cache
+
+
+# ---------------------------------------------------------------------------
+# providers.py: seed_provider_from_file
+# ---------------------------------------------------------------------------
+
+
+class TestSeedProviderFromFile:
+    """Tests for seed_provider_from_file()."""
+
+    @pytest.mark.asyncio
+    async def test_no_op_when_file_missing(self):
+        """Should do nothing when seed file doesn't exist."""
+        from app.services.providers import seed_provider_from_file
+
+        await seed_provider_from_file(Path("/nonexistent/path/seed.yaml"))
+        # No exception = success
+
+    @pytest.mark.asyncio
+    async def test_reads_yaml_creates_provider_deletes_file(self, tmp_path):
+        """Should parse YAML, insert provider row, and delete the seed file."""
+        from app.services.providers import seed_provider_from_file
+
+        seed = tmp_path / "provider-seed.yaml"
+        seed.write_text(
+            "id: test-ollama\n"
+            "provider_type: ollama\n"
+            "display_name: Test Ollama\n"
+            "base_url: http://localhost:11434\n"
+            "api_key: ''\n"
+        )
+
+        # Mock DB session
+        mock_provider_row = None
+
+        class FakeDB:
+            async def get(self, model, pk):
+                return None  # provider doesn't exist yet
+
+            def add(self, obj):
+                nonlocal mock_provider_row
+                mock_provider_row = obj
+
+            async def commit(self):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("app.services.providers.async_session", return_value=FakeDB()), \
+             patch("app.services.providers.ProviderConfigRow") as MockRow:
+            MockRow.side_effect = lambda **kw: SimpleNamespace(**kw)
+            await seed_provider_from_file(seed)
+
+        # File should be deleted
+        assert not seed.exists()
+        # Provider should have been created
+        assert mock_provider_row is not None
+        assert mock_provider_row.id == "test-ollama"
+        assert mock_provider_row.provider_type == "ollama"
+
+    @pytest.mark.asyncio
+    async def test_skips_when_provider_exists(self, tmp_path):
+        """Should skip creation and delete file if provider ID already exists."""
+        from app.services.providers import seed_provider_from_file
+
+        seed = tmp_path / "provider-seed.yaml"
+        seed.write_text(
+            "id: existing\n"
+            "provider_type: openai\n"
+            "display_name: Existing\n"
+            "base_url: https://api.openai.com/v1\n"
+            "api_key: sk-test\n"
+        )
+
+        added_rows = []
+
+        class FakeDB:
+            async def get(self, model, pk):
+                return SimpleNamespace(id="existing")  # already exists
+
+            def add(self, obj):
+                added_rows.append(obj)
+
+            async def commit(self):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+        with patch("app.services.providers.async_session", return_value=FakeDB()):
+            await seed_provider_from_file(seed)
+
+        # File should be deleted
+        assert not seed.exists()
+        # No provider should have been added
+        assert len(added_rows) == 0

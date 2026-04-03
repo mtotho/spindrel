@@ -1,12 +1,85 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Search, Zap } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
-import type { BotConfig, BotEditorData } from "@/src/types/api";
+import type { BotConfig, BotEditorData, SkillOption } from "@/src/types/api";
 
 const AUTO_INJECTED_SKILLS: Record<string, string> = {
   "integrations/mission_control/mission_control":
     "Auto-injected via mission-control carapace for workspace-enabled channels",
 };
+
+function SourceBadge({ type }: { type: string }) {
+  const t = useThemeTokens();
+  const cfg: Record<string, { bg: string; fg: string; label: string }> = {
+    file: { bg: t.accentSubtle, fg: t.accent, label: "file" },
+    integration: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c", label: "integration" },
+    manual: { bg: t.surfaceOverlay, fg: t.textMuted, label: "manual" },
+  };
+  const c = cfg[type] || cfg.manual;
+  return (
+    <span style={{
+      padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600,
+      background: c.bg, color: c.fg,
+    }}>
+      {c.label}
+    </span>
+  );
+}
+
+function fmtIntName(key: string): string {
+  const special: Record<string, string> = { arr: "ARR", github: "GitHub" };
+  if (special[key]) return special[key];
+  return key.replace(/(^|_)(\w)/g, (_, sep, c) => (sep ? " " : "") + c.toUpperCase());
+}
+
+function SectionHeader({ label, count }: { label: string; count: number }) {
+  const t = useThemeTokens();
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 0 4px" }}>
+      <span style={{ fontSize: 10, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 1 }}>
+        {label}
+      </span>
+      <span style={{ fontSize: 10, color: t.textDim }}>{count}</span>
+      <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+    </div>
+  );
+}
+
+type GroupedItem =
+  | { type: "header"; key: string; label: string; count: number }
+  | { type: "skill"; key: string; skill: SkillOption };
+
+function groupSkills(skills: SkillOption[]): GroupedItem[] {
+  const core: SkillOption[] = [];
+  const integrationMap = new Map<string, SkillOption[]>();
+
+  for (const s of skills) {
+    const sourceType = s.source_type || "manual";
+    if (sourceType === "integration") {
+      const name = s.id.match(/^integrations\/([^/]+)\//)?.[1] ?? "other";
+      const list = integrationMap.get(name);
+      if (list) list.push(s); else integrationMap.set(name, [s]);
+    } else {
+      core.push(s);
+    }
+  }
+
+  const items: GroupedItem[] = [];
+
+  if (core.length > 0) {
+    items.push({ type: "header", key: "core", label: "Core", count: core.length });
+    for (const s of core) items.push({ type: "skill", key: s.id, skill: s });
+  }
+
+  const intKeys = [...integrationMap.keys()].sort();
+  for (const k of intKeys) {
+    const list = integrationMap.get(k)!;
+    items.push({ type: "header", key: `int-${k}`, label: fmtIntName(k), count: list.length });
+    for (const s of list) items.push({ type: "skill", key: s.id, skill: s });
+  }
+
+  return items;
+}
 
 export function SkillsSection({
   editorData, draft, update,
@@ -33,12 +106,15 @@ export function SkillsSection({
     });
   };
 
-  const filtered = filter
-    ? editorData.all_skills.filter((s) =>
-        s.id.toLowerCase().includes(filter.toLowerCase()) ||
-        s.name.toLowerCase().includes(filter.toLowerCase()) ||
-        (s.description || "").toLowerCase().includes(filter.toLowerCase()))
-    : editorData.all_skills;
+  const filtered = useMemo(() => {
+    const list = filter
+      ? editorData.all_skills.filter((s) =>
+          s.id.toLowerCase().includes(filter.toLowerCase()) ||
+          s.name.toLowerCase().includes(filter.toLowerCase()) ||
+          (s.description || "").toLowerCase().includes(filter.toLowerCase()))
+      : editorData.all_skills;
+    return groupSkills(list);
+  }, [editorData.all_skills, filter]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -57,24 +133,32 @@ export function SkillsSection({
             placeholder="Filter skills..." style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 12 }} />
         </div>
       )}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
-        {filtered.map((skill) => {
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 0 }}>
+        {filtered.map((item) => {
+          if (item.type === "header") {
+            return <SectionHeader key={item.key} label={item.label} count={item.count} />;
+          }
+          const skill = item.skill;
           const sel = isSelected(skill.id);
           const entry = getEntry(skill.id);
           const autoNote = AUTO_INJECTED_SKILLS[skill.id];
+          const desc = skill.description?.trim();
+          const cleanedDesc = desc && desc !== "---" ? desc : null;
+          const sourceType = skill.source_type || "manual";
           return (
             <div key={skill.id} style={{
-              padding: 8, borderRadius: 6,
-              background: sel ? t.accentSubtle : autoNote && !sel ? `${t.surfaceOverlay}` : t.surface,
-              border: `1px solid ${sel ? t.accentBorder : t.surfaceRaised}`,
+              padding: "8px 4px", borderRadius: 0,
+              background: sel ? t.accentSubtle : autoNote && !sel ? t.surfaceOverlay : "transparent",
+              borderBottom: `1px solid ${sel ? t.accentBorder : t.surfaceBorder}`,
               opacity: autoNote && !sel ? 0.7 : 1,
             }}>
               <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
                 <input type="checkbox" checked={sel} onChange={() => toggle(skill.id)} style={{ accentColor: t.accent, marginTop: 2 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12, fontWeight: 500, color: sel ? t.accent : t.textMuted }}>{skill.name}</span>
-                    <span style={{ fontSize: 10, color: t.surfaceBorder, fontFamily: "monospace" }}>{skill.id}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 12, fontWeight: 500, color: sel ? t.accent : t.text }}>{skill.name}</span>
+                    <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>{skill.id}</span>
+                    {sourceType !== "integration" && <SourceBadge type={sourceType} />}
                     {autoNote && !sel && (
                       <span style={{
                         display: "inline-flex", alignItems: "center", gap: 3,
@@ -90,9 +174,9 @@ export function SkillsSection({
                     <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
                       {autoNote}
                     </div>
-                  ) : skill.description ? (
+                  ) : cleanedDesc ? (
                     <div style={{ fontSize: 10, color: t.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {skill.description}
+                      {cleanedDesc}
                     </div>
                   ) : null}
                 </div>

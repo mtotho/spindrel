@@ -19,7 +19,7 @@ from app.agent.message_utils import (
     _merge_tool_schemas,
 )
 from app.agent.recording import _record_trace_event
-from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_think_tags  # noqa: F401 — re-exported
+from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags  # noqa: F401 — re-exported
 from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle, make_signature
 from app.agent.tool_dispatch import dispatch_tool_call
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 
 
 def _sanitize_llm_text(raw: str) -> str:
-    """Apply both sanitization passes to raw LLM text output."""
-    return strip_malformed_tool_calls(strip_think_tags(raw))
+    """Apply all sanitization passes to raw LLM text output."""
+    return strip_malformed_tool_calls(strip_silent_tags(strip_think_tags(raw)))
 
 
 async def _record_fallback_event(

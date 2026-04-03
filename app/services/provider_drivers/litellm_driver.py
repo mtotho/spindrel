@@ -23,8 +23,8 @@ def _litellm_mgmt_key(config: ProviderConfigRow | None) -> str:
         mgmt = (config.config or {}).get("management_key")
         if mgmt:
             return mgmt
-        return config.api_key or settings.LITELLM_API_KEY or "dummy"
-    return settings.LITELLM_API_KEY or "dummy"
+        return config.api_key or settings.LLM_API_KEY or "dummy"
+    return settings.LLM_API_KEY or "dummy"
 
 
 class LiteLLMDriver(ProviderDriver):
@@ -41,8 +41,8 @@ class LiteLLMDriver(ProviderDriver):
 
     def make_client(self, config: ProviderConfigRow) -> AsyncOpenAI:
         return AsyncOpenAI(
-            base_url=config.base_url or settings.LITELLM_BASE_URL,
-            api_key=config.api_key or settings.LITELLM_API_KEY or "dummy",
+            base_url=config.base_url or settings.LLM_BASE_URL,
+            api_key=config.api_key or settings.LLM_API_KEY or "dummy",
             timeout=settings.LLM_TIMEOUT,
             max_retries=0,
         )
@@ -55,7 +55,7 @@ class LiteLLMDriver(ProviderDriver):
                 "api_key": api_key or "dummy",
                 "timeout": 15.0,
                 "max_retries": 0,
-                "base_url": base_url or settings.LITELLM_BASE_URL,
+                "base_url": base_url or settings.LLM_BASE_URL,
             }
             client = AsyncOpenAI(**kw)
             models = await client.models.list()
@@ -82,7 +82,7 @@ class LiteLLMDriver(ProviderDriver):
         """
         import httpx
 
-        base = config.base_url or settings.LITELLM_BASE_URL
+        base = config.base_url or settings.LLM_BASE_URL
         if not base:
             return {}
         key = _litellm_mgmt_key(config)

@@ -360,7 +360,7 @@ function InlineViewer({ workspaceId, filePath, onUnlink }: { workspaceId: string
                   width: 48,
                   textAlign: "right",
                   paddingRight: 16,
-                  color: t.surfaceBorder,
+                  color: t.textDim,
                   userSelect: "none",
                   flexShrink: 0,
                 }}>

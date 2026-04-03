@@ -219,7 +219,7 @@ export function ToolsSection({
                       >
                         {allEnabled ? "none" : someEnabled ? "all" : "all"}
                       </button>
-                      <span style={{ fontSize: 9, color: t.surfaceBorder }}>{packNames.filter((n) => localTools.includes(n)).length}/{packNames.length}</span>
+                      <span style={{ fontSize: 9, color: t.textDim }}>{packNames.filter((n) => localTools.includes(n)).length}/{packNames.length}</span>
                     </div>
                   )}
 

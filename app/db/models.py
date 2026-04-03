@@ -380,6 +380,7 @@ class Document(Base):
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default=text("'{}'::jsonb")
     )
+    tsv = mapped_column("tsv", TSVECTOR().with_variant(Text(), "sqlite"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),

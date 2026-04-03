@@ -105,6 +105,7 @@ class SkillOptionOut(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+    source_type: str = "manual"
 
 
 class WorkspaceSkillOut(BaseModel):
@@ -149,7 +150,8 @@ async def admin_bot_editor_data(
     is_new = bot_id == "new"
 
     if is_new:
-        bot_out = BotOut(id="", name="", model="", system_prompt="")
+        from app.config import settings as _settings
+        bot_out = BotOut(id="", name="", model=_settings.DEFAULT_MODEL, system_prompt="")
         all_skills_rows, tool_rows, sandbox_rows = await asyncio.gather(
             _fetch_all_skills(db),
             _fetch_tool_rows(db),
@@ -188,6 +190,7 @@ async def admin_bot_editor_data(
             id=s.id,
             name=s.name,
             description=(s.content or "")[:200].split("\n")[0] if s.content else None,
+            source_type=s.source_type or "manual",
         )
         for s in all_skills_rows
     ]

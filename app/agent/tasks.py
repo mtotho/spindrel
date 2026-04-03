@@ -555,7 +555,8 @@ async def run_task(task: Task) -> None:
                 )
             else:
                 session_id, messages = await load_or_create(
-                    db, task.session_id, task.client_id or "task", task.bot_id
+                    db, task.session_id, task.client_id or "task", task.bot_id,
+                    channel_id=task.channel_id,
                 )
 
         import uuid as _uuid

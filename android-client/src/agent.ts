@@ -60,14 +60,14 @@ export interface AudioInput {
   audioNative: boolean;
 }
 
-const SILENT_RE = /\[silent\]([\s\S]*?)\[\/silent\]/g;
+const NOSPEECH_RE = /\[nospeech\]([\s\S]*?)\[\/nospeech\]/g;
 
 export function stripSilent(text: string): { display: string; speakable: string } {
-  if (!text.includes("[silent]")) {
+  if (!text.includes("[nospeech]")) {
     return { display: text, speakable: text };
   }
-  const speakable = text.replace(SILENT_RE, "").trim();
-  const display = text.replace(SILENT_RE, "$1");
+  const speakable = text.replace(NOSPEECH_RE, "").trim();
+  const display = text.replace(NOSPEECH_RE, "$1");
   return { display, speakable };
 }
 

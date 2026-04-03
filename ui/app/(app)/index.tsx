@@ -4,6 +4,7 @@ import { Link, useRouter } from "expo-router";
 import { useChannels, useEnsureOrchestrator } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
+import { useProviders } from "@/src/api/hooks/useProviders";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
@@ -20,6 +21,7 @@ import {
   ChevronRight,
   FileText,
   Sparkles,
+  AlertTriangle,
 } from "lucide-react";
 import type { Channel, PromptTemplate } from "@/src/types/api";
 
@@ -205,6 +207,9 @@ export default function HomeScreen() {
   const botMap = useMemo(() => new Map(bots?.map((b) => [b.id, b]) ?? []), [bots]);
 
   const { data: templates } = usePromptTemplates(undefined, "workspace_schema");
+  const { data: providersData, isLoading: providersLoading } = useProviders(isAdmin);
+  // Assume providers exist while loading to prevent "no provider" banner flash
+  const hasProviders = providersLoading || (providersData?.providers?.length ?? 0) > 0;
 
   // Separate orchestrator channel from the rest, pin it at top
   const orchestratorChannel = channels?.find(isOrchestratorChannel);
@@ -266,8 +271,36 @@ export default function HomeScreen() {
           </Link>
         )}
 
-        {/* Setup orchestrator prompt when it doesn't exist (admin only) */}
-        {!channelsLoading && !orchestratorChannel && isAdmin && (
+        {/* No provider banner — shown when no DB providers and no orchestrator */}
+        {!channelsLoading && !orchestratorChannel && isAdmin && !hasProviders && (
+          <Link href={"/admin/providers" as any} asChild>
+            <Pressable
+              className="rounded-xl border hover:opacity-90 active:opacity-80 cursor-pointer"
+              style={{
+                padding: 16,
+                borderColor: t.warning + "40",
+                backgroundColor: t.warning + "08",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <AlertTriangle size={20} color={t.warning} />
+              <View className="flex-1">
+                <Text style={{ fontSize: 14, fontWeight: "600", color: t.text }}>
+                  No LLM provider configured
+                </Text>
+                <Text style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>
+                  Add one in Admin &gt; Providers to start chatting.
+                </Text>
+              </View>
+              <ChevronRight size={16} color={t.textDim} />
+            </Pressable>
+          </Link>
+        )}
+
+        {/* Setup options when orchestrator doesn't exist (admin only, has provider) */}
+        {!channelsLoading && !orchestratorChannel && isAdmin && hasProviders && (
           <Pressable
             onPress={() => {
               ensureOrchestrator.mutate(undefined, {
@@ -280,24 +313,24 @@ export default function HomeScreen() {
             className="rounded-xl border hover:opacity-90 active:opacity-80 cursor-pointer"
             style={{
               padding: 20,
-              borderColor: t.surfaceBorder,
-              borderStyle: "dashed" as any,
+              borderColor: t.accent + "50",
+              backgroundColor: t.accent + "08",
             }}
           >
             <View className="flex-row items-center gap-3">
               <View style={{
                 width: 48, height: 48, borderRadius: 12,
-                backgroundColor: t.accentSubtle,
+                backgroundColor: t.accent + "20",
                 alignItems: "center", justifyContent: "center",
               }}>
-                <Home size={24} color={t.textDim} />
+                <Home size={24} color={t.accent} />
               </View>
               <View className="flex-1">
                 <Text style={{ fontSize: 17, fontWeight: "700", color: t.text }}>
-                  {ensureOrchestrator.isPending ? "Setting up..." : "Set Up Home"}
+                  {ensureOrchestrator.isPending ? "Setting up..." : "Guided Setup"}
                 </Text>
                 <Text style={{ fontSize: 13, color: t.textMuted, marginTop: 2 }}>
-                  Create the orchestrator channel for setup, projects, and management
+                  AI-guided walkthrough for creating bots and channels
                 </Text>
                 {ensureOrchestrator.isError && (
                   <Text style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>

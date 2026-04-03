@@ -121,17 +121,17 @@ You can switch modes at any time via the Settings UI — no restart required. Th
 
 ### Default provider (`.env`)
 
-The `.env` variables `LITELLM_BASE_URL` and `LITELLM_API_KEY` configure the default provider.
+The `.env` variables `LLM_BASE_URL` and `LLM_API_KEY` configure the default provider.
 This uses an OpenAI-compatible client, so any endpoint that speaks the OpenAI chat completions
 format works:
 
-| Provider | LITELLM_BASE_URL | Notes |
-|----------|-----------------|-------|
+| Provider | LLM_BASE_URL | Notes |
+|----------|-------------|-------|
+| **Ollama** (default) | `http://localhost:11434/v1` | Local models, no API key needed |
 | LiteLLM proxy | `http://litellm:4000/v1` | Self-hosted, supports 100+ models |
 | OpenAI | `https://api.openai.com/v1` | Direct OpenAI API |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | OpenAI-compatible endpoint |
 | OpenRouter | `https://openrouter.ai/api/v1` | Multi-provider (Anthropic, Google, Meta, etc.) |
-| Ollama | `http://localhost:11434/v1` | Local models |
 
 ### Additional providers (Admin UI)
 

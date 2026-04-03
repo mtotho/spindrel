@@ -460,7 +460,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
     return {
         "id": data["id"],
         "name": data.get("name", data["id"]),
-        "model": data["model"],
+        "model": data.get("model") or settings.DEFAULT_MODEL,
         "system_prompt": data.get("system_prompt", "You are a helpful assistant."),
         "local_tools": data.get("local_tools", []),
         "mcp_servers": data.get("mcp_servers", []),

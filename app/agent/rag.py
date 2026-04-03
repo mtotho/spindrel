@@ -1,6 +1,6 @@
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text as sa_text
 
 from app.agent.embeddings import embed_text
 from app.config import settings
@@ -10,13 +10,63 @@ from app.db.models import Document
 logger = logging.getLogger(__name__)
 
 
+async def _bm25_search(
+    query: str,
+    skill_ids: list[str] | None = None,
+    sources: list[str] | None = None,
+    top_k: int | None = None,
+) -> list[tuple[str, str, float]]:
+    """Run BM25 full-text search on the documents table.
+
+    Returns list of (content, source, ts_rank) sorted by rank descending.
+    Gracefully returns [] on SQLite or any error.
+    """
+    top_k = top_k or settings.RAG_TOP_K
+    try:
+        async with async_session() as db:
+            # Check if we're on PostgreSQL (tsv column is real TSVECTOR)
+            dialect = db.bind.dialect.name if db.bind else ""
+            if dialect != "postgresql":
+                return []
+
+            # Build source filter
+            if sources:
+                source_filter = "source = ANY(:sources)"
+                params = {"q": query, "sources": sources}
+            elif skill_ids:
+                skill_sources = [f"skill:{sid}" for sid in skill_ids]
+                source_filter = "source = ANY(:sources)"
+                params = {"q": query, "sources": skill_sources}
+            else:
+                source_filter = "source LIKE 'skill:%'"
+                params = {"q": query}
+
+            sql = sa_text(f"""
+                SELECT content, source,
+                       ts_rank(tsv, plainto_tsquery('english', :q)) AS rank
+                FROM documents
+                WHERE tsv IS NOT NULL
+                  AND {source_filter}
+                  AND tsv @@ plainto_tsquery('english', :q)
+                ORDER BY rank DESC
+                LIMIT :lim
+            """).bindparams(**params, lim=top_k * 2)
+
+            result = await db.execute(sql)
+            return [(row[0], row[1], float(row[2])) for row in result.all()]
+    except Exception:
+        logger.debug("BM25 search failed (expected on SQLite), falling back to vector-only", exc_info=True)
+        return []
+
+
 async def retrieve_context(
     query: str,
     skill_ids: list[str] | None = None,
     similarity_threshold: float | None = None,
     sources: list[str] | None = None,
 ) -> tuple[list[tuple[str, str]], float]:
-    """Retrieve relevant skill chunks via pgvector cosine similarity search.
+    """Retrieve relevant skill chunks via pgvector cosine similarity search,
+    optionally fused with BM25 results via Reciprocal Rank Fusion.
 
     Returns (chunks, best_similarity) where each chunk is (content, source).
 
@@ -35,20 +85,25 @@ async def retrieve_context(
 
     distance_expr = Document.embedding.cosine_distance(query_embedding)
 
+    # Fetch more results when hybrid search will fuse them
+    vector_limit = settings.RAG_TOP_K
+    if settings.HYBRID_SEARCH_ENABLED:
+        vector_limit = settings.RAG_TOP_K * 2
+
     if sources:
         # Use explicit source list (for workspace skills, etc.)
         stmt = (
             select(Document.content, Document.source, distance_expr.label("distance"))
             .where(Document.source.in_(sources))
             .order_by(distance_expr)
-            .limit(settings.RAG_TOP_K)
+            .limit(vector_limit)
         )
     else:
         stmt = (
             select(Document.content, Document.source, distance_expr.label("distance"))
             .where(Document.source.like("skill:%"))
             .order_by(distance_expr)
-            .limit(settings.RAG_TOP_K)
+            .limit(vector_limit)
         )
 
         if skill_ids:
@@ -58,16 +113,23 @@ async def retrieve_context(
     try:
         async with async_session() as db:
             result = await db.execute(stmt)
-            rows = result.all()
+            vector_rows = result.all()
     except Exception:
         logger.exception("Failed to query vector store")
         return [], 0.0
 
-    if not rows:
+    if not vector_rows:
         logger.info("Skill retrieval: no documents found for query: %s...", query[:80])
         return [], 0.0
 
-    best_distance = rows[0][2]
+    # Try hybrid search (BM25 + RRF fusion)
+    if settings.HYBRID_SEARCH_ENABLED:
+        bm25_rows = await _bm25_search(query, skill_ids=skill_ids, sources=sources, top_k=settings.RAG_TOP_K)
+        if bm25_rows:
+            return _fuse_results(vector_rows, bm25_rows, threshold, query)
+
+    # Vector-only path
+    best_distance = vector_rows[0][2]
     best_similarity = 1.0 - best_distance
     logger.info(
         "Skill retrieval: best_similarity=%.3f threshold=%.3f query=%s...",
@@ -75,7 +137,7 @@ async def retrieve_context(
     )
 
     chunks = []
-    for content, source, distance in rows:
+    for content, source, distance in vector_rows:
         similarity = 1.0 - distance
         if similarity >= threshold:
             chunks.append((content, source))
@@ -83,11 +145,64 @@ async def retrieve_context(
         else:
             break
 
+    chunks = chunks[:settings.RAG_TOP_K]
+
     if chunks:
         logger.info("Retrieved %d skill chunk(s)", len(chunks))
     else:
         logger.info("No chunks above threshold (best was %.3f, need %.3f)",
                      best_similarity, threshold)
+
+    return chunks, best_similarity
+
+
+def _fuse_results(
+    vector_rows: list,
+    bm25_rows: list[tuple[str, str, float]],
+    threshold: float,
+    query: str,
+) -> tuple[list[tuple[str, str]], float]:
+    """Fuse vector and BM25 results using Reciprocal Rank Fusion."""
+    from app.agent.hybrid_search import reciprocal_rank_fusion
+
+    k = settings.HYBRID_SEARCH_RRF_K
+
+    # Build ranked lists as (content, source) tuples
+    vector_list = [(content, source) for content, source, distance in vector_rows]
+    bm25_list = [(content, source) for content, source, rank in bm25_rows]
+
+    # RRF fusion
+    fused = reciprocal_rank_fusion(vector_list, bm25_list, k=k)
+
+    # Build a lookup of vector similarities for threshold checking
+    vector_sims = {(content, source): 1.0 - distance for content, source, distance in vector_rows}
+    bm25_set = {(content, source) for content, source, _ in bm25_rows}
+
+    best_similarity = max(vector_sims.values()) if vector_sims else 0.0
+
+    chunks = []
+    for (item, rrf_score) in fused:
+        content, source = item
+        vec_sim = vector_sims.get((content, source))
+
+        if vec_sim is not None and vec_sim >= threshold:
+            # Has a vector match above threshold — include
+            chunks.append((content, source))
+        elif vec_sim is None and (content, source) in bm25_set:
+            # BM25-only match (no vector match) — include as keyword hit
+            chunks.append((content, source))
+        elif vec_sim is not None and vec_sim < threshold and (content, source) in bm25_set:
+            # Below vector threshold but matched keywords — include
+            chunks.append((content, source))
+        # else: below threshold and no BM25 match — skip
+
+        if len(chunks) >= settings.RAG_TOP_K:
+            break
+
+    logger.info(
+        "Hybrid retrieval: %d vector + %d BM25 → %d fused chunks (threshold=%.3f, query=%s...)",
+        len(vector_rows), len(bm25_rows), len(chunks), threshold, query[:60],
+    )
 
     return chunks, best_similarity
 

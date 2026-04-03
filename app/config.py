@@ -3,7 +3,7 @@ import json
 from importlib.metadata import version as _pkg_version, PackageNotFoundError
 from typing import Annotated
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 try:
@@ -257,15 +257,22 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://agent:agent@postgres:5432/agentdb"
 
-    # LiteLLM
-    LITELLM_BASE_URL: str = "http://litellm:4000/v1"
-    LITELLM_API_KEY: str = ""
-    # Image generation (OpenAI-compatible `images/generations` via LiteLLM)
-    IMAGE_GENERATION_MODEL: str = "gemini/gemini-2.5-flash-image"
+    # Default LLM provider + model (Ollama out of the box)
+    DEFAULT_MODEL: str = "gemma4:e4b"
+    LLM_BASE_URL: str = Field(
+        default="http://localhost:11434/v1",
+        validation_alias=AliasChoices("LLM_BASE_URL", "LITELLM_BASE_URL"),
+    )
+    LLM_API_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices("LLM_API_KEY", "LITELLM_API_KEY"),
+    )
+    # Image generation (OpenAI-compatible `images/generations`)
+    IMAGE_GENERATION_MODEL: str = ""  # empty = disabled; set to a vision model if available
     IMAGE_GENERATION_PROVIDER_ID: str = ""  # provider_id for image generation; empty = bot's provider or .env default
 
     # Prompt generation (AI-assisted prompt authoring in admin UI)
-    PROMPT_GENERATION_MODEL: str = ""  # empty = uses default LiteLLM model
+    PROMPT_GENERATION_MODEL: str = ""  # empty = uses DEFAULT_MODEL
     PROMPT_GENERATION_TEMPERATURE: float = 0.7
 
     # Agent
@@ -293,7 +300,7 @@ class Settings(BaseSettings):
     PLAYWRIGHT_WS_URL: str = "ws://playwright:3000"
 
     # Context compaction
-    COMPACTION_MODEL: str = "gemini/gemini-2.5-flash"
+    COMPACTION_MODEL: str = ""
     COMPACTION_INTERVAL: int = 30 # Every time there gets to be N turns in the session (minus the compaction message), the compaction will run.
     COMPACTION_KEEP_TURNS: int = 10 # The last M turns will be kept in context, not included in the compaction. So compaction will only include the last N-M turns.
 
@@ -314,6 +321,14 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSIONS: int = 1536
     RAG_TOP_K: int = 5
     RAG_SIMILARITY_THRESHOLD: float = 0.3
+
+    # Hybrid search (BM25 + vector fusion via Reciprocal Rank Fusion)
+    HYBRID_SEARCH_ENABLED: bool = True
+    HYBRID_SEARCH_RRF_K: int = 60  # RRF parameter: higher = more weight on top results
+
+    # Prompt caching (Anthropic cache_control breakpoints)
+    PROMPT_CACHE_ENABLED: bool = True
+    PROMPT_CACHE_MIN_TOKENS: int = 1024  # skip caching for short system messages
 
     # Local embeddings (fastembed / ONNX)
     FASTEMBED_CACHE_DIR: str = ""  # directory for downloaded ONNX models; empty = fastembed default
@@ -396,10 +411,13 @@ class Settings(BaseSettings):
 
     # RAG re-ranking (post-assembly cross-source relevance filtering)
     RAG_RERANK_ENABLED: bool = False
-    RAG_RERANK_MODEL: str = ""              # empty = use COMPACTION_MODEL
+    RAG_RERANK_BACKEND: str = "cross-encoder"  # "cross-encoder" (fast ONNX, zero API cost) or "llm" (full LLM call)
+    RAG_RERANK_MODEL: str = ""              # LLM backend: empty = use COMPACTION_MODEL
     RAG_RERANK_THRESHOLD_CHARS: int = 5000  # only rerank when total RAG chars exceed this
     RAG_RERANK_MAX_CHUNKS: int = 20         # max chunks to keep after reranking
-    RAG_RERANK_MAX_TOKENS: int = 1000       # max output tokens for reranker response
+    RAG_RERANK_MAX_TOKENS: int = 1000       # max output tokens for reranker response (LLM backend only)
+    RAG_RERANK_CROSS_ENCODER_MODEL: str = "Xenova/ms-marco-MiniLM-L-6-v2"  # cross-encoder model name
+    RAG_RERANK_SCORE_THRESHOLD: float = 0.01  # min cross-encoder score to keep a chunk (0-1 range)
 
     # Chat History defaults
     DEFAULT_HISTORY_MODE: str = "file"  # "summary" | "structured" | "file"
@@ -450,7 +468,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # Tool result summarization
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True
     TOOL_RESULT_SUMMARIZE_THRESHOLD: int = 3000       # chars; summarize if above this
-    TOOL_RESULT_SUMMARIZE_MODEL: str = "gemini/gemini-2.5-flash"             # empty = use bot's current model
+    TOOL_RESULT_SUMMARIZE_MODEL: str = ""             # empty = use bot's current model
     TOOL_RESULT_SUMMARIZE_MAX_TOKENS: int = 300       # max tokens for summary output
     TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS: Annotated[list[str], NoDecode] = ["get_skill"]
 
@@ -477,7 +495,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
 
     # Attachments
     ATTACHMENT_SUMMARY_ENABLED: bool = True
-    ATTACHMENT_SUMMARY_MODEL: str = "gemini/gemini-2.5-flash"
+    ATTACHMENT_SUMMARY_MODEL: str = ""
     ATTACHMENT_VISION_CONCURRENCY: int = 3
     ATTACHMENT_SWEEP_INTERVAL_S: int = 60
     ATTACHMENT_TEXT_MAX_CHARS: int = 40_000  # ~10K tokens for text summarization

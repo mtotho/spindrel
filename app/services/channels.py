@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 INTEGRATION_CLIENT_PREFIXES = ("slack:", "discord:", "teams:", "github:")
 
 
+def _default_model() -> str:
+    from app.config import settings
+    return settings.DEFAULT_MODEL
+
+
 def derive_channel_id(client_id: str) -> uuid.UUID:
     """Derive a stable channel UUID from a client_id.
 
@@ -433,7 +438,7 @@ async def _ensure_orchestrator_bot_exists() -> bool:
         bot = BotModel(
             id="orchestrator",
             name="Orchestrator",
-            model="gemini/gemini-2.5-flash",
+            model=_default_model(),
             system_prompt=(
                 "You are the Orchestrator — the central hub for this Spindrel instance.\n\n"
                 "On EVERY first message, call `get_system_status` before responding.\n"

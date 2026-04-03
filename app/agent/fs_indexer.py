@@ -777,6 +777,70 @@ def _excluded_prefixes(segments: list[dict] | None, channel_id: str | None) -> l
     return excluded
 
 
+async def _fs_bm25_search(
+    query: str,
+    bot_id: str | None,
+    client_id: str | None,
+    abs_roots: list[str] | None,
+    top_k: int,
+    excluded_prefixes: list[str] | None = None,
+) -> list[tuple[str, str, str | None, int | None, int | None, float]]:
+    """BM25 full-text search on filesystem_chunks. Returns [] on SQLite or error."""
+    try:
+        from sqlalchemy import text as _sa_text
+        async with async_session() as db:
+            dialect = db.bind.dialect.name if db.bind else ""
+            if dialect != "postgresql":
+                return []
+
+            # Build scope WHERE clauses
+            wheres = ["tsv IS NOT NULL", "tsv @@ plainto_tsquery('english', :q)"]
+            params: dict = {"q": query, "lim": top_k * 2}
+
+            if bot_id is not None:
+                wheres.append("(bot_id = :bid OR bot_id IS NULL)")
+                params["bid"] = bot_id
+            else:
+                wheres.append("bot_id IS NULL")
+
+            if client_id is not None:
+                wheres.append("(client_id = :cid OR client_id IS NULL)")
+                params["cid"] = client_id
+            else:
+                wheres.append("client_id IS NULL")
+
+            if abs_roots:
+                wheres.append("root = ANY(:roots)")
+                params["roots"] = abs_roots
+
+            # Apply channel-gated segment exclusion
+            if excluded_prefixes:
+                for i, prefix in enumerate(excluded_prefixes):
+                    normalized = prefix if prefix.endswith("/") else prefix + "/"
+                    param_name = f"excl_{i}"
+                    wheres.append(f"NOT (file_path LIKE :{param_name} OR file_path = :{param_name}_exact)")
+                    params[param_name] = normalized + "%"
+                    params[f"{param_name}_exact"] = prefix.rstrip("/")
+
+            sql = _sa_text(f"""
+                SELECT content, file_path, symbol, start_line, end_line,
+                       ts_rank(tsv, plainto_tsquery('english', :q)) AS rank
+                FROM filesystem_chunks
+                WHERE {' AND '.join(wheres)}
+                ORDER BY rank DESC
+                LIMIT :lim
+            """).bindparams(**params)
+
+            result = await db.execute(sql)
+            return [
+                (row[0], row[1], row[2], row[3], row[4], float(row[5]))
+                for row in result.all()
+            ]
+    except Exception:
+        logger.debug("FS BM25 search failed, falling back to vector-only", exc_info=True)
+        return []
+
+
 async def retrieve_filesystem_context(
     query: str,
     bot_id: str | None,
@@ -789,6 +853,9 @@ async def retrieve_filesystem_context(
     channel_id: str | None = None,
 ) -> tuple[list[str], float]:
     """Embed query, cosine-search filesystem_chunks, return (formatted_chunks, best_similarity).
+
+    When hybrid search is enabled, also runs BM25 full-text search and fuses
+    results via Reciprocal Rank Fusion.
 
     Scope semantics (matches knowledge system):
     - bot_id: returns chunks where chunk.bot_id == bot_id OR chunk.bot_id IS NULL
@@ -831,6 +898,9 @@ async def retrieve_filesystem_context(
         # Also exclude exact match (e.g. file_path == prefix without trailing slash)
         _path_excl_filters.append(FilesystemChunk.file_path != prefix.rstrip("/"))
 
+    # Fetch more results when hybrid search will fuse them
+    vector_limit = top_k * 2 if settings.HYBRID_SEARCH_ENABLED else top_k
+
     # Single-model fast path (most common case: no segments or all same model)
     if len(unique_models) == 1:
         model = next(iter(unique_models))
@@ -857,7 +927,7 @@ async def retrieve_filesystem_context(
             )
             .where(bot_filter, client_filter, model_filter, *_path_excl_filters)
             .order_by(distance_expr)
-            .limit(top_k)
+            .limit(vector_limit)
         )
         if abs_roots:
             stmt = stmt.where(FilesystemChunk.root.in_(abs_roots))
@@ -869,7 +939,12 @@ async def retrieve_filesystem_context(
             logger.exception("Filesystem retrieval query failed")
             return [], 0.0
 
-        return _format_retrieval_results(rows, threshold, query)
+        if settings.HYBRID_SEARCH_ENABLED:
+            bm25_rows = await _fs_bm25_search(query, bot_id, client_id, abs_roots, top_k, excluded_prefixes=_excl or None)
+            if bm25_rows:
+                return _format_hybrid_fs_results(rows, bm25_rows, threshold, top_k, query)
+
+        return _format_retrieval_results(rows, threshold, query, top_k)
 
     # Multi-model path: embed query once per unique model, query separately, merge
     all_rows: list = []
@@ -898,7 +973,7 @@ async def retrieve_filesystem_context(
             )
             .where(bot_filter, client_filter, model_filter, *_path_excl_filters)
             .order_by(distance_expr)
-            .limit(top_k)
+            .limit(vector_limit)
         )
         if abs_roots:
             stmt = stmt.where(FilesystemChunk.root.in_(abs_roots))
@@ -912,12 +987,18 @@ async def retrieve_filesystem_context(
 
     # Merge: sort by distance, take top_k
     all_rows.sort(key=lambda r: r.distance)
-    all_rows = all_rows[:top_k]
-    return _format_retrieval_results(all_rows, threshold, query)
+    all_rows = all_rows[:vector_limit]
+
+    if settings.HYBRID_SEARCH_ENABLED:
+        bm25_rows = await _fs_bm25_search(query, bot_id, client_id, abs_roots, top_k, excluded_prefixes=_excl or None)
+        if bm25_rows:
+            return _format_hybrid_fs_results(all_rows, bm25_rows, threshold, top_k, query)
+
+    return _format_retrieval_results(all_rows, threshold, query, top_k)
 
 
 def _format_retrieval_results(
-    rows: list, threshold: float, query: str,
+    rows: list, threshold: float, query: str, top_k: int | None = None,
 ) -> tuple[list[str], float]:
     """Format DB rows into retrieval results."""
     if not rows:
@@ -930,15 +1011,77 @@ def _format_retrieval_results(
     )
 
     results: list[str] = []
+    limit = top_k or settings.FS_INDEX_TOP_K
     for row in rows:
         similarity = 1.0 - row.distance
         if similarity < threshold:
             break
-        location = row.file_path
-        if row.symbol:
-            location += f" ({row.symbol})"
-        if row.start_line and row.end_line:
-            location += f" L{row.start_line}–{row.end_line}"
-        results.append(f"[File: {location}]\n\n{row.content}")
+        results.append(_format_fs_row(row.content, row.file_path, row.symbol, row.start_line, row.end_line))
+        if len(results) >= limit:
+            break
 
     return results, best_sim
+
+
+def _format_fs_row(
+    content: str, file_path: str, symbol: str | None,
+    start_line: int | None, end_line: int | None,
+) -> str:
+    """Format a single filesystem chunk for display."""
+    location = file_path
+    if symbol:
+        location += f" ({symbol})"
+    if start_line and end_line:
+        location += f" L{start_line}–{end_line}"
+    return f"[File: {location}]\n\n{content}"
+
+
+def _format_hybrid_fs_results(
+    vector_rows: list, bm25_rows: list, threshold: float, top_k: int, query: str,
+) -> tuple[list[str], float]:
+    """Fuse vector and BM25 filesystem results using RRF."""
+    from app.agent.hybrid_search import reciprocal_rank_fusion
+
+    k = settings.HYBRID_SEARCH_RRF_K
+
+    # Build ranked lists using (content, file_path) as dedup identity
+    vector_list = [
+        (row.content, row.file_path, row.symbol, row.start_line, row.end_line)
+        for row in vector_rows
+    ]
+    bm25_list = [
+        (content, file_path, symbol, start_line, end_line)
+        for content, file_path, symbol, start_line, end_line, rank in bm25_rows
+    ]
+
+    fused = reciprocal_rank_fusion(vector_list, bm25_list, k=k)
+
+    # Build similarity lookup keyed by (content, file_path) for accurate matching
+    vector_sims: dict[tuple[str, str], float] = {
+        (row.content, row.file_path): 1.0 - row.distance for row in vector_rows
+    }
+    bm25_set = {(content, file_path) for content, file_path, _, _, _, _ in bm25_rows}
+
+    best_similarity = max(vector_sims.values()) if vector_sims else 0.0
+
+    results: list[str] = []
+    for (item, rrf_score) in fused:
+        content, file_path, symbol, start_line, end_line = item
+        lookup_key = (content, file_path)
+        vec_sim = vector_sims.get(lookup_key)
+
+        if vec_sim is not None and vec_sim >= threshold:
+            results.append(_format_fs_row(content, file_path, symbol, start_line, end_line))
+        elif lookup_key in bm25_set:
+            # BM25 match — include regardless of vector threshold
+            results.append(_format_fs_row(content, file_path, symbol, start_line, end_line))
+
+        if len(results) >= top_k:
+            break
+
+    logger.info(
+        "Hybrid FS retrieval: %d vector + %d BM25 → %d fused chunks (query=%s...)",
+        len(vector_rows), len(bm25_rows), len(results), query[:60],
+    )
+
+    return results, best_similarity

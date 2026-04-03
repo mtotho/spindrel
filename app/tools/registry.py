@@ -17,6 +17,41 @@ _current_load_source_file: str | None = None
 _current_source_integration: str | None = None
 
 
+def get_settings():
+    """Create a settings reader for the current integration. Call at module level.
+
+    Automatically detects which integration the tool belongs to — no manual ID needed.
+    Returns a function: setting(key, default="") -> str that reads from
+    DB (admin UI) first, then falls back to os.environ.
+
+    Usage::
+
+        from app.tools.registry import register, get_settings
+
+        setting = get_settings()
+
+        @register({...})
+        async def my_tool() -> str:
+            api_key = setting("MY_API_KEY")
+            ...
+    """
+    import os
+    integration_id = _current_source_integration
+
+    if not integration_id:
+        # Not inside an integration — just read env vars
+        return lambda key, default="": os.environ.get(key, default)
+
+    def _get(key: str, default: str = "") -> str:
+        try:
+            from app.services.integration_settings import get_value
+            return get_value(integration_id, key, default)
+        except ImportError:
+            return os.environ.get(key, default)
+
+    return _get
+
+
 def register(schema: dict, *, source_dir: str | None = None):
     """Decorator that registers a local tool function with its OpenAI function schema."""
 

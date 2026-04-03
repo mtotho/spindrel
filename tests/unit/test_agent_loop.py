@@ -1162,6 +1162,32 @@ class TestSanitizeLlmText:
         from app.agent.loop import _sanitize_llm_text
         assert _sanitize_llm_text("Hello world") == "Hello world"
 
+    def test_strips_silent_tags(self):
+        from app.agent.loop import _sanitize_llm_text
+        assert _sanitize_llm_text("Hello.[silent]I'm ready to help.[/silent]") == "Hello."
+
+    def test_strips_silent_tags_case_insensitive(self):
+        from app.agent.loop import _sanitize_llm_text
+        assert _sanitize_llm_text("Hello.[Silent]inner thoughts[/Silent]") == "Hello."
+
+    def test_strips_silent_tags_multiline(self):
+        from app.agent.loop import _sanitize_llm_text
+        raw = "Answer.\n[silent]\nLine one.\nLine two.\n[/silent]\nDone."
+        assert _sanitize_llm_text(raw) == "Answer.\n\nDone."
+
+    def test_strips_all_tag_types_combined(self):
+        from app.agent.loop import _sanitize_llm_text
+        raw = '<think>plan</think>Hello.[silent]monologue[/silent] <invoke name="x"><parameter name="y">1</parameter></invoke>'
+        assert _sanitize_llm_text(raw) == "Hello."
+
+    def test_strips_unclosed_silent_tag(self):
+        from app.agent.loop import _sanitize_llm_text
+        assert _sanitize_llm_text("Hello.[silent]trailing monologue") == "Hello."
+
+    def test_strips_orphaned_close_silent_tag(self):
+        from app.agent.loop import _sanitize_llm_text
+        assert _sanitize_llm_text("Hello.[/silent] world") == "Hello. world"
+
     def test_empty_string(self):
         from app.agent.loop import _sanitize_llm_text
         assert _sanitize_llm_text("") == ""

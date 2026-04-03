@@ -28,8 +28,8 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _client = AsyncOpenAI(
-    base_url=settings.LITELLM_BASE_URL,
-    api_key=settings.LITELLM_API_KEY,
+    base_url=settings.LLM_BASE_URL,
+    api_key=settings.LLM_API_KEY,
     timeout=120.0,
     max_retries=0,
 )

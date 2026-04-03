@@ -3,6 +3,7 @@ import asyncio
 import logging
 import time
 from collections import deque
+from pathlib import Path
 
 from openai import AsyncOpenAI
 from sqlalchemy import select
@@ -29,6 +30,49 @@ _plan_billed_models: set[str] = set()
 _model_to_provider: dict[str, str] = {}
 
 
+async def seed_provider_from_file(path: Path = Path("provider-seed.yaml")) -> None:
+    """On first boot, create a provider from the setup wizard's seed file.
+
+    The seed file is written by ``scripts/setup.py`` and contains a single
+    provider config (id, provider_type, display_name, base_url, api_key).
+    Once consumed the file is deleted so the seed is one-shot.
+    """
+    if not path.exists():
+        return
+
+    import yaml
+
+    data = yaml.safe_load(path.read_text())
+    if not data or not data.get("provider_type"):
+        logger.warning("Ignoring malformed provider seed file: %s", path)
+        return
+
+    async with async_session() as db:
+        existing = await db.get(ProviderConfigRow, data["id"])
+        if existing:
+            logger.info("Provider '%s' already exists, skipping seed", data["id"])
+            path.unlink(missing_ok=True)
+            return
+
+        from app.services.encryption import encrypt
+
+        api_key = data.get("api_key", "")
+
+        provider = ProviderConfigRow(
+            id=data["id"],
+            provider_type=data["provider_type"],
+            display_name=data.get("display_name", data["id"]),
+            base_url=data.get("base_url"),
+            api_key=encrypt(api_key) if api_key else None,
+            is_enabled=True,
+        )
+        db.add(provider)
+        await db.commit()
+        logger.info("Seeded provider '%s' (%s) from %s", data["id"], data["provider_type"], path)
+
+    path.unlink(missing_ok=True)
+
+
 def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
     from app.services.provider_drivers import get_driver
 
@@ -38,8 +82,8 @@ def _make_client(provider: ProviderConfigRow) -> AsyncOpenAI:
 def _fallback_client() -> AsyncOpenAI:
     """Create a client from .env settings (legacy / no-DB-provider fallback)."""
     return AsyncOpenAI(
-        base_url=settings.LITELLM_BASE_URL,
-        api_key=settings.LITELLM_API_KEY or "dummy",
+        base_url=settings.LLM_BASE_URL,
+        api_key=settings.LLM_API_KEY or "dummy",
         timeout=settings.LLM_TIMEOUT,
         max_retries=0,
     )
@@ -59,13 +103,13 @@ async def _warm_model_info_cache() -> None:
     targets: list[tuple[str | None, str, str]] = []  # (provider_id, base_url, key)
 
     # .env fallback
-    if settings.LITELLM_BASE_URL:
-        targets.append((None, settings.LITELLM_BASE_URL, _litellm_mgmt_key(None)))
+    if settings.LLM_BASE_URL:
+        targets.append((None, settings.LLM_BASE_URL, _litellm_mgmt_key(None)))
 
     # DB litellm providers
     for row in _registry.values():
         if row.provider_type == "litellm":
-            base = row.base_url or settings.LITELLM_BASE_URL
+            base = row.base_url or settings.LLM_BASE_URL
             if base:
                 targets.append((row.id, base, _litellm_mgmt_key(row)))
 
@@ -242,9 +286,9 @@ def list_providers() -> list[ProviderConfigRow]:
 
 
 def get_default_provider() -> ProviderConfigRow | None:
-    """First enabled litellm provider in registry, or None (use .env fallback)."""
+    """First enabled provider in registry (any type), or None."""
     for row in _registry.values():
-        if row.provider_type == "litellm":
+        if row.is_enabled:
             return row
     return None
 
@@ -252,10 +296,9 @@ def get_default_provider() -> ProviderConfigRow | None:
 def resolve_provider_for_model(model: str) -> str | None:
     """Look up the provider_id that owns *model* via the reverse index.
 
-    Only returns providers that support the OpenAI chat/completions format,
-    since that's what llm.py uses.  Providers with non-compatible endpoints
-    (e.g. anthropic-compatible pointing at a /messages API) are skipped so
-    the caller falls back to LiteLLM which handles format translation.
+    Only returns providers whose driver declares chat_completions=True.
+    All current drivers support this (OpenAI-compatible drivers natively,
+    Anthropic drivers via the AnthropicOpenAIAdapter shim).
 
     Returns None if the model isn't in any provider's model list (caller
     should fall back to the .env default client).
@@ -276,14 +319,22 @@ def resolve_provider_for_model(model: str) -> str | None:
 
 def get_llm_client(provider_id: str | None = None) -> AsyncOpenAI:
     """Return a cached AsyncOpenAI-compatible client for the given provider_id.
-    Falls back to .env LiteLLM settings when provider_id is None or unknown.
+
+    When *provider_id* is None, prefers the first enabled DB provider before
+    falling back to .env settings.
     """
     cache_key = provider_id
     if cache_key in _client_cache:
         return _client_cache[cache_key]
 
     if provider_id is None:
-        client = _fallback_client()
+        # Prefer DB provider over .env fallback
+        default = get_default_provider()
+        if default:
+            client = _make_client(default)
+            _client_cache[default.id] = client
+        else:
+            client = _fallback_client()
     else:
         provider = _registry.get(provider_id)
         if provider is None:
@@ -403,7 +454,7 @@ def get_cached_model_info(model_id: str, provider_id: str | None = None) -> dict
 async def get_available_models_grouped() -> list[dict]:
     """Return all models from all providers, grouped by provider.
     Each entry: {provider_id, provider_name, provider_type, models: [{id, display, max_tokens}]}
-    Always includes .env LiteLLM fallback (provider_id=None) so bots can be reset to use it.
+    Includes .env fallback only when no DB providers exist.
     """
     from app.services.provider_drivers.litellm_driver import _fetch_litellm_model_info
 
@@ -423,7 +474,7 @@ async def get_available_models_grouped() -> list[dict]:
                 "input_cost_per_1m": inp, "output_cost_per_1m": out}
 
     # Build .env fallback group
-    fallback_base_url = settings.LITELLM_BASE_URL
+    fallback_base_url = settings.LLM_BASE_URL
     fallback_models: list[dict] = []
     if fallback_base_url:
         try:
@@ -464,8 +515,8 @@ async def get_available_models_grouped() -> list[dict]:
             api_succeeded = bool(raw_models) and not all(mid in db_model_map for mid in raw_models)
 
             if api_succeeded and ptype == "litellm":
-                base = provider.base_url or settings.LITELLM_BASE_URL
-                key = provider.api_key or settings.LITELLM_API_KEY or "dummy"
+                base = provider.base_url or settings.LLM_BASE_URL
+                key = provider.api_key or settings.LLM_API_KEY or "dummy"
                 if base:
                     model_info_map = await _fetch_litellm_model_info(base, key)
                     _model_info_cache[provider.id] = model_info_map  # cache for bots list badge
@@ -504,7 +555,4 @@ async def get_available_models_grouped() -> list[dict]:
                 "models": [],
             })
 
-    # Always show .env LiteLLM if the URL is configured, even alongside other DB providers.
-    if has_env_litellm:
-        groups.append(fallback_group)
     return groups

@@ -211,7 +211,7 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
                           <span
                             style={{
                               fontSize: 10,
-                              color: t.surfaceBorder,
+                              color: t.textDim,
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",

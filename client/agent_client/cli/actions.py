@@ -6,7 +6,7 @@ import httpx
 from agent_client.client import AgentClient
 from agent_client.state import new_session_id, save_bot_id, save_session_id
 
-from agent_client.cli.display import format_last_active
+from agent_client.cli.display import console, format_last_active, print_error
 from agent_client.cli.voice import apply_bot_audio
 
 
@@ -18,7 +18,7 @@ def handle_client_actions(actions: list[dict], client: AgentClient, ctx: dict) -
 
         if action == "new_session":
             ctx["session_id"] = new_session_id()
-            print(f"  [action] New session: {ctx['session_id']}")
+            console.print(f"  [dim][action][/dim] New session: [bold]{ctx['session_id']}[/bold]")
 
         elif action == "switch_bot":
             bot_id = params.get("bot_id")
@@ -26,9 +26,9 @@ def handle_client_actions(actions: list[dict], client: AgentClient, ctx: dict) -
                 ctx["bot_id"] = bot_id
                 save_bot_id(bot_id)
                 apply_bot_audio(client, ctx)
-                print(f"  [action] Switched bot to: {bot_id}")
+                console.print(f"  [dim][action][/dim] Switched bot to: [bold]{bot_id}[/bold]")
             else:
-                print("  [action] switch_bot missing bot_id param")
+                print_error("[action] switch_bot missing bot_id param")
 
         elif action == "switch_session":
             raw = params.get("session_id")
@@ -37,42 +37,42 @@ def handle_client_actions(actions: list[dict], client: AgentClient, ctx: dict) -
                     sid = uuid.UUID(raw)
                     ctx["session_id"] = sid
                     save_session_id(sid)
-                    print(f"  [action] Switched to session: {sid}")
+                    console.print(f"  [dim][action][/dim] Switched to session: [bold]{sid}[/bold]")
                 except ValueError:
-                    print(f"  [action] Invalid session UUID: {raw}")
+                    print_error(f"[action] Invalid session UUID: {raw}")
             else:
-                print("  [action] switch_session missing session_id param")
+                print_error("[action] switch_session missing session_id param")
 
         elif action == "toggle_tts":
             ctx["tts"] = not ctx["tts"]
             state = "on" if ctx["tts"] else "off"
-            print(f"  [action] TTS {state}")
+            console.print(f"  [dim][action][/dim] TTS [bold]{state}[/bold]")
 
         elif action == "list_sessions":
             try:
                 sessions = client.list_sessions()
                 if not sessions:
-                    print("  [action] No sessions.")
+                    console.print("  [dim][action] No sessions.[/dim]")
                 else:
                     for s in sessions:
-                        active = " *" if str(ctx["session_id"]) == s["id"] else ""
+                        active = " [bold green]*[/bold green]" if str(ctx["session_id"]) == s["id"] else ""
                         title = s.get("title") or "(untitled)"
                         last = format_last_active(s.get("last_active", ""))
-                        print(f"  {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}{active}")
+                        console.print(f"  {s['id'][:8]}  {title}  bot={s['bot_id']}  {last}{active}")
             except httpx.HTTPError as e:
-                print(f"  [action] Error listing sessions: {e}")
+                print_error(f"[action] Error listing sessions: {e}")
 
         elif action == "list_bots":
             try:
                 bots = client.list_bots()
                 if not bots:
-                    print("  [action] No bots configured.")
+                    console.print("  [dim][action] No bots configured.[/dim]")
                 else:
                     for b in bots:
-                        active = " *" if ctx["bot_id"] == b["id"] else ""
-                        print(f"  {b['id']}  ({b['name']})  model={b['model']}{active}")
+                        active = " [bold green]*[/bold green]" if ctx["bot_id"] == b["id"] else ""
+                        console.print(f"  {b['id']}  ({b['name']})  model={b['model']}{active}")
             except httpx.HTTPError as e:
-                print(f"  [action] Error listing bots: {e}")
+                print_error(f"[action] Error listing bots: {e}")
 
         elif action == "show_history":
             try:
@@ -82,11 +82,16 @@ def handle_client_actions(actions: list[dict], client: AgentClient, ctx: dict) -
                     content = msg.get("content", "")
                     if role == "SYSTEM":
                         continue
-                    print(f"  [{role}] {content}")
+                    if role == "USER":
+                        console.print(f"  [bold blue]{role}[/bold blue] {content}")
+                    elif role == "ASSISTANT":
+                        console.print(f"  [bold green]{role}[/bold green] {content}")
+                    else:
+                        console.print(f"  [dim]{role}[/dim] {content}")
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 404:
-                    print("  [action] No history yet for this session.")
+                    console.print("  [dim][action] No history yet for this session.[/dim]")
                 else:
-                    print(f"  [action] Error: {e}")
+                    print_error(f"[action] Error: {e}")
             except httpx.HTTPError as e:
-                print(f"  [action] Error: {e}")
+                print_error(f"[action] Error: {e}")

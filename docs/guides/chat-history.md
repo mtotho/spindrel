@@ -59,7 +59,7 @@ These control when and how compaction happens.
 | `context_compaction` | `true` | Enable/disable automatic archival |
 | `compaction_interval` | `30` | User messages between compactions |
 | `compaction_keep_turns` | `10` | Recent turns kept verbatim (never archived) |
-| `compaction_model` | `gemini/gemini-2.5-flash` | Model used for summarization |
+| `compaction_model` | `_(DEFAULT_MODEL)_` | Model used for summarization |
 | `memory_flush_enabled` | `false` | Run a memory-update pass before archiving |
 | `memory_flush_model` | _(bot's model)_ | Model for the memory flush pass |
 
@@ -144,7 +144,7 @@ history_mode: file              # file | structured | summary
 context_compaction: true        # enable automatic archival
 compaction_interval: 20         # user turns between compactions
 compaction_keep_turns: 6        # recent turns kept verbatim
-compaction_model: gemini/gemini-2.5-flash
+compaction_model: _(DEFAULT_MODEL)_
 ```
 
 ### Environment Variables
@@ -154,7 +154,7 @@ compaction_model: gemini/gemini-2.5-flash
 | `DEFAULT_HISTORY_MODE` | `file` | Global default history mode |
 | `COMPACTION_INTERVAL` | `30` | Default compaction interval |
 | `COMPACTION_KEEP_TURNS` | `10` | Default keep turns |
-| `COMPACTION_MODEL` | `gemini/gemini-2.5-flash` | Default compaction model |
+| `COMPACTION_MODEL` | `_(DEFAULT_MODEL)_` | Default compaction model |
 | `SECTION_INDEX_COUNT` | `10` | Sections in the injected index |
 | `SECTION_INDEX_VERBOSITY` | `standard` | Index detail level |
 | `HISTORY_WRITE_FILES` | `false` | Also write transcripts to `.history/` on disk |

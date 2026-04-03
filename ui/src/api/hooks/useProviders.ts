@@ -61,10 +61,11 @@ export interface ProviderListResponse {
   env_fallback_has_key: boolean;
 }
 
-export function useProviders() {
+export function useProviders(enabled = true) {
   return useQuery({
     queryKey: ["admin-providers"],
     queryFn: () => apiFetch<ProviderListResponse>("/api/v1/admin/providers"),
+    enabled,
   });
 }
 

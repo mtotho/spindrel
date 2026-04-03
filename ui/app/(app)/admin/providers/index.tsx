@@ -54,12 +54,12 @@ function EnvFallbackCard({ baseUrl, hasKey }: { baseUrl?: string | null; hasKey:
         {baseUrl && (
           <span style={{ fontFamily: "monospace", color: t.textMuted }}>{baseUrl}</span>
         )}
-        <span style={{ color: hasKey ? t.textDim : t.surfaceBorder }}>
+        <span style={{ color: hasKey ? t.textDim : t.warningMuted }}>
           {hasKey ? "API key set" : "No API key"}
         </span>
       </div>
-      <div style={{ fontSize: 10, color: t.surfaceBorder }}>
-        Bots with no provider assigned use this fallback. Configure via <code style={{ color: t.textDim }}>LITELLM_BASE_URL</code> / <code style={{ color: t.textDim }}>LITELLM_API_KEY</code> in .env.
+      <div style={{ fontSize: 10, color: t.textDim }}>
+        Bots with no provider assigned use this fallback. Configure via <code style={{ color: t.textDim }}>LLM_BASE_URL</code> / <code style={{ color: t.textDim }}>LLM_API_KEY</code> in .env.
       </div>
     </div>
   );
@@ -204,8 +204,8 @@ export default function ProvidersScreen() {
             padding: 40, textAlign: "center", fontSize: 13,
           }}>
             <div style={{ color: t.textDim, marginBottom: 8 }}>No providers configured.</div>
-            <div style={{ color: t.surfaceBorder, fontSize: 12 }}>
-              Set <code style={{ color: t.textDim }}>LITELLM_BASE_URL</code> / <code style={{ color: t.textDim }}>LITELLM_API_KEY</code> in .env or add a provider above.
+            <div style={{ color: t.textDim, fontSize: 12 }}>
+              Set <code style={{ color: t.textDim }}>LLM_BASE_URL</code> / <code style={{ color: t.textDim }}>LLM_API_KEY</code> in .env or add a provider above.
             </div>
           </div>
         )}
@@ -231,7 +231,7 @@ export default function ProvidersScreen() {
         {/* Fallback note when DB providers exist */}
         {providers && providers.length > 0 && (
           <div style={{
-            padding: 12, fontSize: 11, color: t.surfaceBorder, borderTop: `1px solid ${t.surfaceRaised}`,
+            padding: 12, fontSize: 11, color: t.textDim, borderTop: `1px solid ${t.surfaceRaised}`,
             marginTop: 4,
           }}>
             Bots with no provider assigned use the first enabled <code style={{ color: t.textDim }}>litellm</code> provider, or the .env fallback if none exist.

@@ -89,6 +89,18 @@ async def _embed_skill_row(skill_id: str, content: str, content_hash: str) -> No
             db.add(doc)
         await db.commit()
 
+    # Backfill tsvector for hybrid search (non-fatal)
+    try:
+        async with async_session() as db:
+            from sqlalchemy import text as _sa_text
+            await db.execute(_sa_text(
+                "UPDATE documents SET tsv = to_tsvector('english', content) "
+                "WHERE source = :src AND tsv IS NULL"
+            ).bindparams(src=f"skill:{skill_id}"))
+            await db.commit()
+    except Exception:
+        logger.debug("TSVector backfill failed for skill %s (expected on SQLite)", skill_id)
+
     _loaded_skills.add(skill_id)
     logger.info("Embedded skill '%s' (%d chunks)", skill_id, len(chunk_results))
 

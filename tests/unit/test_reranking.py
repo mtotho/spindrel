@@ -108,10 +108,10 @@ class TestParseKeepIndices:
 
 
 # ---------------------------------------------------------------------------
-# rerank_rag_context
+# rerank_rag_context — LLM backend
 # ---------------------------------------------------------------------------
 
-class TestRerankRagContext:
+class TestRerankRagContextLLM:
     @pytest.mark.asyncio
     async def test_disabled(self):
         with patch("app.services.reranking.settings") as mock_settings:
@@ -151,6 +151,7 @@ class TestRerankRagContext:
 
         with patch("app.services.reranking.settings") as mock_settings:
             mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "llm"
             mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
             mock_settings.RAG_RERANK_MAX_CHUNKS = 20
             mock_settings.RAG_RERANK_MAX_TOKENS = 1000
@@ -186,6 +187,7 @@ class TestRerankRagContext:
 
         with patch("app.services.reranking.settings") as mock_settings:
             mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "llm"
             mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
             mock_settings.RAG_RERANK_MAX_CHUNKS = 20
             mock_settings.RAG_RERANK_MAX_TOKENS = 1000
@@ -212,6 +214,7 @@ class TestRerankRagContext:
 
         with patch("app.services.reranking.settings") as mock_settings:
             mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "llm"
             mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
             mock_settings.RAG_RERANK_MAX_TOKENS = 1000
             mock_settings.RAG_RERANK_MODEL = "test-model"
@@ -238,6 +241,7 @@ class TestRerankRagContext:
 
         with patch("app.services.reranking.settings") as mock_settings:
             mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "llm"
             mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
             mock_settings.RAG_RERANK_MAX_CHUNKS = 20
             mock_settings.RAG_RERANK_MAX_TOKENS = 1000
@@ -246,5 +250,193 @@ class TestRerankRagContext:
 
             with patch("app.services.providers.get_llm_client", return_value=mock_client):
                 result = await rerank_rag_context(messages, "query")
+
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# rerank_rag_context — cross-encoder backend
+# ---------------------------------------------------------------------------
+
+class TestRerankRagContextCrossEncoder:
+    @pytest.mark.asyncio
+    async def test_cross_encoder_successful(self):
+        chunk_a = "A" * 2000
+        chunk_b = "B" * 2000
+        chunk_c = "C" * 2000
+        messages = [
+            {"role": "system", "content": "Base prompt"},
+            {"role": "system", "content": f"Pinned skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_c}"},
+            {"role": "user", "content": "hello"},
+        ]
+
+        # Cross-encoder returns scores: chunk_a=0.8, chunk_b=0.001, chunk_c=0.5
+        mock_rerank = AsyncMock(return_value=[0.8, 0.001, 0.5])
+
+        with patch("app.services.reranking.settings") as mock_settings:
+            mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "cross-encoder"
+            mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
+            mock_settings.RAG_RERANK_MAX_CHUNKS = 20
+            mock_settings.RAG_RERANK_CROSS_ENCODER_MODEL = "test-ce-model"
+            mock_settings.RAG_RERANK_SCORE_THRESHOLD = 0.01
+
+            with patch("app.services.cross_encoder.rerank_async", mock_rerank):
+                result = await rerank_rag_context(messages, "test query")
+
+        assert result is not None
+        assert result.original_chunks == 3
+        assert result.kept_chunks == 2  # chunk_a (0.8) + chunk_c (0.5); chunk_b (0.001) below threshold
+        mock_rerank.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cross_encoder_score_threshold(self):
+        chunk_a = "A" * 3000
+        chunk_b = "B" * 3000
+        messages = [
+            {"role": "system", "content": f"Pinned skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
+        ]
+
+        # Both below threshold
+        mock_rerank = AsyncMock(return_value=[0.005, 0.003])
+
+        with patch("app.services.reranking.settings") as mock_settings:
+            mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "cross-encoder"
+            mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
+            mock_settings.RAG_RERANK_MAX_CHUNKS = 20
+            mock_settings.RAG_RERANK_CROSS_ENCODER_MODEL = "test-ce-model"
+            mock_settings.RAG_RERANK_SCORE_THRESHOLD = 0.01
+
+            with patch("app.services.cross_encoder.rerank_async", mock_rerank):
+                result = await rerank_rag_context(messages, "query")
+
+        assert result is not None
+        assert result.kept_chunks == 0
+
+    @pytest.mark.asyncio
+    async def test_cross_encoder_max_chunks(self):
+        """Max chunks limits how many chunks are kept even if all score above threshold."""
+        chunk_a = "A" * 2000
+        chunk_b = "B" * 2000
+        chunk_c = "C" * 2000
+        messages = [
+            {"role": "system", "content": f"Pinned skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
+        ]
+
+        mock_rerank = AsyncMock(return_value=[0.9, 0.8, 0.7])
+
+        with patch("app.services.reranking.settings") as mock_settings:
+            mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "cross-encoder"
+            mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
+            mock_settings.RAG_RERANK_MAX_CHUNKS = 2  # only keep 2
+            mock_settings.RAG_RERANK_CROSS_ENCODER_MODEL = "test-ce-model"
+            mock_settings.RAG_RERANK_SCORE_THRESHOLD = 0.01
+
+            with patch("app.services.cross_encoder.rerank_async", mock_rerank):
+                result = await rerank_rag_context(messages, "query")
+
+        assert result is not None
+        assert result.kept_chunks == 2
+
+    @pytest.mark.asyncio
+    async def test_cross_encoder_removes_empty_messages(self):
+        """When all chunks in a message score below threshold, the message is removed."""
+        chunk_a = "A" * 2000
+        chunk_b = "B" * 2000
+        chunk_c = "C" * 2000
+        messages = [
+            {"role": "system", "content": "Base prompt"},
+            {"role": "system", "content": f"Pinned skill context:\n\n{chunk_a}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
+            {"role": "user", "content": "hello"},
+        ]
+
+        # chunk_a scores high, but chunk_b and chunk_c score below threshold
+        mock_rerank = AsyncMock(return_value=[0.8, 0.005, 0.003])
+
+        with patch("app.services.reranking.settings") as mock_settings:
+            mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "cross-encoder"
+            mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
+            mock_settings.RAG_RERANK_MAX_CHUNKS = 20
+            mock_settings.RAG_RERANK_CROSS_ENCODER_MODEL = "test-ce-model"
+            mock_settings.RAG_RERANK_SCORE_THRESHOLD = 0.01
+
+            with patch("app.services.cross_encoder.rerank_async", mock_rerank):
+                result = await rerank_rag_context(messages, "query")
+
+        assert result is not None
+        assert result.kept_chunks == 1  # only chunk_a survives
+        # knowledge message had both chunks removed — should be dropped
+        assert len(messages) == 3  # base prompt, skill, user
+
+    @pytest.mark.asyncio
+    async def test_cross_encoder_content_verification(self):
+        """Verify that surviving chunks have correct content in the mutated message."""
+        chunk_a = "ALPHA" * 400
+        chunk_b = "BRAVO" * 400
+        chunk_c = "CHARLIE" * 400
+        messages = [
+            {"role": "system", "content": f"Pinned skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
+        ]
+
+        # Keep chunk_a and chunk_c, remove chunk_b
+        mock_rerank = AsyncMock(return_value=[0.8, 0.001, 0.6])
+
+        with patch("app.services.reranking.settings") as mock_settings:
+            mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "cross-encoder"
+            mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
+            mock_settings.RAG_RERANK_MAX_CHUNKS = 20
+            mock_settings.RAG_RERANK_CROSS_ENCODER_MODEL = "test-ce-model"
+            mock_settings.RAG_RERANK_SCORE_THRESHOLD = 0.01
+
+            with patch("app.services.cross_encoder.rerank_async", mock_rerank):
+                result = await rerank_rag_context(messages, "query")
+
+        assert result is not None
+        assert result.kept_chunks == 2
+        content = messages[0]["content"]
+        assert chunk_a in content
+        assert chunk_b not in content
+        assert chunk_c in content
+
+    @pytest.mark.asyncio
+    async def test_cross_encoder_failure_returns_none(self):
+        chunk = "A" * 6000
+        messages = [
+            {"role": "system", "content": f"Pinned skill context:\n\n{chunk}"},
+        ]
+
+        mock_rerank = AsyncMock(side_effect=Exception("ONNX crash"))
+
+        with patch("app.services.reranking.settings") as mock_settings:
+            mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "cross-encoder"
+            mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
+            mock_settings.RAG_RERANK_MAX_CHUNKS = 20
+            mock_settings.RAG_RERANK_CROSS_ENCODER_MODEL = "test-ce-model"
+            mock_settings.RAG_RERANK_SCORE_THRESHOLD = 0.01
+
+            with patch("app.services.cross_encoder.rerank_async", mock_rerank):
+                result = await rerank_rag_context(messages, "query")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_unknown_backend_returns_none(self):
+        chunk = "A" * 6000
+        messages = [
+            {"role": "system", "content": f"Pinned skill context:\n\n{chunk}"},
+        ]
+
+        with patch("app.services.reranking.settings") as mock_settings:
+            mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "bogus"
+            mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
+            result = await rerank_rag_context(messages, "query")
 
         assert result is None

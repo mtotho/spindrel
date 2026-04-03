@@ -36,6 +36,9 @@ class AgentClient:
         session_id: uuid.UUID,
         bot_id: str,
         client_id: str = "cli",
+        channel_id: str | None = None,
+        model_override: str | None = None,
+        attachments: list[dict] | None = None,
         audio_data: str | None = None,
         audio_format: str | None = None,
         audio_native: bool | None = None,
@@ -47,6 +50,12 @@ class AgentClient:
             "client_id": client_id,
             "bot_id": bot_id,
         }
+        if channel_id is not None:
+            body["channel_id"] = channel_id
+        if model_override is not None:
+            body["model_override"] = model_override
+        if attachments:
+            body["attachments"] = attachments
         if audio_data is not None:
             body["audio_data"] = audio_data
         if audio_format is not None:
@@ -75,6 +84,24 @@ class AgentClient:
         )
         resp.raise_for_status()
 
+    def cancel(self, bot_id: str, client_id: str = "cli") -> dict:
+        """Cancel an in-progress agent loop."""
+        resp = self._http.post(
+            "/chat/cancel",
+            json={"bot_id": bot_id, "client_id": client_id},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def check_secrets(self, message: str) -> dict:
+        """Pre-flight secret detection check."""
+        resp = self._http.post(
+            "/chat/check-secrets",
+            json={"message": message},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def list_sessions(self, client_id: str | None = None) -> list[dict]:
         params = {}
         if client_id:
@@ -93,10 +120,7 @@ class AgentClient:
         resp.raise_for_status()
 
     def transcribe(self, audio_bytes: bytes) -> str | None:
-        """Send raw float32 PCM audio to the server for transcription.
-
-        Returns transcribed text, or None if the server doesn't support it.
-        """
+        """Send raw float32 PCM audio to the server for transcription."""
         try:
             resp = self._http.post(
                 "/transcribe",
@@ -134,6 +158,41 @@ class AgentClient:
         resp = self._http.post(
             f"/api/v1/admin/tools/{tool_name}/execute",
             json={"arguments": arguments or {}},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    # --- New API methods ---
+
+    def get_task(self, task_id: str) -> dict:
+        """Get task status by ID."""
+        resp = self._http.get(f"/api/v1/admin/tasks/{task_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    def list_channels(self, bot_id: str | None = None) -> dict:
+        """List channels with optional bot_id filter. Returns paginated response."""
+        params: dict[str, Any] = {"page_size": 100}
+        if bot_id:
+            params["bot_id"] = bot_id
+        resp = self._http.get("/api/v1/admin/channels", params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    def decide_approval(self, approval_id: str, approved: bool) -> dict:
+        """Decide on a pending approval request."""
+        resp = self._http.post(
+            f"/api/v1/approvals/{approval_id}/decide",
+            json={"approved": approved, "decided_by": "cli:user"},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def create_api_key(self, name: str, scopes: list[str] | None = None) -> dict:
+        """Create a new API key. Returns the full key (shown only once)."""
+        resp = self._http.post(
+            "/api/v1/admin/api-keys",
+            json={"name": name, "scopes": scopes or []},
         )
         resp.raise_for_status()
         return resp.json()

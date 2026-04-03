@@ -75,6 +75,9 @@ PLANS/
 !PLANS/HEARTBEAT_QUIET_HOURS.md
 !PLANS/TESTING_PLAN.md
 
+# Provider seed (setup wizard output, consumed on first server boot)
+provider-seed.yaml
+
 # MCP config (user-specific — see mcp.example.yaml)
 mcp.yaml
 

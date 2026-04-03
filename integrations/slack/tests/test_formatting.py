@@ -50,8 +50,8 @@ class TestFormatResponse:
     def test_empty(self):
         assert format_response_for_slack("") == "_(no response)_"
 
-    def test_silent_tags(self):
-        result = format_response_for_slack("[silent]internal note[/silent]")
+    def test_nospeech_tags(self):
+        result = format_response_for_slack("[nospeech]internal note[/nospeech]")
         assert "🔇" in result
         assert "internal note" in result
 

@@ -175,7 +175,8 @@ async def lifespan(application: FastAPI):
     from app.services.integration_settings import load_from_db as load_integration_settings
     await load_integration_settings()
     logger.info("Loading provider configs from DB...")
-    from app.services.providers import load_providers
+    from app.services.providers import seed_provider_from_file, load_providers
+    await seed_provider_from_file()
     await load_providers()
     # Check encryption status: hard error if encrypted secrets exist without key,
     # soft warning if plaintext secrets exist without key.
