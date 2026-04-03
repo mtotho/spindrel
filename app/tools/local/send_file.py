@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 
 from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
-from app.services.attachments import create_attachment, get_attachment_by_id
+from app.services.attachments import create_attachment, find_orphan_duplicate, get_attachment_by_id
 from app.tools.registry import register
 
 
@@ -166,6 +166,20 @@ async def send_file(
     mime, _ = mimetypes.guess_type(display_name)
     mime = mime or "application/octet-stream"
     is_image = mime.startswith("image/")
+    size_kb = len(data) / 1024
+
+    # Dedup: if another tool (e.g. generate_image) already created an orphan
+    # attachment with matching size+mime in this channel, skip the duplicate.
+    # This prevents the same image appearing twice when generate_image +
+    # send_file run in the same turn (common in delegation flows).
+    if channel_id:
+        try:
+            existing = await find_orphan_duplicate(channel_id, len(data), mime)
+        except Exception:
+            existing = None
+        if existing:
+            msg = f"Sent {display_name} ({size_kb:.0f} KB)" + (f": {caption}" if caption else "")
+            return json.dumps({"message": msg})
 
     await create_attachment(
         message_id=None,
@@ -181,7 +195,6 @@ async def send_file(
     )
 
     b64 = base64.b64encode(data).decode("ascii")
-    size_kb = len(data) / 1024
 
     return json.dumps({
         "message": f"Sent {display_name} ({size_kb:.0f} KB)" + (f": {caption}" if caption else ""),

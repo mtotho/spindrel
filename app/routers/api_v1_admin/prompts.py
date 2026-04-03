@@ -249,7 +249,9 @@ async def generate_prompt(body: GeneratePromptIn):
         system_msg = "\n\n".join(parts)
         user_msg = "Generate the prompt now."
 
-    model = settings.PROMPT_GENERATION_MODEL or settings.COMPACTION_MODEL
+    model = settings.PROMPT_GENERATION_MODEL or settings.COMPACTION_MODEL or settings.DEFAULT_MODEL
+    if not model:
+        raise HTTPException(status_code=400, detail="No model configured for prompt generation. Set PROMPT_GENERATION_MODEL, COMPACTION_MODEL, or DEFAULT_MODEL.")
     client = get_llm_client(None)
 
     resp = await client.chat.completions.create(

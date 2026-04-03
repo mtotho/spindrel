@@ -39,15 +39,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 
 ## Screenshots
 
-<!-- TODO: Add screenshots. Suggested captures:
-  1. Chat interface with streaming tool calls visible (show a web_search or exec_command in action)
-  2. Sidebar with workspace switcher + channels + upcoming heartbeats
-  3. Bot editor page showing carapaces, skills, and tool config
-  4. Channel workspace tab with file browser and schema editor
-  5. Task scheduler (schedule view with recurring tasks)
-  6. Mission Control overview dashboard
-  Screenshots should be dark theme, ~1200px wide, saved to docs/images/
--->
+*Coming soon — screenshots of the chat interface, bot editor, workspace browser, and admin dashboard.*
 
 ## Architecture
 
@@ -113,3 +105,7 @@ cd ui && npx tsc --noEmit            # UI typecheck (required after UI changes)
 ```
 
 See [CLAUDE.md](CLAUDE.md) for architecture details, key files, and development guidelines.
+
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.

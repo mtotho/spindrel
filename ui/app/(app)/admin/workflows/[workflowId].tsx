@@ -8,9 +8,10 @@ import {
   useDeleteWorkflow,
   useExportWorkflow,
 } from "@/src/api/hooks/useWorkflows";
+import { useSecretValues } from "@/src/api/hooks/useSecretValues";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { Save, Trash2, ArrowLeft, Info, Download, Copy, X as XIcon, Unlink } from "lucide-react";
+import { Save, Trash2, ArrowLeft, Download, Copy, X as XIcon, Unlink } from "lucide-react";
 import { Section, FormRow, SelectInput, TabBar } from "@/src/components/shared/FormControls";
 import type { Workflow, WorkflowStep } from "@/src/types/api";
 import WorkflowRunsTab from "./WorkflowRunsTab";
@@ -18,6 +19,8 @@ import { WorkflowStepEditor } from "./WorkflowStepEditor";
 import { DefaultsEditor, ParamsEditor, TriggersEditor } from "./WorkflowFormParts";
 import { WorkflowTemplateGallery } from "./WorkflowTemplateGallery";
 import { HelpTooltip } from "./HelpTooltip";
+import { SecretChipPicker } from "./SecretChipPicker";
+import { YamlSyntaxEditor, YamlSyntaxViewer } from "./YamlEditor";
 import yaml from "js-yaml";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +43,8 @@ export default function WorkflowDetailPage() {
   const updateMut = useUpdateWorkflow(workflowId || "");
   const deleteMut = useDeleteWorkflow();
   const exportMut = useExportWorkflow(workflowId || "");
+  const { data: vaultSecrets } = useSecretValues();
+  const vaultSecretNames = useMemo(() => (vaultSecrets || []).map((s) => s.name), [vaultSecrets]);
 
   const [activeTab, setActiveTab] = useState<string>(
     !isNew && tabParam === "runs" ? "runs" : "definition"
@@ -392,12 +397,12 @@ export default function WorkflowDetailPage() {
                   ]}
                 />
               </FormRow>
-              <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Secrets <HelpTooltip text='Secret names that steps can reference via {{secrets.NAME}}. Values are stored in server settings, not in the workflow.' /></span>} description="Comma-separated secret names available to steps">
-                <input
-                  value={(draft.secrets || []).join(", ")}
-                  onChange={(e) => update({ secrets: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-                  placeholder="API_KEY, DB_PASSWORD"
-                  style={inputStyle}
+              <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Secrets <HelpTooltip text="Select secrets from your vault that this workflow can use. Steps can optionally scope to a subset. Manage secrets in Admin > Security." /></span>} description="Secrets available to workflow steps">
+                <SecretChipPicker
+                  available={vaultSecretNames}
+                  selected={draft.secrets || []}
+                  onChange={(v) => update({ secrets: v })}
+                  t={t}
                 />
               </FormRow>
             </Section>
@@ -431,6 +436,7 @@ export default function WorkflowDetailPage() {
               <WorkflowStepEditor
                 steps={draft.steps || []}
                 onChange={(v) => update({ steps: v })}
+                workflowSecrets={draft.secrets || []}
               />
             </Section>
           </View>
@@ -469,14 +475,31 @@ function YamlImport({ onImport, onCancel, t }: {
   const [yamlText, setYamlText] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
 
-  const handleParse = () => {
+  const handleChange = useCallback((text: string) => {
+    setYamlText(text);
+    if (!text.trim()) {
+      setParseError(null);
+      return;
+    }
+    try {
+      const parsed = yaml.load(text);
+      if (!parsed || typeof parsed !== "object") {
+        setParseError("YAML must be an object");
+      } else {
+        setParseError(null);
+      }
+    } catch (e: unknown) {
+      setParseError(e instanceof Error ? e.message : "Invalid YAML");
+    }
+  }, []);
+
+  const handleImport = () => {
     try {
       const parsed = yaml.load(yamlText) as Record<string, unknown> | null;
       if (!parsed || typeof parsed !== "object") {
         setParseError("YAML must be an object");
         return;
       }
-      setParseError(null);
       onImport({
         id: (parsed.id as string) || "",
         name: (parsed.name as string) || "",
@@ -505,35 +528,12 @@ function YamlImport({ onImport, onCancel, t }: {
         </Text>
       </View>
 
-      {parseError && (
-        <div style={{
-          padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace",
-          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`, color: t.danger,
-        }}>
-          {parseError}
-        </div>
-      )}
-
-      <textarea
+      <YamlSyntaxEditor
         value={yamlText}
-        onChange={(e) => { setYamlText(e.target.value); setParseError(null); }}
-        placeholder={"id: my-workflow\nname: My Workflow\nsteps:\n  - id: step_1\n    prompt: Do something..."}
-        spellCheck={false}
-        style={{
-          width: "100%",
-          minHeight: 300,
-          fontFamily: "monospace",
-          fontSize: 13,
-          lineHeight: "1.6",
-          padding: 16,
-          borderRadius: 8,
-          border: `1px solid ${parseError ? t.dangerBorder : t.inputBorder}`,
-          background: t.inputBg,
-          color: t.inputText,
-          resize: "vertical",
-          outline: "none",
-          tabSize: 2,
-        }}
+        onChange={handleChange}
+        parseError={parseError}
+        t={t}
+        minHeight={300}
       />
 
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -547,12 +547,12 @@ function YamlImport({ onImport, onCancel, t }: {
           <Text style={{ color: t.textMuted, fontSize: 12 }}>Back</Text>
         </Pressable>
         <Pressable
-          onPress={handleParse}
-          disabled={!yamlText.trim()}
+          onPress={handleImport}
+          disabled={!yamlText.trim() || !!parseError}
           style={{
             paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
-            backgroundColor: yamlText.trim() ? t.accent : t.surfaceBorder,
-            opacity: yamlText.trim() ? 1 : 0.5,
+            backgroundColor: yamlText.trim() && !parseError ? t.accent : t.surfaceBorder,
+            opacity: yamlText.trim() && !parseError ? 1 : 0.5,
           }}
         >
           <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Import</Text>
@@ -610,7 +610,7 @@ function YamlEditor({ draft, onUpdate, t }: {
     }
   }, [draft]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleChange = (text: string) => {
+  const handleChange = useCallback((text: string) => {
     setYamlText(text);
     try {
       const parsed = yaml.load(text) as Record<string, unknown> | null;
@@ -635,41 +635,15 @@ function YamlEditor({ draft, onUpdate, t }: {
     } catch (e: unknown) {
       setParseError(e instanceof Error ? e.message : "Invalid YAML");
     }
-  };
+  }, [draft.id, onUpdate]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minHeight: 0 }}>
-      {parseError && (
-        <div style={{
-          padding: "6px 10px", borderRadius: 6, fontSize: 12, fontFamily: "monospace",
-          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`, color: t.danger,
-          flexShrink: 0,
-        }}>
-          {parseError}
-        </div>
-      )}
-      <textarea
-        value={yamlText}
-        onChange={(e) => handleChange(e.target.value)}
-        spellCheck={false}
-        style={{
-          width: "100%",
-          flex: 1,
-          minHeight: 400,
-          fontFamily: "monospace",
-          fontSize: 13,
-          lineHeight: "1.6",
-          padding: 16,
-          borderRadius: 8,
-          border: `1px solid ${parseError ? t.dangerBorder : t.inputBorder}`,
-          background: t.inputBg,
-          color: t.inputText,
-          resize: "none",
-          outline: "none",
-          tabSize: 2,
-        }}
-      />
-    </div>
+    <YamlSyntaxEditor
+      value={yamlText}
+      onChange={handleChange}
+      parseError={parseError}
+      t={t}
+    />
   );
 }
 
@@ -733,12 +707,7 @@ function ExportModal({ yaml, onClose, t }: {
           </div>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: 16 }}>
-          <pre style={{
-            margin: 0, fontSize: 12, fontFamily: "monospace",
-            color: t.text, whiteSpace: "pre-wrap", wordBreak: "break-word",
-          }}>
-            {yaml}
-          </pre>
+          <YamlSyntaxViewer value={yaml} t={t} />
         </div>
       </div>
     </>

@@ -105,7 +105,10 @@ async def summarize_attachment(
                 if att is None or att.described_at is not None:
                     return
 
-            model = overrides.get("model", settings.ATTACHMENT_SUMMARY_MODEL)
+            model = overrides.get("model", settings.ATTACHMENT_SUMMARY_MODEL) or settings.DEFAULT_MODEL
+            if not model:
+                logger.debug("No model configured for attachment summarization, skipping %s", attachment_id)
+                return
             text_max_chars = overrides.get("text_max_chars", settings.ATTACHMENT_TEXT_MAX_CHARS)
             description: str | None = None
 

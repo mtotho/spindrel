@@ -95,7 +95,13 @@ async def _refresh_config() -> None:
 
 def _bot_for_chat(chat_guid: str) -> str:
     """Resolve the bot_id for a given chat, falling back to default."""
-    return _chat_bot_map.get(chat_guid, DEFAULT_BOT)
+    # Check explicit chat→bot map first, then channel settings (from ChannelIntegration), then default
+    if chat_guid in _chat_bot_map:
+        return _chat_bot_map[chat_guid]
+    settings = _channel_settings.get(chat_guid, {})
+    if settings.get("bot_id"):
+        return settings["bot_id"]
+    return DEFAULT_BOT
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { View, Text, TextInput, Pressable, Platform } from "react-native";
 import { Send, Square, Paperclip, X, Cpu, Mic } from "lucide-react";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { RecordingOverlay } from "./RecordingOverlay";
@@ -48,7 +47,6 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
 export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, channelId, onSlashCommand }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
-  const insets = useSafeAreaInsets();
   const t = useThemeTokens();
   const recorder = useAudioRecorder();
 
@@ -199,7 +197,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   // Web: Tiptap rich editor
   if (Platform.OS === "web") {
     return (
-      <View style={{ flexShrink: 0, paddingBottom: insets.bottom, borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
+      <View style={{ flexShrink: 0, borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
         {/* Audio recorder error */}
         {recorder.error && (
           <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>

@@ -120,7 +120,12 @@ export interface Workflow {
 
 export interface WorkflowStep {
   id: string;
-  prompt: string;
+  type?: 'agent' | 'tool' | 'exec';
+  prompt?: string;
+  tool_name?: string;
+  tool_args?: Record<string, any>;
+  working_directory?: string;
+  args?: string[];
   when?: Record<string, any> | null;
   requires_approval?: boolean;
   on_failure?: string;

@@ -99,15 +99,23 @@ class TestGetRun:
 
     @pytest.mark.asyncio
     async def test_get_run_returns_status_and_steps(self):
-        """get_run should return run status, progress, and step summaries."""
+        """get_run should return run status, progress, step IDs/types, and result previews."""
         run_id = uuid.uuid4()
         run = MagicMock()
         run.id = run_id
         run.workflow_id = "test-wf"
         run.status = "running"
+        run.session_mode = "isolated"
         run.error = None
+        run.params = {"topic": "auth"}
         run.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
         run.completed_at = None
+        run.workflow_snapshot = {
+            "steps": [
+                {"id": "research", "type": "agent", "prompt": "Research {{topic}}"},
+                {"id": "compile", "type": "agent", "prompt": "Compile report"},
+            ]
+        }
         run.step_states = [
             {"status": "done", "result": "Step 1 done", "error": None,
              "started_at": "2025-01-01T00:00:00", "completed_at": "2025-01-01T00:01:00"},
@@ -127,10 +135,199 @@ class TestGetRun:
             result = json.loads(await manage_workflow(action="get_run", run_id=str(run_id)))
 
         assert result["status"] == "running"
+        assert result["session_mode"] == "isolated"
+        assert result["params"] == {"topic": "auth"}
         assert result["done"] == 1
         assert len(result["steps"]) == 2
+        # Step should include id and type from snapshot
+        assert result["steps"][0]["id"] == "research"
+        assert result["steps"][0]["type"] == "agent"
         assert result["steps"][0]["status"] == "done"
         assert "Step 1 done" in result["steps"][0]["result_preview"]
+        assert result["steps"][1]["id"] == "compile"
+
+    @pytest.mark.asyncio
+    async def test_get_run_include_definitions(self):
+        """include_definitions=True should include step prompts, tool_name, conditions."""
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.workflow_id = "test-wf"
+        run.status = "complete"
+        run.session_mode = "isolated"
+        run.error = None
+        run.params = {}
+        run.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        run.completed_at = datetime(2025, 1, 1, 0, 5, tzinfo=timezone.utc)
+        run.workflow_snapshot = {
+            "steps": [
+                {"id": "fetch", "type": "tool", "tool_name": "web_search",
+                 "tool_args": {"query": "test"}, "prompt": ""},
+                {"id": "analyze", "type": "agent", "prompt": "Analyze results",
+                 "when": {"step": "fetch", "status": "done"},
+                 "tools": ["web_search"], "carapaces": ["researcher"],
+                 "on_failure": "continue", "model": "gemini/gemini-2.5-flash"},
+            ]
+        }
+        run.step_states = [
+            {"status": "done", "result": "search results here", "error": None,
+             "started_at": "2025-01-01T00:00:00", "completed_at": "2025-01-01T00:00:01"},
+            {"status": "done", "result": "analysis complete", "error": None,
+             "started_at": "2025-01-01T00:00:01", "completed_at": "2025-01-01T00:01:00"},
+        ]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+
+        with patch("app.db.engine.async_session") as mock_session:
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            result = json.loads(await manage_workflow(
+                action="get_run", run_id=str(run_id), include_definitions=True
+            ))
+
+        # Step 0: tool step — should include tool_name/tool_args
+        step0 = result["steps"][0]
+        assert step0["type"] == "tool"
+        assert "definition" in step0
+        assert step0["definition"]["tool_name"] == "web_search"
+        assert step0["definition"]["tool_args"] == {"query": "test"}
+
+        # Step 1: agent step — should include prompt, when, tools, carapaces, etc.
+        step1 = result["steps"][1]
+        assert step1["type"] == "agent"
+        assert "definition" in step1
+        assert step1["definition"]["prompt"] == "Analyze results"
+        assert step1["definition"]["when"] == {"step": "fetch", "status": "done"}
+        assert step1["definition"]["tools"] == ["web_search"]
+        assert step1["definition"]["carapaces"] == ["researcher"]
+        assert step1["definition"]["on_failure"] == "continue"
+        assert step1["definition"]["model"] == "gemini/gemini-2.5-flash"
+
+    @pytest.mark.asyncio
+    async def test_get_run_include_definitions_includes_defaults(self):
+        """include_definitions=True should also return workflow-level defaults."""
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.workflow_id = "test-wf"
+        run.status = "complete"
+        run.session_mode = "isolated"
+        run.error = None
+        run.params = {}
+        run.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        run.completed_at = datetime(2025, 1, 1, 0, 5, tzinfo=timezone.utc)
+        run.workflow_snapshot = {
+            "steps": [{"id": "s1", "type": "agent", "prompt": "Do thing"}],
+            "defaults": {"model": "gemini/gemini-2.5-flash", "tools": ["web_search"], "timeout": 120},
+        }
+        run.step_states = [
+            {"status": "done", "result": "ok", "error": None,
+             "started_at": "2025-01-01T00:00:00", "completed_at": "2025-01-01T00:01:00"},
+        ]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+
+        with patch("app.db.engine.async_session") as mock_session:
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            # With include_definitions — should have defaults
+            result = json.loads(await manage_workflow(
+                action="get_run", run_id=str(run_id), include_definitions=True
+            ))
+            assert "defaults" in result
+            assert result["defaults"]["model"] == "gemini/gemini-2.5-flash"
+            assert result["defaults"]["tools"] == ["web_search"]
+
+            # Without include_definitions — should NOT have defaults
+            result_basic = json.loads(await manage_workflow(
+                action="get_run", run_id=str(run_id)
+            ))
+            assert "defaults" not in result_basic
+
+    @pytest.mark.asyncio
+    async def test_get_run_full_results(self):
+        """full_results=True should return complete step results, not previews."""
+        run_id = uuid.uuid4()
+        long_result = "A" * 1500  # longer than the 500-char preview limit
+        run = MagicMock()
+        run.id = run_id
+        run.workflow_id = "test-wf"
+        run.status = "complete"
+        run.session_mode = "isolated"
+        run.error = None
+        run.params = {}
+        run.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        run.completed_at = datetime(2025, 1, 1, 0, 5, tzinfo=timezone.utc)
+        run.workflow_snapshot = {"steps": [{"id": "step1", "type": "agent", "prompt": "Do work"}]}
+        run.step_states = [
+            {"status": "done", "result": long_result, "error": None,
+             "started_at": "2025-01-01T00:00:00", "completed_at": "2025-01-01T00:01:00"},
+        ]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+
+        with patch("app.db.engine.async_session") as mock_session:
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            # Without full_results — should be truncated to preview
+            result_preview = json.loads(await manage_workflow(
+                action="get_run", run_id=str(run_id)
+            ))
+            assert "result_preview" in result_preview["steps"][0]
+            assert len(result_preview["steps"][0]["result_preview"]) == 500
+
+            # With full_results — should be complete
+            result_full = json.loads(await manage_workflow(
+                action="get_run", run_id=str(run_id), full_results=True
+            ))
+            assert "result" in result_full["steps"][0]
+            assert "result_preview" not in result_full["steps"][0]
+            assert len(result_full["steps"][0]["result"]) == 1500
+
+    @pytest.mark.asyncio
+    async def test_get_run_without_snapshot_uses_fallback_ids(self):
+        """When workflow_snapshot is missing, step IDs should use fallback naming."""
+        run_id = uuid.uuid4()
+        run = MagicMock()
+        run.id = run_id
+        run.workflow_id = "test-wf"
+        run.status = "complete"
+        run.session_mode = "isolated"
+        run.error = None
+        run.params = {}
+        run.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        run.completed_at = datetime(2025, 1, 1, 0, 5, tzinfo=timezone.utc)
+        run.workflow_snapshot = None  # old run without snapshot
+        run.step_states = [
+            {"status": "done", "result": "ok", "error": None,
+             "started_at": None, "completed_at": None},
+        ]
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=run)
+
+        with patch("app.db.engine.async_session") as mock_session:
+            ctx = AsyncMock()
+            ctx.__aenter__ = AsyncMock(return_value=mock_db)
+            ctx.__aexit__ = AsyncMock()
+            mock_session.return_value = ctx
+
+            result = json.loads(await manage_workflow(action="get_run", run_id=str(run_id)))
+
+        assert result["steps"][0]["id"] == "step_0"
+        assert result["steps"][0]["type"] == "agent"
 
     @pytest.mark.asyncio
     async def test_get_run_missing_run_id(self):
@@ -224,9 +421,12 @@ class TestActionRedirect:
         run.id = run_id
         run.workflow_id = "test-wf"
         run.status = "running"
+        run.session_mode = "isolated"
         run.error = None
+        run.params = {}
         run.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
         run.completed_at = None
+        run.workflow_snapshot = {"steps": [{"id": "s1", "type": "agent", "prompt": "Do thing"}]}
         run.step_states = [
             {"status": "done", "result": "ok", "error": None,
              "started_at": "2025-01-01T00:00:00", "completed_at": "2025-01-01T00:01:00"},
@@ -256,9 +456,12 @@ class TestActionRedirect:
         run.id = run_id
         run.workflow_id = "test-wf"
         run.status = "complete"
+        run.session_mode = "isolated"
         run.error = None
+        run.params = {}
         run.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
         run.completed_at = datetime(2025, 1, 1, 0, 5, tzinfo=timezone.utc)
+        run.workflow_snapshot = {"steps": [{"id": "s1", "type": "agent", "prompt": "Do thing"}]}
         run.step_states = [{"status": "done", "result": "ok", "error": None,
                             "started_at": None, "completed_at": None}]
 

@@ -93,7 +93,7 @@ async def get_config(_auth=Depends(verify_admin_auth)) -> ConfigResponse:
     """Return current BB configuration (used by bb_client.py)."""
     from integrations.bluebubbles.config import settings
     from app.db.engine import async_session
-    from app.db.models import Channel
+    from app.db.models import Channel, ChannelIntegration
     from sqlalchemy import select
 
     default_bot = _get_default_bot()
@@ -101,21 +101,39 @@ async def get_config(_auth=Depends(verify_admin_auth)) -> ConfigResponse:
     # Parse wake words from settings
     wake_words = _parse_wake_words(settings.BB_WAKE_WORDS, default_bot)
 
-    # Query channel settings for all BB-bound channels
+    # Query channel settings for all BB-bound channels.
+    # Check BOTH Channel.client_id (legacy) and ChannelIntegration.client_id (modern bindings).
     channels: dict[str, dict] = {}
     try:
         async with async_session() as db:
+            # Legacy path: Channel.client_id starts with "bb:"
             rows = (await db.execute(
                 select(Channel).where(Channel.client_id.like("bb:%"))
             )).scalars().all()
-        for row in rows:
-            if not row.client_id:
-                continue
-            chat_guid = row.client_id.removeprefix("bb:")
-            channels[chat_guid] = {
-                "require_mention": row.require_mention,
-                "passive_memory": row.passive_memory,
-            }
+            for row in rows:
+                if not row.client_id:
+                    continue
+                chat_guid = row.client_id.removeprefix("bb:")
+                channels[chat_guid] = {
+                    "bot_id": row.bot_id,
+                    "require_mention": row.require_mention,
+                    "passive_memory": row.passive_memory,
+                }
+
+            # Modern path: ChannelIntegration bindings with integration_type='bluebubbles'
+            binding_rows = (await db.execute(
+                select(Channel, ChannelIntegration)
+                .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
+                .where(ChannelIntegration.integration_type == "bluebubbles")
+            )).tuples().all()
+            for channel, binding in binding_rows:
+                chat_guid = binding.client_id.removeprefix("bb:")
+                if chat_guid not in channels:  # Don't overwrite legacy entries
+                    channels[chat_guid] = {
+                        "bot_id": channel.bot_id,
+                        "require_mention": channel.require_mention,
+                        "passive_memory": channel.passive_memory,
+                    }
     except Exception:
         logger.debug("Failed to query BB channel settings", exc_info=True)
 
@@ -405,7 +423,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     # Extract chat GUID (BB puts chats in a list)
     chats = data.get("chats") or []
-    chat_guid = chats[0]["guid"] if chats else data.get("chatGuid", "")
+    chat_guid = (chats[0].get("guid", "") if chats else "") or data.get("chatGuid", "")
     if not chat_guid:
         logger.warning("BB webhook: new-message without chat GUID, guid=%s", msg_guid)
         return {"status": "ignored", "reason": "no_chat_guid"}
@@ -419,8 +437,9 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     client_id = f"bb:{chat_guid}"
     pairs = await resolve_all_channels_by_client_id(db, client_id)
     if not pairs:
-        logger.debug("BB webhook: no channels bound to %s", client_id)
-        return {"status": "ignored", "reason": "unbound"}
+        logger.warning("BB webhook: no channels bound to client_id=%s (chat_guid=%s). "
+                        "Create a binding via Admin > Channels > Integrations tab.", client_id, chat_guid)
+        return {"status": "ignored", "reason": "unbound", "client_id": client_id}
 
     # Extract sender info
     handle = data.get("handle") or {}
@@ -516,3 +535,90 @@ async def test_send(
             return {"ok": False, "message": "send_text returned None (BB API error)"}
     except Exception as e:
         raise HTTPException(502, f"Send failed: {e}")
+
+
+@router.post("/simulate-webhook")
+async def simulate_webhook(
+    chat_guid: str = Query(..., description="BB chat GUID (without bb: prefix)"),
+    text: str = Query("Hello, this is a test message", description="Simulated message text"),
+    dry_run: bool = Query(True, description="If true, only show what would happen (no agent run)"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_admin_auth),
+) -> dict:
+    """Simulate an inbound BB webhook to diagnose routing.
+
+    Shows exactly which channels would be matched, what wake word evaluation
+    would produce, and whether the agent would run. With dry_run=false,
+    actually injects the message and triggers the agent.
+    """
+    from integrations.bluebubbles.config import settings as bb_settings
+
+    client_id = f"bb:{chat_guid}"
+    pairs = await resolve_all_channels_by_client_id(db, client_id)
+
+    extra_wake_words = _parse_extra_wake_words(bb_settings.BB_WAKE_WORDS)
+    text_lower = text.lower()
+
+    channel_results = []
+    for channel, binding in pairs:
+        dc = binding.dispatch_config or {}
+        use_bot_wake = dc.get("use_bot_wake_word", True)
+        per_binding_words = _parse_extra_wake_words(dc.get("extra_wake_words", ""))
+
+        wake_words = per_binding_words + extra_wake_words
+        if use_bot_wake:
+            wake_words = _bot_wake_words(channel.bot_id) + wake_words
+
+        mentioned = any(w in text_lower for w in wake_words) if wake_words else False
+
+        would_run = not channel.require_mention or mentioned
+
+        entry = {
+            "channel_id": str(channel.id),
+            "channel_name": channel.name,
+            "bot_id": channel.bot_id,
+            "require_mention": channel.require_mention,
+            "wake_words_evaluated": wake_words,
+            "wake_word_matched": mentioned,
+            "would_run_agent": would_run,
+            "binding_client_id": binding.client_id,
+            "binding_display_name": binding.display_name,
+        }
+        channel_results.append(entry)
+
+    result: dict = {
+        "client_id_searched": client_id,
+        "channels_found": len(pairs),
+        "channels": channel_results,
+        "dry_run": dry_run,
+    }
+
+    if not pairs:
+        result["hint"] = (
+            f"No channels bound to client_id '{client_id}'. "
+            "Check that a ChannelIntegration binding exists with this exact client_id."
+        )
+        return result
+
+    if not dry_run:
+        server_url = bb_settings.BLUEBUBBLES_SERVER_URL
+        password = bb_settings.BLUEBUBBLES_PASSWORD
+        dispatch_config = {
+            "type": "bluebubbles",
+            "chat_guid": chat_guid,
+            "server_url": server_url,
+            "password": password,
+        }
+        inject_results = []
+        for channel, _binding in pairs:
+            session_id = await ensure_active_session(db, channel)
+            r = await utils.inject_message(
+                session_id, text, source="bluebubbles",
+                run_agent=True, notify=False,
+                dispatch_config=dispatch_config,
+                db=db,
+            )
+            inject_results.append(r)
+        result["inject_results"] = inject_results
+
+    return result

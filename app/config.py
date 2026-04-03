@@ -280,6 +280,9 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"  # INFO = pathway only; DEBUG = full args, result previews, token counts
     AGENT_TRACE: bool = False  # When True: one-line trace per tool/response (no JSON), ideal for dev
     TOOL_LOOP_DETECTION_ENABLED: bool = True  # Detect and break repeating tool call cycles within a single agent run
+    # Parallel tool execution — dispatch multiple tool calls concurrently via asyncio.gather
+    PARALLEL_TOOL_EXECUTION: bool = True
+    PARALLEL_TOOL_MAX_CONCURRENT: int = 10  # semaphore limit for concurrent dispatches
     # Rate limit retry (LLM call level — preserves accumulated tool-call context)
     LLM_RATE_LIMIT_RETRIES: int = 3          # additional attempts after first failure
     LLM_RATE_LIMIT_INITIAL_WAIT: int = 90    # seconds before first retry (slightly > 60s TPM window)
@@ -532,11 +535,14 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # Config state auto-export (empty = disabled)
     CONFIG_STATE_FILE: str = "config-state.json"
 
-    # Hook webhooks (comma-separated URLs that receive ALL hook events as POST)
-    HOOK_WEBHOOK_URLS: str = ""
-
     # Secret redaction (redact known secrets from tool results and LLM output)
     SECRET_REDACTION_ENABLED: bool = True
+
+    # API rate limiting — limits requests to the Spindrel server itself (NOT LLM provider calls).
+    # Protects against runaway clients hammering your server. In-memory token bucket per API key/IP.
+    RATE_LIMIT_ENABLED: bool = False
+    RATE_LIMIT_DEFAULT: str = "100/minute"  # all Spindrel API endpoints
+    RATE_LIMIT_CHAT: str = "30/minute"      # stricter limit for /chat and /chat/stream
 
     # CORS (comma-separated origins, e.g. "http://localhost:8081,http://localhost:19006")
     CORS_ORIGINS: str = ""

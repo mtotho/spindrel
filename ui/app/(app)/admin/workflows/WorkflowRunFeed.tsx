@@ -4,7 +4,7 @@ import { type ThemeTokens } from "@/src/theme/tokens";
 import {
   Check, SkipForward, RotateCcw,
   ExternalLink, AlertTriangle, ArrowDown,
-  Copy,
+  Copy, Zap, Terminal,
 } from "lucide-react";
 import { Link } from "expo-router";
 import type { WorkflowStepState } from "@/src/types/api";
@@ -152,7 +152,7 @@ import { forwardRef } from "react";
 const FeedSection = forwardRef<HTMLDivElement, {
   index: number;
   state: WorkflowStepState;
-  stepDef?: { id?: string; prompt?: string; requires_approval?: boolean; on_failure?: string; when?: any };
+  stepDef?: { id?: string; type?: string; prompt?: string; tool_name?: string; requires_approval?: boolean; on_failure?: string; when?: any };
   runStatus: string;
   runParams: Record<string, any>;
   runId: string;
@@ -193,13 +193,16 @@ const FeedSection = forwardRef<HTMLDivElement, {
   })();
 
   const renderedPrompt = useMemo(() => {
+    if (stepDef?.type === "tool") {
+      return stepDef.tool_name ? `Tool: ${stepDef.tool_name}` : null;
+    }
     if (!stepDef?.prompt) return null;
     let p = stepDef.prompt;
     for (const [k, v] of Object.entries(runParams)) {
       p = p.replaceAll(`{{${k}}}`, String(v));
     }
     return p.slice(0, 800);
-  }, [stepDef?.prompt, runParams]);
+  }, [stepDef?.prompt, stepDef?.type, stepDef?.tool_name, runParams]);
 
   const skipReason = useMemo(() => {
     if (state.status !== "skipped" || !stepDef?.when) return null;
@@ -231,6 +234,20 @@ const FeedSection = forwardRef<HTMLDivElement, {
         <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
           {stepId}
         </span>
+        {(stepDef?.type === "tool" || stepDef?.type === "exec") && (
+          <span style={{
+            fontSize: 10, padding: "1px 5px", borderRadius: 3,
+            display: "inline-flex", alignItems: "center", gap: 3,
+            whiteSpace: "nowrap",
+            ...(stepDef.type === "tool"
+              ? { background: t.accentSubtle, border: `1px solid ${t.accentBorder}`, color: t.accent }
+              : { background: t.warningSubtle, border: `1px solid ${t.warningBorder}`, color: t.warning }
+            ),
+          }}>
+            {stepDef.type === "tool" ? <Zap size={10} /> : <Terminal size={10} />}
+            {stepDef.type}
+          </span>
+        )}
         <StatusBadge status={state.status} t={t} />
         {isRunning && elapsed && (
           <span style={{ fontSize: 12, color: t.accent, fontWeight: 600 }}>

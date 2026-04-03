@@ -10,9 +10,19 @@ The client communicates via streaming SSE (`/chat/stream`) with full Rich termin
 ## Quick Start
 
 ```bash
-cd client && pip install -e .
+cd client
+python -m venv .venv
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
+pip install -e .
+
 agent-chat --url http://your-server:8000 --key your-api-key
-# or for local dev (pulls API_KEY from .env automatically):
+```
+
+> **Why a venv?** Modern Linux distros (Arch, Fedora 38+, Debian 12+, Ubuntu 23.04+) block system-wide `pip install` via [PEP 668](https://peps.python.org/pep-0668/). A virtual environment keeps your system Python clean and avoids the `externally-managed-environment` error.
+
+For local development (pulls `API_KEY` from `.env` automatically):
+
+```bash
 ./scripts/dev-client.sh
 ```
 

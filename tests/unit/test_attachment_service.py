@@ -389,6 +389,68 @@ class TestBotAttachmentConfig:
             config = await _get_bot_attachment_config("nonexistent")
             assert config == {}
 
+    async def test_empty_model_falls_back_to_default(self):
+        """When ATTACHMENT_SUMMARY_MODEL is empty, falls back to DEFAULT_MODEL."""
+        att = _fake_attachment(type="image", url="https://cdn.example.com/img.jpg")
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "A cat photo."
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        with (
+            patch("app.services.attachment_summarizer.async_session") as mock_session_factory,
+            patch("app.services.attachment_summarizer.settings") as mock_settings,
+            patch("app.services.attachment_summarizer._get_semaphore", return_value=asyncio.Semaphore(3)),
+            patch("app.services.providers.get_llm_client", return_value=mock_client),
+        ):
+            mock_settings.ATTACHMENT_SUMMARY_MODEL = ""
+            mock_settings.DEFAULT_MODEL = "gemma3:4b"
+            mock_settings.ATTACHMENT_VISION_CONCURRENCY = 3
+            mock_settings.ATTACHMENT_TEXT_MAX_CHARS = 40000
+
+            mock_db = AsyncMock()
+            mock_db.get = AsyncMock(return_value=att)
+            mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            from app.services.attachment_summarizer import summarize_attachment
+            await summarize_attachment(att.id)
+
+            # LLM was called with the fallback model
+            call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+            assert call_kwargs["model"] == "gemma3:4b"
+
+    async def test_no_model_at_all_skips_silently(self):
+        """When both ATTACHMENT_SUMMARY_MODEL and DEFAULT_MODEL are empty, skip."""
+        att = _fake_attachment(type="image", url="https://cdn.example.com/img.jpg")
+
+        mock_client = AsyncMock()
+
+        with (
+            patch("app.services.attachment_summarizer.async_session") as mock_session_factory,
+            patch("app.services.attachment_summarizer.settings") as mock_settings,
+            patch("app.services.attachment_summarizer._get_semaphore", return_value=asyncio.Semaphore(3)),
+            patch("app.services.providers.get_llm_client", return_value=mock_client),
+        ):
+            mock_settings.ATTACHMENT_SUMMARY_MODEL = ""
+            mock_settings.DEFAULT_MODEL = ""
+            mock_settings.ATTACHMENT_VISION_CONCURRENCY = 3
+            mock_settings.ATTACHMENT_TEXT_MAX_CHARS = 40000
+
+            mock_db = AsyncMock()
+            mock_db.get = AsyncMock(return_value=att)
+            mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            from app.services.attachment_summarizer import summarize_attachment
+            await summarize_attachment(att.id)
+
+            # LLM was NOT called — no model available
+            mock_client.chat.completions.create.assert_not_called()
+
     async def test_partial_overrides(self):
         """Only non-None fields are returned."""
         mock_row = MagicMock()

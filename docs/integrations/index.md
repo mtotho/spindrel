@@ -44,7 +44,7 @@ Integrations don't have to live inside the agent-server repo. Set `INTEGRATION_D
 INTEGRATION_DIRS=/home/you/my-integrations
 ```
 
-Each directory is scanned the same way as `integrations/` — any subfolder with a
+Colon-separated for multiple directories. Tilde (`~`) is expanded to your home directory. Each directory is scanned the same way as `integrations/` — any subfolder with a
 `router.py`, `dispatcher.py`, `tools/*.py`, `skills/*.md`, or `process.py` is discovered
 automatically.
 
@@ -354,35 +354,10 @@ async def _custom_stt(ctx, **kwargs):
 register_hook("before_transcription", _custom_stt)
 ```
 
-**Webhook emission** — all hook events can be forwarded to external HTTP endpoints.
-Set `HOOK_WEBHOOK_URLS` (comma-separated) in `.env` and every hook event is POSTed
-as JSON (fire-and-forget, 10s timeout, errors swallowed):
-
-```bash
-# .env
-HOOK_WEBHOOK_URLS=https://your-service.example.com/hooks,https://backup.example.com/hooks
-```
-
-Webhook payload format:
-
-```json
-{
-  "event": "after_tool_call",
-  "timestamp": "2026-03-31T14:30:00+00:00",
-  "context": {
-    "bot_id": "my-bot",
-    "session_id": "...",
-    "channel_id": "...",
-    "client_id": "web:123",
-    "correlation_id": "..."
-  },
-  "data": {
-    "tool_name": "web_search",
-    "tool_args": {"query": "hello"},
-    "duration_ms": 450
-  }
-}
-```
+**Webhook emission** — all hook events are automatically forwarded to webhook endpoints
+configured via **Admin > Developer > Webhooks**. Each endpoint supports event filtering,
+HMAC-SHA256 signing, and delivery retry. See the [Webhooks guide](../guides/webhooks.md)
+for setup details and signature verification examples.
 
 See `integrations/slack/hooks.py` for a real example: Slack uses `after_tool_call`
 to add emoji reactions as tool indicators and log tool calls to an audit channel.

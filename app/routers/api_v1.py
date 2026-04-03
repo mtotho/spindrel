@@ -21,7 +21,7 @@ from app.routers.api_v1_carapaces import router as carapaces_router
 from app.routers.api_v1_search import router as search_router
 
 router = APIRouter(prefix="/api/v1")
-router.include_router(admin_router, include_in_schema=False)
+router.include_router(admin_router)
 router.include_router(approvals_router)
 router.include_router(attachments_router)
 router.include_router(carapaces_router)

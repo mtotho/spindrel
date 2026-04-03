@@ -286,6 +286,8 @@ my-extensions/              # your repo
 INTEGRATION_DIRS=/path/to/my-extensions
 ```
 
+Colon-separated for multiple directories (e.g. `/path/one:/path/two`). Tilde (`~`) is expanded to your home directory. This also makes `TOOL_DIRS` unnecessary — tools inside any `INTEGRATION_DIRS` subdirectory are auto-discovered.
+
 No `setup.py` or boilerplate needed — the server auto-discovers tools, carapaces, and skills from any subdirectory.
 
 For Docker, mount the directory into the container:

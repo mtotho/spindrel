@@ -1,10 +1,20 @@
 # Workflows
 
-Workflows are reusable multi-step automations defined in YAML. They support conditions, approval gates, cross-bot delegation, scoped secrets, and multiple trigger methods.
+Workflows are reusable multi-step automations. They support conditions, approval gates, cross-bot delegation, scoped secrets, and multiple trigger methods.
+
+Create workflows from the **Admin UI** (visual editor) or from **YAML files** (drop in `workflows/` directory).
 
 ---
 
 ## Quick Start
+
+### From the UI
+
+1. Go to **Admin > Workflows** → click **New Workflow**
+2. Pick a template or start blank
+3. Add steps, configure parameters, and click **Create**
+
+### From YAML
 
 Create a YAML file in the `workflows/` directory:
 
@@ -160,11 +170,23 @@ steps:
 
 ### Step Types
 
-| Type | What it does | Creates a Task? |
-|------|-------------|-----------------|
-| `agent` | Runs the full agent loop with tools, skills, carapaces | Yes |
-| `exec` | Executes a shell command | Yes |
-| `tool` | Calls a local tool function directly | No (inline) |
+| Type | What it does | Creates a Task? | Has LLM cost? |
+|------|-------------|-----------------|---------------|
+| `agent` | Runs the full agent loop with tools, skills, carapaces | Yes | Yes |
+| `exec` | Executes a shell command | Yes | No |
+| `tool` | Calls a local tool function directly | No (inline) | No |
+
+**Agent steps** are the default. The bot receives the prompt and can reason, call tools, and produce a response — just like a normal conversation turn.
+
+**Tool steps** call a registered tool function directly with the provided arguments. No LLM is involved — execution is instant and free. Use these for deterministic operations like creating channels, triggering other systems, or fetching data.
+
+**Exec steps** run a shell command. The command goes in the `prompt` field (labeled "Command" in the UI). Use these for scripts, health checks, or any CLI operation.
+
+In the UI, each step type shows a colored badge in the collapsed header — a lightning bolt for tool steps, a terminal icon for exec steps. The editor shows different fields depending on the selected type:
+
+- **Agent**: prompt, tools, carapaces, model override, secrets, prior result injection, timeout
+- **Tool**: tool name, tool arguments (JSON editor), on_failure (abort or continue only — no retry since execution is instant)
+- **Exec**: command, working directory, arguments, approval gate, timeout
 
 ---
 
@@ -289,25 +311,37 @@ steps:
 
 ## Secrets
 
-Workflows can access secrets stored in **Admin > Security > Secrets**.
+Workflows can access secrets stored in **Admin > Security > Secrets**. The UI shows your vault secrets as clickable chips — select which ones this workflow needs.
 
-1. Declare required secrets at the workflow level:
-   ```yaml
-   secrets:
-     - GITHUB_TOKEN
-     - SLACK_WEBHOOK
-   ```
+### Declaring secrets
 
-2. Optionally scope secrets per step:
-   ```yaml
-   steps:
-     - id: github-step
-       secrets: [GITHUB_TOKEN]    # Only this secret available
-   ```
+**From the UI:** In the workflow editor's **Execution** section, click secret chips to select them. Selected secrets are highlighted; click again to deselect.
 
-3. Secrets are validated at trigger time — if any declared secret is missing from the vault, the workflow won't start.
+**From YAML:**
+```yaml
+secrets:
+  - GITHUB_TOKEN
+  - SLACK_WEBHOOK
+```
 
-4. At execution time, the bot accesses secrets via the `get_secret_value` tool.
+### Scoping secrets per step
+
+By default, every step can access all workflow-level secrets. To restrict a step to a subset:
+
+**From the UI:** In agent step settings, use the **Secrets** chip picker. It only shows secrets declared at the workflow level — add them there first.
+
+**From YAML:**
+```yaml
+steps:
+  - id: github-step
+    secrets: [GITHUB_TOKEN]    # Only this secret available
+```
+
+### Validation
+
+Secrets are validated at trigger time — if any declared secret is missing from the vault, the workflow won't start. If a secret is deleted after being added to a workflow, the UI shows it as a red strikethrough chip that you can click to remove.
+
+At execution time, the bot accesses secrets via the `get_secret_value` tool.
 
 ---
 
@@ -369,7 +403,7 @@ Bots interact with workflows via `manage_workflow`:
 | `list` | List all workflows with step/param counts |
 | `get` | Get workflow definition by ID |
 | `trigger` | Start a run (returns run_id) |
-| `get_run` | Check run status and step results |
+| `get_run` | Check run status and step results. Pass `include_definitions=true` for step prompts/conditions, `full_results=true` for complete output |
 | `list_runs` | Recent runs for a workflow |
 | `create` | Define a new workflow programmatically |
 
@@ -504,11 +538,39 @@ steps:
 
 ### From Files
 
-Drop YAML in `workflows/` (or `integrations/*/workflows/` for integration-specific workflows). File-based workflows are read-only in the UI — edit the file and restart.
+Drop YAML in `workflows/` (or `integrations/*/workflows/` for integration-specific workflows). File-based workflows are read-only in the UI — edit the file and restart. If you edit a file-based workflow in the UI and save, it detaches from the file and becomes a user-managed workflow.
 
 ### From the UI
 
-**Admin > Workflows** lets you create, edit, and manage workflows. Workflows created in the UI are stored in the database with source type `manual`.
+**Admin > Workflows** lets you create, edit, and manage workflows.
+
+**Creating a workflow:**
+
+1. Click **New Workflow** — you'll see a template gallery with common patterns (research, diagnostics, channel setup, etc.)
+2. Pick a template to pre-fill the editor, or click **Start Blank**
+3. You can also click **Import YAML** to paste an existing workflow definition
+4. Fill in the identity, execution settings, parameters, and steps
+5. Click **Create**
+
+**The step editor:**
+
+Each step is an expandable card. The collapsed header shows the step number, ID, a preview of the prompt or tool name, and colored badges for step type, approval gates, conditions, and retry policies.
+
+Click a step to expand it and see the full form. The fields shown depend on the step type — select **Agent**, **Tool**, or **Exec** from the dropdown:
+
+- **Agent**: Prompt textarea, tool list, carapaces, model override, secrets (chip picker scoped to workflow-level secrets), prior result injection toggle, timeout
+- **Tool**: Tool name input, JSON arguments editor (with validation), on_failure (abort/continue only)
+- **Exec**: Command textarea, working directory, CLI arguments, approval gate, timeout
+
+All step types share: step ID, on_failure policy, result max chars, and a condition editor.
+
+**Condition editor:** Simple mode shows dropdowns for "run if step X has status Y". Click **Advanced** to switch to raw JSON for compound conditions (`all`, `any`, `not`, `param` checks, `output_contains`).
+
+**Other editing features:**
+
+- **YAML tab** — Edit the workflow as raw YAML with syntax highlighting and live validation. Changes sync bidirectionally with the visual editor.
+- **Clone** — Duplicate a workflow to use as a starting point
+- **Export** — Download the workflow as a YAML file
 
 ### Monitoring Runs
 

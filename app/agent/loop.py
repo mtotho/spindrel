@@ -21,10 +21,10 @@ from app.agent.message_utils import (
 from app.agent.recording import _record_trace_event
 from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags  # noqa: F401 — re-exported
 from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle, make_signature
-from app.agent.tool_dispatch import dispatch_tool_call
+from app.agent.tool_dispatch import ToolCallResult, dispatch_tool_call
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
-from app.tools.client_tools import get_client_tool_schemas
+from app.tools.client_tools import get_client_tool_schemas, is_client_tool
 from app.tools.mcp import fetch_mcp_tools
 from app.tools.registry import get_local_tool_schemas
 
@@ -633,13 +633,21 @@ async def run_agent_tool_loop(
             logger.info("LLM requested %d tool call(s)", len(_acc_tool_calls))
             _iteration_injected_images: list[dict] = []
 
-            for tc_idx, tc in enumerate(_acc_tool_calls):
-                # Cancellation checkpoint: before each tool dispatch
+            _has_client_tool = any(
+                is_client_tool(tc["function"]["name"]) for tc in _acc_tool_calls
+            )
+            _use_parallel = (
+                settings.PARALLEL_TOOL_EXECUTION
+                and len(_acc_tool_calls) >= 2
+                and not _has_client_tool
+            )
+
+            if _use_parallel:
+                # --- Parallel tool dispatch ---
+                # Check cancellation once before the whole batch
                 if session_id and session_locks.is_cancel_requested(session_id):
-                    logger.info("Cancellation requested for session %s (before tool %s)", session_id, tc["function"]["name"])
-                    # Append stub tool results for remaining tool calls to keep
-                    # conversation history well-formed (assistant references these IDs).
-                    for remaining_tc in _acc_tool_calls[tc_idx:]:
+                    logger.info("Cancellation requested for session %s (before parallel batch)", session_id)
+                    for remaining_tc in _acc_tool_calls:
                         messages.append({
                             "role": "tool",
                             "tool_call_id": remaining_tc["id"],
@@ -648,115 +656,291 @@ async def run_agent_tool_loop(
                     yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
                     return
 
-                name = tc["function"]["name"]
-                args = tc["function"]["arguments"]
-                logger.info("Tool call: %s", name)
-                logger.debug("Tool call %s args: %s", name, args)
+                # Emit all tool_start events upfront
+                for tc in _acc_tool_calls:
+                    _p_name = tc["function"]["name"]
+                    _p_args = tc["function"]["arguments"]
+                    logger.info("Tool call: %s", _p_name)
+                    logger.debug("Tool call %s args: %s", _p_name, _p_args)
+                    _trace("→ %s", _p_name)
+                    yield _event_with_compaction_tag({"type": "tool_start", "tool": _p_name, "args": _p_args}, compaction)
 
-                _trace("→ %s", name)
-                yield _event_with_compaction_tag({"type": "tool_start", "tool": name, "args": args}, compaction)
+                # Dispatch all tool calls concurrently
+                _sem = asyncio.Semaphore(settings.PARALLEL_TOOL_MAX_CONCURRENT)
 
-                tc_result = await dispatch_tool_call(
-                    name=name,
-                    args=args,
-                    tool_call_id=tc["id"],
-                    bot_id=bot.id,
-                    bot_memory=bot.memory,
-                    session_id=session_id,
-                    client_id=client_id,
-                    correlation_id=correlation_id,
-                    channel_id=channel_id,
-                    iteration=iteration,
-                    provider_id=effective_provider_id,
-                    summarize_enabled=_eff_summarize_enabled,
-                    summarize_threshold=_eff_summarize_threshold,
-                    summarize_model=_eff_summarize_model,
-                    summarize_max_tokens=_eff_summarize_max_tokens,
-                    summarize_exclude=_eff_summarize_exclude,
-                    compaction=compaction,
-                    allowed_tool_names=_effective_allowed,
+                async def _dispatch_one(tc: dict) -> tuple[dict, ToolCallResult, bool]:
+                    """Dispatch a single tool call under semaphore. Returns (tc, result, was_cancelled)."""
+                    async with _sem:
+                        # Check cancellation before each dispatch
+                        if session_id and session_locks.is_cancel_requested(session_id):
+                            return (tc, ToolCallResult(
+                                result_for_llm="[Cancelled by user]",
+                                tool_event={"type": "tool_result", "tool": tc["function"]["name"], "result": "[Cancelled by user]"},
+                            ), True)
+                        try:
+                            return (tc, await dispatch_tool_call(
+                                name=tc["function"]["name"],
+                                args=tc["function"]["arguments"],
+                                tool_call_id=tc["id"],
+                                bot_id=bot.id,
+                                bot_memory=bot.memory,
+                                session_id=session_id,
+                                client_id=client_id,
+                                correlation_id=correlation_id,
+                                channel_id=channel_id,
+                                iteration=iteration,
+                                provider_id=effective_provider_id,
+                                summarize_enabled=_eff_summarize_enabled,
+                                summarize_threshold=_eff_summarize_threshold,
+                                summarize_model=_eff_summarize_model,
+                                summarize_max_tokens=_eff_summarize_max_tokens,
+                                summarize_exclude=_eff_summarize_exclude,
+                                compaction=compaction,
+                                allowed_tool_names=_effective_allowed,
+                            ), False)
+                        except Exception:
+                            _tc_name = tc["function"]["name"]
+                            logger.exception("Unhandled error dispatching tool %s in parallel batch", _tc_name)
+                            _err_msg = json.dumps({"error": f"Internal error dispatching {_tc_name}"})
+                            return (tc, ToolCallResult(
+                                result=_err_msg,
+                                result_for_llm=_err_msg,
+                                tool_event={"type": "tool_result", "tool": _tc_name, "error": f"Internal error dispatching {_tc_name}"},
+                            ), False)
+
+                _parallel_results: list[tuple[dict, ToolCallResult, bool]] = await asyncio.gather(
+                    *[_dispatch_one(tc) for tc in _acc_tool_calls],
                 )
 
-                # --- Approval gate ---
-                if tc_result.needs_approval:
-                    yield _event_with_compaction_tag({
-                        "type": "approval_request",
-                        "approval_id": tc_result.approval_id,
-                        "tool": name,
-                        "arguments": args,
-                        "reason": tc_result.approval_reason,
-                    }, compaction)
-                    from app.agent.approval_pending import create_approval_pending
-                    future = create_approval_pending(tc_result.approval_id)
-                    try:
-                        verdict = await asyncio.wait_for(future, timeout=tc_result.approval_timeout)
-                    except asyncio.TimeoutError:
-                        verdict = "expired"
-                        # Mark DB record as expired
+                # Process results in original order (approval gates, message assembly, events)
+                _cancelled_during_parallel = False
+                for tc, tc_result, was_cancelled in _parallel_results:
+                    if was_cancelled:
+                        _cancelled_during_parallel = True
+
+                    name = tc["function"]["name"]
+                    args = tc["function"]["arguments"]
+
+                    if _cancelled_during_parallel:
+                        # Stub remaining results for well-formed history
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": "[Cancelled by user]",
+                        })
+                        continue
+
+                    # --- Approval gate (sequential — requires user interaction) ---
+                    if tc_result.needs_approval:
+                        yield _event_with_compaction_tag({
+                            "type": "approval_request",
+                            "approval_id": tc_result.approval_id,
+                            "tool": name,
+                            "arguments": args,
+                            "reason": tc_result.approval_reason,
+                        }, compaction)
+                        from app.agent.approval_pending import create_approval_pending
+                        future = create_approval_pending(tc_result.approval_id)
                         try:
-                            from app.db.engine import async_session as _ap_session
-                            from app.db.models import ToolApproval as _TA
-                            async with _ap_session() as _ap_db:
-                                _ap_row = await _ap_db.get(_TA, uuid.UUID(tc_result.approval_id))
-                                if _ap_row and _ap_row.status == "pending":
-                                    _ap_row.status = "expired"
-                                    await _ap_db.commit()
-                        except Exception:
-                            logger.warning("Failed to mark approval %s as expired", tc_result.approval_id)
-                    if verdict == "approved":
-                        tc_result = await dispatch_tool_call(
-                            name=name,
-                            args=args,
-                            tool_call_id=tc["id"],
-                            bot_id=bot.id,
-                            bot_memory=bot.memory,
-                            session_id=session_id,
-                            client_id=client_id,
-                            correlation_id=correlation_id,
-                            channel_id=channel_id,
-                            iteration=iteration,
-                            provider_id=effective_provider_id,
-                            summarize_enabled=_eff_summarize_enabled,
-                            summarize_threshold=_eff_summarize_threshold,
-                            summarize_model=_eff_summarize_model,
-                            summarize_max_tokens=_eff_summarize_max_tokens,
-                            summarize_exclude=_eff_summarize_exclude,
-                            compaction=compaction,
-                            skip_policy=True,
-                            allowed_tool_names=_effective_allowed,
-                        )
-                    else:
-                        tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})
-                        tc_result.tool_event = {"type": "tool_result", "tool": name, "error": f"Tool call {verdict}"}
-                    yield _event_with_compaction_tag({
-                        "type": "approval_resolved",
-                        "approval_id": tc_result.approval_id,
-                        "tool": name,
-                        "verdict": verdict,
-                    }, compaction)
+                            verdict = await asyncio.wait_for(future, timeout=tc_result.approval_timeout)
+                        except asyncio.TimeoutError:
+                            verdict = "expired"
+                            try:
+                                from app.db.engine import async_session as _ap_session
+                                from app.db.models import ToolApproval as _TA
+                                async with _ap_session() as _ap_db:
+                                    _ap_row = await _ap_db.get(_TA, uuid.UUID(tc_result.approval_id))
+                                    if _ap_row and _ap_row.status == "pending":
+                                        _ap_row.status = "expired"
+                                        await _ap_db.commit()
+                            except Exception:
+                                logger.warning("Failed to mark approval %s as expired", tc_result.approval_id)
+                        if verdict == "approved":
+                            tc_result = await dispatch_tool_call(
+                                name=name,
+                                args=args,
+                                tool_call_id=tc["id"],
+                                bot_id=bot.id,
+                                bot_memory=bot.memory,
+                                session_id=session_id,
+                                client_id=client_id,
+                                correlation_id=correlation_id,
+                                channel_id=channel_id,
+                                iteration=iteration,
+                                provider_id=effective_provider_id,
+                                summarize_enabled=_eff_summarize_enabled,
+                                summarize_threshold=_eff_summarize_threshold,
+                                summarize_model=_eff_summarize_model,
+                                summarize_max_tokens=_eff_summarize_max_tokens,
+                                summarize_exclude=_eff_summarize_exclude,
+                                compaction=compaction,
+                                skip_policy=True,
+                                allowed_tool_names=_effective_allowed,
+                            )
+                        else:
+                            tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})
+                            tc_result.tool_event = {"type": "tool_result", "tool": name, "error": f"Tool call {verdict}"}
+                        yield _event_with_compaction_tag({
+                            "type": "approval_resolved",
+                            "approval_id": tc_result.approval_id,
+                            "tool": name,
+                            "verdict": verdict,
+                        }, compaction)
 
-                tool_calls_made.append(name)
-                tool_call_trace.append(make_signature(name, args))
-                for pre_event in tc_result.pre_events:
-                    yield pre_event
-                if tc_result.embedded_client_action is not None:
-                    embedded_client_actions.append(tc_result.embedded_client_action)
-                if tc_result.injected_images:
-                    _iteration_injected_images.extend(tc_result.injected_images)
+                    tool_calls_made.append(name)
+                    tool_call_trace.append(make_signature(name, args))
+                    for pre_event in tc_result.pre_events:
+                        yield pre_event
+                    if tc_result.embedded_client_action is not None:
+                        embedded_client_actions.append(tc_result.embedded_client_action)
+                    if tc_result.injected_images:
+                        _iteration_injected_images.extend(tc_result.injected_images)
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": tc_result.result_for_llm,
-                })
-                yield _event_with_compaction_tag(tc_result.tool_event, compaction)
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": tc_result.result_for_llm,
+                    })
+                    yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
-                # Fire after_tool_call lifecycle hook (fire-and-forget)
-                asyncio.create_task(fire_hook("after_tool_call", HookContext(
-                    bot_id=bot.id, session_id=session_id, channel_id=channel_id,
-                    client_id=client_id, correlation_id=correlation_id,
-                    extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
-                )))
+                    # Fire after_tool_call lifecycle hook (fire-and-forget)
+                    asyncio.create_task(fire_hook("after_tool_call", HookContext(
+                        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                        client_id=client_id, correlation_id=correlation_id,
+                        extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
+                    )))
+
+                if _cancelled_during_parallel:
+                    yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                    return
+
+            else:
+                # --- Sequential tool dispatch (single tool or parallel disabled) ---
+                for tc_idx, tc in enumerate(_acc_tool_calls):
+                    # Cancellation checkpoint: before each tool dispatch
+                    if session_id and session_locks.is_cancel_requested(session_id):
+                        logger.info("Cancellation requested for session %s (before tool %s)", session_id, tc["function"]["name"])
+                        # Append stub tool results for remaining tool calls to keep
+                        # conversation history well-formed (assistant references these IDs).
+                        for remaining_tc in _acc_tool_calls[tc_idx:]:
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": remaining_tc["id"],
+                                "content": "[Cancelled by user]",
+                            })
+                        yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+                        return
+
+                    name = tc["function"]["name"]
+                    args = tc["function"]["arguments"]
+                    logger.info("Tool call: %s", name)
+                    logger.debug("Tool call %s args: %s", name, args)
+
+                    _trace("→ %s", name)
+                    yield _event_with_compaction_tag({"type": "tool_start", "tool": name, "args": args}, compaction)
+
+                    tc_result = await dispatch_tool_call(
+                        name=name,
+                        args=args,
+                        tool_call_id=tc["id"],
+                        bot_id=bot.id,
+                        bot_memory=bot.memory,
+                        session_id=session_id,
+                        client_id=client_id,
+                        correlation_id=correlation_id,
+                        channel_id=channel_id,
+                        iteration=iteration,
+                        provider_id=effective_provider_id,
+                        summarize_enabled=_eff_summarize_enabled,
+                        summarize_threshold=_eff_summarize_threshold,
+                        summarize_model=_eff_summarize_model,
+                        summarize_max_tokens=_eff_summarize_max_tokens,
+                        summarize_exclude=_eff_summarize_exclude,
+                        compaction=compaction,
+                        allowed_tool_names=_effective_allowed,
+                    )
+
+                    # --- Approval gate ---
+                    if tc_result.needs_approval:
+                        yield _event_with_compaction_tag({
+                            "type": "approval_request",
+                            "approval_id": tc_result.approval_id,
+                            "tool": name,
+                            "arguments": args,
+                            "reason": tc_result.approval_reason,
+                        }, compaction)
+                        from app.agent.approval_pending import create_approval_pending
+                        future = create_approval_pending(tc_result.approval_id)
+                        try:
+                            verdict = await asyncio.wait_for(future, timeout=tc_result.approval_timeout)
+                        except asyncio.TimeoutError:
+                            verdict = "expired"
+                            # Mark DB record as expired
+                            try:
+                                from app.db.engine import async_session as _ap_session
+                                from app.db.models import ToolApproval as _TA
+                                async with _ap_session() as _ap_db:
+                                    _ap_row = await _ap_db.get(_TA, uuid.UUID(tc_result.approval_id))
+                                    if _ap_row and _ap_row.status == "pending":
+                                        _ap_row.status = "expired"
+                                        await _ap_db.commit()
+                            except Exception:
+                                logger.warning("Failed to mark approval %s as expired", tc_result.approval_id)
+                        if verdict == "approved":
+                            tc_result = await dispatch_tool_call(
+                                name=name,
+                                args=args,
+                                tool_call_id=tc["id"],
+                                bot_id=bot.id,
+                                bot_memory=bot.memory,
+                                session_id=session_id,
+                                client_id=client_id,
+                                correlation_id=correlation_id,
+                                channel_id=channel_id,
+                                iteration=iteration,
+                                provider_id=effective_provider_id,
+                                summarize_enabled=_eff_summarize_enabled,
+                                summarize_threshold=_eff_summarize_threshold,
+                                summarize_model=_eff_summarize_model,
+                                summarize_max_tokens=_eff_summarize_max_tokens,
+                                summarize_exclude=_eff_summarize_exclude,
+                                compaction=compaction,
+                                skip_policy=True,
+                                allowed_tool_names=_effective_allowed,
+                            )
+                        else:
+                            tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})
+                            tc_result.tool_event = {"type": "tool_result", "tool": name, "error": f"Tool call {verdict}"}
+                        yield _event_with_compaction_tag({
+                            "type": "approval_resolved",
+                            "approval_id": tc_result.approval_id,
+                            "tool": name,
+                            "verdict": verdict,
+                        }, compaction)
+
+                    tool_calls_made.append(name)
+                    tool_call_trace.append(make_signature(name, args))
+                    for pre_event in tc_result.pre_events:
+                        yield pre_event
+                    if tc_result.embedded_client_action is not None:
+                        embedded_client_actions.append(tc_result.embedded_client_action)
+                    if tc_result.injected_images:
+                        _iteration_injected_images.extend(tc_result.injected_images)
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc["id"],
+                        "content": tc_result.result_for_llm,
+                    })
+                    yield _event_with_compaction_tag(tc_result.tool_event, compaction)
+
+                    # Fire after_tool_call lifecycle hook (fire-and-forget)
+                    asyncio.create_task(fire_hook("after_tool_call", HookContext(
+                        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
+                        client_id=client_id, correlation_id=correlation_id,
+                        extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
+                    )))
+                # --- end sequential ---
 
             # Inject images as synthetic user message so LLM sees them natively
             if _iteration_injected_images:

@@ -29,6 +29,9 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "SYSTEM_PAUSED": {"group": "System", "label": "System Paused", "description": "Pause all message processing (new requests queued or dropped)", "type": "bool"},
     "SYSTEM_PAUSE_BEHAVIOR": {"group": "System", "label": "Pause Behavior", "description": "What to do with incoming messages while paused", "type": "string", "options": ["queue", "drop"]},
     "GLOBAL_BASE_PROMPT": {"group": "System", "label": "Global Base Prompt", "description": "Prepended before all other base/system prompts for every bot. Use for org-wide instructions.", "type": "string", "widget": "textarea"},
+    # --- Paths ---
+    "INTEGRATION_DIRS": {"group": "Paths", "label": "Integration Directories", "description": "Colon-separated paths to external integration directories. Supports ~ for home. Overrides the .env value. Requires server restart.", "type": "string", "nullable": True},
+    "TOOL_DIRS": {"group": "Paths", "label": "Extra Tool Directories", "description": "Colon-separated paths to extra tool directories (not needed if tools are inside an INTEGRATION_DIRS subdirectory). Supports ~ for home. Overrides the .env value. Requires server restart.", "type": "string", "nullable": True},
     # --- General ---
     "API_KEY": {"group": "General", "label": "API Key", "description": "Static API key for server auth", "type": "string", "read_only": True},
     "TIMEZONE": {"group": "General", "label": "Timezone", "description": "Server timezone (e.g. America/New_York)", "type": "string"},
@@ -38,6 +41,8 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- Agent ---
     "AGENT_MAX_ITERATIONS": {"group": "Agent", "label": "Max Iterations", "description": "Maximum agent loop iterations per request", "type": "int", "min": 1, "max": 100},
     "TOOL_LOOP_DETECTION_ENABLED": {"group": "Agent", "label": "Tool Loop Detection", "description": "Detect and break repeating tool call cycles within a single agent run", "type": "bool"},
+    "PARALLEL_TOOL_EXECUTION": {"group": "Agent", "label": "Parallel Tool Execution", "description": "Dispatch multiple tool calls concurrently (latency = max instead of sum)", "type": "bool"},
+    "PARALLEL_TOOL_MAX_CONCURRENT": {"group": "Agent", "label": "Parallel Tool Max Concurrent", "description": "Max concurrent tool dispatches per batch (semaphore limit)", "type": "int", "min": 1, "max": 50},
     "LLM_FALLBACK_MODEL": {"group": "Agent", "label": "Fallback Model", "description": "Model to try after all retries exhaust (empty = none)", "type": "string", "widget": "model"},
     "LLM_MAX_RETRIES": {"group": "Agent", "label": "LLM Max Retries", "description": "Retry attempts for transient errors (5xx, connection)", "type": "int", "min": 0, "max": 10},
     "LLM_RETRY_INITIAL_WAIT": {"group": "Agent", "label": "LLM Retry Initial Wait", "description": "Seconds before first retry (doubles each attempt)", "type": "float", "min": 0.5, "max": 60},
@@ -111,6 +116,10 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "WEB_SEARCH_MODE": {"group": "Web Search", "label": "Search Backend", "description": "SearXNG: self-hosted, private — uses a SearXNG instance (built-in containers or your own). DDGs: lightweight, uses DuckDuckGo and other public search engines, no containers needed. None: disables web_search — bring your own search tool in tools/.", "type": "string", "options": ["searxng", "ddgs", "none"]},
     "SEARXNG_URL": {"group": "Web Search", "label": "SearXNG URL", "description": "URL of the SearXNG instance (only used in searxng mode). Default points to the built-in container; change to use an external instance.", "type": "string"},
     "PLAYWRIGHT_WS_URL": {"group": "Web Search", "label": "Playwright WebSocket URL", "description": "Playwright/Chromium instance for JS-rendered page fetching (used by fetch_url). Default points to the built-in container; change to use an external instance.", "type": "string"},
+    # --- API Rate Limiting ---
+    "RATE_LIMIT_ENABLED": {"group": "API Rate Limiting", "label": "Enabled", "description": "Rate-limit incoming requests to the Spindrel API (not LLM provider calls). Uses in-memory token bucket per API key or client IP. Requires server restart to take effect.", "type": "bool"},
+    "RATE_LIMIT_DEFAULT": {"group": "API Rate Limiting", "label": "Default Limit", "description": "Rate limit for all Spindrel API endpoints (e.g. 100/minute, 10/second, 5000/hour)", "type": "string"},
+    "RATE_LIMIT_CHAT": {"group": "API Rate Limiting", "label": "Chat Limit", "description": "Stricter rate limit for /chat and /chat/stream endpoints (e.g. 30/minute)", "type": "string"},
     # --- Security ---
     "SECRET_REDACTION_ENABLED": {"group": "Security", "label": "Secret Redaction", "description": "Redact known secrets from tool results and LLM output", "type": "bool"},
     # --- Tool Policies ---
@@ -144,7 +153,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 
 # Group ordering for consistent display
 GROUP_ORDER = [
-    "System", "General", "Security", "Web Search", "Agent", "Chat History",
+    "System", "Paths", "General", "Security", "API Rate Limiting", "Web Search", "Agent", "Chat History",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization",
     "Tool Policies", "Speech-to-Text", "Heartbeat", "Attachments", "Data Retention", "Image Generation", "Prompt Generation",
 ]

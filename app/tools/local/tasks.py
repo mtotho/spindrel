@@ -119,7 +119,10 @@ _SCHEDULE_TASK_SCHEMA = {
                         "Omit or null to run immediately. "
                         "Naive datetimes (no timezone suffix) are interpreted as the server's "
                         "local timezone. To be safe, prefer relative offsets (+1h) or include "
-                        "a timezone in ISO 8601 format (e.g. 2026-03-21T09:00:00-05:00)."
+                        "a timezone in ISO 8601 format (e.g. 2026-03-21T09:00:00-05:00). "
+                        "Conventions: 'nightly' = 2-4 AM local, 'morning' = 7-9 AM local. "
+                        "For recurring tasks at a fixed local time, use an absolute ISO 8601 "
+                        "timestamp with timezone offset as the anchor."
                     ),
                 },
                 "recurrence": {

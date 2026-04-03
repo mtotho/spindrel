@@ -157,6 +157,14 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
     Conversation archival, searchable sections, and continuity across fresh starts.
 
+-   [:material-api: **Developer API**](guides/api.md)
+
+    Authentication, scoped keys, streaming, SSE events.
+
+-   [:material-webhook: **Lifecycle Webhooks**](guides/webhooks.md)
+
+    Outgoing events for monitoring, cost analytics, and audit.
+
 -   [:material-cellphone-link: **Agent Client**](guides/clients.md)
 
     Remote voice assistant + local tool executor.

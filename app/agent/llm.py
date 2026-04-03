@@ -318,30 +318,31 @@ last_fallback_info: ContextVar[FallbackInfo | None] = ContextVar("last_fallback_
 # ---------------------------------------------------------------------------
 # Circuit breaker — skip models that recently failed and needed fallback
 # ---------------------------------------------------------------------------
-# model -> (expires_at, fallback_model)
-_model_cooldowns: dict[str, tuple[datetime, str]] = {}
+# model -> (expires_at, fallback_model, fallback_provider_id)
+_model_cooldowns: dict[str, tuple[datetime, str, str | None]] = {}
 
 
-def set_model_cooldown(model: str, fallback_model: str) -> None:
+def set_model_cooldown(model: str, fallback_model: str, provider_id: str | None = None) -> None:
     """Record that *model* failed and *fallback_model* should be used until cooldown expires."""
     cooldown_sec = settings.LLM_FALLBACK_COOLDOWN_SECONDS
     if cooldown_sec <= 0:
         return
     expires = datetime.now(timezone.utc) + timedelta(seconds=cooldown_sec)
-    _model_cooldowns[model] = (expires, fallback_model)
-    logger.info("Circuit breaker: %s in cooldown until %s, using %s", model, expires.isoformat(), fallback_model)
+    _model_cooldowns[model] = (expires, fallback_model, provider_id)
+    logger.info("Circuit breaker: %s in cooldown until %s, using %s (provider=%s)",
+                model, expires.isoformat(), fallback_model, provider_id)
 
 
-def get_model_cooldown(model: str) -> str | None:
-    """Return the fallback model if *model* is in cooldown, else None."""
+def get_model_cooldown(model: str) -> tuple[str, str | None] | None:
+    """Return (fallback_model, provider_id) if *model* is in cooldown, else None."""
     entry = _model_cooldowns.get(model)
     if entry is None:
         return None
-    expires, fallback_model = entry
+    expires, fallback_model, fallback_provider = entry
     if datetime.now(timezone.utc) >= expires:
         del _model_cooldowns[model]
         return None
-    return fallback_model
+    return (fallback_model, fallback_provider)
 
 
 def get_active_cooldowns() -> list[dict]:
@@ -349,13 +350,14 @@ def get_active_cooldowns() -> list[dict]:
     now = datetime.now(timezone.utc)
     active = []
     expired_keys = []
-    for model, (expires, fallback_model) in _model_cooldowns.items():
+    for model, (expires, fallback_model, fallback_provider) in _model_cooldowns.items():
         if now >= expires:
             expired_keys.append(model)
         else:
             active.append({
                 "model": model,
                 "fallback_model": fallback_model,
+                "fallback_provider": fallback_provider,
                 "expires_at": expires.isoformat(),
                 "remaining_seconds": int((expires - now).total_seconds()),
             })
@@ -369,7 +371,7 @@ def get_cooldown_expiry(model: str) -> datetime | None:
     entry = _model_cooldowns.get(model)
     if entry is None:
         return None
-    expires, _ = entry
+    expires, _, _ = entry
     if datetime.now(timezone.utc) >= expires:
         del _model_cooldowns[model]
         return None
@@ -533,18 +535,22 @@ async def _run_with_fallback_chain(
     last_fallback_info.set(None)
 
     # --- Circuit breaker: skip model if in cooldown ---
-    cooldown_fb = get_model_cooldown(model)
+    cooldown_info = get_model_cooldown(model)
+    cooldown_fb = cooldown_info[0] if cooldown_info else None
+    cooldown_fb_provider = cooldown_info[1] if cooldown_info else None
     primary_exc = None
 
     if cooldown_fb is not None:
+        # Use the stored fallback provider; fall back to caller's provider_id
+        effective_cd_provider = cooldown_fb_provider or provider_id
         logger.info("Circuit breaker: skipping %s (in cooldown), using %s directly", model, cooldown_fb)
         if on_event:
             on_event({"type": "llm_cooldown_skip", "model": model, "using": cooldown_fb})
         try:
             result = await _retry_single_model(
-                make_attempt_fn(cooldown_fb, provider_id, model_params),
+                make_attempt_fn(cooldown_fb, effective_cd_provider, model_params),
                 cooldown_fb, has_tools, max_retries, on_event,
-                retry_without_tools_fn=make_no_tools_fn(cooldown_fb, provider_id, model_params),
+                retry_without_tools_fn=make_no_tools_fn(cooldown_fb, effective_cd_provider, model_params),
             )
             last_fallback_info.set(FallbackInfo(
                 original_model=model, fallback_model=cooldown_fb,
@@ -599,7 +605,7 @@ async def _run_with_fallback_chain(
                 reason=type(primary_exc).__name__,
                 original_error=str(primary_exc)[:500],
             ))
-            set_model_cooldown(model, fb_model)
+            set_model_cooldown(model, fb_model, fb_provider)
             return result
         except _FALLBACK_TRIGGER_ERRORS as fb_exc:
             last_exc = fb_exc
@@ -765,7 +771,10 @@ def _is_tools_not_supported_error(exc: openai.BadRequestError) -> bool:
 def _is_non_transient_500(exc: openai.InternalServerError) -> bool:
     """Detect 500s that wrap non-transient upstream errors (e.g. LiteLLM wrapping a 400)."""
     msg = str(exc).lower()
-    return any(k in msg for k in ("bad_request", "invalid params", "http_code\":\"400", "400"))
+    if any(k in msg for k in ("bad_request", "invalid params", "http_code\":\"400")):
+        return True
+    # Word-boundary match for "400" — avoids false positives on "14000ms", "port 24001", etc.
+    return bool(re.search(r"\b400\b", msg))
 
 
 @dataclass
@@ -859,6 +868,13 @@ async def _consume_stream(stream) -> AsyncGenerator[dict | AccumulatedMessage, N
                 accumulator.feed(chunk)
         except (asyncio.TimeoutError, StopAsyncIteration):
             pass
+        finally:
+            # Close the stream to release the underlying HTTP connection promptly.
+            if hasattr(stream, "aclose"):
+                try:
+                    await stream.aclose()
+                except Exception:
+                    pass
 
     yield accumulator.build()
 

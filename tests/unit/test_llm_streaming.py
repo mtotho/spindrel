@@ -1,10 +1,11 @@
 """Tests for _llm_call_stream — streaming LLM call with retry + fallback."""
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import openai
 import pytest
 
-from app.agent.llm import AccumulatedMessage, _llm_call_stream, _model_cooldowns
+from app.agent.llm import AccumulatedMessage, _consume_stream, _llm_call_stream, _model_cooldowns
 
 
 @pytest.fixture(autouse=True)
@@ -327,3 +328,32 @@ class TestLlmCallStream:
         msg = items[-1]
         assert isinstance(msg, AccumulatedMessage)
         assert msg.content == "fallback ok"
+
+
+# ---------------------------------------------------------------------------
+# _consume_stream — direct tests
+# ---------------------------------------------------------------------------
+
+class TestConsumeStream:
+    @pytest.mark.asyncio
+    async def test_usage_drain_timeout_closes_stream(self):
+        """When provider hangs after finish_reason, timeout fires and stream is closed."""
+        async def _hanging_stream():
+            yield _make_chunk(content="Hello")
+            yield _make_chunk(finish_reason="stop")
+            # Simulate a provider that hangs forever after finish_reason
+            await asyncio.sleep(999)
+            yield _make_chunk()  # never reached
+
+        stream = _hanging_stream()
+        items = []
+        with patch("app.agent.llm._USAGE_DRAIN_TIMEOUT", 0.1):
+            async for item in _consume_stream(stream):
+                items.append(item)
+
+        # Should have yielded text_delta event(s) + final AccumulatedMessage
+        msg = items[-1]
+        assert isinstance(msg, AccumulatedMessage)
+        assert msg.content == "Hello"
+        # Usage should be None since the usage chunk never arrived
+        assert msg.usage is None

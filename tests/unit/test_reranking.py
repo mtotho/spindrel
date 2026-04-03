@@ -203,6 +203,27 @@ class TestRerankRagContextLLM:
         assert len(messages) == 3  # base prompt, skill, user
 
     @pytest.mark.asyncio
+    async def test_no_model_returns_none(self):
+        """When all model settings are empty, LLM reranking skips gracefully."""
+        chunk = "A" * 6000
+        messages = [
+            {"role": "system", "content": f"Pinned skill context:\n\n{chunk}"},
+        ]
+
+        with patch("app.services.reranking.settings") as mock_settings:
+            mock_settings.RAG_RERANK_ENABLED = True
+            mock_settings.RAG_RERANK_BACKEND = "llm"
+            mock_settings.RAG_RERANK_THRESHOLD_CHARS = 100
+            mock_settings.RAG_RERANK_MAX_TOKENS = 1000
+            mock_settings.RAG_RERANK_MODEL = ""
+            mock_settings.COMPACTION_MODEL = ""
+            mock_settings.DEFAULT_MODEL = ""
+
+            result = await rerank_rag_context(messages, "query")
+
+        assert result is None
+
+    @pytest.mark.asyncio
     async def test_llm_error_returns_none(self):
         chunk = "A" * 6000
         messages = [

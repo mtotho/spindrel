@@ -129,22 +129,10 @@ function GeneralAdvancedSection({
     <AdvancedSection>
       <Section title="Behavior">
         <Toggle
-          value={form.require_mention ?? true}
-          onChange={(v) => patch("require_mention", v)}
-          label="Require @mention"
-          description="Only @mentions trigger the bot; other messages stored as context."
-        />
-        <Toggle
           value={form.passive_memory ?? true}
           onChange={(v) => patch("passive_memory", v)}
           label="Passive memory"
           description="Include passive messages in memory compaction."
-        />
-        <Toggle
-          value={form.allow_bot_messages ?? false}
-          onChange={(v) => patch("allow_bot_messages", v)}
-          label="Allow bot messages"
-          description="Process messages from other bots (e.g. GitHub) and trigger the agent."
         />
         <Toggle
           value={form.workspace_rag ?? true}
@@ -339,6 +327,21 @@ export function GeneralTab({ form, patch, bots, settings, workspaceId, channelId
             channelId={channelId}
           />
         )}
+      </Section>
+
+      <Section title="Message Routing" description="Controls when inbound messages trigger the bot vs. get stored passively.">
+        <Toggle
+          value={form.require_mention ?? true}
+          onChange={(v) => patch("require_mention", v)}
+          label="Require @mention"
+          description="Only @mentions or wake words trigger the bot; other messages stored as context. For integrations like Slack or BlueBubbles, this controls whether every message runs the agent or only ones that mention the bot."
+        />
+        <Toggle
+          value={form.allow_bot_messages ?? false}
+          onChange={(v) => patch("allow_bot_messages", v)}
+          label="Allow bot messages"
+          description="Process messages from other bots (e.g. GitHub webhooks) and trigger the agent. Has no effect on iMessage (BlueBubbles)."
+        />
       </Section>
 
       <Section title="Model Override" description="Override the bot's default model for this channel. Leave empty to inherit.">

@@ -26,4 +26,27 @@ config.resolver = {
   },
 };
 
+// SPA fallback: rewrite deep-link URLs to "/" so Metro serves the entry HTML.
+// Without this, duplicating a browser tab on e.g. /admin/bots returns 404
+// because Metro only serves HTML at the root path.
+config.server = {
+  ...config.server,
+  enhanceMiddleware: (middleware) => {
+    return (req, res, next) => {
+      const url = (req.url || "").split("?")[0];
+      // If it looks like a client-side route (no file extension, not a Metro
+      // internal path), rewrite to "/" so the SPA entry point is served.
+      if (
+        url !== "/" &&
+        !url.includes(".") &&
+        !url.startsWith("/node_modules") &&
+        !url.startsWith("/__")
+      ) {
+        req.url = "/";
+      }
+      return middleware(req, res, next);
+    };
+  },
+};
+
 module.exports = withNativeWind(config, { input: "./global.css" });

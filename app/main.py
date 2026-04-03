@@ -14,7 +14,7 @@ from app.agent.tools import (
     validate_pinned_tools,
     warm_mcp_tool_index_for_all_bots,
 )
-from app.config import settings
+from app.config import VERSION, settings
 from app.db.engine import async_session, run_migrations
 from app.tools.loader import discover_and_load_tools
 from app.services.mcp_servers import load_mcp_servers, seed_from_yaml as seed_mcp_from_yaml
@@ -282,7 +282,7 @@ async def lifespan(application: FastAPI):
     await seed_mcp_from_yaml()
     logger.info("Loading MCP servers from DB...")
     await load_mcp_servers()
-    extra_tool_dirs = [Path(p.strip()) for p in settings.TOOL_DIRS.split(":") if p.strip()]
+    extra_tool_dirs = [Path(p.strip()).expanduser().resolve() for p in settings.TOOL_DIRS.split(":") if p.strip()]
     logger.info("Discovering extra tool directories...")
     discover_and_load_tools(extra_tool_dirs)
     # Import local tools to trigger @register decorators
@@ -315,6 +315,10 @@ async def lifespan(application: FastAPI):
     from app.services.workflows import load_workflows
     logger.info("Loading workflows from DB...")
     await load_workflows()
+    # Load webhook endpoints into cache
+    from app.services.webhooks import load_webhook_endpoints
+    logger.info("Loading webhook endpoints...")
+    await load_webhook_endpoints()
     # Register workflow task completion hook
     from app.services.workflow_hooks import register_workflow_hooks
     register_workflow_hooks()
@@ -443,10 +447,26 @@ async def lifespan(application: FastAPI):
 
 
 app = FastAPI(
-    title="Agent Server",
+    title="Spindrel",
     description="Self-hosted LLM agent server. Integration API at /api/v1/ — see /docs.",
-    version="1.0.0",
+    version=VERSION,
     lifespan=lifespan,
+    openapi_tags=[
+        {"name": "Chat", "description": "Send messages and stream responses"},
+        {"name": "Admin — Bots", "description": "Bot configuration and management"},
+        {"name": "Admin — Channels", "description": "Channel CRUD, settings, heartbeats, integrations"},
+        {"name": "Admin — Tasks", "description": "Scheduled and deferred task management"},
+        {"name": "Admin — Workflows", "description": "Workflow definitions and run management"},
+        {"name": "Admin — Carapaces", "description": "Composable expertise bundle management"},
+        {"name": "Admin — Providers", "description": "LLM provider configuration"},
+        {"name": "Admin — Settings", "description": "Server settings and operations"},
+        {"name": "Admin — Users", "description": "User and API key management"},
+        {"name": "Admin — Tools", "description": "Tool listing, execution, and policies"},
+        {"name": "Admin — Integrations", "description": "Integration activation and configuration"},
+        {"name": "Admin — Usage", "description": "Token usage, cost tracking, and budgets"},
+        {"name": "Sessions", "description": "Session and message history"},
+        {"name": "Discovery", "description": "Endpoint discovery and API documentation"},
+    ],
 )
 
 # CORS — allow Expo dev server and any origins from CORS_ORIGINS env var
@@ -462,6 +482,15 @@ if _cors_origins:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+    )
+
+# Rate limiting (opt-in, in-memory token bucket)
+if settings.RATE_LIMIT_ENABLED:
+    from app.services.rate_limiter import RateLimitMiddleware, RateSpec  # noqa: E402
+    app.add_middleware(
+        RateLimitMiddleware,
+        default_spec=RateSpec.parse(settings.RATE_LIMIT_DEFAULT),
+        chat_spec=RateSpec.parse(settings.RATE_LIMIT_CHAT),
     )
 
 # Config-mutation middleware: mark config dirty after admin mutations.

@@ -44,7 +44,10 @@ nav:
     - Custom Tools & Extensions: guides/custom-tools.md
     - Slack Integration: guides/slack.md
     - Discord Integration: guides/discord.md
+    - BlueBubbles (iMessage): guides/bluebubbles.md
     - Gmail Integration: guides/gmail.md
+    - Developer API: guides/api.md
+    - Lifecycle Webhooks: guides/webhooks.md
     - Agent Client: guides/clients.md
     - Delegation: guides/delegation.md
     - Secrets & Redaction: guides/secrets.md

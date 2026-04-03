@@ -10,7 +10,7 @@ description: >
 
 ## Overview
 
-Workflows are reusable, parameterized multi-step templates. Each step runs an independent LLM call — the workflow engine handles sequencing, conditions, and control flow deterministically. Use workflows when you need **repeatable automation** that goes beyond single-turn delegation.
+Workflows are reusable, parameterized multi-step templates. Steps can be `agent` (LLM call), `tool` (direct tool call, no LLM), or `exec` (shell command, no LLM). The workflow engine handles sequencing, conditions, and control flow deterministically. Use workflows when you need **repeatable automation** that goes beyond single-turn delegation.
 
 **Key principle:** LLMs make unreliable orchestrators — use code for plumbing, LLMs for creative work. Workflows handle sequencing, conditions, and control flow deterministically; each step's LLM call handles the creative work.
 
@@ -167,7 +167,27 @@ Three step types let you skip the LLM for deterministic operations:
 | `exec` | Run shell command in bot's sandbox | Yes (`task_type="exec"`) | Database backups, file operations, scripts |
 | `tool` | Call a local tool directly, inline | No — executes immediately | API lookups, quick data fetches, deterministic operations |
 
-**`exec` steps** — the rendered `prompt` becomes the command. Supports `args` and `working_directory`. Runs through the existing task worker sandbox execution:
+### When to Use Each Type
+
+**Use `type: tool` when:**
+- The step calls exactly one tool with known arguments
+- Arguments can be derived from params (`{{param}}`) or prior step results (`{{steps.X.result}}`)
+- No LLM reasoning is needed — the action is deterministic
+- Examples: create a channel, search for files, get system status, trigger a sub-workflow
+
+**Use `type: exec` when:**
+- The step runs a shell command that can be expressed as a template
+- Examples: database backups, `curl` calls, file operations, running scripts
+
+**Use `type: agent` when:**
+- The step needs to analyze, interpret, or synthesize information
+- The step needs to make decisions or choose between actions
+- The step needs to call multiple tools dynamically based on context
+- The output needs to be human-readable prose, not raw tool output
+
+### `exec` Steps
+
+The rendered `prompt` becomes the command. Supports `args` and `working_directory`:
 
 ```yaml
 - id: backup_db
@@ -176,7 +196,9 @@ Three step types let you skip the LLM for deterministic operations:
   timeout: 120
 ```
 
-**`tool` steps** — call any registered local tool with arguments. Executes inline (no task worker delay). Result is captured into step state immediately:
+### `tool` Steps
+
+Call any registered local tool with arguments. Executes inline (no task worker delay). Result is captured into step state immediately:
 
 ```yaml
 - id: search_files
@@ -187,7 +209,11 @@ Three step types let you skip the LLM for deterministic operations:
     count: "5"
 ```
 
-**Mixing types** — combine all three in one workflow:
+`tool_args` values support `{{param}}` and `{{steps.X.result}}` substitution, same as prompts. The raw tool return value becomes the step's result (usually JSON).
+
+### Mixing Types
+
+Combine all three in one workflow — use tool/exec for data gathering, agent for analysis:
 
 ```yaml
 steps:
@@ -207,6 +233,18 @@ steps:
     prompt: "Analyze the data from {{steps.fetch_data.result}} and provide insights."
     carapaces: [qa]
 ```
+
+### Analyzing Existing Runs for Optimization
+
+To identify which agent steps could be converted to tool/exec:
+
+```python
+# Get a completed run with full step details
+manage_workflow(action="get_run", run_id="<id>",
+    include_definitions=true, full_results=true)
+```
+
+This returns each step's definition (prompt, type, tool_name, conditions) alongside its actual result. Look for agent steps where the result is just a tool call's output — those are candidates for `type: tool`. For the full optimization process and conversion patterns, fetch `get_skill('carapaces/orchestrator/workflow-compiler')`.
 
 ## Session Mode
 

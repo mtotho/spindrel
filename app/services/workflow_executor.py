@@ -802,13 +802,9 @@ def _build_step_task(
 
     step_type = step_def.get("type", "agent")
 
-    # Render prompt
-    prompt = render_prompt(
-        step_def["prompt"],
-        run.params,
-        run.step_states,
-        steps,
-    )
+    # Render prompt (tool steps may not have one)
+    raw_prompt = step_def.get("prompt", "")
+    prompt = render_prompt(raw_prompt, run.params, run.step_states, steps) if raw_prompt else ""
 
     # Build execution_config from workflow defaults + step overrides
     ecfg: dict = {}

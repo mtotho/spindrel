@@ -19,10 +19,10 @@ Structure as: Key Context, Recent Actions, Open Items.
 
 
 def _resolve_model(channel: Channel | None) -> str:
-    """Resolve model for summarization: channel compaction_model > global."""
+    """Resolve model for summarization: channel compaction_model > global > default."""
     if channel and channel.compaction_model:
         return channel.compaction_model
-    return settings.COMPACTION_MODEL
+    return settings.COMPACTION_MODEL or settings.DEFAULT_MODEL
 
 
 async def summarize_messages(
@@ -53,6 +53,8 @@ async def summarize_messages(
     take = take or 100
     target_size = target_size or 1000
     model = _resolve_model(channel)
+    if not model:
+        return "Error: no model configured for summarization. Set COMPACTION_MODEL or DEFAULT_MODEL."
 
     custom_suffix = prompt or ""
 

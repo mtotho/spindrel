@@ -78,6 +78,18 @@ class TestResolveModel:
         mock_settings.COMPACTION_MODEL = "compaction-model"
         assert _resolve_model(None) == "compaction-model"
 
+    @patch("app.services.summarizer.settings")
+    def test_falls_back_to_default_model(self, mock_settings):
+        mock_settings.COMPACTION_MODEL = ""
+        mock_settings.DEFAULT_MODEL = "gemma3:4b"
+        assert _resolve_model(None) == "gemma3:4b"
+
+    @patch("app.services.summarizer.settings")
+    def test_returns_empty_when_all_empty(self, mock_settings):
+        mock_settings.COMPACTION_MODEL = ""
+        mock_settings.DEFAULT_MODEL = ""
+        assert _resolve_model(None) == ""
+
 
 # ---------------------------------------------------------------------------
 # summarize_messages
@@ -90,6 +102,25 @@ class TestSummarizeMessages:
         with patch("app.services.summarizer.async_session", return_value=session):
             result = await summarize_messages(ch_id)
         assert "Error: channel not found" in result
+
+    async def test_no_model_configured_returns_error(self):
+        """Returns error when no model is configured anywhere."""
+        ch = _channel()
+        ch_id = ch.id
+        msgs = [FakeMessage(role="user", content="Hello")]
+
+        session_for_channel = FakeSession(results=[FakeResult([ch])])
+
+        with (
+            patch("app.services.summarizer.async_session", side_effect=[session_for_channel]),
+            patch("app.services.summarizer.settings") as mock_settings,
+        ):
+            mock_settings.COMPACTION_MODEL = ""
+            mock_settings.DEFAULT_MODEL = ""
+            result = await summarize_messages(ch_id)
+
+        assert "Error:" in result
+        assert "no model configured" in result
 
     async def test_no_messages_returns_info(self):
         ch = _channel()

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable, Platform, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
@@ -234,6 +234,7 @@ export default function ChatScreen() {
 
   const showHamburger = columns === "single" || sidebarCollapsed;
   const t = useThemeTokens();
+  const safeInsets = useSafeAreaInsets();
 
   const markRead = useChannelReadStore((s) => s.markRead);
 
@@ -248,6 +249,7 @@ export default function ChatScreen() {
     setTurnModelOverride(m);
     setTurnProviderIdOverride(m ? providerId : undefined);
   }, []);
+  const [activeFile, setActiveFile] = useState<string | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [secretWarning, setSecretWarning] = useState<{
     result: SecretCheckResult;
@@ -475,7 +477,7 @@ export default function ChatScreen() {
       setTurnModelOverride(undefined);
       setTurnProviderIdOverride(undefined);
     },
-    [channelId, channel, turnModelOverride, turnProviderIdOverride]
+    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride]
   );
 
   const handleSend = useCallback(
@@ -532,7 +534,7 @@ export default function ChatScreen() {
       setTurnModelOverride(undefined);
       setTurnProviderIdOverride(undefined);
     },
-    [channelId, channel, turnModelOverride, turnProviderIdOverride]
+    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride]
   );
 
   // Slash command handler
@@ -640,7 +642,6 @@ export default function ChatScreen() {
   const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
   const splitMode = useUIStore((s) => s.fileExplorerSplit);
   const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
-  const [activeFile, setActiveFile] = useState<string | null>(null);
   const fileDirtyRef = useRef(false);
 
   // Reset file selection when switching channels
@@ -713,10 +714,10 @@ export default function ChatScreen() {
   const displayName = (channel as any)?.display_name || channel?.name || channel?.client_id || "Chat";
 
   return (
-    <SafeAreaView className="flex-1 bg-surface" edges={["top"]} style={{ overflow: "hidden" }}>
+    <View className="flex-1 bg-surface" style={{ paddingTop: safeInsets.top, paddingBottom: safeInsets.bottom }}>
       {/* Header */}
       <View
-        className="flex-row items-center gap-3 px-4 border-b border-surface-border bg-surface"
+        className={`flex-row items-center ${isMobile ? "gap-2 px-3" : "gap-3 px-4"} border-b border-surface-border bg-surface`}
         style={{
           flexShrink: 0,
           zIndex: 10,
@@ -747,12 +748,12 @@ export default function ChatScreen() {
             {displayName}
           </Text>
           {bot && (
-            <View className="flex-row items-center gap-1.5 mt-0.5">
+            <View className="flex-row items-center gap-1.5 mt-0.5 min-w-0">
               <Link href={`/admin/bots/${bot.id}` as any}>
-                <Text style={{ fontSize: 12, color: t.textMuted }}>{bot.name}</Text>
+                <Text style={{ fontSize: 12, color: t.textMuted }} numberOfLines={1}>{bot.name}</Text>
               </Link>
-              <Text style={{ fontSize: 11, color: t.textDim }}>
-                {channel?.model_override || bot?.model}
+              <Text style={{ fontSize: 11, color: t.textDim, flexShrink: 1 }} numberOfLines={1}>
+                {(channel?.model_override || bot?.model || "").split("/").pop()}
               </Text>
             </View>
           )}
@@ -1034,6 +1035,6 @@ export default function ChatScreen() {
           }}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }

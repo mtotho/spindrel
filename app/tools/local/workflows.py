@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
             "Actions: list (all workflows), get (workflow definition by id), "
             "trigger (start a run, returns run_id), get_run (check run status/progress by run_id), "
             "list_runs (recent runs for a workflow id), create (new workflow). "
-            "IMPORTANT: After triggering, use get_run with the returned run_id to monitor progress."
+            "IMPORTANT: After triggering, use get_run with the returned run_id to monitor progress. "
+            "For analysis/optimization, use get_run with include_definitions=true and full_results=true."
         ),
         "parameters": {
             "type": "object",
@@ -72,6 +73,14 @@ logger = logging.getLogger(__name__)
                     "enum": ["isolated", "shared"],
                     "description": "Override session mode for trigger (isolated=separate context per step, shared=shared channel context).",
                 },
+                "include_definitions": {
+                    "type": "boolean",
+                    "description": "For get_run: include step definitions (id, type, prompt, tool_name, tool_args, when) from the workflow snapshot. Useful for analyzing what each step was supposed to do.",
+                },
+                "full_results": {
+                    "type": "boolean",
+                    "description": "For get_run: include full step results instead of previews. Use when analyzing workflow execution in detail (e.g., for optimization or debugging).",
+                },
             },
             "required": ["action"],
         },
@@ -89,6 +98,8 @@ async def manage_workflow(
     steps: str | None = None,
     defaults: str | None = None,
     session_mode: str | None = None,
+    include_definitions: bool = False,
+    full_results: bool = False,
     **kwargs,
 ) -> str:
     import uuid
@@ -239,21 +250,57 @@ async def manage_workflow(
         if not run:
             return json.dumps({"error": f"Workflow run '{run_id}' not found"})
 
+        # Resolve step definitions from snapshot (or live definition as fallback)
+        snapshot = run.workflow_snapshot or {}
+        snapshot_steps = snapshot.get("steps", [])
+
         # Build step summary with progress info
         step_summaries = []
         for i, state in enumerate(run.step_states):
+            # Pull step definition info from snapshot
+            step_def = snapshot_steps[i] if i < len(snapshot_steps) else {}
+
             summary: dict = {
                 "index": i,
+                "id": step_def.get("id", f"step_{i}"),
+                "type": step_def.get("type", "agent"),
                 "status": state["status"],
             }
-            if state.get("result"):
-                summary["result_preview"] = str(state["result"])[:200]
+            if full_results:
+                if state.get("result"):
+                    summary["result"] = state["result"]
+            else:
+                if state.get("result"):
+                    summary["result_preview"] = str(state["result"])[:500]
             if state.get("error"):
-                summary["error"] = str(state["error"])[:200]
+                summary["error"] = str(state["error"])[:500]
             if state.get("started_at"):
                 summary["started_at"] = state["started_at"]
             if state.get("completed_at"):
                 summary["completed_at"] = state["completed_at"]
+
+            # Include step definitions for analysis (prompt, tool_name, conditions, etc.)
+            if include_definitions and step_def:
+                definition: dict = {}
+                if step_def.get("prompt"):
+                    definition["prompt"] = step_def["prompt"]
+                if step_def.get("tool_name"):
+                    definition["tool_name"] = step_def["tool_name"]
+                if step_def.get("tool_args"):
+                    definition["tool_args"] = step_def["tool_args"]
+                if step_def.get("when"):
+                    definition["when"] = step_def["when"]
+                if step_def.get("tools"):
+                    definition["tools"] = step_def["tools"]
+                if step_def.get("carapaces"):
+                    definition["carapaces"] = step_def["carapaces"]
+                if step_def.get("on_failure"):
+                    definition["on_failure"] = step_def["on_failure"]
+                if step_def.get("model"):
+                    definition["model"] = step_def["model"]
+                if definition:
+                    summary["definition"] = definition
+
             step_summaries.append(summary)
 
         done = sum(1 for s in run.step_states if s["status"] == "done")
@@ -261,19 +308,25 @@ async def manage_workflow(
         skipped = sum(1 for s in run.step_states if s["status"] == "skipped")
         total = len(run.step_states)
 
-        return json.dumps({
+        result_dict: dict = {
             "run_id": str(run.id),
             "workflow_id": run.workflow_id,
             "status": run.status,
+            "session_mode": run.session_mode,
             "progress": f"{done}/{total} done, {failed} failed, {skipped} skipped",
             "done": done,
             "failed": failed,
             "skipped": skipped,
             "error": run.error,
+            "params": run.params,
             "created_at": run.created_at.isoformat() if run.created_at else None,
             "completed_at": run.completed_at.isoformat() if run.completed_at else None,
             "steps": step_summaries,
-        }, indent=2)
+        }
+        # Include workflow-level defaults when definitions are requested
+        if include_definitions and snapshot.get("defaults"):
+            result_dict["defaults"] = snapshot["defaults"]
+        return json.dumps(result_dict, indent=2)
 
     if action == "create":
         if not id or not name:

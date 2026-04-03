@@ -25,6 +25,7 @@ import {
   Wrench,
   Cable,
   FileCode,
+  Webhook,
   ChevronRight,
 } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
@@ -69,10 +70,17 @@ export const ADMIN_SECTIONS: SectionDef[] = [
   {
     title: "SECURITY",
     items: [
-      { label: "API Keys", href: "/admin/api-keys", icon: Key },
       { label: "Secrets", href: "/admin/secret-values", icon: Lock },
       { label: "Policies", href: "/admin/tool-policies", icon: Shield },
       { label: "Approvals", href: "/admin/approvals", icon: ShieldCheck },
+    ],
+  },
+  {
+    title: "DEVELOPER",
+    items: [
+      { label: "API Keys", href: "/admin/api-keys", icon: Key },
+      { label: "Webhooks", href: "/admin/webhooks", icon: Webhook },
+      { label: "API Docs", href: "/admin/api-docs", icon: FileCode },
     ],
   },
   {
@@ -83,7 +91,6 @@ export const ADMIN_SECTIONS: SectionDef[] = [
       { label: "Users", href: "/admin/users", icon: Users },
       { label: "Logs", href: "/admin/logs", icon: ScrollText },
       { label: "Diagnostics", href: "/admin/diagnostics", icon: HardDrive },
-      { label: "API Docs", href: "/admin/api-docs", icon: FileCode },
       { label: "Config", href: "/admin/config-state", icon: Code2 },
       { label: "Settings", href: "/settings", icon: Settings },
     ],

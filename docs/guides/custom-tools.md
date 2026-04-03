@@ -134,7 +134,9 @@ If you keep tools outside the `tools/` directory (e.g., in a separate repo), poi
 TOOL_DIRS=/home/you/my-tools:/home/you/work-tools
 ```
 
-Colon-separated, absolute or relative paths. Each directory is scanned the same way as `tools/` — every `.py` file (except underscore-prefixed) is imported.
+Colon-separated, absolute or relative paths. Tilde (`~`) is expanded to your home directory. Each directory is scanned the same way as `tools/` — every `.py` file (except underscore-prefixed) is imported.
+
+> **Tip:** If your tools live inside an `INTEGRATION_DIRS` subdirectory, you don't need `TOOL_DIRS` — tools in integration directories are auto-discovered.
 
 ---
 

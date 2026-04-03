@@ -1122,6 +1122,8 @@ class TestToolLoopCycleDetection:
             mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
             mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
             mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+            mock_settings.PARALLEL_TOOL_EXECUTION = True
+            mock_settings.PARALLEL_TOOL_MAX_CONCURRENT = 10
 
             events = []
             async for event in run_agent_tool_loop(

@@ -99,7 +99,19 @@ def test_set_and_get_cooldown():
         mock_settings.LLM_FALLBACK_COOLDOWN_SECONDS = 300
         set_model_cooldown("broken-model", "good-model")
 
-    assert get_model_cooldown("broken-model") == "good-model"
+    fb_model, fb_provider = get_model_cooldown("broken-model")
+    assert fb_model == "good-model"
+    assert fb_provider is None  # no provider stored
+
+
+def test_cooldown_stores_provider():
+    with patch("app.agent.llm.settings") as mock_settings:
+        mock_settings.LLM_FALLBACK_COOLDOWN_SECONDS = 300
+        set_model_cooldown("broken-model", "good-model", provider_id="anthropic-prod")
+
+    fb_model, fb_provider = get_model_cooldown("broken-model")
+    assert fb_model == "good-model"
+    assert fb_provider == "anthropic-prod"
 
 
 def test_cooldown_not_set_when_zero():
@@ -114,6 +126,7 @@ def test_cooldown_expires():
     _model_cooldowns["old-model"] = (
         datetime.now(timezone.utc) - timedelta(seconds=1),
         "fallback",
+        None,
     )
     assert get_model_cooldown("old-model") is None
     assert "old-model" not in _model_cooldowns
@@ -123,6 +136,7 @@ def test_clear_cooldown():
     _model_cooldowns["some-model"] = (
         datetime.now(timezone.utc) + timedelta(seconds=300),
         "fallback",
+        None,
     )
     assert clear_model_cooldown("some-model") is True
     assert clear_model_cooldown("some-model") is False
@@ -130,8 +144,8 @@ def test_clear_cooldown():
 
 def test_get_active_cooldowns():
     now = datetime.now(timezone.utc)
-    _model_cooldowns["active"] = (now + timedelta(seconds=100), "fb-1")
-    _model_cooldowns["expired"] = (now - timedelta(seconds=1), "fb-2")
+    _model_cooldowns["active"] = (now + timedelta(seconds=100), "fb-1", None)
+    _model_cooldowns["expired"] = (now - timedelta(seconds=1), "fb-2", None)
 
     active = get_active_cooldowns()
     assert len(active) == 1
@@ -147,13 +161,13 @@ def test_get_model_cooldown_nonexistent():
 
 def test_get_cooldown_expiry():
     expires = datetime.now(timezone.utc) + timedelta(seconds=300)
-    _model_cooldowns["model-x"] = (expires, "fb")
+    _model_cooldowns["model-x"] = (expires, "fb", None)
     assert get_cooldown_expiry("model-x") == expires
 
 
 def test_get_cooldown_expiry_expired():
     _model_cooldowns["model-x"] = (
-        datetime.now(timezone.utc) - timedelta(seconds=1), "fb",
+        datetime.now(timezone.utc) - timedelta(seconds=1), "fb", None,
     )
     assert get_cooldown_expiry("model-x") is None
     assert "model-x" not in _model_cooldowns
@@ -179,6 +193,7 @@ async def test_cooldown_skips_primary():
     _model_cooldowns["primary"] = (
         datetime.now(timezone.utc) + timedelta(seconds=300),
         "fallback-model",
+        None,
     )
 
     with _patched() as (_, mock_get_client):
@@ -189,6 +204,31 @@ async def test_cooldown_skips_primary():
         resp = await _llm_call("primary", [], None, None)
         assert resp is not None
         assert models_called == ["fallback-model"]
+
+
+@pytest.mark.asyncio
+async def test_cooldown_uses_stored_provider():
+    """Cooldown bypass should use the fallback's stored provider_id, not the primary's."""
+    providers_called = []
+
+    async def mock_create(**kwargs):
+        return _fake_response(kwargs["model"])
+
+    _model_cooldowns["primary"] = (
+        datetime.now(timezone.utc) + timedelta(seconds=300),
+        "fallback-model",
+        "anthropic-prod",
+    )
+
+    with _patched() as (_, mock_get_client):
+        client = MagicMock()
+        client.chat.completions.create = mock_create
+        mock_get_client.side_effect = lambda pid: (providers_called.append(pid), client)[1]
+
+        resp = await _llm_call("primary", [], None, "openai-prod")
+        assert resp is not None
+        # Should have called get_llm_client with the stored fallback provider
+        assert "anthropic-prod" in providers_called
 
 
 @pytest.mark.asyncio
@@ -207,6 +247,7 @@ async def test_cooldown_failure_skips_primary_goes_to_fallback_chain():
     _model_cooldowns["primary"] = (
         datetime.now(timezone.utc) + timedelta(seconds=300),
         "cooldown-fb",
+        None,
     )
 
     with _patched() as (_, mock_get_client):
@@ -243,7 +284,8 @@ async def test_fallback_sets_cooldown():
             fallback_models=[{"model": "good-fallback"}],
         )
         assert resp is not None
-        assert get_model_cooldown("primary") == "good-fallback"
+        fb_model, _ = get_model_cooldown("primary")
+        assert fb_model == "good-fallback"
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +304,7 @@ async def test_stream_cooldown_skips_primary():
     _model_cooldowns["primary"] = (
         datetime.now(timezone.utc) + timedelta(seconds=300),
         "fallback-model",
+        None,
     )
 
     with _patched() as (_, mock_get_client):
@@ -299,6 +342,7 @@ async def test_stream_cooldown_failure_skips_primary():
     _model_cooldowns["primary"] = (
         datetime.now(timezone.utc) + timedelta(seconds=300),
         "cooldown-fb",
+        None,
     )
 
     with _patched() as (_, mock_get_client):
@@ -340,4 +384,5 @@ async def test_stream_fallback_sets_cooldown():
             events.append(item)
 
         assert isinstance(events[-1], AccumulatedMessage)
-        assert get_model_cooldown("primary") == "good-fb"
+        fb_model, _ = get_model_cooldown("primary")
+        assert fb_model == "good-fb"

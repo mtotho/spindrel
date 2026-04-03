@@ -1,5 +1,5 @@
 """Tests for fire_hook_with_override (override-capable hooks)."""
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -21,7 +21,7 @@ def _clean_hooks():
 
 
 def _no_webhooks():
-    return patch("app.config.settings.HOOK_WEBHOOK_URLS", "")
+    return patch("app.services.webhooks.emit_webhooks", new_callable=AsyncMock)
 
 
 @pytest.mark.asyncio

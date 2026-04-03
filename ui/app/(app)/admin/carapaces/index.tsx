@@ -77,7 +77,7 @@ export default function CarapacesPage() {
     for (const c of filtered) {
       if (c.source_type === "manual") manual.push(c);
       else if (c.source_type === "integration") {
-        const intName = c.source_path?.match(/^integrations\/([^/]+)\//)?.[1] ?? "other";
+        const intName = c.source_path?.match(/integrations\/([^/]+)\//)?.[1] ?? "other";
         const list = integrationMap.get(intName);
         if (list) list.push(c); else integrationMap.set(intName, [c]);
       } else core.push(c);
@@ -242,20 +242,27 @@ function CarapaceCard({ carapace: c, t }: { carapace: Carapace; t: ThemeTokens }
               <Text style={{ color: t.text, fontWeight: "600", fontSize: 14 }}>
                 {c.name}
               </Text>
-              {c.source_type !== "manual" && (
-                <View
-                  style={{
-                    backgroundColor: t.accentSubtle,
-                    borderWidth: 1,
-                    borderColor: t.accentBorder,
-                    paddingHorizontal: 6,
-                    paddingVertical: 1,
-                    borderRadius: 4,
-                  }}
-                >
-                  <Text style={{ color: t.accent, fontSize: 10 }}>{c.source_type}</Text>
-                </View>
-              )}
+              {c.source_type !== "manual" && (() => {
+                const intName = c.source_type === "integration"
+                  ? c.source_path?.match(/integrations\/([^/]+)\//)?.[1]
+                  : null;
+                const label = intName ? fmtIntName(intName) : c.source_type;
+                const isInt = c.source_type === "integration";
+                return (
+                  <View
+                    style={{
+                      backgroundColor: isInt ? t.successSubtle : t.accentSubtle,
+                      borderWidth: 1,
+                      borderColor: isInt ? t.successBorder : t.accentBorder,
+                      paddingHorizontal: 6,
+                      paddingVertical: 1,
+                      borderRadius: 4,
+                    }}
+                  >
+                    <Text style={{ color: isInt ? t.success : t.accent, fontSize: 10 }}>{label}</Text>
+                  </View>
+                );
+              })()}
             </View>
 
             {/* Description */}

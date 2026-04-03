@@ -22,6 +22,7 @@ RETENTION_TABLES: list[tuple[str, str, str | None]] = [
     ("heartbeat_runs", "run_at", "status != 'running'"),
     ("workflow_runs", "created_at", "status IN ('completed', 'failed', 'cancelled')"),
     ("tasks", "created_at", "status IN ('complete', 'failed', 'cancelled')"),
+    ("webhook_deliveries", "created_at", None),
 ]
 
 # Defense-in-depth: validate that all table/column names in RETENTION_TABLES

@@ -164,6 +164,23 @@ class TestClassifyError:
         assert cl.retryable is True
         assert cl.skip_to_fallback is False
 
+    def test_transient_500_with_400_in_number(self):
+        """A 500 whose message contains '400' as part of a larger number should be transient."""
+        cl = _classify_error(_internal_server_error("timed out after 14000ms"), has_tools=False)
+        assert cl.retryable is True
+        assert cl.skip_to_fallback is False, "bare '400' substring matched inside '14000'"
+
+    def test_transient_500_port_number(self):
+        """A 500 referencing a port like 24001 should not trigger non-transient detection."""
+        cl = _classify_error(_internal_server_error("connection refused on port 24001"), has_tools=False)
+        assert cl.retryable is True
+        assert cl.skip_to_fallback is False
+
+    def test_non_transient_500_status_code_400(self):
+        """A wrapped 400 status code should still be detected as non-transient."""
+        cl = _classify_error(_internal_server_error('upstream returned status 400'), has_tools=False)
+        assert cl.skip_to_fallback is True
+
     def test_unknown_error(self):
         cl = _classify_error(RuntimeError("unknown"), has_tools=False)
         assert cl.retryable is False
@@ -344,6 +361,7 @@ class TestRunWithFallbackChain:
         _model_cooldowns["primary"] = (
             datetime.now(timezone.utc) + timedelta(minutes=10),
             "fb",
+            None,
         )
 
         def make_attempt(m, pid, mp):
@@ -382,9 +400,9 @@ class TestRunWithFallbackChain:
                 [{"model": "fb"}],
                 make_attempt, make_no_tools, 0,
             )
-        # Primary should now have a cooldown entry (expires, fallback_model)
+        # Primary should now have a cooldown entry (expires, fallback_model, provider_id)
         assert "primary" in _model_cooldowns
-        expires, fb_model = _model_cooldowns["primary"]
+        expires, fb_model, fb_provider = _model_cooldowns["primary"]
         assert fb_model == "fb"
 
     async def test_global_fallbacks_used(self):
@@ -406,3 +424,24 @@ class TestRunWithFallbackChain:
                 make_attempt, make_no_tools, 0,
             )
         assert result == "ok_global_fb"
+
+    async def test_auth_error_skips_fallback_chain(self):
+        """AuthenticationError is not in _FALLBACK_TRIGGER_ERRORS, so it propagates immediately."""
+        resp = MagicMock()
+        resp.status_code = 401
+        resp.headers = {}
+        auth_err = openai.AuthenticationError(message="bad key", response=resp, body=None)
+
+        def make_attempt(m, pid, mp):
+            return AsyncMock(side_effect=auth_err)
+
+        def make_no_tools(m, pid, mp):
+            return AsyncMock()
+
+        with self._patched():
+            with pytest.raises(openai.AuthenticationError):
+                await _run_with_fallback_chain(
+                    "primary", None, None, False,
+                    [{"model": "fb"}],
+                    make_attempt, make_no_tools, 0,
+                )

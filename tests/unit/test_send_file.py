@@ -207,3 +207,134 @@ class TestSendFileRepostSameChannel:
         data = json.loads(result)
         assert "error" in data
         assert "not found" in data["error"]
+
+
+@pytest.mark.asyncio
+class TestSendFilePathModeOrphanDedup:
+    """send_file(path=...) should detect existing orphan attachments in the
+    same channel with matching size and skip creating a duplicate."""
+
+    async def test_path_mode_skips_duplicate_when_orphan_exists(self, tmp_path):
+        """If an orphan attachment with matching size+mime exists in the channel,
+        send_file should NOT create a new attachment and should suppress client_action."""
+        channel_id = uuid.uuid4()
+        img_data = b"fake-png-bytes-1234"
+        img_file = tmp_path / "robot.png"
+        img_file.write_bytes(img_data)
+
+        existing_orphan = _fake_attachment(
+            channel_id=channel_id,
+            message_id=None,
+            posted_by="image-bot",
+            size_bytes=len(img_data),
+            mime_type="image/png",
+        )
+        mock_create = AsyncMock()
+
+        with (
+            patch("app.tools.local.send_file.current_channel_id") as mock_ch,
+            patch("app.tools.local.send_file.current_bot_id") as mock_bot,
+            patch("app.tools.local.send_file.current_dispatch_type") as mock_dt,
+            patch("app.tools.local.send_file.create_attachment", mock_create),
+            patch("app.tools.local.send_file.find_orphan_duplicate", new_callable=AsyncMock, return_value=existing_orphan),
+        ):
+            mock_ch.get.return_value = channel_id
+            mock_bot.get.return_value = "test-bot"
+            mock_dt.get.return_value = "web"
+
+            from app.tools.local.send_file import send_file
+            result = await send_file(path=str(img_file))
+
+        data = json.loads(result)
+        assert "error" not in data
+        assert "Sent" in data["message"]
+        # No duplicate attachment created
+        mock_create.assert_not_called()
+        # No client_action — the original tool already emitted one
+        assert "client_action" not in data
+
+    async def test_path_mode_creates_attachment_when_no_orphan(self, tmp_path):
+        """When no matching orphan exists, send_file should create attachment normally."""
+        channel_id = uuid.uuid4()
+        img_data = b"new-image-bytes"
+        img_file = tmp_path / "chart.png"
+        img_file.write_bytes(img_data)
+
+        mock_create = AsyncMock()
+
+        with (
+            patch("app.tools.local.send_file.current_channel_id") as mock_ch,
+            patch("app.tools.local.send_file.current_bot_id") as mock_bot,
+            patch("app.tools.local.send_file.current_dispatch_type") as mock_dt,
+            patch("app.tools.local.send_file.create_attachment", mock_create),
+            patch("app.tools.local.send_file.find_orphan_duplicate", new_callable=AsyncMock, return_value=None),
+        ):
+            mock_ch.get.return_value = channel_id
+            mock_bot.get.return_value = "test-bot"
+            mock_dt.get.return_value = "web"
+
+            from app.tools.local.send_file import send_file
+            result = await send_file(path=str(img_file))
+
+        data = json.loads(result)
+        assert "error" not in data
+        mock_create.assert_called_once()
+        assert "client_action" in data
+
+    async def test_path_mode_no_channel_skips_dedup(self, tmp_path):
+        """When there's no channel_id, no dedup check should happen."""
+        img_data = b"image-bytes"
+        img_file = tmp_path / "pic.png"
+        img_file.write_bytes(img_data)
+
+        mock_create = AsyncMock()
+        mock_find = AsyncMock(return_value=None)
+
+        with (
+            patch("app.tools.local.send_file.current_channel_id") as mock_ch,
+            patch("app.tools.local.send_file.current_bot_id") as mock_bot,
+            patch("app.tools.local.send_file.current_dispatch_type") as mock_dt,
+            patch("app.tools.local.send_file.create_attachment", mock_create),
+            patch("app.tools.local.send_file.find_orphan_duplicate", mock_find),
+        ):
+            mock_ch.get.return_value = None
+            mock_bot.get.return_value = "test-bot"
+            mock_dt.get.return_value = "web"
+
+            from app.tools.local.send_file import send_file
+            result = await send_file(path=str(img_file))
+
+        data = json.loads(result)
+        assert "error" not in data
+        # No dedup check when no channel
+        mock_find.assert_not_called()
+
+    async def test_path_mode_dedup_error_falls_through(self, tmp_path):
+        """If find_orphan_duplicate raises, send_file should still work normally."""
+        channel_id = uuid.uuid4()
+        img_data = b"some-image"
+        img_file = tmp_path / "pic.png"
+        img_file.write_bytes(img_data)
+
+        mock_create = AsyncMock()
+        mock_find = AsyncMock(side_effect=Exception("DB gone"))
+
+        with (
+            patch("app.tools.local.send_file.current_channel_id") as mock_ch,
+            patch("app.tools.local.send_file.current_bot_id") as mock_bot,
+            patch("app.tools.local.send_file.current_dispatch_type") as mock_dt,
+            patch("app.tools.local.send_file.create_attachment", mock_create),
+            patch("app.tools.local.send_file.find_orphan_duplicate", mock_find),
+        ):
+            mock_ch.get.return_value = channel_id
+            mock_bot.get.return_value = "test-bot"
+            mock_dt.get.return_value = "web"
+
+            from app.tools.local.send_file import send_file
+            result = await send_file(path=str(img_file))
+
+        data = json.loads(result)
+        assert "error" not in data
+        # Falls through to normal path — creates attachment
+        mock_create.assert_called_once()
+        assert "client_action" in data

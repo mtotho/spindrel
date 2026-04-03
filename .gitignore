@@ -64,9 +64,11 @@ rclone.conf
 # User tools (see tools/README.md)
 tools/*.py
 
-# Personal/private integrations (only slack/ and example/ ship with the repo)
-integrations/bennieloggins/
+# Personal/private integrations (add your own here)
+# integrations/my-private-integration/
 
+# Claude Code plans (dev-only)
+.claude/
 
 # Planning docs (internal)
 Plans/

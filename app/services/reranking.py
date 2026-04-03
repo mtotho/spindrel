@@ -188,7 +188,10 @@ async def _rerank_via_llm(
     provider_id: str | None,
 ) -> set[int] | None:
     """Score chunks via LLM call. Returns set of global indices to keep, or None on failure."""
-    model = settings.RAG_RERANK_MODEL or settings.COMPACTION_MODEL
+    model = settings.RAG_RERANK_MODEL or settings.COMPACTION_MODEL or settings.DEFAULT_MODEL
+    if not model:
+        logger.debug("No model configured for LLM re-ranking, skipping")
+        return None
     rerank_messages = _build_rerank_prompt(rag_msgs, user_message)
 
     try:

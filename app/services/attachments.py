@@ -144,6 +144,32 @@ async def create_attachment(
     return attachment
 
 
+async def find_orphan_duplicate(
+    channel_id: uuid.UUID,
+    size_bytes: int,
+    mime_type: str,
+) -> Attachment | None:
+    """Find an existing orphan attachment in the channel with matching size and MIME.
+
+    Used by send_file to avoid creating a duplicate when another tool (e.g.
+    generate_image) already created an orphan attachment for the same content
+    in the same turn.
+    """
+    async with async_session() as db:
+        result = await db.execute(
+            select(Attachment)
+            .where(
+                Attachment.channel_id == channel_id,
+                Attachment.message_id.is_(None),
+                Attachment.posted_by.isnot(None),
+                Attachment.size_bytes == size_bytes,
+                Attachment.mime_type == mime_type,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
 async def get_attachment_by_id(attachment_id: uuid.UUID) -> Attachment | None:
     async with async_session() as db:
         return await db.get(Attachment, attachment_id)

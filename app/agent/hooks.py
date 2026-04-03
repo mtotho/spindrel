@@ -120,7 +120,7 @@ def register_hook(event: str, callback: Callable) -> None:
 async def fire_hook(event: str, ctx: HookContext, **kwargs) -> None:
     """Fire all registered callbacks for the given event. Errors are swallowed.
 
-    Also emits webhook POSTs to HOOK_WEBHOOK_URLS (fire-and-forget).
+    Also emits webhook POSTs to DB-configured webhook endpoints (fire-and-forget).
     """
     callbacks = _lifecycle_hooks.get(event)
     if callbacks:
@@ -162,18 +162,12 @@ async def fire_hook_with_override(event: str, ctx: HookContext, **kwargs) -> Any
 
 
 # ---------------------------------------------------------------------------
-# Webhook emission helpers
+# Webhook emission — delegates to DB-backed webhook service
 # ---------------------------------------------------------------------------
 
 def _emit_webhook(event: str, ctx: HookContext) -> None:
-    """Schedule fire-and-forget webhook POSTs if HOOK_WEBHOOK_URLS is configured."""
-    from app.config import settings as _settings
-    urls_str = _settings.HOOK_WEBHOOK_URLS
-    if not urls_str:
-        return
-    urls = [u.strip() for u in urls_str.split(",") if u.strip()]
-    if not urls:
-        return
+    """Schedule fire-and-forget webhook delivery via the DB-backed webhook service."""
+    from app.services.webhooks import emit_webhooks
 
     payload = {
         "event": event,
@@ -187,15 +181,4 @@ def _emit_webhook(event: str, ctx: HookContext) -> None:
         },
         "data": ctx.extra,
     }
-    for url in urls:
-        asyncio.create_task(_post_webhook(url, payload))
-
-
-async def _post_webhook(url: str, payload: dict) -> None:
-    """POST a JSON payload to a webhook URL. Errors are swallowed."""
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(url, json=payload)
-    except Exception:
-        logger.debug("Webhook POST to %s failed", url, exc_info=True)
+    asyncio.create_task(emit_webhooks(event, payload))

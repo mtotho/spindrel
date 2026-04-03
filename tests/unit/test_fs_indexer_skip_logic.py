@@ -110,8 +110,8 @@ class TestProcessFileSkipLogic:
             )
         assert result.status != "skipped"
 
-    async def test_skips_when_no_existing_version_and_legacy_row(self, tmp_file, file_hash, tmp_path):
-        """Legacy rows without version in metadata → version_matches=False → re-indexed."""
+    async def test_reindexes_when_no_existing_version(self, tmp_file, file_hash, tmp_path):
+        """Legacy rows without version in metadata → re-indexed to stamp version."""
         mock_embed = AsyncMock(return_value=[[0.1] * 1536])
         mock_cr = AsyncMock(return_value=[None])
 
@@ -129,7 +129,7 @@ class TestProcessFileSkipLogic:
                 "test-model", None,
                 {tmp_file.name: file_hash},
                 {tmp_file.name: "test-model"},
-                {},  # no existing version → None → won't match "v2"
+                {},  # no existing version → None → triggers re-index
                 [], asyncio.Semaphore(1), None,
             )
         assert result.status != "skipped"

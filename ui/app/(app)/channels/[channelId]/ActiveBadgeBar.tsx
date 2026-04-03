@@ -131,7 +131,7 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        style={{ flexShrink: 0, backgroundColor: theme.surface, maxHeight: 28 }}
+        style={{ flexShrink: 0, backgroundColor: theme.surface, maxHeight: 28, borderBottomWidth: 1, borderBottomColor: theme.surfaceBorder }}
         contentContainerStyle={{
           paddingHorizontal: 12,
           paddingVertical: 2,

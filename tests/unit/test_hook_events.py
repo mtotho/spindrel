@@ -1,5 +1,5 @@
 """Tests for new hook events: before_llm_call, after_llm_call, before_tool_execution, before_transcription."""
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -22,7 +22,7 @@ def _clean_hooks():
 
 
 def _no_webhooks():
-    return patch("app.config.settings.HOOK_WEBHOOK_URLS", "")
+    return patch("app.services.webhooks.emit_webhooks", new_callable=AsyncMock)
 
 
 @pytest.mark.asyncio
