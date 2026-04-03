@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
+from app.utils import safe_create_task
+
 logger = logging.getLogger(__name__)
 
 
@@ -181,4 +183,4 @@ def _emit_webhook(event: str, ctx: HookContext) -> None:
         },
         "data": ctx.extra,
     }
-    asyncio.create_task(emit_webhooks(event, payload))
+    safe_create_task(emit_webhooks(event, payload))

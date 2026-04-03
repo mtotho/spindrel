@@ -292,6 +292,12 @@ export default function ChatScreen() {
     enabled: !!channel?.active_session_id,
   });
 
+  // Sync DB messages into the chat store when new page data arrives.
+  // IMPORTANT: Only depend on [channelId, pages] — NOT streaming/processing state.
+  // Streaming state is checked as a guard inside, but must not be a trigger.
+  // If it were a dep, finishing a stream would re-run this effect with stale pages
+  // (the invalidateQueries refetch hasn't completed yet), overwriting the synthetic
+  // message that finishStreaming() just materialized.
   useEffect(() => {
     if (channelId && pages && !chatState.isStreaming && !chatState.isProcessing) {
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
@@ -312,7 +318,7 @@ export default function ChatScreen() {
       setMessages(channelId, allMessages);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId, pages, chatState.isStreaming, chatState.isProcessing]);
+  }, [channelId, pages]);
 
   // Poll session status while background processing is active
   const { data: sessionStatus } = useSessionStatus(channelId, chatState.isProcessing);

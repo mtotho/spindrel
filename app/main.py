@@ -6,6 +6,8 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from app.utils import safe_create_task
+
 from app.agent.bots import ensure_default_bot, list_bots, load_bots, seed_bots_from_yaml
 from app.agent.skills import load_skills, seed_skills_from_files
 from app.services import file_sync
@@ -324,7 +326,8 @@ async def lifespan(application: FastAPI):
     from app.services.workflow_hooks import register_workflow_hooks
     register_workflow_hooks()
     logger.info("Starting file watcher...")
-    asyncio.create_task(file_sync.watch_files())
+    _workers: list[asyncio.Task] = []
+    _workers.append(safe_create_task(file_sync.watch_files(), name="file_watcher"))
 
     # Bootstrap memory scheme for workspace-files bots (idempotent, creates MEMORY.md if missing)
     from app.services.memory_scheme import bootstrap_memory_scheme
@@ -410,9 +413,9 @@ async def lifespan(application: FastAPI):
         )
     if _sw_watch_targets:
         from app.agent.fs_watcher import start_shared_workspace_watchers
-        asyncio.create_task(start_shared_workspace_watchers(_sw_watch_targets))
+        _workers.append(safe_create_task(start_shared_workspace_watchers(_sw_watch_targets), name="sw_watchers"))
     # Index filesystem directories + start watchers in background (doesn't block startup)
-    asyncio.create_task(_index_filesystems_and_start_watchers())
+    _workers.append(safe_create_task(_index_filesystems_and_start_watchers(), name="fs_index"))
 
     if settings.STT_PROVIDER:
         logger.info("Warming up STT provider (%s)...", settings.STT_PROVIDER)
@@ -420,30 +423,33 @@ async def lifespan(application: FastAPI):
         stt_warm_up()
     logger.info("Agent server ready. (LOG_LEVEL=%s)", settings.LOG_LEVEL.upper())
     from app.agent.tasks import task_worker
-    asyncio.create_task(task_worker())
+    _workers.append(safe_create_task(task_worker(), name="task_worker"))
     from app.services.heartbeat import heartbeat_worker
-    asyncio.create_task(heartbeat_worker())
+    _workers.append(safe_create_task(heartbeat_worker(), name="heartbeat_worker"))
     from app.services.usage_spike import usage_spike_worker
-    asyncio.create_task(usage_spike_worker())
+    _workers.append(safe_create_task(usage_spike_worker(), name="usage_spike_worker"))
     from app.agent.fs_watcher import periodic_reindex_worker
-    asyncio.create_task(periodic_reindex_worker())
+    _workers.append(safe_create_task(periodic_reindex_worker(), name="periodic_reindex"))
     from app.services.attachment_summarizer import attachment_sweep_worker
-    asyncio.create_task(attachment_sweep_worker())
+    _workers.append(safe_create_task(attachment_sweep_worker(), name="attachment_sweep"))
     from app.services.attachment_retention import attachment_retention_worker
-    asyncio.create_task(attachment_retention_worker())
+    _workers.append(safe_create_task(attachment_retention_worker(), name="attachment_retention"))
     from app.services.data_retention import data_retention_worker
-    asyncio.create_task(data_retention_worker())
+    _workers.append(safe_create_task(data_retention_worker(), name="data_retention"))
     if settings.CONFIG_STATE_FILE:
         from app.services.config_export import config_export_worker
-        asyncio.create_task(config_export_worker())
+        _workers.append(safe_create_task(config_export_worker(), name="config_export"))
 
     # Start integration background processes (non-blocking, like other workers)
     from app.services.integration_processes import process_manager
-    asyncio.create_task(process_manager.start_auto_start_processes())
+    _workers.append(safe_create_task(process_manager.start_auto_start_processes(), name="integration_processes"))
 
     try:
         yield
     finally:
+        for w in _workers:
+            w.cancel()
+        await asyncio.gather(*_workers, return_exceptions=True)
         await process_manager.shutdown_all()
 
 

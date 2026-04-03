@@ -45,7 +45,7 @@ The response includes the key (shown once) and its scopes.
 
 #### Scope Reference
 
-Spindrel defines **49 scopes** across **18 groups**:
+Spindrel defines **50 scopes** across **21 groups**:
 
 | Group | Scopes | Description |
 |-------|--------|-------------|
@@ -58,6 +58,7 @@ Spindrel defines **49 scopes** across **18 groups**:
 | **Tasks** | `tasks:read`, `tasks:write` | Scheduled/deferred task management |
 | **Workspaces** | `workspaces:read/write`, `workspaces.files:read/write` | Workspace management and file operations |
 | **Documents** | `documents:read`, `documents:write` | Ingested document search and management |
+| **Knowledge** | `knowledge:read`, `knowledge:write` | Bot knowledge entries (deprecated — prefer workspace files) |
 | **Todos** | `todos:read`, `todos:write` | Persistent work items |
 | **Attachments** | `attachments:read`, `attachments:write` | File attachment management |
 | **Logs** | `logs:read`, `logs:write` | Agent turns, tool calls, traces, server logs |
@@ -79,11 +80,11 @@ The admin UI offers one-click presets for common use cases:
 
 | Preset | Use Case | Key Scopes |
 |--------|----------|------------|
-| **Messaging Integration** | Slack, Discord, etc. | `chat`, `channels:read/write`, `sessions:read/write` |
-| **Chat Client** | Custom chat frontends | `chat`, `channels:read/write`, `attachments:read/write` |
-| **Workspace Bot** | Bots in containers | `chat`, `tasks:read/write`, `tools:read/execute`, `workspaces.files:read/write` |
-| **Read-Only Monitor** | Dashboards | `bots:read`, `channels:read`, `logs:read`, `tasks:read` |
-| **Mission Control** | MC dashboard | `channels:read`, `tasks:read/write`, `mission_control:read/write` |
+| **Messaging Integration** | Slack, Discord, etc. | `chat`, `bots:read`, `channels:read/write`, `channels.config:read/write`, `sessions:read/write`, `todos:read` |
+| **Chat Client** | Custom chat frontends | `chat`, `bots:read`, `channels:read/write`, `sessions:read`, `attachments:read/write` |
+| **Workspace Bot** | Bots in containers | `chat`, `bots:read`, `channels:read/write`, `tasks:read/write`, `documents:read/write`, `todos:read/write`, `workspaces.files:read/write`, `attachments:read/write`, `carapaces:read/write`, `tools:read/execute` |
+| **Read-Only Monitor** | Dashboards | `bots:read`, `channels:read`, `sessions:read`, `tasks:read`, `todos:read`, `attachments:read`, `logs:read` |
+| **Mission Control** | MC dashboard | `bots:read`, `channels:read`, `sessions:read`, `tasks:read/write`, `todos:read/write`, `workspaces:read`, `workspaces.files:read/write`, `attachments:read`, `logs:read`, `mission_control:read/write`, `carapaces:read` |
 
 ### JWT (User Authentication)
 

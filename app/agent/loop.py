@@ -3,6 +3,8 @@ import json
 import logging
 import traceback
 import uuid
+
+from app.utils import safe_create_task
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -137,7 +139,7 @@ def _finalize_response(
     logger.info("Final response (%d chars): %r", len(text), text[:120])
 
     if correlation_id is not None and not compaction:
-        asyncio.create_task(_record_trace_event(
+        safe_create_task(_record_trace_event(
             correlation_id=correlation_id,
             session_id=session_id,
             bot_id=bot.id,
@@ -148,7 +150,7 @@ def _finalize_response(
 
     # Fire after_response lifecycle hook (fire-and-forget)
     from app.agent.hooks import fire_hook, HookContext
-    asyncio.create_task(fire_hook("after_response", HookContext(
+    safe_create_task(fire_hook("after_response", HookContext(
         bot_id=bot.id, session_id=session_id, channel_id=channel_id,
         client_id=client_id, correlation_id=correlation_id,
         extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
@@ -335,7 +337,7 @@ async def run_agent_tool_loop(
                         _breakdown[_key] = {"count": 0, "chars": 0}
                     _breakdown[_key]["count"] += 1
                     _breakdown[_key]["chars"] += _chars
-                asyncio.create_task(_record_trace_event(
+                safe_create_task(_record_trace_event(
                     correlation_id=correlation_id,
                     session_id=session_id,
                     bot_id=bot.id,
@@ -367,7 +369,7 @@ async def run_agent_tool_loop(
             _llm_t0 = _time.monotonic()
 
             # Fire before_llm_call lifecycle hook
-            asyncio.create_task(fire_hook("before_llm_call", HookContext(
+            safe_create_task(fire_hook("before_llm_call", HookContext(
                 bot_id=bot.id, session_id=session_id, channel_id=channel_id,
                 client_id=client_id, correlation_id=correlation_id,
                 extra={
@@ -418,7 +420,7 @@ async def run_agent_tool_loop(
                 "iteration": iteration + 1,
                 "provider_id": effective_provider_id,
             }
-            asyncio.create_task(fire_hook("after_llm_call", HookContext(
+            safe_create_task(fire_hook("after_llm_call", HookContext(
                 bot_id=bot.id, session_id=session_id, channel_id=channel_id,
                 client_id=client_id, correlation_id=correlation_id,
                 extra=_after_llm_extra,
@@ -438,7 +440,7 @@ async def run_agent_tool_loop(
                     "reason": _fb_info.reason,
                 }, compaction)
                 if correlation_id is not None:
-                    asyncio.create_task(_record_trace_event(
+                    safe_create_task(_record_trace_event(
                         correlation_id=correlation_id,
                         session_id=session_id,
                         bot_id=bot.id,
@@ -454,7 +456,7 @@ async def run_agent_tool_loop(
                         duration_ms=_llm_latency_ms,
                     ))
                 # Record fallback event to DB for admin visibility
-                asyncio.create_task(_record_fallback_event(
+                safe_create_task(_record_fallback_event(
                     _fb_info, session_id=session_id, channel_id=channel_id, bot_id=bot.id,
                 ))
 
@@ -482,7 +484,7 @@ async def run_agent_tool_loop(
                         _usage_data["cached_tokens"] = accumulated_msg.cached_tokens
                     if accumulated_msg.response_cost is not None:
                         _usage_data["response_cost"] = accumulated_msg.response_cost
-                    asyncio.create_task(_record_trace_event(
+                    safe_create_task(_record_trace_event(
                         correlation_id=correlation_id,
                         session_id=session_id,
                         bot_id=bot.id,
@@ -576,7 +578,7 @@ async def run_agent_tool_loop(
                         except Exception as exc:
                             logger.error("Forced-response retry failed: %s", exc)
                             if correlation_id is not None:
-                                asyncio.create_task(_record_trace_event(
+                                safe_create_task(_record_trace_event(
                                     correlation_id=correlation_id,
                                     session_id=session_id,
                                     bot_id=bot.id,
@@ -804,7 +806,7 @@ async def run_agent_tool_loop(
                     yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
                     # Fire after_tool_call lifecycle hook (fire-and-forget)
-                    asyncio.create_task(fire_hook("after_tool_call", HookContext(
+                    safe_create_task(fire_hook("after_tool_call", HookContext(
                         bot_id=bot.id, session_id=session_id, channel_id=channel_id,
                         client_id=client_id, correlation_id=correlation_id,
                         extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
@@ -935,7 +937,7 @@ async def run_agent_tool_loop(
                     yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
                     # Fire after_tool_call lifecycle hook (fire-and-forget)
-                    asyncio.create_task(fire_hook("after_tool_call", HookContext(
+                    safe_create_task(fire_hook("after_tool_call", HookContext(
                         bot_id=bot.id, session_id=session_id, channel_id=channel_id,
                         client_id=client_id, correlation_id=correlation_id,
                         extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
@@ -991,7 +993,7 @@ async def run_agent_tool_loop(
 
         logger.warning("Agent loop ended: %s", _break_code)
         if correlation_id is not None:
-            asyncio.create_task(_record_trace_event(
+            safe_create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
                 bot_id=bot.id,
@@ -1056,7 +1058,7 @@ async def run_agent_tool_loop(
                 "channel_id": str(channel_id) if channel_id else None,
                 **_extract_usage_extras(response),
             }
-            asyncio.create_task(_record_trace_event(
+            safe_create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
                 bot_id=bot.id,
@@ -1081,7 +1083,7 @@ async def run_agent_tool_loop(
         # Fire after_response hook on error path so integrations can clean up
         # (e.g. Slack removes the hourglass reaction).
         try:
-            asyncio.create_task(fire_hook("after_response", HookContext(
+            safe_create_task(fire_hook("after_response", HookContext(
                 bot_id=bot.id, session_id=session_id, channel_id=channel_id,
                 client_id=client_id, correlation_id=correlation_id,
                 extra={"error": True, "tool_calls_made": list(tool_calls_made)},
@@ -1089,7 +1091,7 @@ async def run_agent_tool_loop(
         except Exception:
             pass  # best-effort; fire_hook/HookContext may not be bound if imports failed
         if correlation_id is not None:
-            asyncio.create_task(_record_trace_event(
+            safe_create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
                 bot_id=bot.id,
@@ -1238,7 +1240,7 @@ async def run_stream(
             _rerank_result.original_chars, _rerank_result.kept_chars,
         )
         if correlation_id is not None:
-            asyncio.create_task(_record_trace_event(
+            safe_create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
                 bot_id=bot.id,

@@ -558,8 +558,7 @@ async def _run_with_fallback_chain(
             ))
             return result
         except _FALLBACK_TRIGGER_ERRORS as exc:
-            logger.warning("Cooldown fallback %s also failed: %s, clearing cooldown", cooldown_fb, exc)
-            clear_model_cooldown(model)
+            logger.warning("Cooldown fallback %s also failed: %s, keeping cooldown active", cooldown_fb, exc)
             primary_exc = exc
 
     # --- Primary model ---

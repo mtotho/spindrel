@@ -36,20 +36,35 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 _MAX_ATTEMPTS = 5
 _WINDOW_SECONDS = 60
+_CLEANUP_COUNTER = 0
+_CLEANUP_INTERVAL = 100
 
 
 def _check_rate_limit(request: Request) -> None:
     """Raise 429 if too many login attempts from the same IP."""
+    global _CLEANUP_COUNTER
     ip = request.client.host if request.client else "unknown"
     now = time.time()
+
+    # Periodic cleanup of stale IPs to prevent unbounded dict growth
+    _CLEANUP_COUNTER += 1
+    if _CLEANUP_COUNTER >= _CLEANUP_INTERVAL:
+        _CLEANUP_COUNTER = 0
+        cutoff = now - 2 * _WINDOW_SECONDS
+        stale = [k for k, v in _LOGIN_ATTEMPTS.items() if k != ip and all(t < cutoff for t in v)]
+        for k in stale:
+            del _LOGIN_ATTEMPTS[k]
+
     attempts = _LOGIN_ATTEMPTS.get(ip, [])
-    # Prune old entries; remove key entirely if empty to avoid slow memory leak
     recent = [t for t in attempts if now - t < _WINDOW_SECONDS]
     if len(recent) >= _MAX_ATTEMPTS:
         _LOGIN_ATTEMPTS[ip] = recent
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
     recent.append(now)
-    _LOGIN_ATTEMPTS[ip] = recent
+    if recent:
+        _LOGIN_ATTEMPTS[ip] = recent
+    else:
+        _LOGIN_ATTEMPTS.pop(ip, None)
 
 
 # ---------------------------------------------------------------------------

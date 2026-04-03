@@ -397,25 +397,31 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     (for local/trusted networks).
     """
     from integrations.bluebubbles.config import settings as bb_settings
+
+    logger.info("BB webhook: received request from %s", request.client.host if request.client else "unknown")
+
     expected = bb_settings.BB_WEBHOOK_TOKEN
     if expected:
         token = request.query_params.get("token", "")
         if not token or token != expected:
+            logger.warning("BB webhook: auth failed (token mismatch)")
             raise HTTPException(status_code=401, detail="Invalid or missing token")
 
     try:
         payload = await request.json()
     except Exception:
+        logger.warning("BB webhook: invalid JSON body")
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
     event_type = payload.get("type")
+    logger.info("BB webhook: event_type=%s", event_type)
     if event_type != "new-message":
-        logger.debug("BB webhook: ignoring event type %s", event_type)
         return {"status": "ignored", "event": event_type}
 
     data = payload.get("data") or {}
     text = (data.get("text") or "").strip()
     if not text:
+        logger.info("BB webhook: ignoring new-message with empty text")
         return {"status": "ignored", "reason": "empty_text"}
 
     is_from_me = bool(data.get("isFromMe"))
@@ -428,9 +434,12 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         logger.warning("BB webhook: new-message without chat GUID, guid=%s", msg_guid)
         return {"status": "ignored", "reason": "no_chat_guid"}
 
+    logger.info("BB webhook: new-message chat_guid=%s is_from_me=%s text=%r",
+                chat_guid, is_from_me, text[:80])
+
     # Echo check — is this our own reply bouncing back?
     if is_from_me and shared_tracker.is_echo(msg_guid, text):
-        logger.debug("BB webhook: echo detected, guid=%s", msg_guid)
+        logger.info("BB webhook: echo detected, guid=%s", msg_guid)
         return {"status": "ignored", "reason": "echo"}
 
     # Resolve channels bound to this chat

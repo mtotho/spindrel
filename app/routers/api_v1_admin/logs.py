@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import func, literal, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Message, Session, ToolCall, TraceEvent
@@ -97,91 +97,137 @@ async def admin_logs(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("logs:read")),
 ):
-    """List log entries (tool calls + trace events), merged and sorted desc."""
-    offset = (page - 1) * page_size
+    """List log entries (tool calls + trace events), merged and sorted desc.
 
-    tc_stmt = select(ToolCall).order_by(ToolCall.created_at.desc())
-    te_stmt = select(TraceEvent).order_by(TraceEvent.created_at.desc())
+    Uses DB-side UNION ALL with ORDER BY / LIMIT / OFFSET for proper
+    pagination regardless of dataset size.
+    """
+    pg_offset = (page - 1) * page_size
 
+    # Build common filter conditions for both tables
+    tc_filters = []
+    te_filters = []
     if bot_id:
-        tc_stmt = tc_stmt.where(ToolCall.bot_id == bot_id)
-        te_stmt = te_stmt.where(TraceEvent.bot_id == bot_id)
-
+        tc_filters.append(ToolCall.bot_id == bot_id)
+        te_filters.append(TraceEvent.bot_id == bot_id)
     if session_id:
         try:
             sid = uuid.UUID(session_id)
-            tc_stmt = tc_stmt.where(ToolCall.session_id == sid)
-            te_stmt = te_stmt.where(TraceEvent.session_id == sid)
+            tc_filters.append(ToolCall.session_id == sid)
+            te_filters.append(TraceEvent.session_id == sid)
         except ValueError:
             pass
-
     if channel_id:
         try:
             cid = uuid.UUID(channel_id)
             session_sub = select(Session.id).where(Session.channel_id == cid)
-            tc_stmt = tc_stmt.where(ToolCall.session_id.in_(session_sub))
-            te_stmt = te_stmt.where(TraceEvent.session_id.in_(session_sub))
+            tc_filters.append(ToolCall.session_id.in_(session_sub))
+            te_filters.append(TraceEvent.session_id.in_(session_sub))
         except ValueError:
             pass
 
-    if event_type == "tool_call":
-        te_stmt = te_stmt.where(text("false"))
-    elif event_type and event_type != "tool_call":
-        tc_stmt = tc_stmt.where(text("false"))
-        te_stmt = te_stmt.where(TraceEvent.event_type == event_type)
+    # event_type filter: "tool_call" shows only tool calls, anything else
+    # shows only trace events matching that type
+    skip_tc = event_type is not None and event_type != "tool_call"
+    skip_te = event_type == "tool_call"
+    if event_type and event_type != "tool_call":
+        te_filters.append(TraceEvent.event_type == event_type)
 
-    tool_calls = (await db.execute(tc_stmt.limit(500))).scalars().all()
-    trace_events = (await db.execute(te_stmt.limit(500))).scalars().all()
+    # Tool calls subquery — project shared columns for UNION ALL
+    tc_q = (
+        select(
+            ToolCall.id,
+            ToolCall.created_at,
+            literal("tool_call").label("kind"),
+            ToolCall.correlation_id,
+            ToolCall.session_id,
+            ToolCall.bot_id,
+            ToolCall.client_id,
+            ToolCall.tool_name,
+            ToolCall.tool_type,
+            ToolCall.arguments,
+            ToolCall.result,
+            ToolCall.error,
+            ToolCall.duration_ms,
+            literal(None).label("event_type"),
+            literal(None).label("event_name"),
+            literal(None).label("count"),
+        )
+        .where(*tc_filters)
+    )
 
-    merged: list[dict] = []
-    for tc in tool_calls:
-        merged.append({"kind": "tool_call", "obj": tc, "created_at": tc.created_at})
-    for te in trace_events:
-        merged.append({"kind": "trace_event", "obj": te, "created_at": te.created_at})
-    merged.sort(key=lambda x: x["created_at"], reverse=True)
+    # Trace events subquery
+    te_q = (
+        select(
+            TraceEvent.id,
+            TraceEvent.created_at,
+            literal("trace_event").label("kind"),
+            TraceEvent.correlation_id,
+            TraceEvent.session_id,
+            TraceEvent.bot_id,
+            TraceEvent.client_id,
+            literal(None).label("tool_name"),
+            literal(None).label("tool_type"),
+            literal(None).label("arguments"),
+            literal(None).label("result"),
+            literal(None).label("error"),
+            TraceEvent.duration_ms,
+            TraceEvent.event_type,
+            TraceEvent.event_name,
+            TraceEvent.count,
+        )
+        .where(*te_filters)
+    )
 
-    total = len(merged)
-    page_items = merged[offset: offset + page_size]
+    # Build the UNION ALL (or single source if one side is filtered out)
+    if skip_tc and skip_te:
+        # Contradictory filters — return empty
+        return LogListOut(rows=[], total=0, page=page, page_size=page_size, bot_ids=[])
+    elif skip_tc:
+        combined = te_q.subquery()
+    elif skip_te:
+        combined = tc_q.subquery()
+    else:
+        combined = union_all(tc_q, te_q).subquery()
+
+    # Count + paginated fetch in parallel-ish (two queries)
+    count_stmt = select(func.count()).select_from(combined)
+    data_stmt = (
+        select(combined)
+        .order_by(combined.c.created_at.desc())
+        .limit(page_size)
+        .offset(pg_offset)
+    )
+
+    total_result, data_result = await db.execute(count_stmt), await db.execute(data_stmt)
+    total = total_result.scalar() or 0
+    raw_rows = data_result.all()
 
     bot_ids_result = (await db.execute(select(ToolCall.bot_id).distinct())).scalars().all()
 
     rows: list[LogRow] = []
-    for item in page_items:
-        obj = item["obj"]
-        if item["kind"] == "tool_call":
-            result_text = obj.result
-            if result_text and len(result_text) > 500:
-                result_text = result_text[:500] + "..."
-            rows.append(LogRow(
-                kind="tool_call",
-                id=str(obj.id),
-                created_at=obj.created_at.isoformat() if obj.created_at else None,
-                correlation_id=str(obj.correlation_id) if obj.correlation_id else None,
-                session_id=str(obj.session_id) if obj.session_id else None,
-                bot_id=obj.bot_id,
-                client_id=obj.client_id,
-                tool_name=obj.tool_name,
-                tool_type=obj.tool_type,
-                arguments=obj.arguments,
-                result=result_text,
-                error=obj.error,
-                duration_ms=obj.duration_ms,
-            ))
-        else:
-            rows.append(LogRow(
-                kind="trace_event",
-                id=str(obj.id),
-                created_at=obj.created_at.isoformat() if obj.created_at else None,
-                correlation_id=str(obj.correlation_id) if obj.correlation_id else None,
-                session_id=str(obj.session_id) if obj.session_id else None,
-                bot_id=obj.bot_id,
-                client_id=obj.client_id,
-                event_type=obj.event_type,
-                event_name=obj.event_name,
-                count=obj.count,
-                data=obj.data,
-                duration_ms=obj.duration_ms,
-            ))
+    for r in raw_rows:
+        result_text = r.result
+        if result_text and len(result_text) > 500:
+            result_text = result_text[:500] + "..."
+        rows.append(LogRow(
+            kind=r.kind,
+            id=str(r.id),
+            created_at=r.created_at.isoformat() if r.created_at else None,
+            correlation_id=str(r.correlation_id) if r.correlation_id else None,
+            session_id=str(r.session_id) if r.session_id else None,
+            bot_id=r.bot_id,
+            client_id=r.client_id,
+            tool_name=r.tool_name,
+            tool_type=r.tool_type,
+            arguments=r.arguments if r.kind == "tool_call" else None,
+            result=result_text if r.kind == "tool_call" else None,
+            error=r.error if r.kind == "tool_call" else None,
+            duration_ms=r.duration_ms,
+            event_type=r.event_type if r.kind == "trace_event" else None,
+            event_name=r.event_name if r.kind == "trace_event" else None,
+            count=r.count if r.kind == "trace_event" else None,
+        ))
 
     return LogListOut(
         rows=rows,

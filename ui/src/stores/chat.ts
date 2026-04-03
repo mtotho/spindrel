@@ -273,6 +273,35 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             },
           };
         }
+        case "delegation_post": {
+          // Immediate delegation result — add as a synthetic message so it's
+          // visible during streaming rather than waiting for the DB refetch.
+          const data = event.data as { bot_id?: string; text?: string; display_name?: string };
+          if (!data.text) return s;
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                messages: [
+                  ...ch.messages,
+                  {
+                    id: `delegation-${Date.now()}`,
+                    session_id: "",
+                    role: "assistant" as const,
+                    content: data.text,
+                    created_at: new Date().toISOString(),
+                    metadata: {
+                      passive: true,
+                      delegated_by: data.bot_id,
+                      delegated_by_display: data.display_name,
+                    },
+                  },
+                ],
+              },
+            },
+          };
+        }
         case "secret_warning": {
           const data = event.data as { patterns?: { type: string }[] };
           return {
@@ -318,8 +347,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             ...ch,
             messages: newMessages,
             isStreaming: false,
-            isProcessing: false,
-            queuedTaskId: null,
+            // Preserve isProcessing/queuedTaskId — if a "queued" event set these,
+            // we must NOT clear them here. The SSE closes after "queued" which
+            // triggers finishStreaming, but the background task is still running.
+            // clearProcessing() handles the reset when the task actually completes.
             streamingContent: "",
             thinkingContent: "",
             toolCalls: [],

@@ -539,6 +539,11 @@ class ToolCall(Base):
         server_default=text("now()"),
     )
 
+    __table_args__ = (
+        Index("ix_tool_calls_correlation_id", "correlation_id"),
+        Index("ix_tool_calls_bot_created", "bot_id", "created_at"),
+    )
+
 
 class TraceEvent(Base):
     __tablename__ = "trace_events"
@@ -556,6 +561,11 @@ class TraceEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_trace_events_correlation_id", "correlation_id"),
+        Index("ix_trace_events_bot_created", "bot_id", "created_at"),
     )
 
 
@@ -640,6 +650,10 @@ class FilesystemChunk(Base):
     indexed_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_filesystem_chunks_bot_root", "bot_id", "root"),
     )
 
 
@@ -1075,6 +1089,7 @@ class Task(Base):
 
     __table_args__ = (
         Index("ix_tasks_status_run_at", "status", "run_at"),
+        Index("ix_tasks_correlation_id", "correlation_id"),
     )
 
 

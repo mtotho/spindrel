@@ -524,7 +524,8 @@ export type SSEEventType =
   | "passive_stored"
   | "secret_warning"
   | "approval_request"
-  | "approval_resolved";
+  | "approval_resolved"
+  | "delegation_post";
 
 export interface SSEEvent {
   event: SSEEventType;

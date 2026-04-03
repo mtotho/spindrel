@@ -5,6 +5,8 @@ import json
 import logging
 import time
 import uuid
+
+from app.utils import safe_create_task
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -149,7 +151,7 @@ async def dispatch_tool_call(
 
     # Fire before_tool_execution lifecycle hook (after auth/policy checks pass)
     from app.agent.hooks import fire_hook, HookContext
-    asyncio.create_task(fire_hook("before_tool_execution", HookContext(
+    safe_create_task(fire_hook("before_tool_execution", HookContext(
         bot_id=bot_id, session_id=session_id, channel_id=channel_id,
         client_id=client_id, correlation_id=correlation_id,
         extra={
@@ -294,7 +296,7 @@ async def dispatch_tool_call(
     _tc_record_id = uuid.uuid4() if _will_summarize else None
 
     # Record tool call (store full result when summarization will occur)
-    asyncio.create_task(_record_tool_call(
+    safe_create_task(_record_tool_call(
         id=_tc_record_id,
         session_id=session_id,
         client_id=client_id,
@@ -326,7 +328,7 @@ async def dispatch_tool_call(
             f"(section='tool:{_tc_record_id}') to retrieve]"
         )
         if correlation_id is not None:
-            asyncio.create_task(_record_trace_event(
+            safe_create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
                 bot_id=bot_id,
@@ -456,7 +458,7 @@ async def _create_approval_record(
 
     # Fire-and-forget notification via dispatcher
     if dispatch_type and dispatch_config:
-        asyncio.create_task(_notify_approval_request(
+        safe_create_task(_notify_approval_request(
             dispatch_type=dispatch_type,
             dispatch_config=dispatch_config,
             approval_id=approval_id,
