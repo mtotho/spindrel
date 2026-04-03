@@ -85,6 +85,7 @@ mcp.yaml
 
 # Runtime data
 data/
+!app/data/
 
 
 

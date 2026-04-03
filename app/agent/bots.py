@@ -639,33 +639,53 @@ async def reload_bots() -> None:
 async def ensure_default_bot() -> None:
     """Guarantee the 'default' bot exists in DB and registry.
 
-    If missing (deleted by user, failed seed, fresh DB), re-seed it from
-    the system_bots YAML and reload the registry.
+    If missing (deleted by user, failed seed, fresh DB), create it with
+    hardcoded sane defaults — no file dependencies.
     """
     if "default" in _registry:
         return
 
-    logger.warning("Default bot missing from registry — re-seeding from system YAML")
-    yaml_path = SYSTEM_BOTS_DIR / "default.yaml"
-    if not yaml_path.exists():
-        logger.error("Cannot re-seed default bot: %s not found", yaml_path)
-        return
-
+    logger.warning("Default bot missing from registry — creating with defaults")
     try:
-        with open(yaml_path) as f:
-            data = yaml.safe_load(f)
-        if not data or "id" not in data:
-            return
-        row_dict = _yaml_data_to_row_dict(data)
-        row_dict["source_type"] = "system"
+        row_dict = {
+            "id": "default",
+            "name": "Default",
+            "model": settings.DEFAULT_MODEL,
+            "system_prompt": (
+                "You are a helpful, concise assistant.\n\n"
+                "Respond directly to the user's question. Be clear and to the point.\n"
+                "Use tools when they would help answer the question — don't explain\n"
+                "what tools do, just use them."
+            ),
+            "source_type": "system",
+            "local_tools": [],
+            "mcp_servers": [],
+            "client_tools": [],
+            "pinned_tools": [],
+            "skills": [],
+            "docker_sandbox_profiles": [],
+            "tool_retrieval": True,
+            "persona": False,
+            "base_prompt": True,
+            "context_compaction": True,
+            "audio_input": "transcribe",
+            "memory_config": {},
+            "knowledge_config": {},
+            "filesystem_indexes": [],
+            "host_exec_config": {},
+            "filesystem_access": [],
+            "integration_config": {},
+            "tool_result_config": {},
+            "delegation_config": {"delegate_bots": []},
+        }
         async with async_session() as db:
             stmt = pg_insert(BotRow).values(**row_dict).on_conflict_do_nothing(index_elements=["id"])
             await db.execute(stmt)
             await db.commit()
         await load_bots()
-        logger.info("Re-seeded default bot successfully")
+        logger.info("Created default bot successfully")
     except Exception:
-        logger.error("Failed to re-seed default bot", exc_info=True)
+        logger.error("Failed to create default bot", exc_info=True)
 
 
 def list_bots() -> list[BotConfig]:

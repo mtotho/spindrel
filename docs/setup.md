@@ -84,6 +84,40 @@ docker compose up -d
 > ```
 > Dashboards are optional — all core features work without them.
 
+## Updating
+
+### With the Spindrel CLI
+
+```bash
+spindrel pull    # git pull + rebuild + restart
+```
+
+Install the CLI if you haven't:
+
+```bash
+sudo ln -sf /path/to/spindrel/scripts/spindrel /usr/local/bin/spindrel
+```
+
+The setup wizard offers to do this automatically.
+
+### Manually (Docker)
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+`--build` is required — `docker compose restart` only restarts the old image without picking up code changes.
+
+### Manually (host / systemd)
+
+```bash
+git pull
+spindrel restart
+```
+
+Or without the CLI: `sudo systemctl restart spindrel`
+
 ## Web Search
 
 The `web_search` tool backend is controlled by `WEB_SEARCH_MODE` (configurable at runtime in **Settings > Web Search**):

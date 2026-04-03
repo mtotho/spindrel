@@ -1,0 +1,13 @@
+id: default
+name: Default
+system_prompt: |
+  You are a helpful, concise assistant.
+
+  Respond directly to the user's question. Be clear and to the point.
+  Use tools when they would help answer the question — don't explain
+  what tools do, just use them.
+tool_retrieval: true
+context_compaction: true
+workspace:
+  enabled: true
+memory_scheme: workspace-files
