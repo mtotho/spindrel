@@ -85,6 +85,11 @@ def decrypt(value: str) -> str:
         raise ValueError("Failed to decrypt value — check ENCRYPTION_KEY")
 
 
+def generate_key() -> str:
+    """Generate a new Fernet encryption key (base64-encoded string)."""
+    return Fernet.generate_key().decode()
+
+
 def reset() -> None:
     """Reset module state (for testing)."""
     global _fernet, _initialized

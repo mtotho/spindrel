@@ -538,6 +538,67 @@ class TestOpEdit:
         assert "closest" not in result["error"].lower()
 
 
+class TestOpEditAutoRecovery:
+    """Tests for LLM-friendly auto-recovery when edit is called with wrong params."""
+
+    def test_edit_content_no_find_falls_through_to_write(self, ws):
+        """edit with content but no find should fall through to write."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, None, None, False, content="new content"))
+        assert result["ok"] is True
+        assert Path(path).read_text() == "new content"
+
+    def test_edit_content_and_same_replace_falls_through_to_write(self, ws):
+        """edit with content == replace (confused LLM) should fall through to write."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, None, "same text", False, content="same text"))
+        assert result["ok"] is True
+        assert Path(path).read_text() == "same text"
+
+    def test_edit_content_as_find_when_replace_differs(self, ws):
+        """edit with content (old) + replace (new) but no find should treat content as find."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, None, "Goodbye world", False, content="Hello world"))
+        assert result["ok"] is True
+        assert "Goodbye world" in Path(path).read_text()
+
+    def test_edit_content_as_find_not_found(self, ws):
+        """content-as-find that doesn't match should return not-found error."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, None, "replacement", False, content="NONEXISTENT"))
+        assert "error" in result
+        assert "not found" in result["error"]
+
+    def test_edit_no_find_no_content(self, ws):
+        """edit with neither find nor content should return error."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, None, "x", False))
+        assert "error" in result
+        assert "find is required" in result["error"]
+
+    def test_edit_find_provided_content_ignored(self, ws):
+        """When find is provided, content parameter is ignored (normal path)."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, "Hello world", "Goodbye", False, content="ignored"))
+        assert result["ok"] is True
+        assert "Goodbye" in Path(path).read_text()
+
+    def test_edit_no_find_no_replace_with_content_writes(self, ws):
+        """edit with only content (no find, no replace) falls through to write."""
+        path = str(ws / "memory" / "MEMORY.md")
+        new_content = "# Updated Memory\n\n## New Facts\n- Fact A\n"
+        result = json.loads(_op_edit(path, None, None, False, content=new_content))
+        assert result["ok"] is True
+        assert Path(path).read_text() == new_content
+
+    def test_edit_content_fallback_to_replace_when_find_given(self, ws):
+        """When find is given but replace is None, content is used as replace."""
+        path = str(ws / "hello.txt")
+        result = json.loads(_op_edit(path, "Hello world", None, False, content="Goodbye world"))
+        assert result["ok"] is True
+        assert "Goodbye world" in Path(path).read_text()
+
+
 class TestWhitespaceFlexPattern:
     def test_basic_pattern(self):
         pat = _whitespace_flex_pattern("hello world")

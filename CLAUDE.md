@@ -191,7 +191,7 @@ Composable bundles of skills, tools, and behavioral instructions that give bots 
 
 Per-channel file stores with schema-guided organization.
 
-- **Storage**: `~/.agent-workspaces/{bot_id_or_shared}/channels/{channel_id}/`
+- **Storage**: `~/.spindrel-workspaces/{bot_id_or_shared}/channels/{channel_id}/`
 - **Active files** (`.md` at root): Auto-injected into context every request
 - **Archive files** (`archive/`): Searchable via tool, not auto-injected
 - **Data files** (`data/`): Listed but not injected; referenced via search tool

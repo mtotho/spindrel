@@ -152,8 +152,12 @@ def list_workspace_files(
     ws_path = get_channel_workspace_root(channel_id, bot)
     files: list[dict] = []
 
+    ws_real = os.path.realpath(ws_path)
+
     if os.path.isdir(ws_path):
         for entry in sorted(os.scandir(ws_path), key=lambda e: e.name):
+            if entry.is_symlink():
+                continue
             if entry.is_file() and entry.name.endswith(".md"):
                 stat = entry.stat()
                 files.append({
@@ -168,6 +172,8 @@ def list_workspace_files(
         archive_path = os.path.join(ws_path, "archive")
         if os.path.isdir(archive_path):
             for entry in sorted(os.scandir(archive_path), key=lambda e: e.name):
+                if entry.is_symlink():
+                    continue
                 if entry.is_file() and entry.name.endswith(".md"):
                     stat = entry.stat()
                     files.append({
@@ -187,8 +193,13 @@ def list_workspace_files(
             if ".." in safe.split(os.sep):
                 return files  # reject traversal attempts
             data_path = os.path.join(data_path, safe)
+        # Ensure resolved data path is still within workspace
+        if not os.path.realpath(data_path).startswith(ws_real + os.sep):
+            return files
         if os.path.isdir(data_path):
             for entry in sorted(os.scandir(data_path), key=lambda e: e.name):
+                if entry.is_symlink():
+                    continue
                 if entry.is_file():
                     rel = os.path.relpath(entry.path, ws_path)
                     stat = entry.stat()
@@ -204,7 +215,7 @@ def list_workspace_files(
                     })
                 elif entry.is_dir():
                     # Count total files recursively inside this folder
-                    count = sum(len(fns) for _, _, fns in os.walk(entry.path))
+                    count = sum(len(fns) for _, _, fns in os.walk(entry.path, followlinks=False))
                     folder_name = entry.name
                     if data_prefix:
                         folder_name = f"{data_prefix}/{entry.name}"

@@ -140,14 +140,14 @@ textarea::placeholder {
   display: flex;
   gap: 4px;
   opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.1s ease;
+  visibility: hidden;
+  transition: opacity 0.1s ease, visibility 0.1s ease;
   z-index: 5;
 }
 @media (hover: hover) {
   .msg-hover:hover .msg-actions {
     opacity: 1;
-    pointer-events: auto;
+    visibility: visible;
   }
 }
 

@@ -24,6 +24,8 @@ interface ChatState {
   finishStreaming: (channelId: string) => void;
   clearProcessing: (channelId: string) => void;
   setError: (channelId: string, error: string) => void;
+  /** Remove all cached state for a channel (call on channel deletion). */
+  deleteChannel: (channelId: string) => void;
 }
 
 const emptyChannel: ChatChannelState = {
@@ -383,4 +385,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         },
       },
     })),
+
+  deleteChannel: (channelId) =>
+    set((s) => {
+      const { [channelId]: _, ...rest } = s.channels;
+      return { channels: rest };
+    }),
 }));

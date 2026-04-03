@@ -494,18 +494,24 @@ class SharedWorkspaceService:
         entries = []
         try:
             for entry in sorted(os.scandir(target), key=lambda e: (not e.is_dir(), e.name)):
+                if entry.is_symlink():
+                    continue
+                # Verify resolved path stays within workspace
+                real_entry = os.path.realpath(entry.path)
+                if not (real_entry == host_root or real_entry.startswith(host_root + os.sep)):
+                    continue
                 stat = entry.stat()
                 item: dict = {
                     "name": entry.name,
                     "is_dir": entry.is_dir(),
                     "size": stat.st_size if entry.is_file() else None,
-                    "path": os.path.relpath(os.path.realpath(entry.path), host_root),
+                    "path": os.path.relpath(real_entry, host_root),
                     "modified_at": stat.st_mtime,
                 }
                 # Enrich directories with .channel_info display_name
                 if entry.is_dir():
-                    info_path = os.path.join(entry.path, ".channel_info")
-                    if os.path.isfile(info_path):
+                    info_path = os.path.join(real_entry, ".channel_info")
+                    if os.path.isfile(info_path) and not os.path.islink(info_path):
                         try:
                             for line in open(info_path).readlines():
                                 if line.startswith("display_name:"):

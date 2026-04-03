@@ -222,7 +222,7 @@ async def file(
         elif operation == "append":
             return _op_append(resolved, content)
         elif operation == "edit":
-            return _op_edit(resolved, find, replace, replace_all)
+            return _op_edit(resolved, find, replace, replace_all, content=content)
         elif operation == "list":
             return _op_list(resolved, effective_ws_root)
         elif operation == "delete":
@@ -347,9 +347,21 @@ def _find_closest_hint(find: str, text: str) -> str:
     )
 
 
-def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool) -> str:
+def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool,
+             content: str | None = None) -> str:
+    # Auto-recover when LLM passes content instead of find/replace
+    if find is None and content is not None:
+        if replace is not None and replace != content:
+            # LLM put old text in content, new text in replace → treat content as find
+            find = content
+        else:
+            # LLM just wants to overwrite — fall through to write
+            logger.info("edit: no find provided, falling through to write for %s", path)
+            return _op_write(path, content)
     if find is None:
-        return _error("find is required for edit.")
+        return _error("find is required for edit. Use operation='write' to replace the entire file.")
+    if replace is None:
+        replace = content if content is not None else None
     if replace is None:
         return _error("replace is required for edit.")
     if not os.path.isfile(path):

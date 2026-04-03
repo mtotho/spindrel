@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { View, Text, Platform } from "react-native";
 import { Loader2, Wrench, Check, XCircle, ShieldAlert } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
-import { MarkdownContent } from "./MessageBubble";
+import { MarkdownContent } from "./MarkdownContent";
 import { formatToolArgs } from "./toolCallUtils";
 import { useDecideApproval } from "../../api/hooks/useApprovals";
 

@@ -75,7 +75,7 @@ async def get_system_status() -> str:
 
     # Providers
     providers = [
-        {"id": str(p.id), "name": p.name}
+        {"id": str(p.id), "name": p.display_name}
         for p in list_providers()
     ]
 
