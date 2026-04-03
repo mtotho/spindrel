@@ -69,53 +69,53 @@ class TestSSRFProtection:
     """Verify _validate_url blocks private/reserved IPs."""
 
     def test_blocks_localhost(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         assert _is_private_ip("127.0.0.1") is True
 
     def test_blocks_private_10(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         assert _is_private_ip("10.0.0.1") is True
 
     def test_blocks_private_172(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         assert _is_private_ip("172.16.0.1") is True
 
     def test_blocks_private_192(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         assert _is_private_ip("192.168.1.1") is True
 
     def test_blocks_metadata_endpoint(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         assert _is_private_ip("169.254.169.254") is True
 
     def test_allows_public_ip(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         assert _is_private_ip("8.8.8.8") is False
 
     def test_allows_public_ip_2(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         assert _is_private_ip("1.1.1.1") is False
 
     def test_blocks_ipv6_loopback(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         assert _is_private_ip("::1") is True
 
     def test_blocks_ipv6_private(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         assert _is_private_ip("fc00::1") is True
 
     def test_validate_url_rejects_non_http(self):
-        from app.tools.local.web_search import _validate_url
+        from app.utils.url_validation import validate_url as _validate_url
         with pytest.raises(ValueError, match="Unsupported URL scheme"):
             _validate_url("file:///etc/passwd")
 
     def test_validate_url_rejects_no_hostname(self):
-        from app.tools.local.web_search import _validate_url
+        from app.utils.url_validation import validate_url as _validate_url
         with pytest.raises(ValueError, match="no hostname"):
             _validate_url("http://")
 
     def test_blocks_unparseable_ip(self):
-        from app.tools.local.web_search import _is_private_ip
+        from app.utils.url_validation import is_private_ip as _is_private_ip
         # fail-secure: unparseable should be blocked
         assert _is_private_ip("not-an-ip") is True
 
@@ -124,39 +124,39 @@ class TestSSRFGuard:
     """Verify _check_ssrf (alias for _validate_url) blocks internal addresses."""
 
     def test_blocks_localhost(self):
-        from app.tools.local.web_search import _check_ssrf
+        from app.utils.url_validation import validate_url as _check_ssrf
         with pytest.raises(ValueError, match="local address"):
             _check_ssrf("http://localhost:8000/api/v1/admin/bots")
 
     def test_blocks_zero_addr(self):
-        from app.tools.local.web_search import _check_ssrf
+        from app.utils.url_validation import validate_url as _check_ssrf
         with pytest.raises(ValueError, match="local address"):
             _check_ssrf("http://0.0.0.0:8000/test")
 
     def test_blocks_non_http_scheme(self):
-        from app.tools.local.web_search import _check_ssrf
+        from app.utils.url_validation import validate_url as _check_ssrf
         with pytest.raises(ValueError, match="Unsupported URL scheme"):
             _check_ssrf("file:///etc/passwd")
 
     def test_blocks_ftp_scheme(self):
-        from app.tools.local.web_search import _check_ssrf
+        from app.utils.url_validation import validate_url as _check_ssrf
         with pytest.raises(ValueError, match="Unsupported URL scheme"):
             _check_ssrf("ftp://internal-server/data")
 
     def test_allows_https(self):
-        from app.tools.local.web_search import _check_ssrf
+        from app.utils.url_validation import validate_url as _check_ssrf
         try:
             _check_ssrf("https://example.com")
         except ValueError as e:
             assert "scheme" not in str(e).lower()
 
     def test_blocks_no_hostname(self):
-        from app.tools.local.web_search import _check_ssrf
+        from app.utils.url_validation import validate_url as _check_ssrf
         with pytest.raises(ValueError, match="no hostname"):
             _check_ssrf("http://")
 
     def test_allows_http(self):
-        from app.tools.local.web_search import _check_ssrf
+        from app.utils.url_validation import validate_url as _check_ssrf
         try:
             _check_ssrf("http://example.com")
         except ValueError as e:

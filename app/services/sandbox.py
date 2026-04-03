@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 from sqlalchemy import func, select
 
 from app.config import settings
@@ -363,7 +365,8 @@ class SandboxService:
             _allowed = current_allowed_secrets.get(None)
             _secrets_to_inject = {k: v for k, v in _all_secrets.items() if k in _allowed} if _allowed is not None else _all_secrets
             for _sk, _sv in _secrets_to_inject.items():
-                _exec_args += ["-e", f"{_sk}={_sv}"]
+                if _ENV_NAME_RE.match(_sk) and "\x00" not in str(_sv):
+                    _exec_args += ["-e", f"{_sk}={_sv}"]
         except Exception:
             pass
         _exec_args += [instance.container_id, "sh", "-c", command]
@@ -788,7 +791,8 @@ class SandboxService:
                 _allowed = current_allowed_secrets.get(None)
                 _secrets_to_inject = {k: v for k, v in _all_secrets.items() if k in _allowed} if _allowed is not None else _all_secrets
                 for _sk, _sv in _secrets_to_inject.items():
-                    exec_args += ["-e", f"{_sk}={_sv}"]
+                    if _ENV_NAME_RE.match(_sk) and "\x00" not in str(_sv):
+                        exec_args += ["-e", f"{_sk}={_sv}"]
             except Exception:
                 pass
             exec_args += [instance.container_id, "sh", "-c", command]

@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+import time
+from collections import defaultdict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +28,27 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting for login/setup endpoints
+# ---------------------------------------------------------------------------
+
+_LOGIN_ATTEMPTS: dict[str, list[float]] = defaultdict(list)
+_MAX_ATTEMPTS = 5
+_WINDOW_SECONDS = 60
+
+
+def _check_rate_limit(request: Request) -> None:
+    """Raise 429 if too many login attempts from the same IP."""
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    attempts = _LOGIN_ATTEMPTS[ip]
+    # Prune old entries
+    _LOGIN_ATTEMPTS[ip] = [t for t in attempts if now - t < _WINDOW_SECONDS]
+    if len(_LOGIN_ATTEMPTS[ip]) >= _MAX_ATTEMPTS:
+        raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
+    _LOGIN_ATTEMPTS[ip].append(now)
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +154,8 @@ async def auth_status(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/setup", response_model=TokenResponse)
-async def auth_setup(req: SetupRequest, db: AsyncSession = Depends(get_db)):
+async def auth_setup(req: SetupRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    _check_rate_limit(request)
     if not await is_setup_required(db):
         raise HTTPException(status_code=409, detail="Setup already completed")
 
@@ -161,7 +185,8 @@ async def auth_setup(req: SetupRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def auth_login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def auth_login(req: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    _check_rate_limit(request)
     user = await get_user_by_email(db, req.email)
     if not user or not user.password_hash:
         raise HTTPException(status_code=401, detail="Invalid email or password")

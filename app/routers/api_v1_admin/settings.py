@@ -63,7 +63,11 @@ async def admin_update_settings(
     try:
         applied = await update_settings(body.settings, db)
     except ValueError as exc:
+        # ValueError from settings validation is safe to expose (e.g. "Unknown key: ...")
         raise HTTPException(status_code=422, detail=str(exc))
+    except Exception:
+        log.exception("Settings update failed")
+        raise HTTPException(status_code=400, detail="Settings update failed. Check server logs for details.")
     return {"ok": True, "applied": applied}
 
 
@@ -78,6 +82,9 @@ async def admin_reset_setting(
         default_value = await reset_setting(key, db)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    except Exception:
+        log.exception("Setting reset failed for key=%s", key)
+        raise HTTPException(status_code=400, detail="Setting reset failed. Check server logs for details.")
     return {"ok": True, "default": default_value}
 
 

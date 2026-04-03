@@ -450,8 +450,11 @@ async def run_task(task: Task) -> None:
     # after a channel session reset.)
     # Skip for workflow tasks — they use dedicated per-step sessions to avoid
     # polluting chat and to prevent session lock contention.
+    # Skip for delegation tasks — they preserve their original parent session_id
+    # so cross-bot detection can correctly identify the parent and create a
+    # proper child session with the right linkage.
     _task_channel: Channel | None = None
-    if task.channel_id and task.task_type != "workflow":
+    if task.channel_id and task.task_type not in ("workflow", "delegation"):
         async with async_session() as db:
             channel = await db.get(Channel, task.channel_id)
             if channel:

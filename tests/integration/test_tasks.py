@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig
-from app.db.models import Message, Session, Task
+from app.db.models import Channel, Message, Session, Task
 from tests.integration.conftest import engine, db_session
 
 
@@ -562,6 +562,78 @@ class TestRunTask:
             # Delegation task should NOT be deferred — it should complete
             assert t.status == "complete"
             assert t.result == "Done!"
+
+    @pytest.mark.asyncio
+    async def test_delegation_preserves_original_session(self, engine):
+        """Delegation tasks should NOT have session_id redirected to channel active session.
+
+        The original parent session_id must be preserved so cross-bot detection
+        creates a proper child session with correct parent linkage.
+        """
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        bot = _bot(id="image-bot")
+
+        task_id = uuid.uuid4()
+        parent_sid = uuid.uuid4()
+        active_sid = uuid.uuid4()
+        channel_id = uuid.uuid4()
+
+        async with factory() as db:
+            # Parent session (from parent bot)
+            db.add(Session(id=parent_sid, client_id="task", bot_id="parent-bot"))
+            # Active session (different — channel may have been reset)
+            db.add(Session(id=active_sid, client_id="task", bot_id="parent-bot"))
+            # Channel with different active_session_id
+            db.add(Channel(id=channel_id, name="test-channel", bot_id="parent-bot", active_session_id=active_sid))
+            # Delegation task with original parent session_id
+            db.add(Task(
+                id=task_id, bot_id="image-bot", session_id=parent_sid,
+                channel_id=channel_id,
+                prompt="generate image", status="running", dispatch_type="none",
+                task_type="delegation",
+                run_at=datetime.now(timezone.utc),
+            ))
+            await db.commit()
+
+        async with factory() as db:
+            task = await db.get(Task, task_id)
+
+        from app.agent.loop import RunResult
+        mock_run_result = RunResult(response="Done!", transcript="", client_actions=[])
+        mock_dispatcher = MagicMock()
+        mock_dispatcher.deliver = AsyncMock()
+
+        captured_session_ids = []
+
+        async def mock_load_or_create(db, sid, *a, **kw):
+            captured_session_ids.append(str(sid))
+            return (sid, [{"role": "system", "content": "sp"}])
+
+        with (
+            patch("app.agent.tasks.async_session", factory),
+            patch("app.agent.tasks.get_bot", return_value=bot),
+            patch("app.agent.tasks.session_locks") as mock_locks,
+            patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result),
+            patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value=None),
+            patch("app.services.sessions.load_or_create", new_callable=AsyncMock, side_effect=mock_load_or_create),
+            patch("app.services.sessions.persist_turn", new_callable=AsyncMock),
+            patch("app.agent.tasks.dispatchers") as mock_dispatchers,
+        ):
+            mock_locks.acquire.return_value = False
+            mock_dispatchers.get.return_value = mock_dispatcher
+            from app.agent.tasks import run_task
+            await run_task(task)
+
+        async with factory() as db:
+            t = await db.get(Task, task_id)
+            assert t.status == "complete"
+
+        # Cross-bot detection should create a child session (not call load_or_create).
+        # But even if it does fall through, the session_id should be the original
+        # parent_sid, NOT the channel's active_sid.
+        for sid_str in captured_session_ids:
+            assert sid_str != str(active_sid), \
+                "Delegation task should not be redirected to channel active session"
 
     @pytest.mark.asyncio
     async def test_concrete_task_failure_does_not_break_schedule(self, engine):

@@ -30,7 +30,7 @@ class AnthropicDriver(ProviderDriver):
     provider_type = "anthropic"
 
     def capabilities(self) -> ProviderCapabilities:
-        return ProviderCapabilities(requires_api_key=True)
+        return ProviderCapabilities(chat_completions=False, requires_api_key=True)
 
     def make_client(self, config: ProviderConfigRow) -> AsyncOpenAI:
         return AsyncOpenAI(
@@ -56,7 +56,7 @@ class AnthropicCompatibleDriver(ProviderDriver):
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
-            list_models=True, requires_base_url=True, requires_api_key=True
+            chat_completions=False, list_models=True, requires_base_url=True, requires_api_key=True
         )
 
     def make_client(self, config: ProviderConfigRow) -> AsyncOpenAI:

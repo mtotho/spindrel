@@ -10,8 +10,11 @@ from app.agent.context import (
     current_dispatch_config,
     current_dispatch_type,
     current_session_id,
+    task_creation_count,
 )
 from app.tools.registry import register
+
+_MAX_TASK_CREATIONS_PER_REQUEST = 20
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +91,12 @@ async def delegate_to_agent(
     notify_parent: bool = True,
     model_tier: str | None = None,
 ) -> str:
+    # Rate limit: cap task creation per agent loop iteration
+    count = task_creation_count.get(0)
+    if count >= _MAX_TASK_CREATIONS_PER_REQUEST:
+        return json.dumps({"error": f"Task creation limit reached for this request (max {_MAX_TASK_CREATIONS_PER_REQUEST})."})
+    task_creation_count.set(count + 1)
+
     # LLMs sometimes pass "true"/"false" strings instead of booleans
     if isinstance(reply_in_thread, str):
         reply_in_thread = reply_in_thread.strip().lower() not in ("false", "0", "no", "")

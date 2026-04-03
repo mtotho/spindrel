@@ -148,6 +148,11 @@ async def manage_carapace(
     if action == "create":
         if not id or not name:
             return json.dumps({"error": "id and name are required for create action."})
+        # Tool-created carapaces cannot specify tools or delegates (privilege escalation guard)
+        if _csv(local_tools or "") or _csv(pinned_tools or "") or _csv(mcp_tools or ""):
+            return json.dumps({"error": "Tool-created carapaces cannot specify local_tools, pinned_tools, or mcp_tools. Use the admin UI."})
+        if _parse_delegates(delegates or ""):
+            return json.dumps({"error": "Tool-created carapaces cannot specify delegates. Use the admin UI."})
         cid = id.strip().lower().replace(" ", "-")
 
         async with async_session() as db:
@@ -161,12 +166,12 @@ async def manage_carapace(
                 name=name.strip(),
                 description=description or None,
                 skills=_parse_skills(skills or ""),
-                local_tools=_csv(local_tools or ""),
-                mcp_tools=_csv(mcp_tools or ""),
-                pinned_tools=_csv(pinned_tools or ""),
+                local_tools=[],
+                mcp_tools=[],
+                pinned_tools=[],
                 system_prompt_fragment=system_prompt_fragment or None,
                 includes=_csv(includes or ""),
-                delegates=_parse_delegates(delegates or ""),
+                delegates=[],
                 tags=_csv(tags or ""),
                 source_type="tool",
                 created_at=now,
@@ -189,6 +194,17 @@ async def manage_carapace(
                 return json.dumps({"error": f"Carapace '{id}' not found."})
             if row.source_type in ("file", "integration"):
                 return json.dumps({"error": "Cannot edit a file-managed carapace."})
+
+            # Tool-created carapaces cannot modify tools or delegates (privilege escalation guard)
+            if row.source_type == "tool":
+                if local_tools is not None and _csv(local_tools):
+                    return json.dumps({"error": "Tool-created carapaces cannot specify local_tools. Use the admin UI."})
+                if pinned_tools is not None and _csv(pinned_tools):
+                    return json.dumps({"error": "Tool-created carapaces cannot specify pinned_tools. Use the admin UI."})
+                if mcp_tools is not None and _csv(mcp_tools):
+                    return json.dumps({"error": "Tool-created carapaces cannot specify mcp_tools. Use the admin UI."})
+                if delegates is not None and _parse_delegates(delegates):
+                    return json.dumps({"error": "Tool-created carapaces cannot specify delegates. Use the admin UI."})
 
             if name:
                 row.name = name.strip()

@@ -27,8 +27,8 @@ from app.services.provider_drivers.openai_driver import OpenAICompatibleDriver, 
 
 class TestDriverRegistry:
     def test_all_types_registered(self):
-        assert len(DRIVER_REGISTRY) == 6
-        expected = {"litellm", "openai", "openai-compatible", "anthropic", "anthropic-compatible", "ollama"}
+        assert len(DRIVER_REGISTRY) == 7
+        expected = {"litellm", "openai", "openai-compatible", "anthropic", "anthropic-compatible", "anthropic-subscription", "ollama"}
         assert set(DRIVER_REGISTRY.keys()) == expected
 
     def test_provider_types_list_matches_registry(self):
@@ -41,6 +41,10 @@ class TestDriverRegistry:
         assert isinstance(get_driver("anthropic"), AnthropicDriver)
         assert isinstance(get_driver("anthropic-compatible"), AnthropicCompatibleDriver)
         assert isinstance(get_driver("ollama"), OllamaDriver)
+
+    def test_anthropic_subscription_alias(self):
+        """anthropic-subscription is an alias for the Anthropic driver."""
+        assert isinstance(get_driver("anthropic-subscription"), AnthropicDriver)
 
     def test_get_driver_unknown_type_returns_fallback(self):
         """Unknown provider types fall back to OpenAI-compatible driver."""

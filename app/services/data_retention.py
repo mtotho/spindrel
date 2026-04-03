@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 
 from sqlalchemy import text
 
@@ -22,6 +23,13 @@ RETENTION_TABLES: list[tuple[str, str, str | None]] = [
     ("workflow_runs", "created_at", "status IN ('completed', 'failed', 'cancelled')"),
     ("tasks", "created_at", "status IN ('complete', 'failed', 'cancelled')"),
 ]
+
+# Defense-in-depth: validate that all table/column names in RETENTION_TABLES
+# are safe SQL identifiers. Prevents injection if someone adds a configurable name.
+_IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+for _t, _dc, _sf in RETENTION_TABLES:
+    assert _IDENT_RE.match(_t), f"Invalid table name in RETENTION_TABLES: {_t}"
+    assert _IDENT_RE.match(_dc), f"Invalid column name in RETENTION_TABLES: {_dc}"
 
 
 def _build_where(date_col: str, days: int, status_filter: str | None) -> str:

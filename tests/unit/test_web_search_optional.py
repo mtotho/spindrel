@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.tools.local.web_search import web_search, _check_ssrf, _BLOCKED_NETWORKS, _sanitize_fetched_content
+from app.tools.local.web_search import web_search, _sanitize_fetched_content
+from app.utils.url_validation import validate_url as _check_ssrf, _BLOCKED_NETWORKS
 
 
 # ---------------------------------------------------------------------------

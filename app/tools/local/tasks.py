@@ -13,7 +13,10 @@ from app.agent.context import (
     current_dispatch_config,
     current_dispatch_type,
     current_session_id,
+    task_creation_count,
 )
+
+_MAX_TASK_CREATIONS_PER_REQUEST = 20
 from app.db.engine import async_session
 from app.db.models import PromptTemplate, Task
 from app.tools.registry import register
@@ -179,6 +182,12 @@ async def schedule_task(
     trigger_rag_loop: bool = False,
     max_run_seconds: int | None = None,
 ) -> str:
+    # Rate limit: cap task creation per agent loop iteration
+    count = task_creation_count.get(0)
+    if count >= _MAX_TASK_CREATIONS_PER_REQUEST:
+        return json.dumps({"error": f"Task creation limit reached for this request (max {_MAX_TASK_CREATIONS_PER_REQUEST})."})
+    task_creation_count.set(count + 1)
+
     scheduled = _parse_scheduled_at(scheduled_at)
 
     if recurrence:

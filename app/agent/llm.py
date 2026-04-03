@@ -563,8 +563,8 @@ def _prepare_call_params(
     from app.services.providers import get_llm_client, model_supports_tools, requires_system_message_folding, resolve_provider_for_model
 
     # Auto-resolve provider when caller didn't specify one and the model is
-    # registered under a specific provider (avoids sending e.g. an Anthropic
-    # model to the .env/LiteLLM fallback).
+    # registered under a specific provider.  Only resolves to providers that
+    # support the OpenAI chat/completions format (skips anthropic-compatible etc.).
     if provider_id is None:
         provider_id = resolve_provider_for_model(model)
 

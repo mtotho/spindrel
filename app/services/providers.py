@@ -252,10 +252,26 @@ def get_default_provider() -> ProviderConfigRow | None:
 def resolve_provider_for_model(model: str) -> str | None:
     """Look up the provider_id that owns *model* via the reverse index.
 
+    Only returns providers that support the OpenAI chat/completions format,
+    since that's what llm.py uses.  Providers with non-compatible endpoints
+    (e.g. anthropic-compatible pointing at a /messages API) are skipped so
+    the caller falls back to LiteLLM which handles format translation.
+
     Returns None if the model isn't in any provider's model list (caller
     should fall back to the .env default client).
     """
-    return _model_to_provider.get(model)
+    from app.services.provider_drivers import get_driver
+
+    provider_id = _model_to_provider.get(model)
+    if provider_id is None:
+        return None
+    provider = _registry.get(provider_id)
+    if provider is None:
+        return None
+    driver = get_driver(provider.provider_type)
+    if not driver.capabilities().chat_completions:
+        return None
+    return provider_id
 
 
 def get_llm_client(provider_id: str | None = None) -> AsyncOpenAI:

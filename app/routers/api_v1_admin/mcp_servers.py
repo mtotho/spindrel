@@ -141,8 +141,10 @@ async def admin_create_mcp_server(
     db.add(row)
     try:
         await db.commit()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception:
+        import logging as _log
+        _log.getLogger(__name__).exception("MCP server create failed")
+        raise HTTPException(status_code=400, detail="Failed to create MCP server. Check server logs for details.")
 
     await _reload_mcp()
     return _server_to_out(row)
@@ -281,4 +283,6 @@ async def _test_mcp_connection(url: str, api_key: str) -> MCPServerTestResult:
                 tools=tool_names,
             )
     except Exception as exc:
-        return MCPServerTestResult(ok=False, message=str(exc)[:200])
+        import logging as _log
+        _log.getLogger(__name__).warning("MCP connection test failed: %s", exc)
+        return MCPServerTestResult(ok=False, message="Connection failed. Check server logs for details.")

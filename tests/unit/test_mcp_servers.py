@@ -265,7 +265,7 @@ class TestMCPConnection:
             result = await _test_mcp_connection("http://unreachable.local", "")
 
         assert result.ok is False
-        assert "Connection refused" in result.message
+        assert "Connection failed" in result.message
 
 
 # ---------------------------------------------------------------------------

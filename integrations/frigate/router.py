@@ -6,10 +6,12 @@ filters (cameras, labels, min_score), and injects messages into matching channel
 """
 from __future__ import annotations
 
+import hmac
 import logging
+import os
 from dataclasses import dataclass
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
@@ -19,6 +21,21 @@ from integrations import utils
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _get_webhook_token() -> str | None:
+    """Get the Frigate webhook token from env or integration settings."""
+    # Check env var first (fast path)
+    token = os.environ.get("FRIGATE_WEBHOOK_TOKEN")
+    if token:
+        return token
+    # Fall back to DB-backed integration settings
+    try:
+        from app.services.integration_settings import get_value
+        val = get_value("frigate", "FRIGATE_WEBHOOK_TOKEN")
+        return val if val else None
+    except Exception:
+        return None
 
 CLIENT_ID = "frigate:events"
 
@@ -124,6 +141,13 @@ async def frigate_webhook(
     The MQTT listener POSTs raw Frigate event payloads here. Per-binding
     filters (cameras, labels, min_score) narrow which channels receive events.
     """
+    # Optional webhook token authentication
+    expected_token = _get_webhook_token()
+    if expected_token:
+        token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        if not token or not hmac.compare_digest(token, expected_token):
+            raise HTTPException(status_code=401, detail="Invalid webhook token")
+
     payload = await request.json()
 
     event = parse_event(payload)

@@ -15,6 +15,7 @@ SETUP = {
         {"key": "FRIGATE_MQTT_LABELS", "required": False, "description": "Global label filter for MQTT listener (e.g. person,car)"},
         {"key": "FRIGATE_MQTT_MIN_SCORE", "required": False, "description": "Global minimum detection score for MQTT listener (default 0.6)"},
         {"key": "FRIGATE_MQTT_COOLDOWN", "required": False, "description": "Seconds between alerts for same camera+label (default 300)"},
+        {"key": "FRIGATE_WEBHOOK_TOKEN", "required": False, "description": "Bearer token for webhook authentication (optional)", "secret": True},
     ],
     "webhook": {
         "path": "/integrations/frigate/webhook",

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 class ProviderCapabilities:
     """Declares what a provider type can do beyond basic chat completions."""
 
+    chat_completions: bool = True  # supports /chat/completions (OpenAI format)
     list_models: bool = False
     pull_model: bool = False
     delete_model: bool = False

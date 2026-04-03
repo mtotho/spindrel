@@ -67,6 +67,13 @@ class _WebhookDispatcher:
         if not url:
             logger.warning("WebhookDispatcher: missing url for task %s", task.id)
             return
+        # SSRF protection: block requests to private/reserved IPs
+        try:
+            from app.utils.url_validation import validate_url
+            validate_url(url)
+        except ValueError as exc:
+            logger.warning("WebhookDispatcher: SSRF blocked for task %s: %s", task.id, exc)
+            return
         try:
             r = await _http.post(url, json={"task_id": str(task.id), "result": result})
             r.raise_for_status()

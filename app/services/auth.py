@@ -21,7 +21,14 @@ logger = logging.getLogger(__name__)
 _http = httpx.AsyncClient(timeout=15.0)
 
 # Auto-generate JWT secret on first import if not configured
-_jwt_secret: str = settings.JWT_SECRET or secrets.token_hex(32)
+if not settings.JWT_SECRET:
+    _jwt_secret = secrets.token_hex(32)
+    logger.warning(
+        "JWT_SECRET not configured — using ephemeral secret. "
+        "Tokens will be invalidated on server restart. Set JWT_SECRET in .env for persistence."
+    )
+else:
+    _jwt_secret = settings.JWT_SECRET
 
 
 # ---------------------------------------------------------------------------

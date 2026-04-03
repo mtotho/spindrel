@@ -1,4 +1,6 @@
 """API endpoints for /api/v1/attachments — Phase 3 scaffold."""
+import os
+import re
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -11,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Attachment
 from app.dependencies import get_db, require_scopes, verify_auth_or_user
+
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
+_SAFE_FILENAME_RE = re.compile(r"[^\w.\- ]")
 
 router = APIRouter(prefix="/attachments", tags=["Attachments"])
 
@@ -137,9 +142,15 @@ async def upload_attachment(
     """Upload a file as a standalone attachment (no message)."""
     from app.services.attachments import create_attachment
 
-    file_data = await file.read()
+    # Read with size limit
+    file_data = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(file_data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_BYTES // (1024*1024)} MB)")
+
     mime = file.content_type or "application/octet-stream"
-    filename = file.filename or "upload"
+    # Sanitize filename — strip path components, limit chars
+    filename = os.path.basename(file.filename or "upload")
+    filename = _SAFE_FILENAME_RE.sub("_", filename)[:255]
 
     attachment = await create_attachment(
         message_id=None,

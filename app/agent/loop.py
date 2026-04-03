@@ -943,6 +943,10 @@ async def run_stream(
     from app.agent.embeddings import clear_embed_cache
     clear_embed_cache()
 
+    # Reset per-request task creation counter
+    from app.agent.context import task_creation_count
+    task_creation_count.set(0)
+
     # Track whether this is the outermost run_stream invocation (not a nested call from
     # run_immediate).  Only the outermost instance manages the delegation-post queue;
     # nested calls (child runs inside delegate_to_agent) share the same list so their

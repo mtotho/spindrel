@@ -83,9 +83,15 @@ class SharedWorkspaceService:
         """Deterministic container name: agent-ws-<slug>-<id-hex[:8]>"""
         return f"agent-ws-{_slug(ws.name)}-{str(ws.id).replace('-', '')[:8]}"
 
+    _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
     def _build_env(self, ws: SharedWorkspace) -> dict[str, str]:
         """Build environment dict with auto-injected server credentials."""
-        env = dict(ws.env or {})
+        # Validate env var names — reject anything with shell metacharacters or null bytes
+        env = {
+            k: v for k, v in (ws.env or {}).items()
+            if k and self._ENV_NAME_RE.match(k) and "\x00" not in str(v)
+        }
         # Auto-inject server API access so bots inside can call back
         env.setdefault("AGENT_SERVER_URL", settings.SERVER_PUBLIC_URL)
         # NOTE: Per-bot scoped API keys are injected at exec time (see exec_bot / exec_bot_local).
@@ -337,11 +343,12 @@ class SharedWorkspaceService:
                 exec_args += ["-e", f"AGENT_SERVER_API_KEY={bot_key}"]
         except Exception:
             pass  # Fall back to container-level env
-        # Inject secret values as env vars
+        # Inject secret values as env vars (validated names only)
         try:
             from app.services.secret_values import get_env_dict as _get_secret_env
             for _sk, _sv in _get_secret_env().items():
-                exec_args += ["-e", f"{_sk}={_sv}"]
+                if self._ENV_NAME_RE.match(_sk) and "\x00" not in str(_sv):
+                    exec_args += ["-e", f"{_sk}={_sv}"]
         except Exception:
             pass
         exec_args += [ws.container_name, "sh", "-c", full_cmd]
@@ -438,8 +445,14 @@ class SharedWorkspaceService:
             return "stopped"
         return stdout.decode().strip() or "unknown"
 
+    _SAFE_PATH_RE = re.compile(r"^[a-zA-Z0-9_./ -]+$")
+
     async def _run_startup_script(self, container_name: str, script_path: str) -> None:
         """Run a startup script inside the container. Logs output, warns on failure."""
+        # Validate script path has no shell metacharacters
+        if not self._SAFE_PATH_RE.match(script_path):
+            logger.warning("Startup script path rejected (unsafe chars): %s", script_path)
+            return
         # Check if the script exists
         quoted = shlex.quote(script_path)
         rc, _ = await self._docker_exec(container_name, f"test -f {quoted}")

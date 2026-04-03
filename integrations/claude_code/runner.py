@@ -76,9 +76,16 @@ def build_script(
     """Build a shell script that pipes the prompt to claude via heredoc stdin.
 
     Uses a heredoc pattern to safely pass the prompt via stdin.
+    The delimiter is regenerated if it collides with the prompt body.
     """
     inner = shlex.join(["claude"] + cli_args + ["-p"])
-    delim = f"__CLAUDE_PROMPT_{uuid.uuid4().hex[:8]}__"
+    # Generate a delimiter guaranteed not to appear in the prompt
+    for _ in range(10):
+        delim = f"__CLAUDE_PROMPT_{uuid.uuid4().hex[:16]}__"
+        if delim not in prompt:
+            break
+    else:
+        raise ValueError("Failed to generate safe heredoc delimiter after 10 attempts")
     if working_directory:
         return f"cd {shlex.quote(working_directory)} && {inner} <<'{delim}'\n{prompt}\n{delim}"
     return f"{inner} <<'{delim}'\n{prompt}\n{delim}"

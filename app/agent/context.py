@@ -47,6 +47,9 @@ current_injected_tools: ContextVar[list[dict] | None] = ContextVar("current_inje
 
 current_allowed_secrets: ContextVar[list[str] | None] = ContextVar("current_allowed_secrets", default=None)
 
+# Per-request task creation counter (capped to prevent runaway loops)
+task_creation_count: ContextVar[int] = ContextVar("task_creation_count", default=0)
+
 current_session_depth: ContextVar[int] = ContextVar("current_session_depth", default=0)
 current_root_session_id: ContextVar[uuid.UUID | None] = ContextVar("current_root_session_id", default=None)
 current_ephemeral_delegates: ContextVar[list] = ContextVar("current_ephemeral_delegates", default=[])
