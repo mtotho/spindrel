@@ -297,7 +297,7 @@ def main() -> None:
                 if not model:
                     return
         else:
-            example = "llama3.1:latest" if provider["provider_type"] == "ollama" else "model-name"
+            example = "gemma4:e4b" if provider["provider_type"] == "ollama" else "model-name"
             model = questionary.text(
                 f"Model name (e.g. {example}):",
                 style=STYLE,
@@ -435,9 +435,13 @@ def main() -> None:
             rc = os.system("docker compose up -d")
             if rc != 0:
                 print(f"\n  \033[31mDocker compose failed (exit {rc}). Start manually: docker compose up -d\033[0m")
-            elif SEED_FILE.exists():
-                # Server reads seed file from the bind-mounted volume on first boot
-                print(f"  \033[2m  provider-seed.yaml will be consumed on first server boot\033[0m")
+            else:
+                print()
+                if SEED_FILE.exists():
+                    print(f"  \033[2mprovider-seed.yaml will be consumed on first server boot\033[0m")
+                print(f"  \033[32m✓\033[0m Server running at \033[1mhttp://localhost:8000\033[0m")
+                print(f"  \033[32m✓\033[0m UI hosted at     \033[1mhttp://localhost:8081\033[0m")
+                print()
     else:
         print("  \033[1mNext steps:\033[0m")
         print("  1. bash scripts/dev-server.sh")

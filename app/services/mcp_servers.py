@@ -44,7 +44,7 @@ async def seed_from_yaml(config_path: Path = Path("mcp.yaml")) -> None:
     from app.services.encryption import encrypt
     from app.tools.mcp import _resolve_env_vars
 
-    if not config_path.exists():
+    if not config_path.exists() or not config_path.is_file():
         logger.info("No mcp.yaml at %s, skipping seed", config_path)
         return
 

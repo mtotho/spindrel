@@ -20,7 +20,6 @@ params:
     description: "Output format: markdown, bullet-points, executive-summary"
 
 defaults:
-  model: gemini/gemini-2.5-flash
   timeout: 180
 
 triggers:

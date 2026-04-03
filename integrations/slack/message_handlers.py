@@ -639,6 +639,13 @@ async def dispatch(
     bot_id = state["bot_id"] or config["bot_id"]
     client_id = slack_client_id(channel)
 
+    # Approval gate: if enabled and channel is unknown, prompt for approval
+    if _should_gate_channel(channel):
+        from channel_approval import check_or_prompt_approval
+        allowed = await check_or_prompt_approval(channel, bot_id, client, mentioned)
+        if not allowed:
+            return
+
     # Ensure Channel row exists on the server (idempotent, best-effort)
     await ensure_channel(client_id, bot_id)
 
@@ -734,6 +741,27 @@ async def dispatch(
         "thinking_display": config.get("thinking_display", "append"),
     }
     await _run_dispatch(channel, payload, client, identity)
+
+
+def _should_gate_channel(channel: str) -> bool:
+    """Check if the channel should be gated by approval.
+
+    Returns True if approval is enabled AND the channel is not already known
+    in the config cache (i.e., not bound via legacy or modern binding).
+    """
+    from slack_settings import get_slack_config
+    try:
+        from app.services.integration_settings import get_value
+        enabled = get_value("slack", "SLACK_REQUIRE_CHANNEL_APPROVAL", "false")
+    except ImportError:
+        import os
+        enabled = os.environ.get("SLACK_REQUIRE_CHANNEL_APPROVAL", "false")
+    if enabled.lower() not in ("true", "1", "yes"):
+        return False
+    # If channel is already in the config cache, it's known — no gate needed
+    cfg = get_slack_config()
+    known_channels = cfg.get("channels", {})
+    return channel not in known_channels
 
 
 def _handle_bot_message(event):

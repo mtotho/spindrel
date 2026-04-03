@@ -35,7 +35,7 @@ _SCHEMA = {
                 },
                 "channel_id": {
                     "type": "string",
-                    "description": "The channel ID to read conversation history from.",
+                    "description": "Optional. Only needed for cross-channel reads (from list_workspace_channels). Omit to read the current channel.",
                 },
             },
             "required": ["section"],
@@ -217,15 +217,33 @@ def _extract_snippet(text: str, query: str, context_chars: int = 100) -> str | N
 
 
 @register(_SCHEMA)
-async def read_conversation_history(section: str, channel_id: uuid.UUID | None = None) -> str:
+async def read_conversation_history(section: str, channel_id: str | None = None) -> str:
     my_channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()
     owner_bot_id = None  # set when reading another bot's channel via cross_workspace_access
 
-    if channel_id and channel_id != my_channel_id:
+    # Resolve channel_id: accept UUID strings or client_id (e.g. Slack channel IDs)
+    resolved_channel_id: uuid.UUID | None = None
+    if channel_id:
+        try:
+            resolved_channel_id = uuid.UUID(str(channel_id))
+        except ValueError:
+            # Not a UUID — try looking up by client_id
+            from sqlalchemy import select as _select
+            async with async_session() as db:
+                _result = await db.execute(
+                    _select(Channel.id).where(Channel.client_id == str(channel_id)).limit(1)
+                )
+                _row = _result.scalar_one_or_none()
+            if _row:
+                resolved_channel_id = _row
+            else:
+                return f"Unknown channel: {channel_id}"
+
+    if resolved_channel_id and resolved_channel_id != my_channel_id:
         # Verify the bot is a member of the requested channel or has cross_workspace_access
         async with async_session() as db:
-            ch = await db.get(Channel, channel_id)
+            ch = await db.get(Channel, resolved_channel_id)
         if not ch or ch.bot_id != bot_id:
             from app.agent.bots import get_bot
             caller_bot = get_bot(bot_id)
@@ -234,9 +252,9 @@ async def read_conversation_history(section: str, channel_id: uuid.UUID | None =
             else:
                 return "Access denied: this bot is not a member of the requested channel."
     else:
-        channel_id = my_channel_id
+        resolved_channel_id = my_channel_id
 
-    if not channel_id:
+    if not resolved_channel_id:
         return "No channel context available. This tool requires a channel-based conversation."
 
     if section == "index":
@@ -244,7 +262,7 @@ async def read_conversation_history(section: str, channel_id: uuid.UUID | None =
         async with async_session() as db:
             result = await db.execute(
                 select(ConversationSection)
-                .where(ConversationSection.channel_id == channel_id)
+                .where(ConversationSection.channel_id == resolved_channel_id)
                 .order_by(ConversationSection.sequence)
                 .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
             )
@@ -270,7 +288,7 @@ async def read_conversation_history(section: str, channel_id: uuid.UUID | None =
         if not query:
             return "Please provide a search query, e.g. 'search:database migration'."
 
-        results = await search_sections(channel_id, query)
+        results = await search_sections(resolved_channel_id, query)
 
         if not results:
             return f"No sections found matching '{query}'."
@@ -327,7 +345,7 @@ async def read_conversation_history(section: str, channel_id: uuid.UUID | None =
         async with async_session() as db:
             result = await db.execute(
                 select(ConversationSection)
-                .where(ConversationSection.channel_id == channel_id, ConversationSection.sequence == seq_num)
+                .where(ConversationSection.channel_id == resolved_channel_id, ConversationSection.sequence == seq_num)
             )
             sec_obj = result.scalar_one_or_none()
         if not sec_obj:

@@ -34,7 +34,6 @@ params:
     description: "Optional per-channel behavioral instructions"
 
 defaults:
-  model: gemini/gemini-2.5-flash
   timeout: 60
 
 triggers:

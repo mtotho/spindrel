@@ -43,7 +43,7 @@ Builds the message array for each LLM call. The pipeline runs in order:
 Routes tool calls to the correct executor:
 
 - **Local tools** — Python functions in `app/tools/local/` and `tools/`, decorated with `@register`
-- **MCP tools** — Remote HTTP endpoints defined in `mcp.yaml`
+- **MCP tools** — Remote HTTP endpoints configured via Admin UI (or seeded from `mcp.yaml` on first boot)
 - **Client tools** — Actions executed on the client side (shell, TTS, etc.)
 
 ### LLM Infrastructure (`app/agent/llm.py`)
@@ -113,7 +113,7 @@ Reusable multi-step automations defined in YAML. Each workflow is a sequence of 
 | Carapaces | `carapaces/*.yaml` + `integrations/*/carapaces/` | Composable expertise |
 | Skills | `skills/*.md` → DB (re-embed on change) | Knowledge injection |
 | Workflows | `workflows/*.yaml` + `integrations/*/workflows/` | Multi-step automations |
-| MCP Servers | `mcp.yaml` | Tool endpoints |
+| MCP Servers | Admin UI (or `mcp.yaml` seed) → DB | Tool endpoints |
 | Integrations | `integrations/*/` + `INTEGRATION_DIRS` | External service connections |
 
 ## Database

@@ -330,23 +330,26 @@ export default function ChatScreen() {
     }
   }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient]);
 
-  // Batch text/thinking deltas at animation-frame rate to avoid per-token rerenders
-  const pendingTextRef = useRef("");
-  const pendingThinkRef = useRef("");
-  const rafRef = useRef<number>(0);
+  // Per-channel pending buffers so concurrent streams don't mix deltas
+  const pendingTextRef = useRef<Record<string, string>>({});
+  const pendingThinkRef = useRef<Record<string, string>>({});
+  const rafRef = useRef<Record<string, number>>({});
+  const lastRequestRef = useRef<Record<string, ChatRequest>>({});
 
-  const flushPending = useCallback(() => {
-    rafRef.current = 0;
-    if (!channelId) return;
-    if (pendingTextRef.current) {
-      handleSSEEvent(channelId, { event: "text_delta", data: { delta: pendingTextRef.current } });
-      pendingTextRef.current = "";
+  /** Flush buffered text/thinking deltas for a specific channel */
+  const flushChannel = useCallback((chId: string) => {
+    rafRef.current[chId] = 0;
+    const text = pendingTextRef.current[chId];
+    const think = pendingThinkRef.current[chId];
+    if (text) {
+      handleSSEEvent(chId, { event: "text_delta", data: { delta: text } });
+      pendingTextRef.current[chId] = "";
     }
-    if (pendingThinkRef.current) {
-      handleSSEEvent(channelId, { event: "thinking", data: { delta: pendingThinkRef.current } });
-      pendingThinkRef.current = "";
+    if (think) {
+      handleSSEEvent(chId, { event: "thinking", data: { delta: think } });
+      pendingThinkRef.current[chId] = "";
     }
-  }, [channelId, handleSSEEvent]);
+  }, [handleSSEEvent]);
 
   const cancelChat = useCancelChat();
 
@@ -360,9 +363,9 @@ export default function ChatScreen() {
     // Abort local SSE for THIS channel immediately so UI is responsive
     chatStream.abort(channelId);
     // Flush pending RAF deltas so partial content isn't lost
-    if (pendingTextRef.current || pendingThinkRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      flushPending();
+    if (pendingTextRef.current[channelId] || pendingThinkRef.current[channelId]) {
+      cancelAnimationFrame(rafRef.current[channelId] || 0);
+      flushChannel(channelId);
     }
     // Materialize partial streaming content as a message, then clear streaming state
     finishStreaming(channelId);
@@ -370,38 +373,46 @@ export default function ChatScreen() {
     clearProcessing(channelId);
     // Refetch messages to replace synthetic messages with clean DB data
     queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-  }, [channel, channelId, flushPending, finishStreaming, clearProcessing, queryClient]);
+  }, [channel, channelId, flushChannel, finishStreaming, clearProcessing, queryClient]);
 
   const chatStream = useChatStream({
     onEvent: (event) => {
       if (!channelId) return;
       // Batch text and thinking deltas — flush at ~60fps instead of per-token
       if (event.event === "text_delta") {
-        pendingTextRef.current += (event.data as any).delta ?? "";
-        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushPending);
+        pendingTextRef.current[channelId] = (pendingTextRef.current[channelId] ?? "") + ((event.data as any).delta ?? "");
+        if (!rafRef.current[channelId]) {
+          const chId = channelId;
+          rafRef.current[chId] = requestAnimationFrame(() => flushChannel(chId));
+        }
         return;
       }
       if (event.event === "thinking") {
-        pendingThinkRef.current += (event.data as any).delta ?? "";
-        if (!rafRef.current) rafRef.current = requestAnimationFrame(flushPending);
+        pendingThinkRef.current[channelId] = (pendingThinkRef.current[channelId] ?? "") + ((event.data as any).delta ?? "");
+        if (!rafRef.current[channelId]) {
+          const chId = channelId;
+          rafRef.current[chId] = requestAnimationFrame(() => flushChannel(chId));
+        }
         return;
       }
       // Flush pending text before processing other events (tool_start, response, etc.)
-      if (pendingTextRef.current || pendingThinkRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        flushPending();
+      if (pendingTextRef.current[channelId] || pendingThinkRef.current[channelId]) {
+        cancelAnimationFrame(rafRef.current[channelId] || 0);
+        flushChannel(channelId);
       }
       handleSSEEvent(channelId, event);
     },
     onError: (error) => {
-      // Flush any pending text
-      if (pendingTextRef.current || pendingThinkRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        flushPending();
+      if (channelId) {
+        // Flush any pending text for this channel
+        if (pendingTextRef.current[channelId] || pendingThinkRef.current[channelId]) {
+          cancelAnimationFrame(rafRef.current[channelId] || 0);
+          flushChannel(channelId);
+        }
+        // Finish streaming first so any partial content is preserved in messages
+        finishStreaming(channelId);
+        setError(channelId, error.message);
       }
-      // Finish streaming first so any partial content is preserved in messages
-      if (channelId) finishStreaming(channelId);
-      if (channelId) setError(channelId, error.message);
       // SSE dropped but server likely still processed the message.
       // Refetch messages after a short delay so the response appears.
       setTimeout(() => {
@@ -409,17 +420,27 @@ export default function ChatScreen() {
       }, 2000);
     },
     onComplete: () => {
-      // Flush any pending text
-      if (pendingTextRef.current || pendingThinkRef.current) {
-        cancelAnimationFrame(rafRef.current);
-        flushPending();
+      if (channelId) {
+        // Flush any pending text for this channel
+        if (pendingTextRef.current[channelId] || pendingThinkRef.current[channelId]) {
+          cancelAnimationFrame(rafRef.current[channelId] || 0);
+          flushChannel(channelId);
+        }
+        finishStreaming(channelId);
       }
-      if (channelId) finishStreaming(channelId);
       // Refetch messages to get real DB records (with attachments, full metadata, etc.)
       // persist_turn runs before the SSE connection closes, so data is ready.
       queryClient.invalidateQueries({ queryKey: ["session-messages"] });
     },
   });
+
+  const handleRetry = useCallback(() => {
+    const req = channelId ? lastRequestRef.current[channelId] : undefined;
+    if (!channelId || !req) return;
+    setError(channelId, "");
+    startStreaming(channelId);
+    chatStream.mutate(req);
+  }, [channelId, setError, startStreaming]);
 
   const doSend = useCallback(
     (text: string, files?: PendingFile[]) => {
@@ -463,7 +484,7 @@ export default function ChatScreen() {
         }
       }
 
-      chatStream.mutate({
+      const request: ChatRequest = {
         message: text,
         bot_id: channel.bot_id,
         client_id: channel.client_id ?? "",
@@ -472,7 +493,9 @@ export default function ChatScreen() {
         ...(turnProviderIdOverride != null ? { model_provider_id_override: turnProviderIdOverride } : {}),
         ...(attachments?.length ? { attachments } : {}),
         ...(file_metadata?.length ? { file_metadata } : {}),
-      });
+      };
+      lastRequestRef.current[channelId] = request;
+      chatStream.mutate(request);
 
       setTurnModelOverride(undefined);
       setTurnProviderIdOverride(undefined);
@@ -520,7 +543,7 @@ export default function ChatScreen() {
 
       startStreaming(channelId);
 
-      chatStream.mutate({
+      const request: ChatRequest = {
         message: message || "",
         bot_id: channel.bot_id,
         client_id: channel.client_id ?? "",
@@ -529,7 +552,9 @@ export default function ChatScreen() {
         audio_format: audioFormat,
         ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
         ...(turnProviderIdOverride != null ? { model_provider_id_override: turnProviderIdOverride } : {}),
-      });
+      };
+      lastRequestRef.current[channelId] = request;
+      chatStream.mutate(request);
 
       setTurnModelOverride(undefined);
       setTurnProviderIdOverride(undefined);
@@ -866,7 +891,7 @@ export default function ChatScreen() {
               t={t}
             />
             {chatState.error && (
-              <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
+              <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
             )}
             {chatState.secretWarning && (
               <SecretWarningBanner
@@ -936,7 +961,7 @@ export default function ChatScreen() {
                 t={t}
               />
               {chatState.error && (
-                <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} />
+                <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
               )}
               {chatState.secretWarning && (
                 <SecretWarningBanner

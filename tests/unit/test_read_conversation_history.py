@@ -87,6 +87,78 @@ class TestReadConversationHistoryIndex:
         assert "No channel" in result
 
 
+class TestNonUuidChannelId:
+    """LLMs sometimes pass Slack channel IDs (e.g. 'C06RY3YBSLE') instead of DB UUIDs."""
+
+    @pytest.mark.asyncio
+    async def test_slack_channel_id_resolved_via_client_id(self):
+        """Non-UUID channel_id should be looked up by client_id."""
+        my_channel_id = uuid.uuid4()
+        target_channel_id = uuid.uuid4()
+        slack_id = "C06RY3YBSLE"
+        sections = [
+            _mock_section(channel_id=target_channel_id, sequence=1, title="Slack Channel",
+                         summary="Some conversation.", message_count=5,
+                         period_start=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc)),
+        ]
+        # Mock the client_id lookup query
+        mock_lookup_result = MagicMock()
+        mock_lookup_result.scalar_one_or_none.return_value = target_channel_id
+
+        # Mock the Channel.get for access check
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "test_bot"
+
+        # Mock the sections query
+        mock_sections_result = MagicMock()
+        mock_sections_result.scalars.return_value.all.return_value = sections
+
+        with patch_channel_id(my_channel_id), \
+             patch("app.tools.local.conversation_history.current_bot_id") as mock_bot_id, \
+             patch("app.tools.local.conversation_history.async_session") as mock_session:
+            mock_bot_id.get.return_value = "test_bot"
+            mock_db = AsyncMock()
+            # First call: client_id lookup; second call: Channel.get; third call: sections query
+            mock_db.execute = AsyncMock(side_effect=[mock_lookup_result, mock_sections_result])
+            mock_db.get = AsyncMock(return_value=mock_channel)
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await read_conversation_history("index", channel_id=slack_id)
+        assert "Slack Channel" in result
+
+    @pytest.mark.asyncio
+    async def test_unknown_non_uuid_channel_id(self):
+        """Non-UUID channel_id that doesn't match any client_id returns error."""
+        my_channel_id = uuid.uuid4()
+        mock_lookup_result = MagicMock()
+        mock_lookup_result.scalar_one_or_none.return_value = None
+
+        with patch_channel_id(my_channel_id), \
+             patch("app.tools.local.conversation_history.async_session") as mock_session:
+            mock_db = AsyncMock()
+            mock_db.execute = AsyncMock(return_value=mock_lookup_result)
+            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await read_conversation_history("index", channel_id="BOGUS123")
+        assert "Unknown channel" in result
+
+    @pytest.mark.asyncio
+    async def test_valid_uuid_string_still_works(self):
+        """UUID passed as a string (from JSON) should still work."""
+        channel_id = uuid.uuid4()
+        sections = [
+            _mock_section(channel_id=channel_id, sequence=1, title="Test",
+                         summary="ok.", message_count=3,
+                         period_start=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc)),
+        ]
+        # Pass channel_id as string (same as current channel — no cross-channel check needed)
+        with patch_channel_id(channel_id), patch_db_query(sections):
+            result = await read_conversation_history("index", channel_id=str(channel_id))
+        assert "Test" in result
+
+
 class TestReadConversationHistorySection:
     @pytest.mark.asyncio
     async def test_returns_full_section_content_from_file_old_format(self):

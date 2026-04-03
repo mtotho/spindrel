@@ -16,7 +16,6 @@ params:
     description: "Disk usage percentage that triggers a warning"
 
 defaults:
-  model: gemini/gemini-2.5-flash
   timeout: 120
   tools: [exec_command]
 

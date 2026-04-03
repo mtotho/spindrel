@@ -51,7 +51,7 @@ def _resolve_env_vars(value: str) -> str:
 def load_mcp_config(config_path: Path = MCP_CONFIG_PATH) -> None:
     """Load MCP server definitions from mcp.yaml."""
     _servers.clear()
-    if not config_path.exists():
+    if not config_path.exists() or not config_path.is_file():
         logger.info("No MCP config at %s, skipping", config_path)
         return
 

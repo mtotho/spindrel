@@ -11,7 +11,9 @@ services:
       - ./bots:/app/bots
       - ./skills:/app/skills
       - ./tools:/app/tools
-      - ./mcp.yaml:/app/mcp.yaml:ro
+      # MCP servers are managed via Admin UI.
+      # Uncomment to seed from mcp.yaml on first boot (file must exist on host):
+      # - ./mcp.yaml:/app/mcp.yaml:ro
       # External integrations (uncomment and adjust path):
       # - /path/to/my-integrations:/app/ext-integrations:ro
       - /var/run/docker.sock:/var/run/docker.sock        # sibling container management

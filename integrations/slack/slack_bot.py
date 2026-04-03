@@ -19,11 +19,13 @@ from slack_settings import APP_LEVEL_TOKEN, BOT_TOKEN
 from message_handlers import register_message_handlers
 from slash_commands import register_slash_commands
 from approval_handlers import register_approval_handlers
+from channel_approval_handlers import register_channel_approval_handlers
 
 app = AsyncApp(token=BOT_TOKEN)
 register_message_handlers(app)
 register_slash_commands(app)
 register_approval_handlers(app)
+register_channel_approval_handlers(app)
 
 
 async def main():

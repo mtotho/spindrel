@@ -184,6 +184,38 @@ EOF
 
 ---
 
+## Secret Values
+
+Secrets are encrypted env vars stored in the vault, injected into workspace containers, and automatically redacted from all bot output.
+
+### When to Use Secrets
+
+Use `manage_secret` for any value that would be a problem if it appeared in conversation logs: API keys, tokens, passwords, credentials. If a tool or integration needs a sensitive value, create it as a secret rather than passing it inline.
+
+### CRUD
+
+```
+manage_secret(action="list")                                          # Names + descriptions only, never plaintext
+manage_secret(action="create", name="GITHUB_TOKEN", value="ghp_...") # UPPER_SNAKE_CASE name required
+manage_secret(action="create", name="SLACK_WEBHOOK", value="https://hooks.slack.com/...", description="Alerts channel webhook")
+manage_secret(action="delete", name="OLD_API_KEY")                   # Delete by name
+```
+
+To replace a secret value, delete then re-create (avoids partial update confusion).
+
+### Secrets vs Workspace Env Vars
+
+| | Secrets (`manage_secret`) | Workspace env vars |
+|---|---|---|
+| Encrypted at rest | Yes (Fernet) | No |
+| Redacted from output | Yes (automatic) | No |
+| Injected into containers | Yes (as env vars) | Yes |
+| Visible in logs | Never | Yes |
+
+**Rule of thumb:** If it's sensitive, use a secret. If it's just config (a URL, a mode flag), use a regular env var.
+
+---
+
 ## Orchestrator Checklist
 
 Before starting a workflow:

@@ -83,7 +83,7 @@ capable-tier worker for the final output:
 ### 2. Heartbeat Economy
 Heartbeats run frequently. Set channel model overrides to cheap tiers:
 ```python
-manage_channel(action="update", channel_id="...", model_override="gemini/gemini-2.5-flash")
+manage_channel(action="update", channel_id="...", model_override="your-fast-model")
 ```
 
 ### 3. Fan-Out at the Right Tier

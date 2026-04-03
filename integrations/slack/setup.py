@@ -9,6 +9,7 @@ SETUP = {
         {"key": "AGENT_BASE_URL", "required": False, "description": "Agent server URL (default: http://localhost:8000)"},
         {"key": "SLACK_SUGGEST_CHANNELS", "required": False, "description": "Show channel dropdown when binding (default: true)"},
         {"key": "SLACK_SUGGEST_COUNT", "required": False, "description": "Number of channels to show in binding dropdown (default: 20, max: 100)"},
+        {"key": "SLACK_REQUIRE_CHANNEL_APPROVAL", "required": False, "description": "Require approval before auto-creating channels from Slack messages (default: false)"},
     ],
     "api_permissions": "slack_integration",
     "webhook": None,

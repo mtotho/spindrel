@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
 from app.db.engine import async_session
-from app.db.models import Bot as BotRow, Channel
+from app.db.models import Bot as BotRow, Channel, ChannelIntegration
 from app.dependencies import verify_admin_auth
 
 logger = logging.getLogger(__name__)
@@ -39,12 +39,22 @@ async def slack_config(request: Request):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     async with async_session() as db:
+        # Legacy channels: integration="slack" with client_id set directly
         channel_rows = (await db.execute(
             select(Channel).where(Channel.integration == "slack")
         )).scalars().all()
+
+        # Modern bindings: channels bound via ChannelIntegration table (UI flow)
+        binding_rows = (await db.execute(
+            select(Channel, ChannelIntegration)
+            .join(ChannelIntegration, ChannelIntegration.channel_id == Channel.id)
+            .where(ChannelIntegration.integration_type == "slack")
+        )).tuples().all()
+
         bot_rows = (await db.execute(select(BotRow))).scalars().all()
 
     channels = {}
+    # Legacy channels (Channel.client_id set directly)
     for row in channel_rows:
         if not row.client_id:
             continue
@@ -56,6 +66,18 @@ async def slack_config(request: Request):
             "allow_bot_messages": row.allow_bot_messages,
             "thinking_display": row.thinking_display,
         }
+
+    # Modern bindings (ChannelIntegration.client_id) — don't overwrite legacy
+    for ch, binding in binding_rows:
+        slack_id = binding.client_id.removeprefix("slack:")
+        if slack_id not in channels:
+            channels[slack_id] = {
+                "bot_id": ch.bot_id,
+                "require_mention": ch.require_mention,
+                "passive_memory": ch.passive_memory,
+                "allow_bot_messages": ch.allow_bot_messages,
+                "thinking_display": ch.thinking_display,
+            }
 
     bots = {
         row.id: {

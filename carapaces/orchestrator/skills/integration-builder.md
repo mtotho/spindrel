@@ -145,6 +145,7 @@ async def my_tool_name(param1: str) -> str:
 - Always return a JSON string (not a dict)
 - Use `get_settings()` at module level to read integration settings
 - Async functions preferred; sync also works
+- **Sensitive env vars:** For API keys and credentials, create them as secrets via `manage_secret(action="create", name="MY_SERVICE_API_KEY", value="...")`. Tools read them the same way (`setting("MY_SERVICE_API_KEY")` or `os.environ`) — secrets are injected as env vars transparently, but they're encrypted at rest and redacted from output.
 
 ## Hot-Reload Limitations
 

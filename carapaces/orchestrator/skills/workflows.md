@@ -62,7 +62,7 @@ manage_workflow(
     name="My Custom Workflow",
     description="Does the thing",
     steps='[{"id": "step1", "prompt": "Do the first thing."}]',
-    defaults='{"bot_id": "helper-bot", "model": "gemini/gemini-2.5-flash"}',
+    defaults='{"bot_id": "helper-bot"}',
 )
 ```
 
@@ -104,7 +104,6 @@ params:
     default: "auto"
 
 defaults:
-  model: gemini/gemini-2.5-flash
   carapaces: [arr]          # Give steps access to integration tools
   timeout: 180
 
@@ -472,7 +471,6 @@ Workflows get power from integration carapaces. Set `carapaces` in `defaults` to
 ```yaml
 defaults:
   carapaces: [arr]         # All arr tools available to every step
-  model: gemini/gemini-2.5-flash
 ```
 
 Or scope carapaces per-step for tighter control:

@@ -170,6 +170,30 @@ setup, or add a dedicated Anthropic provider in Admin UI > Providers for direct 
 
 For cost tracking, budget limits, and spend forecasting, see the [Usage & Billing guide](guides/usage-and-billing.md).
 
+## MCP Servers
+
+MCP (Model Context Protocol) servers give bots access to remote tool endpoints — Home Assistant, databases, custom APIs, etc.
+
+**Configure via Admin UI** (recommended): Go to **Admin > MCP Servers**, click **New Server**, enter the URL and optional API key, and test the connection. Discovered tools are available immediately.
+
+**First-boot seed from YAML** (optional): If you have a `mcp.yaml` file when the server starts for the first time (empty DB), it will be imported automatically. After that, manage everything through the UI.
+
+```yaml
+# mcp.yaml (see mcp.example.yaml)
+homeassistant:
+  url: http://your-ha-host:4000/homeassistant/mcp
+  api_key: ${HA_MCP_KEY}
+```
+
+> **Note:** The YAML seed is one-time only — once servers exist in the database, `mcp.yaml` is ignored. For Docker, uncomment the `mcp.yaml` volume mount in `docker-compose.yml` if you want to use this.
+
+**Assign to bots**: In your bot YAML, list the MCP servers by name:
+
+```yaml
+# bots/assistant.yaml
+mcp_servers: [homeassistant]
+```
+
 ## Workspaces
 
 Workspaces provide persistent file storage for bots. Each bot with `workspace.enabled: true` gets a directory for memory files, daily logs, and reference documents.
@@ -349,6 +373,62 @@ agent-server/
 ├── docker-compose.yaml
 ├── .env                    # Runtime configuration (gitignored)
 └── .env.example            # Template
+```
+
+## Remote Access & Networking
+
+By default, Spindrel assumes the UI and server are on the same host (`localhost`). If you're deploying to a LAN server or accessing from another machine, a few things need adjusting.
+
+### How the UI finds the server
+
+The web UI auto-detects the server URL from the browser's address bar — it takes the hostname and assumes port 8000. For example:
+
+| You open | UI connects to |
+|----------|---------------|
+| `http://localhost:8081` | `http://localhost:8000` |
+| `http://10.0.0.5:8081` | `http://10.0.0.5:8000` |
+| `http://myserver.local:8081` | `http://myserver.local:8000` |
+
+You can also override the server URL manually on the login screen.
+
+### CORS (Cross-Origin Resource Sharing)
+
+When the UI and server are on different origins (different hostnames or ports), browsers block requests unless the server explicitly allows them via CORS headers.
+
+Since the UI runs on port 8081 and the server on port 8000, **you need CORS if accessing from a non-localhost hostname**:
+
+```bash
+# .env
+CORS_ORIGINS=http://10.0.0.5:8081,http://myserver.local:8081
+```
+
+Add every origin (scheme + hostname + port) you'll access the UI from. Comma-separated, no trailing slashes.
+
+> **Tip:** If you're only accessing via `localhost`, CORS is not needed — same-origin requests work without it.
+
+### Docker Compose port binding
+
+By default, Docker binds ports to `0.0.0.0` (all interfaces), so the server and UI are already accessible from other machines on your network. If you want to restrict to localhost only:
+
+```yaml
+# docker-compose.override.yml
+services:
+  agent-server:
+    ports:
+      - "127.0.0.1:8000:8000"
+  ui:
+    ports:
+      - "127.0.0.1:8081:80"
+```
+
+### Reverse proxy / tunnel
+
+For public access behind a reverse proxy or Cloudflare Tunnel, set `BASE_URL` so the server knows its public address (used for webhook URLs):
+
+```bash
+# .env
+BASE_URL=https://agent.yourdomain.com
+CORS_ORIGINS=https://ui.yourdomain.com
 ```
 
 ## Troubleshooting

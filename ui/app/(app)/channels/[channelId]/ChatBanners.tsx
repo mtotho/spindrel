@@ -3,19 +3,24 @@ import { View, Text, Pressable } from "react-native";
 import { Link } from "expo-router";
 import { Shield } from "lucide-react";
 
-export function ErrorBanner({ error, onDismiss }: { error: string; onDismiss: () => void }) {
+export function ErrorBanner({ error, onDismiss, onRetry }: { error: string; onDismiss: () => void; onRetry?: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onDismiss, 8000);
+    const timer = setTimeout(onDismiss, onRetry ? 30000 : 8000);
     return () => clearTimeout(timer);
-  }, [error, onDismiss]);
+  }, [error, onDismiss, onRetry]);
 
   return (
-    <Pressable
-      onPress={onDismiss}
-      className="px-4 py-2 bg-red-500/10 border-t border-red-500/20"
-    >
-      <Text className="text-red-400 text-sm">{error}</Text>
-    </Pressable>
+    <View className="px-4 py-2 bg-red-500/10 border-t border-red-500/20 flex-row items-center gap-2">
+      <Text className="text-red-400 text-sm flex-1">{error}</Text>
+      {onRetry && (
+        <Pressable onPress={onRetry} className="px-3 py-1 bg-red-500/20 rounded">
+          <Text className="text-red-400 text-xs font-semibold">Retry</Text>
+        </Pressable>
+      )}
+      <Pressable onPress={onDismiss} className="px-2 py-1">
+        <Text className="text-red-400/60 text-xs">Dismiss</Text>
+      </Pressable>
+    </View>
   );
 }
 

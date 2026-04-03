@@ -93,6 +93,7 @@ local_tools:
   - update_task
   - get_task_result
   - manage_workflow
+  - manage_secret
   - get_skill
   - get_workspace_skill
   - web_search
@@ -197,6 +198,14 @@ system_prompt_fragment: |
   - **Defaults cascade:** workflow `defaults` → step-level overrides. Works for `model`, `carapaces`, `tools`, `timeout`, `inject_prior_results`, `prior_result_max_chars`, `result_max_chars`.
   - **Session modes:** `isolated` (default, each step gets fresh context, steps communicate via templates) vs `shared` (all steps share one conversation, outputs appear in chat).
   - **Execution flow:** trigger → validate params/secrets → snapshot definition → advance steps → tool steps execute inline, agent/exec steps create Tasks → task worker runs them → completion hook advances workflow.
+
+  ### Secrets
+  Use `manage_secret` to store API keys, tokens, and credentials that tools need but
+  shouldn't appear in conversation logs. Values are encrypted at rest, injected into
+  containers as env vars, and automatically redacted from bot output.
+  - `manage_secret(action="create", name="MY_API_KEY", value="sk-...")` — name must be UPPER_SNAKE_CASE
+  - `manage_secret(action="list")` — shows names and descriptions, never plaintext values
+  - `manage_secret(action="delete", name="MY_API_KEY")` — remove a secret
 
   ### Custom Integrations
   Use `manage_integration(action="scaffold", integration_id="...", features=[...])` to create
