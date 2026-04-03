@@ -82,6 +82,19 @@ class TestResolveProviderForModel:
             providers._model_to_provider = old_idx
             providers._registry = old_reg
 
+    def test_skips_anthropic_subscription_provider(self):
+        """anthropic-subscription providers are skipped (not chat/completions compatible)."""
+        from app.services import providers
+
+        old_idx, old_reg = providers._model_to_provider, providers._registry
+        try:
+            providers._model_to_provider = {"claude-opus-4-6": "claude-sub"}
+            providers._registry = {"claude-sub": _fake_provider("anthropic-subscription")}
+            assert providers.resolve_provider_for_model("claude-opus-4-6") is None
+        finally:
+            providers._model_to_provider = old_idx
+            providers._registry = old_reg
+
     def test_returns_none_for_unknown_model(self):
         """resolve_provider_for_model returns None for unregistered models."""
         from app.services import providers

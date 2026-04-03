@@ -546,6 +546,7 @@ class _CallParams:
     tools: list | None
     tool_choice: str | None
     extra: dict  # filtered model params
+    provider_id: str | None = None  # resolved provider (for usage tracking)
 
 
 def _prepare_call_params(
@@ -586,6 +587,7 @@ def _prepare_call_params(
     return _CallParams(
         client=client, model=model, messages=eff_msgs,
         tools=eff_tools, tool_choice=eff_tool_choice, extra=filtered,
+        provider_id=provider_id,
     )
 
 
@@ -644,6 +646,7 @@ async def _llm_call_stream(
     async def _try_model(m: str, pid: str | None, mp: dict | None, *, force_no_tools: bool = False):
         """Attempt one model. Returns stream or raises."""
         p = _prepare_call_params(m, messages, tools_param, tool_choice, pid, mp, force_no_tools=force_no_tools)
+        logger.info("LLM call: model=%s, provider_id=%s→%s, base_url=%s", m, pid, p.provider_id, getattr(p.client, 'base_url', '?'))
         # Only include tools/tool_choice when they have values — passing None
         # sends "tools": null in the JSON body which some providers (Vertex/Gemini
         # via LiteLLM) interpret as "enable function calling" and reject.
@@ -993,7 +996,7 @@ async def _llm_call_with_retries(
                 f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
             )
         if resp.usage:
-            record_usage(provider_id, resp.usage.total_tokens)
+            record_usage(p.provider_id, resp.usage.total_tokens)
         return resp
 
     max_retries = settings.LLM_MAX_RETRIES

@@ -66,6 +66,7 @@ class TestDriverRegistry:
 class TestDriverCapabilities:
     def test_ollama_capabilities(self):
         caps = get_driver("ollama").capabilities()
+        assert caps.chat_completions is True
         assert caps.list_models is True
         assert caps.pull_model is True
         assert caps.delete_model is True
@@ -76,6 +77,7 @@ class TestDriverCapabilities:
 
     def test_openai_capabilities(self):
         caps = get_driver("openai").capabilities()
+        assert caps.chat_completions is True
         assert caps.list_models is True
         assert caps.requires_base_url is False
         assert caps.requires_api_key is True
@@ -84,22 +86,31 @@ class TestDriverCapabilities:
 
     def test_openai_compatible_capabilities(self):
         caps = get_driver("openai-compatible").capabilities()
+        assert caps.chat_completions is True
         assert caps.list_models is True
         assert caps.requires_base_url is True
 
     def test_anthropic_capabilities(self):
         caps = get_driver("anthropic").capabilities()
+        assert caps.chat_completions is False
         assert caps.list_models is False
         assert caps.requires_api_key is True
         assert caps.pull_model is False
 
     def test_anthropic_compatible_capabilities(self):
         caps = get_driver("anthropic-compatible").capabilities()
+        assert caps.chat_completions is False
         assert caps.list_models is True
         assert caps.requires_base_url is True
 
+    def test_anthropic_subscription_capabilities(self):
+        caps = get_driver("anthropic-subscription").capabilities()
+        assert caps.chat_completions is False
+        assert caps.requires_api_key is True
+
     def test_litellm_capabilities(self):
         caps = get_driver("litellm").capabilities()
+        assert caps.chat_completions is True
         assert caps.list_models is True
         assert caps.pricing is True
         assert caps.management_key is True
@@ -111,11 +122,13 @@ class TestDriverCapabilities:
         d = asdict(caps)
         assert isinstance(d, dict)
         assert "list_models" in d
+        assert "chat_completions" in d
 
     def test_base_driver_default_capabilities(self):
-        """Base class returns all-False capabilities."""
+        """Base class returns all-False capabilities (except chat_completions and requires_api_key)."""
         driver = ProviderDriver()
         caps = driver.capabilities()
+        assert caps.chat_completions is True  # default True
         assert caps.list_models is False
         assert caps.pull_model is False
         assert caps.requires_api_key is True  # default True

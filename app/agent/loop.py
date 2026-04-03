@@ -301,8 +301,13 @@ async def run_agent_tool_loop(
     try:
         import time as _time
         from app.agent.hooks import fire_hook, HookContext
-        from app.services.providers import check_rate_limit
+        from app.services.providers import check_rate_limit, resolve_provider_for_model
         from app.services.secret_registry import redact as _redact_secrets
+
+        # Resolve provider once so rate-limit checks use the correct provider
+        effective_provider_id = provider_id
+        if effective_provider_id is None:
+            effective_provider_id = resolve_provider_for_model(model)
 
         for iteration in range(effective_max_iterations):
             # Cancellation checkpoint: before LLM call
@@ -346,7 +351,7 @@ async def run_agent_tool_loop(
 
             # TPM rate limit check: yield wait event and sleep if needed
             _est_tokens = sum(_est_msg_chars(m) // 4 for m in messages)
-            _wait = check_rate_limit(provider_id, _est_tokens)
+            _wait = check_rate_limit(effective_provider_id, _est_tokens)
             if _wait:
                 logger.info("Provider TPM limit: waiting %ds before LLM call", _wait)
                 yield _event_with_compaction_tag(
