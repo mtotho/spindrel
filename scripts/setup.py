@@ -248,6 +248,11 @@ def main() -> None:
             # Use Docker-aware default when available
             if deploy == "docker" and "base_url_docker" in provider:
                 default_url = provider["base_url_docker"]
+                print()
+                print("  \033[33m⚠\033[0m  Docker can't reach localhost on your host machine.")
+                print(f"     Use \033[1mhost.docker.internal\033[0m instead of localhost.")
+                print(f"     Default below is already set correctly.")
+                print()
             else:
                 default_url = provider.get("base_url_default", "")
             base_url = questionary.text(

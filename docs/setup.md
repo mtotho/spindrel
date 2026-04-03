@@ -397,7 +397,9 @@ You can also override the server URL manually on the login screen.
 
 When the UI and server are on different origins (different hostnames or ports), browsers block requests unless the server explicitly allows them via CORS headers.
 
-Since the UI runs on port 8081 and the server on port 8000, **you need CORS if accessing from a non-localhost hostname**:
+The server automatically allows CORS from `http://localhost:8081` (the default UI port), so local development works out of the box.
+
+**For LAN or remote access**, add your origins to `CORS_ORIGINS`:
 
 ```bash
 # .env
@@ -405,8 +407,6 @@ CORS_ORIGINS=http://10.0.0.5:8081,http://myserver.local:8081
 ```
 
 Add every origin (scheme + hostname + port) you'll access the UI from. Comma-separated, no trailing slashes.
-
-> **Tip:** If you're only accessing via `localhost`, CORS is not needed — same-origin requests work without it.
 
 ### Docker Compose port binding
 

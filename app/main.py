@@ -469,20 +469,23 @@ app = FastAPI(
     ],
 )
 
-# CORS — allow Expo dev server and any origins from CORS_ORIGINS env var
+# CORS — always allow localhost UI ports; extend with CORS_ORIGINS env var
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 _cors_origins: list[str] = [
-    o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()
+    "http://localhost:8081",
+    "http://localhost:19006",  # Expo dev server
 ]
-if _cors_origins:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_cors_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
-    )
+_cors_origins.extend(
+    o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
+)
 
 # Rate limiting (opt-in, in-memory token bucket)
 if settings.RATE_LIMIT_ENABLED:
