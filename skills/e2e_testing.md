@@ -1,6 +1,6 @@
 ---
 name: E2E Testing
-description: Run and interpret end-to-end tests against the agent-server
+description: Run and interpret end-to-end tests against a Spindrel server instance
 triggers: e2e, end-to-end, integration test, smoke test, test harness, run tests, run scenario
 category: development
 mode: on_demand
@@ -8,7 +8,7 @@ mode: on_demand
 
 # E2E Test Harness
 
-The `run_e2e_tests` tool runs end-to-end tests against a real agent-server instance. Unlike unit tests (which mock the LLM), these exercise the full pipeline: user message → context assembly → real LLM call → tool selection → tool execution → response.
+The `run_e2e_tests` tool runs end-to-end tests against a real Spindrel server instance. Unlike unit tests (which mock the LLM), these exercise the full pipeline: user message → context assembly → real LLM call → tool selection → tool execution → response.
 
 ## Actions
 

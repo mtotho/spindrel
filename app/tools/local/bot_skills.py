@@ -5,7 +5,7 @@ import hashlib
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.agent.context import current_bot_id
 from app.tools.registry import register
@@ -16,8 +16,28 @@ BOT_SKILL_COUNT_WARNING = 50
 CONTENT_MIN_LENGTH = 50
 CONTENT_MAX_LENGTH = 50_000  # 50KB
 NAME_MAX_LENGTH = 100
+STALE_NEVER_SURFACED_DAYS = 7   # never surfaced + older than this = stale
+STALE_LAST_SURFACED_DAYS = 30   # last surfaced longer ago than this = stale
 
 _SLUG_RE = re.compile(r"[^a-z0-9-]")
+
+
+def _is_stale(created_at: datetime | None, last_surfaced_at: datetime | None, surface_count: int) -> bool:
+    """A skill is stale if it was never surfaced and is older than 7 days,
+    or its last surfacing was more than 30 days ago."""
+    now = datetime.now(timezone.utc)
+    if surface_count == 0 and last_surfaced_at is None:
+        # Never surfaced — stale if older than the threshold
+        if created_at and (now - created_at) > timedelta(days=STALE_NEVER_SURFACED_DAYS):
+            return True
+        return False
+    if last_surfaced_at is not None:
+        # Has a surfacing timestamp — stale if too old
+        if (now - last_surfaced_at) > timedelta(days=STALE_LAST_SURFACED_DAYS):
+            return True
+        return False
+    # surface_count > 0 but last_surfaced_at is None (data inconsistency) — not stale
+    return False
 
 
 def _slugify(name: str) -> str:
@@ -227,24 +247,39 @@ async def manage_bot_skill(
         if not rows and clamped_offset == 0:
             return json.dumps({"skills": [], "total": 0, "message": "No self-authored skills yet."})
         summary = []
+        stale_count = 0
         for r in rows:
             fm = _extract_frontmatter(r.content) if r.content else {}
             body_preview = _extract_body(r.content)[:120].strip() if r.content else ""
+            stale = _is_stale(r.created_at, r.last_surfaced_at, r.surface_count)
+            if stale:
+                stale_count += 1
             summary.append({
                 "id": r.id,
                 "name": r.name,
                 "category": fm.get("category", ""),
                 "preview": body_preview,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
                 "updated_at": r.updated_at.isoformat() if r.updated_at else None,
                 "last_surfaced_at": r.last_surfaced_at.isoformat() if r.last_surfaced_at else None,
                 "surface_count": r.surface_count,
+                "stale": stale,
             })
-        return json.dumps({
+        result: dict = {
             "skills": summary,
             "total": total,
             "limit": clamped_limit,
             "offset": clamped_offset,
-        })
+        }
+        if stale_count > 0:
+            noun = "skill" if stale_count == 1 else "skills"
+            verb = "has" if stale_count == 1 else "have"
+            result["hint"] = (
+                f"{stale_count} {noun} {verb} never been surfaced or "
+                f"{verb}n't been surfaced in 30+ days. Consider reviewing "
+                f"trigger phrases or deleting stale skills."
+            )
+        return json.dumps(result)
 
     # --- GET ---
     if action == "get":

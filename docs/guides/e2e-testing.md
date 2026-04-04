@@ -1,6 +1,6 @@
 # E2E Testing Guide
 
-End-to-end tests exercise the full agent pipeline against a real server: user message → context assembly → LLM call → tool selection → tool execution → streamed response. Unlike unit tests (which mock the LLM), these validate that the whole system works together.
+End-to-end tests exercise the full Spindrel server pipeline against a real instance: user message → context assembly → LLM call → tool selection → tool execution → streamed response. Unlike unit tests (which mock the LLM), these validate that the whole system works together.
 
 ## Quick Start
 
@@ -111,7 +111,7 @@ All configuration env vars:
 | `E2E_LLM_BASE_URL` | auto | LLM API base URL |
 | `E2E_LLM_API_KEY` | (empty) | LLM API key |
 | `E2E_DEFAULT_MODEL` | `gemma3:1b` | Model for all test bots |
-| `E2E_PORT` | `18000` | Agent-server port on host |
+| `E2E_PORT` | `18000` | Spindrel server port on host |
 | `E2E_API_KEY` | `e2e-test-key-12345` | API key for test server |
 | `E2E_IMAGE` | `agent-server:e2e` | Docker image name |
 | `E2E_KEEP_RUNNING` | (unset) | Set to `1` to keep stack up after tests |
@@ -231,7 +231,7 @@ All assertions are fuzzy — designed for non-deterministic LLM output.
 |---------|---------|
 | `postgres` | pgvector DB (ephemeral tmpfs, no persistent volume) |
 | `searxng` | Web search backend for `web_search` tool tests |
-| `agent-server` | The system under test |
+| `agent-server` | Spindrel server (the system under test) |
 | `ollama` | Local LLM (optional, activated with `--profile ollama`) |
 
 ## Common Patterns

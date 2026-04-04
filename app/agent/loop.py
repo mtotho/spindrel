@@ -33,10 +33,16 @@ from app.tools.registry import get_local_tool_schemas
 
 logger = logging.getLogger(__name__)
 
-# Regex for detecting user corrections (anchored to start of message).
+# Regex for detecting user corrections.
+# First branch: anchored to start of message (low false-positive).
+# Second branch: non-anchored patterns for mid-message corrections.
 # Uses negative lookahead to avoid false positives like "no problem", "no worries".
 _CORRECTION_RE = re.compile(
-    r"^(no[,.]?\s(?!problem|worries|thanks|thank|need|rush|idea)|wrong|that'?s not|actually[,.]?\s|incorrect|not quite|you should)",
+    r"^(no[,.]?\s(?!problem|worries|thanks|thank|need|rush|idea)"
+    r"|wrong|that'?s not"
+    r"|actually[,.]?\s(?!thanks|thank|great|good|perfect|nice|fine)"
+    r"|incorrect|not quite|you should)"
+    r"|(?:\bthat'?s\s+(?:wrong|incorrect))|(?:\byou\s+misunderstood)|(?:\bi\s+(?:said|meant)\b)",
     re.IGNORECASE,
 )
 
@@ -1026,8 +1032,7 @@ async def run_agent_tool_loop(
             if (
                 _nudge_after
                 and iteration + 1 == _nudge_after
-                and bot.memory_scheme == "workspace-files"
-                and not compaction
+                and _has_manage_bot_skill
             ):
                 from app.config import DEFAULT_SKILL_NUDGE_PROMPT
                 messages.append({

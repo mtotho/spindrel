@@ -154,7 +154,7 @@ This is the highest-quality learning signal — the user has explicitly identifi
 
 **Trigger**: Bot searches for the same topic 3+ times across distinct agent runs within 14 days
 
-The system monitors `search_memory` calls across agent runs. When a pattern is detected, it injects a nudge listing the repeated topics and suggesting the bot create skills for each. The prompt explains: *"These recurring lookups are a signal that the information should be a SKILL so it auto-surfaces without you having to search for it."*
+The system monitors search tool calls (`search_memory`, `search_channel_workspace`, `search_channel_archive`) across agent runs. When a pattern is detected, it injects a nudge listing the repeated topics and suggesting the bot create skills for each. The prompt explains: *"These recurring lookups are a signal that the information should be a SKILL so it auto-surfaces without you having to search for it."*
 
 This catches the highest-signal learning gap: information the bot needs regularly but hasn't codified. Once a skill is created, the RAG pipeline surfaces it automatically — eliminating the repeated manual searches.
 
@@ -224,7 +224,7 @@ If the target `name` matches one of the source skills, it's treated as a rename-
 
 ## Repeated-Lookup Detection
 
-The system monitors `search_memory` calls across agent runs. When a bot repeatedly searches for the same topic (3+ distinct agent runs within 14 days), a one-shot nudge is injected at the start of the next run suggesting the bot create a skill for that topic.
+The system monitors search tool calls (`search_memory`, `search_channel_workspace`, `search_channel_archive`) across agent runs. When a bot repeatedly searches for the same topic (3+ distinct agent runs within 14 days), a one-shot nudge is injected at the start of the next run suggesting the bot create a skill for that topic.
 
 This catches the highest-signal learning gap: information the bot needs but hasn't codified. Skills auto-surface via RAG, eliminating the need for repeated manual searches.
 
@@ -284,7 +284,7 @@ When `memory_scheme: "workspace-files"` is active, the bot's system prompt inclu
 
 After `SKILL_NUDGE_AFTER_ITERATIONS` tool-call iterations (default 8), the agent loop injects a one-shot system message asking the bot to reflect on whether it learned something worth capturing as a skill. This is the key mechanism that shifts bots from "task execution mode" to "reflection mode" — without it, bots tend to solve problems and move on without recording what they learned.
 
-The nudge only fires once per agent run, only for bots with `memory_scheme: "workspace-files"`, and not during compaction runs. Set to `0` to disable.
+The nudge only fires once per agent run, only for bots with `memory_scheme: "workspace-files"` that have the `manage_bot_skill` tool available, and not during compaction runs. Set to `0` to disable.
 
 ### Pre-Compaction Flush
 

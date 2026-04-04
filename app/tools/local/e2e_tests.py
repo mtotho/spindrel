@@ -1,4 +1,4 @@
-"""Agent tool for running E2E tests against a live agent-server instance."""
+"""Agent tool for running E2E tests against a live Spindrel server instance."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ E2E_DIR = Path(__file__).parent.parent.parent.parent / "tests" / "e2e"
     "function": {
         "name": "run_e2e_tests",
         "description": (
-            "Run end-to-end tests against a live agent-server instance. "
+            "Run end-to-end tests against a live Spindrel server instance. "
             "Tests exercise the full pipeline: message → context assembly → LLM → tools → response. "
             "Actions: 'status' (check if test env is running), 'run' (start env + run tests), "
             "'stop' (tear down test env), 'run_scenario' (execute an ad-hoc inline YAML scenario)."

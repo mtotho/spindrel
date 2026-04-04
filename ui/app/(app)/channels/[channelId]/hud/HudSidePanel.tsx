@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, Pressable, Platform, ScrollView } from "react-native";
+import { View, Text, Pressable, Platform, ScrollView, ActivityIndicator } from "react-native";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useHudData, type ActiveHud } from "@/src/api/hooks/useChatHud";
@@ -17,7 +17,7 @@ export function HudSidePanel({ hud }: { hud: ActiveHud }) {
   const width = hud.widget.width ?? 320;
 
   const isIframe = !!hud.widget.iframe_path;
-  const { data } = useHudData(
+  const { data, isLoading } = useHudData(
     hud.integrationId,
     isIframe ? undefined : hud.widget.endpoint,
     hud.widget.poll_interval ?? 60,
@@ -87,6 +87,10 @@ export function HudSidePanel({ hud }: { hud: ActiveHud }) {
       {/* Content */}
       {isIframe && Platform.OS === "web" ? (
         <IframeContent integrationId={hud.integrationId} iframePath={hud.widget.iframe_path!} />
+      ) : isLoading && !data ? (
+        <View style={{ padding: 16, alignItems: "center" }}>
+          <ActivityIndicator size="small" color={t.textDim} />
+        </View>
       ) : data?.visible ? (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 8 }}>
           {data.items.map((item, i) => (

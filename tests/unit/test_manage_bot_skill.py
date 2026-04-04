@@ -2,7 +2,7 @@
 
 import json
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,12 +13,15 @@ from app.tools.local.bot_skills import (
     CONTENT_MAX_LENGTH,
     DEDUP_SIMILARITY_THRESHOLD,
     NAME_MAX_LENGTH,
+    STALE_LAST_SURFACED_DAYS,
+    STALE_NEVER_SURFACED_DAYS,
     _bot_skill_id,
     _build_content,
     _check_skill_dedup,
     _embed_skill_safe,
     _extract_body,
     _extract_frontmatter,
+    _is_stale,
     _sanitize_frontmatter_value,
     _slugify,
     _validate_content,
@@ -1610,3 +1613,217 @@ class TestRepeatedLookupDetection:
         """Nudge should guide the bot to create skills."""
         from app.config import DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT
         assert "manage_bot_skill" in DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Stale skill detection
+# ---------------------------------------------------------------------------
+
+class TestIsStale:
+
+    def test_never_surfaced_and_old(self):
+        """surface_count=0 + created > 7 days ago → stale."""
+        old = datetime.now(timezone.utc) - timedelta(days=STALE_NEVER_SURFACED_DAYS + 1)
+        assert _is_stale(created_at=old, last_surfaced_at=None, surface_count=0) is True
+
+    def test_never_surfaced_but_recent(self):
+        """surface_count=0 + created < 7 days ago → not stale."""
+        recent = datetime.now(timezone.utc) - timedelta(days=STALE_NEVER_SURFACED_DAYS - 1)
+        assert _is_stale(created_at=recent, last_surfaced_at=None, surface_count=0) is False
+
+    def test_surfaced_recently(self):
+        """Last surfaced < 30 days ago → not stale."""
+        recent = datetime.now(timezone.utc) - timedelta(days=STALE_LAST_SURFACED_DAYS - 1)
+        assert _is_stale(created_at=None, last_surfaced_at=recent, surface_count=5) is False
+
+    def test_surfaced_long_ago(self):
+        """Last surfaced > 30 days ago → stale."""
+        old = datetime.now(timezone.utc) - timedelta(days=STALE_LAST_SURFACED_DAYS + 1)
+        assert _is_stale(created_at=None, last_surfaced_at=old, surface_count=5) is True
+
+    def test_none_created_at_and_never_surfaced(self):
+        """Edge case: no created_at + never surfaced → not stale (can't tell)."""
+        assert _is_stale(created_at=None, last_surfaced_at=None, surface_count=0) is False
+
+    def test_data_inconsistency_count_but_no_timestamp(self):
+        """Edge case: surface_count > 0 but last_surfaced_at is None → not stale.
+        This is a data inconsistency; we err on the side of not marking stale."""
+        old = datetime.now(timezone.utc) - timedelta(days=60)
+        assert _is_stale(created_at=old, last_surfaced_at=None, surface_count=5) is False
+
+
+class TestListStaleHints:
+
+    @pytest.mark.asyncio
+    async def test_list_includes_stale_flag(self):
+        """List response should include 'stale' and 'created_at' per skill."""
+        old = datetime.now(timezone.utc) - timedelta(days=60)
+        row = _make_skill_row(
+            "bots/testbot/old-skill", name="Old",
+            content="---\nname: Old\n---\nSome content",
+            created_at=old, surface_count=0,
+        )
+
+        mock_count_result = MagicMock()
+        mock_count_result.scalar_one.return_value = 1
+        mock_rows_result = MagicMock()
+        mock_rows_result.scalars.return_value.all.return_value = [row]
+
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(action="list"))
+
+        skill = result["skills"][0]
+        assert "stale" in skill
+        assert skill["stale"] is True
+        assert "created_at" in skill
+
+    @pytest.mark.asyncio
+    async def test_list_stale_hint_when_stale_exist(self):
+        """List should include a 'hint' when stale skills are present."""
+        old = datetime.now(timezone.utc) - timedelta(days=60)
+        stale_row = _make_skill_row(
+            "bots/testbot/stale", name="Stale",
+            content="---\nname: Stale\n---\nSome content",
+            created_at=old, surface_count=0,
+        )
+
+        mock_count_result = MagicMock()
+        mock_count_result.scalar_one.return_value = 1
+        mock_rows_result = MagicMock()
+        mock_rows_result.scalars.return_value.all.return_value = [stale_row]
+
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(action="list"))
+
+        assert "hint" in result
+        assert "1 skill has" in result["hint"]
+        assert "hasn't" in result["hint"]  # singular verb agreement
+
+    @pytest.mark.asyncio
+    async def test_list_stale_hint_plural_grammar(self):
+        """Hint should use correct plural grammar for multiple stale skills."""
+        old = datetime.now(timezone.utc) - timedelta(days=60)
+        rows = [
+            _make_skill_row(
+                f"bots/testbot/stale-{i}", name=f"Stale {i}",
+                content=f"---\nname: Stale {i}\n---\nSome content",
+                created_at=old, surface_count=0,
+            )
+            for i in range(2)
+        ]
+
+        mock_count_result = MagicMock()
+        mock_count_result.scalar_one.return_value = 2
+        mock_rows_result = MagicMock()
+        mock_rows_result.scalars.return_value.all.return_value = rows
+
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(action="list"))
+
+        assert "2 skills have" in result["hint"]
+        assert "haven't" in result["hint"]  # plural verb agreement
+
+    @pytest.mark.asyncio
+    async def test_list_no_hint_when_all_fresh(self):
+        """No 'hint' key when no stale skills."""
+        now = datetime.now(timezone.utc)
+        fresh_row = _make_skill_row(
+            "bots/testbot/fresh", name="Fresh",
+            content="---\nname: Fresh\n---\nSome content",
+            created_at=now, last_surfaced_at=now, surface_count=5,
+        )
+
+        mock_count_result = MagicMock()
+        mock_count_result.scalar_one.return_value = 1
+        mock_rows_result = MagicMock()
+        mock_rows_result.scalars.return_value.all.return_value = [fresh_row]
+
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(action="list"))
+
+        assert "hint" not in result
+
+
+# ---------------------------------------------------------------------------
+# Broadened correction regex tests
+# ---------------------------------------------------------------------------
+
+class TestBroadenedCorrectionRegex:
+
+    def test_mid_message_thats_wrong(self):
+        """'that's wrong' mid-message should match."""
+        from app.agent.loop import _CORRECTION_RE
+        assert _CORRECTION_RE.search("I think that's wrong, please fix it")
+
+    def test_mid_message_thats_incorrect(self):
+        from app.agent.loop import _CORRECTION_RE
+        assert _CORRECTION_RE.search("Well, that's incorrect")
+
+    def test_mid_message_you_misunderstood(self):
+        from app.agent.loop import _CORRECTION_RE
+        assert _CORRECTION_RE.search("I think you misunderstood what I meant")
+
+    def test_mid_message_i_said(self):
+        from app.agent.loop import _CORRECTION_RE
+        assert _CORRECTION_RE.search("But I said to use the other approach")
+
+    def test_mid_message_i_meant(self):
+        from app.agent.loop import _CORRECTION_RE
+        assert _CORRECTION_RE.search("I meant the other one")
+
+    def test_no_false_positive_actually_thanks(self):
+        """'actually, thanks' should not trigger correction."""
+        from app.agent.loop import _CORRECTION_RE
+        assert not _CORRECTION_RE.search("actually, thanks for doing that")
+
+    def test_no_false_positive_no_problem(self):
+        from app.agent.loop import _CORRECTION_RE
+        assert not _CORRECTION_RE.search("no problem at all")
+
+    def test_no_false_positive_no_worries(self):
+        from app.agent.loop import _CORRECTION_RE
+        assert not _CORRECTION_RE.search("no worries about it")
+
+    def test_no_false_positive_normal_sentence(self):
+        from app.agent.loop import _CORRECTION_RE
+        assert not _CORRECTION_RE.search("Can you help me deploy this?")
+
+    def test_no_false_positive_word_boundary_i_said(self):
+        """'i said' inside another word (e.g. 'alibi said') should not match."""
+        from app.agent.loop import _CORRECTION_RE
+        assert not _CORRECTION_RE.search("alibi said something")
+        assert not _CORRECTION_RE.search("Luigi said ciao")
+        assert not _CORRECTION_RE.search("Wasabi said it works")
+
+    def test_no_false_positive_word_boundary_you_misunderstood(self):
+        """'you misunderstood' inside another word should not match."""
+        from app.agent.loop import _CORRECTION_RE
+        assert not _CORRECTION_RE.search("bayou misunderstood me")

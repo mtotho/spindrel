@@ -686,6 +686,10 @@ async def hud_echo_diagnostics(_auth=Depends(verify_auth_or_user)) -> dict:
         _ECHO_SUPPRESS_WINDOW,
     )
 
+    # Evict expired entries before reading state — without this,
+    # phantom chats and stale hash counts would appear in diagnostics.
+    shared_tracker._evict()
+
     now = time.time()
     items: list[dict] = []
 
@@ -735,9 +739,15 @@ async def hud_echo_diagnostics(_auth=Depends(verify_auth_or_user)) -> dict:
             "variant": "warning",
         })
 
-    # Divider
+    # Divider or empty state
     if all_guids:
         items.append({"type": "divider"})
+    else:
+        items.append({
+            "type": "text",
+            "value": "No active echo tracking — all quiet",
+            "variant": "muted",
+        })
 
     # Per-chat breakdown (sorted by most recent activity)
     def _last_activity(guid: str) -> float:

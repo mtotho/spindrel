@@ -1,4 +1,4 @@
-"""Detect repeated search_memory queries across agent runs and suggest skill creation."""
+"""Detect repeated search queries across agent runs and suggest skill creation."""
 
 import logging
 import time
@@ -11,6 +11,10 @@ logger = logging.getLogger(__name__)
 _cache: dict[str, tuple[float, list[str]]] = {}
 _CACHE_TTL = 3600  # 1 hour — repeated lookups don't change fast
 
+# Tools whose `arguments["query"]` field is used for repeated-lookup tracking.
+# Excludes web_search (too noisy/generic) and get_memory_file (uses "name" not "query").
+_TRACKED_TOOLS = ["search_memory", "search_channel_workspace", "search_channel_archive"]
+
 
 async def find_repeated_lookups(
     bot_id: str,
@@ -20,9 +24,10 @@ async def find_repeated_lookups(
 ) -> list[str]:
     """Return search queries the bot has repeated across multiple agent runs.
 
-    Queries the tool_calls table for search_memory calls, groups by
-    normalized query text, and returns queries that appear in >= min_runs
-    distinct correlation_ids (agent runs) within the lookback window.
+    Queries the tool_calls table for search_memory, search_channel_workspace,
+    and search_channel_archive calls, groups by normalized query text, and
+    returns queries that appear in >= min_runs distinct correlation_ids
+    (agent runs) within the lookback window.
 
     Results are cached for 1 hour per bot to avoid hitting the DB on
     every message.
@@ -49,7 +54,7 @@ async def find_repeated_lookups(
                     func.count(func.distinct(ToolCall.correlation_id)).label("run_count"),
                 )
                 .where(
-                    ToolCall.tool_name == "search_memory",
+                    ToolCall.tool_name.in_(_TRACKED_TOOLS),
                     ToolCall.bot_id == bot_id,
                     ToolCall.created_at >= cutoff,
                     ToolCall.arguments["query"].as_string().isnot(None),
