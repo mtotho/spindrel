@@ -141,7 +141,7 @@ function WebChatList({
         {indicator}
 
         {invertedData.map((item, index) => (
-          <div key={item.id} style={{ display: "flex", flexDirection: "column-reverse", userSelect: "text" }}>
+          <div key={item.id} style={{ userSelect: "text" }}>
             {renderMessage({ item, index })}
           </div>
         ))}
