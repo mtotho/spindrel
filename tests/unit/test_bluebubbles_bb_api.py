@@ -40,6 +40,7 @@ class TestSendText:
     @pytest.mark.asyncio
     async def test_send_text_success(self, mock_client):
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {"status": 200, "data": {"guid": "msg-123"}}
         mock_response.raise_for_status = MagicMock()
         mock_client.post.return_value = mock_response
@@ -62,6 +63,7 @@ class TestSendText:
     @pytest.mark.asyncio
     async def test_send_text_generates_temp_guid(self, mock_client):
         mock_response = MagicMock()
+        mock_response.status_code = 200
         mock_response.json.return_value = {"status": 200}
         mock_response.raise_for_status = MagicMock()
         mock_client.post.return_value = mock_response

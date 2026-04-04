@@ -34,10 +34,11 @@ class TestSignatureValidation:
             s.GITHUB_WEBHOOK_SECRET = "secret"
             assert validate_signature(b"body", "sha256=bad") is False
 
-    def test_no_secret_skips(self):
+    def test_no_secret_rejects(self):
+        """Fail-secure: no secret configured means reject all webhooks."""
         with patch("integrations.github.validator.settings") as s:
             s.GITHUB_WEBHOOK_SECRET = ""
-            assert validate_signature(b"anything", None) is True
+            assert validate_signature(b"anything", None) is False
 
 
 # ---------------------------------------------------------------------------

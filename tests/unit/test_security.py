@@ -225,38 +225,38 @@ class TestStreamToPathTraversal:
 class TestGitHubWebhookValidation:
     """Verify webhook validation is fail-secure when secret is not configured."""
 
-    def test_rejects_when_no_secret_configured(self, monkeypatch):
+    def test_rejects_when_no_secret_configured(self):
         """Without a webhook secret, validation should REJECT (not accept)."""
-        from integrations.github import config as gh_config
-        monkeypatch.setattr(gh_config.settings, "GITHUB_WEBHOOK_SECRET", "")
-
+        from unittest.mock import patch, MagicMock
         from integrations.github.validator import validate_signature
-        result = validate_signature(b"test payload", "sha256=abc123")
+        with patch("integrations.github.validator.settings") as mock_settings:
+            mock_settings.GITHUB_WEBHOOK_SECRET = ""
+            result = validate_signature(b"test payload", "sha256=abc123")
         assert result is False, "Should reject webhooks when no secret is configured"
 
-    def test_accepts_valid_signature(self, monkeypatch):
+    def test_accepts_valid_signature(self):
         """With a valid secret and matching signature, validation should accept."""
         import hashlib
         import hmac
+        from unittest.mock import patch
 
         secret = "test-secret-123"
         payload = b"test payload body"
-        from integrations.github import config as gh_config
-        monkeypatch.setattr(gh_config.settings, "GITHUB_WEBHOOK_SECRET", secret)
-
         expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
 
         from integrations.github.validator import validate_signature
-        result = validate_signature(payload, f"sha256={expected}")
+        with patch("integrations.github.validator.settings") as mock_settings:
+            mock_settings.GITHUB_WEBHOOK_SECRET = secret
+            result = validate_signature(payload, f"sha256={expected}")
         assert result is True
 
-    def test_rejects_invalid_signature(self, monkeypatch):
+    def test_rejects_invalid_signature(self):
         """With a valid secret but wrong signature, validation should reject."""
-        from integrations.github import config as gh_config
-        monkeypatch.setattr(gh_config.settings, "GITHUB_WEBHOOK_SECRET", "real-secret")
-
+        from unittest.mock import patch
         from integrations.github.validator import validate_signature
-        result = validate_signature(b"payload", "sha256=0000000000000000000000000000000000000000000000000000000000000000")
+        with patch("integrations.github.validator.settings") as mock_settings:
+            mock_settings.GITHUB_WEBHOOK_SECRET = "real-secret"
+            result = validate_signature(b"payload", "sha256=0000000000000000000000000000000000000000000000000000000000000000")
         assert result is False
 
 

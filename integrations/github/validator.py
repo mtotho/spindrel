@@ -10,7 +10,7 @@ from integrations.github.config import settings
 def validate_signature(payload: bytes, signature_header: str | None) -> bool:
     """Validate X-Hub-Signature-256 header against the payload.
 
-    Returns True if valid. When no secret is configured, skips validation (dev mode).
+    Returns True if valid. When no secret is configured, rejects the webhook (fail-secure).
     """
     if not settings.GITHUB_WEBHOOK_SECRET:
         # No secret configured — fail-secure (reject webhook)

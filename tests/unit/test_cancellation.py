@@ -279,8 +279,8 @@ class TestAgentLoopCancellation:
                 assert "tool_result" in event_types
                 # Should get cancelled
                 assert "cancelled" in event_types
-                # Only one tool_start (second was cancelled before dispatch)
-                assert event_types.count("tool_start") == 1
+                # Both tool_start events are emitted upfront before dispatch
+                assert event_types.count("tool_start") == 2
                 # dispatch_tool_call was only called once (second was cancelled)
                 assert call_count == 1
         finally:

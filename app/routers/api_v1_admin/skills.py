@@ -55,13 +55,29 @@ class SkillUpdateIn(BaseModel):
 
 @router.get("/skills", response_model=list[SkillOut])
 async def admin_list_skills(
+    source_type: str | None = None,
+    bot_id: str | None = None,
+    sort: str = "name",
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(verify_auth_or_user),
 ):
-    """List all skills with chunk counts."""
-    skills = (await db.execute(
-        select(SkillRow).order_by(SkillRow.name)
-    )).scalars().all()
+    """List all skills with chunk counts.
+
+    Optional filters:
+    - source_type: filter by source type (e.g. "tool", "file", "manual")
+    - bot_id: filter to bot-authored skills (bots/{bot_id}/%)
+    - sort: "name" (default) or "recent" (updated_at DESC)
+    """
+    q = select(SkillRow)
+    if source_type:
+        q = q.where(SkillRow.source_type == source_type)
+    if bot_id:
+        q = q.where(SkillRow.id.like(f"bots/{bot_id}/%"))
+    if sort == "recent":
+        q = q.order_by(SkillRow.updated_at.desc())
+    else:
+        q = q.order_by(SkillRow.name)
+    skills = (await db.execute(q)).scalars().all()
 
     chunk_rows = (await db.execute(
         select(Document.source, func.count())
@@ -69,6 +85,12 @@ async def admin_list_skills(
         .group_by(Document.source)
     )).all()
     chunk_map = {row[0]: row[1] for row in chunk_rows}
+
+    def _extract_bot_id(skill_id: str, st: str) -> str | None:
+        if st == "tool" and skill_id.startswith("bots/"):
+            parts = skill_id.split("/", 3)
+            return parts[1] if len(parts) >= 3 else None
+        return None
 
     result = [
         SkillOut(
@@ -80,6 +102,7 @@ async def admin_list_skills(
             chunk_count=chunk_map.get(f"skill:{s.id}", 0),
             created_at=s.created_at,
             updated_at=s.updated_at,
+            bot_id=_extract_bot_id(s.id, s.source_type),
         )
         for s in skills
     ]

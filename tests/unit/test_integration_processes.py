@@ -66,19 +66,19 @@ class TestStatus:
 
 class TestEnvReady:
     def test_empty_required(self, manager):
-        assert manager._env_ready([]) is True
+        assert manager._env_ready("test", []) is True
 
     @patch.dict("os.environ", {"FOO": "bar"}, clear=False)
     def test_env_set(self, manager):
-        assert manager._env_ready(["FOO"]) is True
+        assert manager._env_ready("test", ["FOO"]) is True
 
     @patch.dict("os.environ", {"FOO": "bar"}, clear=False)
     def test_env_partially_set(self, manager):
-        assert manager._env_ready(["FOO", "MISSING_KEY_12345"]) is False
+        assert manager._env_ready("test", ["FOO", "MISSING_KEY_12345"]) is False
 
     @patch.dict("os.environ", {}, clear=False)
     def test_env_missing(self, manager):
-        assert manager._env_ready(["TOTALLY_MISSING_KEY_XYZ"]) is False
+        assert manager._env_ready("test", ["TOTALLY_MISSING_KEY_XYZ"]) is False
 
 
 class TestStart:

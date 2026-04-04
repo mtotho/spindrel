@@ -541,7 +541,7 @@ class ToolCall(Base):
 
     __table_args__ = (
         Index("ix_tool_calls_correlation_id", "correlation_id"),
-        Index("ix_tool_calls_bot_created", "bot_id", "created_at"),
+        Index("ix_tool_calls_bot_id_created_at", "bot_id", "created_at"),
     )
 
 

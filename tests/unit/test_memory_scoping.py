@@ -99,15 +99,18 @@ class TestMemoryScopeWhereWithUserId:
         assert "bot-a" in clause_str
         assert "bot-b" not in clause_str
 
-    def test_full_cross_without_user_returns_none(self):
+    def test_full_cross_without_user_returns_false(self):
         """cross_channel=True, cross_client=True, cross_bot=True WITHOUT user_id
-        should return None (widest scope, old behavior)."""
+        should return false() (fail-secure: block all rather than see everything)."""
         clause = memory_scope_where(
             session_id=uuid.uuid4(), client_id="client-1", bot_id="bot-a",
             cross_channel=True, cross_client=True, cross_bot=True,
             user_id=None,
         )
-        assert clause is None
+        assert clause is not None
+        # Should compile to a false clause (blocks everything)
+        clause_str = str(clause.compile(compile_kwargs={"literal_binds": True}))
+        assert "false" in clause_str.lower() or "1 != 1" in clause_str
 
     def test_cross_channel_cross_bot_without_user_scopes_to_client(self):
         """cross_channel=True, cross_client=False, cross_bot=True WITHOUT user_id

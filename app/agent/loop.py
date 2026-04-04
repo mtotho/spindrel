@@ -1324,6 +1324,11 @@ async def run_stream(
                 "reply_in_thread": _dp.get("reply_in_thread", False),
                 "client_actions": _dp.get("client_actions", []),
             }
+        # Signal the UI to poll for async results (deferred delegations,
+        # scheduled tasks, etc.) that will arrive after the stream closes.
+        _pending = task_creation_count.get(0)
+        if _pending > 0:
+            yield {"type": "pending_tasks", "count": _pending}
         if _last_response is not None:
             yield _last_response
     else:

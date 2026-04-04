@@ -1,6 +1,8 @@
 import { useState, useMemo } from "react";
-import { Search, Zap } from "lucide-react";
+import { Search, Zap, BookOpen } from "lucide-react";
+import { useRouter } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useSkills } from "@/src/api/hooks/useSkills";
 import type { BotConfig, BotEditorData, SkillOption } from "@/src/types/api";
 
 const AUTO_INJECTED_SKILLS: Record<string, string> = {
@@ -14,6 +16,7 @@ function SourceBadge({ type }: { type: string }) {
     file: { bg: t.accentSubtle, fg: t.accent, label: "file" },
     integration: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c", label: "integration" },
     manual: { bg: t.surfaceOverlay, fg: t.textMuted, label: "manual" },
+    tool: { bg: "rgba(16,185,129,0.15)", fg: "#059669", label: "bot" },
   };
   const c = cfg[type] || cfg.manual;
   return (
@@ -81,6 +84,49 @@ function groupSkills(skills: SkillOption[]): GroupedItem[] {
   return items;
 }
 
+function SelfAuthoredSkillsBanner({ botId }: { botId: string }) {
+  const t = useThemeTokens();
+  const router = useRouter();
+  const { data: botSkills } = useSkills({ bot_id: botId, source_type: "tool", sort: "recent" });
+
+  if (!botSkills || botSkills.length === 0) return null;
+
+  const recent = botSkills.slice(0, 3);
+  return (
+    <div style={{
+      padding: "10px 12px", background: "rgba(16,185,129,0.08)",
+      border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, marginBottom: 8,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <BookOpen size={13} color="#059669" />
+        <span style={{ fontSize: 12, fontWeight: 600, color: "#059669" }}>
+          {botSkills.length} self-authored skill{botSkills.length !== 1 ? "s" : ""}
+        </span>
+        <button
+          onClick={() => router.push(`/admin/skills?source_type=tool&bot_id=${botId}` as any)}
+          style={{
+            marginLeft: "auto", fontSize: 11, color: t.accent, background: "none",
+            border: "none", cursor: "pointer", textDecoration: "underline",
+          }}
+        >
+          View all
+        </button>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        {recent.map((s) => (
+          <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+            <span style={{ color: t.text, fontWeight: 500 }}>{s.name}</span>
+            <span style={{ color: t.textDim, fontFamily: "monospace", fontSize: 10 }}>{s.id.split("/").pop()}</span>
+            <span style={{ color: t.textDim, marginLeft: "auto" }}>
+              {new Date(s.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SkillsSection({
   editorData, draft, update,
 }: { editorData: BotEditorData; draft: BotConfig; update: (p: Partial<BotConfig>) => void }) {
@@ -118,6 +164,7 @@ export function SkillsSection({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {draft.id && <SelfAuthoredSkillsBanner botId={draft.id} />}
       <div style={{ fontSize: 11, color: t.textDim }}>
         <strong style={{ color: t.textMuted }}>on_demand</strong>: index injected, agent calls get_skill.{" "}
         <strong style={{ color: t.textMuted }}>pinned</strong>: full content every turn.{" "}
