@@ -24,7 +24,7 @@ function resolveIcon(name: string | undefined): React.ComponentType<{ size: numb
  * Clicking a badge navigates to the relevant settings tab.
  */
 export function ActiveBadgeBar({ channelId, compact }: { channelId: string; compact?: boolean }) {
-  const theme = useThemeTokens();
+  const t = useThemeTokens();
   const router = useRouter();
   const { data: settings } = useChannelSettings(channelId);
   const { data: channel } = useChannel(channelId);
@@ -58,67 +58,51 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
     <>
       {/* Template badge */}
       {template && (
-        <Pressable onPress={() => nav("workspace")} style={badgeStyle(theme.accent + "15", theme.accent + "40")}>
-          <FileText size={11} color={theme.accent} />
-          <Text numberOfLines={1} style={{ fontSize: 11, color: theme.accent, fontWeight: "500", maxWidth: 160 }}>
+        <Pressable onPress={() => nav("workspace")} style={pillStyle}>
+          <FileText size={11} color={t.accent} />
+          <Text numberOfLines={1} style={{ fontSize: 11, color: t.accent, fontWeight: "500", maxWidth: 160 }}>
             {template.name}
           </Text>
         </Pressable>
       )}
 
-      {/* Activated integrations — green, with proper icons */}
+      {/* Activated integrations — green dot + name */}
       {activeIntegrations.map((ig) => {
         const Icon = resolveIcon(icons[ig.integration_type]);
         return (
-          <Pressable
-            key={ig.integration_type}
-            onPress={() => nav("integrations")}
-            style={badgeStyle(theme.success + "15", theme.success + "40")}
-          >
-            <Icon size={11} color={theme.success} />
-            <Text numberOfLines={1} style={{ fontSize: 11, color: theme.success, fontWeight: "500", maxWidth: 140 }}>
+          <Pressable key={ig.integration_type} onPress={() => nav("integrations")} style={pillStyle}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.success }} />
+            <Text numberOfLines={1} style={{ fontSize: 11, color: t.textMuted, fontWeight: "500", maxWidth: 140 }}>
               {prettyIntegrationName(ig.integration_type)}
             </Text>
           </Pressable>
         );
       })}
 
-      {/* Bound-only integrations — subtle, just shows connection */}
-      {boundOnly.map((b) => {
-        const Icon = resolveIcon(icons[b.integration_type]);
-        return (
-          <Pressable
-            key={b.id}
-            onPress={() => nav("integrations")}
-            style={badgeStyle(theme.surfaceOverlay, theme.surfaceBorder)}
-          >
-            <Icon size={11} color={theme.textDim} />
-            <Text numberOfLines={1} style={{ fontSize: 11, color: theme.textDim, fontWeight: "500", maxWidth: 140 }}>
-              {prettyIntegrationName(b.integration_type)}
-            </Text>
-          </Pressable>
-        );
-      })}
+      {/* Bound-only integrations — dim dot + name */}
+      {boundOnly.map((b) => (
+        <Pressable key={b.id} onPress={() => nav("integrations")} style={pillStyle}>
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.textDim, opacity: 0.5 }} />
+          <Text numberOfLines={1} style={{ fontSize: 11, color: t.textDim, fontWeight: "500", maxWidth: 140 }}>
+            {prettyIntegrationName(b.integration_type)}
+          </Text>
+        </Pressable>
+      ))}
 
-      {/* Separator dot before counts */}
-      {(totalTools > 0 || totalSkills > 0) && (template || activeIntegrations.length > 0 || boundOnly.length > 0) && (
-        <Text style={{ fontSize: 10, color: theme.textDim, opacity: 0.4 }}>{"\u00b7"}</Text>
-      )}
-
-      {/* Tool/skill count summary */}
+      {/* Tool/skill counts — inline text, no pill */}
       {totalTools > 0 && (
-        <Pressable onPress={() => nav("tools")} style={badgeStyle(theme.surfaceOverlay, theme.surfaceBorder)}>
-          <Wrench size={10} color={theme.textDim} />
-          <Text style={{ fontSize: 10, color: theme.textDim }}>
-            {totalTools} tool{totalTools !== 1 ? "s" : ""}
+        <Pressable onPress={() => nav("tools")} style={pillStyle}>
+          <Wrench size={10} color={t.textDim} />
+          <Text style={{ fontSize: 10, color: t.textDim }}>
+            {totalTools}
           </Text>
         </Pressable>
       )}
       {totalSkills > 0 && (
-        <Pressable onPress={() => nav("integrations")} style={badgeStyle(theme.surfaceOverlay, theme.surfaceBorder)}>
-          <BookOpen size={10} color={theme.textDim} />
-          <Text style={{ fontSize: 10, color: theme.textDim }}>
-            {totalSkills} skill{totalSkills !== 1 ? "s" : ""}
+        <Pressable onPress={() => nav("integrations")} style={pillStyle}>
+          <BookOpen size={10} color={t.textDim} />
+          <Text style={{ fontSize: 10, color: t.textDim }}>
+            {totalSkills}
           </Text>
         </Pressable>
       )}
@@ -131,11 +115,11 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        style={{ flexShrink: 0, backgroundColor: theme.surface, maxHeight: 28, borderBottomWidth: 1, borderBottomColor: theme.surfaceBorder }}
+        style={{ flexShrink: 0, maxHeight: 26, borderBottomWidth: 1, borderBottomColor: t.surfaceBorder }}
         contentContainerStyle={{
           paddingHorizontal: 12,
-          paddingVertical: 2,
-          gap: 6,
+          paddingVertical: 4,
+          gap: 12,
           alignItems: "center",
           flexDirection: "row",
         }}
@@ -151,10 +135,9 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
       className="flex-row items-center border-b border-surface-border"
       style={{
         paddingHorizontal: 16,
-        paddingVertical: 5,
-        gap: 6,
+        paddingVertical: 4,
+        gap: 12,
         flexWrap: "wrap",
-        backgroundColor: theme.surface,
       }}
     >
       {badges}
@@ -162,16 +145,8 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
   );
 }
 
-function badgeStyle(bg: string, border: string) {
-  return {
-    flexDirection: "row" as const,
-    alignItems: "center" as const,
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 5,
-    backgroundColor: bg,
-    borderWidth: 1,
-    borderColor: border,
-  };
-}
+const pillStyle = {
+  flexDirection: "row" as const,
+  alignItems: "center" as const,
+  gap: 4,
+};

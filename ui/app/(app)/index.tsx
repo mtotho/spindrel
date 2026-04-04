@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { View, Text, Pressable } from "react-native";
 import { Link, useRouter } from "expo-router";
 import { useChannels, useEnsureOrchestrator } from "@/src/api/hooks/useChannels";
@@ -19,11 +19,13 @@ import {
   Plus,
   Home,
   ChevronRight,
+  ChevronDown,
   FileText,
   Sparkles,
   AlertTriangle,
+  Lock,
 } from "lucide-react";
-import type { Channel, PromptTemplate } from "@/src/types/api";
+import type { Channel, BotConfig, PromptTemplate } from "@/src/types/api";
 
 function isOrchestratorChannel(channel: Channel): boolean {
   return channel.client_id === "orchestrator:home";
@@ -35,7 +37,7 @@ function ChannelCard({ channel, bot, t, isOrchestrator }: {
   t: ReturnType<typeof useThemeTokens>;
   isOrchestrator: boolean;
 }) {
-  const Icon = isOrchestrator ? Home : Hash;
+  const Icon = isOrchestrator ? Home : channel.private ? Lock : Hash;
   return (
     <Link
       href={`/channels/${channel.id}` as any}
@@ -195,6 +197,50 @@ function OnboardingCards({ templates, t }: { templates: PromptTemplate[]; t: Ret
   );
 }
 
+function CategoryCardGroup({ category, channels, botMap, t }: {
+  category: string | null;
+  channels: Channel[];
+  botMap: Map<string, BotConfig>;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  if (channels.length === 0) return null;
+
+  const label = category ? category.toUpperCase() : "CHANNELS";
+
+  return (
+    <View style={{ gap: 4 }}>
+      <Pressable
+        onPress={() => setCollapsed(!collapsed)}
+        style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 2 }}
+      >
+        {category ? (
+          collapsed ? (
+            <ChevronRight size={14} color={t.textDim} />
+          ) : (
+            <ChevronDown size={14} color={t.textDim} />
+          )
+        ) : null}
+        <Text style={{ fontSize: 13, fontWeight: "600", color: t.textDim, letterSpacing: 0.5, flex: 1 }}>
+          {label}
+        </Text>
+        <Text style={{ fontSize: 12, color: t.textDim, opacity: 0.5 }}>
+          {channels.length}
+        </Text>
+      </Pressable>
+      {!collapsed && channels.map((channel) => (
+        <ChannelCard
+          key={channel.id}
+          channel={channel}
+          bot={botMap.get(channel.bot_id)}
+          t={t}
+          isOrchestrator={false}
+        />
+      ))}
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   const { data: channels, isLoading: channelsLoading, error: channelsError } = useChannels();
   const { data: bots } = useBots();
@@ -213,8 +259,33 @@ export default function HomeScreen() {
 
   // Separate orchestrator channel from the rest, pin it at top
   const orchestratorChannel = channels?.find(isOrchestratorChannel);
-  const otherChannels = channels?.filter((ch) => !isOrchestratorChannel(ch)) ?? [];
+  const otherChannels = useMemo(
+    () => channels?.filter((ch) => !isOrchestratorChannel(ch)) ?? [],
+    [channels],
+  );
 
+  // Group channels by category (same logic as sidebar ChannelList)
+  const categoryGroups = useMemo(() => {
+    const grouped = new Map<string | null, Channel[]>();
+    for (const ch of otherChannels) {
+      const cat = ch.category ?? null;
+      const list = grouped.get(cat) ?? [];
+      list.push(ch);
+      grouped.set(cat, list);
+    }
+    const sorted: { category: string | null; channels: Channel[] }[] = [];
+    const namedCategories = [...grouped.keys()].filter((k): k is string => k !== null).sort();
+    for (const cat of namedCategories) {
+      sorted.push({ category: cat, channels: grouped.get(cat)! });
+    }
+    const uncategorized = grouped.get(null);
+    if (uncategorized?.length) {
+      sorted.push({ category: null, channels: uncategorized });
+    }
+    return sorted;
+  }, [otherChannels]);
+
+  const hasCategories = categoryGroups.some((g) => g.category !== null);
   const hasChannels = (channels?.length ?? 0) > 0;
 
   return (
@@ -357,6 +428,18 @@ export default function HomeScreen() {
           </View>
         ) : !hasChannels || otherChannels.length === 0 ? (
           <OnboardingCards templates={templates ?? []} t={t} />
+        ) : hasCategories ? (
+          <View style={{ gap: 16 }}>
+            {categoryGroups.map((group) => (
+              <CategoryCardGroup
+                key={group.category ?? "__uncategorized"}
+                category={group.category}
+                channels={group.channels}
+                botMap={botMap}
+                t={t}
+              />
+            ))}
+          </View>
         ) : (
           <View className="gap-1">
             <Text style={{ fontSize: 13, fontWeight: "600", color: t.textDim, letterSpacing: 0.5, marginBottom: 4 }}>

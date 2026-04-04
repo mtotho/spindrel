@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
-import { Link2, Unlink, Pencil } from "lucide-react";
+import { useWindowDimensions } from "react-native";
+import { Link2, Unlink, Pencil, X } from "lucide-react";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
 import { useThemeTokens } from "../../theme/tokens";
 import { prettyIntegrationName } from "../../utils/format";
@@ -28,6 +29,8 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
   const [search, setSearch] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
   const { data: templates } = usePromptTemplates(undefined, category);
+  const { width: windowWidth } = useWindowDimensions();
+  const isMobile = windowWidth < 768;
   const t = useThemeTokens();
 
   const linked = templates?.find((tpl) => tpl.id === templateId);
@@ -59,6 +62,171 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
   const compatCount = highlightTag
     ? manual.filter((tpl) => tpl.tags?.includes(highlightTag)).length
     : 0;
+
+  const close = () => { setOpen(false); setSearch(""); };
+
+  const selectTemplate = (id: string) => {
+    onLink(id);
+    close();
+  };
+
+  // Shared template list content
+  const templateList = (
+    <div style={{ flex: 1, overflowY: "auto", padding: "4px 0", WebkitOverflowScrolling: "touch" }}>
+      {manual.length === 0 && (
+        <div style={{ padding: "16px 12px", textAlign: "center", color: t.textDim, fontSize: 12 }}>
+          No templates found
+        </div>
+      )}
+      {manual.map((tpl, idx) => {
+        const isHighlighted = highlightTag && tpl.tags?.includes(highlightTag);
+        const badgeLabel = isHighlighted ? (highlightLabel || "Recommended") : undefined;
+        const showCompatHeader = highlightTag && compatCount > 0 && idx === 0 && isHighlighted;
+        const showOtherHeader = highlightTag && compatCount > 0 && idx === compatCount;
+        const prevTpl = idx > 0 ? manual[idx - 1] : null;
+        const showGroupHeader = !showCompatHeader && tpl.group && tpl.group !== prevTpl?.group;
+        return (
+          <div key={tpl.id}>
+            {showCompatHeader && (
+              <div style={{
+                padding: "6px 12px 2px",
+                fontSize: 9,
+                fontWeight: 700,
+                color: "#22c55e",
+                textTransform: "uppercase",
+                letterSpacing: 1,
+              }}>
+                Compatible with {highlightLabel || "integration"}
+              </div>
+            )}
+            {showOtherHeader && (
+              <div style={{
+                padding: "8px 12px 2px",
+                fontSize: 9,
+                fontWeight: 700,
+                color: t.textDim,
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                borderTop: `1px solid ${t.surfaceBorder}`,
+                marginTop: 4,
+              }}>
+                Other templates
+              </div>
+            )}
+            {showGroupHeader && (
+              <div style={{
+                padding: `${idx > 0 ? 8 : 4}px 12px 2px`,
+                fontSize: 9,
+                fontWeight: 700,
+                color: t.textDim,
+                textTransform: "uppercase",
+                letterSpacing: 0.8,
+                ...(idx > 0 ? { borderTop: `1px solid ${t.surfaceBorder}`, marginTop: 2 } : {}),
+              }}>
+                {tpl.group}
+              </div>
+            )}
+            <button
+              onMouseDown={(e) => {
+                e.preventDefault();
+                selectTemplate(tpl.id);
+              }}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: isMobile ? 4 : 2,
+                width: "100%",
+                padding: isMobile ? "10px 16px" : "6px 12px",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                textAlign: "left",
+                opacity: highlightTag && !isHighlighted ? 0.7 : 1,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <Pencil size={isMobile ? 13 : 11} color={t.accent} />
+                <span style={{ fontSize: isMobile ? 14 : 12, fontWeight: 600, color: t.text }}>
+                  {tpl.name}
+                </span>
+                {badgeLabel && (
+                  <span
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                      padding: "1px 5px",
+                      borderRadius: 3,
+                      background: "rgba(34,197,94,0.12)",
+                      color: "#22c55e",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {badgeLabel}
+                  </span>
+                )}
+                {(tpl.source_type === "integration" || tpl.source_type === "file") && (
+                  <span
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                      padding: "1px 5px",
+                      borderRadius: 3,
+                      background: t.surfaceOverlay,
+                      color: t.textDim,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {(tpl.source_type === "integration" && getIntegrationLabel(tpl.source_path)) || "Built-in"}
+                  </span>
+                )}
+              </div>
+              {tpl.description && (
+                <span
+                  style={{
+                    fontSize: isMobile ? 12 : 11,
+                    color: t.textDim,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    paddingLeft: isMobile ? 19 : 17,
+                  }}
+                >
+                  {tpl.description}
+                </span>
+              )}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // Search bar
+  const searchBar = (
+    <input
+      type="text"
+      value={search}
+      onChange={(e) => setSearch(e.target.value)}
+      placeholder="Search templates..."
+      autoFocus
+      style={{
+        width: "100%",
+        background: t.inputBg,
+        border: `1px solid ${t.inputBorder}`,
+        borderRadius: isMobile ? 8 : 4,
+        padding: isMobile ? "10px 12px" : "5px 8px",
+        fontSize: isMobile ? 16 : 12,
+        color: t.inputText,
+        outline: "none",
+      }}
+    />
+  );
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
@@ -147,198 +315,78 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
             (() => {
               const ReactDOM = require("react-dom");
               return ReactDOM.createPortal(
-                <>
-                  <div
-                    onClick={() => {
-                      setOpen(false);
-                      setSearch("");
-                    }}
-                    style={{ position: "fixed", inset: 0, zIndex: 10010 }}
-                  />
+                isMobile ? (
+                  /* ---- Mobile: full-screen modal ---- */
                   <div
                     style={{
                       position: "fixed",
-                      top: (btnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
-                      left: btnRef.current?.getBoundingClientRect().left ?? 0,
-                      width: 340,
-                      maxHeight: 380,
-                      zIndex: 10011,
-                      background: t.surfaceRaised,
-                      border: `1px solid ${t.surfaceBorder}`,
-                      borderRadius: 8,
-                      boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+                      inset: 0,
+                      zIndex: 10010,
+                      background: t.surface,
                       display: "flex",
                       flexDirection: "column",
                     }}
                   >
-                    <div style={{ padding: "8px 10px", borderBottom: `1px solid ${t.surfaceOverlay}` }}>
-                      <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search templates..."
-                        autoFocus
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "12px 16px",
+                      borderBottom: `1px solid ${t.surfaceBorder}`,
+                      flexShrink: 0,
+                    }}>
+                      <div style={{ flex: 1 }}>{searchBar}</div>
+                      <button
+                        onClick={close}
                         style={{
-                          width: "100%",
-                          background: t.inputBg,
-                          border: `1px solid ${t.inputBorder}`,
-                          borderRadius: 4,
-                          padding: "5px 8px",
-                          fontSize: 12,
-                          color: t.inputText,
-                          outline: "none",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 36,
+                          height: 36,
+                          borderRadius: 8,
+                          border: `1px solid ${t.surfaceBorder}`,
+                          background: "transparent",
+                          color: t.textMuted,
+                          cursor: "pointer",
+                          flexShrink: 0,
                         }}
-                      />
+                      >
+                        <X size={18} />
+                      </button>
                     </div>
-                    <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
-                      {manual.length === 0 && (
-                        <div
-                          style={{
-                            padding: "16px 12px",
-                            textAlign: "center",
-                            color: t.textDim,
-                            fontSize: 12,
-                          }}
-                        >
-                          No templates found
-                        </div>
-                      )}
-                      {manual.map((tpl, idx) => {
-                        const isHighlighted = highlightTag && tpl.tags?.includes(highlightTag);
-                        const badgeLabel = isHighlighted
-                          ? (highlightLabel || "Recommended")
-                          : undefined;
-                        // Section headers when highlightTag is set
-                        const showCompatHeader = highlightTag && compatCount > 0 && idx === 0 && isHighlighted;
-                        const showOtherHeader = highlightTag && compatCount > 0 && idx === compatCount;
-                        // Group headers within sections (show when group changes)
-                        const prevTpl = idx > 0 ? manual[idx - 1] : null;
-                        const showGroupHeader = !showCompatHeader
-                          && tpl.group && tpl.group !== prevTpl?.group;
-                        return (
-                        <div key={tpl.id}>
-                          {showCompatHeader && (
-                            <div style={{
-                              padding: "6px 12px 2px",
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: "#22c55e",
-                              textTransform: "uppercase",
-                              letterSpacing: 1,
-                            }}>
-                              Compatible with {highlightLabel || "integration"}
-                            </div>
-                          )}
-                          {showOtherHeader && (
-                            <div style={{
-                              padding: "8px 12px 2px",
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: t.textDim,
-                              textTransform: "uppercase",
-                              letterSpacing: 1,
-                              borderTop: `1px solid ${t.surfaceBorder}`,
-                              marginTop: 4,
-                            }}>
-                              Other templates
-                            </div>
-                          )}
-                          {showGroupHeader && (
-                            <div style={{
-                              padding: `${idx > 0 ? 8 : 4}px 12px 2px`,
-                              fontSize: 9,
-                              fontWeight: 700,
-                              color: t.textDim,
-                              textTransform: "uppercase",
-                              letterSpacing: 0.8,
-                              ...(idx > 0 ? { borderTop: `1px solid ${t.surfaceBorder}`, marginTop: 2 } : {}),
-                            }}>
-                              {tpl.group}
-                            </div>
-                          )}
-                          <button
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              onLink(tpl.id);
-                              setOpen(false);
-                              setSearch("");
-                            }}
-                            style={{
-                              display: "flex",
-                              flexDirection: "column",
-                              gap: 2,
-                              width: "100%",
-                              padding: "6px 12px",
-                              background: "transparent",
-                              border: "none",
-                              cursor: "pointer",
-                              textAlign: "left",
-                              opacity: highlightTag && !isHighlighted ? 0.7 : 1,
-                            }}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
-                            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                          >
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <Pencil size={11} color={t.accent} />
-                              <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
-                                {tpl.name}
-                              </span>
-                              {badgeLabel && (
-                                <span
-                                  style={{
-                                    fontSize: 9,
-                                    fontWeight: 700,
-                                    textTransform: "uppercase",
-                                    letterSpacing: 0.5,
-                                    padding: "1px 5px",
-                                    borderRadius: 3,
-                                    background: "rgba(34,197,94,0.12)",
-                                    color: "#22c55e",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {badgeLabel}
-                                </span>
-                              )}
-                              {(tpl.source_type === "integration" || tpl.source_type === "file") && (
-                                <span
-                                  style={{
-                                    fontSize: 9,
-                                    fontWeight: 700,
-                                    textTransform: "uppercase",
-                                    letterSpacing: 0.5,
-                                    padding: "1px 5px",
-                                    borderRadius: 3,
-                                    background: t.surfaceOverlay,
-                                    color: t.textDim,
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {(tpl.source_type === "integration" && getIntegrationLabel(tpl.source_path)) || "Built-in"}
-                                </span>
-                              )}
-                            </div>
-                            {tpl.description && (
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  color: t.textDim,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                  paddingLeft: 17,
-                                }}
-                              >
-                                {tpl.description}
-                              </span>
-                            )}
-                          </button>
-                        </div>
-                        );
-                      })}
-                    </div>
+                    {templateList}
                   </div>
-                </>,
+                ) : (
+                  /* ---- Desktop: positioned dropdown ---- */
+                  <>
+                    <div
+                      onClick={close}
+                      style={{ position: "fixed", inset: 0, zIndex: 10010 }}
+                    />
+                    <div
+                      style={{
+                        position: "fixed",
+                        top: (btnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+                        left: btnRef.current?.getBoundingClientRect().left ?? 0,
+                        width: 340,
+                        maxHeight: 380,
+                        zIndex: 10011,
+                        background: t.surfaceRaised,
+                        border: `1px solid ${t.surfaceBorder}`,
+                        borderRadius: 8,
+                        boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+                        display: "flex",
+                        flexDirection: "column",
+                      }}
+                    >
+                      <div style={{ padding: "8px 10px", borderBottom: `1px solid ${t.surfaceOverlay}` }}>
+                        {searchBar}
+                      </div>
+                      {templateList}
+                    </div>
+                  </>
+                ),
                 document.body
               );
             })()}

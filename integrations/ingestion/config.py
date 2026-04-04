@@ -16,5 +16,7 @@ class IngestionConfig(BaseSettings):
     max_body_bytes: int = 50_000
     quarantine_retention_days: int = 90
     layer2_fail_threshold: int = 1  # flags needed to escalate to Layer 3
+    classifier_max_retries: int = 3  # additional attempts on transient errors
+    classifier_retry_delay: float = 2.0  # base delay in seconds (doubles each retry)
 
     model_config = SettingsConfigDict(env_prefix="INGESTION_")

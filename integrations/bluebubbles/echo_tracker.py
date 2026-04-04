@@ -4,18 +4,20 @@ Since both bot-sent and user-sent messages appear as isFromMe=true,
 we track every message we send via the API and treat untracked
 isFromMe messages as human-originated.
 
-Tracking uses three layers:
-  1. tempGuid — the temp GUID we pass when sending via the BB API
-  2. text hash — SHA-256 prefix of the message text (fallback)
+Tracking uses four layers:
+  1. content match — per-chat text hash of every message we sent;
+     checked BEFORE is_from_me, catches echoes regardless of flag
+  2. tempGuid / text hash — the temp GUID or SHA-256 prefix of the
+     message text (legacy, popped on match, is_from_me only)
   3. per-chat reply cooldown — if we replied to a chat recently,
      treat any isFromMe as an echo (prevents loops when LLM is slow)
+  4. circuit breaker — if we've replied to the same chat N times
+     in a short window, stop responding entirely
 
-Plus a circuit breaker: if we've replied to the same chat N times
-in a short window, stop responding entirely.
-
-The reply cooldown and circuit breaker state is **persisted to the DB**
-(via IntegrationSetting) so it survives server restarts — this is
-critical to prevent loops when BB replays queued webhooks after a restart.
+The reply cooldown, circuit breaker, and sent-content state are
+**persisted to the DB** (via IntegrationSetting) so they survive
+server restarts — this is critical to prevent loops when BB replays
+queued webhooks after a restart.
 """
 from __future__ import annotations
 
@@ -30,8 +32,12 @@ logger = logging.getLogger(__name__)
 
 
 def _text_hash(text: str) -> str:
-    """Return a short hash of the message text for fuzzy matching."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+    """Return a short hash of the normalized message text.
+
+    Strips leading/trailing whitespace before hashing so that LLM
+    responses with trailing newlines match the webhook's .strip()ed text.
+    """
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass
@@ -54,6 +60,7 @@ _CIRCUIT_BREAKER_MAX = 5
 _CIRCUIT_BREAKER_WINDOW = 300.0  # 5 minutes
 
 _DB_KEY = "bb_reply_state"
+_DB_KEY_CONTENT = "bb_sent_content"
 _INTEGRATION_ID = "bluebubbles"
 
 
@@ -67,6 +74,10 @@ class EchoTracker:
         # Per-chat: list of wall-clock timestamps when we sent replies.
         # Uses time.time() (not monotonic) so it can be persisted.
         self._chat_replies: dict[str, list[float]] = defaultdict(list)
+        # Per-chat sent content: {chat_guid: {text_hash: wall-clock timestamp}}.
+        # NOT popped on match — entries only expire by TTL.  Used for
+        # content-based echo detection regardless of is_from_me flag.
+        self._sent_content: dict[str, dict[str, float]] = defaultdict(dict)
 
     def track_sent(self, temp_guid: str, text: str, *, chat_guid: str = "") -> None:
         """Record a message we just sent via the BB API."""
@@ -77,6 +88,7 @@ class EchoTracker:
         self._by_hash[h] = entry
         if chat_guid:
             self._chat_replies[chat_guid].append(time.time())
+            self._sent_content[chat_guid][h] = time.time()
 
     def is_echo(self, guid: str, text: str) -> bool:
         """Check if an incoming isFromMe message is one we sent (echo) or human."""
@@ -117,6 +129,22 @@ class EchoTracker:
         recent = [ts for ts in replies if now - ts < _CIRCUIT_BREAKER_WINDOW]
         return len(recent) >= _CIRCUIT_BREAKER_MAX
 
+    def is_own_content(self, chat_guid: str, text: str) -> bool:
+        """Check if we recently sent this exact text to this chat.
+
+        Unlike is_echo(), this is NOT gated on is_from_me and does NOT
+        pop entries.  It catches echoes regardless of how BB reports the
+        is_from_me flag — the primary defense against echo loops.
+        """
+        if not chat_guid:
+            return False
+        self._evict()
+        h = _text_hash(text)
+        ts = self._sent_content.get(chat_guid, {}).get(h)
+        if ts is None:
+            return False
+        return time.time() - ts < self.ttl
+
     def _evict(self) -> None:
         """Remove entries older than TTL."""
         cutoff = time.monotonic() - self.ttl
@@ -135,59 +163,85 @@ class EchoTracker:
             ]
             if not self._chat_replies[chat_guid]:
                 del self._chat_replies[chat_guid]
+        # Evict old sent content entries (wall clock, same TTL as main entries)
+        content_cutoff = time.time() - self.ttl
+        for chat_guid in list(self._sent_content):
+            self._sent_content[chat_guid] = {
+                h: ts for h, ts in self._sent_content[chat_guid].items()
+                if ts > content_cutoff
+            }
+            if not self._sent_content[chat_guid]:
+                del self._sent_content[chat_guid]
 
     # -- DB persistence (IntegrationSetting) --
 
     async def save_to_db(self) -> None:
-        """Persist reply timestamps to the DB."""
+        """Persist reply timestamps and sent content hashes to the DB."""
         try:
             from app.db.engine import async_session
             from app.db.models import IntegrationSetting
             from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-            data = json.dumps(dict(self._chat_replies))
+            replies_data = json.dumps(dict(self._chat_replies))
+            content_data = json.dumps(dict(self._sent_content))
             async with async_session() as db:
-                stmt = pg_insert(IntegrationSetting).values(
-                    integration_id=_INTEGRATION_ID,
-                    key=_DB_KEY,
-                    value=data,
-                    is_secret=False,
-                ).on_conflict_do_update(
-                    index_elements=["integration_id", "key"],
-                    set_={"value": data},
-                )
-                await db.execute(stmt)
+                for key, data in ((_DB_KEY, replies_data), (_DB_KEY_CONTENT, content_data)):
+                    stmt = pg_insert(IntegrationSetting).values(
+                        integration_id=_INTEGRATION_ID,
+                        key=key,
+                        value=data,
+                        is_secret=False,
+                    ).on_conflict_do_update(
+                        index_elements=["integration_id", "key"],
+                        set_={"value": data},
+                    )
+                    await db.execute(stmt)
                 await db.commit()
         except Exception:
             logger.debug("BB echo tracker: could not save reply state to DB", exc_info=True)
 
     async def load_from_db(self) -> None:
-        """Load reply timestamps from the DB."""
+        """Load reply timestamps and sent content hashes from the DB."""
         try:
             from app.db.engine import async_session
             from app.db.models import IntegrationSetting
             from sqlalchemy import select
 
             async with async_session() as db:
-                row = (await db.execute(
+                rows = (await db.execute(
                     select(IntegrationSetting).where(
                         IntegrationSetting.integration_id == _INTEGRATION_ID,
-                        IntegrationSetting.key == _DB_KEY,
+                        IntegrationSetting.key.in_((_DB_KEY, _DB_KEY_CONTENT)),
                     )
-                )).scalar_one_or_none()
+                )).scalars().all()
 
-            if row and row.value:
+            now = time.time()
+            for row in rows:
+                if not row.value:
+                    continue
                 data = json.loads(row.value)
-                now = time.time()
-                loaded = 0
-                for chat_guid, timestamps in data.items():
-                    recent = [ts for ts in timestamps if now - ts < _CIRCUIT_BREAKER_WINDOW]
-                    if recent:
-                        self._chat_replies[chat_guid] = recent
-                        loaded += len(recent)
-                if loaded:
-                    logger.info("BB echo tracker: loaded %d reply timestamps for %d chats from DB",
-                                loaded, len(self._chat_replies))
+
+                if row.key == _DB_KEY:
+                    loaded = 0
+                    for chat_guid, timestamps in data.items():
+                        recent = [ts for ts in timestamps if now - ts < _CIRCUIT_BREAKER_WINDOW]
+                        if recent:
+                            self._chat_replies[chat_guid] = recent
+                            loaded += len(recent)
+                    if loaded:
+                        logger.info("BB echo tracker: loaded %d reply timestamps for %d chats from DB",
+                                    loaded, len(self._chat_replies))
+
+                elif row.key == _DB_KEY_CONTENT:
+                    loaded = 0
+                    for chat_guid, hashes in data.items():
+                        recent = {h: ts for h, ts in hashes.items() if now - ts < self.ttl}
+                        if recent:
+                            self._sent_content[chat_guid] = recent
+                            loaded += len(recent)
+                    if loaded:
+                        logger.info("BB echo tracker: loaded %d sent content hashes for %d chats from DB",
+                                    loaded, len(self._sent_content))
         except Exception:
             logger.debug("BB echo tracker: could not load reply state from DB", exc_info=True)
 

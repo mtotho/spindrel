@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { useChatStream, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
+import { useChannelEvents } from "@/src/api/hooks/useChannelEvents";
 import { useChannelWorkflowRuns } from "@/src/api/hooks/useWorkflows";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
 import { apiFetch } from "@/src/api/client";
@@ -66,6 +67,9 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   const finishStreaming = useChatStore((s) => s.finishStreaming);
   const clearProcessing = useChatStore((s) => s.clearProcessing);
   const setError = useChatStore((s) => s.setError);
+
+  // Subscribe to real-time channel events (messages from integrations, other tabs, etc.)
+  useChannelEvents(channelId);
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
   const [turnProviderIdOverride, setTurnProviderIdOverride] = useState<string | null | undefined>();

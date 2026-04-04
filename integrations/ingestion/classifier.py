@@ -4,14 +4,20 @@ Sends sanitized text to /api/v1/llm/completions and parses a strict
 JSON verdict. Fails closed: any error results in quarantine.
 """
 
+import asyncio
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+class _VerdictValidationError(Exception):
+    """Raised when the LLM returned parseable JSON but with invalid structure."""
+
 
 _SYSTEM_PROMPT = """\
 You are a content quality classifier. You review incoming text before it is \
@@ -39,6 +45,19 @@ class ClassifierResult:
     safe: bool
     reason: str
     risk_level: Literal["low", "medium", "high"]
+    classifier_error: bool = field(default=False)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Return True if the exception is transient and worth retrying."""
+    if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        code = exc.response.status_code
+        return code == 429 or code >= 500
+    if isinstance(exc, (ValueError, json.JSONDecodeError)):
+        return True
+    return False
 
 
 async def classify(
@@ -48,8 +67,14 @@ async def classify(
     model: str,
     timeout: int = 15,
     api_key: str = "",
+    max_retries: int = 0,
+    retry_delay: float = 2.0,
 ) -> ClassifierResult:
-    """Classify text via the server's LLM completions API. Fails closed — any error returns unsafe/high."""
+    """Classify text via the server's LLM completions API.
+
+    Retries transient errors up to max_retries times with exponential backoff.
+    Fails closed — after exhausting retries, returns unsafe/high with classifier_error=True.
+    """
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -64,42 +89,58 @@ async def classify(
         "temperature": 0,
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload, headers=headers)
-            resp.raise_for_status()
+    last_exc: Exception | None = None
+    for attempt in range(1 + max_retries):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                resp.raise_for_status()
 
-        data = resp.json()
-        content = data.get("content") or ""
+            data = resp.json()
+            content = data.get("content") or ""
 
-        if not content.strip():
-            raise ValueError(f"LLM returned empty content (model={model})")
+            if not content.strip():
+                raise ValueError(f"LLM returned empty content (model={model})")
 
-        # Strip markdown code fences if model wrapped the JSON
-        stripped = content.strip()
-        if stripped.startswith("```"):
-            lines = stripped.split("\n")
-            # Remove first line (```json) and last line (```)
-            lines = [l for l in lines[1:] if l.strip() != "```"]
-            stripped = "\n".join(lines).strip()
+            # Strip markdown code fences if model wrapped the JSON
+            stripped = content.strip()
+            if stripped.startswith("```"):
+                lines = stripped.split("\n")
+                # Remove first line (```json) and last line (```)
+                lines = [l for l in lines[1:] if l.strip() != "```"]
+                stripped = "\n".join(lines).strip()
 
-        verdict = json.loads(stripped)
+            verdict = json.loads(stripped)
 
-        if not isinstance(verdict.get("safe"), bool):
-            raise ValueError("missing or invalid 'safe' field")
-        if verdict.get("risk_level") not in ("low", "medium", "high"):
-            raise ValueError(f"invalid risk_level: {verdict.get('risk_level')}")
+            if not isinstance(verdict.get("safe"), bool):
+                raise _VerdictValidationError("missing or invalid 'safe' field")
+            if verdict.get("risk_level") not in ("low", "medium", "high"):
+                raise _VerdictValidationError(f"invalid risk_level: {verdict.get('risk_level')}")
 
-        return ClassifierResult(
-            safe=verdict["safe"],
-            reason=verdict.get("reason") or "",
-            risk_level=verdict["risk_level"],
-        )
+            return ClassifierResult(
+                safe=verdict["safe"],
+                reason=verdict.get("reason") or "",
+                risk_level=verdict["risk_level"],
+            )
 
-    except Exception as exc:
-        logger.warning("Classifier failed closed: %s", exc)
-        return ClassifierResult(
-            safe=False,
-            reason=f"classifier error: {exc}",
-            risk_level="high",
-        )
+        except Exception as exc:
+            last_exc = exc
+            remaining = max_retries - attempt
+            if remaining > 0 and _is_retryable(exc):
+                delay = retry_delay * (2 ** attempt)
+                logger.warning(
+                    "Classifier attempt %d failed (%s), retrying in %.1fs (%d left)",
+                    attempt + 1, exc, delay, remaining,
+                )
+                await asyncio.sleep(delay)
+                continue
+            # Non-retryable or out of retries
+            break
+
+    logger.warning("Classifier failed closed: %s", last_exc)
+    return ClassifierResult(
+        safe=False,
+        reason=f"classifier error: {last_exc}",
+        risk_level="high",
+        classifier_error=True,
+    )

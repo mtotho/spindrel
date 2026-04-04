@@ -16,7 +16,7 @@ import {
 import { Link } from "expo-router";
 
 import {
-  StatusBadge, fmtTime, MetaItem, StepNavItem,
+  StatusBadge, fmtTime, MetaItem, StepNavItem, useElapsed, formatStepDuration,
 } from "./WorkflowRunHelpers";
 import WorkflowRunFeed from "./WorkflowRunFeed";
 import WorkflowRunTasks from "./WorkflowRunTasks";
@@ -25,15 +25,16 @@ import WorkflowRunTasks from "./WorkflowRunTasks";
 // Run detail (split-panel: step nav + feed)
 // ---------------------------------------------------------------------------
 
-export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigateToRun }: {
+export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigateToRun, embedded }: {
   runId: string;
   workflowId: string;
   onBack: () => void;
   onNavigateToRun: (id: string) => void;
+  embedded?: boolean;
 }) {
   const t = useThemeTokens();
   const { width } = useWindowDimensions();
-  const isMobile = width < 768;
+  const isMobile = embedded ? false : width < 768;
 
   const { data: run, isLoading } = useWorkflowRun(runId);
   const { data: workflow } = useWorkflow(workflowId);
@@ -46,6 +47,10 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
   const [activeStepIndex, setActiveStepIndex] = useState<number | null>(null);
   const [runAgainError, setRunAgainError] = useState<string | null>(null);
 
+  const isActive = run?.status === "running" || run?.status === "awaiting_approval";
+  const runElapsed = useElapsed(run?.created_at ?? null, isActive);
+  const runDuration = run?.completed_at ? formatStepDuration(run.created_at, run.completed_at) : null;
+
   if (isLoading || !run) {
     return (
       <View style={{ alignItems: "center", padding: 24 }}>
@@ -55,7 +60,6 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
   }
 
   const steps = workflow?.steps || [];
-  const isActive = run.status === "running" || run.status === "awaiting_approval";
 
   const handleRunAgain = async () => {
     setRunAgainError(null);
@@ -80,15 +84,28 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
         display: "flex", alignItems: "center", justifyContent: "space-between",
         paddingBottom: 12, flexShrink: 0,
       }}>
-        <Pressable
-          onPress={onBack}
-          style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-        >
-          <ArrowLeft size={16} color={t.textMuted} />
-          <Text style={{ color: t.textMuted, fontSize: 13 }}>All runs</Text>
-        </Pressable>
+        {!embedded ? (
+          <Pressable
+            onPress={onBack}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
+          >
+            <ArrowLeft size={16} color={t.textMuted} />
+            <Text style={{ color: t.textMuted, fontSize: 13 }}>All runs</Text>
+          </Pressable>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: t.text, fontFamily: "monospace" }}>
+              {run.id.slice(0, 8)}
+            </span>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <StatusBadge status={run.status} t={t} />
+          {(runDuration || runElapsed) && (
+            <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
+              {runDuration || runElapsed}
+            </span>
+          )}
           {!isActive && (
             <button
               onClick={handleRunAgain}
@@ -137,7 +154,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
         background: t.surface,
         marginBottom: 12,
       }}>
-        <MetaItem label="Run ID" value={run.id.slice(0, 8)} t={t} mono />
+        {!embedded && <MetaItem label="Run ID" value={run.id.slice(0, 8)} t={t} mono />}
         <MetaItem label="Bot" value={run.bot_id} t={t} />
         <MetaItem label="Triggered by" value={run.triggered_by || "\u2014"} t={t} />
         <MetaItem label="Context" value={run.session_mode || "isolated"} t={t} />

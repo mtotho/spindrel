@@ -10,6 +10,7 @@ import asyncio
 import logging
 import signal
 import sys
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,14 +38,25 @@ async def _run() -> None:
     logger.info("Gmail poller starting for %s (waiting 5s for server)...", email_addr)
     await asyncio.sleep(5)
 
+    last_purge = 0.0
+    purge_interval = 86400  # 24 hours
+
     try:
         while not _shutdown_event.is_set():
             try:
+                # Periodic quarantine purge (once per day)
+                now = time.monotonic()
+                if now - last_purge > purge_interval:
+                    purged = store.purge_quarantine()
+                    if purged:
+                        logger.info("Purged %d expired quarantine entries", purged)
+                    last_purge = now
+
                 result = await feed.run_cycle()
                 logger.info(
-                    "Cycle: fetched=%d passed=%d quarantined=%d skipped=%d errors=%d",
+                    "Cycle: fetched=%d passed=%d quarantined=%d (classifier_errors=%d) skipped=%d errors=%d",
                     result.fetched, result.passed, result.quarantined,
-                    result.skipped, len(result.errors),
+                    result.classifier_errors, result.skipped, len(result.errors),
                 )
 
                 if result.errors:

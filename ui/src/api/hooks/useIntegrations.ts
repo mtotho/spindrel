@@ -49,6 +49,8 @@ export interface IntegrationItem {
   has_skills: boolean;
   has_carapaces: boolean;
   has_process: boolean;
+  process_launchable?: boolean;
+  process_description?: string | null;
   process_status: ProcessStatus | null;
   env_vars: IntegrationEnvVar[];
   python_dependencies?: PythonDependency[];

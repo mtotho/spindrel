@@ -10,6 +10,7 @@ import { useState } from "react";
 import { View, Text, Platform } from "react-native";
 import { ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
 import { MarkdownContent } from "./MarkdownContent";
+import { WorkflowSummaryCard } from "./WorkflowSummaryCard";
 import { ToolBadges } from "./ToolBadges";
 import type { ThemeTokens } from "../../theme/tokens";
 import type { Message, ToolCall } from "../../types/api";
@@ -130,6 +131,8 @@ export function CollapsedWorkflow({
     ? `/admin/workflows/${wfId}?tab=runs&run=${wfRunId}`
     : null;
 
+  const isTerminal = wfEvent === "completed" || wfEvent === "failed";
+
   if (!isWeb) {
     return (
       <View style={{ paddingHorizontal: 20, paddingVertical: 2 }}>
@@ -137,6 +140,23 @@ export function CollapsedWorkflow({
           {wfName} -- {wfEvent} -- {timestamp}
         </Text>
       </View>
+    );
+  }
+
+  // Terminal events: render the rich summary card (always expanded)
+  if (isTerminal && wfRunId) {
+    return (
+      <div
+        className="msg-hover"
+        style={{ paddingLeft: 20, paddingRight: 20, paddingTop: 2, paddingBottom: 2 }}
+      >
+        <WorkflowSummaryCard
+          runId={wfRunId}
+          workflowId={wfId}
+          workflowName={wfName}
+          t={t}
+        />
+      </div>
     );
   }
 
@@ -186,7 +206,21 @@ export function CollapsedWorkflow({
             ({progress})
           </span>
         )}
-        <span style={{ fontSize: 11, color: t.textDim, opacity: 0.7, flex: 1 }}>
+        {/* Step result preview for step_done/step_failed */}
+        {wfEvent.startsWith("step_") && displayContent.length > 0 && (
+          <span style={{
+            fontSize: 11, color: t.textDim, fontStyle: "italic",
+            flex: 1, minWidth: 0,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
+            {displayContent.length > 80 ? displayContent.slice(0, 80) + "\u2026" : displayContent}
+          </span>
+        )}
+        <span style={{
+          fontSize: 11, color: t.textDim, opacity: 0.7,
+          ...(!wfEvent.startsWith("step_") || !displayContent.length ? { flex: 1 } : {}),
+          flexShrink: 0,
+        }}>
           {timestamp}
         </span>
         {runDetailHref && (

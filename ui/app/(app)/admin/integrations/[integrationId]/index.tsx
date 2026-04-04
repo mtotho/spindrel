@@ -722,7 +722,13 @@ export default function IntegrationDetailScreen() {
         {/* Process */}
         {item.has_process && (
           <SectionBox title="Process">
-            <ProcessControls integrationId={item.id} />
+            {item.process_launchable !== false ? (
+              <ProcessControls integrationId={item.id} />
+            ) : (
+              <div style={{ fontSize: 12, color: t.textDim }}>
+                {item.process_description || "Background process disabled (no CMD defined)."}
+              </div>
+            )}
           </SectionBox>
         )}
 

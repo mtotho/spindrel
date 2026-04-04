@@ -94,3 +94,85 @@ class TestEchoTracker:
         # old is expired, new is fresh
         assert tracker.is_echo("old", "Old message") is False
         assert tracker.is_echo("new", "New message") is True
+
+
+class TestTextHashNormalization:
+    """Text hashing must be whitespace-insensitive to match webhook .strip()."""
+
+    def test_trailing_newline_matches(self):
+        """LLM responses often have trailing newlines; webhook strips them."""
+        assert _text_hash("Hello world\n") == _text_hash("Hello world")
+
+    def test_trailing_whitespace_matches(self):
+        assert _text_hash("Hello world  \n\n") == _text_hash("Hello world")
+
+    def test_leading_whitespace_matches(self):
+        assert _text_hash("  Hello world") == _text_hash("Hello world")
+
+    def test_mixed_whitespace_matches(self):
+        assert _text_hash("\n  Hello world  \n") == _text_hash("Hello world")
+
+    def test_interior_whitespace_preserved(self):
+        """Only leading/trailing whitespace is stripped, not interior."""
+        assert _text_hash("Hello  world") != _text_hash("Hello world")
+
+
+class TestIsOwnContent:
+    """Content-based echo detection — works regardless of is_from_me."""
+
+    def test_detects_recently_sent_text(self):
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "Bot response here", chat_guid="chat-A")
+        assert tracker.is_own_content("chat-A", "Bot response here") is True
+
+    def test_ignores_different_text(self):
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "Bot response", chat_guid="chat-A")
+        assert tracker.is_own_content("chat-A", "Human message") is False
+
+    def test_scoped_to_chat(self):
+        """Only matches within the same chat."""
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "Bot response", chat_guid="chat-A")
+        assert tracker.is_own_content("chat-A", "Bot response") is True
+        assert tracker.is_own_content("chat-B", "Bot response") is False
+
+    def test_survives_is_echo_pop(self):
+        """is_own_content still works even after is_echo pops the entry."""
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "Bot response", chat_guid="chat-A")
+        # is_echo pops the hash entry
+        assert tracker.is_echo("t1", "Bot response") is True
+        # is_own_content should STILL detect it (non-popped cache)
+        assert tracker.is_own_content("chat-A", "Bot response") is True
+
+    def test_handles_whitespace_normalization(self):
+        """Trailing whitespace in tracked text matches stripped echo."""
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "Bot response\n\n", chat_guid="chat-A")
+        assert tracker.is_own_content("chat-A", "Bot response") is True
+
+    def test_expires_after_ttl(self):
+        tracker = EchoTracker(ttl=0.05)
+        tracker.track_sent("t1", "Bot response", chat_guid="chat-A")
+        time.sleep(0.1)
+        assert tracker.is_own_content("chat-A", "Bot response") is False
+
+    def test_empty_chat_guid_returns_false(self):
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "Bot response", chat_guid="chat-A")
+        assert tracker.is_own_content("", "Bot response") is False
+
+    def test_no_chat_guid_on_track_skips(self):
+        """If track_sent was called without chat_guid, is_own_content won't match."""
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "Bot response")  # no chat_guid
+        assert tracker.is_own_content("chat-A", "Bot response") is False
+
+    def test_multiple_messages_same_chat(self):
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "First response", chat_guid="chat-A")
+        tracker.track_sent("t2", "Second response", chat_guid="chat-A")
+        assert tracker.is_own_content("chat-A", "First response") is True
+        assert tracker.is_own_content("chat-A", "Second response") is True
+        assert tracker.is_own_content("chat-A", "Third response") is False

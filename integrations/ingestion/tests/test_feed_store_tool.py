@@ -27,7 +27,7 @@ def ingestion_dir(tmp_path):
     store.audit("gmail", "q-1", "quarantined", "high")
     store.quarantine("gmail", "q-1", "bad email", "high", ["injection"], "prompt injection detected")
     store.quarantine("gmail", "q-2", "suspicious", "medium", [], "suspicious links")
-    store.set_cursor("gmail", "uid-500")
+    store.set_cursor("gmail:INBOX", "uid-500")
     store.close()
 
     # Also create an empty rss.db
@@ -97,8 +97,9 @@ class TestQueryFeedStoreActions:
         data = json.loads(result)
         assert data["total_processed"] == 6  # 5 passed + 1 quarantined audit
         assert data["total_quarantined"] == 2
-        # No source filter → no cursor returned
-        assert data["last_cursor"] is None
+        # No source filter → returns all cursors in this store
+        assert len(data["last_cursor"]) == 1
+        assert data["last_cursor"][0]["key"] == "gmail:INBOX"
 
     @pytest.mark.asyncio
     async def test_stats_with_source_filter(self, mock_ingestion_dir):
@@ -124,6 +125,8 @@ class TestQueryFeedStoreActions:
         result = await query_feed_store(action="quarantine", store="gmail")
         data = json.loads(result)
         assert len(data) == 2
+        # Each item must include id for reprocess-by-id
+        assert all("id" in d for d in data)
         flagged = [d for d in data if d["flags"]]
         assert len(flagged) == 1
         assert "injection" in flagged[0]["flags"]
@@ -154,3 +157,69 @@ class TestQueryFeedStoreActions:
     async def test_empty_quarantine(self, mock_ingestion_dir):
         result = await query_feed_store(action="quarantine", store="rss")
         assert "No quarantined items" in result
+
+
+class TestReprocessAction:
+    @pytest.mark.asyncio
+    async def test_reprocess_missing_params(self, mock_ingestion_dir):
+        result = await query_feed_store(action="reprocess", store="gmail")
+        assert "requires either" in result
+
+    @pytest.mark.asyncio
+    async def test_reprocess_by_reason_pattern(self, mock_ingestion_dir):
+        """Release quarantined items matching a reason pattern."""
+        # The fixture has "prompt injection detected" on q-1 — add a classifier error entry
+        stores = _discover_stores()
+        db = IngestionStore(stores["gmail"])
+        db.quarantine("gmail", "err-1", "content", "high", [], "classifier error: timeout")
+        db.mark_processed("gmail", "err-1")
+        db.close()
+
+        result = await query_feed_store(
+            action="reprocess", store="gmail",
+            reason_pattern="classifier error:%",
+        )
+        data = json.loads(result)
+        assert data["released"] == 1
+
+        # Original quarantine entries should be untouched
+        q_result = await query_feed_store(action="quarantine", store="gmail")
+        q_data = json.loads(q_result)
+        assert len(q_data) == 2  # q-1 and q-2 still there
+
+    @pytest.mark.asyncio
+    async def test_reprocess_by_ids(self, mock_ingestion_dir):
+        """Release specific quarantined items by ID."""
+        # Find quarantine IDs
+        q_result = await query_feed_store(action="quarantine", store="gmail")
+        q_data = json.loads(q_result)
+        assert len(q_data) >= 1
+
+        # Get actual row IDs from the DB
+        stores = _discover_stores()
+        db = IngestionStore(stores["gmail"])
+        row = db._conn.execute(
+            "SELECT id FROM quarantine WHERE source_id = 'q-1'"
+        ).fetchone()
+        db.close()
+        q_id = row["id"]
+
+        result = await query_feed_store(
+            action="reprocess", store="gmail",
+            quarantine_ids=str(q_id),
+        )
+        data = json.loads(result)
+        assert data["released"] == 1
+
+    @pytest.mark.asyncio
+    async def test_reprocess_bad_ids(self, mock_ingestion_dir):
+        result = await query_feed_store(
+            action="reprocess", store="gmail",
+            quarantine_ids="abc,def",
+        )
+        assert "comma-separated integers" in result
+
+    @pytest.mark.asyncio
+    async def test_reprocess_missing_store(self, mock_ingestion_dir):
+        result = await query_feed_store(action="reprocess")
+        assert "Missing required 'store' parameter" in result

@@ -164,8 +164,8 @@ def _populate_store(store: IngestionStore) -> None:
     store.quarantine("gmail", "q-1", "bad stuff", "high", ["injection"], "prompt injection")
     store.quarantine("gmail", "q-2", "more bad", "medium", [], "suspicious links")
     store.quarantine("rss", "q-rss", "rss bad", "high", ["hidden_chars"], "zero-width")
-    store.set_cursor("gmail", "uid-500")
-    store.set_cursor("rss", "entry-99")
+    store.set_cursor("gmail:INBOX", "uid-500")
+    store.set_cursor("rss:feed1", "entry-99")
 
 
 class TestFeedStats:
@@ -175,7 +175,10 @@ class TestFeedStats:
         stats = store.get_feed_stats()
         assert stats["total_processed"] == 9  # 5 gmail + 3 rss + 1 quarantine audit
         assert stats["total_quarantined"] == 3
-        assert stats["last_cursor"] is None  # no source filter → no cursor
+        # No source filter → returns ALL cursors
+        assert len(stats["last_cursor"]) == 2
+        keys = {c["key"] for c in stats["last_cursor"]}
+        assert keys == {"gmail:INBOX", "rss:feed1"}
         store.close()
 
     def test_stats_filtered_by_source(self):
@@ -184,7 +187,22 @@ class TestFeedStats:
         stats = store.get_feed_stats("gmail")
         assert stats["total_processed"] == 6  # 5 passed + 1 quarantined
         assert stats["total_quarantined"] == 2
-        assert stats["last_cursor"]["value"] == "uid-500"
+        assert len(stats["last_cursor"]) == 1
+        assert stats["last_cursor"][0]["key"] == "gmail:INBOX"
+        assert stats["last_cursor"][0]["value"] == "uid-500"
+        store.close()
+
+    def test_stats_composite_key_match(self):
+        """Source filter matches both exact and composite cursor keys."""
+        store = make_store()
+        store.set_cursor("gmail", "uid-100")  # exact match
+        store.set_cursor("gmail:INBOX", "uid-200")  # composite match
+        store.set_cursor("rss:feed1", "entry-1")  # should not match
+        store.audit("gmail", "msg-1", "passed", "low")
+        stats = store.get_feed_stats("gmail")
+        assert len(stats["last_cursor"]) == 2
+        keys = {c["key"] for c in stats["last_cursor"]}
+        assert keys == {"gmail", "gmail:INBOX"}
         store.close()
 
     def test_stats_24h_counts(self):
@@ -243,6 +261,9 @@ class TestQuarantineItems:
         _populate_store(store)
         items = store.get_quarantine_items()
         assert len(items) == 3
+        # Every item must include its row id for reprocessing
+        assert all("id" in it for it in items)
+        assert all(isinstance(it["id"], int) for it in items)
         store.close()
 
     def test_filtered_by_source(self):
@@ -267,6 +288,77 @@ class TestQuarantineItems:
         _populate_store(store)
         items = store.get_quarantine_items(limit=1)
         assert len(items) == 1
+        store.close()
+
+
+class TestUnquarantine:
+    def test_unquarantine_by_ids(self):
+        store = make_store()
+        _populate_store(store)
+        # Get quarantine IDs for gmail
+        items = store.get_quarantine_items("gmail")
+        ids = [store._conn.execute(
+            "SELECT id FROM quarantine WHERE source_id = ?", (it["source_id"],)
+        ).fetchone()["id"] for it in items]
+        count = store.unquarantine(ids)
+        assert count == 2
+        # Quarantine should be empty for gmail now
+        assert store.get_quarantine_items("gmail") == []
+        # processed_ids should be cleared so messages can be re-ingested
+        assert not store.already_processed("gmail", "q-1")
+        assert not store.already_processed("gmail", "q-2")
+        # Audit log should have unquarantined entries
+        cur = store._conn.execute(
+            "SELECT COUNT(*) as cnt FROM audit_log WHERE action = 'unquarantined'"
+        )
+        assert cur.fetchone()["cnt"] == 2
+        store.close()
+
+    def test_unquarantine_empty_list(self):
+        store = make_store()
+        assert store.unquarantine([]) == 0
+        store.close()
+
+    def test_unquarantine_nonexistent_ids(self):
+        store = make_store()
+        assert store.unquarantine([999, 1000]) == 0
+        store.close()
+
+    def test_unquarantine_by_reason_pattern(self):
+        store = make_store()
+        store.quarantine("gmail", "err-1", "content1", "high", [], "classifier error: timeout")
+        store.quarantine("gmail", "err-2", "content2", "high", [], "classifier error: empty")
+        store.quarantine("gmail", "legit-bad", "content3", "high", [], "prompt injection")
+        store.mark_processed("gmail", "err-1")
+        store.mark_processed("gmail", "err-2")
+        store.mark_processed("gmail", "legit-bad")
+        count = store.unquarantine_by_reason("classifier error:%")
+        assert count == 2
+        # legit-bad should still be quarantined
+        items = store.get_quarantine_items("gmail")
+        assert len(items) == 1
+        assert items[0]["source_id"] == "legit-bad"
+        # err-1/err-2 should be clearable for re-ingestion
+        assert not store.already_processed("gmail", "err-1")
+        assert not store.already_processed("gmail", "err-2")
+        assert store.already_processed("gmail", "legit-bad")
+        store.close()
+
+    def test_unquarantine_by_reason_with_source_filter(self):
+        store = make_store()
+        store.quarantine("gmail", "g-err", "c1", "high", [], "classifier error: timeout")
+        store.quarantine("rss", "r-err", "c2", "high", [], "classifier error: timeout")
+        count = store.unquarantine_by_reason("classifier error:%", source="gmail")
+        assert count == 1
+        # rss quarantine should be untouched
+        assert len(store.get_quarantine_items("rss")) == 1
+        store.close()
+
+    def test_unquarantine_by_reason_no_match(self):
+        store = make_store()
+        _populate_store(store)
+        count = store.unquarantine_by_reason("nonexistent pattern%")
+        assert count == 0
         store.close()
 
 

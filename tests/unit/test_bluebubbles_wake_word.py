@@ -457,6 +457,7 @@ class TestWebhookEndpoint:
         with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()), \
              patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[]), \
              patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker:
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -467,7 +468,7 @@ class TestWebhookEndpoint:
 
     @pytest.mark.asyncio
     async def test_echo_detected_and_skipped(self):
-        """isFromMe + echo tracker match → skipped."""
+        """Content-based echo detection → skipped (regardless of is_from_me)."""
         from integrations.bluebubbles.router import webhook
 
         request = _webhook_request(_bb_webhook_payload(
@@ -477,11 +478,29 @@ class TestWebhookEndpoint:
 
         with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()), \
              patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker:
-            mock_tracker.is_echo.return_value = True
+            mock_tracker.is_own_content.return_value = True
             result = await webhook(request, db)
 
         assert result["status"] == "ignored"
-        assert result["reason"] == "echo"
+        assert result["reason"] == "echo_content"
+
+    @pytest.mark.asyncio
+    async def test_echo_detected_even_when_not_from_me(self):
+        """Content-based echo detection works even when is_from_me=False."""
+        from integrations.bluebubbles.router import webhook
+
+        request = _webhook_request(_bb_webhook_payload(
+            text="bot reply", is_from_me=False, msg_guid="echo-guid",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()), \
+             patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker:
+            mock_tracker.is_own_content.return_value = True
+            result = await webhook(request, db)
+
+        assert result["status"] == "ignored"
+        assert result["reason"] == "echo_content"
 
     @pytest.mark.asyncio
     async def test_from_me_not_echo_active(self):
@@ -503,6 +522,7 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -533,6 +553,7 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -562,6 +583,7 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["default"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="hey bot")):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -593,6 +615,7 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -617,6 +640,7 @@ class TestWebhookEndpoint:
         with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()), \
              patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
              patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[]):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -704,6 +728,7 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -760,6 +785,7 @@ class TestPerBindingConfig:
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["default"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -792,6 +818,7 @@ class TestPerBindingConfig:
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -824,6 +851,7 @@ class TestPerBindingConfig:
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
@@ -857,6 +885,7 @@ class TestPerBindingConfig:
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["default"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="hey bot")):
+            mock_tracker.is_own_content.return_value = False
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from "react";
-import { ScrollView, Pressable } from "react-native";
+import { useState, useEffect } from "react";
+import { Pressable } from "react-native";
 import { type ThemeTokens } from "@/src/theme/tokens";
 import {
   Clock,
@@ -189,57 +189,3 @@ export function StepNavItem({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Step nav strip (mobile horizontal)
-// ---------------------------------------------------------------------------
-
-export function StepNavStrip({
-  steps, stepStates, activeIndex, onSelect, t,
-}: {
-  steps: { id?: string }[];
-  stepStates: WorkflowStepState[];
-  activeIndex: number;
-  onSelect: (i: number) => void;
-  t: ThemeTokens;
-}) {
-  const scrollRef = useRef<ScrollView>(null);
-
-  return (
-    <ScrollView
-      ref={scrollRef}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={{ flexShrink: 0 }}
-      contentContainerStyle={{ gap: 4, paddingHorizontal: 4, paddingVertical: 6 }}
-    >
-      {stepStates.map((state, i) => {
-        const stepId = steps[i]?.id || `step_${i}`;
-        const isActive = i === activeIndex;
-        const color = dotColor(state.status, t);
-        return (
-          <Pressable
-            key={i}
-            onPress={() => onSelect(i)}
-            style={{
-              flexDirection: "row", alignItems: "center", gap: 5,
-              paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12,
-              backgroundColor: isActive ? t.accentSubtle : t.codeBg,
-              borderWidth: 1, borderColor: isActive ? t.accentBorder : t.surfaceBorder,
-            }}
-          >
-            <div style={{
-              width: 6, height: 6, borderRadius: 3,
-              background: color,
-            }} />
-            <span style={{
-              fontSize: 11, color: isActive ? t.text : t.textDim,
-              fontWeight: isActive ? 600 : 400, whiteSpace: "nowrap",
-            }}>
-              {stepId}
-            </span>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
-  );
-}

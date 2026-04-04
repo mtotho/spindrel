@@ -101,6 +101,61 @@ class IngestionStore:
         self._conn.commit()
         return cur.rowcount
 
+    def unquarantine(self, quarantine_ids: list[int]) -> int:
+        """Release specific quarantined items by ID. Removes from quarantine + processed_ids, adds audit entry. Returns count released."""
+        if not quarantine_ids:
+            return 0
+        placeholders = ",".join("?" for _ in quarantine_ids)
+        # Fetch rows to remove from processed_ids
+        rows = self._conn.execute(
+            f"SELECT id, source, source_id FROM quarantine WHERE id IN ({placeholders})",
+            quarantine_ids,
+        ).fetchall()
+        if not rows:
+            return 0
+        # Delete from quarantine
+        self._conn.execute(
+            f"DELETE FROM quarantine WHERE id IN ({placeholders})",
+            quarantine_ids,
+        )
+        # Delete from processed_ids so the message can be re-ingested
+        for r in rows:
+            self._conn.execute(
+                "DELETE FROM processed_ids WHERE source = ? AND source_id = ?",
+                (r["source"], r["source_id"]),
+            )
+            self.audit(r["source"], r["source_id"], "unquarantined")
+        self._conn.commit()
+        return len(rows)
+
+    def unquarantine_by_reason(self, reason_pattern: str, source: str | None = None) -> int:
+        """Bulk release quarantined items matching a reason LIKE pattern. Returns count released."""
+        if source:
+            rows = self._conn.execute(
+                "SELECT id, source, source_id FROM quarantine WHERE reason LIKE ? AND source = ?",
+                (reason_pattern, source),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT id, source, source_id FROM quarantine WHERE reason LIKE ?",
+                (reason_pattern,),
+            ).fetchall()
+        if not rows:
+            return 0
+        ids = [r["id"] for r in rows]
+        placeholders = ",".join("?" for _ in ids)
+        self._conn.execute(
+            f"DELETE FROM quarantine WHERE id IN ({placeholders})", ids
+        )
+        for r in rows:
+            self._conn.execute(
+                "DELETE FROM processed_ids WHERE source = ? AND source_id = ?",
+                (r["source"], r["source_id"]),
+            )
+            self.audit(r["source"], r["source_id"], "unquarantined")
+        self._conn.commit()
+        return len(rows)
+
     # -- audit log ----------------------------------------------------------
 
     def audit(self, source: str, source_id: str, action: str, risk_level: str | None = None) -> None:
@@ -160,14 +215,20 @@ class IngestionStore:
             params_24h,
         ).fetchone()["cnt"]
 
-        # Last cursor for this source (or all cursors)
+        # Last cursor(s) for this source — handles composite keys like "gmail:INBOX"
         if source:
-            cursor_row = self._conn.execute(
-                "SELECT value, updated_at FROM cursors WHERE key = ?", (source,)
-            ).fetchone()
-            last_cursor = {"key": source, "value": cursor_row["value"], "updated_at": cursor_row["updated_at"]} if cursor_row else None
+            rows = self._conn.execute(
+                "SELECT key, value, updated_at FROM cursors WHERE key = ? OR key LIKE ?",
+                (source, f"{source}:%"),
+            ).fetchall()
         else:
-            last_cursor = None
+            rows = self._conn.execute(
+                "SELECT key, value, updated_at FROM cursors"
+            ).fetchall()
+        last_cursor = [
+            {"key": r["key"], "value": r["value"], "updated_at": r["updated_at"]}
+            for r in rows
+        ]
 
         return {
             "total_processed": total_processed,
@@ -194,16 +255,16 @@ class IngestionStore:
         return [dict(r) for r in rows]
 
     def get_quarantine_items(self, source: str | None = None, limit: int = 20) -> list[dict]:
-        """Return quarantined items with risk/flags/reason."""
+        """Return quarantined items with id, risk/flags/reason."""
         if source:
             rows = self._conn.execute(
-                "SELECT source, source_id, risk_level, flags, reason, quarantined_at "
+                "SELECT id, source, source_id, risk_level, flags, reason, quarantined_at "
                 "FROM quarantine WHERE source = ? ORDER BY quarantined_at DESC LIMIT ?",
                 (source, limit),
             ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT source, source_id, risk_level, flags, reason, quarantined_at "
+                "SELECT id, source, source_id, risk_level, flags, reason, quarantined_at "
                 "FROM quarantine ORDER BY quarantined_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -213,6 +274,21 @@ class IngestionStore:
             d["flags"] = json.loads(d["flags"]) if d["flags"] else []
             result.append(d)
         return result
+
+    def count_by_reason_prefix(self, source: str | None, prefix: str) -> int:
+        """Count quarantine items where reason starts with prefix."""
+        pattern = f"{prefix}%"
+        if source:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS cnt FROM quarantine WHERE reason LIKE ? AND source = ?",
+                (pattern, source),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS cnt FROM quarantine WHERE reason LIKE ?",
+                (pattern,),
+            ).fetchone()
+        return row["cnt"]
 
     def list_sources(self) -> list[str]:
         """Return distinct sources from audit_log."""

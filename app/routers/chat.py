@@ -412,14 +412,14 @@ async def chat(
 
     # Passive path: store message without running agent
     if req.passive:
-        await store_passive_message(db, session_id, message, req.msg_metadata or {})
+        await store_passive_message(db, session_id, message, req.msg_metadata or {}, channel_id=channel_id)
         return ChatResponse(session_id=session_id, response="", client_actions=[])
 
     # Channel throttle: prevent bot-to-bot infinite loops.
     # Human messages from the web UI are exempt.
     _sender_type = (req.msg_metadata or {}).get("sender_type", "")
     if _sender_type != "human" and _channel_throttled(str(channel_id)):
-        await store_passive_message(db, session_id, message, {**(req.msg_metadata or {}), "throttled": True})
+        await store_passive_message(db, session_id, message, {**(req.msg_metadata or {}), "throttled": True}, channel_id=channel_id)
         return ChatResponse(session_id=session_id, response="", client_actions=[])
     _record_channel_run(str(channel_id))
 
@@ -471,6 +471,9 @@ async def chat(
         db.add(_user_record)
         await db.commit()
         _pre_user_msg_id = _user_record.id
+        # Notify other UI clients viewing this channel
+        from app.services.channel_events import publish as _publish_event
+        _publish_event(channel_id, "new_message")
     except Exception:
         logger.warning("Failed to pre-persist user message for session %s", session_id, exc_info=True)
         await db.rollback()
@@ -621,7 +624,7 @@ async def chat_stream(
 
     # Passive path: store message and return empty stream
     if req.passive:
-        await store_passive_message(db, session_id, message, req.msg_metadata or {})
+        await store_passive_message(db, session_id, message, req.msg_metadata or {}, channel_id=channel_id)
 
         async def _passive_stream():
             yield f"data: {json.dumps({'type': 'passive_stored', 'session_id': str(session_id)})}\n\n"
@@ -632,7 +635,7 @@ async def chat_stream(
     # Human messages from the web UI are exempt.
     _sender_type_s = (req.msg_metadata or {}).get("sender_type", "")
     if _sender_type_s != "human" and _channel_throttled(str(channel_id)):
-        await store_passive_message(db, session_id, message, {**(req.msg_metadata or {}), "throttled": True})
+        await store_passive_message(db, session_id, message, {**(req.msg_metadata or {}), "throttled": True}, channel_id=channel_id)
 
         async def _throttled_stream():
             yield f"data: {json.dumps({'type': 'throttled', 'session_id': str(session_id), 'detail': 'Channel throttled — too many agent runs in short window'})}\n\n"
@@ -714,6 +717,10 @@ async def chat_stream(
             "Session %s busy — queued message as task %s", session_id, _task_id
         )
 
+        # Notify other UI clients viewing this channel
+        from app.services.channel_events import publish as _publish_event
+        _publish_event(channel_id, "new_message")
+
         async def _queued_stream():
             yield f"data: {json.dumps({'type': 'queued', 'session_id': str(session_id), 'task_id': _task_id})}\n\n"
 
@@ -791,6 +798,9 @@ async def chat_stream(
                     _early_db.add(_user_record)
                     await _early_db.commit()
                     _pre_user_msg_id = _user_record.id
+                    # Notify other UI clients viewing this channel
+                    from app.services.channel_events import publish as _publish_event
+                    _publish_event(channel_id, "new_message")
             except Exception:
                 logger.warning("Failed to pre-persist user message for session %s", session_id, exc_info=True)
 

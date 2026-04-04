@@ -116,6 +116,10 @@ class _InternalDispatcher:
                     created_at=datetime.now(timezone.utc),
                 ))
                 await db.commit()
+                # Notify channel event subscribers
+                if session.channel_id:
+                    from app.services.channel_events import publish as _publish_event
+                    _publish_event(session.channel_id, "new_message")
         except Exception:
             logger.exception("InternalDispatcher.deliver failed for task %s", task.id)
 

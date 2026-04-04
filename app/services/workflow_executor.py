@@ -167,6 +167,8 @@ async def _post_workflow_chat_message(
                         .values(last_active=now)
                     )
                     await db.commit()
+                    from app.services.channel_events import publish as _publish_event
+                    _publish_event(channel.id, "new_message")
                     return
 
             record = Message(
@@ -183,6 +185,8 @@ async def _post_workflow_chat_message(
                 .values(last_active=now)
             )
             await db.commit()
+            from app.services.channel_events import publish as _publish_event
+            _publish_event(channel.id, "new_message")
     except Exception:
         logger.debug(
             "Failed to post workflow chat message (event=%s, run=%s)",

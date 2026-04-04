@@ -783,7 +783,7 @@ async def inject_channel_message(
     await db.commit()
 
     metadata = {"source": body.source} if body.source else {}
-    await store_passive_message(db, session_id, body.content, metadata)
+    await store_passive_message(db, session_id, body.content, metadata, channel_id=channel_id)
 
     result = await db.execute(
         select(Message)
@@ -1057,6 +1057,63 @@ async def get_session_status(
 
 
 # ---------------------------------------------------------------------------
+# Real-time channel events (SSE)
+# ---------------------------------------------------------------------------
+
+@router.get("/{channel_id}/events")
+async def channel_events(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(verify_auth_or_user),
+):
+    """SSE stream of channel events (new messages from any source).
+
+    Clients receive lightweight notifications and refetch from DB.
+    Keepalive comments sent every 15s to prevent connection drops.
+    """
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    import asyncio
+    import json
+    from app.services.channel_events import subscribe
+
+    async def _event_stream():
+        async_gen = subscribe(channel_id)
+        pending = asyncio.ensure_future(async_gen.__anext__())
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(asyncio.shield(pending), timeout=15.0)
+                    payload = {
+                        "type": event.event_type,
+                        "channel_id": str(event.channel_id),
+                        "ts": event.timestamp.isoformat(),
+                        **(event.metadata or {}),
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
+                    pending = asyncio.ensure_future(async_gen.__anext__())
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                except StopAsyncIteration:
+                    break
+        finally:
+            pending.cancel()
+            await async_gen.aclose()
+
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Integration bindings
 # ---------------------------------------------------------------------------
 
@@ -1179,6 +1236,7 @@ class AvailableIntegrationOut(BaseModel):
     version: Optional[str] = None
     compatible_template_tag: Optional[str] = None
     includes: list[str] = []
+    chat_hud: list[dict] = []
 
 
 def _resolve_activation_client_id(integration_type: str, channel_id: uuid.UUID) -> str:
@@ -1341,13 +1399,14 @@ async def list_available_integrations(
     _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List all integrations that declare activation blocks, with current status."""
-    from integrations import get_activation_manifests
+    from integrations import get_activation_manifests, get_chat_huds
 
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
     manifests = get_activation_manifests()
+    huds = get_chat_huds()
 
     # Get currently activated integration types for this channel
     activated_result = await db.execute(
@@ -1385,6 +1444,7 @@ async def list_available_integrations(
             version=manifest.get("version"),
             compatible_template_tag=compat_tags[0] if compat_tags else None,
             includes=manifest.get("includes", []),
+            chat_hud=huds.get(itype, []),
         ))
 
     return result

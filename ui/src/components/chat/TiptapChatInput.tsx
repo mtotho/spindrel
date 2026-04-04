@@ -65,6 +65,8 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
     onImagePasteRef.current = onImagePaste;
     const onSlashCommandRef = useRef(onSlashCommand);
     onSlashCommandRef.current = onSlashCommand;
+    const isMobileRef = useRef(isMobile);
+    isMobileRef.current = isMobile;
     const initialTextRef = useRef(text);
 
     // Guard: suppress onTextChange during programmatic setContent (draft restore, clear)
@@ -216,6 +218,8 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
                 onSlashCommandRef.current?.(item.value);
                 return true;
               }
+              // On mobile, Enter inserts a newline (no Shift+Enter on mobile keyboards)
+              if (isMobileRef.current) return false;
               onSubmitRef.current();
               return true;
             },

@@ -42,6 +42,7 @@ class CycleResult:
     fetched: int = 0
     passed: int = 0
     quarantined: int = 0
+    classifier_errors: int = 0  # quarantined due to classifier failure, not genuine unsafe
     skipped: int = 0  # duplicates
     items: list[FeedItem] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -113,6 +114,8 @@ class ContentFeed(ABC):
                 if envelope is None:
                     # Quarantined (pipeline handles the storage)
                     result.quarantined += 1
+                    if self.pipeline.last_classifier_error:
+                        result.classifier_errors += 1
                     continue
 
                 # Format into a FeedItem

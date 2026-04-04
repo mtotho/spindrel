@@ -23,6 +23,11 @@ import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveWorkflowStrip } from "./ActiveWorkflowStrip";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
+import { useIntegrationHuds } from "@/src/api/hooks/useChatHud";
+import { HudStatusStrip } from "./hud/HudStatusStrip";
+import { HudSidePanel } from "./hud/HudSidePanel";
+import { HudInputBar } from "./hud/HudInputBar";
+import { HudFloatingAction } from "./hud/HudFloatingAction";
 import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
 import { shouldGroup, formatDateSeparator, isDifferentDay } from "./chatUtils";
@@ -45,6 +50,8 @@ export default function ChatScreen() {
   const columns = useResponsiveColumns();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+
+  const { statusStrips, sidePanels, inputBars, floatingActions } = useIntegrationHuds(channelId);
 
   const showHamburger = columns === "single" || sidebarCollapsed;
   const t = useThemeTokens();
@@ -263,6 +270,11 @@ export default function ChatScreen() {
       {/* What's active badge bar */}
       {channelId && <ActiveBadgeBar channelId={channelId} compact={isMobile} />}
 
+      {/* HUD status strips */}
+      {statusStrips.map((h) => (
+        <HudStatusStrip key={h.key} hud={h} compact={isMobile} />
+      ))}
+
       {/* Protected channel warning */}
       {channel?.client_id === "orchestrator:home" && (
         <View
@@ -296,7 +308,12 @@ export default function ChatScreen() {
           />
         ) : (
           <>
-            <ChatMessageArea {...messageAreaProps} />
+            <View style={{ flex: 1, position: "relative" }}>
+              <ChatMessageArea {...messageAreaProps} />
+              {floatingActions.map((h) => (
+                <HudFloatingAction key={h.key} hud={h} />
+              ))}
+            </View>
             {chatState.error && (
               <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
             )}
@@ -309,6 +326,9 @@ export default function ChatScreen() {
               />
             )}
             <ActiveWorkflowStrip channelId={channelId!} />
+            {inputBars.map((h) => (
+              <HudInputBar key={h.key} hud={h} />
+            ))}
             <MessageInput {...messageInputProps} />
           </>
         )
@@ -337,7 +357,12 @@ export default function ChatScreen() {
           {/* Chat column -- messages + input stacked vertically */}
           {(!showFileViewer || splitMode) && (
             <View style={{ flex: 1, minWidth: 0 }}>
-              <ChatMessageArea {...messageAreaProps} />
+              <View style={{ flex: 1, position: "relative" }}>
+                <ChatMessageArea {...messageAreaProps} />
+                {floatingActions.map((h) => (
+                  <HudFloatingAction key={h.key} hud={h} />
+                ))}
+              </View>
               {chatState.error && (
                 <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
               )}
@@ -350,6 +375,9 @@ export default function ChatScreen() {
                 />
               )}
               <ActiveWorkflowStrip channelId={channelId!} />
+              {inputBars.map((h) => (
+                <HudInputBar key={h.key} hud={h} />
+              ))}
               <MessageInput {...messageInputProps} />
             </View>
           )}
@@ -372,6 +400,11 @@ export default function ChatScreen() {
               />
             </View>
           )}
+
+          {/* HUD side panels */}
+          {!isMobile && sidePanels.map((h) => (
+            <HudSidePanel key={h.key} hud={h} />
+          ))}
         </View>
       )}
       {secretWarning && (

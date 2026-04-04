@@ -256,6 +256,45 @@ export interface IntegrationBinding {
   updated_at: string;
 }
 
+// Chat HUD — integration-declared widgets in chat view
+export interface HudOnClick {
+  type: "link" | "action" | "refresh";
+  href?: string;
+  endpoint?: string;
+  method?: string;
+  body?: Record<string, any>;
+  confirm?: string;
+}
+
+export interface HudItem {
+  type: "badge" | "action" | "divider" | "text" | "progress";
+  label?: string;
+  value?: string;
+  icon?: string;
+  variant?: "default" | "success" | "warning" | "danger" | "accent" | "muted";
+  on_click?: HudOnClick;
+  max?: number; // for progress items
+}
+
+export interface HudData {
+  visible: boolean;
+  items: HudItem[];
+}
+
+export interface ChatHudWidget {
+  id: string;
+  style: "status_strip" | "side_panel" | "input_bar" | "floating_action";
+  endpoint?: string;
+  iframe_path?: string;
+  poll_interval?: number;
+  label?: string;
+  icon?: string;
+  width?: number;
+  collapsed_by_default?: boolean;
+  on_click?: HudOnClick;
+  badge_endpoint?: string;
+}
+
 // Integration activation
 export interface ActivatableIntegration {
   integration_type: string;
@@ -269,6 +308,7 @@ export interface ActivatableIntegration {
   version?: string | null;
   compatible_template_tag?: string | null;
   includes: string[];
+  chat_hud?: ChatHudWidget[];
 }
 
 export interface ActivationResult {

@@ -350,7 +350,7 @@ export default function WorkflowDetailPage() {
 
         {/* Runs tab */}
         {activeTab === "runs" && workflowId && !isNew && (
-          <div style={{ padding: 16, flex: 1, display: "flex", flexDirection: "column", minHeight: 0, maxWidth: 1100 }}>
+          <div style={{ padding: "12px 16px", flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
             <WorkflowRunsTab workflowId={workflowId} initialRunId={runParam} />
           </div>
         )}

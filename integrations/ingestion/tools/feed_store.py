@@ -32,29 +32,37 @@ def _open_readonly(db_path: Path) -> IngestionStore:
     return store
 
 
+def _open_readwrite(db_path: Path) -> IngestionStore:
+    """Open a store in read-write mode."""
+    return IngestionStore(db_path)
+
+
 @reg.register({"type": "function", "function": {
     "name": "query_feed_store",
     "description": (
         "Query ingestion feed stores for stats, recent items, quarantine entries, "
-        "and discovered feed sources. Each content feed (gmail, rss, etc.) has its "
-        "own SQLite store. Actions: stats, recent, quarantine, sources."
+        "discovered feed sources, and reprocess quarantined items. Each content feed "
+        "(gmail, rss, etc.) has its own SQLite store. "
+        "Actions: stats, recent, quarantine, sources, reprocess."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["stats", "recent", "quarantine", "sources"],
+                "enum": ["stats", "recent", "quarantine", "sources", "reprocess"],
                 "description": (
                     "stats — aggregate counts (total processed, quarantined, 24h activity, last cursor). "
                     "recent — list recently passed items from audit log. "
                     "quarantine — list quarantined items with risk level, flags, and reason. "
-                    "sources — list all discovered feed stores and their sources."
+                    "sources — list all discovered feed stores and their sources. "
+                    "reprocess — release quarantined items so they can be re-ingested. "
+                    "Use reason_pattern (e.g. 'classifier error:%') or quarantine_ids (comma-separated)."
                 ),
             },
             "store": {
                 "type": "string",
-                "description": "Feed store name (e.g. 'gmail', 'rss'). Required for stats/recent/quarantine. Omit for sources action.",
+                "description": "Feed store name (e.g. 'gmail', 'rss'). Required for stats/recent/quarantine/reprocess. Omit for sources action.",
             },
             "source": {
                 "type": "string",
@@ -63,6 +71,14 @@ def _open_readonly(db_path: Path) -> IngestionStore:
             "limit": {
                 "type": "integer",
                 "description": "Max items to return for recent/quarantine actions. Default 20.",
+            },
+            "reason_pattern": {
+                "type": "string",
+                "description": "SQL LIKE pattern to match quarantine reason for reprocess action (e.g. 'classifier error:%').",
+            },
+            "quarantine_ids": {
+                "type": "string",
+                "description": "Comma-separated quarantine row IDs to release for reprocess action (e.g. '1,2,3').",
             },
         },
         "required": ["action"],
@@ -73,6 +89,8 @@ async def query_feed_store(
     store: str | None = None,
     source: str | None = None,
     limit: int = 20,
+    reason_pattern: str | None = None,
+    quarantine_ids: str | None = None,
 ) -> str:
     """Query ingestion feed stores."""
     if action == "sources":
@@ -90,6 +108,9 @@ async def query_feed_store(
             return "No feed stores found. Content feeds may not be configured yet."
         return f"Store '{store}' not found. Available: {', '.join(stores.keys())}"
 
+    if action == "reprocess":
+        return _handle_reprocess(stores[store], source, reason_pattern, quarantine_ids)
+
     db = _open_readonly(stores[store])
     try:
         if action == "stats":
@@ -105,7 +126,35 @@ async def query_feed_store(
                 return f"No quarantined items{f' for source {source}' if source else ''}."
             return json.dumps(items, indent=2)
         else:
-            return f"Unknown action '{action}'. Use: stats, recent, quarantine, sources."
+            return f"Unknown action '{action}'. Use: stats, recent, quarantine, sources, reprocess."
+    finally:
+        db.close()
+
+
+def _handle_reprocess(
+    db_path: Path,
+    source: str | None,
+    reason_pattern: str | None,
+    quarantine_ids: str | None,
+) -> str:
+    """Release quarantined items so they can be re-ingested."""
+    if not reason_pattern and not quarantine_ids:
+        return "Reprocess requires either reason_pattern or quarantine_ids parameter."
+
+    db = _open_readwrite(db_path)
+    try:
+        if quarantine_ids:
+            try:
+                ids = [int(x.strip()) for x in quarantine_ids.split(",") if x.strip()]
+            except ValueError:
+                return "quarantine_ids must be comma-separated integers."
+            count = db.unquarantine(ids)
+        else:
+            count = db.unquarantine_by_reason(reason_pattern, source)  # type: ignore[arg-type]
+        return json.dumps({"released": count})
+    except Exception as exc:
+        logger.error("Reprocess failed: %s", exc)
+        return f"Reprocess failed: {exc}"
     finally:
         db.close()
 

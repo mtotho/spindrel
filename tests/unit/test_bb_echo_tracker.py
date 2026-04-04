@@ -151,6 +151,41 @@ class TestDBPersistence:
         assert tracker.in_reply_cooldown("chat-old") is False
         assert tracker.is_circuit_open("chat-old") is False
 
+    @pytest.mark.asyncio
+    async def test_sent_content_survives_round_trip(self):
+        """Sent content hashes persist across simulated restarts."""
+        t1 = EchoTracker()
+        t1.track_sent("t1", "Bot response one", chat_guid="chat-A")
+        t1.track_sent("t2", "Bot response two", chat_guid="chat-B")
+
+        assert t1.is_own_content("chat-A", "Bot response one") is True
+        assert t1.is_own_content("chat-B", "Bot response two") is True
+
+        # Simulate round-trip via JSON (what DB persistence does)
+        serialized = json.dumps(dict(t1._sent_content))
+
+        t2 = EchoTracker()
+        data = json.loads(serialized)
+        now = time.time()
+        for chat_guid, hashes in data.items():
+            recent = {h: ts for h, ts in hashes.items() if now - ts < t2.ttl}
+            if recent:
+                t2._sent_content[chat_guid] = recent
+
+        assert t2.is_own_content("chat-A", "Bot response one") is True
+        assert t2.is_own_content("chat-B", "Bot response two") is True
+        assert t2.is_own_content("chat-A", "Something else") is False
+
+    @pytest.mark.asyncio
+    async def test_stale_sent_content_filtered_on_load(self):
+        """Sent content older than TTL is discarded on load."""
+        tracker = EchoTracker()
+        old_ts = time.time() - 600  # 10 minutes ago (> 5 min TTL)
+        from integrations.bluebubbles.echo_tracker import _text_hash
+        tracker._sent_content["chat-old"] = {_text_hash("old msg"): old_ts}
+        # Stale content shouldn't match
+        assert tracker.is_own_content("chat-old", "old msg") is False
+
 
 class TestGuidDedup:
     """GUID dedup prevents replay storms across restarts."""

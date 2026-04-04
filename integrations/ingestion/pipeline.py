@@ -54,6 +54,7 @@ class IngestionPipeline:
     def __init__(self, config: IngestionConfig, store: IngestionStore) -> None:
         self.config = config
         self.store = store
+        self.last_classifier_error: bool = False
 
     async def process(self, msg: RawMessage) -> ExternalMessage | None:
         """Run a RawMessage through all 4 layers.
@@ -79,6 +80,8 @@ class IngestionPipeline:
             model=self.config.classifier_model,
             timeout=self.config.classifier_timeout,
             api_key=self.config.agent_api_key,
+            max_retries=self.config.classifier_max_retries,
+            retry_delay=self.config.classifier_retry_delay,
         )
 
         risk = RiskMetadata(
@@ -86,6 +89,8 @@ class IngestionPipeline:
             risk_level=result.risk_level,
             classifier_reason=result.reason,
         )
+
+        self.last_classifier_error = result.classifier_error
 
         # Quarantine unsafe messages
         if not result.safe:

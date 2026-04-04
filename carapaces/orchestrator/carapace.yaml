@@ -20,6 +20,10 @@ delegates:
     model_tier: fast
     description: "Compress large inputs into concise digests. Use when there's too much text: conversation history, long docs, multi-channel updates, verbose tool output. Cheap — use freely."
   # Standard workers
+  - id: data-analyst
+    type: carapace
+    model_tier: standard
+    description: "Structured data processing, analysis, and reporting. Use when there's CSV, JSON, tabular data, or numbers to crunch: sales reports, metrics, comparisons, trend analysis, data quality audits, data cleaning, joins/merges, format conversion."
   - id: researcher
     type: carapace
     model_tier: standard

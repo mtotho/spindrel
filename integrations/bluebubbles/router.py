@@ -635,9 +635,17 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     logger.info("BB webhook: new-message chat_guid=%s is_from_me=%s text=%r",
                 chat_guid, is_from_me, text[:80])
 
-    # Echo check — is this our own reply bouncing back?
+    # Content-based echo detection — catches our own messages regardless of
+    # is_from_me flag.  This is the primary echo defense; it compares incoming
+    # text against all text we recently sent to this chat (normalized, not popped).
+    if shared_tracker.is_own_content(chat_guid, text):
+        logger.info("BB webhook: echo detected (content match), chat_guid=%s is_from_me=%s",
+                    chat_guid, is_from_me)
+        return {"status": "ignored", "reason": "echo_content"}
+
+    # Legacy echo check — GUID or text hash (popped on match, is_from_me only)
     if is_from_me and shared_tracker.is_echo(msg_guid, text):
-        logger.info("BB webhook: echo detected (guid match), guid=%s", msg_guid)
+        logger.info("BB webhook: echo detected (guid/hash match), guid=%s", msg_guid)
         return {"status": "ignored", "reason": "echo"}
 
     # Reply cooldown: if we sent a reply to this chat recently, treat isFromMe as echo.

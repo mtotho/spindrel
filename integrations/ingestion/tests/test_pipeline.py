@@ -188,3 +188,39 @@ async def test_classifier_timeout_quarantines():
     assert result is None
     cur = pipeline.store._conn.execute("SELECT * FROM quarantine")
     assert cur.fetchone() is not None
+
+
+@pytest.mark.asyncio
+async def test_last_classifier_error_set_on_failure():
+    """Pipeline should expose classifier_error flag after processing."""
+    pipeline = _make_pipeline()
+    error_result = ClassifierResult(safe=False, reason="classifier error: timeout", risk_level="high", classifier_error=True)
+
+    with patch("integrations.ingestion.pipeline.classify", new_callable=AsyncMock, return_value=error_result):
+        await pipeline.process(_make_raw())
+
+    assert pipeline.last_classifier_error is True
+
+
+@pytest.mark.asyncio
+async def test_last_classifier_error_false_on_genuine_unsafe():
+    """Genuine unsafe verdict should not set classifier_error."""
+    pipeline = _make_pipeline()
+    unsafe_result = ClassifierResult(safe=False, reason="injection", risk_level="high", classifier_error=False)
+
+    with patch("integrations.ingestion.pipeline.classify", new_callable=AsyncMock, return_value=unsafe_result):
+        await pipeline.process(_make_raw())
+
+    assert pipeline.last_classifier_error is False
+
+
+@pytest.mark.asyncio
+async def test_last_classifier_error_false_on_pass():
+    """Passed messages should clear classifier_error."""
+    pipeline = _make_pipeline()
+    safe_result = ClassifierResult(safe=True, reason="ok", risk_level="low")
+
+    with patch("integrations.ingestion.pipeline.classify", new_callable=AsyncMock, return_value=safe_result):
+        await pipeline.process(_make_raw())
+
+    assert pipeline.last_classifier_error is False

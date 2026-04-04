@@ -226,7 +226,17 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        has_process = (candidate / "process.py").exists()
+        process_file = candidate / "process.py"
+        has_process = process_file.exists()
+        process_description = None
+        process_launchable = False
+        if has_process:
+            try:
+                mod = _import_module(integration_id, "process", process_file, is_external, source)
+                process_description = getattr(mod, "DESCRIPTION", None)
+                process_launchable = bool(getattr(mod, "CMD", None))
+            except Exception:
+                pass
         entry: dict = {
             "id": integration_id,
             "name": integration_id.replace("_", " ").replace("-", " ").title(),
@@ -239,6 +249,8 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "has_skills": (candidate / "skills").is_dir(),
             "has_carapaces": (candidate / "carapaces").is_dir(),
             "has_process": has_process,
+            "process_launchable": process_launchable,
+            "process_description": process_description,
             "process_status": None,
             "env_vars": [],
             "webhook": None,
@@ -248,7 +260,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
         }
 
         # Include live process status if process manager is available
-        if has_process:
+        if has_process and process_launchable:
             try:
                 from app.services.integration_processes import process_manager
                 entry["process_status"] = process_manager.status(integration_id)
@@ -431,6 +443,64 @@ def discover_sidebar_sections(*, refresh: bool = False) -> list[dict]:
 
     _sidebar_sections_cache = results
     return results
+
+
+_chat_huds: dict[str, list[dict]] | None = None
+
+
+def discover_chat_huds() -> dict[str, list[dict]]:
+    """Discover chat HUD widget declarations from integration setup.py SETUP dicts.
+
+    Returns {integration_id: [hud_widget_configs]} for integrations that
+    declare a ``"chat_hud"`` key in their SETUP dict.  Each widget must have
+    at least ``id`` and ``style`` fields.
+    """
+    global _chat_huds
+    results: dict[str, list[dict]] = {}
+    valid_styles = {"status_strip", "side_panel", "input_bar", "floating_action"}
+
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        setup_file = candidate / "setup.py"
+        if not setup_file.exists():
+            continue
+        try:
+            module = _import_module(integration_id, "setup", setup_file, is_external, source)
+            setup = getattr(module, "SETUP", {})
+            huds = setup.get("chat_hud")
+            if not huds or not isinstance(huds, list):
+                continue
+            validated: list[dict] = []
+            for widget in huds:
+                if not isinstance(widget, dict):
+                    continue
+                if "id" not in widget or "style" not in widget:
+                    logger.warning(
+                        "Integration %r chat_hud widget missing id/style — skipping",
+                        integration_id,
+                    )
+                    continue
+                if widget["style"] not in valid_styles:
+                    logger.warning(
+                        "Integration %r chat_hud widget has invalid style %r — skipping",
+                        integration_id, widget["style"],
+                    )
+                    continue
+                validated.append(widget)
+            if validated:
+                results[integration_id] = validated
+        except Exception:
+            logger.exception("Failed to load chat_hud config for integration %r", integration_id)
+
+    _chat_huds = results
+    return results
+
+
+def get_chat_huds() -> dict[str, list[dict]]:
+    """Return cached chat HUD declarations, discovering if needed."""
+    global _chat_huds
+    if _chat_huds is None:
+        return discover_chat_huds()
+    return _chat_huds
 
 
 _activation_manifests: dict[str, dict] | None = None

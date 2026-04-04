@@ -466,6 +466,11 @@ async def persist_turn(
     )
     await db.commit()
 
+    # Notify channel event subscribers (e.g. web UI SSE)
+    if channel_id:
+        from app.services.channel_events import publish as _publish_event
+        _publish_event(channel_id, "new_message")
+
     # Link orphaned attachments to the correct message in this turn.
     # User-uploaded attachments (posted_by IS NULL) → first user message.
     # Bot/tool-created attachments (posted_by IS NOT NULL, e.g. send_file) → last assistant message.
@@ -558,12 +563,15 @@ async def store_dispatch_echo(
             # Check channel passive_memory setting
             from app.db.models import Channel
             from app.services.channels import is_integration_client_id
+            _channel_id = session.channel_id if session else None
             if is_integration_client_id(client_id):
                 from sqlalchemy import select
                 result = await db.execute(
                     select(Channel).where(Channel.client_id == client_id)
                 )
                 channel = result.scalar_one_or_none()
+                if channel:
+                    _channel_id = channel.id
                 if channel is not None:
                     if not channel.passive_memory:
                         return
@@ -586,7 +594,7 @@ async def store_dispatch_echo(
             }
             if extra_metadata:
                 metadata.update(extra_metadata)
-            await store_passive_message(db, session_id, content, metadata)
+            await store_passive_message(db, session_id, content, metadata, channel_id=_channel_id)
     except Exception:
         logger.exception(
             "store_dispatch_echo failed session=%s client_id=%s",
@@ -600,6 +608,7 @@ async def store_passive_message(
     session_id: uuid.UUID,
     content: str,
     metadata: dict,
+    channel_id: uuid.UUID | None = None,
 ) -> None:
     """Store a passive (non-agent-triggering) message in the session."""
     now = datetime.now(timezone.utc)
@@ -617,6 +626,17 @@ async def store_passive_message(
         .values(last_active=now)
     )
     await db.commit()
+
+    # Notify channel event subscribers
+    _notify_id = channel_id
+    if not _notify_id:
+        # Fallback: look up channel_id from session
+        _sess = await db.get(Session, session_id)
+        if _sess:
+            _notify_id = _sess.channel_id
+    if _notify_id:
+        from app.services.channel_events import publish as _publish_event
+        _publish_event(_notify_id, "new_message")
 
 
 def _sanitize_tool_messages(messages: list[dict]) -> list[dict]:

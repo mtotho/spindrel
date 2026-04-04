@@ -77,6 +77,7 @@ def _raw(source_id="msg-1", content="Hello world", source="test", **meta):
 
 _SAFE = ClassifierResult(safe=True, reason="benign", risk_level="low")
 _UNSAFE = ClassifierResult(safe=False, reason="injection detected", risk_level="high")
+_CLASSIFIER_ERROR = ClassifierResult(safe=False, reason="classifier error: timeout", risk_level="high", classifier_error=True)
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +239,30 @@ async def test_mixed_safe_and_quarantined():
     assert result.fetched == 3
     assert result.passed == 2
     assert result.quarantined == 1
+    assert result.classifier_errors == 0
     assert len(result.items) == 2
+
+
+@pytest.mark.asyncio
+async def test_classifier_errors_counted_separately():
+    """Classifier errors should be counted separately from genuine unsafe."""
+    store = _make_store()
+    pipeline = _make_pipeline(store)
+    feed = MockFeed(pipeline, store, items=[_raw("m1"), _raw("m2"), _raw("m3")])
+
+    # m1: classifier error, m2: genuine unsafe, m3: safe
+    results_iter = iter([_CLASSIFIER_ERROR, _UNSAFE, _SAFE])
+
+    async def classify_side_effect(*args, **kwargs):
+        return next(results_iter)
+
+    with patch("integrations.ingestion.pipeline.classify", new_callable=AsyncMock, side_effect=classify_side_effect):
+        result = await feed.run_cycle()
+
+    assert result.fetched == 3
+    assert result.passed == 1
+    assert result.quarantined == 2
+    assert result.classifier_errors == 1  # only m1
 
 
 # ---------------------------------------------------------------------------

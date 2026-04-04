@@ -133,7 +133,7 @@ async def inject_message(
         raise ValueError(f"Session {session_id} not found")
 
     metadata = {"source": source}
-    await store_passive_message(db, session_id, content, metadata)
+    await store_passive_message(db, session_id, content, metadata, channel_id=session.channel_id)
 
     result = await db.execute(
         select(Message)

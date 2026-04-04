@@ -39,6 +39,7 @@ async def _send_plan_notification(channel_id: str, message: str) -> None:
             await store_passive_message(
                 db, session_id, message,
                 {"source": "mission_control", "notification": True},
+                channel_id=channel.id,
             )
             await db.commit()
     except Exception:
@@ -214,7 +215,7 @@ async def _create_step_task(
             f"Execute step {step_position} of plan '{plan_title}' ({plan_id}): "
             f"{step_content}"
         )
-        await store_passive_message(db, session_id, prompt, {"source": "mission_control"})
+        await store_passive_message(db, session_id, prompt, {"source": "mission_control"}, channel_id=channel.id)
         await db.commit()
 
         task = TaskModel(

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AlertTriangle, Ban, ChevronDown, ChevronRight, XCircle } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
@@ -281,6 +281,7 @@ export function IntegrationDebugSection({
   const stats = data?.stats ?? {};
   const tasks = data?.tasks ?? [];
   const pendingCount = stats.pending ?? 0;
+  const [lastCancelledCount, setLastCancelledCount] = useState<number | null>(null);
 
   const handleCancel = () => {
     if (!confirmCancel) {
@@ -288,9 +289,20 @@ export function IntegrationDebugSection({
       return;
     }
     cancelMut.mutate(undefined, {
-      onSuccess: () => setConfirmCancel(false),
+      onSuccess: (result) => {
+        setConfirmCancel(false);
+        setLastCancelledCount(result.cancelled);
+      },
     });
   };
+
+  // Clear the success banner after 5s
+  const showCancelSuccess = lastCancelledCount !== null && lastCancelledCount > 0;
+  useEffect(() => {
+    if (!showCancelSuccess) return;
+    const timer = setTimeout(() => setLastCancelledCount(null), 5000);
+    return () => clearTimeout(timer);
+  }, [showCancelSuccess]);
 
   return (
     <div
@@ -366,12 +378,12 @@ export function IntegrationDebugSection({
                   Nevermind
                 </button>
               )}
-              {cancelMut.isSuccess && (
-                <span style={{ fontSize: 11, color: "#22c55e" }}>
-                  Cancelled {cancelMut.data?.cancelled ?? 0} tasks
-                </span>
-              )}
             </div>
+          )}
+          {showCancelSuccess && (
+            <span style={{ fontSize: 11, color: "#22c55e" }}>
+              Cancelled {lastCancelledCount} tasks
+            </span>
           )}
         </>
       )}
