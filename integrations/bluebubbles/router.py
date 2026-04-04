@@ -404,7 +404,10 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     if expected:
         token = request.query_params.get("token", "")
         if not token or token != expected:
-            logger.warning("BB webhook: auth failed (token mismatch)")
+            logger.warning("BB webhook: auth failed — expected=%r got=%r (len %d vs %d)",
+                           expected[:4] + "****" if len(expected) > 4 else "****",
+                           token[:4] + "****" if len(token) > 4 else "****",
+                           len(expected), len(token))
             raise HTTPException(status_code=401, detail="Invalid or missing token")
 
     try:

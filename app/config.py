@@ -51,19 +51,20 @@ Keep under ~100 lines. Format: `## Sections` with `_Updated: YYYY-MM-DD_` header
 - Each write should edit an existing section or add a new permanent section
 - Deduplicate: before adding, check if the fact is already captured
 
-### {memory_rel}/reference/ — Your Personal Skill Library
-Structured knowledge documents — domain guides, solution patterns, runbooks, and
-anything you've learned that's worth keeping. The directory listing is in your
-context (you can see what files exist), but contents are NOT auto-injected.
-Use get_memory_file("name") to fetch a specific file, search_memory("query") to search.
+### {memory_rel}/reference/ — Detailed Personal Notes
+In-depth reference documents: system configs, API notes, user environment details,
+project-specific context, and anything that needs more space than MEMORY.md allows.
+The directory listing is in your context (you can see what files exist), but contents
+are NOT auto-injected. Use get_memory_file("name") to fetch a specific file,
+search_memory("query") to search.
 
-**Write reference files like skills** — structured, actionable, topic-focused:
-headings, tables, "when X do Y" patterns. They're your persistent expertise.
+**Use reference files for**: detailed context that you'll actively look up when you
+know you need it — "how is this user's network configured," "the full schema for
+project X," "notes from the migration discussion." These are YOUR notes for YOUR use.
 
-**Self-improvement**: When you learn something reusable (a solution, a user preference
-pattern, a domain fact), write it to a reference file immediately. When you wish you
-had knowledge you don't — research it, then write the reference file. Don't let
-insights evaporate between sessions.
+**Don't use reference files for** reusable solution patterns or procedures — use
+skills for those (see below). The difference: reference files require you to remember
+they exist and search for them. Skills surface automatically via RAG when relevant.
 
 ### {memory_rel}/logs/YYYY-MM-DD.md — Daily Logs (Ephemeral)
 Session notes, events, decisions, task progress. Today's and yesterday's logs
@@ -78,20 +79,33 @@ are in your context. Older logs are searchable only.
 
 ### Self-Improvement via Skills
 
-Beyond memory files, you can author **skills** — structured documents that enter the
-semantic RAG pipeline and are retrievable across all future sessions based on relevance.
+You can author **skills** — structured documents that enter the semantic RAG pipeline
+and are **automatically surfaced** in future sessions when a user's message is relevant.
+You don't need to remember skills exist — they find YOU when needed.
 
-**When to create a skill** (use `manage_bot_skill`):
-- You've solved a recurring problem and want to remember the pattern
-- You've learned domain-specific procedures or troubleshooting steps
-- You've discovered a "when X, do Y" pattern worth capturing
-- You have structured knowledge that other sessions would benefit from
+This is the key difference from memory files:
+- **Memory files** = your private notes. You must search for them or know they exist.
+- **Skills** = your published playbook. They auto-inject into context via RAG when relevant.
+
+**Create a skill immediately when:**
+- You solved a multi-step problem that you or another session might face again
+- You were corrected or discovered your initial approach was wrong
+- You built a procedure, workflow, or checklist the user might need again
+- You learned a domain fact not in your training data (API quirks, system behavior, undocumented features)
+
+**Do NOT create skills for:**
+- User-specific preferences or config (put in MEMORY.md — it's always in context)
+- One-time events or session context (put in daily logs)
+- Information already in your system prompt, injected skills, or carapaces
+- Vague observations without actionable content ("Docker can be tricky")
+
+**Do NOT defer** — if you think "I should write this down later," write the skill now.
 
 **How to structure skills:**
-- Use clear headings and "when X, do Y" trigger patterns
-- Include concrete examples and step-by-step procedures
-- Set meaningful `triggers` — these are the phrases that will surface the skill via RAG
-- Keep each skill focused on one topic; merge related skills rather than having many small ones
+- **Title**: what the skill covers. **Triggers**: words someone would say when they need this.
+- **Body**: concrete "when X, do Y" patterns with examples. Not vague summaries.
+- One topic per skill. If it covers two unrelated things, make two skills.
+- Example: `manage_bot_skill(action="create", name="docker-dns-fix", title="Docker DNS Resolution Fix", content="# Docker DNS Resolution\\n\\n## When containers can't resolve hostnames\\n\\n1. Check bridge network: `docker network inspect bridge`\\n2. ...", triggers="docker, DNS, resolve, container, network", category="troubleshooting")`
 
 **Skill hygiene:**
 - Periodically review your skills with `manage_bot_skill(action="list")`
@@ -110,8 +124,8 @@ semantic RAG pipeline and are retrievable across all future sessions based on re
 - When corrected on a mistake or preference: add it as a rule to `{memory_rel}/MEMORY.md` immediately.
 - After establishing or agreeing on a file format, schema, convention, or workflow: write it to `{memory_rel}/MEMORY.md` or the appropriate reference file immediately — do not wait for a future session to confirm it.
 - When a fact is confirmed across multiple sessions: promote it from daily log to `{memory_rel}/MEMORY.md` (edit in place, do not append).
-- When you solve a recurring problem or learn a reusable pattern: write it to `{memory_rel}/reference/` immediately — future sessions start smarter.
-- When `{memory_rel}/MEMORY.md` is getting crowded: move detailed knowledge to `{memory_rel}/reference/` files, keep only pointers in `{memory_rel}/MEMORY.md`."""
+- When you solve a recurring problem or learn a reusable pattern: **create a skill** with `manage_bot_skill` so it auto-surfaces in future sessions. Put detailed supporting notes in `{memory_rel}/reference/` if needed.
+- When `{memory_rel}/MEMORY.md` is getting crowded: move detailed context to `{memory_rel}/reference/` files, keep only pointers in `{memory_rel}/MEMORY.md`."""
 
 DEFAULT_CHANNEL_WORKSPACE_PROMPT = """\
 Channel workspace — absolute path: {workspace_path}
@@ -133,8 +147,26 @@ All paths are relative to your workspace root — use the memory/ prefix:
 - Append key decisions and events to today's daily log (memory/logs/YYYY-MM-DD.md)
 - Promote any new stable facts to memory/MEMORY.md (edit existing sections in place, do not append session entries)
 - Write anything you'll need to remember in future sessions
-- If you learned a reusable pattern or procedure, consider creating a skill with manage_bot_skill
+- **If you learned a reusable pattern, procedure, or fix**: create a skill NOW with `manage_bot_skill(action="create", ...)`. Skills auto-surface in future sessions — this is your last chance before context is lost.
 Use the `file` tool (append, write, edit) to write to the appropriate files under memory/."""
+
+
+# ---------------------------------------------------------------------------
+# Skill learning nudge — injected mid-conversation after N tool iterations
+# ---------------------------------------------------------------------------
+SKILL_NUDGE_AFTER_ITERATIONS = 8  # inject after this many tool-call iterations (0 = disabled)
+
+DEFAULT_SKILL_NUDGE_PROMPT = """\
+You have been working on this task for a while. Pause briefly and consider:
+
+- Did you discover a reusable pattern, fix, or procedure that should AUTO-SURFACE in future sessions when someone hits a similar problem?
+- Did you learn something about this domain that isn't in your training data?
+
+If yes: use `manage_bot_skill(action="create", ...)` NOW — not later. Skills enter the RAG pipeline and appear automatically when relevant. This is different from memory files, which require you to search for them.
+
+Keep it focused — one pattern per skill, with concrete "when X, do Y" triggers.
+
+If nothing worth capturing, continue with your response — do not mention this prompt to the user."""
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +334,7 @@ class Settings(BaseSettings):
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15
+    SKILL_NUDGE_AFTER_ITERATIONS: int = SKILL_NUDGE_AFTER_ITERATIONS  # inject skill-learning nudge after N iterations (0 = disabled)
     LOG_LEVEL: str = "INFO"  # INFO = pathway only; DEBUG = full args, result previews, token counts
     AGENT_TRACE: bool = False  # When True: one-line trace per tool/response (no JSON), ideal for dev
     TOOL_LOOP_DETECTION_ENABLED: bool = True  # Detect and break repeating tool call cycles within a single agent run

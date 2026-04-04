@@ -13,6 +13,9 @@ from app.tools.registry import register
 logger = logging.getLogger(__name__)
 
 BOT_SKILL_COUNT_WARNING = 50
+CONTENT_MIN_LENGTH = 50
+CONTENT_MAX_LENGTH = 50_000  # 50KB
+NAME_MAX_LENGTH = 100
 
 _SLUG_RE = re.compile(r"[^a-z0-9-]")
 
@@ -46,6 +49,22 @@ def _safe_skill_id(bot_id: str, name: str) -> tuple[str | None, str | None]:
         })
 
 
+def _validate_content(content: str) -> str | None:
+    """Return an error string if content fails validation, else None."""
+    if len(content) < CONTENT_MIN_LENGTH:
+        return f"Content too short ({len(content)} chars). Minimum is {CONTENT_MIN_LENGTH} characters."
+    if len(content) > CONTENT_MAX_LENGTH:
+        return f"Content too large ({len(content)} chars). Maximum is {CONTENT_MAX_LENGTH} characters."
+    return None
+
+
+def _validate_name(name: str) -> str | None:
+    """Return an error string if name fails validation, else None."""
+    if len(name) > NAME_MAX_LENGTH:
+        return f"Name too long ({len(name)} chars). Maximum is {NAME_MAX_LENGTH} characters."
+    return None
+
+
 def _extract_body(full_content: str) -> str:
     """Extract the markdown body from content that may have YAML frontmatter."""
     if full_content.startswith("---"):
@@ -71,14 +90,19 @@ def _extract_frontmatter(full_content: str) -> dict[str, str]:
     return result
 
 
+def _sanitize_frontmatter_value(val: str) -> str:
+    """Strip newlines and leading/trailing whitespace from frontmatter values."""
+    return val.replace("\n", " ").replace("\r", " ").strip()
+
+
 def _build_content(title: str, content: str, triggers: str = "", category: str = "") -> str:
     """Build skill content with YAML frontmatter."""
     lines = ["---"]
-    lines.append(f"name: {title}")
+    lines.append(f"name: {_sanitize_frontmatter_value(title)}")
     if triggers:
-        lines.append(f"triggers: {triggers}")
+        lines.append(f"triggers: {_sanitize_frontmatter_value(triggers)}")
     if category:
-        lines.append(f"category: {category}")
+        lines.append(f"category: {_sanitize_frontmatter_value(category)}")
     lines.append("---")
     lines.append("")
     lines.append(content)
@@ -136,6 +160,14 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                     "type": "string",
                     "description": "Replacement text (for patch action).",
                 },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max skills to return for list action (default 20, max 100).",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Number of skills to skip for list action (for pagination).",
+                },
             },
             "required": ["action"],
         },
@@ -150,6 +182,8 @@ async def manage_bot_skill(
     category: str = "",
     old_text: str = "",
     new_text: str = "",
+    limit: int = 20,
+    offset: int = 0,
 ) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
@@ -162,23 +196,38 @@ async def manage_bot_skill(
 
     # --- LIST ---
     if action == "list":
-        from sqlalchemy import select
+        from sqlalchemy import func, select
+        clamped_limit = max(1, min(limit, 100))
+        clamped_offset = max(0, offset)
         async with async_session() as db:
+            total = (await db.execute(
+                select(func.count()).select_from(SkillRow)
+                .where(SkillRow.id.like(f"{prefix}%"))
+            )).scalar_one()
             rows = (await db.execute(
                 select(SkillRow).where(SkillRow.id.like(f"{prefix}%"))
                 .order_by(SkillRow.updated_at.desc())
+                .limit(clamped_limit).offset(clamped_offset)
             )).scalars().all()
-        if not rows:
-            return json.dumps({"skills": [], "message": "No self-authored skills yet."})
-        summary = [
-            {
+        if not rows and clamped_offset == 0:
+            return json.dumps({"skills": [], "total": 0, "message": "No self-authored skills yet."})
+        summary = []
+        for r in rows:
+            fm = _extract_frontmatter(r.content) if r.content else {}
+            body_preview = _extract_body(r.content)[:120].strip() if r.content else ""
+            summary.append({
                 "id": r.id,
                 "name": r.name,
+                "category": fm.get("category", ""),
+                "preview": body_preview,
                 "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-            }
-            for r in rows
-        ]
-        return json.dumps({"skills": summary, "count": len(summary)})
+            })
+        return json.dumps({
+            "skills": summary,
+            "total": total,
+            "limit": clamped_limit,
+            "offset": clamped_offset,
+        })
 
     # --- GET ---
     if action == "get":
@@ -202,6 +251,12 @@ async def manage_bot_skill(
     if action == "create":
         if not name or not title or not content:
             return json.dumps({"error": "name, title, and content are required for create."})
+        name_err = _validate_name(name)
+        if name_err:
+            return json.dumps({"error": name_err})
+        content_err = _validate_content(content)
+        if content_err:
+            return json.dumps({"error": content_err})
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
@@ -226,15 +281,18 @@ async def manage_bot_skill(
             db.add(row)
             await db.commit()
 
-        # Fire-and-forget embedding
-        asyncio.create_task(_embed_skill_safe(skill_id))
+        # Synchronous embedding so the bot knows immediately if it worked
+        embedded = await _embed_skill_safe(skill_id)
+        _invalidate_cache(bot_id)
 
         # Count warning
         warning = await _check_count_warning(bot_id, prefix)
         msg = f"Skill '{skill_id}' created."
+        if not embedded:
+            msg += " Warning: embedding failed — skill saved but won't appear in RAG until re-embedded."
         if warning:
             msg += f" {warning}"
-        return json.dumps({"ok": True, "id": skill_id, "message": msg})
+        return json.dumps({"ok": True, "id": skill_id, "embedded": embedded, "message": msg})
 
     # --- UPDATE ---
     if action == "update":
@@ -256,6 +314,11 @@ async def manage_bot_skill(
             if not title and not content and not triggers and not category:
                 return json.dumps({"error": "Provide at least one of: title, content, triggers, category."})
 
+            if content:
+                content_err = _validate_content(content)
+                if content_err:
+                    return json.dumps({"error": content_err})
+
             # Merge with existing frontmatter so partial updates don't drop fields
             existing_fm = _extract_frontmatter(row.content)
             new_title = title.strip() if title else row.name
@@ -272,7 +335,9 @@ async def manage_bot_skill(
             row.updated_at = datetime.now(timezone.utc)
             await db.commit()
 
+        # Fire-and-forget for updates (skill already in RAG, re-embed in background)
         asyncio.create_task(_embed_skill_safe(skill_id))
+        _invalidate_cache(bot_id)
         return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' updated."})
 
     # --- DELETE ---
@@ -298,6 +363,7 @@ async def manage_bot_skill(
             await db.execute(sa_delete(Document).where(Document.source == f"skill:{skill_id}"))
             await db.commit()
 
+        _invalidate_cache(bot_id)
         return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' deleted."})
 
     # --- PATCH ---
@@ -322,24 +388,46 @@ async def manage_bot_skill(
             if old_text not in row.content:
                 return json.dumps({"error": "old_text not found in skill content."})
 
-            row.content = row.content.replace(old_text, new_text, 1)
+            patched = row.content.replace(old_text, new_text, 1)
+            # Validate resulting content (patch could shrink below min or expand above max)
+            body = _extract_body(patched)
+            body_err = _validate_content(body)
+            if body_err:
+                return json.dumps({"error": f"Patch would produce invalid content: {body_err}"})
+
+            row.content = patched
             row.content_hash = hashlib.sha256(row.content.encode()).hexdigest()
             row.updated_at = datetime.now(timezone.utc)
             await db.commit()
 
         asyncio.create_task(_embed_skill_safe(skill_id))
+        _invalidate_cache(bot_id)
         return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' patched."})
 
     return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, get, delete, or patch."})
 
 
-async def _embed_skill_safe(skill_id: str) -> None:
-    """Re-embed a skill, swallowing errors so fire-and-forget doesn't crash."""
+def _invalidate_cache(bot_id: str) -> None:
+    """Invalidate the auto-discovery cache so next context assembly sees changes."""
+    try:
+        from app.agent.context_assembly import invalidate_bot_skill_cache
+        invalidate_bot_skill_cache(bot_id)
+    except Exception:
+        pass  # non-critical
+
+
+async def _embed_skill_safe(skill_id: str) -> bool:
+    """Re-embed a skill, returning True on success.
+
+    Swallows errors so fire-and-forget callers don't crash.
+    """
     try:
         from app.agent.skills import re_embed_skill
         await re_embed_skill(skill_id)
+        return True
     except Exception:
         logger.warning("Failed to re-embed skill '%s'", skill_id, exc_info=True)
+        return False
 
 
 async def _check_count_warning(bot_id: str, prefix: str) -> str | None:

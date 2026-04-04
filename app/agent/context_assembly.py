@@ -36,6 +36,49 @@ from app.tools.mcp import get_mcp_server_for_tool
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Bot-authored skill auto-discovery cache (avoids DB hit on every message)
+# ---------------------------------------------------------------------------
+_bot_skill_cache: dict[str, tuple[float, list[str]]] = {}  # bot_id → (timestamp, [skill_ids])
+_BOT_SKILL_CACHE_TTL = 30.0  # seconds
+
+
+async def _get_bot_authored_skill_ids(bot_id: str) -> list[str]:
+    """Return skill IDs for bot-authored skills, with a short TTL cache."""
+    import time
+    now = time.monotonic()
+    cached = _bot_skill_cache.get(bot_id)
+    if cached and (now - cached[0]) < _BOT_SKILL_CACHE_TTL:
+        return cached[1]
+
+    from sqlalchemy import select as _sa_select
+    from app.db.engine import async_session as _bas_session
+    from app.db.models import Skill as _SkillRow
+
+    prefix = f"bots/{bot_id}/"
+    async with _bas_session() as _bas_db:
+        rows = (await _bas_db.execute(
+            _sa_select(_SkillRow.id).where(
+                _SkillRow.id.like(f"{prefix}%"),
+                _SkillRow.source_type == "tool",
+            )
+        )).scalars().all()
+
+    result = list(rows)
+    _bot_skill_cache[bot_id] = (now, result)
+    return result
+
+
+def invalidate_bot_skill_cache(bot_id: str | None = None) -> None:
+    """Clear the bot-authored skill discovery cache.
+
+    Called after create/update/delete to ensure next context assembly sees changes.
+    """
+    if bot_id:
+        _bot_skill_cache.pop(bot_id, None)
+    else:
+        _bot_skill_cache.clear()
+
 
 def _render_channel_workspace_prompt(
     *,
@@ -396,27 +439,17 @@ async def assemble_context(
     # --- auto-discover bot-authored skills (source_type="tool") ---
     if bot.id:
         try:
-            from sqlalchemy import select as _sa_select
-            from app.db.engine import async_session as _bas_session
-            from app.db.models import Skill as _SkillRow
             from app.agent.bots import SkillConfig
-            _bot_skill_prefix = f"bots/{bot.id}/"
-            async with _bas_session() as _bas_db:
-                _bot_skill_rows = (await _bas_db.execute(
-                    _sa_select(_SkillRow.id).where(
-                        _SkillRow.id.like(f"{_bot_skill_prefix}%"),
-                        _SkillRow.source_type == "tool",
-                    )
-                )).scalars().all()
-            if _bot_skill_rows:
+            _bot_skill_ids = await _get_bot_authored_skill_ids(bot.id)
+            if _bot_skill_ids:
                 _existing_skill_ids = {s.id for s in bot.skills}
-                _bot_new_skills = []
-                for _bs_id in _bot_skill_rows:
-                    if _bs_id not in _existing_skill_ids:
-                        _bot_new_skills.append(SkillConfig(id=_bs_id, mode="rag"))
+                _bot_new_skills = [
+                    SkillConfig(id=sid, mode="rag")
+                    for sid in _bot_skill_ids
+                    if sid not in _existing_skill_ids
+                ]
                 if _bot_new_skills:
                     bot = _dc_replace(bot, skills=list(bot.skills) + _bot_new_skills)
-                    # Update resolved skill IDs so get_skill allows access
                     from app.agent.context import current_resolved_skill_ids
                     current_resolved_skill_ids.set({s.id for s in bot.skills})
                     yield {"type": "bot_authored_skills", "count": len(_bot_new_skills)}

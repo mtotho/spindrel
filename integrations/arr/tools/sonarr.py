@@ -32,6 +32,13 @@ async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
             resp = await client.get(url, headers=_headers(), params=params, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:500] if e.response else ""
+        raise httpx.HTTPStatusError(
+            f"Sonarr {e.response.status_code} on {path}: {body}",
+            request=e.request,
+            response=e.response,
+        )
     except httpx.TimeoutException:
         raise httpx.TimeoutException(
             f"Sonarr request timed out after {timeout}s: {path}"
@@ -48,6 +55,13 @@ async def _post(path: str, payload: dict, timeout: float = 15.0):
             resp = await client.post(url, headers=_headers(), json=payload, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:500] if e.response else ""
+        raise httpx.HTTPStatusError(
+            f"Sonarr {e.response.status_code} on {path}: {body}",
+            request=e.request,
+            response=e.response,
+        )
     except httpx.TimeoutException:
         raise httpx.TimeoutException(
             f"Sonarr request timed out after {timeout}s: {path}"
@@ -102,7 +116,7 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
             })
         return json.dumps({"count": len(episodes), "episodes": episodes})
     except httpx.HTTPStatusError as e:
-        return error(f"Sonarr API error: HTTP {e.response.status_code}")
+        return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
@@ -177,7 +191,7 @@ async def sonarr_series(search: str | None = None, limit: int = 50) -> str:
                 result["page"] = {"limit": limit, "returned": len(series), "has_more": True}
             return json.dumps(result)
     except httpx.HTTPStatusError as e:
-        return error(f"Sonarr API error: HTTP {e.response.status_code}")
+        return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
@@ -232,7 +246,7 @@ async def sonarr_wanted(limit: int = 20) -> str:
             "episodes": episodes,
         })
     except httpx.HTTPStatusError as e:
-        return error(f"Sonarr API error: HTTP {e.response.status_code}")
+        return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
@@ -284,7 +298,7 @@ async def sonarr_queue() -> str:
             })
         return json.dumps({"count": len(items), "items": items})
     except httpx.HTTPStatusError as e:
-        return error(f"Sonarr API error: HTTP {e.response.status_code}")
+        return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
@@ -348,7 +362,7 @@ async def sonarr_command(
             "message": f"{action} command sent successfully",
         })
     except httpx.HTTPStatusError as e:
-        return error(f"Sonarr API error: HTTP {e.response.status_code}")
+        return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
@@ -361,9 +375,10 @@ async def sonarr_command(
     "function": {
         "name": "sonarr_releases",
         "description": (
-            "Browse or grab releases for a Sonarr series or episode. "
-            "Use action='search' to list available releases sorted by seeders. "
-            "Use action='grab' to download a specific release by guid + indexer_id."
+            "Browse or grab releases for a Sonarr episode. "
+            "Use action='search' with episode_id to list available releases sorted by seeders. "
+            "Use action='grab' to download a specific release by guid + indexer_id. "
+            "To search for a whole series, use sonarr_command with SeriesSearch instead."
         ),
         "parameters": {
             "type": "object",
@@ -373,13 +388,9 @@ async def sonarr_command(
                     "enum": ["search", "grab"],
                     "description": "Action: 'search' to browse releases, 'grab' to download one.",
                 },
-                "series_id": {
-                    "type": "integer",
-                    "description": "Series ID (for search action).",
-                },
                 "episode_id": {
                     "type": "integer",
-                    "description": "Episode ID (for search action — more specific than series_id).",
+                    "description": "Episode ID (required for search action).",
                 },
                 "guid": {
                     "type": "string",
@@ -396,7 +407,6 @@ async def sonarr_command(
 })
 async def sonarr_releases(
     action: str,
-    series_id: int | None = None,
     episode_id: int | None = None,
     guid: str | None = None,
     indexer_id: int | None = None,
@@ -414,13 +424,9 @@ async def sonarr_releases(
             })
 
         # Default: search
-        params: dict = {}
-        if episode_id is not None:
-            params["episodeId"] = episode_id
-        elif series_id is not None:
-            params["seriesId"] = series_id
-        else:
-            return error("series_id or episode_id required for search")
+        if episode_id is None:
+            return error("episode_id required for release search")
+        params: dict = {"episodeId": episode_id}
 
         data = await _get("/api/v3/release", params=params, timeout=60.0)
 
@@ -444,7 +450,7 @@ async def sonarr_releases(
             })
         return json.dumps({"count": len(releases), "releases": releases})
     except httpx.HTTPStatusError as e:
-        return error(f"Sonarr API error: HTTP {e.response.status_code}")
+        return error(f"Sonarr API error: {e}")
     except httpx.ConnectError:
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
