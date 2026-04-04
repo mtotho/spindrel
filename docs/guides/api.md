@@ -45,7 +45,7 @@ The response includes the key (shown once) and its scopes.
 
 #### Scope Reference
 
-Spindrel defines **50 scopes** across **21 groups**:
+Spindrel defines **51 scopes** across **22 groups**:
 
 | Group | Scopes | Description |
 |-------|--------|-------------|
@@ -70,6 +70,7 @@ Spindrel defines **50 scopes** across **21 groups**:
 | **Usage** | `usage:read` | Cost analytics and usage limits |
 | **Carapaces** | `carapaces:read`, `carapaces:write` | Skill+tool bundle management |
 | **Workflows** | `workflows:read`, `workflows:write` | Workflow definitions and run management |
+| **LLM** | `llm:completions` | Direct LLM calls through the server's provider system |
 | **Mission Control** | `mission_control:read`, `mission_control:write` | Dashboard data (kanban, journal, etc.) |
 
 **Hierarchy rules**: `channels:write` implies all `channels.*:write` sub-scopes. `admin` implies everything.
@@ -80,7 +81,7 @@ The admin UI offers one-click presets for common use cases:
 
 | Preset | Use Case | Key Scopes |
 |--------|----------|------------|
-| **Messaging Integration** | Slack, Discord, etc. | `chat`, `bots:read`, `channels:read/write`, `channels.config:read/write`, `sessions:read/write`, `todos:read` |
+| **Messaging Integration** | Slack, Discord, etc. | `chat`, `bots:read`, `channels:read/write`, `channels.config:read/write`, `sessions:read/write`, `todos:read`, `llm:completions` |
 | **Chat Client** | Custom chat frontends | `chat`, `bots:read`, `channels:read/write`, `sessions:read`, `attachments:read/write` |
 | **Workspace Bot** | Bots in containers | `chat`, `bots:read`, `channels:read/write`, `tasks:read/write`, `documents:read/write`, `todos:read/write`, `workspaces.files:read/write`, `attachments:read/write`, `carapaces:read/write`, `tools:read/execute` |
 | **Read-Only Monitor** | Dashboards | `bots:read`, `channels:read`, `sessions:read`, `tasks:read`, `todos:read`, `attachments:read`, `logs:read` |
@@ -199,6 +200,64 @@ Events emitted during streaming:
 | `transcript` | Audio transcription result | `text` |
 
 Context assembly events (prefixed with source type) are also emitted during streaming but are primarily for debugging — clients typically only need `assistant_text`, `tool_start`, `tool_result`, and `response`.
+
+## LLM Completions API
+
+A thin proxy that lets integrations make LLM calls through the server's multi-provider infrastructure without needing to know about provider URLs, API keys, or routing. Usage is recorded as a TraceEvent for cost tracking.
+
+**Scope**: `llm:completions`
+
+### Request
+
+```bash
+curl -X POST http://localhost:8000/api/v1/llm/completions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini/gemini-2.5-flash",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Summarize this text: ..."}
+    ],
+    "temperature": 0.7
+  }'
+```
+
+### Request Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model` | string | No | Model ID (LiteLLM format). Defaults to `DEFAULT_MODEL`. |
+| `messages` | array | Yes | OpenAI-format messages (`role` + `content`). |
+| `temperature` | float | No | 0–2. |
+| `max_tokens` | int | No | Max completion tokens. |
+| `extra` | object | No | Provider-specific params passed through to the LLM call (e.g. Gemini `safety_settings`). |
+
+### Response
+
+```json
+{
+  "content": "Here is a summary...",
+  "model": "gemini/gemini-2.5-flash",
+  "usage": {
+    "prompt_tokens": 42,
+    "completion_tokens": 128,
+    "total_tokens": 170
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | string | LLM response text (empty string if model returned no content). |
+| `model` | string | Actual model used. |
+| `usage` | object \| null | Token counts (null if provider didn't report usage). |
+
+### Notes
+
+- The model is resolved through the server's provider system — the caller doesn't need to know which provider or API key to use.
+- All calls are recorded as TraceEvents with caller identity, model, token counts, duration, and cost (when available from LiteLLM).
+- Used by the ingestion pipeline's safety classifier and available to any integration with a scoped API key.
 
 ## Common Patterns
 

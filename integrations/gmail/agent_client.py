@@ -80,22 +80,38 @@ async def append_timeline(channel_id: str, bot_id: str, event: str) -> bool:
 async def resolve_channels_for_binding(prefix: str = "gmail:") -> list[dict]:
     """Query admin API for channels bound to gmail.
 
-    Returns list of channel dicts with id, name, bot_id, client_id.
+    Returns list of channel dicts with id, name, bot_id.
+    Checks both the channel's own client_id (legacy) and integration bindings (new activation).
     """
     try:
         r = await _http.get(
             f"{_base_url()}/api/v1/admin/channels",
             headers=_headers(),
+            params={"page_size": 100},
             timeout=10.0,
         )
         r.raise_for_status()
-        channels = r.json()
-        if isinstance(channels, dict) and "items" in channels:
-            channels = channels["items"]
-        return [
-            ch for ch in channels
-            if isinstance(ch, dict) and str(ch.get("client_id", "")).startswith(prefix)
-        ]
+        data = r.json()
+        # Response is {"channels": [...], "total": N, ...} or a bare list
+        if isinstance(data, list):
+            channels = data
+        else:
+            channels = data.get("channels") or data.get("items") or []
+
+        matched = []
+        for ch in channels:
+            if not isinstance(ch, dict):
+                continue
+            # Legacy: channel-level client_id
+            if str(ch.get("client_id", "")).startswith(prefix):
+                matched.append(ch)
+                continue
+            # New activation: check integration bindings
+            for binding in ch.get("integrations", []):
+                if str(binding.get("client_id", "")).startswith(prefix):
+                    matched.append(ch)
+                    break
+        return matched
     except Exception:
         logger.exception("Failed to resolve gmail channels")
         return []

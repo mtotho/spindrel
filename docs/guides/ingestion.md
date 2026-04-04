@@ -277,13 +277,12 @@ All settings use the `INGESTION_` env prefix:
 
 | Setting | Default | Description |
 |---|---|---|
-| `INGESTION_CLASSIFIER_URL` | `http://localhost:8000/v1/chat/completions` | LLM endpoint for Layer 3 |
+| `INGESTION_AGENT_BASE_URL` | `http://localhost:8000` | Server URL (classifier calls `/api/v1/llm/completions`) |
+| `INGESTION_AGENT_API_KEY` | (empty) | API key for LLM completions endpoint auth (needs `llm:completions` scope) |
 | `INGESTION_CLASSIFIER_MODEL` | `gpt-4o-mini` | Model for safety classification |
 | `INGESTION_CLASSIFIER_TIMEOUT` | `15` | Seconds before classifier fails closed |
 | `INGESTION_MAX_BODY_BYTES` | `50000` | Truncation limit for raw content |
 | `INGESTION_QUARANTINE_RETENTION_DAYS` | `90` | Days before purge_quarantine() deletes entries |
-| `INGESTION_AGENT_BASE_URL` | `http://localhost:8000` | Server URL (for classifier routing) |
-| `INGESTION_AGENT_API_KEY` | (empty) | API key for classifier endpoint auth |
 
 ## Lifecycle and Cleanup
 
