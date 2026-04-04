@@ -100,12 +100,35 @@ def is_local_tool(name: str) -> bool:
     return name in _tools
 
 
+def _coerce_args(args: dict, schema_props: dict) -> dict:
+    """Fix common LLM type mistakes based on declared schema.
+
+    Currently handles: scalar value passed for an array parameter → wrap in list.
+    """
+    for key, val in args.items():
+        prop = schema_props.get(key)
+        if prop is None or val is None:
+            continue
+        if prop.get("type") == "array" and not isinstance(val, list):
+            args[key] = [val]
+    return args
+
+
 async def call_local_tool(name: str, arguments: str) -> str:
     entry = _tools.get(name)
     if entry is None:
         return json.dumps({"error": f"Unknown local tool: {name}"})
     try:
         args = json.loads(arguments) if arguments else {}
+        # Coerce args based on declared schema (e.g. string → list for array params)
+        schema_props = (
+            entry.get("schema", {})
+            .get("function", {})
+            .get("parameters", {})
+            .get("properties", {})
+        )
+        if schema_props:
+            _coerce_args(args, schema_props)
         t0 = time.monotonic()
         result = await entry["function"](**args)
         elapsed = time.monotonic() - t0

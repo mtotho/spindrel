@@ -109,11 +109,11 @@ class TestDraftPlanStepCoercion:
                 pass
 
         with (
-            patch("integrations.mission_control.tools.plans.mc_session", return_value=FakeCtx()),
+            patch("integrations.mission_control.db.engine.mc_session", return_value=FakeCtx()),
             patch("integrations.mission_control.services._ensure_plans_migrated", new_callable=AsyncMock),
             patch("integrations.mission_control.services._render_plans_md", new_callable=AsyncMock),
             patch("integrations.mission_control.tools.plans.append_timeline", new_callable=AsyncMock),
-            patch("integrations.mission_control.tools.plans.generate_plan_id", return_value="plan-test01"),
+            patch("app.services.plan_board.generate_plan_id", return_value="plan-test01"),
         ):
             result = await draft_plan(
                 channel_id="ch-123",
@@ -152,11 +152,11 @@ class TestDraftPlanStepCoercion:
                 pass
 
         with (
-            patch("integrations.mission_control.tools.plans.mc_session", return_value=FakeCtx()),
+            patch("integrations.mission_control.db.engine.mc_session", return_value=FakeCtx()),
             patch("integrations.mission_control.services._ensure_plans_migrated", new_callable=AsyncMock),
             patch("integrations.mission_control.services._render_plans_md", new_callable=AsyncMock),
             patch("integrations.mission_control.tools.plans.append_timeline", new_callable=AsyncMock),
-            patch("integrations.mission_control.tools.plans.generate_plan_id", return_value="plan-test02"),
+            patch("app.services.plan_board.generate_plan_id", return_value="plan-test02"),
         ):
             result = await draft_plan(
                 channel_id="ch-123",

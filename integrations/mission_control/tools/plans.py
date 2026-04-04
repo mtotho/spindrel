@@ -70,6 +70,10 @@ async def draft_plan(
     from integrations.mission_control.db.models import McPlan, McPlanStep
     from integrations.mission_control.services import _ensure_plans_migrated, _render_plans_md
 
+    # Guard: LLMs sometimes pass a bare string instead of a list
+    if isinstance(steps, str):
+        steps = [steps]
+
     await _ensure_plans_migrated(channel_id)
 
     plan_id = generate_plan_id()
