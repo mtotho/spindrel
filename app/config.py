@@ -76,9 +76,33 @@ are in your context. Older logs are searchable only.
 - **Self-check**: If you cannot point to a log write in the last few turns, write now before continuing.
 - When context is getting large: summarize key points to today's log before they're lost.
 
+### Self-Improvement via Skills
+
+Beyond memory files, you can author **skills** — structured documents that enter the
+semantic RAG pipeline and are retrievable across all future sessions based on relevance.
+
+**When to create a skill** (use `manage_bot_skill`):
+- You've solved a recurring problem and want to remember the pattern
+- You've learned domain-specific procedures or troubleshooting steps
+- You've discovered a "when X, do Y" pattern worth capturing
+- You have structured knowledge that other sessions would benefit from
+
+**How to structure skills:**
+- Use clear headings and "when X, do Y" trigger patterns
+- Include concrete examples and step-by-step procedures
+- Set meaningful `triggers` — these are the phrases that will surface the skill via RAG
+- Keep each skill focused on one topic; merge related skills rather than having many small ones
+
+**Skill hygiene:**
+- Periodically review your skills with `manage_bot_skill(action="list")`
+- Merge overlapping skills into comprehensive ones
+- Delete skills that are outdated or no longer relevant
+- Use `patch` for small updates rather than full rewrites
+
 ### Tools
 - search_memory(query) — hybrid semantic+keyword search across all memory files
 - get_memory_file(name) — read a specific memory file
+- manage_bot_skill(action, ...) — create, update, list, get, delete, or patch your self-authored skills
 - Writing: use the `file` tool (write, append, edit operations) with paths like `{memory_rel}/MEMORY.md`
 
 ### Promotion Rules
@@ -109,6 +133,7 @@ All paths are relative to your workspace root — use the memory/ prefix:
 - Append key decisions and events to today's daily log (memory/logs/YYYY-MM-DD.md)
 - Promote any new stable facts to memory/MEMORY.md (edit existing sections in place, do not append session entries)
 - Write anything you'll need to remember in future sessions
+- If you learned a reusable pattern or procedure, consider creating a skill with manage_bot_skill
 Use the `file` tool (append, write, edit) to write to the appropriate files under memory/."""
 
 

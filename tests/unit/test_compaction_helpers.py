@@ -338,5 +338,4 @@ class TestFormatSectionIndex:
         result = format_section_index(sections)
         assert "read_conversation_history" in result
         assert "search:<query>" in result
-        assert "messages:<query>" in result
         assert "tool:<id>" in result

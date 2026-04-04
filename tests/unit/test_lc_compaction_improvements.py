@@ -441,7 +441,6 @@ class TestFormatSectionIndex:
 
     def test_header_includes_all_modes(self):
         result = format_section_index([], "compact")
-        assert "messages:" in result
         assert "tool:" in result
         assert "search:" in result
 

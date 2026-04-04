@@ -17,6 +17,8 @@ def _mock_section(**kwargs):
     s.title = kwargs.get("title", "Test Section")
     s.summary = kwargs.get("summary", "A test section summary.")
     s.transcript_path = kwargs.get("transcript_path", None)
+    s.transcript = kwargs.get("transcript", None)  # explicit None prevents MagicMock truthy
+    s.tags = kwargs.get("tags", [])
     s.message_count = kwargs.get("message_count", 5)
     s.period_start = kwargs.get("period_start", datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc))
     s.period_end = kwargs.get("period_end", datetime(2026, 3, 20, 11, 30, tzinfo=timezone.utc))
@@ -52,6 +54,21 @@ def patch_db_get(section):
         yield mock_session
 
 
+@contextmanager
+def patch_db_section_lookup(section):
+    """Mock the sequence-based section lookup (select...where sequence==N)."""
+    with patch("app.tools.local.conversation_history.async_session") as mock_session, \
+         patch("app.tools.local.conversation_history._track_view", new_callable=AsyncMock), \
+         patch("app.tools.local.conversation_history._backfill_transcript", new_callable=AsyncMock):
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = section
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+        yield mock_session
+
+
 class TestReadConversationHistoryIndex:
     @pytest.mark.asyncio
     async def test_returns_all_sections_for_channel(self):
@@ -70,7 +87,7 @@ class TestReadConversationHistoryIndex:
         assert "Setup" in result
         assert "Debugging" in result
         assert "15" in result
-        assert str(sections[0].id) in result
+        assert "#1" in result  # sections indexed by sequence number
 
     @pytest.mark.asyncio
     async def test_empty_channel_returns_no_sections(self):
@@ -164,10 +181,9 @@ class TestReadConversationHistorySection:
     async def test_returns_full_section_content_from_file_old_format(self):
         """Old format transcript_path (.history/...) resolves via workspace_service."""
         channel_id = uuid.uuid4()
-        section_id = uuid.uuid4()
         file_content = "# Slack Setup\nFrom: 2026-03-20 10:00  To: 2026-03-20 11:30\nMessages: 10\n\nSummary: Setup.\n\n---\n\n[USER]: hello\n[ASSISTANT]: hi"
         section = _mock_section(
-            id=section_id, channel_id=channel_id,
+            channel_id=channel_id, sequence=1,
             title="Slack Setup", transcript_path=".history/001_slack_setup.md",
             message_count=10,
             period_start=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
@@ -175,7 +191,7 @@ class TestReadConversationHistorySection:
         )
         mock_bot = MagicMock()
         mock_bot.id = "test_bot"
-        with patch_channel_id(channel_id), patch_db_get(section), \
+        with patch_channel_id(channel_id), patch_db_section_lookup(section), \
              patch("app.agent.context.current_bot_id") as mock_bot_id, \
              patch("app.agent.bots.get_bot", return_value=mock_bot), \
              patch("app.services.workspace.workspace_service") as mock_ws, \
@@ -185,7 +201,7 @@ class TestReadConversationHistorySection:
              ))):
             mock_bot_id.get.return_value = "test_bot"
             mock_ws.get_workspace_root.return_value = "/workspace"
-            result = await read_conversation_history(str(section_id))
+            result = await read_conversation_history("1")
         assert "Slack Setup" in result
         assert "[USER]: hello" in result
 
@@ -193,15 +209,14 @@ class TestReadConversationHistorySection:
     async def test_returns_full_section_content_from_file_new_format(self):
         """New format transcript_path (channels/...) resolves via channel workspace _get_ws_root."""
         channel_id = uuid.uuid4()
-        section_id = uuid.uuid4()
         file_content = "# Setup\n\n---\n\n[USER]: hello"
         section = _mock_section(
-            id=section_id, channel_id=channel_id,
+            channel_id=channel_id, sequence=1,
             title="Setup", transcript_path=f"channels/{channel_id}/.history/001_setup.md",
         )
         mock_bot = MagicMock()
         mock_bot.id = "test_bot"
-        with patch_channel_id(channel_id), patch_db_get(section), \
+        with patch_channel_id(channel_id), patch_db_section_lookup(section), \
              patch("app.agent.context.current_bot_id") as mock_bot_id, \
              patch("app.agent.bots.get_bot", return_value=mock_bot), \
              patch("app.services.channel_workspace._get_ws_root", return_value="/workspace"), \
@@ -210,46 +225,43 @@ class TestReadConversationHistorySection:
                  __exit__=MagicMock(return_value=False),
              ))):
             mock_bot_id.get.return_value = "test_bot"
-            result = await read_conversation_history(str(section_id))
+            result = await read_conversation_history("1")
         assert "Setup" in result
         assert "[USER]: hello" in result
 
     @pytest.mark.asyncio
     async def test_returns_fallback_when_no_transcript_path(self):
         channel_id = uuid.uuid4()
-        section_id = uuid.uuid4()
         section = _mock_section(
-            id=section_id, channel_id=channel_id,
+            channel_id=channel_id, sequence=1,
             title="Slack Setup", transcript_path=None,
             message_count=10,
             period_start=datetime(2026, 3, 20, 10, 0, tzinfo=timezone.utc),
             period_end=datetime(2026, 3, 20, 11, 30, tzinfo=timezone.utc),
         )
-        with patch_channel_id(channel_id), patch_db_get(section):
-            result = await read_conversation_history(str(section_id))
+        with patch_channel_id(channel_id), patch_db_section_lookup(section):
+            result = await read_conversation_history("1")
         assert "Slack Setup" in result
-        assert "Transcript file not available" in result
+        assert "Transcript not available" in result
 
     @pytest.mark.asyncio
-    async def test_invalid_uuid_returns_error(self):
+    async def test_invalid_section_returns_error(self):
         with patch_channel_id(uuid.uuid4()):
             result = await read_conversation_history("not-a-uuid")
-        assert "Invalid section ID" in result
+        assert "Invalid section" in result
 
     @pytest.mark.asyncio
     async def test_nonexistent_section_returns_not_found(self):
-        with patch_channel_id(uuid.uuid4()), patch_db_get(None):
-            result = await read_conversation_history(str(uuid.uuid4()))
+        with patch_channel_id(uuid.uuid4()), patch_db_section_lookup(None):
+            result = await read_conversation_history("999")
         assert "not found" in result
 
     @pytest.mark.asyncio
-    async def test_wrong_channel_returns_not_found(self):
-        """Section exists but belongs to a different channel."""
+    async def test_section_not_in_channel_returns_not_found(self):
+        """Query filters by channel_id, so a section from another channel yields no match."""
         my_channel = uuid.uuid4()
-        other_channel = uuid.uuid4()
-        section = _mock_section(id=uuid.uuid4(), channel_id=other_channel)
-        with patch_channel_id(my_channel), patch_db_get(section):
-            result = await read_conversation_history(str(section.id))
+        with patch_channel_id(my_channel), patch_db_section_lookup(None):
+            result = await read_conversation_history("1")
         assert "not found" in result
 
 
@@ -342,6 +354,7 @@ class TestDualRootPathResolution:
         """transcript_path starting with 'channels/' uses _get_ws_root."""
         channel_id = uuid.uuid4()
         sec = _mock_section(
+            transcript=None,
             transcript_path=f"channels/{channel_id}/.history/001_setup.md",
         )
         file_content = "# Setup\nTranscript content"
@@ -364,6 +377,7 @@ class TestDualRootPathResolution:
     def test_old_format_uses_workspace_service(self):
         """transcript_path starting with '.history/' uses workspace_service."""
         sec = _mock_section(
+            transcript=None,
             transcript_path=".history/dev_channel/001_setup.md",
         )
         file_content = "# Setup\nOld format transcript"
@@ -387,6 +401,7 @@ class TestDualRootPathResolution:
     def test_owner_bot_id_resolves_correct_workspace(self):
         """When owner_bot_id is set, resolves against that bot's workspace."""
         sec = _mock_section(
+            transcript=None,
             transcript_path=".history/dev_channel/001_setup.md",
         )
         file_content = "# Owner's transcript"

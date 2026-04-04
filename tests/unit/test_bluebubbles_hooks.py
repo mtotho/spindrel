@@ -20,6 +20,7 @@ class TestResolveDispatchConfig:
 
         result = self._resolve("bb:iMessage;-;+15551234567")
         assert result == {
+            "type": "bluebubbles",
             "chat_guid": "iMessage;-;+15551234567",
             "server_url": "http://10.0.0.1:1234",
             "password": "secret",
@@ -34,6 +35,7 @@ class TestResolveDispatchConfig:
         """Falls back to os.environ when DB settings are empty."""
         result = self._resolve("bb:iMessage;+;chat999")
         assert result == {
+            "type": "bluebubbles",
             "chat_guid": "iMessage;+;chat999",
             "server_url": "http://env.host:1234",
             "password": "envpass",

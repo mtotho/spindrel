@@ -228,6 +228,16 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             },
           };
         }
+        case "pending_tasks": {
+          // Deferred delegations / scheduled tasks were created during this turn.
+          // Switch to background polling so the UI picks up results when they arrive.
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: { ...ch, isProcessing: true },
+            },
+          };
+        }
         case "cancelled": {
           return {
             channels: {

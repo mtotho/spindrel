@@ -22,6 +22,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
 - **Bot-to-bot delegation** — Orchestrator bots delegate to specialists, synchronously or as background tasks, up to 3 levels deep.
 - **Docker sandboxes** — Long-lived Docker containers with `docker exec`. Session, client, agent, or shared scope modes. Assign sandbox profiles per bot for safe code execution.
+- **Self-improving agents** — Bots can author their own skills at runtime using `manage_bot_skill`. Skills enter the RAG pipeline and are semantically retrieved in future sessions — bots get smarter over time.
 - **Custom tools & extensions** — Drop a `.py` file in `tools/` to add a tool. Keep a personal extensions repo with tools, carapaces, and skills — load it via `INTEGRATION_DIRS` with no boilerplate.
 
 ## Quick Start

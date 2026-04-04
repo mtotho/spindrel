@@ -251,34 +251,3 @@ class TestFormatEventMessage:
         assert "60%" in msg
 
 
-# ---------------------------------------------------------------------------
-# post_chat tests
-# ---------------------------------------------------------------------------
-
-
-class TestPostChat:
-    @pytest.mark.asyncio
-    async def test_post_chat_sends_correct_payload(self, _clean_module):
-        mod = _clean_module
-
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-        mock_response.raise_for_status = lambda: None
-
-        with patch.object(mod.http, "post", new_callable=AsyncMock, return_value=mock_response) as mock_post:
-            await mod.post_chat("test message")
-
-            mock_post.assert_called_once()
-            call_kwargs = mock_post.call_args
-            payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
-            assert payload["message"] == "test message"
-            assert payload["bot_id"] == "test-bot"
-            assert payload["client_id"] == "frigate:events"
-
-    @pytest.mark.asyncio
-    async def test_post_chat_handles_error_gracefully(self, _clean_module):
-        mod = _clean_module
-
-        with patch.object(mod.http, "post", new_callable=AsyncMock, side_effect=Exception("connection refused")):
-            # Should not raise
-            await mod.post_chat("test message")

@@ -61,6 +61,8 @@ async def get_skill(skill_id: str) -> str:
                 # Check ephemeral @-tagged skills
                 elif skill_id in (current_ephemeral_skills.get() or []):
                     pass  # tagged skill — allow access
+                elif skill_id.startswith(f"bots/{bot_id}/"):
+                    pass  # bot's own self-authored skill — always allow
                 else:
                     # Check workspace DB skills and channel skills_extra
                     _allowed = await _check_extra_skill_access(bot, skill_id)

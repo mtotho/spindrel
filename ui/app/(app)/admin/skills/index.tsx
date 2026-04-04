@@ -15,6 +15,7 @@ function SourceBadge({ type, detail }: { type: string; detail?: string }) {
     integration: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c", label: "integration" },
     manual: { bg: t.surfaceOverlay, fg: t.textMuted, label: "manual" },
     workspace: { bg: t.purpleSubtle, fg: t.purple, label: "workspace" },
+    tool: { bg: "rgba(16,185,129,0.15)", fg: "#059669", label: "bot-authored" },
   };
   const c = cfg[type] || cfg.manual;
   return (
@@ -80,9 +81,12 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
   const t = useThemeTokens();
   const firstLine = (skill.content || "").split("\n").find((l) => l.trim() && !l.startsWith("#"))?.trim() || "";
   const isWs = skill.source_type === "workspace";
+  const isBotAuthored = skill.source_type === "tool";
   const wsDetail = isWs
     ? `${skill.workspace_name || "workspace"}${skill.bot_id ? ` / ${skill.bot_id}` : ""} (${skill.mode})`
-    : undefined;
+    : isBotAuthored && skill.bot_id
+      ? `authored by ${skill.bot_id}`
+      : undefined;
   const description = isWs
     ? `${skill.source_path}${skill.mode ? ` \u2022 ${skill.mode}` : ""}`
     : firstLine;
@@ -110,6 +114,9 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           <span>{skill.chunk_count} chunks</span>
           {isWs && skill.workspace_name && (
             <span style={{ color: t.purple }}>{skill.workspace_name}</span>
+          )}
+          {isBotAuthored && skill.bot_id && (
+            <span style={{ color: "#059669" }}>{skill.bot_id}</span>
           )}
         </div>
         {description && (
@@ -147,6 +154,9 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           </span>
           {isWs && skill.workspace_name && (
             <span style={{ fontSize: 10, color: t.purple, whiteSpace: "nowrap" }}>{skill.workspace_name}</span>
+          )}
+          {isBotAuthored && skill.bot_id && (
+            <span style={{ fontSize: 10, color: "#059669", whiteSpace: "nowrap" }}>{skill.bot_id}</span>
           )}
         </div>
         {description && (
@@ -225,12 +235,14 @@ export default function SkillsScreen() {
     if (!filteredSkills.length) return [];
 
     const manual: SkillItem[] = [];
+    const botAuthored: SkillItem[] = [];
     const workspace: SkillItem[] = [];
     const core: SkillItem[] = [];
     const integrationMap = new Map<string, SkillItem[]>();
 
     for (const s of filteredSkills) {
-      if (s.source_type === "manual") manual.push(s);
+      if (s.source_type === "tool") botAuthored.push(s);
+      else if (s.source_type === "manual") manual.push(s);
       else if (s.source_type === "workspace") workspace.push(s);
       else if (s.source_type === "integration") {
         const name = s.id.match(/^integrations\/([^/]+)\//)?.[1] ?? "other";
@@ -238,6 +250,9 @@ export default function SkillsScreen() {
         if (list) list.push(s); else integrationMap.set(name, [s]);
       } else core.push(s);
     }
+
+    // Sort bot-authored by most recent first
+    botAuthored.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 
     const items: RenderItem[] = [];
 
@@ -247,6 +262,7 @@ export default function SkillsScreen() {
       for (const s of skills) items.push({ type: "skill", key: s.id, skill: s });
     };
 
+    addGroup("bot-authored", "Bot-Authored", botAuthored);
     addGroup("manual", "User Added", manual);
     addGroup("workspace", "Workspace", workspace);
     addGroup("core", "Core", core);

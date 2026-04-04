@@ -52,6 +52,12 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
     Activate an integration on a channel and it instantly gets the right tools, skills, and behavioral instructions — no manual configuration. Pick a compatible workspace template and the bot knows exactly how to organize files. One click to go from blank channel to structured project.
 
+-   :material-brain:{ .lg .middle } **Self-Improving Agents**
+
+    ---
+
+    Bots can author their own skills at runtime. Skills enter the RAG pipeline and are semantically retrieved in future sessions — bots get smarter over time. Admin visibility with bot attribution and filtering.
+
 -   :material-plug:{ .lg .middle } **Integration Framework**
 
     ---
@@ -149,6 +155,10 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
     Connect external tool servers (Home Assistant, databases, APIs). Pair with carapaces for domain expertise.
 
+-   [:material-brain: **Self-Improving Agents**](guides/bot-skills.md)
+
+    Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility.
+
 -   [:material-wrench: **Custom Tools & Extensions**](guides/custom-tools.md)
 
     Create custom tools, manage a personal extensions repo, load external carapaces and skills.
@@ -172,6 +182,10 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 -   [:material-message-text-outline: **BlueBubbles Integration**](guides/bluebubbles.md)
 
     iMessage integration via BlueBubbles.
+
+-   [:material-console: **Command Execution**](guides/command-execution.md)
+
+    Docker workspaces, host execution, client-side shell, deferred tasks — when to use each and how they differ.
 
 -   [:material-cellphone-link: **Agent Client**](guides/clients.md)
 

@@ -17,10 +17,20 @@ export interface SkillItem {
   bot_id?: string | null;
 }
 
-export function useSkills() {
+export function useSkills(opts?: {
+  source_type?: string;
+  bot_id?: string;
+  sort?: "name" | "recent";
+}) {
+  const params = new URLSearchParams();
+  if (opts?.source_type) params.set("source_type", opts.source_type);
+  if (opts?.bot_id) params.set("bot_id", opts.bot_id);
+  if (opts?.sort) params.set("sort", opts.sort);
+  const qs = params.toString();
   return useQuery({
-    queryKey: ["admin-skills"],
-    queryFn: () => apiFetch<SkillItem[]>("/api/v1/admin/skills"),
+    queryKey: ["admin-skills", qs],
+    queryFn: () =>
+      apiFetch<SkillItem[]>(`/api/v1/admin/skills${qs ? `?${qs}` : ""}`),
   });
 }
 

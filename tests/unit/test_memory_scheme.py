@@ -328,26 +328,28 @@ class TestCompactionFlushOverride:
 # ---------------------------------------------------------------------------
 
 class TestRerankingPrefixes:
-    def test_memory_scheme_prefixes_registered(self):
+    def test_memory_scheme_prefixes_excluded_from_reranking(self):
+        """Memory scheme injections are structural — they should be EXCLUDED, not RAG-ranked."""
         from app.services.reranking import _RAG_PREFIXES, _EXCLUDED_PREFIXES
 
-        # Memory scheme injections should be in RAG prefixes
+        # Memory scheme entries must NOT be in _RAG_PREFIXES (they're always injected)
         prefix_labels = [label for _, label in _RAG_PREFIXES]
-        assert "memory_bootstrap" in prefix_labels
-        assert "memory_today_log" in prefix_labels
-        assert "memory_yesterday_log" in prefix_labels
+        assert "memory_bootstrap" not in prefix_labels
+        assert "memory_today_log" not in prefix_labels
+        assert "memory_yesterday_log" not in prefix_labels
 
-        # And excluded from reranking
+        # They must be in _EXCLUDED_PREFIXES
         assert any("memory/MEMORY.md" in p for p in _EXCLUDED_PREFIXES)
         assert any("daily log" in p.lower() for p in _EXCLUDED_PREFIXES)
 
-    def test_reranking_prefixes_match_injection_headers(self):
-        """RAG and excluded prefixes must match what context_assembly actually produces.
+    def test_excluded_prefixes_match_injection_headers(self):
+        """Excluded prefixes must match what context_assembly actually produces.
 
         The injection headers use get_memory_rel_path() which returns "memory".
-        Reranking prefixes must start-match these headers or reranking breaks.
+        Excluded prefixes must start-match these headers or reranking would
+        incorrectly try to rerank structural content.
         """
-        from app.services.reranking import _RAG_PREFIXES, _EXCLUDED_PREFIXES
+        from app.services.reranking import _EXCLUDED_PREFIXES
         from app.services.memory_scheme import get_memory_rel_path
 
         bot = _bot(memory_scheme="workspace-files")
@@ -358,18 +360,6 @@ class TestRerankingPrefixes:
         today_header = f"Today's daily log ({mem_rel}/logs/"
         yesterday_header = f"Yesterday's daily log ({mem_rel}/logs/"
         reference_header = f"Reference documents in {mem_rel}/reference/"
-
-        # Check RAG prefixes match
-        rag_dict = dict(_RAG_PREFIXES)
-        assert rag_dict.get(bootstrap_header) == "memory_bootstrap", (
-            f"RAG prefix for memory_bootstrap doesn't match injection header: {bootstrap_header!r}"
-        )
-        assert rag_dict.get(today_header) == "memory_today_log", (
-            f"RAG prefix for memory_today_log doesn't match injection header: {today_header!r}"
-        )
-        assert rag_dict.get(yesterday_header) == "memory_yesterday_log", (
-            f"RAG prefix for memory_yesterday_log doesn't match injection header: {yesterday_header!r}"
-        )
 
         # Check excluded prefixes match
         assert any(bootstrap_header.startswith(ep) for ep in _EXCLUDED_PREFIXES), (

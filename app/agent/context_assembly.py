@@ -393,6 +393,36 @@ async def assemble_context(
             _budget_consume("carapace_prompts", _carapace_prompt)
             yield {"type": "carapace_context", "count": len(_carapace_ids), "chars": len(_carapace_prompt)}
 
+    # --- auto-discover bot-authored skills (source_type="tool") ---
+    if bot.id:
+        try:
+            from sqlalchemy import select as _sa_select
+            from app.db.engine import async_session as _bas_session
+            from app.db.models import Skill as _SkillRow
+            from app.agent.bots import SkillConfig
+            _bot_skill_prefix = f"bots/{bot.id}/"
+            async with _bas_session() as _bas_db:
+                _bot_skill_rows = (await _bas_db.execute(
+                    _sa_select(_SkillRow.id).where(
+                        _SkillRow.id.like(f"{_bot_skill_prefix}%"),
+                        _SkillRow.source_type == "tool",
+                    )
+                )).scalars().all()
+            if _bot_skill_rows:
+                _existing_skill_ids = {s.id for s in bot.skills}
+                _bot_new_skills = []
+                for _bs_id in _bot_skill_rows:
+                    if _bs_id not in _existing_skill_ids:
+                        _bot_new_skills.append(SkillConfig(id=_bs_id, mode="rag"))
+                if _bot_new_skills:
+                    bot = _dc_replace(bot, skills=list(bot.skills) + _bot_new_skills)
+                    # Update resolved skill IDs so get_skill allows access
+                    from app.agent.context import current_resolved_skill_ids
+                    current_resolved_skill_ids.set({s.id for s in bot.skills})
+                    yield {"type": "bot_authored_skills", "count": len(_bot_new_skills)}
+        except Exception:
+            logger.warning("Failed to auto-discover bot-authored skills for %s", bot.id, exc_info=True)
+
     # --- memory scheme: tool hiding + tool injection ---
     _memory_scheme_injected_paths: set[str] = set()  # track injected files for fs RAG dedup
     if bot.memory_scheme == "workspace-files":
@@ -404,7 +434,7 @@ async def assemble_context(
             "search_knowledge", "pin_knowledge", "unpin_knowledge",
             "set_knowledge_similarity_threshold",
         }
-        _MEMORY_SCHEME_INJECT_TOOLS = ["search_memory", "get_memory_file", "file"]
+        _MEMORY_SCHEME_INJECT_TOOLS = ["search_memory", "get_memory_file", "file", "manage_bot_skill"]
         _filtered_tools = [t for t in bot.local_tools if t not in _MEMORY_SCHEME_HIDDEN_TOOLS]
         # Add memory file tools if not already present
         for _mt in _MEMORY_SCHEME_INJECT_TOOLS:
