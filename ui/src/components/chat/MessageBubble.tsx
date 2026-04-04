@@ -142,7 +142,68 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   }
 
   // Full message -- avatar + name header + content
-  const inner = (
+  const webInner = isWeb ? (
+    <>
+      {/* Avatar */}
+      <div style={{ paddingTop: 2 }}>
+        <Avatar name={displayName} isUser={isUser} />
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Name + timestamp header */}
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2, userSelect: "none" }}>
+          <span
+            style={{
+              fontSize: 15,
+              fontWeight: 700,
+              color: isUser ? t.text : avatarColor(displayName),
+            }}
+          >
+            {displayName}
+          </span>
+          <span style={{ fontSize: 12, color: t.textDim }}>
+            {timestamp}
+          </span>
+          {sourceLabel && (
+            <span style={{ fontSize: 11, color: t.textMuted, fontStyle: "italic" }}>
+              {sourceLabel}
+            </span>
+          )}
+          {delegatedByDisplay && (
+            <span style={{ fontSize: 11, color: "#8b5cf6", fontStyle: "italic" }}>
+              delegated by {delegatedByDisplay}
+            </span>
+          )}
+          {triggerBadge && (
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 3,
+                fontSize: 10,
+                fontWeight: 600,
+                color: triggerBadge.color,
+                background: `${triggerBadge.color}18`,
+                border: `1px solid ${triggerBadge.color}30`,
+                borderRadius: 10,
+                padding: "1px 7px",
+                letterSpacing: 0.3,
+              }}
+            >
+              <span style={{ fontSize: 11 }}>{triggerBadge.icon}</span>
+              {triggerBadge.label}
+            </span>
+          )}
+        </div>
+
+        {/* Message content */}
+        {messageContent}
+      </div>
+    </>
+  ) : null;
+
+  const nativeInner = !isWeb ? (
     <>
       {/* Avatar */}
       <View style={{ paddingTop: 2 }}>
@@ -175,27 +236,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
               delegated by {delegatedByDisplay}
             </Text>
           )}
-          {triggerBadge && isWeb && (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 3,
-                fontSize: 10,
-                fontWeight: 600,
-                color: triggerBadge.color,
-                background: `${triggerBadge.color}18`,
-                border: `1px solid ${triggerBadge.color}30`,
-                borderRadius: 10,
-                padding: "1px 7px",
-                letterSpacing: 0.3,
-              }}
-            >
-              <span style={{ fontSize: 11 }}>{triggerBadge.icon}</span>
-              {triggerBadge.label}
-            </span>
-          )}
-          {triggerBadge && !isWeb && (
+          {triggerBadge && (
             <Text style={{ fontSize: 10, color: triggerBadge.color, fontWeight: "600" }}>
               {triggerBadge.icon} {triggerBadge.label}
             </Text>
@@ -206,7 +247,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         {messageContent}
       </View>
     </>
-  );
+  ) : null;
 
   if (isWeb) {
     return (
@@ -223,7 +264,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           borderRadius: 4,
         }}
       >
-        {inner}
+        {webInner}
         {displayContent.length > 0 && <MessageActions text={displayContent} correlationId={message.correlation_id} t={t} />}
       </div>
     );
@@ -239,7 +280,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         paddingBottom: 4,
       }}
     >
-      {inner}
+      {nativeInner}
     </View>
   );
 });

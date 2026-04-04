@@ -557,6 +557,7 @@ class TestWebhookEndpoint:
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -587,6 +588,7 @@ class TestWebhookEndpoint:
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -732,6 +734,7 @@ class TestWebhookEndpoint:
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -739,6 +742,70 @@ class TestWebhookEndpoint:
         assert result["status"] == "processed"
         call_kwargs = mock_utils.inject_message.call_args
         assert call_kwargs.kwargs["run_agent"] is True
+
+    @pytest.mark.asyncio
+    async def test_per_binding_send_method_in_dispatch_config(self):
+        """Per-binding send_method should be included in dispatch_config."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id, dispatch_config={"send_method": "private-api"})
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(text="hello"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        dc = call_kwargs.kwargs["dispatch_config"]
+        assert dc["send_method"] == "private-api"
+
+    @pytest.mark.asyncio
+    async def test_per_binding_echo_suppress_window(self):
+        """Per-binding echo_suppress_window should override global setting."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True)
+        # Set per-binding echo_suppress_window to 30 seconds
+        binding = _make_binding(ch.id, dispatch_config={"echo_suppress_window": "30"})
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(text="atlas help"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        # Verify the per-binding window (30.0) was passed, not the global default (15.0)
+        mock_tracker.in_echo_suppress.assert_called_once_with(
+            "iMessage;-;+15551234567", window=30.0,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -789,6 +856,7 @@ class TestPerBindingConfig:
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -855,6 +923,7 @@ class TestPerBindingConfig:
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -889,6 +958,157 @@ class TestPerBindingConfig:
             mock_tracker.is_echo.return_value = False
             mock_tracker.in_reply_cooldown.return_value = False
             mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+
+# ---------------------------------------------------------------------------
+# Echo suppress tests — wake word + no-mention paths
+# ---------------------------------------------------------------------------
+
+
+class TestEchoSuppress:
+    """Test that echo suppress prevents re-triggering on echoed bot messages."""
+
+    @pytest.fixture(autouse=True)
+    def _bypass_guid_dedup(self):
+        with patch("integrations.bluebubbles.router._guid_dedup") as mock_dedup:
+            mock_dedup.check_and_record.return_value = False
+            mock_dedup.save_to_db = AsyncMock()
+            yield mock_dedup
+
+    @pytest.fixture(autouse=True)
+    def _skip_db_loading(self):
+        from integrations.bluebubbles import router as _router_mod
+        _router_mod._echo_state_loaded["done"] = True
+        yield
+        _router_mod._echo_state_loaded.clear()
+
+    @pytest.mark.asyncio
+    async def test_wake_word_suppressed_during_echo_window(self):
+        """Wake word match + in_echo_suppress=True → passive (no agent run)."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True)
+        binding = _make_binding(ch.id)
+        session_id = uuid.uuid4()
+
+        # Bot's echoed reply contains the wake word "atlas"
+        request = _webhook_request(_bb_webhook_payload(
+            text="Sure atlas can help with that", msg_guid="echo-msg-1",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_own_content.return_value = False  # content hash didn't match (iMessage modified text)
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = True  # we replied very recently
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": None})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is False
+
+    @pytest.mark.asyncio
+    async def test_wake_word_active_outside_echo_window(self):
+        """Wake word match + in_echo_suppress=False → active (normal trigger)."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=True)
+        binding = _make_binding(ch.id)
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(text="atlas what's the weather"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False  # no recent reply
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+    @pytest.mark.asyncio
+    async def test_no_mention_suppressed_during_echo_window(self):
+        """require_mention=False + in_echo_suppress=True → passive."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id)
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(
+            text="echoed bot response", msg_guid="echo-msg-2",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = True  # we replied very recently
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": None})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is False
+
+    @pytest.mark.asyncio
+    async def test_no_mention_active_outside_echo_window(self):
+        """require_mention=False + in_echo_suppress=False → active (normal)."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id)
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(text="normal human message"))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)

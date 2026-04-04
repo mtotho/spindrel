@@ -169,7 +169,9 @@ class TestBbSendMessage:
     async def test_send_success(self):
         from integrations.bluebubbles.tools.bluebubbles import bb_send_message
 
-        with patch("integrations.bluebubbles.bb_api.send_text", new_callable=AsyncMock) as mock_send:
+        with patch("integrations.bluebubbles.bb_api.send_text", new_callable=AsyncMock) as mock_send, \
+             patch("integrations.bluebubbles.tools.bluebubbles.shared_tracker") as mock_tracker:
+            mock_tracker.save_to_db = AsyncMock()
             mock_send.return_value = {"status": 200, "message": "Message sent"}
             result = json.loads(await bb_send_message("iMessage;-;+15551234567", "Hello!"))
 
@@ -181,7 +183,9 @@ class TestBbSendMessage:
     async def test_send_failure(self):
         from integrations.bluebubbles.tools.bluebubbles import bb_send_message
 
-        with patch("integrations.bluebubbles.bb_api.send_text", new_callable=AsyncMock) as mock_send:
+        with patch("integrations.bluebubbles.bb_api.send_text", new_callable=AsyncMock) as mock_send, \
+             patch("integrations.bluebubbles.tools.bluebubbles.shared_tracker") as mock_tracker:
+            mock_tracker.save_to_db = AsyncMock()
             mock_send.return_value = None
             result = json.loads(await bb_send_message("iMessage;-;+15551234567", "Hello!"))
 
@@ -194,6 +198,44 @@ class TestBbSendMessage:
 
         result = json.loads(await bb_send_message("iMessage;-;+15551234567", "Hello!"))
         assert "error" in result
+
+    @pytest.mark.asyncio
+    async def test_track_sent_called(self):
+        """bb_send_message must call shared_tracker.track_sent for echo detection."""
+        from integrations.bluebubbles.tools.bluebubbles import bb_send_message
+
+        with patch("integrations.bluebubbles.bb_api.send_text", new_callable=AsyncMock) as mock_send, \
+             patch("integrations.bluebubbles.tools.bluebubbles.shared_tracker") as mock_tracker:
+            mock_tracker.save_to_db = AsyncMock()
+            mock_send.return_value = {"status": 200, "message": "Sent"}
+            await bb_send_message("iMessage;-;+15551234567", "Test message")
+
+        mock_tracker.track_sent.assert_called_once()
+        call_args = mock_tracker.track_sent.call_args
+        # Should pass the message text and chat_guid
+        assert call_args.args[1] == "Test message"
+        assert call_args.kwargs["chat_guid"] == "iMessage;-;+15551234567"
+
+    @pytest.mark.asyncio
+    async def test_track_sent_called_before_send(self):
+        """track_sent should be called BEFORE send_text (so echo detection is ready)."""
+        from integrations.bluebubbles.tools.bluebubbles import bb_send_message
+
+        call_order = []
+
+        async def _fake_send(*a, **kw):
+            call_order.append("send")
+            return {"status": 200}
+
+        with patch("integrations.bluebubbles.bb_api.send_text", new_callable=AsyncMock, side_effect=_fake_send), \
+             patch("integrations.bluebubbles.tools.bluebubbles.shared_tracker") as mock_tracker:
+            mock_tracker.save_to_db = AsyncMock()
+            def _fake_track(*a, **kw):
+                call_order.append("track")
+            mock_tracker.track_sent.side_effect = _fake_track
+            await bb_send_message("iMessage;-;+15551234567", "Hello!")
+
+        assert call_order == ["track", "send"]
 
 
 # ---------------------------------------------------------------------------

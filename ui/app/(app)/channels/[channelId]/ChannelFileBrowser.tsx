@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
 import {
-  FileText, Archive, Database, Folder, ChevronDown, ChevronRight,
+  FileText, Archive, Database, Folder, FolderOpen, ChevronDown, ChevronRight,
   Trash2, Upload,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -14,32 +14,26 @@ import {
 } from "@/src/api/hooks/useChannels";
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const ROW_HEIGHT = 28;
+const INDENT_SIZE = 16;
+const ROW_PADDING_LEFT = 10;
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatTimestamp(ts: number | null | undefined): string {
-  if (!ts) return "";
-  const d = new Date(ts * 1000);
-  const diffMs = Date.now() - d.getTime();
-  const diffMin = Math.floor(diffMs / 60000);
-  if (diffMin < 1) return "now";
-  if (diffMin < 60) return `${diffMin}m`;
-  const diffHrs = Math.floor(diffMin / 60);
-  if (diffHrs < 24) return `${diffHrs}h`;
-  const diffDays = Math.floor(diffHrs / 24);
-  if (diffDays < 30) return `${diffDays}d`;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
 function formatSize(bytes: number | null | undefined): string {
   if (bytes == null) return "";
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // ---------------------------------------------------------------------------
-// ExplorerFileRow — compact 28px row with hover-visible delete
+// ExplorerFileRow
 // ---------------------------------------------------------------------------
 
 function ExplorerFileRow({
@@ -47,13 +41,11 @@ function ExplorerFileRow({
   channelId,
   selected,
   onSelect,
-  depth = 0,
 }: {
   file: ChannelWorkspaceFile;
   channelId: string;
   selected: boolean;
   onSelect: (path: string) => void;
-  depth?: number;
 }) {
   const t = useThemeTokens();
   const deleteMutation = useDeleteChannelWorkspaceFile(channelId);
@@ -79,28 +71,14 @@ function ExplorerFileRow({
       style={{
         flexDirection: "row",
         alignItems: "center",
-        height: 28,
-        paddingLeft: 12 + depth * 20,
+        height: ROW_HEIGHT,
+        paddingLeft: ROW_PADDING_LEFT,
         paddingRight: 8,
         backgroundColor: selected ? t.accentSubtle : hovered ? t.surfaceOverlay : "transparent",
         cursor: "pointer" as any,
       }}
       {...webHover as any}
     >
-      {/* Indent guides */}
-      {Array.from({ length: depth }).map((_, i) => (
-        <View
-          key={i}
-          style={{
-            position: "absolute",
-            left: 20 + i * 20,
-            top: 0,
-            bottom: 0,
-            width: 1,
-            backgroundColor: t.surfaceBorder,
-          }}
-        />
-      ))}
       <View style={{ marginRight: 6, flexShrink: 0 }}>{icon}</View>
       <Text
         style={{
@@ -113,10 +91,7 @@ function ExplorerFileRow({
       >
         {displayName}
       </Text>
-      <Text style={{ color: t.textDim, fontSize: 11, marginRight: 4, flexShrink: 0 }}>
-        {formatSize(file.size)}{file.modified_at ? ` \u00b7 ${formatTimestamp(file.modified_at)}` : ""}
-      </Text>
-      {hovered && (
+      {hovered ? (
         <Pressable
           onPress={(e) => {
             e.stopPropagation();
@@ -128,13 +103,17 @@ function ExplorerFileRow({
         >
           <Trash2 size={12} color={t.danger} />
         </Pressable>
+      ) : (
+        <Text style={{ color: t.textDim, fontSize: 11, flexShrink: 0 }}>
+          {formatSize(file.size)}
+        </Text>
       )}
     </Pressable>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ExplorerFolderRow — lazy-loading folder with recursive children
+// ExplorerFolderRow — lazy-loading folder with indented children container
 // ---------------------------------------------------------------------------
 
 function ExplorerFolderRow({
@@ -142,13 +121,11 @@ function ExplorerFolderRow({
   channelId,
   selectedPath,
   onSelect,
-  depth = 0,
 }: {
   folder: ChannelWorkspaceFile;
   channelId: string;
   selectedPath: string | null;
   onSelect: (path: string) => void;
-  depth?: number;
 }) {
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
@@ -170,6 +147,8 @@ function ExplorerFolderRow({
     onMouseLeave: () => setHovered(false),
   } : {};
 
+  const FolderIcon = open ? FolderOpen : Folder;
+
   return (
     <View>
       <Pressable
@@ -177,35 +156,26 @@ function ExplorerFolderRow({
         style={{
           flexDirection: "row",
           alignItems: "center",
-          height: 28,
-          paddingLeft: 12 + depth * 20,
+          height: ROW_HEIGHT,
+          paddingLeft: ROW_PADDING_LEFT,
           paddingRight: 8,
           backgroundColor: hovered ? t.surfaceOverlay : "transparent",
           cursor: "pointer" as any,
         }}
         {...webHover as any}
       >
-        {/* Indent guides */}
-        {Array.from({ length: depth }).map((_, i) => (
-          <View
-            key={i}
-            style={{
-              position: "absolute",
-              left: 20 + i * 20,
-              top: 0,
-              bottom: 0,
-              width: 1,
-              backgroundColor: t.surfaceBorder,
-            }}
-          />
-        ))}
         <View style={{ marginRight: 4, flexShrink: 0 }}>
-          {open ? <ChevronDown size={12} color={t.textDim} /> : <ChevronRight size={12} color={t.textDim} />}
+          {open
+            ? <ChevronDown size={12} color={t.textDim} />
+            : <ChevronRight size={12} color={t.textDim} />}
         </View>
         <View style={{ marginRight: 6, flexShrink: 0 }}>
-          <Folder size={14} color={t.textMuted} />
+          <FolderIcon size={14} color={t.textMuted} />
         </View>
-        <Text style={{ flex: 1, color: t.text, fontSize: 13, fontWeight: "500" }} numberOfLines={1}>
+        <Text
+          style={{ flex: 1, color: t.text, fontSize: 13, fontWeight: "500" }}
+          numberOfLines={1}
+        >
           {basename}
         </Text>
         {folder.count != null && (
@@ -214,10 +184,17 @@ function ExplorerFolderRow({
           </Text>
         )}
       </Pressable>
+
+      {/* Children: indented container with tree line */}
       {open && (
-        <View>
+        <View style={{
+          marginLeft: ROW_PADDING_LEFT + 5,
+          paddingLeft: INDENT_SIZE - 1,
+          borderLeftWidth: 1,
+          borderLeftColor: t.surfaceBorder,
+        }}>
           {isLoading && (
-            <View style={{ paddingLeft: 12 + (depth + 1) * 20, height: 28, justifyContent: "center" }}>
+            <View style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: ROW_PADDING_LEFT }}>
               <ActivityIndicator color={t.accent} size="small" />
             </View>
           )}
@@ -228,7 +205,6 @@ function ExplorerFolderRow({
               channelId={channelId}
               selected={selectedPath === f.path}
               onSelect={onSelect}
-              depth={depth + 1}
             />
           ))}
           {childFolders.map((f) => (
@@ -238,7 +214,6 @@ function ExplorerFolderRow({
               channelId={channelId}
               selectedPath={selectedPath}
               onSelect={onSelect}
-              depth={depth + 1}
             />
           ))}
         </View>
@@ -478,7 +453,7 @@ export function ChannelFileBrowser({
               />
             ))}
             {activeFiles.length === 0 && (
-              <View style={{ height: 28, justifyContent: "center", paddingLeft: 12 }}>
+              <View style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
                 <Text style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>No active files</Text>
               </View>
             )}
@@ -496,7 +471,7 @@ export function ChannelFileBrowser({
               />
             ))}
             {archivedFiles.length === 0 && (
-              <View style={{ height: 28, justifyContent: "center", paddingLeft: 12 }}>
+              <View style={{ height: ROW_HEIGHT, justifyContent: "center", paddingLeft: 12 }}>
                 <Text style={{ color: t.textDim, fontSize: 11, fontStyle: "italic" }}>No archived files</Text>
               </View>
             )}
@@ -541,7 +516,7 @@ export function ChannelFileBrowser({
               </View>
             )}
             {uploadStatus && (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, height: 28, paddingLeft: 12 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, height: ROW_HEIGHT, paddingLeft: 12 }}>
                 <ActivityIndicator color={t.accent} size="small" />
                 <Text style={{ color: t.textMuted, fontSize: 11 }}>
                   Uploading {uploadStatus.uploading}/{uploadStatus.total}...

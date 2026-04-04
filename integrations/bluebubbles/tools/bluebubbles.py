@@ -7,6 +7,7 @@ import uuid
 import httpx
 
 from integrations.bluebubbles.config import settings
+from integrations.bluebubbles.echo_tracker import shared_tracker
 from integrations._register import register
 
 logger = logging.getLogger(__name__)
@@ -176,10 +177,14 @@ async def bb_send_message(chat_guid: str, message: str) -> str:
         return _error(str(e))
     try:
         from integrations.bluebubbles.bb_api import send_text
+        temp_guid = str(uuid.uuid4())
+        # Track before sending so echo detection catches the webhook echo
+        shared_tracker.track_sent(temp_guid, message, chat_guid=chat_guid)
+        await shared_tracker.save_to_db()
         async with httpx.AsyncClient(timeout=90.0) as client:
             result = await send_text(
                 client, server_url, password, chat_guid, message,
-                temp_guid=str(uuid.uuid4()),
+                temp_guid=temp_guid,
             )
         if result:
             return json.dumps({"ok": True, "chat_guid": chat_guid, "message_sent": message[:100]})

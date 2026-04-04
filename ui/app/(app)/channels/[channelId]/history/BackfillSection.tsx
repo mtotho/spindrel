@@ -3,6 +3,7 @@ import { AlertTriangle, Play, RotateCw } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 
 export type SectionsStats = {
   total_messages: number;
@@ -29,10 +30,9 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
   const existingSections = sectionsData?.total ?? 0;
   const stats = sectionsData?.stats;
 
-  const runBackfill = useCallback(async (clearExisting: boolean) => {
-    if (clearExisting && existingSections > 0 && !window.confirm(
-      `This will delete all ${existingSections} existing section${existingSections !== 1 ? "s" : ""} (DB + .history files) and re-chunk everything from scratch. Continue?`
-    )) return;
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+
+  const doRunBackfill = useCallback(async (clearExisting: boolean) => {
 
     setRunning(true);
     setProgress(null);
@@ -71,6 +71,14 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
       queryClient.invalidateQueries({ queryKey: ["channel-sections", channelId] });
     }
   }, [channelId, historyMode, queryClient, existingSections]);
+
+  const runBackfill = useCallback((clearExisting: boolean) => {
+    if (clearExisting && existingSections > 0) {
+      setShowClearConfirm(true);
+      return;
+    }
+    doRunBackfill(clearExisting);
+  }, [doRunBackfill, existingSections]);
 
   const runRepairPeriods = useCallback(async () => {
     setRepairing(true);
@@ -238,6 +246,15 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
           {result.error}
         </div>
       )}
+      <ConfirmDialog
+        open={showClearConfirm}
+        title="Re-chunk Sections"
+        message={`This will delete all ${existingSections} existing section${existingSections !== 1 ? "s" : ""} (DB + .history files) and re-chunk everything from scratch. Continue?`}
+        confirmLabel="Re-chunk"
+        variant="warning"
+        onConfirm={() => { setShowClearConfirm(false); doRunBackfill(true); }}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   );
 }

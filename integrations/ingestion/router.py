@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from app.dependencies import verify_auth, verify_auth_or_user
+from app.dependencies import verify_auth_or_user
 from integrations.ingestion.config import INGESTION_DB_DIR
 from integrations.ingestion.store import IngestionStore
 
@@ -109,7 +109,7 @@ async def hud_status(_auth=Depends(verify_auth_or_user)) -> dict[str, Any]:
 @router.post("/stores/all/reprocess")
 async def reprocess_all_stores(
     body: dict[str, Any],
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ) -> dict[str, Any]:
     """Release quarantined items across ALL stores by reason pattern."""
     reason_pattern: str | None = body.get("reason_pattern")
@@ -138,7 +138,7 @@ async def ping():
 
 
 @router.get("/overview")
-async def overview(_auth=Depends(verify_auth)) -> dict[str, Any]:
+async def overview(_auth=Depends(verify_auth_or_user)) -> dict[str, Any]:
     """Return all stores with stats, classifier error count, quarantine preview."""
     stores_map = _discover_stores()
     result: list[dict[str, Any]] = []
@@ -176,7 +176,7 @@ async def get_quarantine(
     name: str,
     limit: int = Query(default=50, ge=1, le=500),
     source: str | None = Query(default=None),
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ) -> dict[str, Any]:
     """Return quarantine items for a specific store."""
     stores = _discover_stores()
@@ -196,7 +196,7 @@ async def get_quarantine(
 async def reprocess(
     name: str,
     body: dict[str, Any],
-    _auth=Depends(verify_auth),
+    _auth=Depends(verify_auth_or_user),
 ) -> dict[str, Any]:
     """Release quarantined items by IDs or reason pattern."""
     stores = _discover_stores()

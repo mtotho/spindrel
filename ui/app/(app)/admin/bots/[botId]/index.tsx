@@ -23,6 +23,7 @@ import { SectionNav } from "./SectionNav";
 import { ModelParamsSection } from "./ModelParamsSection";
 import { ToolsSection } from "./ToolsSection";
 import { SkillsSection } from "./SkillsSection";
+import { LearningSection } from "./LearningSection";
 import { WorkspaceSection } from "./WorkspaceSection";
 import { BotPermissionsSection } from "./BotPermissionsSection";
 import { BotToolPoliciesSection } from "./BotToolPoliciesSection";
@@ -104,6 +105,7 @@ export default function BotEditorScreen() {
       persona: ["persona", "personality", "tone"],
       tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "summarization"],
       skills: ["skill"],
+      learning: ["learning", "authored", "surfac", "knowledge"],
       carapaces: ["carapace", "bundle", "expert"],
       memory: ["memory", "cross", "channel"],
       knowledge: ["knowledge"],
@@ -402,7 +404,7 @@ export default function BotEditorScreen() {
           {activeSection === "skills" && (
             <div>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12 }}>Skills</div>
-              <SkillsSection editorData={editorData} draft={draft} update={update} />
+              <SkillsSection editorData={editorData} draft={draft} update={update} onNavigateToLearning={() => setActiveSection("learning")} />
               {editorData.workspace_skills && editorData.workspace_skills.length > 0 && (
                 <div style={{ marginTop: 20 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -471,6 +473,10 @@ export default function BotEditorScreen() {
                 </div>
               )}
             </div>
+          )}
+
+          {activeSection === "learning" && draft.id && (
+            <LearningSection botId={draft.id} />
           )}
 
           {activeSection === "carapaces" && (

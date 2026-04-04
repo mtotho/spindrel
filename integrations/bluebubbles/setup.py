@@ -14,6 +14,7 @@ SETUP = {
         {"key": "BB_SUGGEST_CHATS", "required": False, "description": "Show recent chats dropdown when binding (default: true)"},
         {"key": "BB_SUGGEST_COUNT", "required": False, "description": "Number of recent chats to show in binding dropdown (default: 10, max: 50)"},
         {"key": "BB_SUGGEST_PREVIEW", "required": False, "description": "Show last message preview in binding dropdown (default: true)"},
+        {"key": "BB_ECHO_SUPPRESS_WINDOW", "required": False, "description": "Seconds to suppress echo re-triggers after bot replies (default: 15). Prevents infinite loops when iMessage modifies bot text."},
     ],
     "api_permissions": "bluebubbles_integration",
     "webhook": {
@@ -49,6 +50,13 @@ SETUP = {
             "endpoint": "diagnose",
             "method": "GET",
         },
+        {
+            "id": "echo-state",
+            "label": "Echo State",
+            "description": "View per-chat echo detection state (cooldowns, circuit breaker, suppress window)",
+            "endpoint": "echo-state",
+            "method": "GET",
+        },
     ],
     "activation": {
         "description": "iMessage relay via BlueBubbles — connection status and kill switch",
@@ -78,6 +86,12 @@ SETUP = {
         "config_fields": [
             {"key": "extra_wake_words", "type": "string", "label": "Extra Wake Words", "description": "Comma-separated additional wake words for this chat", "default": ""},
             {"key": "use_bot_wake_word", "type": "boolean", "label": "Use Bot Name as Wake Word", "description": "Automatically use the channel bot's name and ID as wake words", "default": True},
+            {"key": "echo_suppress_window", "type": "number", "label": "Echo Suppress Window (seconds)", "description": "Seconds to suppress echo re-triggers after bot replies. Increase for aggressive autocorrect. Leave empty for global default.", "default": ""},
+            {"key": "send_method", "type": "select", "label": "Send Method", "description": "Override the global iMessage send method for this chat", "default": "", "options": [
+                {"value": "", "label": "Use Global Default"},
+                {"value": "apple-script", "label": "AppleScript (reliable)"},
+                {"value": "private-api", "label": "Private API (requires helper)"},
+            ]},
         ],
     },
 }

@@ -64,5 +64,12 @@ class _Settings:
     def BB_SUGGEST_PREVIEW(self) -> bool:
         return _get("BB_SUGGEST_PREVIEW", "true").lower() in ("true", "1", "yes")
 
+    @property
+    def BB_ECHO_SUPPRESS_WINDOW(self) -> float:
+        try:
+            return max(0.0, float(_get("BB_ECHO_SUPPRESS_WINDOW", "15")))
+        except ValueError:
+            return 15.0
+
 
 settings = _Settings()

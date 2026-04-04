@@ -109,6 +109,76 @@ This setting has **no effect** on BlueBubbles. It's designed for platforms like 
 
 When a message is stored passively (no agent triggered), this controls whether it's included in memory compaction. Enable this to let the bot "overhear" and remember the conversation even when not directly addressed.
 
+## Chat HUD
+
+When BlueBubbles is activated on a channel, a **status strip** widget appears in the chat interface showing real-time connection status, message delivery state, and quick-access controls.
+
+![BlueBubbles HUD showing connection status in chat](../images/channel-bluebubbles-hud.png)
+
+The HUD polls `/integrations/bluebubbles/hud/status` every 30 seconds and displays:
+
+- **Connection badge** — green (connected), red (disconnected), or yellow (degraded)
+- **Pause/Resume toggle** — immediately stop or resume all message processing
+- **Diagnostics link** — quick access to the diagnose endpoint
+
+### HUD presets
+
+| Preset | Widgets | Description |
+|--------|---------|-------------|
+| `default` | `bb-status` | Connection status strip with pause/resume controls |
+| `none` | *(empty)* | No HUD — integration still active, just no status display |
+
+Select a preset in **Admin > Channels > [channel] > Integrations > BlueBubbles**.
+
+## Pause / Resume Kill Switch
+
+The integration includes a global pause toggle for emergency situations (e.g., message storms, rate limit issues):
+
+- **`POST /integrations/bluebubbles/pause`** — immediately stops processing all inbound messages
+- **`POST /integrations/bluebubbles/resume`** — resumes normal processing
+- **`POST /integrations/bluebubbles/cancel-pending-tasks`** — clears any queued tasks
+
+When paused, the webhook endpoint rejects all incoming messages. The HUD status strip shows a red "Paused" badge. Use this when you need to stop the bot immediately without unbinding channels.
+
+## Diagnostics
+
+The `/integrations/bluebubbles/diagnose` endpoint validates the entire message pipeline and returns a detailed configuration report:
+
+```bash
+curl -H "Authorization: Bearer YOUR_KEY" \
+  http://your-server:8000/integrations/bluebubbles/diagnose
+```
+
+Checks performed:
+
+- Meta registration (integration hooks, dispatcher)
+- Dispatcher registration (can deliver outbound messages)
+- Credentials (`BLUEBUBBLES_SERVER_URL`, `BLUEBUBBLES_PASSWORD` set)
+- Channel bindings (which channels are bound to which chats)
+
+Returns a JSON object with `status`, `checks` (pass/fail per check), and `issues` (list of human-readable problems).
+
+### Simulate webhook
+
+Test message routing without running the agent:
+
+```bash
+curl -X POST "http://your-server:8000/integrations/bluebubbles/simulate-webhook" \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"chat_guid": "iMessage;-;+15551234567", "text": "test message"}'
+```
+
+This traces the routing path and reports which channels would match, without actually triggering the bot.
+
+## GUID Deduplication
+
+The integration maintains a persistent GUID deduplication cache to prevent processing the same message twice — even across server restarts. This protects against BlueBubbles webhook retries that can cause duplicate bot responses.
+
+- Uses an LRU cache (max 5,000 GUIDs) backed by the `IntegrationSetting` table
+- Survives server restarts (loaded from DB on startup)
+- Automatically evicts oldest entries when the cache is full
+
 ## Troubleshooting
 
 ### Bot doesn't respond to inbound messages

@@ -5,6 +5,7 @@ import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { formatToolArgs } from "./toolCallUtils";
 import { useDecideApproval } from "../../api/hooks/useApprovals";
+import { Avatar } from "./MessageActions";
 
 // Deterministic color from string hash (same as MessageBubble)
 function avatarColor(name: string): string {
@@ -61,26 +62,34 @@ function ThinkingBlock({ text, borderColor, textColor }: { text: string; borderC
 /** Shown when the agent is processing in the background (queued message). */
 export function ProcessingIndicator({ botName }: { botName?: string }) {
   const name = botName || "Bot";
-  const letter = name[0].toUpperCase();
   const bg = avatarColor(name);
   const t = useThemeTokens();
+
+  if (Platform.OS === "web") {
+    return (
+      <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "10px 20px 4px", alignSelf: "stretch" }}>
+        <div style={{ paddingTop: 2 }}>
+          <Avatar name={name} isUser={false} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2, userSelect: "none" }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
+            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+            <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 2 }}>Processing...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
       <View style={{ paddingTop: 2 }}>
-        <View
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 6,
-            backgroundColor: bg,
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>{letter}</Text>
-        </View>
+        <Avatar name={name} isUser={false} />
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>
         <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
@@ -245,7 +254,6 @@ interface Props {
 
 export function StreamingIndicator({ content, toolCalls, botName, thinkingContent }: Props) {
   const name = botName || "Bot";
-  const letter = name[0].toUpperCase();
   const bg = avatarColor(name);
   const t = useThemeTokens();
   const isWeb = Platform.OS === "web";
@@ -254,25 +262,63 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
   const displayContent = content.trim();
   const displayThinking = thinkingContent?.trim() ?? "";
 
+  // ── Web path ──
+  if (isWeb) {
+    return (
+      <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: "10px 20px 4px", alignSelf: "stretch" }}>
+        <div style={{ paddingTop: 2 }}>
+          <Avatar name={name} isUser={false} />
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {/* Name header */}
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2, userSelect: "none" }}>
+            <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
+          </div>
+
+          {/* Thinking content */}
+          {displayThinking ? (
+            <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} />
+          ) : null}
+
+          {/* Tool calls in progress */}
+          {toolCalls.length > 0 && <ToolCallCards toolCalls={toolCalls} t={t} />}
+
+          {/* Streaming text */}
+          {displayContent ? (
+            <div style={{ contain: "content" }}>
+              <MarkdownContent text={displayContent} t={t} />
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 2,
+                  height: 17,
+                  backgroundColor: t.purple,
+                  marginLeft: 2,
+                  verticalAlign: "text-bottom",
+                  opacity: 0.8,
+                  animation: "blink 1s step-end infinite",
+                }}
+              />
+            </div>
+          ) : toolCalls.length === 0 ? (
+            /* Typing indicator dots */
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, padding: "4px 0" }}>
+              <span className="typing-dot" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+              <span className="typing-dot" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+              <span className="typing-dot" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Native path ──
   return (
     <View style={{ flexDirection: "row", gap: 12, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 4, alignSelf: "stretch" }}>
-      {/* Bot avatar */}
       <View style={{ paddingTop: 2 }}>
-        <View
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 6,
-            backgroundColor: bg,
-            alignItems: "center",
-            justifyContent: "center",
-            flexShrink: 0,
-          }}
-        >
-          <Text style={{ color: "#fff", fontSize: 14, fontWeight: "700" }}>
-            {letter}
-          </Text>
-        </View>
+        <Avatar name={name} isUser={false} />
       </View>
 
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -285,41 +331,32 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
 
         {/* Thinking content */}
         {displayThinking ? (
-          isWeb ? (
-            <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} />
-          ) : (
-            <View
+          <View
+            style={{
+              marginBottom: 8,
+              marginTop: 2,
+              paddingLeft: 12,
+              paddingVertical: 6,
+              borderLeftWidth: 3,
+              borderLeftColor: t.textDim,
+            }}
+          >
+            <Text
               style={{
-                marginBottom: 8,
-                marginTop: 2,
-                paddingLeft: 12,
-                paddingVertical: 6,
-                borderLeftWidth: 3,
-                borderLeftColor: t.textDim,
+                fontSize: 13,
+                lineHeight: 20,
+                color: t.textMuted,
+                fontStyle: "italic",
               }}
+              numberOfLines={12}
             >
-              <Text
-                style={{
-                  fontSize: 13,
-                  lineHeight: 20,
-                  color: t.textMuted,
-                  fontStyle: "italic",
-                }}
-                numberOfLines={12}
-              >
-                {displayThinking}
-              </Text>
-            </View>
-          )
+              {displayThinking}
+            </Text>
+          </View>
         ) : null}
 
-        {/* Tool calls in progress — expanded with args */}
-        {toolCalls.length > 0 && isWeb && (
-          <ToolCallCards toolCalls={toolCalls} t={t} />
-        )}
-
         {/* Tool calls — native fallback (no args) */}
-        {toolCalls.length > 0 && !isWeb && (
+        {toolCalls.length > 0 && (
           <View className="mb-2 gap-1.5">
             {toolCalls.map((tc, i) => (
               <View
@@ -360,27 +397,8 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
 
         {/* Streaming text */}
         {displayContent ? (
-          isWeb ? (
-            <div style={{ contain: "content" }}>
-              <MarkdownContent text={displayContent} t={t} />
-              <span
-                style={{
-                  display: "inline-block",
-                  width: 2,
-                  height: 17,
-                  backgroundColor: t.purple,
-                  marginLeft: 2,
-                  verticalAlign: "text-bottom",
-                  opacity: 0.8,
-                  animation: "blink 1s step-end infinite",
-                }}
-              />
-            </div>
-          ) : (
-            <Text style={{ fontSize: 15, lineHeight: 22, color: t.contentText }}>{displayContent}</Text>
-          )
+          <Text style={{ fontSize: 15, lineHeight: 22, color: t.contentText }}>{displayContent}</Text>
         ) : toolCalls.length === 0 ? (
-          /* Typing indicator dots */
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 }}>
             <View className="w-2 h-2 rounded-full bg-text-dim animate-pulse" />
             <View className="w-2 h-2 rounded-full bg-text-dim animate-pulse delay-150" />

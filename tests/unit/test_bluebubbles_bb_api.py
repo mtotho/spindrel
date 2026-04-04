@@ -88,6 +88,47 @@ class TestSendText:
         )
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_send_text_with_method_override(self, mock_client):
+        """Per-binding method override is included in the request body."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": 200}
+        mock_response.raise_for_status = MagicMock()
+        mock_client.post.return_value = mock_response
+
+        with patch("integrations.bluebubbles.bb_api.settings") as mock_settings:
+            mock_settings.BB_SEND_METHOD = "apple-script"
+            result = await send_text(
+                mock_client, "http://bb:1234", "pass123",
+                "iMessage;-;+15551234567", "Hello!",
+                method="private-api",
+            )
+
+        assert result is not None
+        sent_json = mock_client.post.call_args[1]["json"]
+        # Per-binding override should win over global setting
+        assert sent_json["method"] == "private-api"
+
+    @pytest.mark.asyncio
+    async def test_send_text_method_falls_back_to_global(self, mock_client):
+        """When method=None, falls back to global BB_SEND_METHOD."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"status": 200}
+        mock_response.raise_for_status = MagicMock()
+        mock_client.post.return_value = mock_response
+
+        with patch("integrations.bluebubbles.bb_api.settings") as mock_settings:
+            mock_settings.BB_SEND_METHOD = "apple-script"
+            result = await send_text(
+                mock_client, "http://bb:1234", "pass123",
+                "iMessage;-;+15551234567", "Hello!",
+            )
+
+        sent_json = mock_client.post.call_args[1]["json"]
+        assert sent_json["method"] == "apple-script"
+
 
 class TestSendAttachment:
     @pytest.mark.asyncio

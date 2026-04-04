@@ -111,7 +111,11 @@ async def admin_list_skills(
         for s in skills
     ]
 
-    # Include workspace skills from documents table
+    # Include workspace skills from documents table (only when not filtering
+    # to a specific non-workspace source_type)
+    if source_type and source_type != "workspace":
+        return result
+
     ws_skill_rows = (await db.execute(
         select(
             Document.metadata_["skill_id"].as_string().label("skill_id"),

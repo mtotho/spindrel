@@ -3,6 +3,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useFileBrowserStore } from "../../stores/fileBrowser";
 import { useWorkspaceFiles, useDeleteWorkspaceFile, useMoveWorkspaceFile, useWriteWorkspaceFile, useMkdirWorkspace } from "../../api/hooks/useWorkspaces";
 import { FileContextMenu } from "./FileContextMenu";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { WorkspaceFileEntry } from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
 
@@ -70,6 +71,7 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
   const [creatingChild, setCreatingChild] = useState<{ type: "file" | "folder" } | null>(null);
   const [createName, setCreateName] = useState("");
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [pendingMove, setPendingMove] = useState<{ src: string; srcName: string } | null>(null);
   const dragCounter = useRef(0);
   const renameRef = useRef<HTMLInputElement>(null);
   const createRef = useRef<HTMLInputElement>(null);
@@ -136,14 +138,20 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
     if (!srcPath || srcPath === entry.path) return;
     if (entry.path.startsWith(srcPath + "/")) return;
     const srcName = srcPath.split("/").pop() || srcPath;
-    if (!window.confirm(`Move "${srcName}" into "${entry.name}"?`)) return;
-    moveMutation.mutate({ src: srcPath, dst: entry.path }, {
+    setPendingMove({ src: srcPath, srcName });
+  }, [entry.path, entry.name, entry.is_dir]);
+
+  const executePendingMove = useCallback(() => {
+    if (!pendingMove) return;
+    const src = pendingMove.src;
+    moveMutation.mutate({ src, dst: entry.path }, {
       onSuccess: () => {
-        closeFile(srcPath, "left");
-        closeFile(srcPath, "right");
+        closeFile(src, "left");
+        closeFile(src, "right");
       },
     });
-  }, [entry.path, entry.name, entry.is_dir, moveMutation, closeFile]);
+    setPendingMove(null);
+  }, [pendingMove, entry.path, moveMutation, closeFile]);
 
   // Search filter visibility
   const nameMatches = !searchFilter || fuzzyMatch(searchFilter, entry.name);
@@ -421,6 +429,15 @@ export function FileTreeNode({ entry, workspaceId, depth, activePaths, searchFil
           onCreateIn={startCreate}
         />
       )}
+      <ConfirmDialog
+        open={pendingMove !== null}
+        title="Move File"
+        message={pendingMove ? `Move "${pendingMove.srcName}" into "${entry.name}"?` : ""}
+        confirmLabel="Move"
+        variant="default"
+        onConfirm={executePendingMove}
+        onCancel={() => setPendingMove(null)}
+      />
     </div>
   );
 }

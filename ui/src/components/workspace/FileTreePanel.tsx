@@ -6,6 +6,7 @@ import { FileContextMenu } from "./FileContextMenu";
 import { ResizeHandle } from "./ResizeHandle";
 import { Folder, FileText, Search, X } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 
 interface FileTreePanelProps {
   workspaceId: string;
@@ -23,6 +24,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
   const [searchQuery, setSearchQuery] = useState("");
   const [rootDragOver, setRootDragOver] = useState(false);
   const [rootContextMenu, setRootContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [pendingRootMove, setPendingRootMove] = useState<{ src: string; srcName: string } | null>(null);
   const [creatingAtRoot, setCreatingAtRoot] = useState<{ type: "file" | "folder" } | null>(null);
   const [createName, setCreateName] = useState("");
   const rootDragCounter = useRef(0);
@@ -174,13 +176,7 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
           // Don't move if already at root level (no directory separator beyond first segment)
           if (!srcPath.includes("/")) return;
           const srcName = srcPath.split("/").pop() || srcPath;
-          if (!window.confirm(`Move "${srcName}" to root?`)) return;
-          moveMutation.mutate({ src: srcPath, dst: "/" }, {
-            onSuccess: () => {
-              closeFile(srcPath, "left");
-              closeFile(srcPath, "right");
-            },
-          });
+          setPendingRootMove({ src: srcPath, srcName });
         }}
         onContextMenu={handleRootContextMenu}
         style={{ flex: 1, overflow: "auto", padding: "4px 0", background: rootDragOver ? "rgba(20,184,166,0.06)" : undefined }}
@@ -258,6 +254,23 @@ export function FileTreePanel({ workspaceId, mobile, indexedPaths }: FileTreePan
           onCreateIn={handleRootCreateIn}
         />
       )}
+      <ConfirmDialog
+        open={pendingRootMove !== null}
+        title="Move File"
+        message={pendingRootMove ? `Move "${pendingRootMove.srcName}" to root?` : ""}
+        confirmLabel="Move"
+        variant="default"
+        onConfirm={() => {
+          if (pendingRootMove) {
+            const src = pendingRootMove.src;
+            moveMutation.mutate({ src, dst: "/" }, {
+              onSuccess: () => { closeFile(src, "left"); closeFile(src, "right"); },
+            });
+          }
+          setPendingRootMove(null);
+        }}
+        onCancel={() => setPendingRootMove(null)}
+      />
     </div>
   );
 

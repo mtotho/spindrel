@@ -910,6 +910,33 @@ export interface PurgeResult {
   total: number;
 }
 
+// Docker Stacks
+export interface DockerStack {
+  id: string;
+  name: string;
+  description?: string | null;
+  created_by_bot: string;
+  channel_id?: string | null;
+  compose_definition: string;
+  project_name: string;
+  status: string;
+  error_message?: string | null;
+  network_name?: string | null;
+  container_ids: Record<string, string>;
+  exposed_ports: Record<string, Array<{ host_port: number; container_port: number; protocol?: string }>>;
+  last_started_at?: string | null;
+  last_stopped_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DockerStackServiceStatus {
+  name: string;
+  state: string;
+  health?: string | null;
+  ports: Array<{ host_port: number; container_port: number; protocol?: string }>;
+}
+
 // Admin types
 export interface AdminStats {
   sessions: number;

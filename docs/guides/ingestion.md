@@ -271,6 +271,33 @@ The Gmail integration ships an **Email Triage & Digest** workspace template (`em
 
 Activate Gmail on a channel and select the "Email Triage & Digest" template to get the full protocol.
 
+## Admin UI
+
+### Settings Page
+
+The ingestion integration has a dedicated settings page in the admin UI. Configure the classifier model, retention period, max body size, and retry count — all editable without restarting the server.
+
+![Ingestion integration settings page](../images/integration-edit-v2.png)
+
+### Sidebar Navigation
+
+When enabled, the ingestion integration adds a **Content Feeds** section to the main sidebar with a link to the ingestion dashboard. Sidebar visibility is controlled via the `SIDEBAR_ENABLED` setting on the integration's settings page.
+
+### Feed Health HUD
+
+When the ingestion integration is activated on a channel, a **Feed Status** strip appears in the chat showing aggregate feed health:
+
+- Number of active feed sources
+- Quarantine count (items rejected by the security pipeline)
+- Last successful poll timestamp
+
+The HUD polls `/integrations/ingestion/hud/status` every 60 seconds.
+
+| Preset | Widgets | Description |
+|--------|---------|-------------|
+| `default` | `feed-status` | Feed health status strip |
+| `none` | *(empty)* | No HUD display |
+
 ## Configuration
 
 All settings use the `INGESTION_` env prefix:

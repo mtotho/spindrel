@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, Zap, BookOpen, TrendingUp, AlertTriangle } from "lucide-react";
+import { Search, Zap, BookOpen, TrendingUp, ExternalLink } from "lucide-react";
 import { useRouter } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useSkills } from "@/src/api/hooks/useSkills";
@@ -53,12 +53,15 @@ type GroupedItem =
   | { type: "skill"; key: string; skill: SkillOption };
 
 function groupSkills(skills: SkillOption[]): GroupedItem[] {
+  const botAuthored: SkillOption[] = [];
   const core: SkillOption[] = [];
   const integrationMap = new Map<string, SkillOption[]>();
 
   for (const s of skills) {
     const sourceType = s.source_type || "manual";
-    if (sourceType === "integration") {
+    if (sourceType === "tool") {
+      botAuthored.push(s);
+    } else if (sourceType === "integration") {
       const name = s.id.match(/^integrations\/([^/]+)\//)?.[1] ?? "other";
       const list = integrationMap.get(name);
       if (list) list.push(s); else integrationMap.set(name, [s]);
@@ -68,6 +71,11 @@ function groupSkills(skills: SkillOption[]): GroupedItem[] {
   }
 
   const items: GroupedItem[] = [];
+
+  if (botAuthored.length > 0) {
+    items.push({ type: "header", key: "bot-authored", label: "Bot Authored", count: botAuthored.length });
+    for (const s of botAuthored) items.push({ type: "skill", key: s.id, skill: s });
+  }
 
   if (core.length > 0) {
     items.push({ type: "header", key: "core", label: "Core", count: core.length });
@@ -84,103 +92,45 @@ function groupSkills(skills: SkillOption[]): GroupedItem[] {
   return items;
 }
 
-function fmtRelative(iso: string | null | undefined): string {
-  if (!iso) return "never";
-  const d = new Date(iso);
-  const diffMs = Date.now() - d.getTime();
-  const mins = Math.floor(diffMs / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function SelfAuthoredSkillsBanner({ botId }: { botId: string }) {
+function SelfAuthoredSkillsBanner({ botId, onNavigateToLearning }: { botId: string; onNavigateToLearning?: () => void }) {
   const t = useThemeTokens();
-  const router = useRouter();
   const { data: botSkills } = useSkills({ bot_id: botId, source_type: "tool", sort: "recent" });
 
   if (!botSkills || botSkills.length === 0) return null;
 
   const totalSurfaced = botSkills.reduce((n, s) => n + s.surface_count, 0);
-  const staleSkills = botSkills.filter((s) => s.surface_count === 0);
 
   return (
     <div style={{
-      padding: "10px 12px", background: "rgba(16,185,129,0.08)",
-      border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, marginBottom: 8,
+      display: "flex", alignItems: "center", gap: 8, padding: "8px 12px",
+      background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)",
+      borderRadius: 8, marginBottom: 8,
     }}>
-      {/* Header row */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-        <BookOpen size={13} color="#059669" />
-        <span style={{ fontSize: 12, fontWeight: 600, color: "#059669" }}>
-          {botSkills.length} self-authored skill{botSkills.length !== 1 ? "s" : ""}
-        </span>
-        <button
-          onClick={() => router.push(`/admin/skills?source_type=tool&bot_id=${botId}` as any)}
-          style={{
-            marginLeft: "auto", fontSize: 11, color: t.accent, background: "none",
-            border: "none", cursor: "pointer", textDecoration: "underline",
-          }}
-        >
-          View all
-        </button>
-      </div>
-
-      {/* Stats row */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 16, marginBottom: 8,
-        fontSize: 11, color: t.textMuted,
-      }}>
-        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <TrendingUp size={10} color="#059669" />
-          <strong style={{ color: t.text }}>{totalSurfaced}</strong> total surfacings
-        </span>
-        {staleSkills.length > 0 && (
-          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <AlertTriangle size={10} color="#d97706" />
-            <strong style={{ color: "#d97706" }}>{staleSkills.length}</strong> never surfaced
-          </span>
-        )}
-      </div>
-
-      {/* Skill list */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        {botSkills.slice(0, 5).map((s) => (
-          <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-            <span style={{ color: t.text, fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {s.name}
-            </span>
-            <span style={{
-              fontSize: 9, color: s.surface_count > 0 ? "#059669" : t.textDim,
-              minWidth: 60, textAlign: "right",
-            }}>
-              {s.surface_count > 0
-                ? `${s.surface_count}× surfaced`
-                : "never surfaced"}
-            </span>
-            <span style={{ color: t.textDim, fontSize: 10, minWidth: 50, textAlign: "right" }}>
-              {fmtRelative(s.updated_at)}
-            </span>
-          </div>
-        ))}
-        {botSkills.length > 5 && (
-          <span style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
-            +{botSkills.length - 5} more
-          </span>
-        )}
-      </div>
+      <BookOpen size={13} color="#059669" />
+      <span style={{ fontSize: 11, color: t.textMuted, flex: 1 }}>
+        <strong style={{ color: "#059669" }}>{botSkills.length}</strong> bot-authored skill{botSkills.length !== 1 ? "s" : ""}
+        {" — "}
+        <TrendingUp size={10} color="#059669" style={{ verticalAlign: "middle", marginRight: 2 }} />
+        <strong style={{ color: t.text }}>{totalSurfaced}</strong> surfacings
+      </span>
+      <button
+        onClick={onNavigateToLearning}
+        style={{
+          fontSize: 11, color: t.accent, background: "none", border: "none",
+          cursor: "pointer", fontWeight: 500, whiteSpace: "nowrap", padding: 0,
+        }}
+      >
+        View Learning tab &rarr;
+      </button>
     </div>
   );
 }
 
 export function SkillsSection({
-  editorData, draft, update,
-}: { editorData: BotEditorData; draft: BotConfig; update: (p: Partial<BotConfig>) => void }) {
+  editorData, draft, update, onNavigateToLearning,
+}: { editorData: BotEditorData; draft: BotConfig; update: (p: Partial<BotConfig>) => void; onNavigateToLearning?: () => void }) {
   const t = useThemeTokens();
+  const router = useRouter();
   const [filter, setFilter] = useState("");
   const skills = draft.skills || [];
   const isSelected = (id: string) => skills.some((s) => s.id === id);
@@ -214,7 +164,7 @@ export function SkillsSection({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {draft.id && <SelfAuthoredSkillsBanner botId={draft.id} />}
+      {draft.id && <SelfAuthoredSkillsBanner botId={draft.id} onNavigateToLearning={onNavigateToLearning} />}
       <div style={{ fontSize: 11, color: t.textDim }}>
         <strong style={{ color: t.textMuted }}>on_demand</strong>: index injected, agent calls get_skill.{" "}
         <strong style={{ color: t.textMuted }}>pinned</strong>: full content every turn.{" "}
@@ -242,13 +192,50 @@ export function SkillsSection({
           const desc = skill.description?.trim();
           const cleanedDesc = desc && desc !== "---" ? desc : null;
           const sourceType = skill.source_type || "manual";
+          const isBotAuthored = sourceType === "tool";
           return (
             <div key={skill.id} style={{
               padding: "8px 4px", borderRadius: 0,
-              background: sel ? t.accentSubtle : autoNote && !sel ? t.surfaceOverlay : "transparent",
-              borderBottom: `1px solid ${sel ? t.accentBorder : t.surfaceBorder}`,
+              background: isBotAuthored ? "rgba(16,185,129,0.06)" : sel ? t.accentSubtle : autoNote && !sel ? t.surfaceOverlay : "transparent",
+              borderBottom: `1px solid ${isBotAuthored ? "rgba(16,185,129,0.15)" : sel ? t.accentBorder : t.surfaceBorder}`,
               opacity: autoNote && !sel ? 0.7 : 1,
             }}>
+              {isBotAuthored ? (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 6 }}>
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", fontSize: 9, fontWeight: 600,
+                    color: "#059669", background: "rgba(16,185,129,0.15)", borderRadius: 3,
+                    padding: "2px 5px", marginTop: 1, whiteSpace: "nowrap",
+                  }}>
+                    enabled
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: t.text }}>{skill.name}</span>
+                      <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>{skill.id}</span>
+                    </div>
+                    {cleanedDesc && (
+                      <div style={{ fontSize: 10, color: t.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {cleanedDesc}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: t.textDim, marginTop: 3 }}>
+                      Auto-injected via RAG. Managed by the bot.
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => router.push(`/admin/skills/${encodeURIComponent(skill.id)}` as any)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 3,
+                      fontSize: 10, color: t.accent, background: "none",
+                      border: "none", cursor: "pointer", whiteSpace: "nowrap", marginTop: 1,
+                    }}
+                  >
+                    <ExternalLink size={10} />
+                    Edit
+                  </button>
+                </div>
+              ) : (
               <label style={{ display: "flex", alignItems: "flex-start", gap: 6, cursor: "pointer" }}>
                 <input type="checkbox" checked={sel} onChange={() => toggle(skill.id)} style={{ accentColor: t.accent, marginTop: 2 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -278,7 +265,8 @@ export function SkillsSection({
                   ) : null}
                 </div>
               </label>
-              {sel && entry && (
+              )}
+              {sel && entry && !isBotAuthored && (
                 <div style={{ marginTop: 6, marginLeft: 22 }}>
                   <select value={entry.mode || "on_demand"} onChange={(e) => setMode(skill.id, e.target.value)}
                     style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}>

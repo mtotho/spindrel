@@ -443,6 +443,16 @@ async def lifespan(application: FastAPI):
     # Index filesystem directories + start watchers in background (doesn't block startup)
     _workers.append(safe_create_task(_index_filesystems_and_start_watchers(), name="fs_index"))
 
+    # Reconcile docker stacks (sync DB status with reality)
+    if settings.DOCKER_STACKS_ENABLED:
+        try:
+            from app.services.docker_stacks import stack_service
+            fixed = await stack_service.reconcile_running()
+            if fixed:
+                logger.info("Reconciled %d docker stack(s) to stopped", fixed)
+        except Exception:
+            logger.exception("Failed to reconcile docker stacks")
+
     if settings.STT_PROVIDER:
         logger.info("Warming up STT provider (%s)...", settings.STT_PROVIDER)
         from app.stt import warm_up as stt_warm_up

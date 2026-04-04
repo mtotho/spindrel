@@ -76,6 +76,8 @@ skills:
     mode: on_demand
   - id: context_mastery
     mode: on_demand
+  - id: docker_stacks
+    mode: on_demand
   # Note: mission-control skills (task boards, planning, project management,
   # content feeds, integration builder) come via includes: [mission-control]
 
@@ -97,6 +99,7 @@ local_tools:
   - update_task
   - get_task_result
   - manage_workflow
+  - manage_docker_stack
   - manage_secret
   - get_skill
   - get_workspace_skill
@@ -167,6 +170,7 @@ system_prompt_fragment: |
   | Reusable workflows: YAML format, conditions, approval gates, triggers | `get_skill('carapaces/orchestrator/workflows')` |
   | Optimize/refactor workflow, convert agent steps to tool/exec, reduce LLM costs, analyze a run, compile/export/script | `get_skill('carapaces/orchestrator/workflow-compiler')` |
   | Create custom integration, scaffold, hot-reload, SETUP manifest, tool writing | `get_skill('carapaces/orchestrator/integration-builder')` |
+  | Docker Compose stacks (databases, caches, multi-container services) | `get_skill('docker_stacks')` |
   | Channel workspace schemas, file organization, workspace features | `get_skill('channel_workspaces')` |
   | Context assembly, skill modes, tool RAG, compaction tuning | `get_skill('context_mastery')` |
 

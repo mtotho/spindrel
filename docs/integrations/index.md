@@ -726,6 +726,96 @@ dashboard (or any integration-owned dashboard).
 Modules are data-driven — integrations serve structured JSON from their router
 endpoints, and the frontend renders it generically.
 
+### `chat_hud` — In-chat status widgets
+
+Integrations can declare HUD (heads-up display) widgets that appear inside the chat
+interface when the integration is activated on a channel. Widgets poll an endpoint
+on your integration's router and render real-time status, controls, or metrics.
+
+```python
+"chat_hud": [
+    {
+        "id": "bb-status",
+        "style": "status_strip",
+        "endpoint": "/hud/status",
+        "poll_interval": 30,
+        "label": "iMessage",
+        "icon": "MessageCircle",
+    },
+],
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `str` | **Required.** Unique widget identifier within this integration. |
+| `style` | `str` | **Required.** Widget layout style. One of: `status_strip`, `side_panel`, `input_bar`, `floating_action`. |
+| `endpoint` | `str` | Router-relative path that returns widget data (e.g. `/hud/status`). The full URL is resolved as `/integrations/<name><endpoint>`. |
+| `poll_interval` | `int` | Seconds between polls. Default varies by style. |
+| `label` | `str` | Human-readable label shown alongside the widget. |
+| `icon` | `str` | [Lucide icon](https://lucide.dev) name for the widget header. |
+
+**Widget styles:**
+
+| Style | Layout | Typical use |
+|-------|--------|------------|
+| `status_strip` | Compact horizontal bar above or below the chat input | Connection status, health indicators, quick actions |
+| `side_panel` | Collapsible panel alongside the chat | Workflow history, detailed status, logs |
+| `input_bar` | Inline element in the chat input area | Quick-entry controls |
+| `floating_action` | Floating button/overlay | Toggle controls, notification badges |
+
+#### HUD status endpoint pattern
+
+Your HUD endpoint should return a JSON array of status items. Each item can be a
+badge, action button, or text element:
+
+```python
+@router.get("/hud/status")
+async def hud_status():
+    return [
+        {
+            "type": "badge",
+            "label": "Connected",
+            "variant": "success",      # success | danger | warning | muted
+            "icon": "CheckCircle",
+        },
+        {
+            "type": "action",
+            "label": "Pause",
+            "action": "post",
+            "url": "/integrations/bluebubbles/pause",
+            "variant": "warning",
+            "icon": "PauseCircle",
+        },
+    ]
+```
+
+The frontend renders badges as colored pills and actions as clickable buttons that
+POST to the specified URL. This pattern keeps integration-specific UI logic on the
+server — the frontend is a generic renderer.
+
+### `chat_hud_presets` — HUD layout presets
+
+Define named presets that bundle specific widgets into configurations users can
+choose per-channel. Every integration with `chat_hud` should provide at least a
+`"default"` and `"none"` preset.
+
+```python
+"chat_hud_presets": {
+    "default": {"label": "Connection Status", "widgets": ["bb-status"]},
+    "none":    {"label": "No HUD", "widgets": []},
+},
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `label` | `str` | **Required.** Human-readable name shown in the preset picker. |
+| `widgets` | `list[str]` | Widget IDs (from `chat_hud`) to include. Must reference valid widget IDs declared by the same integration. |
+
+Users select a preset in the channel's integration configuration tab. The `"none"` preset
+lets users disable the HUD entirely without removing the integration.
+
+![Integration configuration with HUD presets](../images/channel-integration-config.png)
+
 ### `activation` — Integration activation + template compatibility
 
 Integrations can declare an activation manifest that auto-injects carapaces and

@@ -37,12 +37,13 @@ async def send_text(
     text: str,
     *,
     temp_guid: str | None = None,
+    method: str | None = None,
 ) -> dict | None:
     """Send a text message to a BB chat. Returns the API response dict or None on failure.
 
     Uses a 90s timeout since iMessage relay through BB can be slow.
-    If BB_SEND_METHOD is set, includes it in the request; otherwise lets
-    the BB server use its own configured default.
+    If *method* is given, uses it; otherwise falls back to BB_SEND_METHOD
+    global setting; otherwise lets the BB server use its own default.
     """
     if temp_guid is None:
         temp_guid = str(uuid.uuid4())
@@ -52,9 +53,9 @@ async def send_text(
         "message": text,
         "tempGuid": temp_guid,
     }
-    method = settings.BB_SEND_METHOD
-    if method:
-        body["method"] = method
+    effective_method = method or settings.BB_SEND_METHOD
+    if effective_method:
+        body["method"] = effective_method
 
     try:
         r = await client.post(

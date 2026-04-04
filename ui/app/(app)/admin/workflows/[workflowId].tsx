@@ -17,6 +17,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { Platform } from "react-native";
 import { Copy, X as XIcon } from "lucide-react";
 import { TabBar } from "@/src/components/shared/FormControls";
+import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import type { Workflow, WorkflowStep } from "@/src/types/api";
 import WorkflowRunsTab from "./WorkflowRunsTab";
 import { WorkflowTemplateGallery } from "./WorkflowTemplateGallery";
@@ -184,12 +185,10 @@ export default function WorkflowDetailPage() {
   // Wire up Ctrl+S ref now that handleSave is declared
   saveRef.current = () => { if (dirty || isNew) handleSave(); };
 
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   const handleDelete = async () => {
     if (!workflowId) return;
-    const ok = Platform.OS === "web"
-      ? window.confirm(`Delete workflow "${draft.name}"?`)
-      : true;
-    if (!ok) return;
     try {
       await deleteMut.mutateAsync(workflowId);
       goBack();
@@ -264,7 +263,7 @@ export default function WorkflowDetailPage() {
         showingPicker={showingPicker}
         onBack={goBack}
         onSave={handleSave}
-        onDelete={handleDelete}
+        onDelete={() => setShowDeleteConfirm(true)}
         onClone={handleClone}
         onExport={handleExport}
         saving={createMut.isPending || updateMut.isPending}
@@ -371,6 +370,15 @@ export default function WorkflowDetailPage() {
           t={t}
         />
       )}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete Workflow"
+        message={`Delete workflow "${draft.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => { setShowDeleteConfirm(false); handleDelete(); }}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }

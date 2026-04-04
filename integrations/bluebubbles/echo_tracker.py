@@ -54,6 +54,14 @@ _DEFAULT_TTL = 300.0
 # treat any isFromMe message as an echo (not human).
 _REPLY_COOLDOWN = 120.0  # 2 minutes
 
+# Echo suppress: short window to catch echoed bot replies that contain
+# wake words.  Content-based matching is the primary defense, but when
+# iMessage modifies the text (smart quotes, encoding) the hash won't
+# match and the wake word in the bot's own echoed reply re-triggers it.
+# 15 seconds is long enough to catch any echo, short enough for a human
+# to re-trigger the bot intentionally.
+_ECHO_SUPPRESS_WINDOW = 15.0
+
 # Circuit breaker: max bot replies per chat in a time window.
 # If exceeded, refuse to respond until the window passes.
 _CIRCUIT_BREAKER_MAX = 5
@@ -116,6 +124,25 @@ class EchoTracker:
         now = time.time()
         replies = self._chat_replies.get(chat_guid, [])
         return any(now - ts < _REPLY_COOLDOWN for ts in replies)
+
+    def in_echo_suppress(self, chat_guid: str, window: float | None = None) -> bool:
+        """Return True if we replied to this chat very recently (echo suppress window).
+
+        Shorter than in_reply_cooldown — designed to catch echoed bot messages
+        that contain wake words and would otherwise re-trigger the bot.
+        Used for is_from_me=False paths (wake word + no-mention).
+
+        Args:
+            chat_guid: The chat to check.
+            window: Override the default suppress window (seconds).
+                    If None, uses _ECHO_SUPPRESS_WINDOW (15s).
+        """
+        if not chat_guid:
+            return False
+        w = window if window is not None else _ECHO_SUPPRESS_WINDOW
+        now = time.time()
+        replies = self._chat_replies.get(chat_guid, [])
+        return any(now - ts < w for ts in replies)
 
     def is_circuit_open(self, chat_guid: str) -> bool:
         """Return True if the circuit breaker has tripped for this chat.

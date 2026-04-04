@@ -84,6 +84,7 @@ class TestBlueBubblesDispatcher:
 
         mock_send.assert_called_once_with(
             "http://bb:1234", "pass123", "iMessage;-;+15551234567", "Agent response",
+            method=None,
         )
 
     @pytest.mark.asyncio
@@ -194,3 +195,46 @@ class TestBlueBubblesDispatcher:
             arguments={},
             reason=None,
         )  # Should not raise
+
+    @pytest.mark.asyncio
+    @patch("integrations.bluebubbles.dispatcher._bb_send", new_callable=AsyncMock)
+    async def test_deliver_with_send_method(self, mock_send, dispatcher):
+        """Per-binding send_method in dispatch_config is passed to _bb_send."""
+        mock_send.return_value = True
+
+        task = MagicMock()
+        task.id = "task-1"
+        task.session_id = "sess-1"
+        task.client_id = "bb:chat-1"
+        task.bot_id = "bot-1"
+        task.dispatch_config = {
+            "server_url": "http://bb:1234",
+            "password": "pass123",
+            "chat_guid": "iMessage;-;+15551234567",
+            "send_method": "private-api",
+        }
+
+        with patch("app.services.sessions.store_dispatch_echo", new_callable=AsyncMock):
+            await dispatcher.deliver(task, "Agent response")
+
+        mock_send.assert_called_once_with(
+            "http://bb:1234", "pass123", "iMessage;-;+15551234567", "Agent response",
+            method="private-api",
+        )
+
+    @pytest.mark.asyncio
+    @patch("integrations.bluebubbles.dispatcher._bb_send", new_callable=AsyncMock)
+    async def test_post_message_with_send_method(self, mock_send, dispatcher):
+        """Per-binding send_method passed through post_message."""
+        mock_send.return_value = True
+
+        result = await dispatcher.post_message(
+            {"server_url": "http://bb:1234", "password": "pass123",
+             "chat_guid": "chat-1", "send_method": "apple-script"},
+            "Hello",
+        )
+        assert result is True
+        mock_send.assert_called_once_with(
+            "http://bb:1234", "pass123", "chat-1", "Hello",
+            method="apple-script",
+        )

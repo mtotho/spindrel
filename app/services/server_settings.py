@@ -144,6 +144,14 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- Data Retention ---
     "DATA_RETENTION_DAYS": {"group": "Data Retention", "label": "Retention Days", "description": "Days to keep operational data (trace events, tool calls, heartbeat runs, etc.). Empty = keep forever.", "type": "int", "min": 1, "max": 3650, "nullable": True},
     "DATA_RETENTION_SWEEP_INTERVAL_S": {"group": "Data Retention", "label": "Sweep Interval (seconds)", "description": "Seconds between automatic retention sweeps", "type": "int", "min": 3600, "max": 604800},
+    # --- Docker Stacks ---
+    "DOCKER_STACKS_ENABLED": {"group": "Docker Stacks", "label": "Enabled", "description": "Allow agents to create and manage Docker Compose stacks (databases, caches, services)", "type": "bool"},
+    "DOCKER_STACK_MAX_PER_BOT": {"group": "Docker Stacks", "label": "Max Stacks Per Bot", "description": "Maximum number of stacks a single bot can create", "type": "int", "min": 1, "max": 50},
+    "DOCKER_STACK_DEFAULT_CPUS": {"group": "Docker Stacks", "label": "Default CPUs", "description": "CPU limit injected into every stack service", "type": "float", "min": 0.1, "max": 16.0},
+    "DOCKER_STACK_DEFAULT_MEMORY": {"group": "Docker Stacks", "label": "Default Memory", "description": "Memory limit injected into every stack service (e.g. 512m, 1g)", "type": "string"},
+    "DOCKER_STACK_COMPOSE_TIMEOUT": {"group": "Docker Stacks", "label": "Compose Timeout", "description": "Timeout in seconds for docker compose operations", "type": "int", "min": 30, "max": 600},
+    "DOCKER_STACK_EXEC_TIMEOUT": {"group": "Docker Stacks", "label": "Exec Timeout", "description": "Timeout in seconds for exec commands in stack containers", "type": "int", "min": 5, "max": 300},
+    "DOCKER_STACK_LOG_TAIL_MAX": {"group": "Docker Stacks", "label": "Log Tail Max", "description": "Maximum number of log lines to retrieve", "type": "int", "min": 10, "max": 10000},
     # --- Image Generation ---
     "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation", "type": "string", "widget": "model"},
     # --- Prompt Generation ---
@@ -155,7 +163,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 GROUP_ORDER = [
     "System", "Paths", "General", "Security", "API Rate Limiting", "Web Search", "Agent", "Chat History",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization",
-    "Tool Policies", "Speech-to-Text", "Heartbeat", "Attachments", "Data Retention", "Image Generation", "Prompt Generation",
+    "Tool Policies", "Speech-to-Text", "Heartbeat", "Docker Stacks", "Attachments", "Data Retention", "Image Generation", "Prompt Generation",
 ]
 
 

@@ -547,6 +547,56 @@ async def diagnose_mirror(_auth=Depends(verify_admin_auth)) -> dict:
     }
 
 
+@router.get("/echo-state")
+async def echo_state(_auth=Depends(verify_admin_auth)) -> dict:
+    """Return the current echo detection state for all tracked chats.
+
+    Shows per-chat cooldowns, circuit breaker status, sent content hashes,
+    and echo suppress window state. Useful for debugging why the bot isn't
+    responding or why it's looping.
+    """
+    from integrations.bluebubbles.echo_tracker import (
+        _REPLY_COOLDOWN, _CIRCUIT_BREAKER_MAX, _CIRCUIT_BREAKER_WINDOW,
+        _ECHO_SUPPRESS_WINDOW,
+    )
+
+    now = time.time()
+    chats: dict[str, dict] = {}
+
+    # Collect all chat GUIDs from both data structures
+    all_guids = set(shared_tracker._chat_replies.keys()) | set(shared_tracker._sent_content.keys())
+
+    for chat_guid in sorted(all_guids):
+        replies = shared_tracker._chat_replies.get(chat_guid, [])
+        content = shared_tracker._sent_content.get(chat_guid, {})
+
+        recent_replies = [ts for ts in replies if now - ts < _CIRCUIT_BREAKER_WINDOW]
+        cooldown_remaining = max(0, max((ts + _REPLY_COOLDOWN - now for ts in replies), default=0))
+        suppress_remaining = max(0, max((ts + _ECHO_SUPPRESS_WINDOW - now for ts in replies), default=0))
+
+        chats[chat_guid] = {
+            "reply_count_in_window": len(recent_replies),
+            "circuit_breaker_max": _CIRCUIT_BREAKER_MAX,
+            "circuit_breaker_open": len(recent_replies) >= _CIRCUIT_BREAKER_MAX,
+            "reply_cooldown_active": cooldown_remaining > 0,
+            "reply_cooldown_remaining_s": round(cooldown_remaining, 1),
+            "echo_suppress_active": suppress_remaining > 0,
+            "echo_suppress_remaining_s": round(suppress_remaining, 1),
+            "sent_content_hashes": len(content),
+            "last_reply_age_s": round(now - max(replies), 1) if replies else None,
+        }
+
+    return {
+        "tracked_chats": len(chats),
+        "global_echo_suppress_window_s": _ECHO_SUPPRESS_WINDOW,
+        "reply_cooldown_s": _REPLY_COOLDOWN,
+        "circuit_breaker_window_s": _CIRCUIT_BREAKER_WINDOW,
+        "circuit_breaker_max": _CIRCUIT_BREAKER_MAX,
+        "paused": _paused,
+        "chats": chats,
+    }
+
+
 @router.get("/hud/status")
 async def hud_status(_auth=Depends(verify_auth_or_user)) -> dict:
     """Return HudData for the chat status strip — connection + pause state."""
@@ -756,13 +806,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     # Extra custom wake words (additive, on top of per-channel bot name/id)
     extra_wake_words = _parse_extra_wake_words(bb_settings.BB_WAKE_WORDS)
-
-    dispatch_config = {
-        "type": "bluebubbles",
-        "chat_guid": chat_guid,
-        "server_url": server_url,
-        "password": password,
-    }
+    echo_suppress_window = bb_settings.BB_ECHO_SUPPRESS_WINDOW
 
     results = []
     for channel, binding in pairs:
@@ -772,15 +816,35 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         dc = binding.dispatch_config or {}
         use_bot_wake = dc.get("use_bot_wake_word", True)
         per_binding_words = _parse_extra_wake_words(dc.get("extra_wake_words", ""))
+        # Per-binding echo suppress window override (empty string = use global)
+        binding_echo_window = dc.get("echo_suppress_window", "")
+        effective_echo_window = float(binding_echo_window) if binding_echo_window not in ("", None) else echo_suppress_window
+        # Per-binding send method override (empty = use global default)
+        binding_send_method = dc.get("send_method", "") or None
+
+        dispatch_config = {
+            "type": "bluebubbles",
+            "chat_guid": chat_guid,
+            "server_url": server_url,
+            "password": password,
+        }
+        if binding_send_method:
+            dispatch_config["send_method"] = binding_send_method
 
         if is_from_me:
             # Human texting from their own phone — always active
             run_agent = True
             content = text
         elif not channel.require_mention:
-            # Channel doesn't require mention — always active
-            run_agent = True
-            content = text
+            # Channel doesn't require mention — but suppress if we just replied
+            # (catches echoed bot messages that iMessage modified, breaking content hash)
+            if shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
+                logger.info("BB webhook: echo suppress (no-mention path), chat_guid=%s", chat_guid)
+                run_agent = False
+                content = f"[{sender}]: {text}"
+            else:
+                run_agent = True
+                content = text
         else:
             # Build per-channel wake words: binding-specific + global extras
             wake_words = per_binding_words + extra_wake_words
@@ -789,8 +853,15 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
             text_lower = text.lower()
             mentioned = any(w in text_lower for w in wake_words) if wake_words else False
             if mentioned:
-                run_agent = True
-                content = text
+                # Wake word matched — but suppress if we just replied
+                # (the bot's own echoed response likely contains the wake word)
+                if shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
+                    logger.info("BB webhook: echo suppress (wake word path), chat_guid=%s", chat_guid)
+                    run_agent = False
+                    content = f"[{sender}]: {text}"
+                else:
+                    run_agent = True
+                    content = text
             else:
                 # Passive — store with sender prefix, no agent run
                 run_agent = False

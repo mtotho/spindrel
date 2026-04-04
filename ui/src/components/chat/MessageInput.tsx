@@ -196,12 +196,18 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
   // Web: Tiptap rich editor
   if (Platform.OS === "web") {
+    const sendBtnBg = showStop ? "#ef4444"
+      : recorder.isRecording ? "#ef4444"
+      : canSend ? t.accent
+      : "transparent";
+    const sendBtnOpacity = canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
+
     return (
-      <View style={{ flexShrink: 0, borderTopWidth: 1, borderTopColor: t.overlayLight, backgroundColor: t.surface }}>
+      <div style={{ flexShrink: 0, borderTop: `1px solid ${t.overlayLight}`, backgroundColor: t.surface }}>
         {/* Audio recorder error */}
         {recorder.error && (
           <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>
-            <Text style={{ color: "#ef4444", fontSize: 12 }}>{recorder.error}</Text>
+            <span style={{ color: "#ef4444", fontSize: 12 }}>{recorder.error}</span>
           </div>
         )}
         {/* Pending file previews */}
@@ -279,16 +285,30 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           </div>
         )}
 
-        <View className={`flex-row items-end ${isMobile ? "gap-1.5 px-2 py-2" : "gap-3 px-5 py-3"}`}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "flex-end",
+            gap: isMobile ? 6 : 12,
+            padding: isMobile ? "8px 8px" : "12px 20px",
+          }}
+        >
           {/* Attach button */}
-          <Pressable
-            onPress={() => fileInputRef.current?.click()}
+          <button
+            className="input-action-btn"
+            onClick={() => fileInputRef.current?.click()}
             disabled={disabled || recorder.isRecording}
-            className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44, flexShrink: 0, opacity: recorder.isRecording ? 0.3 : 1 }}
+            style={{
+              width: isMobile ? 36 : 44,
+              height: isMobile ? 36 : 44,
+              flexShrink: 0,
+              opacity: recorder.isRecording ? 0.3 : 1,
+            }}
+            title="Attach file"
           >
             <Paperclip size={isMobile ? 18 : 20} color={t.textDim} />
-          </Pressable>
+          </button>
           <input
             ref={fileInputRef}
             type="file"
@@ -342,7 +362,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           </div>
 
           {/* Per-turn model picker — hidden on mobile to save space */}
-          {Platform.OS === "web" && onModelOverrideChange && !isMobile && (
+          {onModelOverrideChange && !isMobile && (
             <div ref={modelPickerRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
               {modelOverride ? (
                 <div
@@ -375,13 +395,14 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   </span>
                 </div>
               ) : (
-                <Pressable
-                  onPress={() => setShowModelPicker(true)}
-                  className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
+                <button
+                  className="input-action-btn"
+                  onClick={() => setShowModelPicker(true)}
                   style={{ width: 44, height: 44, opacity: 0.6 }}
+                  title="Select model for this message"
                 >
                   <Cpu size={16} color={t.textDim} />
-                </Pressable>
+                </button>
               )}
               {showModelPicker && (() => {
                 const { LlmModelDropdown } = require("../shared/LlmModelDropdown");
@@ -414,25 +435,30 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               })()}
             </div>
           )}
-          <Pressable
-            onPress={
+          {/* Send / Stop / Mic button */}
+          <button
+            className="send-btn"
+            onClick={
               showStop ? onCancel
               : recorder.isRecording ? handleMicToggle
               : showMic ? handleMicToggle
               : handleSend
             }
             disabled={!canSend && !showStop && !showMic && !recorder.isRecording}
-            className="items-center justify-center rounded-lg"
             style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               width: isMobile ? 36 : 44,
               height: isMobile ? 36 : 44,
               flexShrink: 0,
-              backgroundColor: showStop ? "#ef4444"
-                : recorder.isRecording ? "#ef4444"
-                : canSend ? t.accent
-                : showMic ? "transparent"
-                : "transparent",
-              opacity: canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4,
+              borderRadius: 8,
+              border: "none",
+              padding: 0,
+              cursor: (!canSend && !showStop && !showMic && !recorder.isRecording) ? "default" : "pointer",
+              backgroundColor: sendBtnBg,
+              opacity: sendBtnOpacity,
+              transition: "background-color 0.15s, opacity 0.15s",
             }}
           >
             {showStop ? (
@@ -444,9 +470,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             ) : (
               <Send size={isMobile ? 16 : 18} color={canSend ? "white" : t.textDim} />
             )}
-          </Pressable>
-        </View>
-      </View>
+          </button>
+        </div>
+      </div>
     );
   }
 

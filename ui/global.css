@@ -174,6 +174,66 @@ textarea::placeholder {
   50% { opacity: 0; }
 }
 
+/* Typing indicator dots (staggered bounce) */
+@keyframes typing-dot {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-2px); }
+}
+.typing-dot { animation: typing-dot 1.2s ease-in-out infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* CSS spinner (replaces ActivityIndicator on web) */
+@keyframes chat-spin { to { transform: rotate(360deg); } }
+.chat-spinner {
+  width: 20px; height: 20px;
+  border: 2px solid rgb(var(--color-surface-border));
+  border-top-color: rgb(var(--color-text-dim));
+  border-radius: 50%;
+  animation: chat-spin 0.6s linear infinite;
+}
+
+/* Scroll-to-bottom FAB entrance */
+.scroll-fab { animation: fab-in 0.15s ease-out; }
+@keyframes fab-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Input area action buttons */
+.input-action-btn {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; border: none; background: transparent;
+  cursor: pointer; padding: 0;
+  transition: background-color 0.1s ease;
+}
+.input-action-btn:hover { background-color: rgb(var(--color-surface-overlay)); }
+.input-action-btn:active { background-color: rgb(var(--color-surface-border)); }
+.input-action-btn:disabled { cursor: default; opacity: 0.4; }
+.input-action-btn:disabled:hover { background-color: transparent; }
+
+/* Send/stop/mic button */
+.send-btn:hover:not(:disabled) { filter: brightness(1.12); }
+.send-btn:active:not(:disabled) { filter: brightness(0.92); }
+
+/* Channel header icon buttons */
+.header-icon-btn {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+  border: none; background: transparent;
+  cursor: pointer; padding: 0;
+  transition: background-color 0.1s ease;
+}
+.header-icon-btn:hover { background-color: rgb(var(--color-surface-overlay)); }
+.header-icon-btn:active { background-color: rgb(var(--color-surface-border)); }
+
+/* Bot name link in header */
+.header-bot-link:hover { text-decoration: underline; }
+
+/* Scroll-to-bottom FAB hover */
+.scroll-fab:hover { filter: brightness(1.15); }
+.scroll-fab:active { filter: brightness(0.95); }
+
 /* Pulsing spike alert dot */
 @keyframes spike-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }

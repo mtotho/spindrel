@@ -136,6 +136,36 @@ class TestAdminSkillsList:
         assert ws_skills[0]["bot_id"] == "coder-bot"
         assert ws_skills[0]["mode"] == "on_demand"
 
+    async def test_source_type_filter_excludes_workspace_skills(self, client, db_session):
+        """Filtering by source_type=tool should NOT include workspace skills."""
+        now = datetime.now(timezone.utc)
+        # Add a bot-authored skill (source_type=tool)
+        db_session.add(SkillRow(
+            id="bots/mybot/my-skill", name="My Skill", content="hello",
+            content_hash="abc", source_type="tool",
+            created_at=now, updated_at=now,
+        ))
+        await db_session.commit()
+        # Add a workspace skill
+        _, ws_str = await _create_ws(db_session, "WS Filter Test")
+        await _insert_workspace_skill(
+            db_session, ws_str,
+            skill_id="ws:test:filter",
+            skill_name="Workspace Skill",
+        )
+
+        resp = await client.get(
+            "/api/v1/admin/skills?source_type=tool&bot_id=mybot",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        skills = resp.json()
+        assert len(skills) == 1
+        assert skills[0]["id"] == "bots/mybot/my-skill"
+        assert skills[0]["source_type"] == "tool"
+        # Workspace skills should NOT be in the response
+        assert all(s["source_type"] != "workspace" for s in skills)
+
 
 # ---------------------------------------------------------------------------
 # Bot editor data — workspace_skills field

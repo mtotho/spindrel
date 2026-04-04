@@ -176,3 +176,38 @@ class TestIsOwnContent:
         assert tracker.is_own_content("chat-A", "First response") is True
         assert tracker.is_own_content("chat-A", "Second response") is True
         assert tracker.is_own_content("chat-A", "Third response") is False
+
+
+class TestInEchoSuppress:
+    """Echo suppress — short window to catch echoed wake word triggers."""
+
+    def test_within_window(self):
+        """Returns True when we replied within the 15s window."""
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "Bot reply with wonky word", chat_guid="chat-A")
+        assert tracker.in_echo_suppress("chat-A") is True
+
+    def test_outside_window(self):
+        """Returns False when reply was longer ago than the suppress window."""
+        tracker = EchoTracker()
+        # Inject a reply timestamp older than the suppress window
+        tracker._chat_replies["chat-A"] = [time.time() - 20.0]
+        assert tracker.in_echo_suppress("chat-A") is False
+
+    def test_no_replies(self):
+        """Returns False when no replies have been sent to this chat."""
+        tracker = EchoTracker()
+        assert tracker.in_echo_suppress("chat-A") is False
+
+    def test_empty_chat_guid(self):
+        """Returns False for empty chat_guid."""
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "reply", chat_guid="chat-A")
+        assert tracker.in_echo_suppress("") is False
+
+    def test_different_chat(self):
+        """Suppress is scoped to the specific chat."""
+        tracker = EchoTracker()
+        tracker.track_sent("t1", "reply", chat_guid="chat-A")
+        assert tracker.in_echo_suppress("chat-A") is True
+        assert tracker.in_echo_suppress("chat-B") is False

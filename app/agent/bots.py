@@ -80,6 +80,13 @@ class FilesystemAccessEntry:
 
 
 @dataclass
+class DockerStackConfig:
+    enabled: bool = False
+    max_stacks: int | None = None  # None = use DOCKER_STACK_MAX_PER_BOT
+    allowed_images: list[str] = field(default_factory=list)  # empty = allow all
+
+
+@dataclass
 class BotSandboxConfig:
     enabled: bool = False
     unrestricted: bool = False   # if True, command allowlist is ignored when running in sandbox
@@ -174,6 +181,7 @@ class BotConfig:
     knowledge: KnowledgeConfig = field(default_factory=KnowledgeConfig)
     filesystem_indexes: list[FilesystemIndexConfig] = field(default_factory=list)
     docker_sandbox_profiles: list[str] = field(default_factory=list)
+    docker_stacks: DockerStackConfig = field(default_factory=DockerStackConfig)
     host_exec: HostExecConfig = field(default_factory=HostExecConfig)
     filesystem_access: list[FilesystemAccessEntry] = field(default_factory=list)
     display_name: str | None = None
@@ -257,6 +265,15 @@ def _normalize_skill_entry(entry) -> dict:
             result["similarity_threshold"] = entry["similarity_threshold"]
         return result
     return {"id": str(entry), "mode": "on_demand"}
+
+
+def _parse_docker_stacks_config(raw: dict) -> DockerStackConfig:
+    """Parse docker_stacks YAML/DB block into DockerStackConfig."""
+    return DockerStackConfig(
+        enabled=raw.get("enabled", False),
+        max_stacks=raw.get("max_stacks"),
+        allowed_images=raw.get("allowed_images", []),
+    )
 
 
 def _bot_row_to_config(row: BotRow) -> BotConfig:
@@ -403,6 +420,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         knowledge=knowledge_cfg,
         filesystem_indexes=filesystem_indexes,
         docker_sandbox_profiles=row.docker_sandbox_profiles or [],
+        docker_stacks=_parse_docker_stacks_config(getattr(row, "docker_stacks_config", None) or {}),
         host_exec=host_exec_cfg,
         filesystem_access=filesystem_access,
         display_name=row.display_name,
@@ -468,6 +486,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "pinned_tools": data.get("pinned_tools", []),
         "skills": [_normalize_skill_entry(e) for e in data.get("skills", [])],
         "docker_sandbox_profiles": data.get("docker_sandbox_profiles", []),
+        "docker_stacks_config": data.get("docker_stacks", {}),
         "tool_retrieval": data.get("tool_retrieval", True),
         "tool_similarity_threshold": data.get("tool_similarity_threshold"),
         "persona": data.get("persona", False),

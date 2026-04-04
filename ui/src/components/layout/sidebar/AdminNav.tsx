@@ -26,6 +26,7 @@ import {
   Cable,
   FileCode,
   Webhook,
+  Boxes,
   ChevronRight,
 } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
@@ -58,6 +59,7 @@ export const ADMIN_SECTIONS: SectionDef[] = [
       { label: "Skills", href: "/admin/skills", icon: BookOpen },
       { label: "Templates", href: "/admin/prompt-templates", icon: FileText },
       { label: "Attachments", href: "/admin/attachments", icon: Paperclip },
+      { label: "Docker Stacks", href: "/admin/docker-stacks", icon: Boxes },
     ],
   },
   {

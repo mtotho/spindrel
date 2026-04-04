@@ -515,6 +515,16 @@ class Settings(BaseSettings):
     DOCKER_SANDBOX_MOUNT_ALLOWLIST: Annotated[list[str], NoDecode] = []
     DOCKER_SANDBOX_IDLE_PRUNE_INTERVAL: int = 300
 
+    # Docker stacks (agent-managed Docker Compose stacks)
+    DOCKER_STACKS_ENABLED: bool = False
+    DOCKER_STACK_MAX_PER_BOT: int = 5
+    DOCKER_STACK_DEFAULT_CPUS: float = 1.0
+    DOCKER_STACK_DEFAULT_MEMORY: str = "512m"
+    DOCKER_STACK_COMPOSE_TIMEOUT: int = 120
+    DOCKER_STACK_EXEC_TIMEOUT: int = 30
+    DOCKER_STACK_MAX_OUTPUT_BYTES: int = 65536  # 64 KB
+    DOCKER_STACK_LOG_TAIL_MAX: int = 1000
+
     # RAG re-ranking (post-assembly cross-source relevance filtering)
     RAG_RERANK_ENABLED: bool = False
     RAG_RERANK_BACKEND: str = "cross-encoder"  # "cross-encoder" (fast ONNX, zero API cost) or "llm" (full LLM call)

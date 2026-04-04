@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { View, Text, Pressable, Platform } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import { Activity, X, ChevronDown, ChevronUp } from "lucide-react";
+import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import {
   useActiveWorkflowRuns,
   useCancelWorkflowRun,
@@ -45,6 +46,7 @@ export function ActiveWorkflowsHud() {
   const [expanded, setExpanded] = useState(false);
   const [visible, setVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<string | null>(null);
 
   // Force re-render every second for elapsed time
   const [, setTick] = useState(0);
@@ -193,20 +195,24 @@ export function ActiveWorkflowsHud() {
                   );
                   setExpanded(false);
                 }}
-                onCancel={() => {
-                  if (
-                    window.confirm(
-                      "Cancel this workflow run? In-flight steps will be abandoned.",
-                    )
-                  ) {
-                    cancelMut.mutate(run.id);
-                  }
-                }}
+                onCancel={() => setCancelTarget(run.id)}
               />
             ))}
           </div>
         )}
       </div>
+      <ConfirmDialog
+        open={cancelTarget !== null}
+        title="Cancel Workflow"
+        message="Cancel this workflow run? In-flight steps will be abandoned."
+        confirmLabel="Cancel Run"
+        variant="danger"
+        onConfirm={() => {
+          if (cancelTarget) cancelMut.mutate(cancelTarget);
+          setCancelTarget(null);
+        }}
+        onCancel={() => setCancelTarget(null)}
+      />
     </View>
   );
 }

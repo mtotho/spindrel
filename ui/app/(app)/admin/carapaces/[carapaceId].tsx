@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { CarapaceHelpModal } from "./CarapaceHelpModal";
 import { Section, FormRow } from "@/src/components/shared/FormControls";
+import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import type { Carapace, SkillConfig } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
@@ -110,22 +111,19 @@ export default function CarapaceDetailPage() {
     }
   };
 
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   const handleDelete = () => {
-    const doDelete = async () => {
-      try {
-        await deleteMut.mutateAsync(carapaceId!);
-        router.back();
-      } catch {
-        // error shown via mutation state
-      }
-    };
-    if (Platform.OS === "web") {
-      if (window.confirm(`Delete carapace "${draft.name}"?`)) doDelete();
-    } else {
-      Alert.alert("Delete Carapace", `Delete "${draft.name}"?`, [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: doDelete },
-      ]);
+    setShowDeleteConfirm(true);
+  };
+
+  const doDelete = async () => {
+    setShowDeleteConfirm(false);
+    try {
+      await deleteMut.mutateAsync(carapaceId!);
+      router.back();
+    } catch {
+      // error shown via mutation state
     }
   };
 
@@ -574,6 +572,15 @@ export default function CarapaceDetailPage() {
       </div>
 
       {showHelp && <CarapaceHelpModal onClose={() => setShowHelp(false)} />}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete Carapace"
+        message={`Delete carapace "${draft.name}"? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={doDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }

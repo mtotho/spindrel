@@ -14,6 +14,7 @@ import {
   X, RefreshCw, ArrowLeft, MessageSquare,
 } from "lucide-react";
 import { Link } from "expo-router";
+import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 
 import {
   StatusBadge, fmtTime, MetaItem, StepNavItem, useElapsed, formatStepDuration,
@@ -46,6 +47,7 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
 
   const [activeStepIndex, setActiveStepIndex] = useState<number | null>(null);
   const [runAgainError, setRunAgainError] = useState<string | null>(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const isActive = run?.status === "running" || run?.status === "awaiting_approval";
   const runElapsed = useElapsed(run?.created_at ?? null, isActive);
@@ -126,23 +128,33 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
             </button>
           )}
           {isActive && (
-            <button
-              onClick={() => {
-                if (window.confirm("Cancel this workflow run? In-flight steps will be abandoned.")) {
+            <>
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                disabled={cancelMut.isPending}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  padding: "4px 10px", fontSize: 11, fontWeight: 600,
+                  border: `1px solid ${t.dangerBorder}`, borderRadius: 5,
+                  background: t.dangerSubtle, color: t.danger, cursor: "pointer",
+                }}
+              >
+                <X size={12} />
+                Cancel
+              </button>
+              <ConfirmDialog
+                open={showCancelConfirm}
+                title="Cancel Workflow"
+                message="Cancel this workflow run? In-flight steps will be abandoned."
+                confirmLabel="Cancel Run"
+                variant="danger"
+                onConfirm={() => {
                   cancelMut.mutate(runId);
-                }
-              }}
-              disabled={cancelMut.isPending}
-              style={{
-                display: "flex", alignItems: "center", gap: 4,
-                padding: "4px 10px", fontSize: 11, fontWeight: 600,
-                border: `1px solid ${t.dangerBorder}`, borderRadius: 5,
-                background: t.dangerSubtle, color: t.danger, cursor: "pointer",
-              }}
-            >
-              <X size={12} />
-              Cancel
-            </button>
+                  setShowCancelConfirm(false);
+                }}
+                onCancel={() => setShowCancelConfirm(false)}
+              />
+            </>
           )}
         </div>
       </div>

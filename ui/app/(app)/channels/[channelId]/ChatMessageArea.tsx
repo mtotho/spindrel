@@ -150,7 +150,7 @@ function WebChatList({
         <div ref={sentinelRef} style={{ minHeight: 1, flexShrink: 0 }}>
           {isFetchingNextPage && (
             <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
-              <ActivityIndicator size="small" color="#666666" />
+              <div className="chat-spinner" />
             </div>
           )}
         </div>
@@ -159,19 +159,20 @@ function WebChatList({
         {invertedData.length === 0 && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 0", flex: 1 }}>
             {isLoading ? (
-              <ActivityIndicator color={t.textDim} />
+              <div className="chat-spinner" />
             ) : (
-              <Text style={{ color: t.textDim, fontSize: 14 }}>
+              <span style={{ color: t.textDim, fontSize: 14 }}>
                 Send a message to start the conversation
-              </Text>
+              </span>
             )}
           </div>
         )}
       </div>
 
       {showFab && (
-        <Pressable
-          onPress={doScrollToBottom}
+        <button
+          onClick={doScrollToBottom}
+          className="scroll-fab"
           style={{
             position: "absolute",
             bottom: 16,
@@ -180,16 +181,17 @@ function WebChatList({
             height: 40,
             borderRadius: 20,
             backgroundColor: t.surfaceRaised,
-            borderWidth: 1,
-            borderColor: t.surfaceBorder,
+            border: `1px solid ${t.surfaceBorder}`,
+            display: "flex",
             alignItems: "center",
             justifyContent: "center",
             boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
             cursor: "pointer",
-          } as any}
+            padding: 0,
+          }}
         >
           <ChevronDown size={20} color={t.textMuted} />
-        </Pressable>
+        </button>
       )}
     </div>
   );

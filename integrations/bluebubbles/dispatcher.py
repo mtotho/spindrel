@@ -40,7 +40,10 @@ def _split_text(text: str, max_len: int = _MAX_MSG_LEN) -> list[str]:
     return chunks
 
 
-async def _bb_send(server_url: str, password: str, chat_guid: str, text: str) -> bool:
+async def _bb_send(
+    server_url: str, password: str, chat_guid: str, text: str,
+    *, method: str | None = None,
+) -> bool:
     """Send a text message via BB API. Returns True on success."""
     temp_guid = str(uuid.uuid4())
     shared_tracker.track_sent(temp_guid, text, chat_guid=chat_guid)
@@ -49,6 +52,7 @@ async def _bb_send(server_url: str, password: str, chat_guid: str, text: str) ->
     result = await send_text(
         _http, server_url, password, chat_guid, text,
         temp_guid=temp_guid,
+        method=method,
     )
     return result is not None
 
@@ -68,6 +72,7 @@ class BlueBubblesDispatcher:
         server_url = cfg.get("server_url")
         password = cfg.get("password")
         chat_guid = cfg.get("chat_guid")
+        send_method = cfg.get("send_method") or None
 
         if not all((server_url, password, chat_guid)):
             logger.warning(
@@ -82,7 +87,7 @@ class BlueBubblesDispatcher:
 
         chunks = _split_text(text)
         for chunk in chunks:
-            if not await _bb_send(server_url, password, chat_guid, chunk):
+            if not await _bb_send(server_url, password, chat_guid, chunk, method=send_method):
                 logger.error("BlueBubblesDispatcher.deliver failed for task %s chat %s", task.id, chat_guid)
                 return
 
@@ -103,6 +108,7 @@ class BlueBubblesDispatcher:
         server_url = dispatch_config.get("server_url")
         password = dispatch_config.get("password")
         chat_guid = dispatch_config.get("chat_guid")
+        send_method = dispatch_config.get("send_method") or None
 
         if not all((server_url, password, chat_guid)):
             logger.warning("BlueBubblesDispatcher.post_message: missing config")
@@ -110,7 +116,7 @@ class BlueBubblesDispatcher:
 
         chunks = _split_text(text)
         for chunk in chunks:
-            if not await _bb_send(server_url, password, chat_guid, chunk):
+            if not await _bb_send(server_url, password, chat_guid, chunk, method=send_method):
                 return False
         return True
 
@@ -130,6 +136,7 @@ class BlueBubblesDispatcher:
         server_url = dispatch_config.get("server_url")
         password = dispatch_config.get("password")
         chat_guid = dispatch_config.get("chat_guid")
+        send_method = dispatch_config.get("send_method") or None
         if not all((server_url, password, chat_guid)):
             return
 
@@ -141,7 +148,7 @@ class BlueBubblesDispatcher:
             f"Args: {args_preview}\n\n"
             f"Approve via the web UI (approval ID: {approval_id})"
         )
-        await _bb_send(server_url, password, chat_guid, text)
+        await _bb_send(server_url, password, chat_guid, text, method=send_method)
 
 
 register("bluebubbles", BlueBubblesDispatcher())

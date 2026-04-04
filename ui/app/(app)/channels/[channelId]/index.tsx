@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { Shield, ChevronUp, ChevronDown } from "lucide-react";
+import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { ChannelFileExplorer } from "./ChannelFileExplorer";
 import { ChannelFileViewer } from "./ChannelFileViewer";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
@@ -217,11 +218,23 @@ export default function ChatScreen() {
   const showFileViewer = activeFile !== null;
   const isMobile = columns === "single";
 
-  /** Gate navigation away from a dirty file with a confirm prompt */
-  const confirmIfDirty = useCallback((): boolean => {
-    if (!fileDirtyRef.current) return true;
-    return confirm("You have unsaved changes. Discard them?");
+  // Dirty-file guard: instead of window.confirm, use a ConfirmDialog
+  type DirtyAction = { type: "select"; path: string } | { type: "close" } | { type: "closeExplorer" };
+  const [pendingDirtyAction, setPendingDirtyAction] = useState<DirtyAction | null>(null);
+
+  const tryOrConfirmDirty = useCallback((action: DirtyAction) => {
+    if (!fileDirtyRef.current) return action; // not dirty, proceed immediately
+    setPendingDirtyAction(action);
+    return null; // blocked, waiting for confirm
   }, []);
+
+  const executeDirtyAction = useCallback((action: DirtyAction) => {
+    switch (action.type) {
+      case "select": setActiveFile(action.path); break;
+      case "close": setActiveFile(null); break;
+      case "closeExplorer": setExplorerOpen(false); setActiveFile(null); break;
+    }
+  }, [setExplorerOpen]);
 
   const handleDirtyChange = useCallback((dirty: boolean) => {
     fileDirtyRef.current = dirty;
@@ -229,20 +242,22 @@ export default function ChatScreen() {
 
   const handleSelectFile = useCallback((path: string) => {
     if (path === activeFile) return;
-    if (!confirmIfDirty()) return;
-    setActiveFile(path);
-  }, [activeFile, confirmIfDirty]);
+    const action: DirtyAction = { type: "select", path };
+    if (!fileDirtyRef.current) { executeDirtyAction(action); return; }
+    setPendingDirtyAction(action);
+  }, [activeFile, executeDirtyAction]);
 
   const handleCloseFile = useCallback(() => {
-    if (!confirmIfDirty()) return;
-    setActiveFile(null);
-  }, [confirmIfDirty]);
+    const action: DirtyAction = { type: "close" };
+    if (!fileDirtyRef.current) { executeDirtyAction(action); return; }
+    setPendingDirtyAction(action);
+  }, [executeDirtyAction]);
 
   const handleCloseExplorer = useCallback(() => {
-    if (!confirmIfDirty()) return;
-    setExplorerOpen(false);
-    setActiveFile(null);
-  }, [setExplorerOpen, confirmIfDirty]);
+    const action: DirtyAction = { type: "closeExplorer" };
+    if (!fileDirtyRef.current) { executeDirtyAction(action); return; }
+    setPendingDirtyAction(action);
+  }, [executeDirtyAction]);
 
   // Mobile: back from file viewer goes to explorer, back from explorer goes to chat
   const handleMobileBack = useCallback(() => {
@@ -478,6 +493,18 @@ export default function ChatScreen() {
           ))}
         </View>
       )}
+      <ConfirmDialog
+        open={pendingDirtyAction !== null}
+        title="Unsaved Changes"
+        message="You have unsaved changes. Discard them?"
+        confirmLabel="Discard"
+        variant="warning"
+        onConfirm={() => {
+          if (pendingDirtyAction) executeDirtyAction(pendingDirtyAction);
+          setPendingDirtyAction(null);
+        }}
+        onCancel={() => setPendingDirtyAction(null)}
+      />
       {secretWarning && (
         <SecretWarningDialog
           result={secretWarning.result}

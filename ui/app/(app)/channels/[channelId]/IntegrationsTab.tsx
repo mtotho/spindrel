@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { Plus, X, Pencil, Check, AlertTriangle, Zap, Power, Layers } from "lucide-react";
+import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { Link } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { prettyIntegrationName } from "@/src/utils/format";
@@ -764,6 +765,7 @@ export function IntegrationsTab({
 
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [unbindTarget, setUnbindTarget] = useState<{ id: string; type: string; clientId: string } | null>(null);
 
   const available = availableIntegrations ?? [];
 
@@ -873,11 +875,7 @@ export function IntegrationsTab({
                     <Pencil size={13} color={t.textDim} />
                   </button>
                   <button
-                    onClick={() => {
-                      if (confirm(`Unbind "${b.integration_type}" integration (${b.client_id})?`)) {
-                        unbindMutation.mutate(b.id);
-                      }
-                    }}
+                    onClick={() => setUnbindTarget({ id: b.id, type: b.integration_type, clientId: b.client_id })}
                     style={{
                       background: "none",
                       border: "none",
@@ -921,6 +919,19 @@ export function IntegrationsTab({
           />
         </Section>
       )}
+
+      <ConfirmDialog
+        open={unbindTarget !== null}
+        title="Unbind Integration"
+        message={unbindTarget ? `Remove "${unbindTarget.type}" binding (${unbindTarget.clientId})?` : ""}
+        confirmLabel="Unbind"
+        variant="danger"
+        onConfirm={() => {
+          if (unbindTarget) unbindMutation.mutate(unbindTarget.id);
+          setUnbindTarget(null);
+        }}
+        onCancel={() => setUnbindTarget(null)}
+      />
     </>
   );
 }

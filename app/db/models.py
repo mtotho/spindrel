@@ -774,6 +774,7 @@ class Bot(Base):
     pinned_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     skills: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     docker_sandbox_profiles: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    docker_stacks_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     tool_retrieval: Mapped[bool] = mapped_column(nullable=False, default=True)
     tool_similarity_threshold: Mapped[float | None] = mapped_column(nullable=True)
     persona: Mapped[bool] = mapped_column(nullable=False, default=False)
@@ -1461,4 +1462,31 @@ class UsageSpikeAlert(Base):
 
     __table_args__ = (
         Index("ix_usage_spike_alerts_created_at", "created_at"),
+    )
+
+
+class DockerStack(Base):
+    __tablename__ = "docker_stacks"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_bot: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
+    )
+    compose_definition: Mapped[str] = mapped_column(Text, nullable=False)
+    project_name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="stopped")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    network_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    container_ids: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    exposed_ports: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    last_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    last_stopped_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        Index("ix_docker_stacks_bot_channel", "created_by_bot", "channel_id"),
     )

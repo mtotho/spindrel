@@ -4,6 +4,7 @@ export const SECTIONS = [
   { key: "persona", label: "Persona" },
   { key: "tools", label: "Tools" },
   { key: "skills", label: "Skills" },
+  { key: "learning", label: "Learning" },
   { key: "carapaces", label: "Carapaces (Expertise)" },
   { key: "memory", label: "Memory" },
   { key: "knowledge", label: "Knowledge" },

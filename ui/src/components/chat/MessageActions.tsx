@@ -5,7 +5,7 @@
  */
 
 import { useState } from "react";
-import { View, Text } from "react-native";
+import { View, Text, Platform } from "react-native";
 import { Copy, Check, Activity } from "lucide-react";
 import { useRouter } from "expo-router";
 import { writeToClipboard } from "../../utils/clipboard";
@@ -78,9 +78,31 @@ export function MessageActions({
 // ---------------------------------------------------------------------------
 
 export function Avatar({ name, isUser }: { name: string; isUser: boolean }) {
-  // Import avatarColor inline to avoid circular deps -- it's a pure function
   const bg = isUser ? "#4b5563" : avatarColorLocal(name);
   const letter = isUser ? "U" : (name[0] || "B").toUpperCase();
+
+  if (Platform.OS === "web") {
+    return (
+      <div
+        style={{
+          width: 36,
+          height: 36,
+          borderRadius: 6,
+          backgroundColor: bg,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+          userSelect: "none",
+        }}
+      >
+        <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>
+          {letter}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <View
       style={{

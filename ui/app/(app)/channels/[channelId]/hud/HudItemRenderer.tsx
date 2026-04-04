@@ -4,40 +4,49 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
 import { resolveHudIcon, variantColor, variantBg } from "./hudIcons";
+import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import type { HudItem, HudOnClick } from "@/src/types/api";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 
 function useOnClickHandler(onClick: HudOnClick | undefined, hudQueryKey?: string[]) {
   const router = useRouter();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<string | null>(null);
 
-  if (!onClick) return { handler: undefined, busy, error };
+  const executeAction = useCallback(async () => {
+    if (!onClick || onClick.type !== "action" || !onClick.endpoint) return;
+    setBusy(true);
+    try {
+      await apiFetch(onClick.endpoint, {
+        method: onClick.method || "POST",
+        ...(onClick.body ? { body: JSON.stringify(onClick.body) } : {}),
+      });
+      if (hudQueryKey) {
+        await qc.invalidateQueries({ queryKey: hudQueryKey });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Action failed";
+      setError(msg);
+      console.error("HUD action failed:", err);
+    } finally {
+      setBusy(false);
+    }
+  }, [onClick, hudQueryKey, qc]);
+
+  if (!onClick) return { handler: undefined, busy, error, pendingConfirm, setPendingConfirm, executeAction };
 
   const handler = async () => {
     setError(null);
     if (onClick.type === "link" && onClick.href) {
       router.push(onClick.href as any);
     } else if (onClick.type === "action" && onClick.endpoint) {
-      if (onClick.confirm && !window.confirm(onClick.confirm)) return;
-      setBusy(true);
-      try {
-        await apiFetch(onClick.endpoint, {
-          method: onClick.method || "POST",
-          ...(onClick.body ? { body: JSON.stringify(onClick.body) } : {}),
-        });
-        // Immediately re-fetch HUD data so the UI reflects the action
-        if (hudQueryKey) {
-          await qc.invalidateQueries({ queryKey: hudQueryKey });
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Action failed";
-        setError(msg);
-        console.error("HUD action failed:", err);
-      } finally {
-        setBusy(false);
+      if (onClick.confirm) {
+        setPendingConfirm(onClick.confirm);
+        return;
       }
+      await executeAction();
     } else if (onClick.type === "refresh") {
       if (hudQueryKey) {
         qc.invalidateQueries({ queryKey: hudQueryKey });
@@ -45,7 +54,7 @@ function useOnClickHandler(onClick: HudOnClick | undefined, hudQueryKey?: string
     }
   };
 
-  return { handler, busy, error };
+  return { handler, busy, error, pendingConfirm, setPendingConfirm, executeAction };
 }
 
 export function HudBadge({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: string[] }) {
@@ -90,7 +99,8 @@ export function HudAction({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: 
   const color = variantColor(item.variant, t);
   const bg = variantBg(item.variant, t);
   const Icon = resolveHudIcon(item.icon);
-  const { handler, busy, error } = useOnClickHandler(item.on_click, hudQueryKey);
+  const { handler, busy, error, pendingConfirm, setPendingConfirm, executeAction } =
+    useOnClickHandler(item.on_click, hudQueryKey);
 
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -118,6 +128,18 @@ export function HudAction({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: 
       {error && (
         <Text style={{ fontSize: 10, color: t.danger }}>Failed</Text>
       )}
+      <ConfirmDialog
+        open={pendingConfirm !== null}
+        title="Confirm Action"
+        message={pendingConfirm ?? ""}
+        confirmLabel="Continue"
+        variant="warning"
+        onConfirm={() => {
+          setPendingConfirm(null);
+          executeAction();
+        }}
+        onCancel={() => setPendingConfirm(null)}
+      />
     </View>
   );
 }

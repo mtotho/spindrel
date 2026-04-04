@@ -14,75 +14,51 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
 ---
 
-<div class="grid cards" markdown>
+## Features
 
--   :material-swap-horizontal:{ .lg .middle } **Any LLM Provider**
+### Any LLM Provider
 
-    ---
+OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM — or any OpenAI-compatible endpoint. Mix providers across bots. Automatic retry with fallback models. Cost tracking via LiteLLM pricing data.
 
-    OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM — or any OpenAI-compatible endpoint. Mix providers across bots. Automatic retry with fallback models. Cost tracking via LiteLLM pricing data.
+### Composable Expertise (Carapaces)
 
--   :material-puzzle-outline:{ .lg .middle } **Composable Expertise (Carapaces)**
+Snap-on skillsets that bundle tools, knowledge, and behavioral instructions. Give a bot `carapaces: [qa, code-review]` and it instantly knows how to test and review code. Carapaces compose via `includes` for layered expertise.
 
-    ---
+### Workspace Memory + Conversation Continuity
 
-    Snap-on skillsets that bundle tools, knowledge, and behavioral instructions. Give a bot `carapaces: [qa, code-review]` and it instantly knows how to test and review code. Carapaces compose via `includes` for layered expertise.
+Bots maintain `MEMORY.md`, daily logs, and reference docs — all on disk, all indexed for RAG. Conversations are automatically archived into searchable sections that persist across fresh starts. Per-channel file stores with schema templates keep project context structured.
 
--   :material-file-document-outline:{ .lg .middle } **Workspace Memory + Conversation Continuity**
+### Workflows
 
-    ---
+Reusable multi-step automations defined in YAML. Conditions, approval gates, parallel branches, cross-bot delegation, and scoped secrets. Trigger via API, bot tool, or heartbeat. Manage and monitor from the admin UI.
 
-    Bots maintain `MEMORY.md`, daily logs, and reference docs — all on disk, all indexed for RAG. Conversations are automatically archived into searchable sections that persist across fresh starts. Per-channel file stores with schema templates keep project context structured.
+### Heartbeats + Task Scheduling
 
--   :material-sitemap:{ .lg .middle } **Workflows**
+Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks with cron-like flexibility. Bots can self-schedule via `schedule_task`. Results dispatch to Slack, webhooks, or the UI.
 
-    ---
+### Integration Activation + Templates
 
-    Reusable multi-step automations defined in YAML. Conditions, approval gates, parallel branches, cross-bot delegation, and scoped secrets. Trigger via API, bot tool, or heartbeat. Manage and monitor from the admin UI.
+Activate an integration on a channel and it instantly gets the right tools, skills, and behavioral instructions — no manual configuration. Pick a compatible workspace template and the bot knows exactly how to organize files. One click to go from blank channel to structured project.
 
--   :material-heart-pulse:{ .lg .middle } **Heartbeats + Task Scheduling**
+### Self-Improving Agents
 
-    ---
+Bots can author their own skills at runtime. Skills enter the RAG pipeline and are semantically retrieved in future sessions — bots get smarter over time. Admin visibility with bot attribution and filtering.
 
-    Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks with cron-like flexibility. Bots can self-schedule via `schedule_task`. Results dispatch to Slack, webhooks, or the UI.
+### Integration Framework
 
--   :material-lightning-bolt:{ .lg .middle } **Integration Activation + Templates**
+Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Gmail, Frigate, Mission Control, Arr, Claude Code, BlueBubbles, Ingestion. Each provides routers, dispatchers, tools, lifecycle hooks, and in-chat HUD widgets. Extend with your own via `INTEGRATION_DIRS`.
 
-    ---
+### Usage Tracking + Budgeting
 
-    Activate an integration on a channel and it instantly gets the right tools, skills, and behavioral instructions — no manual configuration. Pick a compatible workspace template and the bot knows exactly how to organize files. One click to go from blank channel to structured project.
+Per-bot token usage and cost tracking. Budget limits with configurable enforcement. Usage forecasting and breakdown by model. Powered by LiteLLM pricing data when available. *Cost data is best-effort — always verify against your provider's billing dashboard.*
 
--   :material-brain:{ .lg .middle } **Self-Improving Agents**
+### Web Search
 
-    ---
+Built-in web search via SearXNG (self-hosted) or DuckDuckGo (zero-config). Switch backends at runtime from the admin UI. No external API keys required.
 
-    Bots can author their own skills at runtime. Skills enter the RAG pipeline and are semantically retrieved in future sessions — bots get smarter over time. Admin visibility with bot attribution and filtering.
+### Docker Sandboxes
 
--   :material-plug:{ .lg .middle } **Integration Framework**
-
-    ---
-
-    Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Gmail, Frigate, Mission Control, Arr, Claude Code, BlueBubbles, Ingestion. Each provides routers, dispatchers, tools, and lifecycle hooks. Extend with your own via `INTEGRATION_DIRS`.
-
--   :material-chart-line:{ .lg .middle } **Usage Tracking + Budgeting**
-
-    ---
-
-    Per-bot token usage and cost tracking. Budget limits with configurable enforcement. Usage forecasting and breakdown by model. Powered by LiteLLM pricing data when available. *Cost data is best-effort — always verify against your provider's billing dashboard.*
-
--   :material-magnify:{ .lg .middle } **Web Search**
-
-    ---
-
-    Built-in web search via SearXNG (self-hosted) or DuckDuckGo (zero-config). Switch backends at runtime from the admin UI. No external API keys required.
-
--   :material-docker:{ .lg .middle } **Docker Sandboxes**
-
-    ---
-
-    Long-lived containers for isolated code execution. Per-bot sandbox profiles with configurable images, mount points, and resource limits. Scope modes: session, client, agent, or shared.
-
-</div>
+Long-lived containers for isolated code execution. Per-bot sandbox profiles with configurable images, mount points, and resource limits. Scope modes: session, client, agent, or shared.
 
 ---
 
@@ -97,120 +73,40 @@ docker compose up -d
 
 The setup wizard configures `.env`, starts services, and creates a default bot. The Orchestrator bot guides you through the rest conversationally.
 
-[:octicons-arrow-right-24: Full setup guide](setup.md)
+[Full setup guide &rarr;](setup.md)
 
 ## Guides
 
-<div class="grid cards" markdown>
-
--   [:material-lightbulb-outline: **How Spindrel Works**](guides/how-spindrel-works.md)
-
-    The mental model — channels, templates, activation, carapaces, and how they compose.
-
--   [:material-cog-outline: **Setup Guide**](setup.md)
-
-    Installation, providers, workspaces, integrations, troubleshooting.
-
--   [:material-lightning-bolt: **Templates & Activation**](guides/templates-and-activation.md)
-
-    Activate integrations on channels, pick workspace templates, instant project setup.
-
--   [:material-slack: **Slack Integration**](guides/slack.md)
-
-    Connect Spindrel to Slack via Socket Mode.
-
--   [:fontawesome-brands-discord: **Discord Integration**](guides/discord.md)
-
-    Connect Spindrel to Discord.
-
--   [:material-gmail: **Gmail Integration**](guides/gmail.md)
-
-    Gmail integration for email-driven workflows.
-
--   [:material-directions-fork: **Delegation**](guides/delegation.md)
-
-    Bot-to-bot delegation — immediate and deferred.
-
--   [:material-shield-lock-outline: **Secrets & Redaction**](guides/secrets.md)
-
-    Secret vault, automatic redaction, and user input detection.
-
--   [:material-file-import-outline: **Content Ingestion**](guides/ingestion.md)
-
-    Document ingestion pipeline for PDFs, web pages, and more.
-
--   [:material-chart-line: **Usage & Billing**](guides/usage-and-billing.md)
-
-    Cost tracking, budget limits, spend forecasting, and provider pricing.
-
--   [:material-sitemap: **Workflows**](guides/workflows.md)
-
-    Multi-step automations with conditions, approval gates, cross-bot delegation, and scoped secrets.
-
--   [:material-heart-pulse: **Heartbeats**](guides/heartbeats.md)
-
-    Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and workflow triggers.
-
--   [:material-connection: **MCP Servers**](guides/mcp-servers.md)
-
-    Connect external tool servers (Home Assistant, databases, APIs). Pair with carapaces for domain expertise.
-
--   [:material-brain: **Self-Improving Agents**](guides/bot-skills.md)
-
-    Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility.
-
--   [:material-wrench: **Custom Tools & Extensions**](guides/custom-tools.md)
-
-    Create custom tools, manage a personal extensions repo, load external carapaces and skills.
-
--   [:material-puzzle-edit-outline: **Creating Integrations**](integrations/index.md)
-
-    Build custom integrations with routers, dispatchers, and hooks.
-
--   [:material-history: **Chat History**](guides/chat-history.md)
-
-    Conversation archival, searchable sections, and continuity across fresh starts.
-
--   [:material-api: **Developer API**](guides/api.md)
-
-    Authentication, scoped keys, streaming, SSE events.
-
--   [:material-webhook: **Lifecycle Webhooks**](guides/webhooks.md)
-
-    Outgoing events for monitoring, cost analytics, and audit.
-
--   [:material-message-text-outline: **BlueBubbles Integration**](guides/bluebubbles.md)
-
-    iMessage integration via BlueBubbles.
-
--   [:material-console: **Command Execution**](guides/command-execution.md)
-
-    Docker workspaces, host execution, client-side shell, deferred tasks — when to use each and how they differ.
-
--   [:material-cellphone-link: **Agent Client**](guides/clients.md)
-
-    Remote voice assistant + local tool executor.
-
--   [:material-backup-restore: **Backup & Restore**](backup.md)
-
-    Automated Postgres + config backups to S3.
-
--   [:material-docker: **Docker Deployment**](docker-deployment.md)
-
-    Production setup with the sibling container pattern.
-
-</div>
+| Guide | Description |
+|-------|-------------|
+| [How Spindrel Works](guides/how-spindrel-works.md) | The mental model — channels, templates, activation, carapaces, and how they compose. |
+| [Setup Guide](setup.md) | Installation, providers, workspaces, integrations, troubleshooting. |
+| [Templates & Activation](guides/templates-and-activation.md) | Activate integrations on channels, pick workspace templates, instant project setup. |
+| [Slack Integration](guides/slack.md) | Connect Spindrel to Slack via Socket Mode. |
+| [Discord Integration](guides/discord.md) | Connect Spindrel to Discord. |
+| [BlueBubbles (iMessage)](guides/bluebubbles.md) | iMessage integration via BlueBubbles with connection HUD and diagnostics. |
+| [Gmail Integration](guides/gmail.md) | Gmail integration for email-driven workflows. |
+| [Delegation](guides/delegation.md) | Bot-to-bot delegation — immediate and deferred. |
+| [Secrets & Redaction](guides/secrets.md) | Secret vault, automatic redaction, and user input detection. |
+| [Content Ingestion](guides/ingestion.md) | Security pipeline for content feeds with sidebar dashboard and feed health HUD. |
+| [Usage & Billing](guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting, and provider pricing. |
+| [Workflows](guides/workflows.md) | Multi-step automations with conditions, approval gates, cross-bot delegation, and scoped secrets. |
+| [Heartbeats](guides/heartbeats.md) | Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and workflow triggers. |
+| [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair with carapaces for domain expertise. |
+| [Self-Improving Agents](guides/bot-skills.md) | Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility. |
+| [Custom Tools & Extensions](guides/custom-tools.md) | Create custom tools, manage a personal extensions repo, load external carapaces and skills. |
+| [Creating Integrations](integrations/index.md) | Build custom integrations with routers, dispatchers, hooks, and HUD widgets. |
+| [Chat History](guides/chat-history.md) | Conversation archival, searchable sections, and continuity across fresh starts. |
+| [Developer API](guides/api.md) | Authentication, scoped keys, streaming, SSE events. |
+| [Lifecycle Webhooks](guides/webhooks.md) | Outgoing events for monitoring, cost analytics, and audit. |
+| [Command Execution](guides/command-execution.md) | Docker workspaces, host execution, client-side shell, deferred tasks — when to use each and how they differ. |
+| [Agent Client](guides/clients.md) | Remote voice assistant + local tool executor. |
+| [Backup & Restore](backup.md) | Automated Postgres + config backups to S3. |
+| [Docker Deployment](docker-deployment.md) | Production setup with the sibling container pattern. |
 
 ## Reference
 
-<div class="grid cards" markdown>
-
--   [:material-cube-outline: **Architecture**](reference/architecture.md)
-
-    System overview, request flow, and key components.
-
--   [:material-database-search-outline: **RAG Pipeline**](reference/rag-pipeline.md)
-
-    Indexing, retrieval, hybrid search, reranking, halfvec acceleration, contextual retrieval, and LLM retry infrastructure.
-
-</div>
+| Reference | Description |
+|-----------|-------------|
+| [Architecture](reference/architecture.md) | System overview, request flow, and key components. |
+| [RAG Pipeline](reference/rag-pipeline.md) | Indexing, retrieval, hybrid search, reranking, halfvec acceleration, contextual retrieval, and LLM retry infrastructure. |
