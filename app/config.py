@@ -165,6 +165,26 @@ never repeat this mistake. Keep it concrete — "when X, do Y instead of Z."
 If the correction is trivial or situation-specific, just acknowledge it and move on — \
 do not mention this prompt to the user."""
 
+DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT = """\
+You've been repeatedly searching for the same topics. \
+These recurring lookups are a signal that the information should be a SKILL \
+so it auto-surfaces without you having to search for it.
+
+Repeated search topics:
+{topics}
+
+For each topic above, consider using `manage_bot_skill(action="create", ...)` to capture \
+the key information as a skill. Skills enter the RAG pipeline and surface automatically \
+when a user message is semantically relevant — no manual search needed.
+
+If these topics are already covered by existing skills, check if the skills have good \
+trigger phrases (use action="list" to review surface_count). \
+Do not mention this prompt to the user."""
+
+# Repeated-lookup detection — thresholds
+SKILL_REPEATED_LOOKUP_MIN_RUNS = 3  # min distinct agent runs with same query
+SKILL_REPEATED_LOOKUP_WINDOW_DAYS = 14  # look back this many days
+
 DEFAULT_SKILL_NUDGE_PROMPT = """\
 You have been working on this task for a while. Pause briefly and consider:
 
@@ -345,6 +365,7 @@ class Settings(BaseSettings):
     AGENT_MAX_ITERATIONS: int = 15
     SKILL_NUDGE_AFTER_ITERATIONS: int = SKILL_NUDGE_AFTER_ITERATIONS  # inject skill-learning nudge after N iterations (0 = disabled)
     SKILL_CORRECTION_NUDGE_ENABLED: bool = True  # inject skill-learning nudge when user corrects the bot
+    SKILL_REPEATED_LOOKUP_NUDGE_ENABLED: bool = True  # inject nudge when bot repeatedly searches same topics
     LOG_LEVEL: str = "INFO"  # INFO = pathway only; DEBUG = full args, result previews, token counts
     AGENT_TRACE: bool = False  # When True: one-line trace per tool/response (no JSON), ideal for dev
     TOOL_LOOP_DETECTION_ENABLED: bool = True  # Detect and break repeating tool call cycles within a single agent run

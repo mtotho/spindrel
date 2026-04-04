@@ -337,18 +337,41 @@ async def run_agent_tool_loop(
             effective_provider_id = resolve_provider_for_model(model)
 
         # --- Correction-driven skill nudge (one-shot, before first LLM call) ---
-        if (
-            settings.SKILL_CORRECTION_NUDGE_ENABLED
-            and not compaction
+        _has_manage_bot_skill = (
+            not compaction
             and bot.memory_scheme == "workspace-files"
             and any(t["function"]["name"] == "manage_bot_skill" for t in all_tools or [])
-        ):
+        )
+        if settings.SKILL_CORRECTION_NUDGE_ENABLED and _has_manage_bot_skill:
             _user_text = _extract_last_user_text(messages)
             if _user_text and _CORRECTION_RE.search(_user_text):
                 from app.config import DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT
                 messages.append({
                     "role": "system",
                     "content": DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT,
+                })
+
+        # --- Repeated-lookup skill nudge (one-shot, before first LLM call) ---
+        if settings.SKILL_REPEATED_LOOKUP_NUDGE_ENABLED and _has_manage_bot_skill and bot.id:
+            from app.agent.repeated_lookup_detection import find_repeated_lookups
+            from app.config import (
+                DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT,
+                SKILL_REPEATED_LOOKUP_MIN_RUNS,
+                SKILL_REPEATED_LOOKUP_WINDOW_DAYS,
+            )
+            _repeated = await find_repeated_lookups(
+                bot_id=bot.id,
+                correlation_id=str(correlation_id) if correlation_id else None,
+                min_runs=SKILL_REPEATED_LOOKUP_MIN_RUNS,
+                window_days=SKILL_REPEATED_LOOKUP_WINDOW_DAYS,
+            )
+            if _repeated:
+                _topics_list = "\n".join(f"- \"{q}\"" for q in _repeated)
+                messages.append({
+                    "role": "system",
+                    "content": DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT.format(
+                        topics=_topics_list,
+                    ),
                 })
 
         for iteration in range(effective_max_iterations):

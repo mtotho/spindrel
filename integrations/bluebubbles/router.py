@@ -6,9 +6,11 @@ new-message webhooks from BlueBubbles Server.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
+from collections import OrderedDict
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -21,6 +23,89 @@ from integrations import utils
 from integrations.bluebubbles.echo_tracker import shared_tracker
 
 logger = logging.getLogger(__name__)
+
+# Lazy-load flag for echo tracker DB state
+_echo_state_loaded: dict[str, bool] = {}
+
+
+# ---------------------------------------------------------------------------
+# Persistent GUID dedup — survives server restarts via DB
+# ---------------------------------------------------------------------------
+_SEEN_GUIDS_MAX = 5000
+_GUID_DB_KEY = "bb_seen_guids"
+_INTEGRATION_ID = "bluebubbles"
+
+
+class _GuidDedup:
+    """Track processed message GUIDs with DB persistence.
+
+    Uses an OrderedDict as a bounded LRU — newest entries at the end.
+    Persists to IntegrationSetting so state survives server restarts.
+    """
+
+    def __init__(self, max_size: int = _SEEN_GUIDS_MAX) -> None:
+        self._max = max_size
+        self._seen: OrderedDict[str, float] = OrderedDict()
+
+    def check_and_record(self, guid: str) -> bool:
+        """Return True if this GUID was already seen. Records it if new."""
+        if guid in self._seen:
+            return True
+        self._seen[guid] = time.time()
+        while len(self._seen) > self._max:
+            self._seen.popitem(last=False)
+        return False
+
+    async def save_to_db(self) -> None:
+        """Persist seen GUIDs to the DB."""
+        try:
+            from app.db.engine import async_session
+            from app.db.models import IntegrationSetting
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            recent = dict(list(self._seen.items())[-1000:])
+            data = json.dumps(recent)
+            async with async_session() as db:
+                stmt = pg_insert(IntegrationSetting).values(
+                    integration_id=_INTEGRATION_ID,
+                    key=_GUID_DB_KEY,
+                    value=data,
+                    is_secret=False,
+                ).on_conflict_do_update(
+                    index_elements=["integration_id", "key"],
+                    set_={"value": data},
+                )
+                await db.execute(stmt)
+                await db.commit()
+        except Exception:
+            logger.debug("BB dedup: could not save to DB", exc_info=True)
+
+    async def load_from_db(self) -> None:
+        """Load seen GUIDs from the DB."""
+        try:
+            from app.db.engine import async_session
+            from app.db.models import IntegrationSetting
+            from sqlalchemy import select
+
+            async with async_session() as db:
+                row = (await db.execute(
+                    select(IntegrationSetting).where(
+                        IntegrationSetting.integration_id == _INTEGRATION_ID,
+                        IntegrationSetting.key == _GUID_DB_KEY,
+                    )
+                )).scalar_one_or_none()
+
+            if row and row.value:
+                data = json.loads(row.value)
+                for guid, ts in list(data.items())[-self._max:]:
+                    self._seen[guid] = ts
+                if self._seen:
+                    logger.info("BB dedup: loaded %d GUIDs from DB", len(self._seen))
+        except Exception:
+            logger.debug("BB dedup: could not load from DB", exc_info=True)
+
+
+_guid_dedup = _GuidDedup()
 
 router = APIRouter()
 
@@ -408,6 +493,13 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                            len(expected), len(token))
             raise HTTPException(status_code=401, detail="Invalid or missing token")
 
+    # Load persisted state from DB on first webhook call.
+    # This ensures circuit breaker / cooldown / GUID dedup survive server restarts.
+    if not _echo_state_loaded.get("done"):
+        await shared_tracker.load_from_db()
+        await _guid_dedup.load_from_db()
+        _echo_state_loaded["done"] = True
+
     try:
         payload = await request.json()
     except Exception:
@@ -442,6 +534,13 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     is_from_me = bool(data.get("isFromMe"))
     msg_guid = data.get("guid", "")
+
+    # GUID dedup — reject any message we've already processed.
+    # This is persisted to disk so it survives server restarts,
+    # preventing replay storms when BB retries old webhooks.
+    if msg_guid and _guid_dedup.check_and_record(msg_guid):
+        logger.info("BB webhook: duplicate GUID %s, ignoring", msg_guid)
+        return {"status": "ignored", "reason": "duplicate"}
 
     # Extract chat GUID (BB puts chats in a list)
     chats = data.get("chats") or []
@@ -539,6 +638,9 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     logger.info("BB webhook: processed %s from %s → %d channel(s), run_agent=%s",
                 chat_guid, sender, len(results), any(r.get("task_id") for r in results))
+
+    # Persist GUID dedup state to DB (batched — only on successful processing)
+    await _guid_dedup.save_to_db()
 
     return {
         "status": "processed",

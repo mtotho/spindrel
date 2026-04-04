@@ -114,7 +114,7 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
     "function": {
         "name": "manage_bot_skill",
         "description": (
-            "Create, update, list, get, delete, or patch your own reusable skills. "
+            "Create, update, list, get, delete, patch, or merge your own reusable skills. "
             "Skills you author enter the RAG pipeline and are semantically retrievable "
             "in future sessions. Use this to capture solution patterns, domain knowledge, "
             "troubleshooting guides, and procedures you've learned."
@@ -124,7 +124,7 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["create", "update", "list", "get", "delete", "patch"],
+                    "enum": ["create", "update", "list", "get", "delete", "patch", "merge"],
                     "description": "The action to perform.",
                 },
                 "name": {
@@ -172,6 +172,15 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                     "type": "integer",
                     "description": "Number of skills to skip for list action (for pagination).",
                 },
+                "names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "List of skill names to merge (for merge action). "
+                        "The source skills are deleted after merge. "
+                        "Provide name + title + content for the merged result."
+                    ),
+                },
             },
             "required": ["action"],
         },
@@ -189,6 +198,7 @@ async def manage_bot_skill(
     force: bool = False,
     limit: int = 20,
     offset: int = 0,
+    names: list[str] | None = None,
 ) -> str:
     bot_id = current_bot_id.get()
     if not bot_id:
@@ -418,7 +428,90 @@ async def manage_bot_skill(
         _invalidate_cache(bot_id)
         return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' patched."})
 
-    return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, get, delete, or patch."})
+    # --- MERGE ---
+    if action == "merge":
+        if not names or len(names) < 2:
+            return json.dumps({"error": "names must contain at least 2 skill names to merge."})
+        if not name or not title or not content:
+            return json.dumps({
+                "error": "name, title, and content are required for the merged result skill.",
+            })
+        name_err = _validate_name(name)
+        if name_err:
+            return json.dumps({"error": name_err})
+        content_err = _validate_content(content)
+        if content_err:
+            return json.dumps({"error": content_err})
+        merged_id, err = _safe_skill_id(bot_id, name)
+        if err:
+            return err
+
+        from sqlalchemy import delete as sa_delete
+        from app.db.models import Document
+
+        # Resolve all source skill IDs and verify they exist + are owned
+        source_ids: list[str] = []
+        for src_name in names:
+            src_id, src_err = _safe_skill_id(bot_id, src_name)
+            if src_err:
+                return src_err
+            source_ids.append(src_id)
+
+        async with async_session() as db:
+            # Load all source skills in one pass — validate and keep refs for deletion
+            source_rows: list = []
+            for src_id in source_ids:
+                row = await db.get(SkillRow, src_id)
+                if not row:
+                    return json.dumps({"error": f"Source skill '{src_id}' not found."})
+                if row.source_type not in ("tool", "manual"):
+                    return json.dumps({"error": f"Cannot merge file-managed skill '{src_id}'."})
+                if not row.id.startswith(prefix):
+                    return json.dumps({"error": f"Cannot merge another bot's skill '{src_id}'."})
+                source_rows.append(row)
+
+            # Check if merged target already exists (and isn't one of the sources)
+            existing = await db.get(SkillRow, merged_id)
+            if existing and merged_id not in source_ids:
+                return json.dumps({"error": f"Target skill '{merged_id}' already exists and is not one of the source skills."})
+
+            # Delete source skills + their embeddings
+            deleted_names = []
+            for row in source_rows:
+                deleted_names.append(row.name)
+                await db.delete(row)
+                await db.execute(sa_delete(Document).where(Document.source == f"skill:{row.id}"))
+
+            # Create the merged skill
+            full_content = _build_content(title, content, triggers, category)
+            content_hash = hashlib.sha256(full_content.encode()).hexdigest()
+            now = datetime.now(timezone.utc)
+            merged_row = SkillRow(
+                id=merged_id,
+                name=title.strip(),
+                content=full_content,
+                content_hash=content_hash,
+                source_type="tool",
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(merged_row)
+            await db.commit()
+
+        embedded = await _embed_skill_safe(merged_id)
+        _invalidate_cache(bot_id)
+        return json.dumps({
+            "ok": True,
+            "id": merged_id,
+            "embedded": embedded,
+            "deleted": source_ids,
+            "message": (
+                f"Merged {len(source_ids)} skills into '{merged_id}'. "
+                f"Deleted: {', '.join(deleted_names)}."
+            ),
+        })
+
+    return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, get, delete, patch, or merge."})
 
 
 def _invalidate_cache(bot_id: str) -> None:

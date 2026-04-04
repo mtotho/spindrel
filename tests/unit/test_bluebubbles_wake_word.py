@@ -356,6 +356,22 @@ def _webhook_request(payload: dict) -> AsyncMock:
 class TestWebhookEndpoint:
     """Test the POST /webhook handler in router.py."""
 
+    @pytest.fixture(autouse=True)
+    def _bypass_guid_dedup(self):
+        """All webhook tests bypass GUID dedup by default."""
+        with patch("integrations.bluebubbles.router._guid_dedup") as mock_dedup:
+            mock_dedup.check_and_record.return_value = False
+            mock_dedup.save_to_db = AsyncMock()
+            yield mock_dedup
+
+    @pytest.fixture(autouse=True)
+    def _skip_db_loading(self):
+        """Skip the lazy DB state loading in webhook handler."""
+        from integrations.bluebubbles import router as _router_mod
+        _router_mod._echo_state_loaded["done"] = True
+        yield
+        _router_mod._echo_state_loaded.clear()
+
     @pytest.mark.asyncio
     async def test_missing_token_rejected(self):
         """Requests without a valid token are rejected with 401."""
@@ -591,6 +607,32 @@ class TestWebhookEndpoint:
         assert call_kwargs.args[1].startswith("[+15559999999]:")
 
     @pytest.mark.asyncio
+    async def test_duplicate_guid_rejected(self, _bypass_guid_dedup):
+        """Same message GUID sent twice → second is rejected."""
+        from integrations.bluebubbles.router import webhook
+
+        payload = _bb_webhook_payload(text="hello", msg_guid="dup-guid-123")
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()), \
+             patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[]):
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            # First call: not a duplicate
+            _bypass_guid_dedup.check_and_record.return_value = False
+            result1 = await webhook(_webhook_request(payload), db)
+
+            # Second call: duplicate
+            _bypass_guid_dedup.check_and_record.return_value = True
+            result2 = await webhook(_webhook_request(payload), db)
+
+        # First should pass dedup (hits unbound since no channels)
+        assert result2["status"] == "ignored"
+        assert result2["reason"] == "duplicate"
+
+    @pytest.mark.asyncio
     async def test_stale_message_ignored(self):
         """Messages older than the staleness threshold are ignored."""
         import time as _time
@@ -680,6 +722,22 @@ class TestWebhookEndpoint:
 
 class TestPerBindingConfig:
     """Test per-binding config_fields: extra_wake_words and use_bot_wake_word."""
+
+    @pytest.fixture(autouse=True)
+    def _bypass_guid_dedup(self):
+        """All per-binding tests bypass GUID dedup by default."""
+        with patch("integrations.bluebubbles.router._guid_dedup") as mock_dedup:
+            mock_dedup.check_and_record.return_value = False
+            mock_dedup.save_to_db = AsyncMock()
+            yield mock_dedup
+
+    @pytest.fixture(autouse=True)
+    def _skip_db_loading(self):
+        """Skip the lazy DB state loading in webhook handler."""
+        from integrations.bluebubbles import router as _router_mod
+        _router_mod._echo_state_loaded["done"] = True
+        yield
+        _router_mod._echo_state_loaded.clear()
 
     @pytest.mark.asyncio
     async def test_binding_extra_wake_words_trigger(self):

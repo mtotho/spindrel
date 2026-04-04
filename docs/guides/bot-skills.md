@@ -61,6 +61,7 @@ All bot-authored skills follow the pattern `bots/{bot_id}/{slug}`. This ensures:
 | `get` | Retrieve a skill by name |
 | `list` | List all self-authored skills |
 | `delete` | Remove a skill and its embeddings |
+| `merge` | Combine 2+ skills into one, deleting the sources |
 
 ### Frontmatter
 
@@ -159,6 +160,50 @@ The system prompt teaches bots the critical difference:
 
 **Rule of thumb**: If future-you should see this automatically when someone hits a similar problem, make it a skill. If future-you needs to actively look it up, put it in a reference file.
 
+## Merging Skills
+
+When bots accumulate many small related skills, they can merge them using `action="merge"`:
+
+```
+manage_bot_skill(
+  action="merge",
+  names=["docker-dns-fix", "docker-bridge-issues"],
+  name="docker-networking",
+  title="Docker Networking Troubleshooting",
+  content="# Docker Networking\n\n## DNS Resolution...\n\n## Bridge Issues...",
+  triggers="docker, networking, DNS, bridge, container",
+  category="troubleshooting"
+)
+```
+
+The merge action:
+- Takes 2+ source skill names via `names`
+- Creates a new combined skill from the provided `name`, `title`, and `content`
+- Deletes all source skills and their embeddings
+- Re-embeds the merged result
+- The bot should write the merged content itself (the system doesn't auto-concatenate)
+
+If the target `name` matches one of the source skills, it's treated as a rename-merge (allowed). Otherwise, the target must not already exist.
+
+## Repeated-Lookup Detection
+
+The system monitors `search_memory` calls across agent runs. When a bot repeatedly searches for the same topic (3+ distinct agent runs within 14 days), a one-shot nudge is injected at the start of the next run suggesting the bot create a skill for that topic.
+
+This catches the highest-signal learning gap: information the bot needs but hasn't codified. Skills auto-surface via RAG, eliminating the need for repeated manual searches.
+
+Disable with `SKILL_REPEATED_LOOKUP_NUDGE_ENABLED=false`.
+
+## Skill Review Heartbeat
+
+A built-in heartbeat prompt template (`prompts/skill-review.md`) runs periodic skill maintenance. Assign it to any bot with `manage_bot_skill` available. On each run, the bot:
+
+1. Lists all self-authored skills with surfacing stats
+2. Identifies stale skills (low surface_count, old last_surfaced_at)
+3. Merges duplicates, rewrites weak triggers, or deletes dead-weight skills
+4. Reports a summary of changes
+
+Recommended interval: weekly. See the template for customization options.
+
 ## Configuration
 
 | Setting | Default | Description |
@@ -167,6 +212,7 @@ The system prompt teaches bots the critical difference:
 | `RAG_SIMILARITY_THRESHOLD` | 0.3 | Min similarity for RAG retrieval |
 | `SKILL_NUDGE_AFTER_ITERATIONS` | 8 | Inject learning nudge after N tool iterations (0 = disabled) |
 | `SKILL_CORRECTION_NUDGE_ENABLED` | true | Inject learning nudge when user corrects the bot |
+| `SKILL_REPEATED_LOOKUP_NUDGE_ENABLED` | true | Inject nudge when bot repeatedly searches same topics |
 
 ## Prompt Guidance
 

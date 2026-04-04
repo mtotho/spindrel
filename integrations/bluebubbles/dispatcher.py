@@ -44,6 +44,8 @@ async def _bb_send(server_url: str, password: str, chat_guid: str, text: str) ->
     """Send a text message via BB API. Returns True on success."""
     temp_guid = str(uuid.uuid4())
     shared_tracker.track_sent(temp_guid, text, chat_guid=chat_guid)
+    # Persist reply state to DB so circuit breaker survives restarts
+    await shared_tracker.save_to_db()
     result = await send_text(
         _http, server_url, password, chat_guid, text,
         temp_guid=temp_guid,

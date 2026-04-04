@@ -1331,3 +1331,271 @@ class TestCorrectionNudge:
         # handles the "once" guarantee by position (pre-loop).
         matches = [bool(_CORRECTION_RE.search(m)) for m in messages_with_corrections]
         assert all(matches)
+
+
+# ---------------------------------------------------------------------------
+# Merge action tests
+# ---------------------------------------------------------------------------
+
+class TestMergeAction:
+
+    @pytest.mark.asyncio
+    async def test_merge_requires_at_least_two_names(self):
+        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge", names=["only-one"],
+                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+            ))
+            assert "at least 2" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_merge_requires_names(self):
+        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge",
+                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+            ))
+            assert "at least 2" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_merge_requires_target_fields(self):
+        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
+            ctx.get.return_value = "testbot"
+            # Missing name
+            result = _parse(await manage_bot_skill(
+                action="merge", names=["a", "b"],
+                title="Merged", content="x" * CONTENT_MIN_LENGTH,
+            ))
+            assert "required" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_merge_succeeds(self):
+        """Merging 2 skills into 1 should delete sources and create target."""
+        skill_a = _make_skill_row("bots/testbot/skill-a", name="Skill A", source_type="tool")
+        skill_b = _make_skill_row("bots/testbot/skill-b", name="Skill B", source_type="tool")
+
+        # Map skill IDs to mock rows for db.get
+        skill_map = {
+            "bots/testbot/skill-a": skill_a,
+            "bots/testbot/skill-b": skill_b,
+            "bots/testbot/merged": None,  # target doesn't exist yet
+        }
+
+        db = AsyncMock()
+        db.get = AsyncMock(side_effect=lambda model, key: skill_map.get(key))
+        db.delete = AsyncMock()
+        db.execute = AsyncMock()
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge",
+                names=["skill-a", "skill-b"],
+                name="merged",
+                title="Merged Skill",
+                content="x" * CONTENT_MIN_LENGTH,
+            ))
+
+        assert result["ok"] is True
+        assert result["id"] == "bots/testbot/merged"
+        assert len(result["deleted"]) == 2
+        assert "bots/testbot/skill-a" in result["deleted"]
+        assert "bots/testbot/skill-b" in result["deleted"]
+        # Should have called delete for both source skills
+        assert db.delete.call_count == 2
+        # Should have added the merged skill
+        db.add.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_merge_rejects_file_managed_source(self):
+        """Cannot merge a file-managed skill."""
+        skill_a = _make_skill_row("bots/testbot/skill-a", source_type="file")
+        skill_b = _make_skill_row("bots/testbot/skill-b", source_type="tool")
+
+        db = AsyncMock()
+        db.get = AsyncMock(side_effect=lambda model, key: {
+            "bots/testbot/skill-a": skill_a,
+            "bots/testbot/skill-b": skill_b,
+        }.get(key))
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge", names=["skill-a", "skill-b"],
+                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+            ))
+            assert "file-managed" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_merge_rejects_missing_source(self):
+        """Cannot merge a skill that doesn't exist."""
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge", names=["missing-a", "missing-b"],
+                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+            ))
+            assert "not found" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_merge_target_already_exists_and_not_source(self):
+        """Target skill exists but isn't one of the sources → error."""
+        skill_a = _make_skill_row("bots/testbot/skill-a", source_type="tool")
+        skill_b = _make_skill_row("bots/testbot/skill-b", source_type="tool")
+        existing_target = _make_skill_row("bots/testbot/merged", source_type="tool")
+
+        db = AsyncMock()
+        db.get = AsyncMock(side_effect=lambda model, key: {
+            "bots/testbot/skill-a": skill_a,
+            "bots/testbot/skill-b": skill_b,
+            "bots/testbot/merged": existing_target,
+        }.get(key))
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge", names=["skill-a", "skill-b"],
+                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+            ))
+            assert "already exists" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_merge_target_is_one_of_sources(self):
+        """Target skill = one of the sources → allowed (common rename-merge pattern)."""
+        skill_a = _make_skill_row("bots/testbot/skill-a", name="Skill A", source_type="tool")
+        skill_b = _make_skill_row("bots/testbot/skill-b", name="Skill B", source_type="tool")
+
+        # When target = skill-a, the first get for "skill-a" as target returns the row,
+        # but merged_id is in source_ids so it's allowed
+        call_count = {"n": 0}
+        def mock_get(model, key):
+            call_count["n"] += 1
+            return {
+                "bots/testbot/skill-a": skill_a,
+                "bots/testbot/skill-b": skill_b,
+            }.get(key)
+
+        db = AsyncMock()
+        db.get = AsyncMock(side_effect=mock_get)
+        db.delete = AsyncMock()
+        db.execute = AsyncMock()
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge", names=["skill-a", "skill-b"],
+                name="skill-a", title="Combined", content="x" * CONTENT_MIN_LENGTH,
+            ))
+        assert result["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_merge_validates_content(self):
+        """Merge should validate the merged content."""
+        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge", names=["a", "b"],
+                name="merged", title="Merged", content="tiny",
+            ))
+            assert "too short" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Repeated-lookup detection tests
+# ---------------------------------------------------------------------------
+
+class TestRepeatedLookupDetection:
+
+    @pytest.mark.asyncio
+    async def test_find_repeated_lookups_returns_queries(self):
+        """Should return queries that appear in 3+ distinct agent runs."""
+        from app.agent.repeated_lookup_detection import find_repeated_lookups, _cache
+        _cache.clear()
+
+        mock_row = MagicMock()
+        mock_row.query_text = "docker networking"
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = [mock_row]
+
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=mock_result)
+
+        with patch("app.db.engine.async_session", _mock_session(db)):
+            result = await find_repeated_lookups("testbot", min_runs=3)
+
+        assert result == ["docker networking"]
+        _cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_find_repeated_lookups_empty_on_no_matches(self):
+        """Should return empty list when no repeated queries found."""
+        from app.agent.repeated_lookup_detection import find_repeated_lookups, _cache
+        _cache.clear()
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+
+        db = AsyncMock()
+        db.execute = AsyncMock(return_value=mock_result)
+
+        with patch("app.db.engine.async_session", _mock_session(db)):
+            result = await find_repeated_lookups("testbot")
+
+        assert result == []
+        _cache.clear()
+
+    @pytest.mark.asyncio
+    async def test_find_repeated_lookups_handles_errors_gracefully(self):
+        """Should return empty list on error (non-blocking)."""
+        from app.agent.repeated_lookup_detection import find_repeated_lookups, _cache
+        _cache.clear()
+
+        with patch("app.db.engine.async_session", side_effect=RuntimeError("boom")):
+            result = await find_repeated_lookups("testbot")
+
+        assert result == []
+        _cache.clear()
+
+    def test_repeated_lookup_nudge_prompt_has_topics_placeholder(self):
+        """Nudge prompt should have a {topics} placeholder for formatting."""
+        from app.config import DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT
+        assert "{topics}" in DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT
+
+    def test_repeated_lookup_nudge_setting_exists(self):
+        """Settings should have the toggle for repeated lookup nudge."""
+        from app.config import settings
+        assert hasattr(settings, "SKILL_REPEATED_LOOKUP_NUDGE_ENABLED")
+
+    def test_repeated_lookup_nudge_prompt_mentions_skill_creation(self):
+        """Nudge should guide the bot to create skills."""
+        from app.config import DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT
+        assert "manage_bot_skill" in DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT

@@ -12,13 +12,21 @@ Tracking uses three layers:
 
 Plus a circuit breaker: if we've replied to the same chat N times
 in a short window, stop responding entirely.
+
+The reply cooldown and circuit breaker state is **persisted to the DB**
+(via IntegrationSetting) so it survives server restarts — this is
+critical to prevent loops when BB replays queued webhooks after a restart.
 """
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 def _text_hash(text: str) -> str:
@@ -30,7 +38,7 @@ def _text_hash(text: str) -> str:
 class _Entry:
     temp_guid: str
     text_hash: str
-    timestamp: float
+    timestamp: float  # monotonic
 
 
 # Default: 5 minutes — long enough for slow LLM responses
@@ -45,6 +53,9 @@ _REPLY_COOLDOWN = 120.0  # 2 minutes
 _CIRCUIT_BREAKER_MAX = 5
 _CIRCUIT_BREAKER_WINDOW = 300.0  # 5 minutes
 
+_DB_KEY = "bb_reply_state"
+_INTEGRATION_ID = "bluebubbles"
+
 
 class EchoTracker:
     """Track bot-sent messages to distinguish them from human isFromMe messages."""
@@ -53,7 +64,8 @@ class EchoTracker:
         self.ttl = ttl
         self._by_guid: dict[str, _Entry] = {}
         self._by_hash: dict[str, _Entry] = {}
-        # Per-chat: list of timestamps when we sent replies
+        # Per-chat: list of wall-clock timestamps when we sent replies.
+        # Uses time.time() (not monotonic) so it can be persisted.
         self._chat_replies: dict[str, list[float]] = defaultdict(list)
 
     def track_sent(self, temp_guid: str, text: str, *, chat_guid: str = "") -> None:
@@ -64,7 +76,7 @@ class EchoTracker:
         self._by_guid[temp_guid] = entry
         self._by_hash[h] = entry
         if chat_guid:
-            self._chat_replies[chat_guid].append(time.monotonic())
+            self._chat_replies[chat_guid].append(time.time())
 
     def is_echo(self, guid: str, text: str) -> bool:
         """Check if an incoming isFromMe message is one we sent (echo) or human."""
@@ -89,7 +101,7 @@ class EchoTracker:
         """
         if not chat_guid:
             return False
-        now = time.monotonic()
+        now = time.time()
         replies = self._chat_replies.get(chat_guid, [])
         return any(now - ts < _REPLY_COOLDOWN for ts in replies)
 
@@ -100,7 +112,7 @@ class EchoTracker:
         """
         if not chat_guid:
             return False
-        now = time.monotonic()
+        now = time.time()
         replies = self._chat_replies.get(chat_guid, [])
         recent = [ts for ts in replies if now - ts < _CIRCUIT_BREAKER_WINDOW]
         return len(recent) >= _CIRCUIT_BREAKER_MAX
@@ -112,18 +124,72 @@ class EchoTracker:
         for k in expired_guids:
             entry = self._by_guid.pop(k)
             self._by_hash.pop(entry.text_hash, None)
-        # Also evict orphaned hash entries
         expired_hashes = [k for k, e in self._by_hash.items() if e.timestamp < cutoff]
         for k in expired_hashes:
             self._by_hash.pop(k)
-        # Evict old chat reply timestamps
-        breaker_cutoff = time.monotonic() - _CIRCUIT_BREAKER_WINDOW
+        # Evict old chat reply timestamps (wall clock)
+        breaker_cutoff = time.time() - _CIRCUIT_BREAKER_WINDOW
         for chat_guid in list(self._chat_replies):
             self._chat_replies[chat_guid] = [
                 ts for ts in self._chat_replies[chat_guid] if ts > breaker_cutoff
             ]
             if not self._chat_replies[chat_guid]:
                 del self._chat_replies[chat_guid]
+
+    # -- DB persistence (IntegrationSetting) --
+
+    async def save_to_db(self) -> None:
+        """Persist reply timestamps to the DB."""
+        try:
+            from app.db.engine import async_session
+            from app.db.models import IntegrationSetting
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            data = json.dumps(dict(self._chat_replies))
+            async with async_session() as db:
+                stmt = pg_insert(IntegrationSetting).values(
+                    integration_id=_INTEGRATION_ID,
+                    key=_DB_KEY,
+                    value=data,
+                    is_secret=False,
+                ).on_conflict_do_update(
+                    index_elements=["integration_id", "key"],
+                    set_={"value": data},
+                )
+                await db.execute(stmt)
+                await db.commit()
+        except Exception:
+            logger.debug("BB echo tracker: could not save reply state to DB", exc_info=True)
+
+    async def load_from_db(self) -> None:
+        """Load reply timestamps from the DB."""
+        try:
+            from app.db.engine import async_session
+            from app.db.models import IntegrationSetting
+            from sqlalchemy import select
+
+            async with async_session() as db:
+                row = (await db.execute(
+                    select(IntegrationSetting).where(
+                        IntegrationSetting.integration_id == _INTEGRATION_ID,
+                        IntegrationSetting.key == _DB_KEY,
+                    )
+                )).scalar_one_or_none()
+
+            if row and row.value:
+                data = json.loads(row.value)
+                now = time.time()
+                loaded = 0
+                for chat_guid, timestamps in data.items():
+                    recent = [ts for ts in timestamps if now - ts < _CIRCUIT_BREAKER_WINDOW]
+                    if recent:
+                        self._chat_replies[chat_guid] = recent
+                        loaded += len(recent)
+                if loaded:
+                    logger.info("BB echo tracker: loaded %d reply timestamps for %d chats from DB",
+                                loaded, len(self._chat_replies))
+        except Exception:
+            logger.debug("BB echo tracker: could not load reply state from DB", exc_info=True)
 
 
 # Shared singleton — used by both webhook handler and dispatcher
