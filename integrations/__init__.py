@@ -299,6 +299,11 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                 if ap:
                     entry["api_permissions"] = ap
 
+                # Debug actions
+                da = setup.get("debug_actions")
+                if da and isinstance(da, list):
+                    entry["debug_actions"] = da
+
                 # Webhook
                 wh = setup.get("webhook")
                 if wh:

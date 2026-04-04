@@ -95,6 +95,6 @@ steps:
       - gmail-feeds
     when:
       step: poll
-      output_contains: "passed"
+      output_contains: "Delivered"
     on_failure: continue
     result_max_chars: 3000

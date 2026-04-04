@@ -1527,6 +1527,17 @@ class TestMergeAction:
             ))
             assert "too short" in result["error"].lower()
 
+    @pytest.mark.asyncio
+    async def test_merge_deduplicates_names(self):
+        """Duplicate names in the list should be collapsed, and rejected if < 2 distinct."""
+        with patch("app.tools.local.bot_skills.current_bot_id") as ctx:
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge", names=["same", "same"],
+                name="merged", title="Merged", content="x" * CONTENT_MIN_LENGTH,
+            ))
+            assert "at least 2 distinct" in result["error"]
+
 
 # ---------------------------------------------------------------------------
 # Repeated-lookup detection tests

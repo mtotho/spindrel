@@ -25,6 +25,31 @@ SETUP = {
         {"package": "python-socketio", "import_name": "socketio"},
         {"package": "aiohttp", "import_name": "aiohttp"},
     ],
+    "debug_actions": [
+        {
+            "id": "pause",
+            "label": "Pause Webhooks",
+            "description": "Stop processing all incoming webhooks",
+            "endpoint": "pause",
+            "method": "POST",
+            "style": "warning",
+        },
+        {
+            "id": "resume",
+            "label": "Resume Webhooks",
+            "description": "Resume processing webhooks after a pause",
+            "endpoint": "resume",
+            "method": "POST",
+            "style": "default",
+        },
+        {
+            "id": "diagnose",
+            "label": "Run Diagnostics",
+            "description": "Check dispatcher, credentials, and channel bindings",
+            "endpoint": "diagnose",
+            "method": "GET",
+        },
+    ],
     "binding": {
         "client_id_prefix": "bb:",
         "client_id_placeholder": "bb:iMessage;-;+15551234567",

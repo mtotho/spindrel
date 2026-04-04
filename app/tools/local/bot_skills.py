@@ -131,7 +131,7 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                     "type": "string",
                     "description": (
                         "Skill slug (lowercase, hyphens). Becomes bots/{bot_id}/{name}. "
-                        "Required for create, update, get, delete, patch."
+                        "Required for create, update, get, delete, patch, merge."
                     ),
                 },
                 "title": {
@@ -451,11 +451,16 @@ async def manage_bot_skill(
 
         # Resolve all source skill IDs and verify they exist + are owned
         source_ids: list[str] = []
+        seen: set[str] = set()
         for src_name in names:
             src_id, src_err = _safe_skill_id(bot_id, src_name)
             if src_err:
                 return src_err
-            source_ids.append(src_id)
+            if src_id not in seen:
+                source_ids.append(src_id)
+                seen.add(src_id)
+        if len(source_ids) < 2:
+            return json.dumps({"error": "names must contain at least 2 distinct skill names to merge."})
 
         async with async_session() as db:
             # Load all source skills in one pass — validate and keep refs for deletion
@@ -521,6 +526,13 @@ def _invalidate_cache(bot_id: str) -> None:
         invalidate_bot_skill_cache(bot_id)
     except Exception:
         pass  # non-critical
+    # Also clear the repeated-lookup cache so the nudge stops firing
+    # after the bot creates/merges a skill (it already acted on the nudge).
+    try:
+        from app.agent.repeated_lookup_detection import _cache as _lookup_cache
+        _lookup_cache.pop(bot_id, None)
+    except Exception:
+        pass
 
 
 async def _embed_skill_safe(skill_id: str) -> bool:

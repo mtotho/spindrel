@@ -52,11 +52,11 @@ function fmtRelative(iso: string | null | undefined): string {
   return fmtDate(iso);
 }
 
-function SurfacingBadge({ count, lastAt }: { count: number; lastAt?: string | null }) {
+function SurfacingBadge({ count, lastAt, compact }: { count: number; lastAt?: string | null; compact?: boolean }) {
   const t = useThemeTokens();
   if (!count) {
     return (
-      <span style={{ fontSize: 10, color: t.textDim }} title="Never surfaced in context">
+      <span style={{ fontSize: 10, color: t.textDim }} title="Never surfaced in bot context">
         --
       </span>
     );
@@ -68,10 +68,10 @@ function SurfacingBadge({ count, lastAt }: { count: number; lastAt?: string | nu
         display: "inline-flex", alignItems: "center", gap: 3,
         fontSize: 10, color: isHot ? "#059669" : t.textMuted,
       }}
-      title={`Surfaced ${count} times, last ${fmtRelative(lastAt)}`}
+      title={`Surfaced in bot context ${count} times — last ${fmtRelative(lastAt)}`}
     >
       {isHot && <TrendingUp size={10} />}
-      {count}
+      {count}{!compact && <span style={{ fontSize: 9, color: t.textDim }}>surfaced</span>}
     </span>
   );
 }
@@ -151,11 +151,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: t.textDim }}>
           <span style={{ fontFamily: "monospace" }}>{skill.id}</span>
           <span>{skill.chunk_count} chunks</span>
-          {skill.surface_count > 0 && (
-            <span title={`Last surfaced ${fmtRelative(skill.last_surfaced_at)}`}>
-              <SurfacingBadge count={skill.surface_count} lastAt={skill.last_surfaced_at} />
-            </span>
-          )}
+          <SurfacingBadge count={skill.surface_count} lastAt={skill.last_surfaced_at} />
           {isWs && skill.workspace_name && (
             <span style={{ color: t.purple }}>{skill.workspace_name}</span>
           )}
@@ -212,7 +208,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
       <SourceBadge type={skill.source_type} detail={wsDetail} />
       <span style={{ fontSize: 11, color: t.textMuted, textAlign: "right" }}>{skill.chunk_count}</span>
       <span style={{ textAlign: "right" }}>
-        <SurfacingBadge count={skill.surface_count} lastAt={skill.last_surfaced_at} />
+        <SurfacingBadge count={skill.surface_count} lastAt={skill.last_surfaced_at} compact />
       </span>
       <span style={{ fontSize: 11, color: t.textDim, textAlign: "right" }}>{fmtDate(skill.updated_at)}</span>
     </button>
@@ -447,6 +443,21 @@ export default function SkillsScreen() {
         {skills && skills.length > 0 && filteredSkills.length === 0 && (
           <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
             No skills match "{search}"
+          </div>
+        )}
+        {/* Column headers (desktop only) */}
+        {isWide && renderItems.length > 0 && (
+          <div style={{
+            display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 60px 100px",
+            gap: 12, padding: "6px 16px",
+            borderBottom: `1px solid ${t.surfaceBorder}`,
+          }}>
+            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1 }}>ID</span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Name</span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1 }}>Source</span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1, textAlign: "right" }}>Chunks</span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1, textAlign: "right" }}>Surfaced</span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 1, textAlign: "right" }}>Updated</span>
           </div>
         )}
         {renderItems.map((item) =>

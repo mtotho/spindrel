@@ -5,10 +5,12 @@ import asyncio
 import logging
 import sys
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.models import Task
 from app.dependencies import get_db
 from app.services.integration_processes import process_manager
 
@@ -297,6 +299,70 @@ async def provision_or_regenerate_integration_api_key(
         "scopes": key.scopes,
         "created_at": key.created_at.isoformat() if key.created_at else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Integration task endpoints (generic — works for ANY integration)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/integrations/{integration_id}/tasks")
+async def list_integration_tasks(
+    integration_id: str,
+    status: str | None = Query(None, description="Filter by task status"),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """List recent tasks for an integration, filtered by dispatch_type."""
+    q = select(Task).where(Task.dispatch_type == integration_id).order_by(Task.created_at.desc()).limit(limit)
+    if status:
+        q = q.where(Task.status == status)
+    rows = (await db.execute(q)).scalars().all()
+
+    # Also fetch aggregate counts
+    count_q = (
+        select(Task.status, func.count())
+        .where(Task.dispatch_type == integration_id)
+        .group_by(Task.status)
+    )
+    count_rows = (await db.execute(count_q)).all()
+    stats = {row[0]: row[1] for row in count_rows}
+
+    return {
+        "tasks": [
+            {
+                "id": str(t.id),
+                "status": t.status,
+                "prompt": (t.prompt or "")[:120],
+                "title": t.title,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                "error": (t.error or "")[:200] if t.error else None,
+                "bot_id": t.bot_id,
+                "task_type": t.task_type,
+            }
+            for t in rows
+        ],
+        "stats": stats,
+    }
+
+
+@router.post("/integrations/{integration_id}/cancel-pending-tasks")
+async def cancel_integration_pending_tasks(
+    integration_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel all pending tasks for an integration. Use after spam incidents."""
+    result = await db.execute(
+        update(Task)
+        .where(Task.status == "pending", Task.dispatch_type == integration_id)
+        .values(status="cancelled")
+    )
+    count = result.rowcount
+    await db.commit()
+
+    logger.warning("cancel-pending-tasks for %s: cancelled %d tasks", integration_id, count)
+    return {"cancelled": count}
 
 
 # ---------------------------------------------------------------------------

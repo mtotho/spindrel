@@ -28,6 +28,7 @@ import {
   type IntegrationItem,
 } from "@/src/api/hooks/useIntegrations";
 import { StatusBadge, CapBadge, EnvVarPill, formatUptime } from "../components";
+import { IntegrationDebugSection } from "./IntegrationDebugSection";
 
 // ---------------------------------------------------------------------------
 // Section wrapper
@@ -721,6 +722,12 @@ export default function IntegrationDetailScreen() {
             <ApiKeySection integrationId={item.id} />
           </SectionBox>
         )}
+
+        {/* Activity & Debug */}
+        <IntegrationDebugSection
+          integrationId={item.id}
+          debugActions={item.debug_actions}
+        />
 
         {/* README */}
         {item.readme && <ReadmeSection content={item.readme} />}

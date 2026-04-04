@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, Zap, BookOpen } from "lucide-react";
+import { Search, Zap, BookOpen, TrendingUp, AlertTriangle } from "lucide-react";
 import { useRouter } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useSkills } from "@/src/api/hooks/useSkills";
@@ -84,6 +84,20 @@ function groupSkills(skills: SkillOption[]): GroupedItem[] {
   return items;
 }
 
+function fmtRelative(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  const d = new Date(iso);
+  const diffMs = Date.now() - d.getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function SelfAuthoredSkillsBanner({ botId }: { botId: string }) {
   const t = useThemeTokens();
   const router = useRouter();
@@ -91,13 +105,16 @@ function SelfAuthoredSkillsBanner({ botId }: { botId: string }) {
 
   if (!botSkills || botSkills.length === 0) return null;
 
-  const recent = botSkills.slice(0, 3);
+  const totalSurfaced = botSkills.reduce((n, s) => n + s.surface_count, 0);
+  const staleSkills = botSkills.filter((s) => s.surface_count === 0);
+
   return (
     <div style={{
       padding: "10px 12px", background: "rgba(16,185,129,0.08)",
       border: "1px solid rgba(16,185,129,0.2)", borderRadius: 8, marginBottom: 8,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+      {/* Header row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
         <BookOpen size={13} color="#059669" />
         <span style={{ fontSize: 12, fontWeight: 600, color: "#059669" }}>
           {botSkills.length} self-authored skill{botSkills.length !== 1 ? "s" : ""}
@@ -112,16 +129,49 @@ function SelfAuthoredSkillsBanner({ botId }: { botId: string }) {
           View all
         </button>
       </div>
+
+      {/* Stats row */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 16, marginBottom: 8,
+        fontSize: 11, color: t.textMuted,
+      }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <TrendingUp size={10} color="#059669" />
+          <strong style={{ color: t.text }}>{totalSurfaced}</strong> total surfacings
+        </span>
+        {staleSkills.length > 0 && (
+          <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <AlertTriangle size={10} color="#d97706" />
+            <strong style={{ color: "#d97706" }}>{staleSkills.length}</strong> never surfaced
+          </span>
+        )}
+      </div>
+
+      {/* Skill list */}
       <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        {recent.map((s) => (
+        {botSkills.slice(0, 5).map((s) => (
           <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-            <span style={{ color: t.text, fontWeight: 500 }}>{s.name}</span>
-            <span style={{ color: t.textDim, fontFamily: "monospace", fontSize: 10 }}>{s.id.split("/").pop()}</span>
-            <span style={{ color: t.textDim, marginLeft: "auto" }}>
-              {new Date(s.updated_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+            <span style={{ color: t.text, fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {s.name}
+            </span>
+            <span style={{
+              fontSize: 9, color: s.surface_count > 0 ? "#059669" : t.textDim,
+              minWidth: 60, textAlign: "right",
+            }}>
+              {s.surface_count > 0
+                ? `${s.surface_count}× surfaced`
+                : "never surfaced"}
+            </span>
+            <span style={{ color: t.textDim, fontSize: 10, minWidth: 50, textAlign: "right" }}>
+              {fmtRelative(s.updated_at)}
             </span>
           </div>
         ))}
+        {botSkills.length > 5 && (
+          <span style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
+            +{botSkills.length - 5} more
+          </span>
+        )}
       </div>
     </div>
   );

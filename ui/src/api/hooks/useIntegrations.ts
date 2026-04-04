@@ -29,6 +29,15 @@ export interface PythonDependency {
   installed: boolean;
 }
 
+export interface DebugAction {
+  id: string;
+  label: string;
+  description?: string;
+  endpoint: string;
+  method: "GET" | "POST" | "PUT" | "DELETE";
+  style?: "default" | "warning" | "danger";
+}
+
 export interface IntegrationItem {
   id: string;
   name: string;
@@ -49,6 +58,19 @@ export interface IntegrationItem {
   icon?: string;
   status: "ready" | "partial" | "not_configured";
   readme: string | null;
+  debug_actions?: DebugAction[];
+}
+
+export interface IntegrationTaskItem {
+  id: string;
+  status: string;
+  prompt: string;
+  title: string | null;
+  created_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+  bot_id: string;
+  task_type: string;
 }
 
 export interface IntegrationSettingItem {
@@ -321,6 +343,69 @@ export function useRevokeIntegrationApiKey(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({
         queryKey: ["admin-integration-api-key", id],
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Integration task feed & bulk cancel
+// ---------------------------------------------------------------------------
+
+export function useIntegrationTasks(
+  id: string,
+  opts?: { status?: string; limit?: number }
+) {
+  const params = new URLSearchParams();
+  if (opts?.status) params.set("status", opts.status);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return useQuery({
+    queryKey: ["admin-integration-tasks", id, opts?.status, opts?.limit],
+    queryFn: () =>
+      apiFetch<{
+        tasks: IntegrationTaskItem[];
+        stats: Record<string, number>;
+      }>(`/api/v1/admin/integrations/${id}/tasks${qs ? `?${qs}` : ""}`),
+    enabled: !!id,
+    refetchInterval: 15_000,
+  });
+}
+
+export function useCancelIntegrationTasks(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ cancelled: number }>(
+        `/api/v1/admin/integrations/${id}/cancel-pending-tasks`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: ["admin-integration-tasks", id],
+      });
+    },
+  });
+}
+
+export function useIntegrationDebugAction(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (action: {
+      endpoint: string;
+      method: string;
+    }): Promise<Record<string, unknown>> => {
+      const url = `/integrations/${id}/${action.endpoint}`;
+      if (action.method === "GET") {
+        return apiFetch<Record<string, unknown>>(url);
+      }
+      return apiFetch<Record<string, unknown>>(url, {
+        method: action.method,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: ["admin-integration-tasks", id],
       });
     },
   });

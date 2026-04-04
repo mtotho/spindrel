@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 # Lazy-load flag for echo tracker DB state
 _echo_state_loaded: dict[str, bool] = {}
 
+# Kill switch — when True, webhook rejects ALL messages.
+# Set via POST /integrations/bluebubbles/pause
+_paused: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Persistent GUID dedup — survives server restarts via DB
@@ -392,6 +396,79 @@ def _get_bb_credentials() -> tuple[str, str]:
     return _get_server_url(), _get_password()
 
 
+# ---------------------------------------------------------------------------
+# Pause/resume + startup cleanup
+# ---------------------------------------------------------------------------
+
+@router.post("/pause")
+async def pause_webhook(_auth=Depends(verify_admin_auth)) -> dict:
+    """Emergency kill switch — immediately stop processing ALL BB webhooks."""
+    global _paused
+    _paused = True
+    logger.warning("BB webhook PAUSED — all incoming messages will be rejected")
+    return {"ok": True, "paused": True}
+
+
+@router.post("/resume")
+async def resume_webhook(_auth=Depends(verify_admin_auth)) -> dict:
+    """Resume processing BB webhooks after a pause."""
+    global _paused
+    _paused = False
+    logger.info("BB webhook RESUMED")
+    return {"ok": True, "paused": False}
+
+
+@router.post("/cancel-pending-tasks")
+async def cancel_pending_tasks(_auth=Depends(verify_admin_auth)) -> dict:
+    """Cancel all pending BlueBubbles tasks. Use after a spam incident."""
+    from app.db.engine import async_session
+    from app.db.models import Task
+    from sqlalchemy import update
+
+    async with async_session() as db:
+        result = await db.execute(
+            update(Task)
+            .where(Task.status == "pending", Task.dispatch_type == "bluebubbles")
+            .values(status="cancelled")
+        )
+        count = result.rowcount
+        await db.commit()
+
+    logger.warning("BB cancel-pending-tasks: cancelled %d pending tasks", count)
+    return {"ok": True, "cancelled": count}
+
+
+async def cancel_stale_pending_tasks() -> None:
+    """Cancel BB tasks that were pending before this server started.
+
+    Called during integration startup to prevent replay storms from
+    tasks that accumulated during a previous crash/spam incident.
+    """
+    from app.db.engine import async_session
+    from app.db.models import Task
+    from sqlalchemy import update
+    from datetime import datetime, timezone, timedelta
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                update(Task)
+                .where(
+                    Task.status == "pending",
+                    Task.dispatch_type == "bluebubbles",
+                    Task.created_at < cutoff,
+                )
+                .values(status="cancelled")
+            )
+            count = result.rowcount
+            await db.commit()
+        if count:
+            logger.warning("BB startup: cancelled %d stale pending tasks (older than 5min)", count)
+    except Exception:
+        logger.debug("BB startup: could not cancel stale tasks", exc_info=True)
+
+
 @router.get("/diagnose")
 async def diagnose_mirror(_auth=Depends(verify_admin_auth)) -> dict:
     """Diagnose the mirror-to-iMessage path. Shows exactly what would happen."""
@@ -483,6 +560,10 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     """
     from integrations.bluebubbles.config import settings as bb_settings
 
+    # Kill switch — reject everything when paused
+    if _paused:
+        return {"status": "ignored", "reason": "paused"}
+
     logger.info("BB webhook: received request from %s", request.client.host if request.client else "unknown")
 
     expected = bb_settings.BB_WEBHOOK_TOKEN
@@ -495,9 +576,11 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     # Load persisted state from DB on first webhook call.
     # This ensures circuit breaker / cooldown / GUID dedup survive server restarts.
+    # Also cancels stale pending tasks to prevent replay storms.
     if not _echo_state_loaded.get("done"):
         await shared_tracker.load_from_db()
         await _guid_dedup.load_from_db()
+        await cancel_stale_pending_tasks()
         _echo_state_loaded["done"] = True
 
     try:
