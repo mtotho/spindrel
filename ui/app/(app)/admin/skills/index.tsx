@@ -2,7 +2,7 @@ import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useRouter } from "expo-router";
-import { Plus, RefreshCw, AlertTriangle, Search } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle, Search, TrendingUp } from "lucide-react";
 import { useSkills, useFileSync, type SkillItem, type FileSyncResult } from "@/src/api/hooks/useSkills";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -35,6 +35,45 @@ function fmtDate(iso: string | null | undefined) {
   return new Date(iso).toLocaleDateString(undefined, {
     month: "short", day: "numeric", year: "numeric",
   });
+}
+
+function fmtRelative(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  const d = new Date(iso);
+  const now = Date.now();
+  const diffMs = now - d.getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return fmtDate(iso);
+}
+
+function SurfacingBadge({ count, lastAt }: { count: number; lastAt?: string | null }) {
+  const t = useThemeTokens();
+  if (!count) {
+    return (
+      <span style={{ fontSize: 10, color: t.textDim }} title="Never surfaced in context">
+        --
+      </span>
+    );
+  }
+  const isHot = count >= 10;
+  return (
+    <span
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 3,
+        fontSize: 10, color: isHot ? "#059669" : t.textMuted,
+      }}
+      title={`Surfaced ${count} times, last ${fmtRelative(lastAt)}`}
+    >
+      {isHot && <TrendingUp size={10} />}
+      {count}
+    </span>
+  );
 }
 
 function fmtIntName(key: string): string {
@@ -112,6 +151,11 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: t.textDim }}>
           <span style={{ fontFamily: "monospace" }}>{skill.id}</span>
           <span>{skill.chunk_count} chunks</span>
+          {skill.surface_count > 0 && (
+            <span title={`Last surfaced ${fmtRelative(skill.last_surfaced_at)}`}>
+              <SurfacingBadge count={skill.surface_count} lastAt={skill.last_surfaced_at} />
+            </span>
+          )}
           {isWs && skill.workspace_name && (
             <span style={{ color: t.purple }}>{skill.workspace_name}</span>
           )}
@@ -133,7 +177,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
     <button
       onClick={isWs ? undefined : onPress}
       style={{
-        display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 100px",
+        display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 60px 100px",
         alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
         border: "none",
@@ -167,6 +211,9 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
       </div>
       <SourceBadge type={skill.source_type} detail={wsDetail} />
       <span style={{ fontSize: 11, color: t.textMuted, textAlign: "right" }}>{skill.chunk_count}</span>
+      <span style={{ textAlign: "right" }}>
+        <SurfacingBadge count={skill.surface_count} lastAt={skill.last_surfaced_at} />
+      </span>
       <span style={{ fontSize: 11, color: t.textDim, textAlign: "right" }}>{fmtDate(skill.updated_at)}</span>
     </button>
   );

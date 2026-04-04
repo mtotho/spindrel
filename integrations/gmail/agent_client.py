@@ -17,11 +17,19 @@ _http = httpx.AsyncClient(timeout=30.0)
 
 
 def _base_url() -> str:
-    return os.environ.get("AGENT_BASE_URL", "http://localhost:8000")
+    try:
+        from integrations.gmail.config import settings
+        return settings.AGENT_BASE_URL
+    except Exception:
+        return os.environ.get("AGENT_BASE_URL", "http://localhost:8000")
 
 
 def _headers() -> dict[str, str]:
-    api_key = os.environ.get("AGENT_API_KEY", "")
+    try:
+        from integrations.gmail.config import settings
+        api_key = settings.AGENT_API_KEY
+    except Exception:
+        api_key = os.environ.get("AGENT_API_KEY", "")
     return {"Authorization": f"Bearer {api_key}"}
 
 

@@ -238,7 +238,10 @@ export default function ChatScreen() {
   };
 
   return (
-    <View className="flex-1 bg-surface" style={{ paddingTop: safeInsets.top, paddingBottom: safeInsets.bottom }}>
+    <View
+      className={`flex-1 bg-surface ${Platform.OS === "web" ? "safe-area-pad" : ""}`}
+      style={Platform.OS !== "web" ? { paddingTop: safeInsets.top, paddingBottom: safeInsets.bottom } : undefined}
+    >
       {/* Header */}
       <ChannelHeader
         channelId={channelId!}

@@ -144,6 +144,7 @@ class AgentContextSnapshot:
     model_override: str | None
     provider_id_override: str | None
     channel_model_tier_overrides: dict | None
+    resolved_skill_ids: set | None
 
 
 def snapshot_agent_context() -> AgentContextSnapshot:
@@ -167,6 +168,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         model_override=current_model_override.get(),
         provider_id_override=current_provider_id_override.get(),
         channel_model_tier_overrides=current_channel_model_tier_overrides.get(),
+        resolved_skill_ids=current_resolved_skill_ids.get(),
     )
 
 
@@ -190,3 +192,4 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_model_override.set(snap.model_override)
     current_provider_id_override.set(snap.provider_id_override)
     current_channel_model_tier_overrides.set(snap.channel_model_tier_overrides)
+    current_resolved_skill_ids.set(snap.resolved_skill_ids)

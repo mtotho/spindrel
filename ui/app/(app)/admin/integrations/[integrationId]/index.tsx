@@ -3,9 +3,8 @@ import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import {
   ChevronLeft, Check, X, Copy, ChevronDown, ChevronRight,
-  RotateCcw, Play, Square, RefreshCw, Download, Key, Trash2, BookOpen,
+  RotateCcw, Play, Square, RefreshCw, Download, Key, Trash2,
 } from "lucide-react";
-import { IntegrationGuideModal } from "../IntegrationGuideModal";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
@@ -603,7 +602,6 @@ export default function IntegrationDetailScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
-  const [showGuide, setShowGuide] = useState(false);
   const item = data?.integrations?.find((i) => i.id === integrationId);
 
   if (isLoading) {
@@ -657,22 +655,6 @@ export default function IntegrationDetailScreen() {
           </button>
           <span style={{ fontSize: 18, fontWeight: 700, color: t.text }}>{item.name}</span>
           <StatusBadge status={item.status} />
-          <button
-            onClick={() => setShowGuide(true)}
-            title="Integration Guide"
-            style={{
-              display: "flex", alignItems: "center", gap: 4,
-              padding: "3px 8px", borderRadius: 5,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: "transparent", color: t.textMuted,
-              fontSize: 11, fontWeight: 500,
-              cursor: "pointer",
-              marginLeft: "auto",
-            }}
-          >
-            <BookOpen size={13} />
-            Guide
-          </button>
         </div>
 
         {/* Overview */}
@@ -743,8 +725,6 @@ export default function IntegrationDetailScreen() {
         {/* README */}
         {item.readme && <ReadmeSection content={item.readme} />}
       </RefreshableScrollView>
-
-      {showGuide && <IntegrationGuideModal onClose={() => setShowGuide(false)} />}
     </View>
   );
 }

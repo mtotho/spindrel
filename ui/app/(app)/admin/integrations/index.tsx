@@ -318,7 +318,7 @@ export default function IntegrationsScreen() {
         {(!all || all.length === 0) && <div style={{ flex: 1 }} />}
         <button
           onClick={() => setShowGuide(true)}
-          title="Integration Guide"
+          title="Integration Developer Guide"
           style={{
             display: "flex", alignItems: "center", gap: 4,
             padding: "4px 8px", borderRadius: 5, border: `1px solid ${t.surfaceBorder}`,
@@ -329,7 +329,7 @@ export default function IntegrationsScreen() {
           }}
         >
           <BookOpen size={13} />
-          Guide
+          Dev Guide
         </button>
       </div>
 

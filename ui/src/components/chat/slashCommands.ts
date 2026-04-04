@@ -7,6 +7,7 @@ export interface SlashCommandItem {
 }
 
 export const SLASH_COMMANDS: SlashCommandItem[] = [
+  { id: "stop", label: "/stop", description: "Stop the current response" },
   { id: "context", label: "/context", description: "View context breakdown" },
   { id: "clear", label: "/clear", description: "Start fresh" },
   { id: "compact", label: "/compact", description: "Compress conversation" },

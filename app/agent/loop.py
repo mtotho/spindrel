@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import traceback
 import uuid
 
@@ -31,6 +32,30 @@ from app.tools.mcp import fetch_mcp_tools
 from app.tools.registry import get_local_tool_schemas
 
 logger = logging.getLogger(__name__)
+
+# Regex for detecting user corrections (anchored to start of message).
+# Uses negative lookahead to avoid false positives like "no problem", "no worries".
+_CORRECTION_RE = re.compile(
+    r"^(no[,.]?\s(?!problem|worries|thanks|thank|need|rush|idea)|wrong|that'?s not|actually[,.]?\s|incorrect|not quite|you should)",
+    re.IGNORECASE,
+)
+
+
+def _extract_last_user_text(messages: list[dict]) -> str | None:
+    """Extract text content of the last user message in the list."""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        return part["text"]
+                    if isinstance(part, str):
+                        return part
+            return None
+    return None
 
 
 def _sanitize_llm_text(raw: str) -> str:
@@ -310,6 +335,21 @@ async def run_agent_tool_loop(
         effective_provider_id = provider_id
         if effective_provider_id is None:
             effective_provider_id = resolve_provider_for_model(model)
+
+        # --- Correction-driven skill nudge (one-shot, before first LLM call) ---
+        if (
+            settings.SKILL_CORRECTION_NUDGE_ENABLED
+            and not compaction
+            and bot.memory_scheme == "workspace-files"
+            and any(t["function"]["name"] == "manage_bot_skill" for t in all_tools or [])
+        ):
+            _user_text = _extract_last_user_text(messages)
+            if _user_text and _CORRECTION_RE.search(_user_text):
+                from app.config import DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT
+                messages.append({
+                    "role": "system",
+                    "content": DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT,
+                })
 
         for iteration in range(effective_max_iterations):
             # Cancellation checkpoint: before LLM call

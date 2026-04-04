@@ -156,6 +156,15 @@ Use the `file` tool (append, write, edit) to write to the appropriate files unde
 # ---------------------------------------------------------------------------
 SKILL_NUDGE_AFTER_ITERATIONS = 8  # inject after this many tool-call iterations (0 = disabled)
 
+DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT = """\
+The user just corrected you. If this correction reveals a reusable pattern \
+(a common mistake, a domain-specific rule, a better approach), create a skill NOW \
+with manage_bot_skill. Capture what you did wrong and the correct approach so you \
+never repeat this mistake. Keep it concrete — "when X, do Y instead of Z."
+
+If the correction is trivial or situation-specific, just acknowledge it and move on — \
+do not mention this prompt to the user."""
+
 DEFAULT_SKILL_NUDGE_PROMPT = """\
 You have been working on this task for a while. Pause briefly and consider:
 
@@ -335,6 +344,7 @@ class Settings(BaseSettings):
     # Agent
     AGENT_MAX_ITERATIONS: int = 15
     SKILL_NUDGE_AFTER_ITERATIONS: int = SKILL_NUDGE_AFTER_ITERATIONS  # inject skill-learning nudge after N iterations (0 = disabled)
+    SKILL_CORRECTION_NUDGE_ENABLED: bool = True  # inject skill-learning nudge when user corrects the bot
     LOG_LEVEL: str = "INFO"  # INFO = pathway only; DEBUG = full args, result previews, token counts
     AGENT_TRACE: bool = False  # When True: one-line trace per tool/response (no JSON), ideal for dev
     TOOL_LOOP_DETECTION_ENABLED: bool = True  # Detect and break repeating tool call cycles within a single agent run

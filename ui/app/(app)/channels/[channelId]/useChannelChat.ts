@@ -386,6 +386,9 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     async (id: string) => {
       if (!channelId) return;
       switch (id) {
+        case "stop":
+          handleCancel();
+          break;
         case "context":
           router.push(`/channels/${channelId}/settings#context` as any);
           break;
@@ -409,7 +412,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
           break;
       }
     },
-    [channelId, router, setMessages, queryClient],
+    [channelId, router, setMessages, queryClient, handleCancel],
   );
 
   // Reverse for inverted FlatList

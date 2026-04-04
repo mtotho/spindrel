@@ -931,6 +931,8 @@ class Skill(Base):
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    last_surfaced_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    surface_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
 
 

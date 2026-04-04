@@ -160,6 +160,10 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                     "type": "string",
                     "description": "Replacement text (for patch action).",
                 },
+                "force": {
+                    "type": "boolean",
+                    "description": "Skip duplicate check on create (default false).",
+                },
                 "limit": {
                     "type": "integer",
                     "description": "Max skills to return for list action (default 20, max 100).",
@@ -182,6 +186,7 @@ async def manage_bot_skill(
     category: str = "",
     old_text: str = "",
     new_text: str = "",
+    force: bool = False,
     limit: int = 20,
     offset: int = 0,
 ) -> str:
@@ -221,6 +226,8 @@ async def manage_bot_skill(
                 "category": fm.get("category", ""),
                 "preview": body_preview,
                 "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                "last_surfaced_at": r.last_surfaced_at.isoformat() if r.last_surfaced_at else None,
+                "surface_count": r.surface_count,
             })
         return json.dumps({
             "skills": summary,
@@ -260,6 +267,13 @@ async def manage_bot_skill(
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
+
+        # Dedup check: find semantically similar existing skills
+        if not force:
+            dedup_result = await _check_skill_dedup(bot_id, content, prefix)
+            if dedup_result:
+                return dedup_result
+
         full_content = _build_content(title, content, triggers, category)
         content_hash = hashlib.sha256(full_content.encode()).hexdigest()
 
@@ -447,4 +461,48 @@ async def _check_count_warning(bot_id: str, prefix: str) -> str | None:
             f"Warning: You now have {count} self-authored skills. "
             f"Consider merging related skills or deleting stale ones to keep your skill library focused."
         )
+    return None
+
+
+DEDUP_SIMILARITY_THRESHOLD = 0.85
+
+
+async def _check_skill_dedup(bot_id: str, content: str, prefix: str) -> str | None:
+    """Check for semantically similar existing bot skills. Returns warning JSON or None."""
+    try:
+        from sqlalchemy import select
+        from app.agent.embeddings import embed_text
+        from app.agent.vector_ops import halfvec_cosine_distance
+        from app.db.engine import async_session
+        from app.db.models import Document
+
+        query_embedding = await embed_text(content[:2000])  # embed first 2k chars
+
+        async with async_session() as db:
+            distance_expr = halfvec_cosine_distance(Document.embedding, query_embedding)
+            rows = (await db.execute(
+                select(Document.source, distance_expr.label("distance"))
+                .where(Document.source.like(f"skill:{prefix}%"))
+                .order_by(distance_expr)
+                .limit(1)
+            )).all()
+
+        if rows:
+            best = rows[0]
+            similarity = 1.0 - best.distance
+            if similarity >= DEDUP_SIMILARITY_THRESHOLD:
+                similar_skill_id = best.source.removeprefix("skill:")
+                return json.dumps({
+                    "warning": "similar_skill_exists",
+                    "similar_skill_id": similar_skill_id,
+                    "similarity": round(similarity, 3),
+                    "message": (
+                        f"A similar skill already exists: '{similar_skill_id}' "
+                        f"(similarity: {similarity:.1%}). "
+                        f"Consider using action='patch' or action='update' on the existing skill instead. "
+                        f"To create anyway, re-run with force=true."
+                    ),
+                })
+    except Exception:
+        logger.debug("Skill dedup check failed (non-blocking)", exc_info=True)
     return None

@@ -1,0 +1,100 @@
+id: gmail-ingest
+name: "Gmail Ingest & Triage"
+description: >
+  End-to-end Gmail ingestion workflow: polls Gmail via IMAP, runs the
+  4-layer security pipeline (HTML strip → injection filters → AI classifier →
+  typed envelope), delivers passed emails to workspace, checks feed health,
+  then triages new emails and updates the digest.
+
+  Steps 1-3 are deterministic tool calls (no LLM). Step 4 uses an agent
+  to categorize emails and update workspace files.
+
+triggers:
+  api: true
+  tool: true
+  heartbeat: true
+
+tags: [gmail, email, ingestion, triage]
+
+defaults:
+  timeout: 120
+
+steps:
+  # ── Step 1: Poll + security pipeline + deliver ─────────────────────
+  # Fetches new emails from IMAP, runs the 4-layer ingestion pipeline,
+  # and writes passed emails as markdown to bound channel workspaces.
+  # No LLM involved — this is the deterministic fetch-and-filter step.
+  - id: poll
+    type: tool
+    tool_name: trigger_gmail_poll
+
+  # ── Step 2: Feed health check ──────────────────────────────────────
+  # Query the ingestion SQLite store for aggregate stats: total processed,
+  # quarantined counts, 24h activity, and cursor position.
+  - id: health
+    type: tool
+    tool_name: query_feed_store
+    tool_args:
+      action: stats
+      store: gmail
+      source: gmail
+    when:
+      step: poll
+      status: done
+
+  # ── Step 3: Quarantine review ──────────────────────────────────────
+  # List any emails blocked by the security pipeline. These were flagged
+  # by Layer 2 regex filters or Layer 3 AI classifier and never delivered.
+  - id: quarantine
+    type: tool
+    tool_name: query_feed_store
+    tool_args:
+      action: quarantine
+      store: gmail
+    when:
+      step: poll
+      status: done
+    on_failure: continue
+
+  # ── Step 4: Triage & digest ────────────────────────────────────────
+  # Agent step: reads the newly delivered emails from data/gmail/,
+  # categorizes each one, updates triage.md + actions.md + digest.md.
+  # Only runs if the poll step actually passed any emails through.
+  - id: triage
+    type: agent
+    prompt: |
+      ## Gmail Ingestion Results
+
+      **Poll:** {{steps.poll.result}}
+
+      **Feed health:** {{steps.health.result}}
+
+      **Quarantine:** {{steps.quarantine.result}}
+
+      ## Instructions
+
+      New emails have been delivered to `data/gmail/`. Triage them:
+
+      1. Search `data/gmail/` for the newly delivered email files
+      2. Read each email and assign a triage category:
+         - **Urgent** — needs immediate attention
+         - **Action Required** — needs response but not urgent
+         - **Projects/Threads** — updates on active work
+         - **FYI** — informational, no action needed
+         - **Low Priority** — can be batch-processed or ignored
+      3. Update **triage.md** — add a categorized entry for each email (newest first)
+      4. Extract action items to **actions.md** — look for deadlines, reply requests, approvals, assignments
+      5. Regenerate **digest.md** — summary grouped by category with stats
+      6. If quarantine count is elevated, note it in the digest
+
+      Keep entries concise. One line per email in triage.md.
+    tools:
+      - search_channel_workspace
+      - query_feed_store
+    carapaces:
+      - gmail-feeds
+    when:
+      step: poll
+      output_contains: "passed"
+    on_failure: continue
+    result_max_chars: 3000

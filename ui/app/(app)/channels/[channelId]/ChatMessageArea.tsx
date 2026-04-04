@@ -1,21 +1,9 @@
-import React from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, ActivityIndicator, Pressable, Platform, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import { ChevronDown } from "lucide-react";
 import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { Message } from "@/src/types/api";
-
-/**
- * Cell wrapper that enables text selection on web.
- * React Native Web's View defaults to user-select: none, which prevents
- * selecting text across multiple messages. This override restores it.
- */
-const SelectableCell = Platform.OS === "web"
-  ? React.forwardRef<View, any>((props, ref) => (
-      <View {...props} ref={ref} style={[props.style, { userSelect: "text" } as any]} />
-    ))
-  : undefined;
-if (SelectableCell) SelectableCell.displayName = "SelectableCell";
 
 export function DateSeparator({ label }: { label: string }) {
   const t = useThemeTokens();
@@ -65,8 +53,154 @@ export interface ChatMessageAreaProps {
   t: ReturnType<typeof useThemeTokens>;
 }
 
-/** Extracted chat message list + scroll-to-bottom FAB so it can be reused in both mobile and desktop layouts */
-export function ChatMessageArea({
+// ---------------------------------------------------------------------------
+// Web: column-reverse scroll container (no scaleY transforms = proper text selection)
+// ---------------------------------------------------------------------------
+
+function WebChatList({
+  invertedData,
+  renderMessage,
+  chatState,
+  bot,
+  isLoading,
+  isFetchingNextPage,
+  handleLoadMore,
+  isProcessing,
+  t,
+}: ChatMessageAreaProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [showFab, setShowFab] = useState(false);
+
+  // Load older pages when the sentinel at the visual top becomes visible
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    const root = scrollRef.current;
+    if (!sentinel || !root) return;
+    const obs = new IntersectionObserver(
+      ([e]) => { if (e.isIntersecting) handleLoadMore(); },
+      { root, rootMargin: "200px 0px 0px 0px", threshold: 0 },
+    );
+    obs.observe(sentinel);
+    return () => obs.disconnect();
+  }, [handleLoadMore]);
+
+  // Track scroll position for FAB visibility
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      // In column-reverse, scrollTop=0 is at the bottom (newest).
+      // Scrolling up toward older messages gives negative scrollTop.
+      setShowFab(el.scrollTop < -300);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const doScrollToBottom = useCallback(() => {
+    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const indicator = chatState.isStreaming ? (
+    <StreamingIndicator
+      content={chatState.streamingContent}
+      toolCalls={chatState.toolCalls}
+      botName={bot?.name}
+      thinkingContent={chatState.thinkingContent}
+    />
+  ) : isProcessing ? (
+    <ProcessingIndicator botName={bot?.name} />
+  ) : null;
+
+  return (
+    <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+      <div
+        ref={scrollRef}
+        className="chat-scroll-web"
+        style={{
+          display: "flex",
+          flexDirection: "column-reverse",
+          overflowY: "auto",
+          height: "100%",
+          paddingTop: 8,
+          paddingBottom: 8,
+        }}
+      >
+        {/* First in DOM = visual bottom in column-reverse */}
+        {indicator}
+
+        {invertedData.map((item, index) => (
+          <div key={item.id} style={{ display: "flex", flexDirection: "column-reverse", userSelect: "text" }}>
+            {renderMessage({ item, index })}
+          </div>
+        ))}
+
+        {/* Last in DOM = visual top — sentinel for loading older pages */}
+        <div ref={sentinelRef} style={{ minHeight: 1, flexShrink: 0 }}>
+          {isFetchingNextPage && (
+            <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
+              <ActivityIndicator size="small" color="#666666" />
+            </div>
+          )}
+        </div>
+
+        {/* Empty / loading state (last in DOM = visual top) */}
+        {invertedData.length === 0 && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 0", flex: 1 }}>
+            {isLoading ? (
+              <ActivityIndicator color={t.textDim} />
+            ) : (
+              <Text style={{ color: t.textDim, fontSize: 14 }}>
+                Send a message to start the conversation
+              </Text>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showFab && (
+        <Pressable
+          onPress={doScrollToBottom}
+          style={{
+            position: "absolute",
+            bottom: 16,
+            right: 24,
+            width: 40,
+            height: 40,
+            borderRadius: 20,
+            backgroundColor: t.surfaceRaised,
+            borderWidth: 1,
+            borderColor: t.surfaceBorder,
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+            cursor: "pointer",
+          } as any}
+        >
+          <ChevronDown size={20} color={t.textMuted} />
+        </Pressable>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Native: inverted FlatList (scaleY is fine on native — no text selection issue)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cell wrapper that enables text selection on web.
+ * Kept for the native FlatList path as a no-op on non-web.
+ */
+const SelectableCell = Platform.OS === "web"
+  ? React.forwardRef<View, any>((props, ref) => (
+      <View {...props} ref={ref} style={[props.style, { userSelect: "text" } as any]} />
+    ))
+  : undefined;
+if (SelectableCell) SelectableCell.displayName = "SelectableCell";
+
+function NativeChatList({
   flatListRef,
   invertedData,
   renderMessage,
@@ -163,4 +297,15 @@ export function ChatMessageArea({
       )}
     </View>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Public component — picks the right implementation per platform
+// ---------------------------------------------------------------------------
+
+export function ChatMessageArea(props: ChatMessageAreaProps) {
+  if (Platform.OS === "web") {
+    return <WebChatList {...props} />;
+  }
+  return <NativeChatList {...props} />;
 }

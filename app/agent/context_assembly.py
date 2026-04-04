@@ -233,6 +233,7 @@ async def assemble_context(
     ))
 
     _inject_chars: dict[str, int] = {}
+    _surfaced_skill_ids: set[str] = set()
 
     def _budget_consume(category: str, text: str) -> None:
         """Record consumption in the budget if one is active."""
@@ -846,6 +847,7 @@ async def assemble_context(
                         count=len(_pinned_chunks),
                         data={"skill_ids": [s.id for s in _pinned_skills], "chars": _pinned_chars},
                     ))
+                _surfaced_skill_ids.update(s.id for s in _pinned_skills)
 
         # RAG skills: semantic similarity retrieval
         if _rag_skills:
@@ -888,6 +890,7 @@ async def assemble_context(
                         f"for full content if needed):\n\n{context}"
                     ),
                 })
+                _surfaced_skill_ids.update(_skill_ids_in_chunks)
 
         # On-demand skills: inject index, agent uses get_skill()
         if _on_demand_skills:
@@ -919,6 +922,7 @@ async def assemble_context(
                         count=len(_rows),
                         data={"skill_ids": [r.id for r in _rows]},
                     ))
+                _surfaced_skill_ids.update(r.id for r in _rows)
 
     # --- workspace skills ---
     if channel_id is not None:
@@ -1397,6 +1401,10 @@ async def assemble_context(
     if budget is not None:
         result.budget_utilization = budget.utilization
 
+    # --- skill surfacing tracking ---
+    if _surfaced_skill_ids:
+        asyncio.create_task(_update_skill_surfacing(_surfaced_skill_ids))
+
     # --- injection summary trace ---
     if correlation_id is not None and _inject_chars:
         _summary_data: dict[str, Any] = {
@@ -1413,3 +1421,25 @@ async def assemble_context(
             event_type="context_injection_summary",
             data=_summary_data,
         ))
+
+
+async def _update_skill_surfacing(skill_ids: set[str]) -> None:
+    """Bulk-update last_surfaced_at and surface_count for surfaced skills (fire-and-forget)."""
+    try:
+        from sqlalchemy import update
+        from app.db.engine import async_session
+        from app.db.models import Skill as SkillRow
+
+        now = datetime.now(timezone.utc)
+        async with async_session() as db:
+            await db.execute(
+                update(SkillRow)
+                .where(SkillRow.id.in_(list(skill_ids)))
+                .values(
+                    last_surfaced_at=now,
+                    surface_count=SkillRow.surface_count + 1,
+                )
+            )
+            await db.commit()
+    except Exception:
+        logger.debug("Failed to update skill surfacing stats", exc_info=True)

@@ -103,6 +103,41 @@ The skills API supports filtering:
 - `?bot_id=mybot` — only skills from a specific bot
 - `?sort=recent` — order by most recently updated
 
+## Duplicate Detection
+
+When creating a new skill, the system checks for semantically similar existing skills. If a skill with >85% cosine similarity already exists, the bot receives a warning suggesting it update the existing skill instead:
+
+```json
+{
+  "warning": "similar_skill_exists",
+  "similar_skill_id": "bots/mybot/docker-networking",
+  "similarity": 0.923,
+  "message": "A similar skill already exists..."
+}
+```
+
+To bypass the check, pass `force=true`. The check uses the same embedding model as RAG retrieval, so it catches both exact and semantic duplicates.
+
+## Surfacing Stats
+
+Each skill tracks how often it surfaces in bot context:
+
+- **`surface_count`**: Total times the skill was injected (pinned, RAG, or on-demand index)
+- **`last_surfaced_at`**: When it last appeared in a bot's context
+
+Bots can see these stats via `manage_bot_skill(action="list")` to identify dead-weight skills that never surface and should be pruned or rewritten with better trigger phrases.
+
+## Correction-Driven Learning
+
+When a user corrects the bot (e.g., "No, that's wrong", "Actually, you should..."), the system injects a one-shot nudge asking the bot to consider creating a skill capturing the correct approach. This fires:
+
+- Only once per agent run (before the first LLM call)
+- Only for bots with `memory_scheme: "workspace-files"`
+- Only when `manage_bot_skill` is available in the tool set
+- Only when the user message matches correction patterns
+
+Disable with `SKILL_CORRECTION_NUDGE_ENABLED=false`.
+
 ## Content Validation
 
 Skills enforce content limits to prevent empty stubs and abuse:
@@ -131,6 +166,7 @@ The system prompt teaches bots the critical difference:
 | `RAG_TOP_K` | 5 | Max chunks injected per request |
 | `RAG_SIMILARITY_THRESHOLD` | 0.3 | Min similarity for RAG retrieval |
 | `SKILL_NUDGE_AFTER_ITERATIONS` | 8 | Inject learning nudge after N tool iterations (0 = disabled) |
+| `SKILL_CORRECTION_NUDGE_ENABLED` | true | Inject learning nudge when user corrects the bot |
 
 ## Prompt Guidance
 

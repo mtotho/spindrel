@@ -29,6 +29,8 @@ class SkillOut(BaseModel):
     chunk_count: int = 0
     created_at: datetime
     updated_at: datetime
+    last_surfaced_at: Optional[datetime] = None
+    surface_count: int = 0
     # Workspace skill fields (only set when source_type == "workspace")
     workspace_id: Optional[str] = None
     workspace_name: Optional[str] = None
@@ -102,6 +104,8 @@ async def admin_list_skills(
             chunk_count=chunk_map.get(f"skill:{s.id}", 0),
             created_at=s.created_at,
             updated_at=s.updated_at,
+            last_surfaced_at=s.last_surfaced_at,
+            surface_count=s.surface_count,
             bot_id=_extract_bot_id(s.id, s.source_type),
         )
         for s in skills
@@ -179,6 +183,8 @@ async def admin_get_skill(
         source_type=row.source_type, source_path=row.source_path,
         chunk_count=chunk_count,
         created_at=row.created_at, updated_at=row.updated_at,
+        last_surfaced_at=row.last_surfaced_at,
+        surface_count=row.surface_count,
     )
 
 

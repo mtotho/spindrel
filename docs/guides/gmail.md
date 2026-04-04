@@ -165,7 +165,7 @@ Emails that fail any layer are quarantined in a local SQLite database (`~/.agent
 Three tools are available to bots with the `gmail-feeds` carapace:
 
 - **`check_gmail_status`** — Test IMAP connectivity, show email and folder count
-- **`trigger_gmail_poll`** — Run a poll cycle immediately and see what was fetched
+- **`trigger_gmail_poll`** — Run a poll cycle immediately, deliver passed emails to bound channel workspaces, and return a summary. Pass `deliver: false` to check what's available without writing files.
 - **`query_feed_store`** — Query feed health stats, recent deliveries, and quarantined items from the ingestion SQLite store
 
 ### Feed Store Queries
@@ -215,6 +215,28 @@ The Gmail integration ships an **Email Triage & Digest** workspace template (`em
 - **Heartbeat-ready**: Suggested config for automated digest generation
 
 Activate Gmail on a channel and select the "Email Triage & Digest" template to enable the full protocol.
+
+## Workflow: Gmail Ingest & Triage
+
+The `gmail-ingest` workflow provides an end-to-end pipeline you can trigger manually, via bot tool, or on a heartbeat schedule:
+
+1. **Poll** (tool step) — `trigger_gmail_poll` fetches new emails via IMAP, runs the 4-layer security pipeline, and delivers passed emails to bound channel workspaces
+2. **Health check** (tool step) — `query_feed_store` returns aggregate stats (processed, quarantined, 24h activity)
+3. **Quarantine review** (tool step) — `query_feed_store` lists any emails blocked by the security pipeline
+4. **Triage & digest** (agent step) — reads delivered emails, categorizes them, updates `triage.md`, `actions.md`, and `digest.md`
+
+Steps 1-3 are deterministic (no LLM). Step 4 only runs if new emails were delivered.
+
+```bash
+# Trigger via API
+curl -X POST http://localhost:8000/api/v1/admin/workflows/gmail-ingest/run \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Or trigger via bot tool
+manage_workflow(action="trigger", workflow_id="gmail-ingest")
+```
 
 ## Cursor Format
 

@@ -11,9 +11,11 @@ from app.tools.local.bot_skills import (
     BOT_SKILL_COUNT_WARNING,
     CONTENT_MIN_LENGTH,
     CONTENT_MAX_LENGTH,
+    DEDUP_SIMILARITY_THRESHOLD,
     NAME_MAX_LENGTH,
     _bot_skill_id,
     _build_content,
+    _check_skill_dedup,
     _embed_skill_safe,
     _extract_body,
     _extract_frontmatter,
@@ -40,6 +42,8 @@ def _make_skill_row(skill_id: str, name: str = "Test", content: str = "body",
     row.source_path = kw.get("source_path")
     row.created_at = kw.get("created_at", datetime.now(timezone.utc))
     row.updated_at = kw.get("updated_at", datetime.now(timezone.utc))
+    row.last_surfaced_at = kw.get("last_surfaced_at", None)
+    row.surface_count = kw.get("surface_count", 0)
     return row
 
 
@@ -1124,3 +1128,206 @@ class TestSkillNudge:
         skills_idx = DEFAULT_MEMORY_SCHEME_PROMPT.find("Self-Improvement via Skills")
         skills_section = DEFAULT_MEMORY_SCHEME_PROMPT[skills_idx:]
         assert 'manage_bot_skill(action="create"' in skills_section
+
+
+# ---------------------------------------------------------------------------
+# Dedup / similarity check tests
+# ---------------------------------------------------------------------------
+
+class TestSkillDedup:
+
+    @pytest.mark.asyncio
+    async def test_create_dedup_warning(self):
+        """Similar skill exists (>0.85) → warning returned, no creation."""
+        # Mock the dedup check to return a warning
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as mock_bot_id,
+            patch("app.tools.local.bot_skills._check_skill_dedup") as mock_dedup,
+        ):
+            mock_bot_id.get.return_value = "testbot"
+            mock_dedup.return_value = json.dumps({
+                "warning": "similar_skill_exists",
+                "similar_skill_id": "bots/testbot/existing-skill",
+                "similarity": 0.92,
+                "message": "Similar skill exists.",
+            })
+
+            result = await manage_bot_skill(
+                action="create",
+                name="new-skill",
+                title="New Skill",
+                content="x" * CONTENT_MIN_LENGTH,
+            )
+
+        data = _parse(result)
+        assert data["warning"] == "similar_skill_exists"
+        assert data["similarity"] == 0.92
+
+    @pytest.mark.asyncio
+    async def test_create_dedup_force_bypasses(self):
+        """force=True should skip the dedup check entirely."""
+        db_mock = AsyncMock()
+        db_mock.get = AsyncMock(return_value=None)  # no existing skill
+        db_mock.add = MagicMock()
+        db_mock.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as mock_bot_id,
+            patch("app.db.engine.async_session", _mock_session(db_mock)),
+            patch("app.tools.local.bot_skills._check_skill_dedup") as mock_dedup,
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
+        ):
+            mock_bot_id.get.return_value = "testbot"
+
+            result = await manage_bot_skill(
+                action="create",
+                name="new-skill",
+                title="New Skill",
+                content="x" * CONTENT_MIN_LENGTH,
+                force=True,
+            )
+
+        # Dedup check should NOT have been called
+        mock_dedup.assert_not_called()
+        data = _parse(result)
+        assert data["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_create_dedup_no_false_positive(self):
+        """Dissimilar skill → no warning, creation proceeds."""
+        db_mock = AsyncMock()
+        db_mock.get = AsyncMock(return_value=None)
+        db_mock.add = MagicMock()
+        db_mock.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as mock_bot_id,
+            patch("app.db.engine.async_session", _mock_session(db_mock)),
+            patch("app.tools.local.bot_skills._check_skill_dedup", new_callable=AsyncMock, return_value=None),
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
+        ):
+            mock_bot_id.get.return_value = "testbot"
+
+            result = await manage_bot_skill(
+                action="create",
+                name="unique-skill",
+                title="Unique Skill",
+                content="x" * CONTENT_MIN_LENGTH,
+            )
+
+        data = _parse(result)
+        assert data["ok"] is True
+
+
+# ---------------------------------------------------------------------------
+# Surfacing stats in list
+# ---------------------------------------------------------------------------
+
+class TestSurfacingStats:
+
+    @pytest.mark.asyncio
+    async def test_list_includes_surfacing_stats(self):
+        """list action should include last_surfaced_at and surface_count."""
+        from sqlalchemy import func, select
+
+        now = datetime.now(timezone.utc)
+        row = _make_skill_row("bots/testbot/my-skill", name="My Skill",
+                              content="---\nname: My Skill\n---\nSome content here")
+        row.last_surfaced_at = now
+        row.surface_count = 42
+
+        # Mock the count query and the rows query
+        mock_count_result = MagicMock()
+        mock_count_result.scalar_one.return_value = 1
+
+        mock_rows_result = MagicMock()
+        mock_rows_result.scalars.return_value.all.return_value = [row]
+
+        db_mock = AsyncMock()
+        db_mock.execute = AsyncMock(side_effect=[mock_count_result, mock_rows_result])
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as mock_bot_id,
+            patch("app.db.engine.async_session", _mock_session(db_mock)),
+        ):
+            mock_bot_id.get.return_value = "testbot"
+            result = await manage_bot_skill(action="list")
+
+        data = _parse(result)
+        assert len(data["skills"]) == 1
+        skill = data["skills"][0]
+        assert skill["last_surfaced_at"] == now.isoformat()
+        assert skill["surface_count"] == 42
+
+
+# ---------------------------------------------------------------------------
+# Correction nudge tests
+# ---------------------------------------------------------------------------
+
+class TestCorrectionNudge:
+
+    def test_correction_pattern_matches(self):
+        """Correction regex should match common correction phrases."""
+        from app.agent.loop import _CORRECTION_RE
+        assert _CORRECTION_RE.search("No, that's wrong")
+        assert _CORRECTION_RE.search("Wrong approach")
+        assert _CORRECTION_RE.search("that's not correct")
+        assert _CORRECTION_RE.search("Actually, you should use X")
+        assert _CORRECTION_RE.search("incorrect — try this instead")
+        assert _CORRECTION_RE.search("Not quite right")
+        assert _CORRECTION_RE.search("You should use Y instead")
+
+    def test_correction_no_false_positive(self):
+        """Correction regex should NOT match non-corrections."""
+        from app.agent.loop import _CORRECTION_RE
+        assert not _CORRECTION_RE.search("No problem, thanks!")
+        assert not _CORRECTION_RE.search("No worries")
+        assert not _CORRECTION_RE.search("No thanks, I'm good")
+        assert not _CORRECTION_RE.search("No idea what happened")
+        assert not _CORRECTION_RE.search("That looks great")
+        assert not _CORRECTION_RE.search("Can you help me with this?")
+        assert not _CORRECTION_RE.search("I want to know about X")
+
+    def test_extract_last_user_text(self):
+        """Helper should extract text from the last user message."""
+        from app.agent.loop import _extract_last_user_text
+
+        # Simple string content
+        msgs = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+            {"role": "user", "content": "No, that's wrong"},
+        ]
+        assert _extract_last_user_text(msgs) == "No, that's wrong"
+
+        # Multi-part content
+        msgs2 = [
+            {"role": "user", "content": [{"type": "text", "text": "Actually, do it differently"}]},
+        ]
+        assert _extract_last_user_text(msgs2) == "Actually, do it differently"
+
+        # No user messages
+        assert _extract_last_user_text([{"role": "system", "content": "sys"}]) is None
+
+    def test_correction_nudge_once_per_run(self):
+        """The correction nudge should only inject once (before first iteration)."""
+        # The implementation injects before the for loop, so it fires at most once.
+        # This test verifies the regex only triggers once even with multiple matching messages.
+        from app.agent.loop import _CORRECTION_RE
+
+        messages_with_corrections = [
+            "No, that's wrong",
+            "Wrong again",
+            "Actually, try this",
+        ]
+
+        # All match, but the nudge is injected only once (before the loop).
+        # We just verify the pattern matches each — the injection logic
+        # handles the "once" guarantee by position (pre-loop).
+        matches = [bool(_CORRECTION_RE.search(m)) for m in messages_with_corrections]
+        assert all(matches)

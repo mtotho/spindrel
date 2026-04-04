@@ -299,6 +299,7 @@ def _bb_webhook_payload(
     msg_guid: str = "msg-abc-123",
     sender: str = "+15559999999",
     event_type: str = "new-message",
+    date_created: int | None = None,
 ) -> dict:
     """Build a BlueBubbles webhook payload."""
     data = {
@@ -307,6 +308,8 @@ def _bb_webhook_payload(
         "isFromMe": is_from_me,
         "chats": [{"guid": chat_guid}],
     }
+    if date_created is not None:
+        data["dateCreated"] = date_created
     if not is_from_me:
         data["handle"] = {"address": sender}
     return {"type": event_type, "data": data}
@@ -439,6 +442,8 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[]), \
              patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker:
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             result = await webhook(request, db)
 
         assert result["status"] == "ignored"
@@ -483,6 +488,8 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -511,6 +518,8 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -538,6 +547,8 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["default"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="hey bot")):
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -567,6 +578,8 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": None})
 
             result = await webhook(request, db)
@@ -576,6 +589,61 @@ class TestWebhookEndpoint:
         assert call_kwargs.kwargs["run_agent"] is False
         # Passive content should have sender prefix
         assert call_kwargs.args[1].startswith("[+15559999999]:")
+
+    @pytest.mark.asyncio
+    async def test_stale_message_ignored(self):
+        """Messages older than the staleness threshold are ignored."""
+        import time as _time
+        from integrations.bluebubbles.router import webhook
+
+        # dateCreated 10 minutes ago (in milliseconds)
+        stale_ts = int((_time.time() - 600) * 1000)
+        request = _webhook_request(_bb_webhook_payload(
+            text="old message", date_created=stale_ts,
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            result = await webhook(request, db)
+
+        assert result["status"] == "ignored"
+        assert result["reason"] == "stale"
+
+    @pytest.mark.asyncio
+    async def test_fresh_message_not_stale(self):
+        """Recent messages pass the staleness check."""
+        import time as _time
+        from integrations.bluebubbles.router import webhook
+
+        # dateCreated 10 seconds ago
+        fresh_ts = int((_time.time() - 10) * 1000)
+        request = _webhook_request(_bb_webhook_payload(
+            text="", date_created=fresh_ts,
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            # Fresh but empty text — should hit empty_text, NOT stale
+            result = await webhook(request, db)
+
+        assert result["status"] == "ignored"
+        assert result["reason"] == "empty_text"
+
+    @pytest.mark.asyncio
+    async def test_no_date_created_passes(self):
+        """Messages without dateCreated skip the staleness check."""
+        from integrations.bluebubbles.router import webhook
+
+        # No date_created in payload at all
+        request = _webhook_request(_bb_webhook_payload(text=""))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            result = await webhook(request, db)
+
+        # Should pass staleness check and hit empty_text
+        assert result["status"] == "ignored"
+        assert result["reason"] == "empty_text"
 
     @pytest.mark.asyncio
     async def test_require_mention_false_always_active(self):
@@ -595,6 +663,8 @@ class TestWebhookEndpoint:
              patch("integrations.bluebubbles.router.utils") as mock_utils, \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -633,6 +703,8 @@ class TestPerBindingConfig:
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["default"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -663,6 +735,8 @@ class TestPerBindingConfig:
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": None})
 
             result = await webhook(request, db)
@@ -693,6 +767,8 @@ class TestPerBindingConfig:
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="")):
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)
@@ -724,6 +800,8 @@ class TestPerBindingConfig:
              patch("integrations.bluebubbles.router._bot_wake_words", return_value=["default"]), \
              patch("integrations.bluebubbles.config.settings", _mock_bb_settings(wake_words="hey bot")):
             mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
             mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
 
             result = await webhook(request, db)

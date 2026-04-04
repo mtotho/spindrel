@@ -404,9 +404,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     if expected:
         token = request.query_params.get("token", "")
         if not token or token != expected:
-            logger.warning("BB webhook: auth failed — expected=%r got=%r (len %d vs %d)",
-                           expected[:4] + "****" if len(expected) > 4 else "****",
-                           token[:4] + "****" if len(token) > 4 else "****",
+            logger.warning("BB webhook: auth failed (token mismatch, expected_len=%d got_len=%d)",
                            len(expected), len(token))
             raise HTTPException(status_code=401, detail="Invalid or missing token")
 
@@ -422,6 +420,21 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         return {"status": "ignored", "event": event_type}
 
     data = payload.get("data") or {}
+
+    # Staleness check — ignore messages older than 5 minutes to prevent
+    # replay storms when BB retries a backlog of failed webhook deliveries.
+    _STALE_THRESHOLD = 300  # seconds
+    date_created = data.get("dateCreated")
+    if date_created:
+        try:
+            msg_age = time.time() * 1000 - float(date_created)
+            if msg_age > _STALE_THRESHOLD * 1000:
+                logger.info("BB webhook: ignoring stale message (age=%.0fs, threshold=%ds)",
+                            msg_age / 1000, _STALE_THRESHOLD)
+                return {"status": "ignored", "reason": "stale"}
+        except (ValueError, TypeError):
+            pass  # Non-numeric dateCreated — skip check
+
     text = (data.get("text") or "").strip()
     if not text:
         logger.info("BB webhook: ignoring new-message with empty text")
@@ -442,8 +455,20 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     # Echo check — is this our own reply bouncing back?
     if is_from_me and shared_tracker.is_echo(msg_guid, text):
-        logger.info("BB webhook: echo detected, guid=%s", msg_guid)
+        logger.info("BB webhook: echo detected (guid match), guid=%s", msg_guid)
         return {"status": "ignored", "reason": "echo"}
+
+    # Reply cooldown: if we sent a reply to this chat recently, treat isFromMe as echo.
+    # This catches cases where the LLM takes longer than the echo TTL.
+    if is_from_me and shared_tracker.in_reply_cooldown(chat_guid):
+        logger.info("BB webhook: echo detected (reply cooldown), chat_guid=%s", chat_guid)
+        return {"status": "ignored", "reason": "echo_cooldown"}
+
+    # Circuit breaker: if we've replied too many times to this chat recently, stop.
+    if shared_tracker.is_circuit_open(chat_guid):
+        logger.warning("BB webhook: circuit breaker open for chat_guid=%s — too many replies, "
+                        "stopping to prevent loop", chat_guid)
+        return {"status": "ignored", "reason": "circuit_breaker"}
 
     # Resolve channels bound to this chat
     client_id = f"bb:{chat_guid}"

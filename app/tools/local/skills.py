@@ -67,6 +67,14 @@ async def get_skill(skill_id: str) -> str:
                     # Check workspace DB skills and channel skills_extra
                     _allowed = await _check_extra_skill_access(bot, skill_id)
                     if not _allowed:
+                        # Cold-path fallback: resolve carapaces fresh (covers delegation
+                        # and cases where context var wasn't set)
+                        _allowed = _check_carapace_skill_access(bot, skill_id)
+                    if not _allowed:
+                        logger.debug(
+                            "get_skill access denied: skill=%s bot=%s resolved=%s ephemeral=%s",
+                            skill_id, bot_id, _resolved, current_ephemeral_skills.get(),
+                        )
                         return f"Skill '{skill_id}' is not configured for this bot."
         except Exception:
             pass  # bot not found — proceed without access check
@@ -78,6 +86,54 @@ async def get_skill(skill_id: str) -> str:
             return f"Skill '{skill_id}' not found."
 
     return f"# {row.name}\n\n{row.content}"
+
+
+def _check_carapace_skill_access(bot, skill_id: str) -> bool:
+    """Cold-path fallback: resolve bot's carapaces and check if skill_id is included."""
+    try:
+        carapace_ids = list(bot.carapaces or [])
+        if not carapace_ids:
+            return False
+        from app.agent.carapaces import resolve_carapaces
+        resolved = resolve_carapaces(carapace_ids)
+        resolved_skill_ids = {s.id for s in resolved.skills}
+        if skill_id in resolved_skill_ids:
+            return True
+    except Exception:
+        logger.debug("Carapace fallback check failed for skill %s", skill_id, exc_info=True)
+
+    # Also check activated integration carapaces if channel_id is available
+    try:
+        from app.agent.context import current_channel_id
+        ch_id = current_channel_id.get()
+        if ch_id:
+            return _check_activated_integration_skill(ch_id, skill_id)
+    except Exception:
+        logger.debug("Activated integration skill check failed for %s", skill_id, exc_info=True)
+
+    return False
+
+
+def _check_activated_integration_skill(channel_id, skill_id: str) -> bool:
+    """Check if skill_id comes from an activated integration's carapaces (sync, for fallback)."""
+    try:
+        from app.agent.carapaces import resolve_carapaces
+        from integrations import get_activation_manifests
+        # We need the channel's integrations — but this is a sync fallback so we can't do DB.
+        # The _registry is always available though.  The real fix is the snapshot/restore
+        # above; this catches edge cases where context_assembly didn't run.
+        manifests = get_activation_manifests()
+        all_activation_carapace_ids = set()
+        for manifest in manifests.values():
+            for cap_id in manifest.get("carapaces", []):
+                all_activation_carapace_ids.add(cap_id)
+        if all_activation_carapace_ids:
+            resolved = resolve_carapaces(list(all_activation_carapace_ids))
+            if skill_id in {s.id for s in resolved.skills}:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 async def _check_extra_skill_access(bot, skill_id: str) -> bool:

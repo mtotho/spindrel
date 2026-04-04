@@ -43,7 +43,7 @@ def _split_text(text: str, max_len: int = _MAX_MSG_LEN) -> list[str]:
 async def _bb_send(server_url: str, password: str, chat_guid: str, text: str) -> bool:
     """Send a text message via BB API. Returns True on success."""
     temp_guid = str(uuid.uuid4())
-    shared_tracker.track_sent(temp_guid, text)
+    shared_tracker.track_sent(temp_guid, text, chat_guid=chat_guid)
     result = await send_text(
         _http, server_url, password, chat_guid, text,
         temp_guid=temp_guid,
@@ -53,16 +53,9 @@ async def _bb_send(server_url: str, password: str, chat_guid: str, text: str) ->
 
 class BlueBubblesDispatcher:
     async def notify_start(self, task) -> None:
-        """Send a brief indicator that the bot is working on a response."""
-        cfg = task.dispatch_config or {}
-        server_url = cfg.get("server_url")
-        password = cfg.get("password")
-        chat_guid = cfg.get("chat_guid")
-        if not all((server_url, password, chat_guid)):
-            return
-        # iMessage has no "typing indicator" API, so send a short status message.
-        # Use a Unicode hourglass to keep it minimal.
-        await _bb_send(server_url, password, chat_guid, "\u23f3 Working on it...")
+        """No-op for iMessage — there's no typing indicator API and sending
+        a real text message creates echo noise + wastes a circuit breaker slot."""
+        pass
 
     async def deliver(
         self, task, result: str,

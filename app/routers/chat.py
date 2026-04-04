@@ -18,6 +18,7 @@ from app.agent.pending import resolve_pending
 from app.db.models import Message as MessageModel, Task as TaskModel
 from app.dependencies import get_db, require_scopes, verify_auth_or_user
 from app.services import session_locks
+from app.services.channel_throttle import is_throttled as _channel_throttled, record_run as _record_channel_run
 from app.services.channels import get_or_create_channel, ensure_active_session, is_integration_client_id, resolve_integration_user
 from app.services.compaction import maybe_compact
 from app.services.sessions import (
@@ -414,6 +415,14 @@ async def chat(
         await store_passive_message(db, session_id, message, req.msg_metadata or {})
         return ChatResponse(session_id=session_id, response="", client_actions=[])
 
+    # Channel throttle: prevent bot-to-bot infinite loops.
+    # Human messages from the web UI are exempt.
+    _sender_type = (req.msg_metadata or {}).get("sender_type", "")
+    if _sender_type != "human" and _channel_throttled(str(channel_id)):
+        await store_passive_message(db, session_id, message, {**(req.msg_metadata or {}), "throttled": True})
+        return ChatResponse(session_id=session_id, response="", client_actions=[])
+    _record_channel_run(str(channel_id))
+
     logger.info("Session %s loaded, %d messages", session_id, len(messages))
     logger.debug("System prompt: %s...", (messages[0]["content"][:80] + "…") if messages else "none")
 
@@ -618,6 +627,18 @@ async def chat_stream(
             yield f"data: {json.dumps({'type': 'passive_stored', 'session_id': str(session_id)})}\n\n"
 
         return StreamingResponse(_passive_stream(), media_type="text/event-stream")
+
+    # Channel throttle: prevent bot-to-bot infinite loops.
+    # Human messages from the web UI are exempt.
+    _sender_type_s = (req.msg_metadata or {}).get("sender_type", "")
+    if _sender_type_s != "human" and _channel_throttled(str(channel_id)):
+        await store_passive_message(db, session_id, message, {**(req.msg_metadata or {}), "throttled": True})
+
+        async def _throttled_stream():
+            yield f"data: {json.dumps({'type': 'throttled', 'session_id': str(session_id), 'detail': 'Channel throttled — too many agent runs in short window'})}\n\n"
+
+        return StreamingResponse(_throttled_stream(), media_type="text/event-stream")
+    _record_channel_run(str(channel_id))
 
     # System pause check: block new processing while paused
     from app.config import settings as _settings

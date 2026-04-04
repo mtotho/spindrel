@@ -154,9 +154,8 @@ class TestBlueBubblesDispatcher:
 
     @pytest.mark.asyncio
     @patch("integrations.bluebubbles.dispatcher._bb_send", new_callable=AsyncMock)
-    async def test_notify_start(self, mock_send, dispatcher):
-        mock_send.return_value = True
-
+    async def test_notify_start_is_noop(self, mock_send, dispatcher):
+        """notify_start is a no-op for iMessage (no typing indicator, avoids echo noise)."""
         task = MagicMock()
         task.dispatch_config = {
             "server_url": "http://bb:1234",
@@ -164,14 +163,7 @@ class TestBlueBubblesDispatcher:
             "chat_guid": "chat-1",
         }
         await dispatcher.notify_start(task)
-        mock_send.assert_called_once()
-        assert "Working" in mock_send.call_args[0][3]
-
-    @pytest.mark.asyncio
-    async def test_notify_start_missing_config(self, dispatcher):
-        task = MagicMock()
-        task.dispatch_config = {}
-        await dispatcher.notify_start(task)  # Should not raise
+        mock_send.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("integrations.bluebubbles.dispatcher._bb_send", new_callable=AsyncMock)
