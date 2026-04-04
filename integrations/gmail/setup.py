@@ -72,5 +72,6 @@ SETUP = {
         "client_id_placeholder": "gmail:user@gmail.com",
         "client_id_description": "Gmail address for this channel (e.g. gmail:user@gmail.com)",
         "display_name_placeholder": "user@gmail.com",
+        "auto_client_id": "gmail:{GMAIL_EMAIL}",
     },
 }

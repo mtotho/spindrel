@@ -3,6 +3,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 
 const TABS = [
   { key: "agent", label: "Agent Logs", href: "/admin/logs" },
+  { key: "traces", label: "Traces", href: "/admin/logs/traces" },
   { key: "server", label: "Server Logs", href: "/admin/logs/server" },
   { key: "fallbacks", label: "Fallbacks", href: "/admin/logs/fallbacks" },
 ] as const;

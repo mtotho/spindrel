@@ -162,3 +162,57 @@ async def test_calls_correct_url():
 
     call_args = mock_client.post.call_args
     assert call_args.args[0] == "http://myserver:9000/api/v1/llm/completions"
+
+
+@pytest.mark.asyncio
+async def test_fail_closed_on_empty_content():
+    """Empty LLM content (null/empty string) must fail closed with clear message."""
+    body = {"content": "", "model": MODEL, "usage": None}
+    resp = httpx.Response(status_code=200, json=body, request=_FAKE_REQUEST)
+    with patch("integrations.ingestion.classifier.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post.return_value = resp
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        result = await classify("test", base_url=BASE_URL, model=MODEL)
+
+    assert result.safe is False
+    assert result.risk_level == "high"
+    assert "empty content" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_fail_closed_on_null_content():
+    """Null content field must fail closed."""
+    body = {"content": None, "model": MODEL, "usage": None}
+    resp = httpx.Response(status_code=200, json=body, request=_FAKE_REQUEST)
+    with patch("integrations.ingestion.classifier.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post.return_value = resp
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        result = await classify("test", base_url=BASE_URL, model=MODEL)
+
+    assert result.safe is False
+    assert result.risk_level == "high"
+    assert "empty content" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_markdown_fenced_json():
+    """JSON wrapped in markdown code fences should be parsed correctly."""
+    fenced = '```json\n{"safe": true, "reason": "ok", "risk_level": "low"}\n```'
+    body = {"content": fenced, "model": MODEL, "usage": None}
+    resp = httpx.Response(status_code=200, json=body, request=_FAKE_REQUEST)
+    with patch("integrations.ingestion.classifier.httpx.AsyncClient") as mock_cls:
+        mock_client = AsyncMock()
+        mock_client.post.return_value = resp
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        result = await classify("test", base_url=BASE_URL, model=MODEL)
+
+    assert result.safe is True
+    assert result.risk_level == "low"

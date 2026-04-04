@@ -38,7 +38,6 @@ def _make_pipeline(store: IngestionStore | None = None) -> IngestionPipeline:
     config = IngestionConfig(
         agent_base_url="http://localhost:8000",
         agent_api_key="test-key",
-        classifier_url="http://localhost:8000/v1/chat/completions",
     )
     return IngestionPipeline(config=config, store=store or _make_store())
 

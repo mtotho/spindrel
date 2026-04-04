@@ -397,6 +397,13 @@ async def create_channel(
             )).scalar_one_or_none()
             if existing:
                 continue
+            # Resolve proper client_id from binding config if available
+            act_client_id = f"mc-activated:{channel.id}"
+            try:
+                act_client_id = _resolve_activation_client_id(int_type, channel.id)
+            except Exception:
+                pass
+
             # Re-activate existing deactivated row if present
             inactive = (await db.execute(
                 select(ChannelIntegration).where(
@@ -407,12 +414,13 @@ async def create_channel(
             )).scalar_one_or_none()
             if inactive:
                 inactive.activated = True
+                inactive.client_id = act_client_id
                 db.add(inactive)
             else:
                 ci = ChannelIntegration(
                     channel_id=channel.id,
                     integration_type=int_type,
-                    client_id=f"mc-activated:{channel.id}",
+                    client_id=act_client_id,
                     activated=True,
                 )
                 db.add(ci)
@@ -1173,6 +1181,40 @@ class AvailableIntegrationOut(BaseModel):
     includes: list[str] = []
 
 
+def _resolve_activation_client_id(integration_type: str, channel_id: uuid.UUID) -> str:
+    """Resolve a proper client_id for activation from the integration's binding config.
+
+    If the integration declares ``auto_client_id`` in its binding config (e.g.
+    ``"gmail:{GMAIL_EMAIL}"``), substitute setting values and return the result.
+    Falls back to ``mc-activated:{channel_id}`` if no auto_client_id or the
+    required settings aren't configured.
+    """
+    from integrations import discover_binding_metadata
+    from app.services.integration_settings import get_value
+
+    binding = discover_binding_metadata().get(integration_type)
+    if not binding:
+        return f"mc-activated:{channel_id}"
+
+    template = binding.get("auto_client_id")
+    if not template:
+        return f"mc-activated:{channel_id}"
+
+    # Substitute {VAR_NAME} placeholders with setting values
+    import re
+    def _sub(m: re.Match) -> str:
+        return get_value(integration_type, m.group(1))
+
+    resolved = re.sub(r"\{(\w+)\}", _sub, template)
+
+    # If any placeholder resolved to empty, fall back
+    prefix = binding.get("client_id_prefix", "")
+    if resolved == prefix or not resolved or resolved == template:
+        return f"mc-activated:{channel_id}"
+
+    return resolved
+
+
 @router.post("/{channel_id}/integrations/{integration_type}/activate", response_model=ActivationOut)
 async def activate_integration(
     channel_id: uuid.UUID,
@@ -1216,22 +1258,31 @@ async def activate_integration(
             warnings=[],
         )
 
-    # Check for an existing non-activated row with matching type
+    # Resolve client_id: use binding auto_client_id if available, else mc-activated:
+    client_id = f"mc-activated:{channel_id}"
+    try:
+        client_id = _resolve_activation_client_id(integration_type, channel_id)
+    except Exception:
+        pass
+
+    # Check for an existing row we can reuse (mc-activated or matching client_id)
     inactive = (await db.execute(
         select(ChannelIntegration).where(
             ChannelIntegration.channel_id == channel_id,
-            ChannelIntegration.client_id == f"mc-activated:{channel_id}",
+            ChannelIntegration.integration_type == integration_type,
+            ChannelIntegration.activated == False,  # noqa: E712
         )
     )).scalar_one_or_none()
 
     if inactive:
         inactive.activated = True
+        inactive.client_id = client_id
         db.add(inactive)
     else:
         ci = ChannelIntegration(
             channel_id=channel_id,
             integration_type=integration_type,
-            client_id=f"mc-activated:{channel_id}",
+            client_id=client_id,
             activated=True,
         )
         db.add(ci)

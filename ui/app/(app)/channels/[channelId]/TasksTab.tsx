@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { ActivityIndicator } from "react-native";
 import { Plus } from "lucide-react";
+import { useRouter } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { EmptyState } from "@/src/components/shared/FormControls";
 import { ActionButton } from "@/src/components/shared/SettingsControls";
@@ -9,6 +10,9 @@ import { TaskCardRow } from "@/src/components/shared/TaskCardRow";
 import type { TaskItem } from "@/src/components/shared/TaskConstants";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+// Task types that users create and can edit inline
+const EDITABLE_TASK_TYPES = new Set(["scheduled", "agent"]);
 
 type StatusFilter = "all" | "active" | "failed";
 
@@ -20,6 +24,7 @@ const STATUS_PILL_KEYS: { key: StatusFilter; label: string }[] = [
 
 export function TasksTab({ channelId, botId }: { channelId: string; botId?: string }) {
   const t = useThemeTokens();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["channel-tasks", channelId],
@@ -111,7 +116,13 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
             <TaskCardRow
               key={task.id}
               task={task}
-              onPress={() => setEditorState({ mode: "edit", taskId: task.id })}
+              onPress={() => {
+                if (EDITABLE_TASK_TYPES.has(task.task_type ?? "")) {
+                  setEditorState({ mode: "edit", taskId: task.id });
+                } else {
+                  router.push(`/admin/tasks/${task.id}`);
+                }
+              }}
               showBotDot={false}
               showBotName={false}
             />

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, literal, select, text, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Message, Session, ToolCall, TraceEvent
+from app.db.models import Channel, HeartbeatRun, Message, Session, Task, ToolCall, TraceEvent
 from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
@@ -351,6 +351,289 @@ async def admin_trace_detail(
         time_range_start=time_range_start.isoformat() if time_range_start else None,
         time_range_end=time_range_end.isoformat() if time_range_end else None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Traces list — all correlation_ids across the system
+# ---------------------------------------------------------------------------
+
+class TraceSummary(BaseModel):
+    correlation_id: str
+    source_type: str  # agent, heartbeat, task, workflow
+    bot_id: Optional[str] = None
+    channel_id: Optional[str] = None
+    channel_name: Optional[str] = None
+    task_type: Optional[str] = None
+    title: Optional[str] = None
+    has_error: bool = False
+    tool_call_count: int = 0
+    total_tokens: int = 0
+    duration_ms: Optional[int] = None
+    created_at: str
+
+
+class TracesListOut(BaseModel):
+    traces: list[TraceSummary]
+    has_more: bool = False
+
+
+@router.get("/traces", response_model=TracesListOut)
+async def list_traces(
+    count: int = Query(50, ge=1, le=200),
+    bot_id: Optional[str] = None,
+    source_type: Optional[str] = None,
+    before: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("logs:read")),
+):
+    """List recent traces from all sources (agent turns, tasks, heartbeats, workflows).
+
+    Each trace is a distinct correlation_id with summary metadata.
+    Click through to /traces/{correlation_id} for the full timeline.
+    """
+    from app.routers.api_v1_admin._helpers import _parse_time
+
+    # -----------------------------------------------------------------------
+    # Step 1: Gather distinct correlation_ids from relevant sources
+    # Pre-filter by source_type to skip irrelevant queries
+    # -----------------------------------------------------------------------
+    from app.db.models import ChannelHeartbeat
+
+    # Determine which sources to query
+    want_tasks = source_type in (None, "task", "workflow")
+    want_heartbeats = source_type in (None, "heartbeat")
+    want_agents = source_type in (None, "agent")
+    fetch_limit = count * 3
+
+    tasks_result = []
+    hb_result = []
+    msg_result = []
+
+    if want_tasks:
+        task_q = (
+            select(
+                Task.correlation_id,
+                Task.bot_id,
+                Task.channel_id,
+                Task.task_type,
+                Task.title,
+                Task.prompt,
+                Task.status,
+                Task.run_at,
+                Task.created_at,
+            )
+            .where(Task.correlation_id.is_not(None))
+            .order_by(Task.created_at.desc())
+            .limit(fetch_limit)
+        )
+        if bot_id:
+            task_q = task_q.where(Task.bot_id == bot_id)
+        if source_type == "workflow":
+            task_q = task_q.where(Task.task_type == "workflow")
+        elif source_type == "task":
+            task_q = task_q.where(Task.task_type != "workflow")
+        if before:
+            before_dt = _parse_time(before)
+            if before_dt:
+                task_q = task_q.where(Task.created_at < before_dt)
+        tasks_result = (await db.execute(task_q)).all()
+
+    if want_heartbeats:
+        hb_q = (
+            select(
+                HeartbeatRun.correlation_id,
+                Channel.bot_id.label("bot_id"),
+                ChannelHeartbeat.channel_id,
+                HeartbeatRun.run_at,
+                HeartbeatRun.status,
+            )
+            .join(ChannelHeartbeat, HeartbeatRun.heartbeat_id == ChannelHeartbeat.id)
+            .join(Channel, ChannelHeartbeat.channel_id == Channel.id)
+            .where(HeartbeatRun.correlation_id.is_not(None))
+            .order_by(HeartbeatRun.run_at.desc())
+            .limit(fetch_limit)
+        )
+        if bot_id:
+            hb_q = hb_q.where(Channel.bot_id == bot_id)
+        if before:
+            before_dt = _parse_time(before)
+            if before_dt:
+                hb_q = hb_q.where(HeartbeatRun.run_at < before_dt)
+        hb_result = (await db.execute(hb_q)).all()
+
+    if want_agents:
+        msg_q = (
+            select(
+                Message.correlation_id,
+                Message.session_id,
+                Message.created_at,
+            )
+            .where(Message.role == "user")
+            .where(Message.correlation_id.is_not(None))
+            .order_by(Message.created_at.desc())
+            .limit(fetch_limit)
+        )
+        if before:
+            before_dt = _parse_time(before)
+            if before_dt:
+                msg_q = msg_q.where(Message.created_at < before_dt)
+        msg_result = (await db.execute(msg_q)).all()
+
+    # -----------------------------------------------------------------------
+    # Step 2: Build unified list, deduplicating by correlation_id
+    # -----------------------------------------------------------------------
+    seen: dict[uuid.UUID, dict] = {}
+
+    # Tasks first — they have the most metadata
+    for r in tasks_result:
+        if r.correlation_id in seen:
+            continue
+        st = "workflow" if r.task_type == "workflow" else "task"
+        if r.task_type == "heartbeat":
+            st = "heartbeat"
+        title = r.title
+        if not title and r.prompt:
+            title = r.prompt[:80] + ("..." if len(r.prompt) > 80 else "")
+        seen[r.correlation_id] = {
+            "correlation_id": str(r.correlation_id),
+            "source_type": st,
+            "bot_id": r.bot_id,
+            "channel_id": str(r.channel_id) if r.channel_id else None,
+            "task_type": r.task_type,
+            "title": title,
+            "has_error": r.status == "failed",
+            "created_at": (r.run_at or r.created_at).isoformat(),
+        }
+
+    # Heartbeats
+    for r in hb_result:
+        if r.correlation_id in seen:
+            continue
+        seen[r.correlation_id] = {
+            "correlation_id": str(r.correlation_id),
+            "source_type": "heartbeat",
+            "bot_id": r.bot_id,
+            "channel_id": str(r.channel_id) if r.channel_id else None,
+            "task_type": None,
+            "title": None,
+            "has_error": r.status == "failed",
+            "created_at": r.run_at.isoformat() if r.run_at else None,
+        }
+
+    # Agent chat turns (from user messages) — only if not already covered
+    # Resolve session → bot/channel
+    session_ids = list({r.session_id for r in msg_result if r.session_id and r.correlation_id not in seen})
+    sess_map: dict[uuid.UUID, tuple] = {}
+    if session_ids:
+        sess_rows = (await db.execute(
+            select(Session.id, Session.bot_id, Session.channel_id)
+            .where(Session.id.in_(session_ids))
+        )).all()
+        sess_map = {r.id: (r.bot_id, r.channel_id) for r in sess_rows}
+
+    for r in msg_result:
+        if r.correlation_id in seen:
+            continue
+        sess_info = sess_map.get(r.session_id, (None, None))
+        msg_bot_id = sess_info[0]
+        if bot_id and msg_bot_id != bot_id:
+            continue
+        seen[r.correlation_id] = {
+            "correlation_id": str(r.correlation_id),
+            "source_type": "agent",
+            "bot_id": msg_bot_id,
+            "channel_id": str(sess_info[1]) if sess_info[1] else None,
+            "task_type": None,
+            "title": None,
+            "has_error": False,
+            "created_at": r.created_at.isoformat(),
+        }
+
+    # -----------------------------------------------------------------------
+    # Step 3: Sort by created_at desc, take top N+1 to detect has_more
+    # -----------------------------------------------------------------------
+    all_traces = sorted(seen.values(), key=lambda x: x.get("created_at") or "", reverse=True)
+    has_more = len(all_traces) > count
+    traces = all_traces[:count]
+
+    if not traces:
+        return TracesListOut(traces=[], has_more=False)
+
+    # -----------------------------------------------------------------------
+    # Step 4: Enrich with tool call counts, token usage, duration
+    # -----------------------------------------------------------------------
+    corr_ids = [uuid.UUID(t["correlation_id"]) for t in traces]
+
+    # Tool call counts per correlation_id
+    tc_counts = (await db.execute(
+        select(ToolCall.correlation_id, func.count())
+        .where(ToolCall.correlation_id.in_(corr_ids))
+        .group_by(ToolCall.correlation_id)
+    )).all()
+    tc_count_map = {r[0]: r[1] for r in tc_counts}
+
+    # Token usage + timing from trace_events (aggregate in Python like turns endpoint)
+    token_events = (await db.execute(
+        select(TraceEvent.correlation_id, TraceEvent.data, TraceEvent.created_at)
+        .where(TraceEvent.correlation_id.in_(corr_ids))
+        .where(TraceEvent.event_type == "token_usage")
+    )).all()
+    token_map: dict[uuid.UUID, tuple] = {}  # cid -> (total_tokens, first_at, last_at)
+    for r in token_events:
+        tokens = (r.data or {}).get("total_tokens", 0)
+        prev = token_map.get(r.correlation_id, (0, r.created_at, r.created_at))
+        token_map[r.correlation_id] = (
+            prev[0] + (tokens or 0),
+            min(prev[1], r.created_at) if prev[1] else r.created_at,
+            max(prev[2], r.created_at) if prev[2] else r.created_at,
+        )
+
+    # Error detection from trace_events
+    error_corrs = set()
+    error_rows = (await db.execute(
+        select(TraceEvent.correlation_id)
+        .where(TraceEvent.correlation_id.in_(corr_ids))
+        .where(TraceEvent.event_type.in_(["error", "llm_error"]))
+        .distinct()
+    )).scalars().all()
+    error_corrs = set(error_rows)
+
+    # Channel names
+    ch_ids = list({uuid.UUID(t["channel_id"]) for t in traces if t.get("channel_id")})
+    ch_name_map: dict[str, str] = {}
+    if ch_ids:
+        ch_rows = (await db.execute(
+            select(Channel.id, Channel.name).where(Channel.id.in_(ch_ids))
+        )).all()
+        ch_name_map = {str(r.id): r.name for r in ch_rows}
+
+    # -----------------------------------------------------------------------
+    # Step 5: Assemble final output
+    # -----------------------------------------------------------------------
+    result: list[TraceSummary] = []
+    for t in traces:
+        cid = uuid.UUID(t["correlation_id"])
+        token_info = token_map.get(cid, (0, None, None))
+        duration_ms = None
+        if token_info[1] and token_info[2]:
+            duration_ms = int((token_info[2] - token_info[1]).total_seconds() * 1000)
+
+        result.append(TraceSummary(
+            correlation_id=t["correlation_id"],
+            source_type=t["source_type"],
+            bot_id=t["bot_id"],
+            channel_id=t["channel_id"],
+            channel_name=ch_name_map.get(t["channel_id"] or ""),
+            task_type=t["task_type"],
+            title=t["title"],
+            has_error=t["has_error"] or cid in error_corrs,
+            tool_call_count=tc_count_map.get(cid, 0),
+            total_tokens=token_info[0],
+            duration_ms=duration_ms,
+            created_at=t["created_at"],
+        ))
+
+    return TracesListOut(traces=result, has_more=has_more)
 
 
 # ---------------------------------------------------------------------------

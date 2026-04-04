@@ -104,6 +104,16 @@ class TestGetAllForIntegration:
         assert result[0]["is_set"] is False
         assert result[0]["value"] == ""
 
+    def test_type_field_passed_through(self):
+        """env_vars with a 'type' field should pass it through to the response."""
+        setup_vars = [
+            {"key": "CLASSIFIER_MODEL", "required": False, "description": "Model", "type": "model_selection"},
+            {"key": "PLAIN_VAR", "required": False, "description": "Plain text"},
+        ]
+        result = get_all_for_integration("gmail", setup_vars)
+        assert result[0]["type"] == "model_selection"
+        assert "type" not in result[1]  # no type field when not declared
+
 
 class TestUpdateSettings:
     @pytest.mark.asyncio

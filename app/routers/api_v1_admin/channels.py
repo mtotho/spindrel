@@ -271,11 +271,13 @@ class TaskOut(BaseModel):
     status: str
     bot_id: str
     prompt: str
+    title: Optional[str] = None
     result: Optional[str] = None
     error: Optional[str] = None
     dispatch_type: str = "none"
     task_type: str = "agent"
     recurrence: Optional[str] = None
+    correlation_id: Optional[str] = None
     created_at: datetime
     scheduled_at: Optional[datetime] = None
     run_at: Optional[datetime] = None
@@ -1322,11 +1324,13 @@ async def admin_channel_tasks(
                 status=t.status,
                 bot_id=t.bot_id,
                 prompt=t.prompt,
+                title=t.title,
                 result=t.result,
                 error=t.error,
                 dispatch_type=t.dispatch_type,
                 task_type=t.task_type,
                 recurrence=t.recurrence,
+                correlation_id=str(t.correlation_id) if t.correlation_id else None,
                 created_at=t.created_at,
                 scheduled_at=t.scheduled_at,
                 run_at=t.run_at,

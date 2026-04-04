@@ -92,3 +92,45 @@ export function useTrace(correlationId: string | undefined) {
     enabled: !!correlationId,
   });
 }
+
+export interface TraceSummary {
+  correlation_id: string;
+  source_type: string;
+  bot_id?: string | null;
+  channel_id?: string | null;
+  channel_name?: string | null;
+  task_type?: string | null;
+  title?: string | null;
+  has_error: boolean;
+  tool_call_count: number;
+  total_tokens: number;
+  duration_ms?: number | null;
+  created_at: string;
+}
+
+export interface TracesListResponse {
+  traces: TraceSummary[];
+  has_more: boolean;
+}
+
+export interface TracesParams {
+  count?: number;
+  bot_id?: string;
+  source_type?: string;
+  before?: string;
+}
+
+export function useTraces(params: TracesParams) {
+  const qs = new URLSearchParams();
+  if (params.count) qs.set("count", String(params.count));
+  if (params.bot_id) qs.set("bot_id", params.bot_id);
+  if (params.source_type) qs.set("source_type", params.source_type);
+  if (params.before) qs.set("before", params.before);
+  const query = qs.toString();
+
+  return useQuery({
+    queryKey: ["admin-traces", params],
+    queryFn: () =>
+      apiFetch<TracesListResponse>(`/api/v1/admin/traces${query ? `?${query}` : ""}`),
+  });
+}
