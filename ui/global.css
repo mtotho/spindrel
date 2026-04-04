@@ -130,7 +130,10 @@ textarea::placeholder {
 
 /* Web chat scroll — column-reverse container for proper text selection */
 .chat-scroll-web {
-  overflow-anchor: auto;      /* keep scroll pinned to bottom on content changes */
+  overflow-anchor: none;      /* MUST be none in column-reverse: "auto" anchors to old
+                                 messages on page load, scrolling the user UP instead of
+                                 staying pinned to the bottom.  We handle pinning manually
+                                 via the auto-scroll effect in WebChatList. */
   scroll-behavior: auto;      /* instant scroll on content changes, smooth via JS */
   overscroll-behavior-y: contain;  /* prevent pull-to-refresh on mobile web */
 }

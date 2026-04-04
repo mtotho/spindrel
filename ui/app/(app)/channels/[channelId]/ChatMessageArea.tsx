@@ -104,12 +104,32 @@ function WebChatList({
   // sentinel-visibility check stops loading once content fills the viewport.
   const recheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevFetchingRef = useRef(false);
+  const wasAtBottomRef = useRef(true);
   useEffect(() => {
     const wasFetching = prevFetchingRef.current;
     prevFetchingRef.current = isFetchingNextPage;
+
+    // When a fetch starts, record whether the user is at the bottom.
+    if (isFetchingNextPage && !wasFetching) {
+      const el = scrollRef.current;
+      wasAtBottomRef.current = !el || el.scrollTop >= -100;
+      return;
+    }
     if (isFetchingNextPage) return;
-    // Only recheck on true→false transition (page just finished loading)
+
+    // Page just finished loading (true→false transition).
     if (!wasFetching) return;
+
+    // Pin to bottom if user was at bottom before the load started.
+    // This counteracts any browser scroll-shift from DOM changes.
+    if (wasAtBottomRef.current) {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = 0;
+    }
+
+    // Re-check sentinel visibility — if content still doesn't fill the
+    // viewport, load another page.  Once content fills the viewport the
+    // sentinel moves off-screen and loading stops naturally.
     if (recheckRef.current) clearTimeout(recheckRef.current);
     recheckRef.current = setTimeout(() => {
       const sentinel = sentinelRef.current;
@@ -117,9 +137,6 @@ function WebChatList({
       if (!sentinel || !root) return;
       const rootRect = root.getBoundingClientRect();
       const sentinelRect = sentinel.getBoundingClientRect();
-      // Sentinel within viewport (extended 200px above)?  Load another page.
-      // Once content fills the viewport, sentinel moves above this zone and
-      // loading stops naturally — no artificial cap needed.
       if (sentinelRect.bottom >= rootRect.top - 200 && sentinelRect.top <= rootRect.bottom) {
         handleLoadMoreRef.current();
       }
@@ -140,9 +157,9 @@ function WebChatList({
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Auto-scroll: column-reverse doesn't reliably pin to the bottom when
-  // content grows (streaming text, new messages).  After every render, if
-  // the user is near the bottom, snap to scrollTop=0 (the visual bottom).
+  // Auto-scroll: keep the view pinned to the bottom (scrollTop=0 in
+  // column-reverse) while streaming or when new messages arrive.
+  // Only fires when the user hasn't scrolled up.
   useEffect(() => {
     const el = scrollRef.current;
     if (el && el.scrollTop >= -100) {
