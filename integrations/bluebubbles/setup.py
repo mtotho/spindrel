@@ -50,6 +50,25 @@ SETUP = {
             "method": "GET",
         },
     ],
+    "activation": {
+        "description": "iMessage relay via BlueBubbles — connection status and kill switch",
+        "carapaces": [],
+        "requires_workspace": False,
+    },
+    "chat_hud": [
+        {
+            "id": "bb-status",
+            "style": "status_strip",
+            "endpoint": "/hud/status",
+            "poll_interval": 30,
+            "label": "iMessage",
+            "icon": "MessageCircle",
+        },
+    ],
+    "chat_hud_presets": {
+        "default": {"label": "Connection Status", "widgets": ["bb-status"]},
+        "none": {"label": "No HUD", "widgets": []},
+    },
     "binding": {
         "client_id_prefix": "bb:",
         "client_id_placeholder": "bb:iMessage;-;+15551234567",

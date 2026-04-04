@@ -40,6 +40,11 @@ SETUP = {
     "web_ui": {
         "static_dir": "dashboard/dist",
     },
+    "activation": {
+        "description": "Content feed health monitoring and status strip",
+        "carapaces": [],
+        "requires_workspace": False,
+    },
     "webhook": None,
     "chat_hud": [
         {

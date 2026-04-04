@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 
-from app.dependencies import verify_auth
+from app.dependencies import verify_auth, verify_auth_or_user
 from integrations.ingestion.config import INGESTION_DB_DIR
 from integrations.ingestion.store import IngestionStore
 
@@ -42,7 +42,7 @@ def _open_readwrite(db_path: Path) -> IngestionStore:
 
 
 @router.get("/hud/status")
-async def hud_status(_auth=Depends(verify_auth)) -> dict[str, Any]:
+async def hud_status(_auth=Depends(verify_auth_or_user)) -> dict[str, Any]:
     """Return standardized HudData for the chat status strip."""
     stores_map = _discover_stores()
     if not stores_map:

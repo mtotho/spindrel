@@ -45,6 +45,7 @@ def _get_setup_vars(integration_id: str) -> list[dict]:
                 env_vars.append({
                     "key": "SIDEBAR_ENABLED",
                     "required": False,
+                    "type": "boolean",
                     "description": "Show this integration's sidebar section in the navigation",
                     "default": "true",
                 })

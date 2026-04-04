@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, verify_admin_auth
+from app.dependencies import get_db, verify_admin_auth, verify_auth_or_user
 from app.services.channels import resolve_all_channels_by_client_id, ensure_active_session
 from integrations import utils
 from integrations.bluebubbles.echo_tracker import shared_tracker
@@ -545,6 +545,83 @@ async def diagnose_mirror(_auth=Depends(verify_admin_auth)) -> dict:
         "issues": issues,
         "checks": checks,
     }
+
+
+@router.get("/hud/status")
+async def hud_status(_auth=Depends(verify_auth_or_user)) -> dict:
+    """Return HudData for the chat status strip — connection + pause state."""
+    server_url = _get_server_url()
+    password = _get_password()
+
+    items: list[dict] = []
+
+    # Connection status badge
+    if not server_url or not password:
+        items.append({
+            "type": "badge",
+            "label": "Server",
+            "value": "Not Configured",
+            "icon": "AlertTriangle",
+            "variant": "warning",
+            "on_click": {"type": "link", "href": "/admin/integrations"},
+        })
+    else:
+        connected = False
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(
+                    f"{server_url}/api/v1/server/info",
+                    params={"password": password},
+                )
+                connected = r.status_code == 200
+        except Exception:
+            pass
+
+        if connected:
+            items.append({
+                "type": "badge",
+                "label": "iMessage",
+                "value": "Connected",
+                "icon": "MessageCircle",
+                "variant": "success",
+            })
+        else:
+            items.append({
+                "type": "badge",
+                "label": "iMessage",
+                "value": "Disconnected",
+                "icon": "MessageCircle",
+                "variant": "danger",
+            })
+
+    # Pause state + toggle action
+    if _paused:
+        items.append({
+            "type": "action",
+            "label": "Resume",
+            "icon": "Play",
+            "variant": "success",
+            "on_click": {
+                "type": "action",
+                "endpoint": "/integrations/bluebubbles/resume",
+                "method": "POST",
+            },
+        })
+    else:
+        items.append({
+            "type": "action",
+            "label": "Pause",
+            "icon": "Pause",
+            "variant": "warning",
+            "on_click": {
+                "type": "action",
+                "endpoint": "/integrations/bluebubbles/pause",
+                "method": "POST",
+                "confirm": "Pause all incoming BlueBubbles messages?",
+            },
+        })
+
+    return {"visible": True, "items": items}
 
 
 @router.post("/webhook")

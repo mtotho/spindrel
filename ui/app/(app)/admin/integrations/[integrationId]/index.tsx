@@ -211,6 +211,46 @@ function SettingsForm({ integrationId }: { integrationId: string }) {
               placeholder={s.description || "Select model..."}
               allowClear
             />
+          ) : s.type === "boolean" ? (
+            <button
+              onClick={() => {
+                const current = (draft[s.key] ?? s.value ?? s.default ?? "true").toLowerCase();
+                setDraft((prev) => ({ ...prev, [s.key]: current === "true" ? "false" : "true" }));
+              }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 10px",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{
+                width: 36,
+                height: 20,
+                borderRadius: 10,
+                backgroundColor: (draft[s.key] ?? s.value ?? s.default ?? "true").toLowerCase() === "true"
+                  ? t.accent : t.surfaceOverlay,
+                position: "relative",
+                transition: "background-color 0.15s",
+              }}>
+                <div style={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: 8,
+                  backgroundColor: "#fff",
+                  position: "absolute",
+                  top: 2,
+                  left: (draft[s.key] ?? s.value ?? s.default ?? "true").toLowerCase() === "true" ? 18 : 2,
+                  transition: "left 0.15s",
+                }} />
+              </div>
+              <span style={{ fontSize: 12, color: t.text }}>
+                {(draft[s.key] ?? s.value ?? s.default ?? "true").toLowerCase() === "true" ? "Enabled" : "Disabled"}
+              </span>
+            </button>
           ) : (
             <input
               type={s.secret ? "password" : "text"}
