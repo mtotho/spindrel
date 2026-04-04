@@ -65,11 +65,31 @@ async def check_gmail_status() -> str:
                     "Default true. Set false to only check what's available without writing files."
                 ),
             },
+            "since_days": {
+                "type": "integer",
+                "description": (
+                    "Override: only fetch emails from the last N days. "
+                    "Ignores the cursor and uses IMAP SINCE criteria."
+                ),
+            },
+            "max_items": {
+                "type": "integer",
+                "description": "Override: max emails to fetch this call (default: GMAIL_MAX_PER_POLL).",
+            },
+            "folders": {
+                "type": "string",
+                "description": "Override: comma-separated IMAP folders to poll (default: GMAIL_FOLDERS).",
+            },
         },
     },
 }})
-async def trigger_gmail_poll(deliver: bool = True) -> str:
-    """Trigger a manual Gmail poll cycle with optional delivery."""
+async def trigger_gmail_poll(
+    deliver: bool = True,
+    since_days: int | None = None,
+    max_items: int | None = None,
+    folders: str | None = None,
+) -> str:
+    """Trigger a manual Gmail poll cycle with optional delivery and overrides."""
     from integrations.gmail import agent_client
     from integrations.gmail.config import settings
     from integrations.gmail.factory import create_feed
@@ -78,9 +98,26 @@ async def trigger_gmail_poll(deliver: bool = True) -> str:
     if not email_addr:
         return "Gmail not configured — GMAIL_EMAIL is not set."
 
+    folders_list = (
+        [f.strip() for f in folders.split(",") if f.strip()]
+        if folders
+        else None
+    )
+
+    has_overrides = since_days is not None or max_items is not None or folders_list is not None
+
     feed, store = create_feed()
     try:
-        result = await feed.run_cycle()
+        if has_overrides:
+            # Use overrides path — fetch with custom params, then run pipeline
+            raw_items = await feed.fetch_items_with_overrides(
+                since_days=since_days,
+                max_items=max_items,
+                folders=folders_list,
+            )
+            result = await feed._run_pipeline(raw_items)
+        else:
+            result = await feed.run_cycle()
     finally:
         feed._disconnect()
         store.close()

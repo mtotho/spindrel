@@ -45,6 +45,17 @@ SETUP = {
             "default": "INBOX",
         },
         {
+            "key": "GMAIL_INITIAL_FETCH",
+            "required": False,
+            "description": (
+                "What to do on first poll when no cursor exists. "
+                '"new" (default) = skip existing mail, only process future emails. '
+                '"recent:N" = fetch last N days (e.g. "recent:7"). '
+                '"all" = fetch everything (original behavior).'
+            ),
+            "default": "new",
+        },
+        {
             "key": "AGENT_BASE_URL",
             "required": False,
             "description": "Agent server base URL",

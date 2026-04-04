@@ -98,6 +98,16 @@ function WebChatList({
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Auto-scroll: column-reverse doesn't reliably pin to the bottom when
+  // content grows (streaming text, new messages).  After every render, if
+  // the user is near the bottom, snap to scrollTop=0 (the visual bottom).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el && el.scrollTop >= -100) {
+      el.scrollTop = 0;
+    }
+  });
+
   const doScrollToBottom = useCallback(() => {
     scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);

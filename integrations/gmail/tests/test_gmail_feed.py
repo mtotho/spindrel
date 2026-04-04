@@ -42,7 +42,10 @@ def _make_pipeline(store: IngestionStore | None = None) -> IngestionPipeline:
     return IngestionPipeline(config=config, store=store or _make_store())
 
 
-def _make_feed(store: IngestionStore | None = None) -> GmailFeed:
+def _make_feed(
+    store: IngestionStore | None = None,
+    initial_fetch: str = "all",
+) -> GmailFeed:
     s = store or _make_store()
     pipeline = _make_pipeline(s)
     return GmailFeed(
@@ -54,6 +57,7 @@ def _make_feed(store: IngestionStore | None = None) -> GmailFeed:
         password="app-password",
         folders=["INBOX"],
         max_per_poll=25,
+        initial_fetch=initial_fetch,
     )
 
 
@@ -466,3 +470,214 @@ class TestRunCycle:
             await feed.run_cycle()
 
         assert store.get_cursor("gmail:INBOX") == "501"
+
+
+# ---------------------------------------------------------------------------
+# Initial fetch strategy tests
+# ---------------------------------------------------------------------------
+
+
+class TestInitialFetchStrategy:
+    @pytest.mark.asyncio
+    async def test_initial_fetch_new_seeds_cursor(self):
+        """initial_fetch='new' should seed cursor to max UID and return 0 items."""
+        store = _make_store()
+        feed = _make_feed(store, initial_fetch="new")
+
+        mock_conn = MagicMock()
+        mock_conn.select.return_value = ("OK", [b"1"])
+        # First uid("search") for _get_max_uid (ALL search)
+        mock_conn.uid.return_value = ("OK", [b"100 200 300"])
+        mock_conn.noop.side_effect = Exception("not connected")
+
+        with patch("integrations.gmail.feed.imaplib.IMAP4_SSL", return_value=mock_conn):
+            mock_conn.login.return_value = ("OK", [])
+            items = await feed.fetch_items()
+
+        assert len(items) == 0
+        assert store.get_cursor("gmail:INBOX") == "300"
+
+    @pytest.mark.asyncio
+    async def test_initial_fetch_new_empty_folder(self):
+        """initial_fetch='new' on empty folder should not crash."""
+        store = _make_store()
+        feed = _make_feed(store, initial_fetch="new")
+
+        mock_conn = MagicMock()
+        mock_conn.select.return_value = ("OK", [b"0"])
+        mock_conn.uid.return_value = ("OK", [b""])
+        mock_conn.noop.side_effect = Exception("not connected")
+
+        with patch("integrations.gmail.feed.imaplib.IMAP4_SSL", return_value=mock_conn):
+            mock_conn.login.return_value = ("OK", [])
+            items = await feed.fetch_items()
+
+        assert len(items) == 0
+        assert store.get_cursor("gmail:INBOX") is None
+
+    @pytest.mark.asyncio
+    async def test_initial_fetch_recent_uses_since(self):
+        """initial_fetch='recent:7' should use IMAP SINCE criteria."""
+        store = _make_store()
+        feed = _make_feed(store, initial_fetch="recent:7")
+
+        raw_email = _make_email(subject="Recent Email")
+
+        mock_conn = MagicMock()
+        mock_conn.select.return_value = ("OK", [b"1"])
+        mock_conn.uid.side_effect = [
+            # search with SINCE
+            ("OK", [b"50"]),
+            # fetch
+            ("OK", [(b"50 (RFC822 {100}", raw_email), b")"]),
+        ]
+        mock_conn.noop.side_effect = Exception("not connected")
+
+        with patch("integrations.gmail.feed.imaplib.IMAP4_SSL", return_value=mock_conn):
+            mock_conn.login.return_value = ("OK", [])
+            items = await feed.fetch_items()
+
+        # Verify SINCE was used in the search call
+        search_call = mock_conn.uid.call_args_list[0]
+        assert search_call[0][0] == "search"
+        search_criteria = search_call[0][2]
+        assert search_criteria.startswith("SINCE ")
+
+        assert len(items) == 1
+        assert items[0].metadata["subject"] == "Recent Email"
+
+    @pytest.mark.asyncio
+    async def test_initial_fetch_all_preserves_behavior(self):
+        """initial_fetch='all' should use 'ALL' search (original behavior)."""
+        store = _make_store()
+        feed = _make_feed(store, initial_fetch="all")
+
+        raw_email = _make_email(subject="Old Email")
+
+        mock_conn = MagicMock()
+        mock_conn.select.return_value = ("OK", [b"1"])
+        mock_conn.uid.side_effect = [
+            ("OK", [b"1"]),
+            ("OK", [(b"1 (RFC822 {100}", raw_email), b")"]),
+        ]
+        mock_conn.noop.side_effect = Exception("not connected")
+
+        with patch("integrations.gmail.feed.imaplib.IMAP4_SSL", return_value=mock_conn):
+            mock_conn.login.return_value = ("OK", [])
+            items = await feed.fetch_items()
+
+        # Verify ALL was used
+        search_call = mock_conn.uid.call_args_list[0]
+        assert search_call[0][2] == "ALL"
+        assert len(items) == 1
+
+    @pytest.mark.asyncio
+    async def test_initial_fetch_ignored_when_cursor_exists(self):
+        """With an existing cursor, initial_fetch strategy is bypassed."""
+        store = _make_store()
+        store.set_cursor("gmail:INBOX", "50")
+        feed = _make_feed(store, initial_fetch="new")
+
+        raw_email = _make_email(subject="New Email")
+
+        mock_conn = MagicMock()
+        mock_conn.select.return_value = ("OK", [b"1"])
+        mock_conn.uid.side_effect = [
+            ("OK", [b"50 51"]),
+            ("OK", [(b"51 (RFC822 {100}", raw_email), b")"]),
+        ]
+        mock_conn.noop.side_effect = Exception("not connected")
+
+        with patch("integrations.gmail.feed.imaplib.IMAP4_SSL", return_value=mock_conn):
+            mock_conn.login.return_value = ("OK", [])
+            items = await feed.fetch_items()
+
+        # Should use UID range, not seed behavior
+        search_call = mock_conn.uid.call_args_list[0]
+        assert "UID" in search_call[0][2]
+        assert len(items) == 1
+
+
+# ---------------------------------------------------------------------------
+# Override parameter tests
+# ---------------------------------------------------------------------------
+
+
+class TestFetchOverrides:
+    @pytest.mark.asyncio
+    async def test_since_days_override(self):
+        """since_days override should use IMAP SINCE regardless of cursor."""
+        store = _make_store()
+        store.set_cursor("gmail:INBOX", "50")
+        feed = _make_feed(store)
+
+        raw_email = _make_email(subject="Override Email")
+
+        mock_conn = MagicMock()
+        mock_conn.select.return_value = ("OK", [b"1"])
+        mock_conn.uid.side_effect = [
+            ("OK", [b"10 20 30 51"]),
+            ("OK", [(b"10 (RFC822 {100}", raw_email), b")"]),
+            ("OK", [(b"20 (RFC822 {100}", raw_email), b")"]),
+            ("OK", [(b"30 (RFC822 {100}", raw_email), b")"]),
+            ("OK", [(b"51 (RFC822 {100}", raw_email), b")"]),
+        ]
+        mock_conn.noop.side_effect = Exception("not connected")
+
+        with patch("integrations.gmail.feed.imaplib.IMAP4_SSL", return_value=mock_conn):
+            mock_conn.login.return_value = ("OK", [])
+            items = await feed.fetch_items_with_overrides(since_days=3)
+
+        # Should use SINCE, not UID range
+        search_call = mock_conn.uid.call_args_list[0]
+        assert search_call[0][2].startswith("SINCE ")
+        # Should include UIDs <= cursor (since_days ignores cursor filtering)
+        assert len(items) == 4
+
+    @pytest.mark.asyncio
+    async def test_max_items_override(self):
+        """max_items override should limit fetched count."""
+        store = _make_store()
+        feed = _make_feed(store)
+
+        raw_email = _make_email()
+
+        mock_conn = MagicMock()
+        mock_conn.select.return_value = ("OK", [b"1"])
+        mock_conn.uid.side_effect = [
+            ("OK", [b"1 2 3 4 5"]),
+            ("OK", [(b"1 (RFC822 {100}", raw_email), b")"]),
+            ("OK", [(b"2 (RFC822 {100}", raw_email), b")"]),
+        ]
+        mock_conn.noop.side_effect = Exception("not connected")
+
+        with patch("integrations.gmail.feed.imaplib.IMAP4_SSL", return_value=mock_conn):
+            mock_conn.login.return_value = ("OK", [])
+            items = await feed.fetch_items_with_overrides(max_items=2)
+
+        assert len(items) == 2
+
+    @pytest.mark.asyncio
+    async def test_folders_override(self):
+        """folders override should poll specified folders instead of default."""
+        store = _make_store()
+        feed = _make_feed(store)
+
+        raw_email = _make_email(subject="Sent Email")
+
+        mock_conn = MagicMock()
+        mock_conn.select.return_value = ("OK", [b"1"])
+        mock_conn.uid.side_effect = [
+            ("OK", [b"10"]),
+            ("OK", [(b"10 (RFC822 {100}", raw_email), b")"]),
+        ]
+        mock_conn.noop.side_effect = Exception("not connected")
+
+        with patch("integrations.gmail.feed.imaplib.IMAP4_SSL", return_value=mock_conn):
+            mock_conn.login.return_value = ("OK", [])
+            items = await feed.fetch_items_with_overrides(folders=["[Gmail]/Sent Mail"])
+
+        # Should have selected the Sent Mail folder
+        mock_conn.select.assert_called_once_with("[Gmail]/Sent Mail", readonly=True)
+        assert len(items) == 1
+        assert items[0].metadata["folder"] == "[Gmail]/Sent Mail"

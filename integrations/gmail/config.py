@@ -44,6 +44,10 @@ class _Settings:
         return [f.strip() for f in raw.split(",") if f.strip()]
 
     @property
+    def GMAIL_INITIAL_FETCH(self) -> str:
+        return _get("GMAIL_INITIAL_FETCH", "new")
+
+    @property
     def AGENT_BASE_URL(self) -> str:
         return _get("AGENT_BASE_URL", "http://localhost:8000")
 

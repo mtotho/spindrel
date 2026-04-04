@@ -14,10 +14,10 @@ import imaplib
 import logging
 import re
 import unicodedata
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from integrations.ingestion.envelope import ExternalMessage, RawMessage
-from integrations.ingestion.feed import ContentFeed, FeedItem
+from integrations.ingestion.feed import ContentFeed, CycleResult, FeedItem
 from integrations.ingestion.pipeline import IngestionPipeline
 from integrations.ingestion.store import IngestionStore
 
@@ -157,6 +157,7 @@ class GmailFeed(ContentFeed):
         password: str = "",
         folders: list[str] | None = None,
         max_per_poll: int = 25,
+        initial_fetch: str = "new",
     ) -> None:
         super().__init__(pipeline, store)
         self.host = host
@@ -165,6 +166,7 @@ class GmailFeed(ContentFeed):
         self.password = password
         self.folders = folders or ["INBOX"]
         self.max_per_poll = max_per_poll
+        self.initial_fetch = initial_fetch
         self._imap: imaplib.IMAP4_SSL | None = None
 
     def _connect(self) -> imaplib.IMAP4_SSL:
@@ -193,24 +195,62 @@ class GmailFeed(ContentFeed):
         """Fetch new emails via IMAP, starting from last cursor UID."""
         return await asyncio.to_thread(self._fetch_items_sync)
 
-    def _fetch_items_sync(self) -> list[RawMessage]:
-        """Synchronous IMAP fetch."""
+    def _fetch_items_sync(
+        self,
+        *,
+        since_days: int | None = None,
+        max_items: int | None = None,
+        folders_override: list[str] | None = None,
+    ) -> list[RawMessage]:
+        """Synchronous IMAP fetch.
+
+        Args:
+            since_days: Override — fetch emails from the last N days
+                        (ignores cursor, uses IMAP SINCE).
+            max_items: Override — max emails to fetch this call.
+            folders_override: Override — folders to poll this call.
+        """
         conn = self._connect()
         items: list[RawMessage] = []
+        effective_folders = folders_override or self.folders
+        effective_max = max_items if max_items is not None else self.max_per_poll
 
-        for folder in self.folders:
+        for folder in effective_folders:
             try:
                 status, _ = conn.select(folder, readonly=True)
                 if status != "OK":
                     logger.warning("Cannot select folder %s", folder)
                     continue
 
-                # Use UID search starting from last cursor
                 cursor_key = f"gmail:{folder}"
                 last_uid = self.store.get_cursor(cursor_key)
-                if last_uid:
+
+                # Build search criteria
+                if since_days is not None:
+                    # Explicit override — date-based search, ignore cursor
+                    since_date = (
+                        datetime.now(timezone.utc) - timedelta(days=since_days)
+                    ).strftime("%d-%b-%Y")
+                    search_criteria = f"SINCE {since_date}"
+                elif last_uid:
                     search_criteria = f"UID {int(last_uid) + 1}:*"
-                else:
+                elif self.initial_fetch == "new":
+                    # Seed cursor to highest UID, skip existing mail
+                    max_uid_val = self._get_max_uid(conn)
+                    if max_uid_val:
+                        self.store.set_cursor(cursor_key, str(max_uid_val))
+                        logger.info(
+                            "Initial fetch=new: seeded %s cursor to UID %s",
+                            folder, max_uid_val,
+                        )
+                    continue
+                elif self.initial_fetch.startswith("recent:"):
+                    days = int(self.initial_fetch.split(":")[1])
+                    since_date = (
+                        datetime.now(timezone.utc) - timedelta(days=days)
+                    ).strftime("%d-%b-%Y")
+                    search_criteria = f"SINCE {since_date}"
+                else:  # "all" or anything else
                     search_criteria = "ALL"
 
                 status, data = conn.uid("search", None, search_criteria)
@@ -221,11 +261,11 @@ class GmailFeed(ContentFeed):
                 uid_list = data[0].split() if data[0] else []
 
                 # Filter out the cursor UID itself (IMAP range is inclusive)
-                if last_uid:
+                if last_uid and since_days is None:
                     uid_list = [u for u in uid_list if int(u) > int(last_uid)]
 
                 # Limit per poll
-                uid_list = uid_list[: self.max_per_poll]
+                uid_list = uid_list[:effective_max]
 
                 max_uid = last_uid
 
@@ -276,6 +316,58 @@ class GmailFeed(ContentFeed):
                 logger.exception("Error processing folder %s", folder)
 
         return items
+
+    @staticmethod
+    def _get_max_uid(conn: imaplib.IMAP4_SSL) -> int | None:
+        """Find the highest UID in the currently selected folder."""
+        status, data = conn.uid("search", None, "ALL")
+        if status != "OK" or not data[0]:
+            return None
+        uid_list = data[0].split()
+        return max(int(u) for u in uid_list) if uid_list else None
+
+    async def fetch_items_with_overrides(
+        self,
+        *,
+        since_days: int | None = None,
+        max_items: int | None = None,
+        folders: list[str] | None = None,
+    ) -> list[RawMessage]:
+        """Fetch items with per-call overrides (used by trigger_gmail_poll tool)."""
+        return await asyncio.to_thread(
+            self._fetch_items_sync,
+            since_days=since_days,
+            max_items=max_items,
+            folders_override=folders,
+        )
+
+    async def _run_pipeline(self, raw_items: list[RawMessage]) -> CycleResult:
+        """Process pre-fetched raw items through the ingestion pipeline.
+
+        Same logic as ContentFeed.run_cycle() but skips the fetch step,
+        allowing the caller to provide items from an override fetch.
+        """
+        result = CycleResult()
+        result.fetched = len(raw_items)
+
+        for raw in raw_items:
+            try:
+                if self.store.already_processed(raw.source, raw.source_id):
+                    result.skipped += 1
+                    continue
+
+                envelope = await self.pipeline.process(raw)
+                if envelope is None:
+                    result.quarantined += 1
+                    continue
+
+                item = self.format_item(envelope)
+                result.items.append(item)
+                result.passed += 1
+            except Exception as exc:
+                result.errors.append(f"item {raw.source_id}: {exc}")
+
+        return result
 
     def format_item(self, envelope: ExternalMessage) -> FeedItem:
         """Convert processed email envelope to a FeedItem with markdown formatting."""

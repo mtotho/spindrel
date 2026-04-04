@@ -39,6 +39,7 @@ def create_feed() -> tuple[GmailFeed, IngestionStore]:
         password=settings.GMAIL_APP_PASSWORD,
         folders=settings.GMAIL_FOLDERS,
         max_per_poll=settings.GMAIL_MAX_PER_POLL,
+        initial_fetch=settings.GMAIL_INITIAL_FETCH,
     )
 
     return feed, store

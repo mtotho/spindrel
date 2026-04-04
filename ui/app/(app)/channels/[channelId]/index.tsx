@@ -93,30 +93,29 @@ export default function ChatScreen() {
 
   // In inverted list: index 0 = newest, index+1 = chronologically previous (older).
   // Show date separator when the current message starts a new day vs the older message above it.
+  //
+  // Render order matters per platform:
+  // - Native (inverted FlatList): scaleY(-1) flips each cell, so DateSeparator
+  //   AFTER the message in DOM ends up ABOVE it visually.
+  // - Web (column-reverse container): no per-cell flip, so DateSeparator must
+  //   come BEFORE the message in DOM to appear above it. Using column-reverse
+  //   on each wrapper would break text selection (same bug as scaleY transforms).
+  const isWeb = Platform.OS === "web";
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       const prevMsg = invertedData[index + 1];
       const grouped = shouldGroup(item, prevMsg);
-      // Show date separator above this message if it's the oldest loaded or on a different day than the one above
       const showDateSep = index === invertedData.length - 1 || (prevMsg && isDifferentDay(item.created_at, prevMsg.created_at));
-      // Render trigger card for automated user messages
+      const dateSep = showDateSep ? <DateSeparator label={formatDateSeparator(item.created_at)} /> : null;
       const meta = (item.metadata ?? {}) as Record<string, any>;
       if (item.role === "user" && meta.trigger && SUPPORTED_TRIGGERS.has(meta.trigger)) {
-        return (
-          <>
-            <TriggerCard message={item} botName={bot?.name} />
-            {showDateSep && <DateSeparator label={formatDateSeparator(item.created_at)} />}
-          </>
-        );
+        const card = <TriggerCard message={item} botName={bot?.name} />;
+        return isWeb ? <>{dateSep}{card}</> : <>{card}{dateSep}</>;
       }
-      return (
-        <>
-          <MessageBubble message={item} botName={bot?.name} isGrouped={showDateSep ? false : grouped} />
-          {showDateSep && <DateSeparator label={formatDateSeparator(item.created_at)} />}
-        </>
-      );
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={showDateSep ? false : grouped} />;
+      return isWeb ? <>{dateSep}{bubble}</> : <>{bubble}{dateSep}</>;
     },
-    [invertedData, bot?.name]
+    [invertedData, bot?.name, isWeb]
   );
 
   // ---- Workspace / file explorer state ----

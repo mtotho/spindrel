@@ -62,6 +62,7 @@ GMAIL_IMAP_PORT=993                      # Default
 GMAIL_POLL_INTERVAL=60                   # Seconds between polls (default: 60)
 GMAIL_MAX_PER_POLL=25                    # Max emails per cycle (default: 25)
 GMAIL_FOLDERS=INBOX                      # Comma-separated folders (default: INBOX)
+GMAIL_INITIAL_FETCH=new                  # First poll strategy: "new", "recent:N", or "all"
 ```
 
 > **Note**: The Gmail poller needs an API key to call back to the server for workspace delivery. This key is **auto-provisioned** when you save integration settings via the admin UI — you don't need to set `AGENT_API_KEY` manually. The process manager injects it into the poller's environment automatically.
@@ -125,8 +126,32 @@ The Gmail integration has minimal dependencies:
 | `GMAIL_POLL_INTERVAL` | `60` | Seconds between poll cycles |
 | `GMAIL_MAX_PER_POLL` | `25` | Maximum emails to fetch per cycle |
 | `GMAIL_FOLDERS` | `INBOX` | Comma-separated IMAP folders to monitor |
+| `GMAIL_INITIAL_FETCH` | `new` | First-poll strategy (see below) |
 | `AGENT_BASE_URL` | `http://localhost:8000` | Agent server URL |
 | `AGENT_API_KEY` | (auto-provisioned) | Injected automatically by the process manager — do not set manually |
+
+## Initial Fetch Strategy
+
+When the Gmail poller connects for the first time (no cursor stored), `GMAIL_INITIAL_FETCH` controls what happens:
+
+| Value | Behavior |
+|---|---|
+| `new` **(default)** | Seed cursor to the latest UID, skip all existing mail. Only future emails get processed. |
+| `recent:N` | Fetch emails from the last N days (e.g. `recent:7`). Uses IMAP `SINCE` criteria. |
+| `all` | Fetch everything in the mailbox (original behavior — can be very slow on large mailboxes). |
+
+Once a cursor is established, this setting has no effect — subsequent polls always fetch from cursor+1 onward.
+
+```bash
+# Only process new emails arriving after first connect (recommended)
+GMAIL_INITIAL_FETCH=new
+
+# Bootstrap with the last 7 days of email
+GMAIL_INITIAL_FETCH=recent:7
+
+# Fetch everything (use with caution on large mailboxes)
+GMAIL_INITIAL_FETCH=all
+```
 
 ## Email Storage
 
@@ -165,7 +190,11 @@ Emails that fail any layer are quarantined in a local SQLite database (`~/.agent
 Three tools are available to bots with the `gmail-feeds` carapace:
 
 - **`check_gmail_status`** — Test IMAP connectivity, show email and folder count
-- **`trigger_gmail_poll`** — Run a poll cycle immediately, deliver passed emails to bound channel workspaces, and return a summary. Pass `deliver: false` to check what's available without writing files.
+- **`trigger_gmail_poll`** — Run a poll cycle immediately, deliver passed emails to bound channel workspaces, and return a summary. Supports optional overrides:
+  - `deliver: false` — Check what's available without writing files
+  - `since_days: N` — Fetch emails from the last N days (ignores cursor, uses IMAP SINCE)
+  - `max_items: N` — Override max emails to fetch this call
+  - `folders: "INBOX, [Gmail]/Sent Mail"` — Override which folders to poll
 - **`query_feed_store`** — Query feed health stats, recent deliveries, and quarantined items from the ingestion SQLite store
 
 ### Feed Store Queries

@@ -39,10 +39,19 @@ class FakeEmptyResult:
 
 
 class FakeFeed:
-    def __init__(self, result):
+    def __init__(self, result, raw_items=None):
         self._result = result
+        self._raw_items = raw_items
+        self._overrides_called_with = None
 
     async def run_cycle(self):
+        return self._result
+
+    async def fetch_items_with_overrides(self, **kwargs):
+        self._overrides_called_with = kwargs
+        return self._raw_items or []
+
+    async def _run_pipeline(self, raw_items):
         return self._result
 
     def _disconnect(self):
@@ -205,3 +214,80 @@ async def test_trigger_poll_partial_delivery_failure():
     mock_write.assert_called_once()
     # Delivery failed, so no "Delivered" line
     assert "Delivered" not in output
+
+
+# ---------------------------------------------------------------------------
+# Override parameter tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_trigger_poll_with_since_days():
+    """since_days param should use fetch_items_with_overrides path."""
+    result = FakeCycleResult()
+    feed = FakeFeed(result, raw_items=[])
+
+    with (
+        patch(_P_SETTINGS, FakeSettings()),
+        patch(_P_CREATE_FEED, return_value=(feed, FakeStore())),
+        patch(_P_RESOLVE, new_callable=AsyncMock, return_value=[
+            {"id": "ch-1", "client_id": "gmail:test@gmail.com"},
+        ]),
+        patch(_P_WRITE, new_callable=AsyncMock, return_value=True),
+    ):
+        from integrations.gmail.tools.gmail import trigger_gmail_poll
+        output = await trigger_gmail_poll(since_days=3)
+
+    assert feed._overrides_called_with is not None
+    assert feed._overrides_called_with["since_days"] == 3
+    assert "1 passed" in output
+
+
+@pytest.mark.asyncio
+async def test_trigger_poll_with_max_items():
+    """max_items param should use override path with correct max."""
+    result = FakeEmptyResult()
+    feed = FakeFeed(result, raw_items=[])
+
+    with (
+        patch(_P_SETTINGS, FakeSettings()),
+        patch(_P_CREATE_FEED, return_value=(feed, FakeStore())),
+    ):
+        from integrations.gmail.tools.gmail import trigger_gmail_poll
+        output = await trigger_gmail_poll(max_items=10)
+
+    assert feed._overrides_called_with["max_items"] == 10
+
+
+@pytest.mark.asyncio
+async def test_trigger_poll_with_folders():
+    """folders param should be parsed into a list and passed to overrides."""
+    result = FakeEmptyResult()
+    feed = FakeFeed(result, raw_items=[])
+
+    with (
+        patch(_P_SETTINGS, FakeSettings()),
+        patch(_P_CREATE_FEED, return_value=(feed, FakeStore())),
+    ):
+        from integrations.gmail.tools.gmail import trigger_gmail_poll
+        output = await trigger_gmail_poll(folders="INBOX, [Gmail]/Sent Mail")
+
+    assert feed._overrides_called_with["folders"] == ["INBOX", "[Gmail]/Sent Mail"]
+
+
+@pytest.mark.asyncio
+async def test_trigger_poll_no_overrides_uses_run_cycle():
+    """Without override params, should use normal run_cycle path."""
+    result = FakeEmptyResult()
+    feed = FakeFeed(result)
+
+    with (
+        patch(_P_SETTINGS, FakeSettings()),
+        patch(_P_CREATE_FEED, return_value=(feed, FakeStore())),
+    ):
+        from integrations.gmail.tools.gmail import trigger_gmail_poll
+        output = await trigger_gmail_poll()
+
+    # Should NOT have called overrides path
+    assert feed._overrides_called_with is None
+    assert "No new emails" in output
