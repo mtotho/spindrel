@@ -57,27 +57,29 @@ export function resolveDisplay(
   message: Message,
   botName?: string,
   contentSlackUserId?: string | null,
-): { name: string; isCurrentUser: boolean; isSlack: boolean } {
+): { name: string; isCurrentUser: boolean; isSlack: boolean; isMemberBot: boolean } {
   const meta = message.metadata || {};
   if (message.role === "assistant") {
-    return { name: meta.sender_display_name || botName || "Bot", isCurrentUser: false, isSlack: false };
+    // Detect member bot: has sender_display_name that differs from primary botName
+    const isMemberBot = !!(meta.sender_display_name && botName && meta.sender_display_name !== botName);
+    return { name: meta.sender_display_name || botName || "Bot", isCurrentUser: false, isSlack: false, isMemberBot };
   }
   // User messages with metadata
   if (meta.sender_type === "bot") {
-    return { name: meta.sender_display_name || "Bot", isCurrentUser: false, isSlack: false };
+    return { name: meta.sender_display_name || "Bot", isCurrentUser: false, isSlack: false, isMemberBot: false };
   }
   if (meta.source === "slack") {
     const slackId = (meta.sender_id || "").replace("slack:", "");
-    return { name: meta.sender_display_name || `Slack:${slackId}`, isCurrentUser: false, isSlack: true };
+    return { name: meta.sender_display_name || `Slack:${slackId}`, isCurrentUser: false, isSlack: true, isMemberBot: false };
   }
   if (meta.source === "web" && meta.sender_display_name) {
-    return { name: meta.sender_display_name, isCurrentUser: true, isSlack: false };
+    return { name: meta.sender_display_name, isCurrentUser: true, isSlack: false, isMemberBot: false };
   }
   // Legacy fallback: detect Slack prefix in content
   if (contentSlackUserId) {
-    return { name: meta.sender_display_name || `Slack:${contentSlackUserId}`, isCurrentUser: false, isSlack: true };
+    return { name: meta.sender_display_name || `Slack:${contentSlackUserId}`, isCurrentUser: false, isSlack: true, isMemberBot: false };
   }
-  return { name: "You", isCurrentUser: true, isSlack: false };
+  return { name: "You", isCurrentUser: true, isSlack: false, isMemberBot: false };
 }
 
 // Deterministic color from string hash

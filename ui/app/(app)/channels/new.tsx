@@ -40,6 +40,7 @@ export default function NewChannelScreen() {
   const [templateId, setTemplateId] = useState<string | null>(null);
   const [enabledIntegrations, setEnabledIntegrations] = useState<string[]>([]);
   const [templateFilter, setTemplateFilter] = useState("");
+  const [memberBotIds, setMemberBotIds] = useState<string[]>([]);
 
   // Pre-select template from query param (e.g., from home page onboarding)
   useEffect(() => {
@@ -105,6 +106,9 @@ export default function NewChannelScreen() {
     }
     if (category.trim()) {
       body.category = category.trim();
+    }
+    if (memberBotIds.length > 0) {
+      body.member_bot_ids = memberBotIds;
     }
     return body;
   };
@@ -256,6 +260,42 @@ export default function NewChannelScreen() {
               label="Private"
               description="Only visible to you"
             />
+
+            {/* Member bots (multi-bot channel) */}
+            {(bots ?? []).filter((b) => b.id !== (useBotMode ? botId : "default")).length > 0 && (
+              <Section title="Member Bots (optional)" description="Add additional bots that can participate when @-mentioned">
+                <View style={{ gap: 6 }}>
+                  {(bots ?? [])
+                    .filter((b) => b.id !== (useBotMode ? botId : "default"))
+                    .map((b) => {
+                      const selected = memberBotIds.includes(b.id);
+                      return (
+                        <Pressable
+                          key={b.id}
+                          onPress={() => setMemberBotIds((prev) =>
+                            selected ? prev.filter((x) => x !== b.id) : [...prev, b.id]
+                          )}
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 8,
+                            paddingVertical: 6,
+                            paddingHorizontal: 10,
+                            borderRadius: 6,
+                            borderWidth: 1,
+                            borderColor: selected ? theme.accent : theme.surfaceBorder,
+                            backgroundColor: selected ? `${theme.accent}10` : "transparent",
+                          }}
+                        >
+                          {selected && <Check size={14} color={theme.accent} />}
+                          <Text style={{ fontSize: 13, color: theme.text, flex: 1 }}>{b.name}</Text>
+                          <Text style={{ fontSize: 11, color: theme.textDim }}>{b.id}</Text>
+                        </Pressable>
+                      );
+                    })}
+                </View>
+              </Section>
+            )}
 
             {/* Action buttons */}
             <View style={{ gap: 10, marginTop: 8 }}>

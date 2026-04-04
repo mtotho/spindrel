@@ -30,6 +30,7 @@ import { HudSidePanel } from "./hud/HudSidePanel";
 import { HudInputBar } from "./hud/HudInputBar";
 import { HudFloatingAction } from "./hud/HudFloatingAction";
 import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
+import { ParticipantsPanel } from "./ParticipantsPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
 import { shouldGroup, formatDateSeparator, isDifferentDay } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
@@ -63,9 +64,9 @@ function HudStripBar({
           justifyContent: "center",
           gap: 4,
           padding: "2px 0",
+          border: "none",
           borderBottom: `1px solid ${t.surfaceBorder}`,
           background: t.surfaceRaised,
-          border: "none",
           cursor: "pointer",
           width: "100%",
           opacity: 0.5,
@@ -78,7 +79,7 @@ function HudStripBar({
   }
 
   return (
-    <View style={{ position: "relative" }}>
+    <div style={{ position: "relative" }}>
       {statusStrips.map((h) => (
         <HudStatusStrip key={h.key} hud={h} compact={compact} />
       ))}
@@ -101,7 +102,7 @@ function HudStripBar({
       >
         <ChevronUp size={10} color={t.textDim} />
       </button>
-    </View>
+    </div>
   );
 }
 
@@ -121,6 +122,7 @@ export default function ChatScreen() {
 
   const { statusStrips, sidePanels, inputBars, floatingActions } = useIntegrationHuds(channelId);
 
+  const isWeb = Platform.OS === "web";
   const showHamburger = columns === "single" || sidebarCollapsed;
   const t = useThemeTokens();
   const safeInsets = useSafeAreaInsets();
@@ -134,6 +136,8 @@ export default function ChatScreen() {
 
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [participantsPanelOpen, setParticipantsPanelOpen] = useState(false);
+  const memberBotCount = channel?.member_bots?.length ?? 0;
 
   const {
     chatState,
@@ -155,6 +159,9 @@ export default function ChatScreen() {
     setSecretWarning,
     doSend,
     setError,
+    isQueued,
+    handleSendNow,
+    cancelQueue,
   } = useChannelChat({ channelId, channel, activeFile });
 
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -175,7 +182,6 @@ export default function ChatScreen() {
   // - Web (column-reverse container): no per-cell flip, so DateSeparator must
   //   come BEFORE the message in DOM to appear above it. Using column-reverse
   //   on each wrapper would break text selection (same bug as scaleY transforms).
-  const isWeb = Platform.OS === "web";
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       const prevMsg = invertedData[index + 1];
@@ -275,7 +281,7 @@ export default function ChatScreen() {
   }, [workspaceId, channelId, expandDir]);
 
   const handleOpenEditor = useCallback(async () => {
-    if (!workspaceId || !channelId || Platform.OS !== "web") return;
+    if (!workspaceId || !channelId || !isWeb) return;
     try {
       await enableEditorMutation.mutateAsync();
       const { serverUrl } = useAuthStore.getState();
@@ -304,6 +310,9 @@ export default function ChatScreen() {
     currentBotId: channel?.bot_id,
     channelId,
     onSlashCommand: handleSlashCommand,
+    isQueued,
+    onCancelQueue: cancelQueue,
+    onSendNow: handleSendNow,
   };
 
   // ---- Shared message area props ----
@@ -325,11 +334,8 @@ export default function ChatScreen() {
     t,
   };
 
-  return (
-    <View
-      className="flex-1 bg-surface"
-      style={Platform.OS !== "web" ? { paddingTop: safeInsets.top, paddingBottom: safeInsets.bottom } : undefined}
-    >
+  const outerChildren = (
+    <>
       {/* Header */}
       <ChannelHeader
         channelId={channelId!}
@@ -347,6 +353,9 @@ export default function ChatScreen() {
         onBrowseWorkspace={handleBrowseWorkspace}
         onOpenEditor={handleOpenEditor}
         isMobile={isMobile}
+        memberBotCount={memberBotCount}
+        participantsPanelOpen={participantsPanelOpen}
+        toggleParticipantsPanel={() => setParticipantsPanelOpen((p) => !p)}
       />
 
       {/* What's active badge bar */}
@@ -363,15 +372,34 @@ export default function ChatScreen() {
 
       {/* Protected channel warning */}
       {channel?.client_id === "orchestrator:home" && (
-        <View
-          className="flex-row items-center gap-2 px-4 py-1.5 border-b border-amber-500/20"
-          style={{ backgroundColor: "rgba(245,158,11,0.08)" }}
-        >
-          <Shield size={13} color="#d97706" />
-          <Text style={{ fontSize: 12, color: "#d97706" }}>
-            System admin channel — this bot has unrestricted tool access and can delegate to all bots.
-          </Text>
-        </View>
+        isWeb ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 16px",
+              borderBottom: "1px solid rgba(245, 158, 11, 0.2)",
+              backgroundColor: "rgba(245, 158, 11, 0.08)",
+            }}
+          >
+            <Shield size={13} color="#d97706" />
+            <span style={{ fontSize: 12, color: "#d97706" }}>
+              System admin channel — this bot has unrestricted tool access and can delegate to all bots.
+            </span>
+          </div>
+        ) : (
+          <View
+            className="flex-row items-center gap-2 px-4 py-1.5 border-b border-amber-500/20"
+            style={{ backgroundColor: "rgba(245,158,11,0.08)" }}
+          >
+            <Shield size={13} color="#d97706" />
+            <Text style={{ fontSize: 12, color: "#d97706" }}>
+              System admin channel — this bot has unrestricted tool access and can delegate to all bots.
+            </Text>
+          </View>
+        )
       )}
 
       {/* Content area -- explorer + chat/file viewer */}
@@ -431,7 +459,7 @@ export default function ChatScreen() {
                 onClose={handleCloseExplorer}
                 width={explorerWidth}
               />
-              {Platform.OS === "web" && (
+              {isWeb && (
                 <ResizeHandle
                   direction="horizontal"
                   onResize={(delta) => setExplorerWidth(explorerWidth + delta)}
@@ -491,6 +519,15 @@ export default function ChatScreen() {
           {!isMobile && sidePanels.map((h) => (
             <HudSidePanel key={h.key} hud={h} />
           ))}
+
+          {/* Participants panel (multi-bot channels) */}
+          {!isMobile && participantsPanelOpen && channelId && (
+            <ParticipantsPanel
+              channelId={channelId}
+              primaryBotId={channel?.bot_id ?? ""}
+              primaryBotName={bot?.name}
+            />
+          )}
         </View>
       )}
       <ConfirmDialog
@@ -556,6 +593,23 @@ export default function ChatScreen() {
           }}
         />
       )}
+    </>
+  );
+
+  if (isWeb) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface }}>
+        {outerChildren}
+      </div>
+    );
+  }
+
+  return (
+    <View
+      className="flex-1 bg-surface"
+      style={{ paddingTop: safeInsets.top, paddingBottom: safeInsets.bottom }}
+    >
+      {outerChildren}
     </View>
   );
 }

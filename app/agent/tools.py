@@ -274,6 +274,20 @@ async def index_mcp_tools(server_name: str, schemas: list[dict[str, Any]]) -> No
         logger.info("Skipped %d unchanged MCP tool(s) for '%s'", skipped, server_name)
 
 
+async def remove_integration_embeddings(integration_id: str) -> int:
+    """Delete ToolEmbedding rows for an integration and invalidate cache. Returns count deleted."""
+    invalidate_tool_cache()
+    async with async_session() as db:
+        result = await db.execute(
+            delete(ToolEmbedding).where(ToolEmbedding.source_integration == integration_id)
+        )
+        await db.commit()
+        count = result.rowcount
+    if count:
+        logger.info("Removed %d tool embedding(s) for integration %s", count, integration_id)
+    return count
+
+
 async def retrieve_tools(
     query: str,
     local_tool_names: list[str],

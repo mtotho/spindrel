@@ -144,8 +144,17 @@ export function HudAction({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: 
   );
 }
 
-export function HudDivider() {
+export function HudDivider({ vertical }: { vertical?: boolean }) {
   const t = useThemeTokens();
+  if (vertical) {
+    return (
+      <View style={{
+        height: 1,
+        backgroundColor: t.surfaceBorder,
+        marginVertical: 4,
+      }} />
+    );
+  }
   return (
     <View style={{
       width: 1,
@@ -201,18 +210,40 @@ export function HudProgress({ item }: { item: HudItem }) {
   );
 }
 
-export function HudItemRenderer({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: string[] }) {
+export function HudGroup({ item, hudQueryKey }: { item: HudItem; hudQueryKey?: string[] }) {
+  const t = useThemeTokens();
+  return (
+    <View style={{ gap: 4 }}>
+      {item.label && (
+        <Text style={{ fontSize: 11, fontWeight: "600", color: t.text }} numberOfLines={1}>
+          {item.label}
+        </Text>
+      )}
+      {item.items && item.items.length > 0 && (
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+          {item.items.map((child, i) => (
+            <HudItemRenderer key={i} item={child} hudQueryKey={hudQueryKey} />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+export function HudItemRenderer({ item, hudQueryKey, vertical }: { item: HudItem; hudQueryKey?: string[]; vertical?: boolean }) {
   switch (item.type) {
     case "badge":
       return <HudBadge item={item} hudQueryKey={hudQueryKey} />;
     case "action":
       return <HudAction item={item} hudQueryKey={hudQueryKey} />;
     case "divider":
-      return <HudDivider />;
+      return <HudDivider vertical={vertical} />;
     case "text":
       return <HudText item={item} />;
     case "progress":
       return <HudProgress item={item} />;
+    case "group":
+      return <HudGroup item={item} hudQueryKey={hudQueryKey} />;
     default:
       return null;
   }

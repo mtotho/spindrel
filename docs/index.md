@@ -42,7 +42,7 @@ Activate an integration on a channel and it instantly gets the right tools, skil
 
 ### Self-Improving Agents
 
-Bots can author their own skills at runtime. Skills enter the RAG pipeline and are semantically retrieved in future sessions — bots get smarter over time. Admin visibility with bot attribution and filtering.
+Bots create their own skills at runtime via `manage_bot_skill`. Three learning nudges (correction detection, repeated-lookup detection, mid-conversation reflection) teach bots *when* to learn. Skills enter the RAG pipeline and auto-surface in future sessions. Scheduled review heartbeats prune stale skills, merge duplicates, and rewrite weak triggers autonomously. A dedicated Learning tab shows surfacing analytics and health badges per skill.
 
 ### Integration Framework
 
@@ -101,6 +101,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Lifecycle Webhooks](guides/webhooks.md) | Outgoing events for monitoring, cost analytics, and audit. |
 | [Command Execution](guides/command-execution.md) | Docker workspaces, host execution, client-side shell, deferred tasks — when to use each and how they differ. |
 | [Agent Client](guides/clients.md) | Remote voice assistant + local tool executor. |
+| [E2E Testing](guides/e2e-testing.md) | YAML scenario framework, ad-hoc agent testing, assertion reference, and LLM provider config. |
 | [Backup & Restore](backup.md) | Automated Postgres + config backups to S3. |
 | [Docker Deployment](docker-deployment.md) | Production setup with the sibling container pattern. |
 

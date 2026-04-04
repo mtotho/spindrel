@@ -125,6 +125,13 @@ function HudPresetPicker({
   const presetEntries = Object.entries(presets);
   const currentPreset = ig.activation_config?.hud_preset as string | undefined;
   const selectedKey = (currentPreset && presets[currentPreset]) ? currentPreset : presetEntries[0][0];
+  const selectedPreset = presets[selectedKey];
+
+  // Build widget ID → label map from chat_hud declarations
+  const widgetLabels: Record<string, string> = {};
+  for (const w of ig.chat_hud ?? []) {
+    widgetLabels[w.id] = w.label ?? w.id;
+  }
 
   return (
     <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${t.surfaceBorder}` }}>
@@ -139,10 +146,35 @@ function HudPresetPicker({
           }}
           options={presetEntries.map(([key, preset]) => ({
             value: key,
-            label: preset.label,
+            label: `${preset.label} (${preset.widgets.length} widget${preset.widgets.length !== 1 ? "s" : ""})`,
           }))}
         />
       </FormRow>
+      {selectedPreset?.description && (
+        <div style={{ fontSize: 11, color: t.textDim, marginTop: 4, lineHeight: "1.4" }}>
+          {selectedPreset.description}
+        </div>
+      )}
+      {selectedPreset?.widgets.length > 0 && (
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+          {selectedPreset.widgets.map((wid) => (
+            <span
+              key={wid}
+              style={{
+                fontSize: 10,
+                fontWeight: 600,
+                color: t.textDim,
+                padding: "2px 7px",
+                borderRadius: 4,
+                background: t.surfaceOverlay,
+                border: `1px solid ${t.surfaceBorder}`,
+              }}
+            >
+              {widgetLabels[wid] ?? wid}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

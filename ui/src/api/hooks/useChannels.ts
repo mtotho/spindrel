@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { Channel, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult } from "../../types/api";
+import type { Channel, ChannelBotMember, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult } from "../../types/api";
 import { useChatStore } from "../../stores/chat";
 import { useDraftsStore } from "../../stores/drafts";
 import { useChannelReadStore } from "../../stores/channelRead";
@@ -47,6 +47,7 @@ export function useCreateChannel() {
       workspace_schema_template_id?: string;
       category?: string;
       activate_integrations?: string[];
+      member_bot_ids?: string[];
     }) =>
       apiFetch<Channel>("/api/v1/channels", {
         method: "POST",
@@ -438,5 +439,48 @@ export function useChannelContextBreakdown(channelId: string | undefined) {
     queryKey: ["channel-context-breakdown", channelId],
     queryFn: () => apiFetch<ContextBreakdown>(`/api/v1/admin/channels/${channelId}/context-breakdown`),
     enabled: !!channelId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Bot members (multi-bot channels)
+// ---------------------------------------------------------------------------
+
+export function useChannelBotMembers(channelId: string | undefined) {
+  return useQuery({
+    queryKey: ["channel-bot-members", channelId],
+    queryFn: () => apiFetch<ChannelBotMember[]>(`/api/v1/channels/${channelId}/bot-members`),
+    enabled: !!channelId,
+  });
+}
+
+export function useAddBotMember(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (botId: string) =>
+      apiFetch<ChannelBotMember>(`/api/v1/channels/${channelId}/bot-members`, {
+        method: "POST",
+        body: JSON.stringify({ bot_id: botId }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["channel-bot-members", channelId] });
+      qc.invalidateQueries({ queryKey: ["channels", channelId] });
+      qc.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+}
+
+export function useRemoveBotMember(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (botId: string) =>
+      apiFetch(`/api/v1/channels/${channelId}/bot-members/${botId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["channel-bot-members", channelId] });
+      qc.invalidateQueries({ queryKey: ["channels", channelId] });
+      qc.invalidateQueries({ queryKey: ["channels"] });
+    },
   });
 }

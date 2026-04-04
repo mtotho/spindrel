@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Channel, ChannelHeartbeat, ChannelIntegration, KnowledgeAccess, Message, Session, Task
+from app.db.models import Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration, KnowledgeAccess, Message, Session, Task
 from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
@@ -54,6 +54,17 @@ class ChannelCreate(BaseModel):
     category: Optional[str] = None
     model_override: Optional[str] = None
     activate_integrations: Optional[list[str]] = None
+    member_bot_ids: Optional[list[str]] = None
+
+
+class ChannelBotMemberOut(BaseModel):
+    id: uuid.UUID
+    channel_id: uuid.UUID
+    bot_id: str
+    bot_name: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class IntegrationBindingOut(BaseModel):
@@ -84,6 +95,7 @@ class ChannelOut(BaseModel):
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     integrations: list[IntegrationBindingOut] = []
+    member_bots: list[ChannelBotMemberOut] = []
     channel_workspace_enabled: Optional[bool] = None
     workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
@@ -299,6 +311,20 @@ class ChannelConfigUpdate(BaseModel):
     heartbeat_max_run_seconds: Optional[int] = None
 
 
+def _enrich_bot_members(channel: Channel) -> list[ChannelBotMemberOut]:
+    """Enrich bot member rows with bot names from the registry."""
+    from app.agent.bots import get_bot as _get_bot
+    result = []
+    for bm in (channel.bot_members or []):
+        out = ChannelBotMemberOut.model_validate(bm)
+        try:
+            out.bot_name = _get_bot(bm.bot_id).name
+        except Exception:
+            out.bot_name = bm.bot_id
+        result.append(out)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -425,11 +451,24 @@ async def create_channel(
                 )
                 db.add(ci)
 
+    # Add member bots if specified
+    if body.member_bot_ids:
+        for mbid in body.member_bot_ids:
+            if mbid == body.bot_id:
+                continue  # skip primary bot
+            try:
+                get_bot(mbid)
+            except HTTPException:
+                continue  # skip unknown bots silently
+            bm = ChannelBotMember(channel_id=channel.id, bot_id=mbid)
+            db.add(bm)
+
     await db.commit()
-    await db.refresh(channel, ["integrations"])
+    await db.refresh(channel, ["integrations", "bot_members"])
     out = ChannelOut.model_validate(channel)
     out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
+    out.member_bots = _enrich_bot_members(channel)
     return out
 
 
@@ -442,7 +481,7 @@ async def list_channels(
     auth_result=Depends(require_scopes("channels:read")),
 ):
     """List channels with optional filters."""
-    stmt = select(Channel).options(selectinload(Channel.integrations)).order_by(Channel.created_at.desc())
+    stmt = select(Channel).options(selectinload(Channel.integrations), selectinload(Channel.bot_members)).order_by(Channel.created_at.desc())
     stmt = apply_channel_visibility(stmt, auth_result)
     if integration:
         stmt = stmt.where(Channel.integration == integration)
@@ -461,6 +500,7 @@ async def list_channels(
             out.resolved_workspace_id = ws_id_str
         out.category = (ch.metadata_ or {}).get("category")
         out.tags = (ch.metadata_ or {}).get("tags", [])
+        out.member_bots = _enrich_bot_members(ch)
         return out
 
     if not include_heartbeat:
@@ -502,7 +542,7 @@ async def get_channel(
 ):
     """Get channel info."""
     result = await db.execute(
-        select(Channel).options(selectinload(Channel.integrations)).where(Channel.id == channel_id)
+        select(Channel).options(selectinload(Channel.integrations), selectinload(Channel.bot_members)).where(Channel.id == channel_id)
     )
     channel = result.scalar_one_or_none()
     if not channel:
@@ -518,6 +558,7 @@ async def get_channel(
         logger.debug("Could not resolve workspace_id for channel %s bot %s", channel.id, channel.bot_id)
     out.category = (channel.metadata_ or {}).get("category")
     out.tags = (channel.metadata_ or {}).get("tags", [])
+    out.member_bots = _enrich_bot_members(channel)
     return out
 
 
@@ -1491,3 +1532,101 @@ async def update_activation_config(
     flag_modified(ci, "activation_config")
     await db.commit()
     return {"ok": True, "activation_config": merged}
+
+
+# ---------------------------------------------------------------------------
+# Bot Members (multi-bot channels)
+# ---------------------------------------------------------------------------
+
+class AddBotMemberRequest(BaseModel):
+    bot_id: str
+
+
+@router.get("/{channel_id}/bot-members", response_model=list[ChannelBotMemberOut])
+async def list_bot_members(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    """List member bots for a channel."""
+    result = await db.execute(
+        select(ChannelBotMember)
+        .where(ChannelBotMember.channel_id == channel_id)
+        .order_by(ChannelBotMember.created_at)
+    )
+    members = result.scalars().all()
+    from app.agent.bots import get_bot as _get_bot
+    out = []
+    for bm in members:
+        item = ChannelBotMemberOut.model_validate(bm)
+        try:
+            item.bot_name = _get_bot(bm.bot_id).name
+        except Exception:
+            item.bot_name = bm.bot_id
+        out.append(item)
+    return out
+
+
+@router.post("/{channel_id}/bot-members", response_model=ChannelBotMemberOut, status_code=201)
+async def add_bot_member(
+    channel_id: uuid.UUID,
+    body: AddBotMemberRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:write")),
+):
+    """Add a member bot to a channel."""
+    from app.agent.bots import get_bot as _get_bot
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Validate bot exists
+    try:
+        bot_cfg = _get_bot(body.bot_id)
+    except HTTPException:
+        raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
+
+    # Don't allow adding the primary bot as a member
+    if body.bot_id == channel.bot_id:
+        raise HTTPException(status_code=400, detail="Cannot add the primary bot as a member")
+
+    # Check for duplicate
+    existing = (await db.execute(
+        select(ChannelBotMember).where(
+            ChannelBotMember.channel_id == channel_id,
+            ChannelBotMember.bot_id == body.bot_id,
+        )
+    )).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Bot is already a member of this channel")
+
+    bm = ChannelBotMember(channel_id=channel_id, bot_id=body.bot_id)
+    db.add(bm)
+    await db.commit()
+    await db.refresh(bm)
+
+    out = ChannelBotMemberOut.model_validate(bm)
+    out.bot_name = bot_cfg.name
+    return out
+
+
+@router.delete("/{channel_id}/bot-members/{bot_id}", status_code=204)
+async def remove_bot_member(
+    channel_id: uuid.UUID,
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:write")),
+):
+    """Remove a member bot from a channel."""
+    result = await db.execute(
+        select(ChannelBotMember).where(
+            ChannelBotMember.channel_id == channel_id,
+            ChannelBotMember.bot_id == bot_id,
+        )
+    )
+    bm = result.scalar_one_or_none()
+    if not bm:
+        raise HTTPException(status_code=404, detail="Bot member not found")
+    await db.delete(bm)
+    await db.commit()

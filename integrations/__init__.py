@@ -259,6 +259,13 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "readme": None,
         }
 
+        # Check if globally disabled
+        try:
+            from app.services.integration_settings import is_disabled
+            entry["disabled"] = is_disabled(integration_id)
+        except Exception:
+            entry["disabled"] = False
+
         # Include live process status if process manager is available
         if has_process and process_launchable:
             try:
@@ -545,7 +552,10 @@ def discover_chat_hud_presets() -> dict[str, dict[str, dict]]:
                         integration_id, name, bad,
                     )
                     widgets = [w for w in widgets if w in valid_widget_ids]
-                validated[name] = {"label": preset["label"], "widgets": widgets}
+                entry = {"label": preset["label"], "widgets": widgets}
+                if "description" in preset:
+                    entry["description"] = preset["description"]
+                validated[name] = entry
             if validated:
                 results[integration_id] = validated
         except Exception:

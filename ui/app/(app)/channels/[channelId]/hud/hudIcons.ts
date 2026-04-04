@@ -13,6 +13,8 @@ import {
   ExternalLink, LayoutDashboard, Settings, Search,
   // Data
   BarChart2, TrendingUp, PieChart, Clock,
+  // Communication
+  MessageCircle, Pause,
   // Misc
   Circle, Plug, Bell, Eye, Loader2,
 } from "lucide-react";
@@ -31,6 +33,8 @@ const HUD_ICON_MAP: Record<string, IconComponent> = {
   ExternalLink, LayoutDashboard, Settings, Search,
   // Data
   BarChart2, TrendingUp, PieChart, Clock,
+  // Communication
+  MessageCircle, Pause,
   // Misc
   Circle, Plug, Bell, Eye, Loader2,
 };

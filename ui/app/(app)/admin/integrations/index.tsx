@@ -105,6 +105,7 @@ function InlineProcessControls({ item }: { item: IntegrationItem }) {
 function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boolean }) {
   const t = useThemeTokens();
   const router = useRouter();
+  const isDisabled = item.disabled;
 
   const envSetCount = item.env_vars.filter((v) => v.is_set).length;
   const activeCaps = [
@@ -116,6 +117,9 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
     item.has_carapaces && "carapaces",
   ].filter(Boolean) as string[];
 
+  const rowOpacity = isDisabled ? 0.45 : 1;
+  const effectiveStatus = isDisabled ? "disabled" : item.status;
+
   if (!isWide) {
     // Mobile: card layout (matches skills/tools mobile pattern)
     return (
@@ -126,11 +130,12 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
           padding: "12px 16px", background: t.inputBg, borderRadius: 8,
           border: `1px solid ${t.surfaceBorder}`, cursor: "pointer",
           textAlign: "left", width: "100%",
+          opacity: rowOpacity,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>{item.name}</span>
-          <StatusBadge status={item.status} />
+          <StatusBadge status={effectiveStatus} />
         </div>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {activeCaps.map((c) => <CapBadge key={c} label={c} active />)}
@@ -151,7 +156,7 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
             <code style={{ fontFamily: "monospace", fontSize: 10, color: t.textDim }}>{item.webhook.path}</code>
           )}
         </div>
-        {item.has_process && <InlineProcessControls item={item} />}
+        {item.has_process && !isDisabled && <InlineProcessControls item={item} />}
       </button>
     );
   }
@@ -167,6 +172,7 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
         borderBottom: `1px solid ${t.surfaceBorder}`,
         cursor: "pointer",
         textAlign: "left", width: "100%",
+        opacity: rowOpacity,
       }}
       onMouseEnter={(e) => { e.currentTarget.style.background = t.inputBg; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
@@ -175,7 +181,7 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
       <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{item.name}</span>
-          <StatusBadge status={item.status} />
+          <StatusBadge status={effectiveStatus} />
           <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
             {activeCaps.map((c) => <CapBadge key={c} label={c} active />)}
           </div>
@@ -202,7 +208,7 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
       </div>
 
       {/* Process controls (right side) */}
-      {item.has_process && <InlineProcessControls item={item} />}
+      {item.has_process && !isDisabled && <InlineProcessControls item={item} />}
     </button>
   );
 }
@@ -245,9 +251,11 @@ export default function IntegrationsScreen() {
     const ready: IntegrationItem[] = [];
     const needsSetup: IntegrationItem[] = [];
     const packages: IntegrationItem[] = [];
+    const disabled: IntegrationItem[] = [];
 
     for (const i of filtered) {
-      if (i.source === "package") packages.push(i);
+      if (i.disabled) disabled.push(i);
+      else if (i.source === "package") packages.push(i);
       else if (i.status === "ready") ready.push(i);
       else needsSetup.push(i);
     }
@@ -265,6 +273,10 @@ export default function IntegrationsScreen() {
     if (packages.length) {
       items.push({ type: "header", key: "packages", label: "Packages", count: packages.length });
       for (const i of packages) items.push({ type: "row", key: i.id, item: i });
+    }
+    if (disabled.length) {
+      items.push({ type: "header", key: "disabled", label: "Disabled", count: disabled.length });
+      for (const i of disabled) items.push({ type: "row", key: i.id, item: i });
     }
 
     return items;
@@ -341,7 +353,7 @@ export default function IntegrationsScreen() {
         }}>
           <strong style={{ color: t.textMuted }}>Ready</strong> = configured{" \u00b7 "}
           <strong style={{ color: t.textMuted }}>Needs Setup</strong> = missing required vars{" \u00b7 "}
-          Workspace integrations auto-discovered on restart
+          <strong style={{ color: t.textMuted }}>Disabled</strong> = globally off (tools unloaded, process stopped)
         </div>
       )}
 

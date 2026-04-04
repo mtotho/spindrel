@@ -674,6 +674,162 @@ async def hud_status(_auth=Depends(verify_auth_or_user)) -> dict:
     return {"visible": True, "items": items}
 
 
+@router.get("/hud/echo-diagnostics")
+async def hud_echo_diagnostics(_auth=Depends(verify_auth_or_user)) -> dict:
+    """Return HudData for the echo diagnostics side panel.
+
+    Shows summary badges, per-chat breakdown with cooldown/suppress timers,
+    and footer actions. Reads from in-memory echo tracker state — no external calls.
+    """
+    from integrations.bluebubbles.echo_tracker import (
+        _REPLY_COOLDOWN, _CIRCUIT_BREAKER_MAX, _CIRCUIT_BREAKER_WINDOW,
+        _ECHO_SUPPRESS_WINDOW,
+    )
+
+    now = time.time()
+    items: list[dict] = []
+
+    # Collect all chat GUIDs from both data structures
+    all_guids = set(shared_tracker._chat_replies.keys()) | set(shared_tracker._sent_content.keys())
+
+    # Compute summary stats
+    circuit_open_count = 0
+    suppress_active_count = 0
+    for chat_guid in all_guids:
+        replies = shared_tracker._chat_replies.get(chat_guid, [])
+        recent = [ts for ts in replies if now - ts < _CIRCUIT_BREAKER_WINDOW]
+        if len(recent) >= _CIRCUIT_BREAKER_MAX:
+            circuit_open_count += 1
+        if any(now - ts < _ECHO_SUPPRESS_WINDOW for ts in replies):
+            suppress_active_count += 1
+
+    # Summary badges
+    items.append({
+        "type": "badge",
+        "label": "Webhooks",
+        "value": "Paused" if _paused else "Active",
+        "icon": "Pause" if _paused else "Activity",
+        "variant": "warning" if _paused else "success",
+    })
+    items.append({
+        "type": "badge",
+        "label": "Tracked Chats",
+        "value": str(len(all_guids)),
+        "icon": "MessageSquare",
+        "variant": "muted" if len(all_guids) == 0 else "accent",
+    })
+    if circuit_open_count > 0:
+        items.append({
+            "type": "badge",
+            "label": "Circuit Breakers",
+            "value": f"{circuit_open_count} open",
+            "icon": "AlertOctagon",
+            "variant": "danger",
+        })
+    if suppress_active_count > 0:
+        items.append({
+            "type": "badge",
+            "label": "Suppress Windows",
+            "value": f"{suppress_active_count} active",
+            "icon": "ShieldAlert",
+            "variant": "warning",
+        })
+
+    # Divider
+    if all_guids:
+        items.append({"type": "divider"})
+
+    # Per-chat breakdown (sorted by most recent activity)
+    def _last_activity(guid: str) -> float:
+        replies = shared_tracker._chat_replies.get(guid, [])
+        return max(replies) if replies else 0.0
+
+    for chat_guid in sorted(all_guids, key=_last_activity, reverse=True):
+        replies = shared_tracker._chat_replies.get(chat_guid, [])
+        content = shared_tracker._sent_content.get(chat_guid, {})
+        recent = [ts for ts in replies if now - ts < _CIRCUIT_BREAKER_WINDOW]
+        cooldown_remaining = max(0, max((ts + _REPLY_COOLDOWN - now for ts in replies), default=0))
+        suppress_remaining = max(0, max((ts + _ECHO_SUPPRESS_WINDOW - now for ts in replies), default=0))
+        breaker_open = len(recent) >= _CIRCUIT_BREAKER_MAX
+
+        # Short label — last segment of GUID for readability
+        short_label = chat_guid.split(";")[-1] if ";" in chat_guid else chat_guid[-12:]
+
+        chat_parts: list[dict] = []
+        chat_parts.append({
+            "type": "badge",
+            "label": "Replies",
+            "value": f"{len(recent)}/{_CIRCUIT_BREAKER_MAX}",
+            "variant": "danger" if breaker_open else ("warning" if len(recent) > 0 else "muted"),
+        })
+        if cooldown_remaining > 0:
+            chat_parts.append({
+                "type": "badge",
+                "label": "Cooldown",
+                "value": f"{cooldown_remaining:.0f}s",
+                "icon": "Clock",
+                "variant": "warning",
+            })
+        if suppress_remaining > 0:
+            chat_parts.append({
+                "type": "badge",
+                "label": "Suppress",
+                "value": f"{suppress_remaining:.0f}s",
+                "icon": "ShieldAlert",
+                "variant": "warning",
+            })
+        if content:
+            chat_parts.append({
+                "type": "badge",
+                "label": "Hashes",
+                "value": str(len(content)),
+                "variant": "muted",
+            })
+
+        items.append({
+            "type": "group",
+            "label": short_label,
+            "items": chat_parts,
+        })
+
+    # Divider + footer
+    items.append({"type": "divider"})
+    items.append({
+        "type": "action",
+        "label": "Admin Integrations",
+        "icon": "Settings",
+        "variant": "muted",
+        "on_click": {"type": "link", "href": "/admin/integrations"},
+    })
+    if _paused:
+        items.append({
+            "type": "action",
+            "label": "Resume Webhooks",
+            "icon": "Play",
+            "variant": "success",
+            "on_click": {
+                "type": "action",
+                "endpoint": "/integrations/bluebubbles/resume",
+                "method": "POST",
+            },
+        })
+    else:
+        items.append({
+            "type": "action",
+            "label": "Pause Webhooks",
+            "icon": "Pause",
+            "variant": "warning",
+            "on_click": {
+                "type": "action",
+                "endpoint": "/integrations/bluebubbles/pause",
+                "method": "POST",
+                "confirm": "Pause all incoming BlueBubbles messages?",
+            },
+        })
+
+    return {"visible": True, "items": items}
+
+
 @router.post("/webhook")
 async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     """Receive new-message webhooks from BlueBubbles Server.

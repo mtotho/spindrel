@@ -1227,11 +1227,13 @@ async def run_stream(
     # run_immediate).  Only the outermost instance manages the delegation-post queue;
     # nested calls (child runs inside delegate_to_agent) share the same list so their
     # queued posts bubble up to the outermost emitter.
-    from app.agent.context import current_pending_delegation_posts
+    from app.agent.context import current_pending_delegation_posts, current_turn_responded_bots
     _is_outermost_stream = current_pending_delegation_posts.get() is None
     _delegation_posts: list = []
     if _is_outermost_stream:
         current_pending_delegation_posts.set(_delegation_posts)
+        # Reset anti-loop tracker for this user turn
+        current_turn_responded_bots.set({bot.id})
     else:
         # Reuse the outer list so deeply-nested delegation posts still reach the surface.
         _delegation_posts = current_pending_delegation_posts.get()  # type: ignore[assignment]

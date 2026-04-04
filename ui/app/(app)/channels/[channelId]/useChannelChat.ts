@@ -53,6 +53,12 @@ export interface UseChannelChatReturn {
   doSend: (text: string, files?: PendingFile[]) => void;
   /** Error setter (for clearing) */
   setError: (channelId: string, error: string) => void;
+  /** Queue state */
+  isQueued: boolean;
+  /** Cancel + send immediately (interrupts current response) */
+  handleSendNow: (text: string, files?: PendingFile[]) => void;
+  /** Cancel queued message without sending */
+  cancelQueue: () => void;
 }
 
 export function useChannelChat({ channelId, channel, activeFile }: UseChannelChatOptions): UseChannelChatReturn {
@@ -84,6 +90,17 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     files?: PendingFile[];
   } | null>(null);
   const secretCheck = useSecretCheck();
+
+  // ---- Message queue (send while bot is responding) ----
+  const queuedRequestRef = useRef<{
+    request: ChatRequest;
+    channelId: string;
+    optimisticMsgId: string;
+  } | null>(null);
+  const [isQueued, setIsQueued] = useState(false);
+  // Ref for checking active state inside async callbacks (avoids stale closures)
+  const isActiveRef = useRef(false);
+  isActiveRef.current = chatState.isStreaming || chatState.isProcessing;
 
   // ---- Message fetching ----
   const {
@@ -151,8 +168,20 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     ) {
       if (channelId) clearProcessing(channelId);
       queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+
+      // Fire queued message now that processing is done
+      const queued = queuedRequestRef.current;
+      if (queued) {
+        queuedRequestRef.current = null;
+        setIsQueued(false);
+        setTimeout(() => {
+          startStreaming(queued.channelId);
+          lastRequestRef.current[queued.channelId] = queued.request;
+          chatStream.mutate(queued.request);
+        }, 50);
+      }
     }
-  }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient]);
+  }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient, startStreaming]);
 
   // Refetch messages when background workflow runs change (heartbeats, scheduled tasks
   // post lifecycle messages that wouldn't otherwise be picked up by SSE).
@@ -228,6 +257,15 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         finishStreaming(channelId);
         setError(channelId, error.message);
       }
+      // Clear queue on error — don't auto-send into an errored state.
+      // Also remove the optimistic user message so it doesn't sit orphaned.
+      if (queuedRequestRef.current) {
+        const { optimisticMsgId, channelId: qCh } = queuedRequestRef.current;
+        queuedRequestRef.current = null;
+        setIsQueued(false);
+        const msgs = useChatStore.getState().channels[qCh]?.messages ?? [];
+        setMessages(qCh, msgs.filter((m) => m.id !== optimisticMsgId));
+      }
       // SSE dropped but server likely still processed the message.
       // Refetch messages after a short delay so the response appears.
       setTimeout(() => {
@@ -246,6 +284,18 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
       // Refetch messages to get real DB records (with attachments, full metadata, etc.)
       // persist_turn runs before the SSE connection closes, so data is ready.
       queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+
+      // Auto-send queued message now that the stream is done
+      const queued = queuedRequestRef.current;
+      if (queued) {
+        queuedRequestRef.current = null;
+        setIsQueued(false);
+        setTimeout(() => {
+          startStreaming(queued.channelId);
+          lastRequestRef.current[queued.channelId] = queued.request;
+          chatStream.mutate(queued.request);
+        }, 50);
+      }
     },
   });
 
@@ -269,7 +319,20 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     clearProcessing(channelId);
     // Refetch messages to replace synthetic messages with clean DB data
     queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-  }, [channel, channelId, flushChannel, finishStreaming, clearProcessing, queryClient]);
+
+    // If there's a queued message, fire it now (user stopped the stream,
+    // so the queue should proceed immediately)
+    const queued = queuedRequestRef.current;
+    if (queued) {
+      queuedRequestRef.current = null;
+      setIsQueued(false);
+      setTimeout(() => {
+        startStreaming(queued.channelId);
+        lastRequestRef.current[queued.channelId] = queued.request;
+        chatStream.mutate(queued.request);
+      }, 100);
+    }
+  }, [channel, channelId, flushChannel, finishStreaming, clearProcessing, queryClient, startStreaming]);
 
   const handleRetry = useCallback(() => {
     const req = channelId ? lastRequestRef.current[channelId] : undefined;
@@ -340,6 +403,78 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride]
   );
 
+  /** Queue a message to send after the current stream/processing finishes. */
+  const queueMessage = useCallback(
+    (text: string, files?: PendingFile[]) => {
+      if (!channelId || !channel) return;
+
+      // If viewing a file in non-split mode, auto-enable split
+      if (activeFile && !useUIStore.getState().fileExplorerSplit) {
+        useUIStore.getState().toggleFileExplorerSplit();
+      }
+
+      // If replacing an existing queued message, remove the old optimistic message
+      if (queuedRequestRef.current) {
+        const oldId = queuedRequestRef.current.optimisticMsgId;
+        const oldCh = queuedRequestRef.current.channelId;
+        const msgs = useChatStore.getState().channels[oldCh]?.messages ?? [];
+        setMessages(oldCh, msgs.filter((m) => m.id !== oldId));
+      }
+
+      // Add optimistic user message
+      const msgId = `msg-${Date.now()}`;
+      addMessage(channelId, {
+        id: msgId,
+        session_id: channel.active_session_id ?? "",
+        role: "user",
+        content: text,
+        created_at: new Date().toISOString(),
+      });
+
+      // Build and store the request for later
+      let attachments: ChatAttachment[] | undefined;
+      let file_metadata: ChatFileMetadata[] | undefined;
+      if (files && files.length > 0) {
+        attachments = [];
+        file_metadata = [];
+        for (const pf of files) {
+          if (pf.file.type.startsWith("image/")) {
+            attachments.push({
+              type: "image",
+              content: pf.base64,
+              mime_type: pf.file.type,
+              name: pf.file.name,
+            });
+          }
+          file_metadata.push({
+            filename: pf.file.name,
+            mime_type: pf.file.type,
+            size_bytes: pf.file.size,
+            file_data: pf.base64,
+          });
+        }
+      }
+
+      const request: ChatRequest = {
+        message: text,
+        bot_id: channel.bot_id,
+        client_id: channel.client_id ?? "",
+        channel_id: channelId,
+        ...(turnModelOverride ? { model_override: turnModelOverride } : {}),
+        ...(turnProviderIdOverride != null ? { model_provider_id_override: turnProviderIdOverride } : {}),
+        ...(attachments?.length ? { attachments } : {}),
+        ...(file_metadata?.length ? { file_metadata } : {}),
+      };
+
+      queuedRequestRef.current = { request, channelId, optimisticMsgId: msgId };
+      setIsQueued(true);
+
+      setTurnModelOverride(undefined);
+      setTurnProviderIdOverride(undefined);
+    },
+    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride, addMessage, setMessages],
+  );
+
   const handleSend = useCallback(
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
@@ -349,17 +484,22 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         onSuccess: (result) => {
           if (result.has_secrets) {
             setSecretWarning({ result, text, files });
+          } else if (isActiveRef.current) {
+            queueMessage(text, files);
           } else {
             doSend(text, files);
           }
         },
         onError: () => {
-          // Fail open -- send anyway if check fails
-          doSend(text, files);
+          if (isActiveRef.current) {
+            queueMessage(text, files);
+          } else {
+            doSend(text, files);
+          }
         },
       });
     },
-    [channelId, channel, doSend]
+    [channelId, channel, doSend, queueMessage]
   );
 
   const handleSendAudio = useCallback(
@@ -398,6 +538,38 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     },
     [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride]
   );
+
+  /** Cancel + send immediately (bypasses queue). */
+  const handleSendNow = useCallback(
+    (text: string, files?: PendingFile[]) => {
+      if (!channelId || !channel) return;
+      // Clear any pending queue
+      queuedRequestRef.current = null;
+      setIsQueued(false);
+      // Cancel current stream, then send
+      handleCancel();
+      // doSend adds message + starts new stream after cancel settles
+      setTimeout(() => doSend(text, files), 50);
+    },
+    [channelId, channel, handleCancel, doSend],
+  );
+
+  /** Cancel the queued message (remove optimistic message, keep current stream running). */
+  const cancelQueue = useCallback(() => {
+    if (!queuedRequestRef.current) return;
+    const { optimisticMsgId, channelId: qCh } = queuedRequestRef.current;
+    queuedRequestRef.current = null;
+    setIsQueued(false);
+    // Remove the optimistic user message
+    const msgs = useChatStore.getState().channels[qCh]?.messages ?? [];
+    setMessages(qCh, msgs.filter((m) => m.id !== optimisticMsgId));
+  }, [setMessages]);
+
+  // Reset queue when channel changes
+  useEffect(() => {
+    queuedRequestRef.current = null;
+    setIsQueued(false);
+  }, [channelId]);
 
   // Slash command handler
   const handleSlashCommand = useCallback(
@@ -477,5 +649,8 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     setSecretWarning,
     doSend,
     setError,
+    isQueued,
+    handleSendNow,
+    cancelQueue,
   };
 }

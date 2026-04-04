@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, Pressable, Platform } from "react-native";
 import { Link, useRouter } from "expo-router";
-import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Users } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 export interface ChannelHeaderProps {
@@ -21,6 +21,10 @@ export interface ChannelHeaderProps {
   onBrowseWorkspace: () => void;
   onOpenEditor: () => void;
   isMobile: boolean;
+  /** Multi-bot channel support */
+  memberBotCount?: number;
+  participantsPanelOpen?: boolean;
+  toggleParticipantsPanel?: () => void;
 }
 
 export function ChannelHeader({
@@ -39,6 +43,9 @@ export function ChannelHeader({
   onBrowseWorkspace,
   onOpenEditor,
   isMobile,
+  memberBotCount = 0,
+  participantsPanelOpen,
+  toggleParticipantsPanel,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const router = useRouter();
@@ -125,6 +132,39 @@ export function ChannelHeader({
               </button>
             )}
           </>
+        )}
+        {toggleParticipantsPanel && (
+          <button
+            className="header-icon-btn"
+            style={{
+              width: 36,
+              height: 36,
+              backgroundColor: participantsPanelOpen ? t.surfaceOverlay : "transparent",
+              position: "relative",
+            }}
+            onClick={toggleParticipantsPanel}
+            title={participantsPanelOpen ? "Hide participants" : "Manage participants"}
+          >
+            <Users size={16} color={participantsPanelOpen ? t.accent : t.textDim} />
+            {memberBotCount > 0 && (
+              <span style={{
+                position: "absolute",
+                top: 4,
+                right: 4,
+                fontSize: 9,
+                fontWeight: 700,
+                color: t.accent,
+                background: `${t.accent}20`,
+                borderRadius: 6,
+                padding: "0 3px",
+                minWidth: 12,
+                textAlign: "center",
+                lineHeight: "14px",
+              }}>
+                {1 + memberBotCount}
+              </span>
+            )}
+          </button>
         )}
         {channelId && (
           <button

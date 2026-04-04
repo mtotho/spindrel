@@ -234,6 +234,23 @@ textarea::placeholder {
 .scroll-fab:hover { filter: brightness(1.15); }
 .scroll-fab:active { filter: brightness(0.95); }
 
+/* Banner buttons (error/secret warning bars) */
+.banner-btn { transition: background-color 0.1s ease, opacity 0.1s ease; }
+.banner-btn:hover { background-color: rgb(var(--color-surface-overlay)); }
+
+/* Queue bar (message queued behind current response) */
+.queue-bar { animation: queue-bar-in 0.15s ease-out; }
+@keyframes queue-bar-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.queue-bar button {
+  transition: background-color 0.1s ease;
+}
+.queue-bar button:hover {
+  background-color: rgb(var(--color-surface-overlay));
+}
+
 /* Pulsing spike alert dot */
 @keyframes spike-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }

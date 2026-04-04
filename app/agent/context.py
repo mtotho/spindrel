@@ -71,6 +71,12 @@ current_pending_delegation_posts: ContextVar[list | None] = ContextVar(
     "pending_delegation_posts", default=None
 )
 
+# Anti-loop: tracks which bots have already responded in the current user turn.
+# Reset at the start of each outermost run_stream(); checked in delegation.
+current_turn_responded_bots: ContextVar[set | None] = ContextVar(
+    "current_turn_responded_bots", default=None
+)
+
 
 def set_agent_context(
     session_id: uuid.UUID | None = None,
@@ -145,6 +151,7 @@ class AgentContextSnapshot:
     provider_id_override: str | None
     channel_model_tier_overrides: dict | None
     resolved_skill_ids: set | None
+    turn_responded_bots: set | None
 
 
 def snapshot_agent_context() -> AgentContextSnapshot:
@@ -169,6 +176,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         provider_id_override=current_provider_id_override.get(),
         channel_model_tier_overrides=current_channel_model_tier_overrides.get(),
         resolved_skill_ids=current_resolved_skill_ids.get(),
+        turn_responded_bots=current_turn_responded_bots.get(),
     )
 
 
@@ -193,3 +201,4 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_provider_id_override.set(snap.provider_id_override)
     current_channel_model_tier_overrides.set(snap.channel_model_tier_overrides)
     current_resolved_skill_ids.set(snap.resolved_skill_ids)
+    current_turn_responded_bots.set(snap.turn_responded_bots)

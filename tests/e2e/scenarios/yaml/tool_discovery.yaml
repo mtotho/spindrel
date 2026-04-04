@@ -1,0 +1,12 @@
+scenarios:
+  - name: get_tool_info_usage
+    description: "Agent uses get_tool_info to describe a tool when asked"
+    bot_id: e2e-tools
+    tags: [tool-grounding]
+    steps:
+      - message: "Use your get_tool_info tool to look up the schema for get_current_time and tell me about it."
+        stream: true
+        assertions:
+          - tool_called: [get_tool_info]
+          - response_not_empty: true
+          - no_errors: true

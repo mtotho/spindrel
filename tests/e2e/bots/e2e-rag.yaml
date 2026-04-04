@@ -1,0 +1,13 @@
+id: e2e-rag
+name: "E2E RAG Tool Bot"
+system_prompt: |
+  You are a test bot. Use tools when appropriate. Be concise. Respond in plain text.
+local_tools:
+  - get_current_time
+  - get_current_local_time
+  - get_tool_info
+  - get_skill
+tool_retrieval: true
+tool_similarity_threshold: 0.3
+context_compaction: false
+persona: false

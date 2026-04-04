@@ -1,0 +1,11 @@
+id: e2e
+name: "E2E Test Bot"
+system_prompt: |
+  You are a test bot. Be concise. When asked to remember something, confirm it.
+  When asked to recall, do so. Respond in plain text.
+local_tools:
+  - get_current_local_time
+  - get_current_time
+tool_retrieval: false
+context_compaction: false
+persona: false

@@ -1,0 +1,19 @@
+scenarios:
+  - name: tool_result_persists
+    description: "Tool result from first turn is available in follow-up context"
+    bot_id: e2e-tools
+    tags: [multi-turn, tool-grounding]
+    channel: shared
+    steps:
+      - message: "What time is it? Use your time tool to check."
+        stream: true
+        assertions:
+          - tool_called: [get_current_time, get_current_local_time]
+          - response_not_empty: true
+          - no_errors: true
+      - message: "What time did you just tell me? Repeat it without using any tools."
+        stream: true
+        assertions:
+          - no_tools_called: true
+          - response_not_empty: true
+          - no_errors: true

@@ -1,0 +1,87 @@
+name: "spindrel-e2e"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent
+      POSTGRES_DB: agentdb
+    tmpfs:
+      - /var/lib/postgresql/data  # ephemeral — no volume, fast cleanup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agentdb"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  searxng:
+    image: searxng/searxng
+    volumes:
+      - ../../config/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  agent-server:
+    image: ${E2E_IMAGE:-agent-server:e2e}
+    ports:
+      - "${E2E_PORT:-18000}:8000"
+    volumes:
+      - ${E2E_BOT_CONFIG:-./bot.e2e.yaml}:/app/bots/e2e.yaml:ro
+      - ./bots/e2e-tools.yaml:/app/bots/e2e-tools.yaml:ro
+      - ./bots/e2e-rag.yaml:/app/bots/e2e-rag.yaml:ro
+      - ./bots/e2e-delegator.yaml:/app/bots/e2e-delegator.yaml:ro
+    environment:
+      # Auth
+      API_KEY: ${E2E_API_KEY:-e2e-test-key-12345}
+      # Database
+      DATABASE_URL: postgresql+asyncpg://agent:agent@postgres:5432/agentdb
+      # LLM provider (reads LLM_BASE_URL with LITELLM_BASE_URL alias)
+      LITELLM_BASE_URL: ${E2E_LLM_BASE_URL:-http://ollama:11434/v1}
+      LITELLM_API_KEY: ${E2E_LLM_API_KEY:-}
+      DEFAULT_MODEL: ${E2E_DEFAULT_MODEL:-gemma3:1b}
+      # Disable features that need Docker socket or external services
+      DOCKER_SANDBOX_ENABLED: "false"
+      DOCKER_STACKS_ENABLED: "false"
+      HOST_EXEC_ENABLED: "false"
+      # Disable heartbeats (set to very high interval)
+      HEARTBEAT_ACTIVE_INTERVAL_MINUTES: "9999"
+      # Disable STT warmup
+      STT_PROVIDER: ""
+      # Web search via SearXNG
+      WEB_SEARCH_MODE: "searxng"
+      SEARXNG_URL: http://searxng:8080
+      # Reduce noise
+      LOG_LEVEL: WARNING
+      # Disable context budgeting (no model info in e2e)
+      CONTEXT_BUDGET_ENABLED: "false"
+      # Disable RAG reranking
+      RAG_RERANK_ENABLED: "false"
+      # Disable tool policies for simpler testing
+      TOOL_POLICY_ENABLED: "false"
+      # Embedding cache inside container
+      FASTEMBED_CACHE_DIR: /app/.fastembed-cache
+    depends_on:
+      postgres:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health", "-H", "Authorization: Bearer ${E2E_API_KEY:-e2e-test-key-12345}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama
+    profiles: [ollama]
+    volumes:
+      - ollama-models:/root/.ollama
+
+volumes:
+  ollama-models:

@@ -72,10 +72,33 @@ SETUP = {
             "label": "iMessage",
             "icon": "MessageCircle",
         },
+        {
+            "id": "bb-echo-diag",
+            "style": "side_panel",
+            "endpoint": "/hud/echo-diagnostics",
+            "poll_interval": 10,
+            "label": "Echo Diagnostics",
+            "icon": "Activity",
+            "collapsed_by_default": True,
+            "width": 300,
+        },
     ],
     "chat_hud_presets": {
-        "default": {"label": "Connection Status", "widgets": ["bb-status"]},
-        "none": {"label": "No HUD", "widgets": []},
+        "default": {
+            "label": "Connection Status",
+            "description": "Shows iMessage connection state and pause/resume controls.",
+            "widgets": ["bb-status"],
+        },
+        "diagnostics": {
+            "label": "Diagnostics",
+            "description": "Connection status plus a collapsible echo detection diagnostics panel showing per-chat cooldowns, circuit breakers, and suppress windows.",
+            "widgets": ["bb-status", "bb-echo-diag"],
+        },
+        "none": {
+            "label": "No HUD",
+            "description": "Hide all BlueBubbles HUD widgets.",
+            "widgets": [],
+        },
     },
     "binding": {
         "client_id_prefix": "bb:",

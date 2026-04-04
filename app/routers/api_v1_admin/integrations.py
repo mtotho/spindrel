@@ -85,15 +85,80 @@ async def list_sidebar_sections():
     Filters out sections whose integration has ``SIDEBAR_ENABLED`` set to ``"false"``.
     """
     from integrations import discover_sidebar_sections
-    from app.services.integration_settings import get_value
+    from app.services.integration_settings import get_value, is_disabled
 
     sections = discover_sidebar_sections()
     visible = []
     for section in sections:
-        enabled = get_value(section["integration_id"], "SIDEBAR_ENABLED", "true")
+        iid = section["integration_id"]
+        if is_disabled(iid):
+            continue
+        enabled = get_value(iid, "SIDEBAR_ENABLED", "true")
         if enabled.lower() != "false":
             visible.append(section)
     return {"sections": visible}
+
+
+# ---------------------------------------------------------------------------
+# Global disable/enable
+# ---------------------------------------------------------------------------
+
+
+class DisabledBody(BaseModel):
+    disabled: bool
+
+
+@router.put("/integrations/{integration_id}/disabled")
+async def set_integration_disabled(integration_id: str, body: DisabledBody):
+    """Globally disable or enable an integration.
+
+    Disabling: stops process, unregisters tools, removes embeddings.
+    Enabling: reloads tools and re-indexes. Does NOT auto-start process.
+    """
+    from app.services.integration_settings import set_disabled, is_disabled
+
+    already = is_disabled(integration_id)
+    if body.disabled == already:
+        return {"integration_id": integration_id, "disabled": already}
+
+    if body.disabled:
+        # 1) Persist flag
+        await set_disabled(integration_id, True)
+        # 2) Stop process if running
+        try:
+            await process_manager.stop(integration_id)
+        except Exception:
+            logger.debug("No process to stop for %s", integration_id, exc_info=True)
+        # 3) Unregister tools from registry
+        from app.tools.registry import unregister_integration_tools
+        removed = unregister_integration_tools(integration_id)
+        # 4) Remove embeddings
+        from app.agent.tools import remove_integration_embeddings
+        embed_count = await remove_integration_embeddings(integration_id)
+        logger.info(
+            "Disabled integration %s: removed %d tool(s), %d embedding(s)",
+            integration_id, len(removed), embed_count,
+        )
+    else:
+        # 1) Persist flag
+        await set_disabled(integration_id, False)
+        # 2) Reload tools from disk
+        from integrations import _iter_integration_candidates
+        from app.tools.loader import load_integration_tools
+        loaded: list[str] = []
+        for candidate, iid, _is_external, _source in _iter_integration_candidates():
+            if iid == integration_id:
+                loaded = load_integration_tools(candidate)
+                break
+        # 3) Re-index all local tools
+        from app.agent.tools import index_local_tools
+        await index_local_tools()
+        logger.info(
+            "Enabled integration %s: loaded %d tool(s)",
+            integration_id, len(loaded),
+        )
+
+    return {"integration_id": integration_id, "disabled": body.disabled}
 
 
 @router.get("/integrations/{integration_id}/settings")
@@ -165,6 +230,9 @@ async def get_process_status(integration_id: str):
 
 @router.post("/integrations/{integration_id}/process/start")
 async def start_process(integration_id: str):
+    from app.services.integration_settings import is_disabled
+    if is_disabled(integration_id):
+        raise HTTPException(status_code=400, detail="Integration is globally disabled")
     ok = await process_manager.start(integration_id)
     if not ok:
         status = process_manager.status(integration_id)

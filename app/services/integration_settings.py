@@ -174,6 +174,42 @@ async def delete_setting(integration_id: str, key: str, db: AsyncSession) -> Non
     await _delete_one(integration_id, key, db, commit=True)
 
 
+# ---------------------------------------------------------------------------
+# Disabled helpers (uses _cache directly — same pattern as _process_auto_start)
+# ---------------------------------------------------------------------------
+
+def is_disabled(integration_id: str) -> bool:
+    """Check if an integration is globally disabled."""
+    return _cache.get((integration_id, "_disabled"), "").lower() in ("true", "1", "yes")
+
+
+async def set_disabled(integration_id: str, disabled: bool) -> None:
+    """Persist the _disabled flag to DB and update cache."""
+    from app.db.engine import async_session
+    from app.db.models import IntegrationSetting
+    from datetime import datetime, timezone
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    value = "true" if disabled else "false"
+    now = datetime.now(timezone.utc)
+
+    async with async_session() as db:
+        stmt = pg_insert(IntegrationSetting).values(
+            integration_id=integration_id,
+            key="_disabled",
+            value=value,
+            is_secret=False,
+            updated_at=now,
+        ).on_conflict_do_update(
+            index_elements=["integration_id", "key"],
+            set_={"value": value, "updated_at": now},
+        )
+        await db.execute(stmt)
+        await db.commit()
+
+    _cache[(integration_id, "_disabled")] = value
+
+
 async def _delete_one(integration_id: str, key: str, db: AsyncSession, *, commit: bool) -> None:
     """Internal: delete one setting from DB + cache."""
     await db.execute(

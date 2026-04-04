@@ -33,7 +33,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   // Extract text from content (handles JSON-array content blocks) then strip Slack prefix
   const rawText = extractDisplayText(message.content);
   const { slackUserId, cleaned: displayContent } = parseSlackPrefix(rawText);
-  const { name: displayName, isCurrentUser, isSlack } = resolveDisplay(message, botName, slackUserId);
+  const { name: displayName, isCurrentUser, isSlack, isMemberBot } = resolveDisplay(message, botName, slackUserId);
   const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);
   const sourceLabel = isSlack ? "via Slack" : null;
@@ -165,6 +165,20 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           <span style={{ fontSize: 12, color: t.textDim }}>
             {timestamp}
           </span>
+          {isMemberBot && (
+            <span style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: "#06b6d4",
+              background: "#06b6d415",
+              border: "1px solid #06b6d430",
+              borderRadius: 10,
+              padding: "1px 6px",
+              letterSpacing: 0.3,
+            }}>
+              member
+            </span>
+          )}
           {sourceLabel && (
             <span style={{ fontSize: 11, color: t.textMuted, fontStyle: "italic" }}>
               {sourceLabel}

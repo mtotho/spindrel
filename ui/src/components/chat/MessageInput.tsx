@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import { View, Text, TextInput, Pressable, Platform } from "react-native";
-import { Send, Square, Paperclip, X, Cpu, Mic } from "lucide-react";
+import { Send, Square, Paperclip, X, Cpu, Mic, Check } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { RecordingOverlay } from "./RecordingOverlay";
@@ -30,6 +30,12 @@ interface Props {
   channelId?: string;
   /** Handler for slash commands typed in the input */
   onSlashCommand?: (id: string) => void;
+  /** Whether a message is queued behind the current response */
+  isQueued?: boolean;
+  /** Cancel a queued message */
+  onCancelQueue?: () => void;
+  /** Interrupt current response and send immediately */
+  onSendNow?: (message: string, files?: PendingFile[]) => void;
 }
 
 /** Rebuild PendingFile objects from serialized DraftFiles (restores File + preview). */
@@ -44,7 +50,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, channelId, onSlashCommand }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -193,6 +199,20 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const showStop = !!isStreaming && !hasContent;
   // Show mic icon when input is empty and onSendAudio is available
   const showMic = !hasContent && !!onSendAudio && !isStreaming && Platform.OS === "web";
+  // Queue bar: visible when streaming and user has typed content, or when a message is already queued
+  const showQueueBar = !!isStreaming && (hasContent || !!isQueued);
+
+  // "Send now" — cancel stream and send immediately (web only)
+  const handleSendNowLocal = useCallback(() => {
+    if (Platform.OS !== "web") return;
+    const message = (editorRef.current?.getMarkdown() ?? text).trim();
+    if ((!message && pendingFiles.length === 0) || disabled) return;
+    onSendNow?.(message, pendingFiles.length > 0 ? pendingFiles : undefined);
+    if (channelId) clearDraft(channelId);
+    else { setLocalText(""); setLocalFiles([]); }
+    editorRef.current?.clear();
+    editorRef.current?.focus();
+  }, [text, pendingFiles, disabled, onSendNow, channelId, clearDraft]);
 
   // Web: Tiptap rich editor
   if (Platform.OS === "web") {
@@ -282,6 +302,67 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Queue bar — shown when typing during a stream or when a message is queued */}
+        {showQueueBar && (
+          <div
+            className="queue-bar"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: isMobile ? "3px 8px" : "3px 20px",
+              fontSize: 12,
+              color: t.textMuted,
+              userSelect: "none",
+            }}
+          >
+            {isQueued && !hasContent ? (
+              <>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <Check size={12} color={t.success} />
+                  <span>Message queued</span>
+                </span>
+                <button
+                  onClick={onCancelQueue}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: t.textDim,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                  }}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span className="typing-dot" style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+                  <span>Responding — message will be queued</span>
+                </span>
+                <button
+                  onClick={handleSendNowLocal}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: t.accent,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    fontWeight: 500,
+                  }}
+                >
+                  Send now
+                </button>
+              </>
+            )}
           </div>
         )}
 

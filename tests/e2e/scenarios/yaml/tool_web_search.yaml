@@ -1,0 +1,24 @@
+scenarios:
+  - name: web_search_basic
+    description: "Agent uses web_search tool when asked to search the web"
+    bot_id: e2e-tools
+    tags: [tool-grounding, web-search]
+    steps:
+      - message: "Search the web for the Python programming language release date. Use your web_search tool."
+        stream: true
+        assertions:
+          - tool_called: [web_search]
+          - response_not_empty: true
+          - no_errors: true
+
+  - name: web_search_no_trigger
+    description: "Agent should not web search for trivial knowledge it already has"
+    bot_id: e2e-tools
+    tags: [tool-grounding, web-search]
+    steps:
+      - message: "What color is the sky on a clear day?"
+        stream: true
+        assertions:
+          - tool_not_called: [web_search]
+          - response_not_empty: true
+          - no_errors: true

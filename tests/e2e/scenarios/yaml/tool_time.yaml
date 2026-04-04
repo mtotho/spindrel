@@ -1,0 +1,36 @@
+scenarios:
+  - name: time_tool_basic
+    description: "Agent calls a time tool when asked for the current time"
+    bot_id: e2e-tools
+    tags: [tool-grounding]
+    steps:
+      - message: "What time is it right now? Use your tools to find out."
+        stream: true
+        assertions:
+          - tool_called: [get_current_time, get_current_local_time]
+          - response_not_empty: true
+          - no_errors: true
+
+  - name: time_tool_utc
+    description: "Agent uses UTC time tool when UTC is explicitly requested"
+    bot_id: e2e-tools
+    tags: [tool-grounding]
+    steps:
+      - message: "What is the current UTC time? Use tools."
+        stream: true
+        assertions:
+          - tool_called: [get_current_time]
+          - response_not_empty: true
+          - no_errors: true
+
+  - name: time_tool_local
+    description: "Agent uses local time tool when local time is requested"
+    bot_id: e2e-tools
+    tags: [tool-grounding]
+    steps:
+      - message: "What is the current local time? Use your local time tool."
+        stream: true
+        assertions:
+          - tool_called: [get_current_local_time]
+          - response_not_empty: true
+          - no_errors: true

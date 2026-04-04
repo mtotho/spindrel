@@ -267,13 +267,14 @@ export interface HudOnClick {
 }
 
 export interface HudItem {
-  type: "badge" | "action" | "divider" | "text" | "progress";
+  type: "badge" | "action" | "divider" | "text" | "progress" | "group";
   label?: string;
   value?: string;
   icon?: string;
   variant?: "default" | "success" | "warning" | "danger" | "accent" | "muted";
   on_click?: HudOnClick;
   max?: number; // for progress items
+  items?: HudItem[]; // for group items
 }
 
 export interface HudData {
@@ -299,6 +300,7 @@ export interface ChatHudWidget {
 export interface ChatHudPreset {
   label: string;
   widgets: string[];
+  description?: string;
 }
 
 export interface ActivatableIntegration {
@@ -325,6 +327,14 @@ export interface ActivationResult {
   warnings: Array<{ code: string; message: string }>;
 }
 
+export interface ChannelBotMember {
+  id: string;
+  channel_id: string;
+  bot_id: string;
+  bot_name?: string;
+  created_at: string;
+}
+
 // Channel types (matches server ChannelOut)
 export interface Channel {
   id: string;
@@ -342,6 +352,7 @@ export interface Channel {
   model_override?: string | null;
   model_provider_id_override?: string | null;
   integrations?: IntegrationBinding[];
+  member_bots?: ChannelBotMember[];
   heartbeat_enabled?: boolean;
   heartbeat_in_quiet_hours?: boolean;
   channel_workspace_enabled?: boolean;

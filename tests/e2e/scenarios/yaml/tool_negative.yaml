@@ -1,0 +1,24 @@
+scenarios:
+  - name: no_tool_for_math
+    description: "Agent should not call tools for simple arithmetic"
+    bot_id: e2e-tools
+    tags: [tool-grounding, negative]
+    steps:
+      - message: "What is 15 + 27? Just calculate it, no tools needed."
+        stream: true
+        assertions:
+          - no_tools_called: true
+          - response_contains_any: ["42"]
+          - no_errors: true
+
+  - name: no_tool_for_greeting
+    description: "Agent should not call tools for a simple greeting"
+    bot_id: e2e-tools
+    tags: [tool-grounding, negative]
+    steps:
+      - message: "Hello! How are you?"
+        stream: true
+        assertions:
+          - no_tools_called: true
+          - response_not_empty: true
+          - no_errors: true

@@ -3,7 +3,7 @@ import { View, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import {
   ChevronLeft, Check, X, Copy, ChevronDown, ChevronRight,
-  RotateCcw, Play, Square, RefreshCw, Download, Key, Trash2,
+  RotateCcw, Play, Square, RefreshCw, Download, Key, Trash2, Power,
 } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
@@ -25,6 +25,7 @@ import {
   useIntegrationApiKey,
   useProvisionIntegrationApiKey,
   useRevokeIntegrationApiKey,
+  useSetIntegrationDisabled,
   type IntegrationItem,
 } from "@/src/api/hooks/useIntegrations";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -640,6 +641,62 @@ function ReadmeSection({ content }: { content: string }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Disable/Enable toggle
+// ---------------------------------------------------------------------------
+
+function DisableToggle({ item }: { item: IntegrationItem }) {
+  const t = useThemeTokens();
+  const mut = useSetIntegrationDisabled(item.id);
+  const isDisabled = item.disabled;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "8px 14px",
+        borderRadius: 8,
+        background: isDisabled ? "rgba(239,68,68,0.08)" : "rgba(34,197,94,0.06)",
+        border: `1px solid ${isDisabled ? "rgba(239,68,68,0.2)" : "rgba(34,197,94,0.15)"}`,
+      }}
+    >
+      <Power size={14} color={isDisabled ? "#ef4444" : "#22c55e"} />
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          color: isDisabled ? "#ef4444" : "#22c55e",
+          flex: 1,
+        }}
+      >
+        {isDisabled ? "Integration Disabled" : "Integration Enabled"}
+      </span>
+      <button
+        onClick={() => {
+          if (!isDisabled && !window.confirm("Disable this integration? Its process will be stopped and tools will be unloaded.")) return;
+          mut.mutate(!isDisabled);
+        }}
+        disabled={mut.isPending}
+        style={{
+          padding: "4px 14px",
+          borderRadius: 5,
+          border: "none",
+          background: isDisabled ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+          color: isDisabled ? "#22c55e" : "#ef4444",
+          fontSize: 11,
+          fontWeight: 600,
+          cursor: mut.isPending ? "wait" : "pointer",
+          opacity: mut.isPending ? 0.5 : 1,
+        }}
+      >
+        {mut.isPending ? "..." : isDisabled ? "Enable" : "Disable"}
+      </button>
+    </div>
+  );
+}
+
 // ===========================================================================
 // Main detail screen
 // ===========================================================================
@@ -705,8 +762,14 @@ export default function IntegrationDetailScreen() {
             <ChevronLeft size={20} color={t.textMuted} />
           </button>
           <span style={{ fontSize: 18, fontWeight: 700, color: t.text }}>{item.name}</span>
-          <StatusBadge status={item.status} />
+          <StatusBadge status={item.disabled ? "disabled" : item.status} />
         </div>
+
+        {/* Disable/Enable toggle */}
+        <DisableToggle item={item} />
+
+        {/* Sections — dimmed when disabled (pointerEvents left as auto to allow scrolling) */}
+        <div style={{ opacity: item.disabled ? 0.5 : 1, display: "flex", flexDirection: "column", gap: 14 }}>
 
         {/* Overview */}
         <SectionBox title="Overview">
@@ -787,6 +850,8 @@ export default function IntegrationDetailScreen() {
 
         {/* README */}
         {item.readme && <ReadmeSection content={item.readme} />}
+
+        </div>{/* end disabled wrapper */}
       </RefreshableScrollView>
     </View>
   );

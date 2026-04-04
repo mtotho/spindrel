@@ -377,8 +377,11 @@ async def assemble_context(
         try:
             from integrations import get_activation_manifests
             _manifests = get_activation_manifests()
+            from app.services.integration_settings import is_disabled as _is_intg_disabled
             for _ci in (getattr(_ch_row, "integrations", None) or []):
                 if not _ci.activated:
+                    continue
+                if _is_intg_disabled(_ci.integration_type):
                     continue
                 _manifest = _manifests.get(_ci.integration_type)
                 if not _manifest:
@@ -1027,8 +1030,42 @@ async def assemble_context(
         except Exception:
             logger.warning("Failed to inject API docs for bot %s", bot.id, exc_info=True)
 
+    # --- multi-bot channel awareness + member bot injection ---
+    _member_bot_ids: list[str] = []
+    if channel_id:
+        try:
+            from sqlalchemy import select as _sel
+            from app.db.engine import async_session as _async_session
+            from app.db.models import ChannelBotMember as _CBM
+            async with _async_session() as _mbdb:
+                _mb_rows = (await _mbdb.execute(
+                    _sel(_CBM.bot_id).where(_CBM.channel_id == channel_id)
+                )).scalars().all()
+                _member_bot_ids = list(_mb_rows)
+        except Exception:
+            logger.debug("Failed to load channel bot members for %s", channel_id, exc_info=True)
+
+    if _member_bot_ids:
+        from app.agent.bots import get_bot as _get_bot_mb
+        _participant_lines: list[str] = []
+        # Primary bot first
+        _participant_lines.append(f"  - {bot.id} (primary): {bot.name}")
+        for _mbid in _member_bot_ids:
+            try:
+                _mb = _get_bot_mb(_mbid)
+                _participant_lines.append(f"  - {_mbid} (member): {_mb.name}")
+            except Exception:
+                _participant_lines.append(f"  - {_mbid} (member)")
+        _awareness_msg = (
+            "This channel has multiple bot participants:\n"
+            + "\n".join(_participant_lines)
+            + "\nYou can @-mention other bots to direct questions to them."
+        )
+        messages.append({"role": "system", "content": _awareness_msg})
+        yield {"type": "multi_bot_awareness", "member_count": len(_member_bot_ids)}
+
     # --- delegate bot index ---
-    _all_delegate_ids = list(dict.fromkeys(bot.delegate_bots + _tagged_bot_names))
+    _all_delegate_ids = list(dict.fromkeys(bot.delegate_bots + _tagged_bot_names + _member_bot_ids))
     _delegate_lines: list[str] = []
     _seen_delegate_ids: set[str] = set()
     if _all_delegate_ids:

@@ -326,6 +326,48 @@ async def _run_memory_flush(
         return None
 
 
+async def _flush_member_bots(
+    channel: Channel,
+    session_id: uuid.UUID,
+    messages: list[dict],
+    correlation_id: uuid.UUID | None = None,
+) -> None:
+    """Trigger memory flush for each member bot in a multi-bot channel.
+
+    Each member bot with memory_scheme='workspace-files' gets flushed
+    independently — they share the conversation history but write to their
+    own workspace memory paths.
+    """
+    from app.agent.bots import get_bot as _get_bot
+    from app.db.models import ChannelBotMember
+
+    try:
+        async with async_session() as db:
+            from sqlalchemy import select
+            rows = (await db.execute(
+                select(ChannelBotMember.bot_id).where(ChannelBotMember.channel_id == channel.id)
+            )).scalars().all()
+    except Exception:
+        logger.debug("Failed to load member bots for flush in channel %s", channel.id, exc_info=True)
+        return
+
+    if not rows:
+        return
+
+    for bot_id in rows:
+        try:
+            member_bot = _get_bot(bot_id)
+        except Exception:
+            continue
+        if member_bot.memory_scheme != "workspace-files":
+            continue
+        try:
+            await _run_memory_flush(channel, member_bot, session_id, messages, correlation_id=correlation_id)
+            logger.info("Member bot %s memory flush complete for channel %s", bot_id, channel.id)
+        except Exception:
+            logger.warning("Member bot %s memory flush failed for channel %s", bot_id, channel.id, exc_info=True)
+
+
 def _stringify_message_content(content: Any) -> str:
     """Compaction prompts must be plain text; multimodal turns become short summaries."""
     if content is None:
@@ -883,6 +925,9 @@ async def run_compaction_stream(
             memory_flush_ran = True
         except Exception:
             logger.warning("Memory flush failed before compaction for channel %s", channel.id, exc_info=True)
+        # Also flush member bots in multi-bot channels
+        if channel:
+            await _flush_member_bots(channel, session_id, messages, correlation_id)
     elif _resolve_trigger_heartbeat(channel) and channel:
         # Legacy fallback: trigger heartbeat if memory flush not enabled
         from app.services.heartbeat import trigger_channel_heartbeat
@@ -1227,6 +1272,9 @@ async def run_compaction_forced(
             memory_flush_ran = True
         except Exception:
             logger.warning("Memory flush failed before forced compaction for channel %s", channel.id, exc_info=True)
+        # Also flush member bots in multi-bot channels
+        if channel:
+            await _flush_member_bots(channel, session_id, messages, correlation_id)
     elif _resolve_trigger_heartbeat(channel) and channel:
         # Legacy fallback: trigger heartbeat if memory flush not enabled
         from app.services.heartbeat import trigger_channel_heartbeat

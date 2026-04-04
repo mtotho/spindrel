@@ -43,6 +43,14 @@ def _scan_integration_tools(base_dir: Path) -> None:
         if not intg_tools_dir.is_dir():
             continue
         integration_id = intg_tools_dir.parent.name
+        # Skip globally disabled integrations
+        try:
+            from app.services.integration_settings import is_disabled
+            if is_disabled(integration_id):
+                logger.info("Skipping tools for disabled integration: %s", integration_id)
+                continue
+        except Exception:
+            pass
         _registry._current_source_integration = integration_id
         try:
             for py_file in sorted(intg_tools_dir.glob("*.py")):

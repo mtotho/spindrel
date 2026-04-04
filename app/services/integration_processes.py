@@ -148,6 +148,15 @@ class IntegrationProcessManager:
 
     async def start(self, integration_id: str) -> bool:
         """Start a process for the given integration. Returns True if started."""
+        # Refuse to start disabled integrations
+        try:
+            from app.services.integration_settings import is_disabled
+            if is_disabled(integration_id):
+                logger.warning("Cannot start %s: integration is globally disabled", integration_id)
+                return False
+        except Exception:
+            pass
+
         # Already running?
         state = self._states.get(integration_id)
         if state and state.process and state.process.returncode is None:
@@ -362,6 +371,15 @@ class IntegrationProcessManager:
         logger.info("Discovered %d integration process(es): %s", len(discovered), list(discovered.keys()))
 
         for integration_id, info in discovered.items():
+            # Skip globally disabled integrations
+            try:
+                from app.services.integration_settings import is_disabled
+                if is_disabled(integration_id):
+                    logger.info("Skipping auto-start for disabled integration: %s", integration_id)
+                    continue
+            except Exception:
+                pass
+
             # Check env readiness first
             if not self._env_ready(integration_id, info["required_env"]):
                 missing = [k for k in info["required_env"] if not os.environ.get(k)]

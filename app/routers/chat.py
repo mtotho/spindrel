@@ -339,6 +339,52 @@ async def _transcribe_audio_data(audio_b64: str, audio_format: str | None) -> st
     return await asyncio.to_thread(_sync_transcribe)
 
 
+async def _maybe_route_to_member_bot(db: AsyncSession, channel, bot, message: str):
+    """Check if the user @-tagged a member bot and route to it.
+
+    Returns the member BotConfig if matched, otherwise the original bot.
+    Uses the same session (shared history) — only the responding bot changes.
+    """
+    if not message:
+        return bot
+
+    from app.agent.tags import _TAG_RE
+    from app.db.models import ChannelBotMember
+    from sqlalchemy import select
+
+    # Quick regex scan — look for @bot:name or plain @name patterns
+    tag_matches = _TAG_RE.findall(message)
+    if not tag_matches:
+        return bot
+
+    # Load channel member bot IDs
+    result = await db.execute(
+        select(ChannelBotMember.bot_id).where(ChannelBotMember.channel_id == channel.id)
+    )
+    member_bot_ids = set(result.scalars().all())
+    if not member_bot_ids:
+        return bot
+
+    # Check each tag for a member bot match
+    for prefix, name in tag_matches:
+        forced_type = prefix.rstrip(":") if prefix else None
+        # Only consider bot-typed tags or untyped tags that match a member
+        if forced_type and forced_type != "bot":
+            continue
+        if name in member_bot_ids:
+            try:
+                member_bot = get_bot(name)
+                logger.info(
+                    "Routing to member bot %r in channel %s (was primary %r)",
+                    name, channel.id, bot.id,
+                )
+                return member_bot
+            except Exception:
+                logger.warning("Member bot %r not found in registry", name)
+
+    return bot
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
@@ -407,8 +453,11 @@ async def chat(
 
     channel_id = channel.id
 
+    # Multi-bot channel: if user @-tagged a member bot, route to that bot
+    bot = await _maybe_route_to_member_bot(db, channel, bot, message)
+
     logger.info("POST /chat  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
-                req.bot_id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
+                bot.id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
 
     # Passive path: store message without running agent
     if req.passive:

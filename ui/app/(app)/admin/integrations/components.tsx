@@ -10,6 +10,7 @@ export const STATUS_COLORS: Record<string, { dot: string; label: string; bg: str
   ready: { dot: "#22c55e", label: "Ready", bg: "rgba(34,197,94,0.12)" },
   partial: { dot: "#eab308", label: "Partial", bg: "rgba(234,179,8,0.12)" },
   not_configured: { dot: "#6b7280", label: "Not Configured", bg: "rgba(107,114,128,0.12)" },
+  disabled: { dot: "#ef4444", label: "Disabled", bg: "rgba(239,68,68,0.12)" },
 };
 
 export function StatusBadge({ status }: { status: string }) {

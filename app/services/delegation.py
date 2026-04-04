@@ -74,6 +74,16 @@ class DelegationService:
                 "Cannot delegate further."
             )
 
+        # Anti-loop: prevent the same bot from responding twice in one user turn
+        from app.agent.context import current_turn_responded_bots
+        _responded = current_turn_responded_bots.get()
+        if _responded is not None and delegate_bot_id in _responded:
+            raise DelegationError(
+                f"Anti-loop: bot {delegate_bot_id!r} has already responded this turn"
+            )
+        if _responded is not None:
+            _responded.add(delegate_bot_id)
+
         # Permission check: allowlist, wildcard, or ephemeral @-tag override
         # (carapace delegation skips this — permission comes from carapace delegates list)
         allowed = parent_bot.delegate_bots or []

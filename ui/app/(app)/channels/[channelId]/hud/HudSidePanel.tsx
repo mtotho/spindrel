@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, Pressable, Platform } from "react-native";
+import { View, Text, Pressable, Platform, ScrollView } from "react-native";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useHudData, type ActiveHud } from "@/src/api/hooks/useChatHud";
@@ -21,7 +21,7 @@ export function HudSidePanel({ hud }: { hud: ActiveHud }) {
     hud.integrationId,
     isIframe ? undefined : hud.widget.endpoint,
     hud.widget.poll_interval ?? 60,
-    !isIframe,
+    !isIframe && !collapsed,
   );
 
   const queryKey = ["hud-data", hud.integrationId, hud.widget.endpoint ?? ""];
@@ -88,11 +88,11 @@ export function HudSidePanel({ hud }: { hud: ActiveHud }) {
       {isIframe && Platform.OS === "web" ? (
         <IframeContent integrationId={hud.integrationId} iframePath={hud.widget.iframe_path!} />
       ) : data?.visible ? (
-        <View style={{ padding: 12, gap: 8 }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 8 }}>
           {data.items.map((item, i) => (
-            <HudItemRenderer key={i} item={item} hudQueryKey={queryKey} />
+            <HudItemRenderer key={i} item={item} hudQueryKey={queryKey} vertical />
           ))}
-        </View>
+        </ScrollView>
       ) : (
         <View style={{ padding: 12 }}>
           <Text style={{ fontSize: 12, color: t.textDim }}>No data</Text>

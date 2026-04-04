@@ -139,6 +139,10 @@ class Channel(Base):
     members: Mapped[list["ChannelMember"]] = relationship(
         cascade="all, delete-orphan",
     )
+    bot_members: Mapped[list["ChannelBotMember"]] = relationship(
+        back_populates="channel",
+        cascade="all, delete-orphan",
+    )
 
 
 class ChannelMember(Base):
@@ -154,6 +158,24 @@ class ChannelMember(Base):
 
     __table_args__ = (
         Index("ix_channel_members_user_id", "user_id"),
+    )
+
+
+class ChannelBotMember(Base):
+    __tablename__ = "channel_bot_members"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, server_default=text("gen_random_uuid()"))
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False,
+    )
+    bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    channel: Mapped["Channel"] = relationship(back_populates="bot_members")
+
+    __table_args__ = (
+        UniqueConstraint("channel_id", "bot_id", name="uq_channel_bot_members_channel_bot"),
+        Index("ix_channel_bot_members_channel_id", "channel_id"),
     )
 
 

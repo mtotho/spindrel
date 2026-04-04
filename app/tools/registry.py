@@ -86,6 +86,18 @@ def iter_registered_tools() -> list[tuple[str, dict[str, Any], str | None, str |
     return out
 
 
+def unregister_integration_tools(integration_id: str) -> list[str]:
+    """Remove all tools belonging to an integration. Returns removed tool names."""
+    to_remove = [
+        name for name, entry in _tools.items()
+        if entry.get("source_integration") == integration_id
+    ]
+    for name in to_remove:
+        del _tools[name]
+        logger.info("Unregistered tool %s (integration %s disabled)", name, integration_id)
+    return to_remove
+
+
 def get_local_tool_schemas(allowed_names: list[str] | None = None) -> list[dict]:
     if allowed_names is None or len(allowed_names) == 0:
         return []

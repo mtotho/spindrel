@@ -84,17 +84,27 @@ When a bot exceeds 50 self-authored skills, the tool returns a warning suggestin
 
 ## Admin Visibility
 
-### Skills List
+### Skills Tab
 
-Bot-authored skills appear in the admin skills list (`/admin/skills`) under the "Bot-Authored" group. Each skill shows:
+The bot editor's **Skills** tab shows bot-authored skills in a dedicated section with surfacing stats and health indicators. Each skill displays its surface count, category, and whether it's actively being retrieved by the RAG pipeline.
 
-- Bot attribution badge (which bot created it)
-- Creation and update timestamps
-- Chunk count
+![Bot skills tab showing bot-authored skills with surfacing counts](../images/bot-skills-learning-1.png)
 
-### Bot Detail Page
+### Learning Tab
 
-The bot editor's Skills section shows a banner with the count of self-authored skills and links to the filtered skills list.
+The **Learning** tab provides a dedicated dashboard for monitoring skill health and performance:
+
+- **Stats overview**: total skills, total surfacings, active vs never-surfaced counts
+- **Skills table**: name, category, trigger phrases, surfacing count, last surfaced timestamp, health badge
+- **Health badges**: "hot" (frequently surfaced), "active" (regularly surfaced), "cold" (rarely surfaced), "stale" (never surfaced or very old)
+
+![Learning tab with skill health metrics and surfacing analytics](../images/bot-skills-learning-2.png)
+
+Use the Learning tab to identify skills that need attention:
+
+- **Never surfaced** — trigger phrases may be too narrow or content doesn't match real queries. Rewrite triggers or check if the skill is still relevant.
+- **Hot skills** — frequently surfaced and validated by usage. These are the bot's most valuable knowledge.
+- **Stale skills** — haven't surfaced recently. May be outdated, superseded by newer skills, or poorly triggered.
 
 ### Filtering
 
@@ -128,16 +138,43 @@ Each skill tracks how often it surfaces in bot context:
 
 Bots can see these stats via `manage_bot_skill(action="list")` to identify dead-weight skills that never surface and should be pruned or rewritten with better trigger phrases.
 
-## Correction-Driven Learning
+## How Bots Learn: Three Nudge Mechanisms
 
-When a user corrects the bot (e.g., "No, that's wrong", "Actually, you should..."), the system injects a one-shot nudge asking the bot to consider creating a skill capturing the correct approach. This fires:
+The system teaches bots when and how to create skills through three complementary nudge mechanisms. Each injects a one-shot system message at a strategic moment in the agent loop.
 
-- Only once per agent run (before the first LLM call)
+### 1. Correction-Driven Learning
+
+**Trigger**: User message matches correction patterns (e.g., "No, that's wrong", "Actually, you should...", "Incorrect", "Not quite")
+
+When a user corrects the bot, the system injects a prompt asking it to consider creating a skill that captures the correct approach. The prompt tells the bot: *"Capture what you did wrong and the correct approach so you never repeat this mistake. Keep it concrete — when X, do Y instead of Z."*
+
+This is the highest-quality learning signal — the user has explicitly identified a gap in the bot's knowledge.
+
+### 2. Repeated-Lookup Detection
+
+**Trigger**: Bot searches for the same topic 3+ times across distinct agent runs within 14 days
+
+The system monitors `search_memory` calls across agent runs. When a pattern is detected, it injects a nudge listing the repeated topics and suggesting the bot create skills for each. The prompt explains: *"These recurring lookups are a signal that the information should be a SKILL so it auto-surfaces without you having to search for it."*
+
+This catches the highest-signal learning gap: information the bot needs regularly but hasn't codified. Once a skill is created, the RAG pipeline surfaces it automatically — eliminating the repeated manual searches.
+
+Disable with `SKILL_REPEATED_LOOKUP_NUDGE_ENABLED=false`.
+
+### 3. Mid-Conversation Reflection
+
+**Trigger**: Bot reaches iteration 8 (configurable via `SKILL_NUDGE_AFTER_ITERATIONS`) during a single agent run
+
+After extended tool use, the system injects a reflection checkpoint asking the bot to pause and consider: *"Did you discover a reusable pattern, fix, or procedure that should AUTO-SURFACE in future sessions?"*
+
+This nudge shifts bots from "task execution mode" to "reflection mode" — without it, bots tend to solve problems and move on without recording what they learned.
+
+### All nudges share these safeguards
+
+- Fire only **once per agent run** (no repeated interruptions)
 - Only for bots with `memory_scheme: "workspace-files"`
-- Only when `manage_bot_skill` is available in the tool set
-- Only when the user message matches correction patterns
-
-Disable with `SKILL_CORRECTION_NUDGE_ENABLED=false`.
+- Only when `manage_bot_skill` is in the tool set
+- Never during compaction runs
+- The bot decides whether to act — nudges are suggestions, not commands
 
 ## Content Validation
 
@@ -193,16 +230,41 @@ This catches the highest-signal learning gap: information the bot needs but hasn
 
 Disable with `SKILL_REPEATED_LOOKUP_NUDGE_ENABLED=false`.
 
-## Skill Review Heartbeat
+## Scheduled Learning Reviews
 
-A built-in heartbeat prompt template (`prompts/skill-review.md`) runs periodic skill maintenance. Assign it to any bot with `manage_bot_skill` available. On each run, the bot:
+### Skill Review Heartbeat
 
-1. Lists all self-authored skills with surfacing stats
-2. Identifies stale skills (low surface_count, old last_surfaced_at)
-3. Merges duplicates, rewrites weak triggers, or deletes dead-weight skills
-4. Reports a summary of changes
+A built-in heartbeat prompt template (`prompts/skill-review.md`) runs periodic skill maintenance. Assign it to any bot with `manage_bot_skill` available and configure a recurring heartbeat (recommended: weekly).
 
-Recommended interval: weekly. See the template for customization options.
+On each review, the bot:
+
+1. **Lists all self-authored skills** with surfacing stats (`surface_count`, `last_surfaced_at`)
+2. **Identifies problems**:
+    - Stale skills (low surface count, old `last_surfaced_at`) — may need better triggers or deletion
+    - Overlapping skills covering the same topic — candidates for merging
+    - Outdated content that no longer reflects current practices
+3. **Takes action**:
+    - Rewrites trigger phrases for skills that aren't surfacing (`action="patch"` or `action="update"`)
+    - Merges related skills into consolidated guides (`action="merge"`)
+    - Deletes dead-weight skills that add noise without value (`action="delete"`)
+4. **Reports** a summary of what changed and why
+
+### Setting Up Recurring Reviews
+
+Configure a heartbeat on the bot's channel:
+
+| Setting | Recommended Value |
+|---------|-------------------|
+| **Interval** | Weekly (`+7d`) |
+| **Quiet hours** | 22:00 - 08:00 |
+| **Dispatch mode** | Optional (bot decides whether to post) |
+| **Prompt** | Use the `skill-review` template or customize |
+
+The review runs autonomously — no human intervention needed. The bot evaluates its own skill library, prunes what isn't working, and strengthens what is. Over time, the skill library converges toward a focused, high-signal collection.
+
+### Pre-Compaction Flush
+
+The pre-compaction memory flush prompt also nudges bots to consider creating skills for reusable patterns discovered during the conversation. This is a last-chance opportunity before context is compacted — if the bot learned something valuable in the session, it can capture it as a skill before the conversation history is archived.
 
 ## Configuration
 

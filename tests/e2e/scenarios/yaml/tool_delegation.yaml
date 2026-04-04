@@ -1,0 +1,24 @@
+scenarios:
+  - name: delegation_basic
+    description: "Delegator bot delegates a task to e2e-tools bot"
+    bot_id: e2e-delegator
+    tags: [delegation]
+    steps:
+      - message: "Delegate to the e2e-tools bot and ask it what time it is."
+        stream: true
+        assertions:
+          - tool_called: [delegate_to_agent]
+          - response_contains_any: ["task", "delegat", "e2e-tools"]
+          - no_errors: true
+
+  - name: delegation_wrong_bot
+    description: "Delegation to a nonexistent bot fails gracefully"
+    bot_id: e2e-delegator
+    tags: [delegation]
+    steps:
+      - message: "Delegate to a bot called nonexistent-bot-12345 and ask it to say hello."
+        stream: true
+        assertions:
+          - tool_called: [delegate_to_agent]
+          - response_contains_any: ["error", "not found", "not allowed", "cannot", "unable", "fail"]
+          - no_errors: true

@@ -1,0 +1,18 @@
+scenarios:
+  - name: restricted_bot_tools
+    description: "Inline bot with restricted tools can only use listed tools"
+    tags: [tool-grounding, inline-bot]
+    bot:
+      id: e2e-restricted
+      name: "Restricted Bot"
+      system_prompt: "You are a test bot. Use tools when asked. Be concise."
+      local_tools: [get_current_time]
+      tool_retrieval: false
+    steps:
+      - message: "What time is it? Use your tools."
+        stream: true
+        assertions:
+          - tool_called: [get_current_time]
+          - tool_not_called: [get_current_local_time, get_tool_info]
+          - response_not_empty: true
+          - no_errors: true

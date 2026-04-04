@@ -59,6 +59,10 @@ include = ["app*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests", "integrations"]
+addopts = "-m 'not e2e'"
+markers = [
+    "e2e: end-to-end tests requiring Docker and a real LLM (deselected by default)",
+]
 
 [build-system]
 requires = ["setuptools>=68.0"]

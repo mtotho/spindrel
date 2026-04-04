@@ -58,6 +58,7 @@ export interface IntegrationItem {
   webhook: IntegrationWebhook | null;
   api_permissions: string | string[] | null;
   icon?: string;
+  disabled: boolean;
   status: "ready" | "partial" | "not_configured";
   readme: string | null;
   debug_actions?: DebugAction[];
@@ -387,6 +388,23 @@ export function useCancelIntegrationTasks(id: string) {
       qc.invalidateQueries({
         queryKey: ["admin-integration-tasks", id],
       });
+    },
+  });
+}
+
+export function useSetIntegrationDisabled(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (disabled: boolean) =>
+      apiFetch(`/api/v1/admin/integrations/${id}/disabled`, {
+        method: "PUT",
+        body: JSON.stringify({ disabled }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-integrations"] });
+      qc.invalidateQueries({ queryKey: ["admin-sidebar-sections"] });
+      qc.invalidateQueries({ queryKey: ["admin-integration-process", id] });
+      qc.invalidateQueries({ queryKey: ["admin-integration-autostart", id] });
     },
   });
 }
