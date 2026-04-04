@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from "react";
+import { useRef, useEffect, useState, useMemo, useCallback, forwardRef } from "react";
 import { Pressable } from "react-native";
 import { type ThemeTokens } from "@/src/theme/tokens";
 import {
@@ -144,10 +144,67 @@ export default function WorkflowRunFeed({
 }
 
 // ---------------------------------------------------------------------------
-// Feed section (one per step)
+// Collapsible result block — collapses long results by default
 // ---------------------------------------------------------------------------
 
-import { forwardRef } from "react";
+const COLLAPSE_THRESHOLD = 300; // chars
+
+function CollapsibleResult({ result, t, variant }: {
+  result: string;
+  t: ThemeTokens;
+  variant: "success" | "partial";
+}) {
+  const [expanded, setExpanded] = useState(result.length <= COLLAPSE_THRESHOLD);
+  const isSuccess = variant === "success";
+  const bg = isSuccess ? t.successSubtle : t.warningSubtle;
+  const border = isSuccess ? t.successBorder : t.warningBorder;
+  const labelColor = isSuccess ? t.success : t.warning;
+
+  return (
+    <div style={{
+      padding: 10, borderRadius: 6,
+      background: bg,
+      border: `1px solid ${border}`,
+      fontSize: 13, color: t.text, lineHeight: 1.5,
+    }}>
+      {variant === "partial" && (
+        <span style={{ fontSize: 11, fontWeight: 600, color: labelColor, display: "block", marginBottom: 4 }}>
+          Partial result
+        </span>
+      )}
+      <div style={{
+        whiteSpace: "pre-wrap",
+        maxHeight: expanded ? 400 : 80,
+        overflow: "hidden",
+        position: "relative",
+      }}>
+        {result}
+        {!expanded && result.length > COLLAPSE_THRESHOLD && (
+          <div style={{
+            position: "absolute", bottom: 0, left: 0, right: 0,
+            height: 40,
+            background: `linear-gradient(transparent, ${bg})`,
+          }} />
+        )}
+      </div>
+      {result.length > COLLAPSE_THRESHOLD && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          style={{
+            background: "none", border: "none", color: t.accent,
+            fontSize: 11, cursor: "pointer", padding: 0, marginTop: 4,
+          }}
+        >
+          {expanded ? "Collapse" : `Show all (${result.length} chars)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Feed section (one per step)
+// ---------------------------------------------------------------------------
 
 const FeedSection = forwardRef<HTMLDivElement, {
   index: number;
@@ -240,7 +297,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
             display: "inline-flex", alignItems: "center", gap: 3,
             whiteSpace: "nowrap",
             ...(stepDef.type === "tool"
-              ? { background: t.accentSubtle, border: `1px solid ${t.accentBorder}`, color: t.accent }
+              ? { background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`, color: t.purple }
               : { background: t.warningSubtle, border: `1px solid ${t.warningBorder}`, color: t.warning }
             ),
           }}>
@@ -277,14 +334,7 @@ const FeedSection = forwardRef<HTMLDivElement, {
 
       {/* Content block based on status */}
       {state.status === "done" && state.result && (
-        <div style={{
-          padding: 10, borderRadius: 6,
-          background: t.successSubtle, border: `1px solid ${t.successBorder}`,
-          fontSize: 13, color: t.text, whiteSpace: "pre-wrap",
-          maxHeight: 400, overflow: "auto", lineHeight: 1.5,
-        }}>
-          {state.result}
-        </div>
+        <CollapsibleResult result={state.result} t={t} variant="success" />
       )}
 
       {isRunning && (
@@ -370,16 +420,8 @@ const FeedSection = forwardRef<HTMLDivElement, {
 
       {/* Failed step with result (partial output before failure) */}
       {state.status === "failed" && state.result && (
-        <div style={{
-          marginTop: 8, padding: 10, borderRadius: 6,
-          background: t.successSubtle, border: `1px solid ${t.successBorder}`,
-          fontSize: 12, color: t.text, whiteSpace: "pre-wrap",
-          maxHeight: 200, overflow: "auto",
-        }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: t.success, display: "block", marginBottom: 4 }}>
-            Partial result
-          </span>
-          {state.result}
+        <div style={{ marginTop: 8 }}>
+          <CollapsibleResult result={state.result} t={t} variant="partial" />
         </div>
       )}
 

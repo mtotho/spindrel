@@ -1,18 +1,13 @@
 /**
- * Structured form editors for workflow defaults, params, and triggers.
- * Replaces JSON textareas with proper form controls.
+ * Default execution config editor for workflows.
+ * Extracted from WorkflowFormParts.tsx.
  */
-import { useState, useCallback } from "react";
-import { View, Text, Pressable } from "react-native";
+import { useState, useCallback, useEffect } from "react";
+import { View, Text } from "react-native";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useBots } from "@/src/api/hooks/useBots";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FormRow, Toggle } from "@/src/components/shared/FormControls";
-import { Plus, X } from "lucide-react";
-
-// ---------------------------------------------------------------------------
-// DefaultsEditor
-// ---------------------------------------------------------------------------
 
 interface DefaultsEditorProps {
   value: Record<string, any>;
@@ -25,6 +20,13 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
   const { data: bots } = useBots();
   const [showRaw, setShowRaw] = useState(false);
   const [rawText, setRawText] = useState(JSON.stringify(value, null, 2));
+
+  // Sync rawText when value changes externally (e.g., from YAML tab)
+  useEffect(() => {
+    if (!showRaw) {
+      setRawText(JSON.stringify(value, null, 2));
+    }
+  }, [value, showRaw]);
 
   const inputStyle: React.CSSProperties = {
     background: t.inputBg, border: `1px solid ${t.inputBorder}`,
@@ -82,7 +84,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
 
   return (
     <View style={{ gap: 14 }}>
-      {/* Bot ID */}
       <FormRow label="Bot" description="Default bot for all steps">
         <select
           value={value.bot_id || ""}
@@ -97,7 +98,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
         </select>
       </FormRow>
 
-      {/* Model */}
       <FormRow label="Model" description="Default model for all steps">
         <LlmModelDropdown
           value={value.model || ""}
@@ -107,7 +107,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
         />
       </FormRow>
 
-      {/* Timeout */}
       <FormRow label="Timeout (seconds)" description="Default step timeout">
         <input
           type="number"
@@ -119,7 +118,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
         />
       </FormRow>
 
-      {/* Tools */}
       <FormRow label="Tools" description="Default tools for all steps (comma-separated)">
         <input
           value={(value.tools || []).join(", ")}
@@ -130,7 +128,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
         />
       </FormRow>
 
-      {/* Carapaces */}
       <FormRow label="Carapaces" description="Default carapaces for all steps">
         <input
           value={(value.carapaces || []).join(", ")}
@@ -141,7 +138,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
         />
       </FormRow>
 
-      {/* Inject prior results */}
       <Toggle
         value={!!value.inject_prior_results}
         onChange={(v) => update("inject_prior_results", v || undefined)}
@@ -162,7 +158,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
         </FormRow>
       )}
 
-      {/* Result max chars */}
       <FormRow label="Result Max Chars" description="Max characters stored from step results (default: 2000)">
         <input
           type="number"
@@ -183,179 +178,6 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
       >
         Raw JSON
       </button>
-    </View>
-  );
-}
-
-
-// ---------------------------------------------------------------------------
-// ParamsEditor — key-value table
-// ---------------------------------------------------------------------------
-
-interface ParamDef {
-  type: string;
-  required?: boolean;
-  default?: any;
-  description?: string;
-}
-
-interface ParamsEditorProps {
-  value: Record<string, ParamDef>;
-  onChange: (v: Record<string, any>) => void;
-  disabled?: boolean;
-}
-
-export function ParamsEditor({ value, onChange, disabled }: ParamsEditorProps) {
-  const t = useThemeTokens();
-  const entries = Object.entries(value);
-
-  const inputStyle: React.CSSProperties = {
-    background: t.inputBg, border: `1px solid ${t.inputBorder}`,
-    borderRadius: 6, padding: "6px 10px", color: t.inputText,
-    fontSize: 12, outline: "none", width: "100%",
-    opacity: disabled ? 0.6 : 1,
-  };
-
-  const updateParam = (oldName: string, newName: string, def: ParamDef) => {
-    const next = { ...value };
-    if (oldName !== newName) delete next[oldName];
-    next[newName] = def;
-    onChange(next);
-  };
-
-  const removeParam = (name: string) => {
-    const next = { ...value };
-    delete next[name];
-    onChange(next);
-  };
-
-  const addParam = () => {
-    const name = `param_${entries.length + 1}`;
-    onChange({ ...value, [name]: { type: "string" } });
-  };
-
-  return (
-    <View style={{ gap: 6 }}>
-      {/* Header */}
-      {entries.length > 0 && (
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 80px 50px 1fr 24px",
-          gap: 6, padding: "0 4px",
-          fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase",
-          letterSpacing: 0.5,
-        }}>
-          <span>Name</span>
-          <span>Type</span>
-          <span>Req</span>
-          <span>Default</span>
-          <span />
-        </div>
-      )}
-
-      {entries.map(([name, def]) => (
-        <div
-          key={name}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 80px 50px 1fr 24px",
-            gap: 6, alignItems: "center",
-          }}
-        >
-          <input
-            value={name}
-            onChange={(e) => updateParam(name, e.target.value, def)}
-            style={inputStyle}
-            disabled={disabled}
-          />
-          <select
-            value={def.type || "string"}
-            onChange={(e) => updateParam(name, name, { ...def, type: e.target.value })}
-            style={{ ...inputStyle, cursor: "pointer" }}
-            disabled={disabled}
-          >
-            <option value="string">string</option>
-            <option value="number">number</option>
-            <option value="boolean">boolean</option>
-          </select>
-          <input
-            type="checkbox"
-            checked={!!def.required}
-            onChange={(e) => updateParam(name, name, { ...def, required: e.target.checked })}
-            disabled={disabled}
-            style={{ width: 16, height: 16, cursor: "pointer" }}
-          />
-          <input
-            value={def.default ?? ""}
-            onChange={(e) => updateParam(name, name, { ...def, default: e.target.value || undefined })}
-            placeholder="default"
-            style={inputStyle}
-            disabled={disabled}
-          />
-          {!disabled && (
-            <Pressable onPress={() => removeParam(name)} style={{ opacity: 0.5 }}>
-              <X size={14} color={t.textDim} />
-            </Pressable>
-          )}
-        </div>
-      ))}
-
-      {!disabled && (
-        <Pressable
-          onPress={addParam}
-          style={{
-            flexDirection: "row", alignItems: "center", gap: 4,
-            paddingVertical: 6,
-          }}
-        >
-          <Plus size={12} color={t.accent} />
-          <Text style={{ color: t.accent, fontSize: 12 }}>Add Parameter</Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
-
-// ---------------------------------------------------------------------------
-// TriggersEditor — three toggles
-// ---------------------------------------------------------------------------
-
-interface TriggersEditorProps {
-  value: Record<string, boolean>;
-  onChange: (v: Record<string, boolean>) => void;
-  disabled?: boolean;
-}
-
-export function TriggersEditor({ value, onChange, disabled }: TriggersEditorProps) {
-  const update = (key: string, v: boolean) => onChange({ ...value, [key]: v });
-
-  return (
-    <View style={{ gap: 4 }}>
-      <Toggle
-        value={!!value.tool}
-        onChange={(v) => update("tool", v)}
-        label="Tool"
-        description="Can be triggered by bots via manage_workflow tool"
-      />
-      <Toggle
-        value={!!value.api}
-        onChange={(v) => update("api", v)}
-        label="API"
-        description="Can be triggered via the admin API"
-      />
-      <Toggle
-        value={!!value.heartbeat}
-        onChange={(v) => update("heartbeat", v)}
-        label="Heartbeat"
-        description="Can be triggered from heartbeat prompts"
-      />
-      <Toggle
-        value={!!value.task}
-        onChange={(v) => update("task", v)}
-        label="Scheduled Task"
-        description="Can be triggered by scheduled tasks"
-      />
     </View>
   );
 }

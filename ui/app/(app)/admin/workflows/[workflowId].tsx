@@ -1,5 +1,9 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
+/**
+ * Workflow detail page — two-pane layout on desktop, accordion on mobile.
+ * Shell: header + tabs + tab content routing.
+ */
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { View, Text, Pressable, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   useWorkflow,
@@ -8,18 +12,18 @@ import {
   useDeleteWorkflow,
   useExportWorkflow,
 } from "@/src/api/hooks/useWorkflows";
-import { useSecretValues } from "@/src/api/hooks/useSecretValues";
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { Save, Trash2, ArrowLeft, Download, Copy, X as XIcon, Unlink } from "lucide-react";
-import { Section, FormRow, SelectInput, TabBar } from "@/src/components/shared/FormControls";
+import { Platform } from "react-native";
+import { Copy, X as XIcon } from "lucide-react";
+import { TabBar } from "@/src/components/shared/FormControls";
 import type { Workflow, WorkflowStep } from "@/src/types/api";
 import WorkflowRunsTab from "./WorkflowRunsTab";
-import { WorkflowStepEditor } from "./WorkflowStepEditor";
-import { DefaultsEditor, ParamsEditor, TriggersEditor } from "./WorkflowFormParts";
 import { WorkflowTemplateGallery } from "./WorkflowTemplateGallery";
-import { HelpTooltip } from "./HelpTooltip";
-import { SecretChipPicker } from "./SecretChipPicker";
+import { WorkflowHeader } from "./WorkflowHeader";
+import { WorkflowIdentitySection } from "./WorkflowIdentitySection";
+import { WorkflowStepList } from "./WorkflowStepList";
+import { WorkflowStepDetail, StepDetailEmptyState } from "./WorkflowStepDetail";
 import { YamlSyntaxEditor, YamlSyntaxViewer } from "./YamlEditor";
 import yaml from "js-yaml";
 
@@ -30,6 +34,9 @@ import yaml from "js-yaml";
 export default function WorkflowDetailPage() {
   const t = useThemeTokens();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
+
   const { workflowId, tab: tabParam, run: runParam, clone: cloneParam } = useLocalSearchParams<{
     workflowId: string;
     tab?: string;
@@ -43,8 +50,6 @@ export default function WorkflowDetailPage() {
   const updateMut = useUpdateWorkflow(workflowId || "");
   const deleteMut = useDeleteWorkflow();
   const exportMut = useExportWorkflow(workflowId || "");
-  const { data: vaultSecrets } = useSecretValues();
-  const vaultSecretNames = useMemo(() => (vaultSecrets || []).map((s) => s.name), [vaultSecrets]);
 
   const [activeTab, setActiveTab] = useState<string>(
     !isNew && tabParam === "runs" ? "runs" : "definition"
@@ -59,8 +64,33 @@ export default function WorkflowDetailPage() {
   const [showExport, setShowExport] = useState(false);
   const [showGallery, setShowGallery] = useState(isNew && !cloneParam);
   const [showYamlImport, setShowYamlImport] = useState(false);
+  const [selectedStepIndex, setSelectedStepIndex] = useState<number | null>(null);
 
   const isFileBased = existing?.source_type === "file" || existing?.source_type === "integration";
+
+  // Warn on unsaved changes when leaving the page
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
+  // Ctrl+S / Cmd+S save shortcut — ref set after handleSave is declared
+  const saveRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        saveRef.current?.();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hydrate from clone param
   useEffect(() => {
@@ -101,10 +131,8 @@ export default function WorkflowDetailPage() {
   const goBack = () => router.push("/admin/workflows" as any);
 
   const handleClone = () => {
-    // Generate a unique clone ID
-    const baseId = (draft.id || "workflow") + "-copy";
     const cloneData: Partial<Workflow> = {
-      id: baseId,
+      id: (draft.id || "workflow") + "-copy",
       name: `${draft.name || "Workflow"} (copy)`,
       description: draft.description || "",
       steps: draft.steps || [],
@@ -153,6 +181,9 @@ export default function WorkflowDetailPage() {
     }
   };
 
+  // Wire up Ctrl+S ref now that handleSave is declared
+  saveRef.current = () => { if (dirty || isNew) handleSave(); };
+
   const handleDelete = async () => {
     if (!workflowId) return;
     const ok = Platform.OS === "web"
@@ -176,6 +207,24 @@ export default function WorkflowDetailPage() {
     }
   };
 
+  // Step update helper
+  const updateStep = useCallback((index: number, patch: Partial<WorkflowStep>) => {
+    setDraft((prev) => {
+      const steps = (prev.steps || []).map((s, i) => (i === index ? { ...s, ...patch } : s));
+      return { ...prev, steps };
+    });
+    setDirty(true);
+  }, []);
+
+  const deleteStep = useCallback((index: number) => {
+    setDraft((prev) => ({
+      ...prev,
+      steps: (prev.steps || []).filter((_, i) => i !== index),
+    }));
+    setDirty(true);
+    setSelectedStepIndex(null);
+  }, []);
+
   if (isLoading && !isNew) {
     return (
       <View className="flex-1 items-center justify-center">
@@ -192,262 +241,125 @@ export default function WorkflowDetailPage() {
     ]),
   ];
 
-  const inputStyle: React.CSSProperties = {
-    background: t.inputBg, border: `1px solid ${t.inputBorder}`,
-    borderRadius: 8, padding: "8px 12px", color: t.inputText,
-    fontSize: 14, width: "100%", outline: "none",
-  };
-
+  const showingPicker = isNew && (showGallery || showYamlImport);
   const isYaml = activeTab === "yaml";
   const isRuns = activeTab === "runs";
-  const needsFlex = isYaml || isRuns;
+  const selectedStep = selectedStepIndex !== null ? (draft.steps || [])[selectedStepIndex] : null;
+  const priorStepIds = selectedStepIndex !== null
+    ? (draft.steps || []).slice(0, selectedStepIndex).map((s) => s.id)
+    : [];
 
   return (
     <div style={{ overflow: "auto", flex: 1, display: "flex", flexDirection: "column", background: t.surface }}>
       <MobileHeader title={isNew ? "New Workflow" : draft.name || "Workflow"} />
-      <div style={{
-        padding: 16,
-        maxWidth: isRuns ? 1100 : isYaml ? 1200 : 800,
-        flex: needsFlex ? 1 : undefined,
-        minHeight: needsFlex ? 0 : undefined,
-        display: needsFlex ? "flex" : undefined,
-        flexDirection: needsFlex ? "column" : undefined,
-      }}>
-        {/* Top bar: back + actions */}
+
+      {/* Header */}
+      <WorkflowHeader
+        name={draft.name || ""}
+        isNew={isNew}
+        dirty={dirty}
+        isFileBased={isFileBased}
+        sourceType={existing?.source_type}
+        sourcePath={existing?.source_path}
+        showingPicker={showingPicker}
+        onBack={goBack}
+        onSave={handleSave}
+        onDelete={handleDelete}
+        onClone={handleClone}
+        onExport={handleExport}
+        saving={createMut.isPending || updateMut.isPending}
+        t={t}
+      />
+
+      {/* Error banner */}
+      {(createMut.isError || updateMut.isError || deleteMut.isError) && (
         <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          marginBottom: 16,
+          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+          padding: 10, margin: "0 16px", marginTop: 8, borderRadius: 8, color: t.danger, fontSize: 12,
         }}>
-          <Pressable
-            onPress={goBack}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6 }}
-          >
-            <ArrowLeft size={16} color={t.textMuted} />
-            <Text style={{ color: t.textMuted, fontSize: 13 }}>Workflows</Text>
-          </Pressable>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {!isNew && (
-              <Pressable
-                onPress={handleClone}
-                style={{
-                  flexDirection: "row", alignItems: "center", gap: 4,
-                  paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
-                  backgroundColor: t.codeBg, borderWidth: 1, borderColor: t.surfaceBorder,
-                }}
-              >
-                <Copy size={14} color={t.textMuted} />
-                <Text style={{ color: t.textMuted, fontSize: 12 }}>Clone</Text>
-              </Pressable>
-            )}
-            {/* Export YAML */}
-            {!isNew && (
-              <Pressable
-                onPress={handleExport}
-                style={{
-                  flexDirection: "row", alignItems: "center", gap: 4,
-                  paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
-                  backgroundColor: t.codeBg, borderWidth: 1, borderColor: t.surfaceBorder,
-                }}
-              >
-                <Download size={14} color={t.textMuted} />
-                <Text style={{ color: t.textMuted, fontSize: 12 }}>Export</Text>
-              </Pressable>
-            )}
-            {!isNew && (
-              <Pressable
-                onPress={handleDelete}
-                style={{
-                  flexDirection: "row", alignItems: "center", gap: 4,
-                  paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6,
-                  backgroundColor: t.dangerSubtle, borderWidth: 1, borderColor: t.dangerBorder,
-                }}
-              >
-                <Trash2 size={14} color={t.danger} />
-                <Text style={{ color: t.danger, fontSize: 12 }}>Delete</Text>
-              </Pressable>
-            )}
-            {!(isNew && (showGallery || showYamlImport)) && (
-              <Pressable
-                onPress={handleSave}
-                disabled={!dirty && !isNew}
-                style={{
-                  flexDirection: "row", alignItems: "center", gap: 4,
-                  paddingHorizontal: 12, paddingVertical: 6, borderRadius: 6,
-                  backgroundColor: dirty || isNew ? t.accent : t.surfaceBorder,
-                  opacity: dirty || isNew ? 1 : 0.5,
-                }}
-              >
-                <Save size={14} color="#fff" />
-                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
-                  {isNew ? "Create" : isFileBased && dirty ? "Detach & Save" : "Save"}
-                </Text>
-              </Pressable>
-            )}
-          </div>
+          {(createMut.error || updateMut.error || deleteMut.error)?.message || "Operation failed"}
         </div>
+      )}
 
-        {/* Error banner */}
-        {(createMut.isError || updateMut.isError || deleteMut.isError) && (
-          <div style={{
-            background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
-            padding: 10, borderRadius: 8, marginBottom: 12, color: t.danger, fontSize: 12,
-          }}>
-            {(createMut.error || updateMut.error || deleteMut.error)?.message || "Operation failed"}
-          </div>
-        )}
+      {/* Tabs (not for new workflows) */}
+      {!isNew && (
+        <div style={{ padding: "8px 16px 0" }}>
+          <TabBar tabs={tabs} active={activeTab} onChange={setActiveTab} />
+        </div>
+      )}
 
-        {/* File-managed banner */}
-        {isFileBased && (
-          <div style={{
-            display: "flex", alignItems: "flex-start", gap: 8,
-            background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
-            padding: 10, borderRadius: 8, marginBottom: 16, color: t.accent, fontSize: 12,
-          }}>
-            <Unlink size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
-            <span>
-              Sourced from {existing?.source_type} file
-              {existing?.source_path ? ` (${existing.source_path})` : ""}.
-              You can edit freely — saving will detach from the file and make this a user-managed workflow.
-            </span>
-          </div>
-        )}
+      {/* Content area */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
 
-        {/* Tabs */}
-        {!isNew && (
-          <div style={{ marginBottom: 16 }}>
-            <TabBar tabs={tabs} active={activeTab} onChange={setActiveTab} />
-          </div>
-        )}
-
-        {/* Template gallery for new workflows */}
+        {/* Template gallery */}
         {isNew && showGallery && !showYamlImport && (
-          <WorkflowTemplateGallery
-            onSelectTemplate={(tmpl) => {
-              setDraft((prev) => ({ ...prev, ...tmpl }));
-              setDirty(true);
-              setShowGallery(false);
-            }}
-            onStartBlank={() => setShowGallery(false)}
-            onImportYaml={() => { setShowGallery(false); setShowYamlImport(true); }}
-          />
+          <div style={{ padding: 16, maxWidth: 900 }}>
+            <WorkflowTemplateGallery
+              onSelectTemplate={(tmpl) => {
+                setDraft((prev) => ({ ...prev, ...tmpl }));
+                setDirty(true);
+                setShowGallery(false);
+              }}
+              onStartBlank={() => setShowGallery(false)}
+              onImportYaml={() => { setShowGallery(false); setShowYamlImport(true); }}
+            />
+          </div>
         )}
 
-        {/* YAML import for new workflows */}
+        {/* YAML import */}
         {isNew && showYamlImport && (
-          <YamlImport
-            onImport={(parsed) => {
-              setDraft((prev) => ({ ...prev, ...parsed }));
-              setDirty(true);
-              setShowYamlImport(false);
-            }}
-            onCancel={() => { setShowYamlImport(false); setShowGallery(true); }}
-            t={t}
-          />
+          <div style={{ padding: 16, maxWidth: 800 }}>
+            <YamlImport
+              onImport={(parsed) => {
+                setDraft((prev) => ({ ...prev, ...parsed }));
+                setDirty(true);
+                setShowYamlImport(false);
+              }}
+              onCancel={() => { setShowYamlImport(false); setShowGallery(true); }}
+              t={t}
+            />
+          </div>
         )}
 
-        {activeTab === "definition" && !(isNew && (showGallery || showYamlImport)) && (
-          <View style={{ gap: 20 }}>
-            {/* Identity */}
-            <Section title="Identity">
-              {isNew && (
-                <FormRow label="ID" description="Unique slug identifier (lowercase, hyphens)">
-                  <input
-                    value={draft.id || ""}
-                    onChange={(e) => update({ id: e.target.value })}
-                    placeholder="my-workflow"
-                    style={inputStyle}
-                  />
-                </FormRow>
-              )}
-              <FormRow label="Name">
-                <input
-                  value={draft.name || ""}
-                  onChange={(e) => update({ name: e.target.value })}
-                  placeholder="My Workflow"
-                  style={inputStyle}
-                />
-              </FormRow>
-              <FormRow label="Description">
-                <input
-                  value={draft.description || ""}
-                  onChange={(e) => update({ description: e.target.value })}
-                  placeholder="What this workflow does..."
-                  style={inputStyle}
-                />
-              </FormRow>
-              <FormRow label="Tags" description="Comma-separated labels">
-                <input
-                  value={(draft.tags || []).join(", ")}
-                  onChange={(e) => update({ tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-                  placeholder="ops, monitoring"
-                  style={inputStyle}
-                />
-              </FormRow>
-            </Section>
-
-            {/* Execution */}
-            <Section title="Execution">
-              <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Session Mode <HelpTooltip text="Isolated: each step gets fresh context. Shared: all steps share one conversation channel — outputs appear in chat." /></span>} description="How step conversations relate to each other">
-                <SelectInput
-                  value={draft.session_mode || "isolated"}
-                  onChange={(v) => update({ session_mode: v })}
-                  options={[
-                    { label: "Isolated — each step gets fresh context", value: "isolated" },
-                    { label: "Shared — all steps share one conversation", value: "shared" },
-                  ]}
-                />
-              </FormRow>
-              <FormRow label={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Secrets <HelpTooltip text="Select secrets from your vault that this workflow can use. Steps can optionally scope to a subset. Manage secrets in Admin > Security." /></span>} description="Secrets available to workflow steps">
-                <SecretChipPicker
-                  available={vaultSecretNames}
-                  selected={draft.secrets || []}
-                  onChange={(v) => update({ secrets: v })}
-                  t={t}
-                />
-              </FormRow>
-            </Section>
-
-            {/* Parameters */}
-            <Section title="Parameters" description="Input parameters for workflow triggers">
-              <ParamsEditor
-                value={draft.params || {}}
-                onChange={(v) => update({ params: v })}
-              />
-            </Section>
-
-            {/* Defaults */}
-            <Section title="Defaults" description="Default execution config for all steps">
-              <DefaultsEditor
-                value={draft.defaults || {}}
-                onChange={(v) => update({ defaults: v })}
-              />
-            </Section>
-
-            {/* Triggers */}
-            <Section title={<span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>Triggers <HelpTooltip text="Controls which sources can start this workflow. Disable a trigger to prevent that source from running it." /></span>} description="How this workflow can be invoked">
-              <TriggersEditor
-                value={(draft.triggers || {}) as Record<string, boolean>}
-                onChange={(v) => update({ triggers: v })}
-              />
-            </Section>
-
-            {/* Steps */}
-            <Section title="Steps" description="Workflow step definitions">
-              <WorkflowStepEditor
-                steps={draft.steps || []}
-                onChange={(v) => update({ steps: v })}
-                workflowSecrets={draft.secrets || []}
-              />
-            </Section>
-          </View>
+        {/* Definition tab — two-pane layout */}
+        {activeTab === "definition" && !showingPicker && (
+          isMobile ? (
+            <MobileDefinitionEditor
+              draft={draft}
+              update={update}
+              isNew={isNew}
+              workflowSecrets={draft.secrets || []}
+              t={t}
+            />
+          ) : (
+            <DesktopDefinitionEditor
+              draft={draft}
+              update={update}
+              updateStep={updateStep}
+              deleteStep={deleteStep}
+              isNew={isNew}
+              selectedStepIndex={selectedStepIndex}
+              onSelectStep={setSelectedStepIndex}
+              selectedStep={selectedStep}
+              priorStepIds={priorStepIds}
+              workflowSecrets={draft.secrets || []}
+              t={t}
+            />
+          )
         )}
 
+        {/* Runs tab */}
         {activeTab === "runs" && workflowId && !isNew && (
-          <WorkflowRunsTab workflowId={workflowId} initialRunId={runParam} />
+          <div style={{ padding: 16, flex: 1, display: "flex", flexDirection: "column", minHeight: 0, maxWidth: 1100 }}>
+            <WorkflowRunsTab workflowId={workflowId} initialRunId={runParam} />
+          </div>
         )}
 
+        {/* YAML tab */}
         {activeTab === "yaml" && !isNew && (
-          <YamlEditor draft={draft} onUpdate={(patch) => update(patch)} t={t} />
+          <div style={{ padding: 16, flex: 1, display: "flex", flexDirection: "column", minHeight: 0, maxWidth: 1200 }}>
+            <YamlEditorTab draft={draft} onUpdate={(patch) => update(patch)} t={t} />
+          </div>
         )}
       </div>
 
@@ -459,6 +371,144 @@ export default function WorkflowDetailPage() {
           t={t}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Desktop definition editor — two-pane layout
+// ---------------------------------------------------------------------------
+
+function DesktopDefinitionEditor({ draft, update, updateStep, deleteStep, isNew, selectedStepIndex, onSelectStep, selectedStep, priorStepIds, workflowSecrets, t }: {
+  draft: Partial<Workflow>;
+  update: (patch: Partial<Workflow>) => void;
+  updateStep: (index: number, patch: Partial<WorkflowStep>) => void;
+  deleteStep: (index: number) => void;
+  isNew: boolean;
+  selectedStepIndex: number | null;
+  onSelectStep: (index: number | null) => void;
+  selectedStep: WorkflowStep | null;
+  priorStepIds: string[];
+  workflowSecrets: string[];
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  return (
+    <div style={{
+      display: "flex", flex: 1, minHeight: 0,
+      padding: "12px 16px",
+      gap: 16,
+    }}>
+      {/* Left pane: config + step list */}
+      <div style={{
+        width: 320, flexShrink: 0,
+        overflow: "auto",
+        display: "flex", flexDirection: "column", gap: 12,
+        paddingRight: 4,
+      }}>
+        <WorkflowIdentitySection
+          draft={draft}
+          update={update}
+          isNew={isNew}
+          t={t}
+        />
+        <WorkflowStepList
+          steps={draft.steps || []}
+          selectedIndex={selectedStepIndex}
+          onSelect={(i) => onSelectStep(i)}
+          onChange={(steps) => update({ steps })}
+          t={t}
+        />
+      </div>
+
+      {/* Right pane: step detail */}
+      <div style={{
+        flex: 1, minWidth: 0,
+        overflow: "auto",
+        display: "flex", flexDirection: "column",
+        background: t.codeBg,
+        borderRadius: 10,
+        border: `1px solid ${t.surfaceBorder}`,
+        padding: 16,
+      }}>
+        {selectedStep && selectedStepIndex !== null ? (
+          <WorkflowStepDetail
+            step={selectedStep}
+            stepIndex={selectedStepIndex}
+            onChange={(patch) => updateStep(selectedStepIndex, patch)}
+            onDelete={() => deleteStep(selectedStepIndex)}
+            priorStepIds={priorStepIds}
+            workflowSecrets={workflowSecrets}
+            t={t}
+          />
+        ) : (
+          <StepDetailEmptyState t={t} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mobile definition editor — accordion-style
+// ---------------------------------------------------------------------------
+
+function MobileDefinitionEditor({ draft, update, isNew, workflowSecrets, t }: {
+  draft: Partial<Workflow>;
+  update: (patch: Partial<Workflow>) => void;
+  isNew: boolean;
+  workflowSecrets: string[];
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
+  const steps = draft.steps || [];
+
+  const updateStep = useCallback((index: number, patch: Partial<WorkflowStep>) => {
+    const next = steps.map((s, i) => (i === index ? { ...s, ...patch } : s));
+    update({ steps: next });
+  }, [steps, update]);
+
+  const deleteStep = useCallback((index: number) => {
+    update({ steps: steps.filter((_, i) => i !== index) });
+    setExpandedStep(null);
+  }, [steps, update]);
+
+  return (
+    <div style={{ padding: 16, overflow: "auto" }}>
+      <View style={{ gap: 12 }}>
+        <WorkflowIdentitySection
+          draft={draft}
+          update={update}
+          isNew={isNew}
+          t={t}
+        />
+
+        {/* Steps as accordion */}
+        <WorkflowStepList
+          steps={steps}
+          selectedIndex={expandedStep}
+          onSelect={(i) => setExpandedStep(expandedStep === i ? null : i)}
+          onChange={(newSteps) => update({ steps: newSteps })}
+          t={t}
+        />
+
+        {/* Expanded step detail inline */}
+        {expandedStep !== null && steps[expandedStep] && (
+          <div style={{
+            borderRadius: 10, border: `1px solid ${t.surfaceBorder}`,
+            background: t.codeBg, padding: 12,
+          }}>
+            <WorkflowStepDetail
+              step={steps[expandedStep]}
+              stepIndex={expandedStep}
+              onChange={(patch) => updateStep(expandedStep, patch)}
+              onDelete={() => deleteStep(expandedStep)}
+              priorStepIds={steps.slice(0, expandedStep).map((s) => s.id)}
+              workflowSecrets={workflowSecrets}
+              t={t}
+            />
+          </div>
+        )}
+      </View>
     </div>
   );
 }
@@ -520,14 +570,9 @@ function YamlImport({ onImport, onCancel, t }: {
   return (
     <View style={{ gap: 12 }}>
       <View style={{ gap: 4 }}>
-        <Text style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>
-          Import YAML
-        </Text>
-        <Text style={{ color: t.textMuted, fontSize: 13 }}>
-          Paste a workflow YAML definition below.
-        </Text>
+        <Text style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>Import YAML</Text>
+        <Text style={{ color: t.textMuted, fontSize: 13 }}>Paste a workflow YAML definition below.</Text>
       </View>
-
       <YamlSyntaxEditor
         value={yamlText}
         onChange={handleChange}
@@ -535,7 +580,6 @@ function YamlImport({ onImport, onCancel, t }: {
         t={t}
         minHeight={300}
       />
-
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <Pressable
           onPress={onCancel}
@@ -563,7 +607,7 @@ function YamlImport({ onImport, onCancel, t }: {
 }
 
 // ---------------------------------------------------------------------------
-// YAML editor
+// YAML editor tab
 // ---------------------------------------------------------------------------
 
 function draftToYamlObj(draft: Partial<Workflow>) {
@@ -581,7 +625,7 @@ function draftToYamlObj(draft: Partial<Workflow>) {
   return obj;
 }
 
-function YamlEditor({ draft, onUpdate, t }: {
+function YamlEditorTab({ draft, onUpdate, t }: {
   draft: Partial<Workflow>;
   onUpdate: (patch: Partial<Workflow>) => void;
   t: ReturnType<typeof useThemeTokens>;
@@ -590,7 +634,6 @@ function YamlEditor({ draft, onUpdate, t }: {
   const [parseError, setParseError] = useState<string | null>(null);
   const [internalEdit, setInternalEdit] = useState(false);
 
-  // Sync draft → YAML text (only when draft changes externally, not from our own edits)
   useEffect(() => {
     if (internalEdit) {
       setInternalEdit(false);
@@ -598,10 +641,7 @@ function YamlEditor({ draft, onUpdate, t }: {
     }
     try {
       const text = yaml.dump(draftToYamlObj(draft), {
-        lineWidth: 120,
-        noRefs: true,
-        quotingType: '"',
-        forceQuotes: false,
+        lineWidth: 120, noRefs: true, quotingType: '"', forceQuotes: false,
       });
       setYamlText(text);
       setParseError(null);
@@ -669,8 +709,7 @@ function ExportModal({ yaml, onClose, t }: {
       <div
         onClick={onClose}
         style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
-          zIndex: 10000,
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 10000,
         }}
       />
       <div style={{

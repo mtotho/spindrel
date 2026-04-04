@@ -1,3 +1,6 @@
+/**
+ * Workflow list page — searchable, grouped by source type, with recent runs feed.
+ */
 import { useState, useMemo } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
@@ -6,8 +9,9 @@ import { useWorkflows, useRecentWorkflowRuns } from "@/src/api/hooks/useWorkflow
 import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
-  Plus, Search, Zap, ChevronRight, HelpCircle,
+  Plus, Search, Zap, ChevronRight,
   Loader2, CheckCircle2, XCircle, ShieldCheck, Clock, Minus,
+  Bot, Terminal,
 } from "lucide-react";
 import { Link, useRouter } from "expo-router";
 import type { Workflow, WorkflowRun } from "@/src/types/api";
@@ -32,9 +36,16 @@ function getRunStatusStyle(status: string, t: ThemeTokens) {
     case "awaiting_approval":
       return { color: t.warning, bg: t.warningSubtle, border: t.warningBorder, icon: ShieldCheck, label: "awaiting approval" };
     default:
-      return { color: t.textDim, bg: t.surfaceRaised, border: t.surfaceBorder, icon: HelpCircle, label: status };
+      return { color: t.textDim, bg: t.surfaceRaised, border: t.surfaceBorder, icon: Clock, label: status };
   }
 }
+
+// Step type icon for card
+const STEP_TYPE_ICONS: Record<string, { icon: typeof Bot; color: (t: ThemeTokens) => string }> = {
+  agent: { icon: Bot, color: (t) => t.accent },
+  tool: { icon: Zap, color: (t) => t.purple },
+  exec: { icon: Terminal, color: (t) => t.warning },
+};
 
 // ---------------------------------------------------------------------------
 // Recent Runs Feed
@@ -100,9 +111,7 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
           padding: 10,
         }}
       >
-        <div style={{
-          display: "flex", alignItems: "center", gap: 10,
-        }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {/* Status icon */}
           <div style={{
             width: 26, height: 26, borderRadius: 13, flexShrink: 0,
@@ -127,23 +136,16 @@ function RunRow({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
               </span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
-              <span style={{ fontSize: 11, color: t.textMuted }}>
-                {run.bot_id}
-              </span>
+              <span style={{ fontSize: 11, color: t.textMuted }}>{run.bot_id}</span>
               {run.triggered_by && (
-                <span style={{ fontSize: 11, color: t.textMuted }}>
-                  via {run.triggered_by}
-                </span>
+                <span style={{ fontSize: 11, color: t.textMuted }}>via {run.triggered_by}</span>
               )}
-              <span style={{ fontSize: 11, color: t.textMuted }}>
-                {fmtTime(run.created_at)}
-              </span>
+              <span style={{ fontSize: 11, color: t.textMuted }}>{fmtTime(run.created_at)}</span>
             </div>
           </div>
 
           {/* Step progress */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            {/* Mini step bar */}
             <div style={{
               display: "flex", gap: 2, height: 4, borderRadius: 2,
               overflow: "hidden", width: 60,
@@ -270,7 +272,7 @@ export default function WorkflowsPage() {
         }
       />
 
-      {/* Pinned search bar */}
+      {/* Search bar */}
       <div style={{
         display: "flex", alignItems: "center", gap: 10,
         padding: "8px 16px",
@@ -310,17 +312,31 @@ export default function WorkflowsPage() {
       ) : (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
           <View style={{ padding: 16, maxWidth: 960 }}>
-            {/* Recent Runs feed — always at the top */}
+            {/* Recent Runs */}
             {recentRuns && recentRuns.length > 0 && !search && (
               <RecentRunsFeed runs={recentRuns} t={t} />
             )}
 
             {(!workflows || workflows.length === 0) && (
-              <View style={{ alignItems: "center", paddingTop: 60 }}>
-                <Zap size={32} color={t.textMuted} />
-                <Text style={{ color: t.textMuted, marginTop: 12, fontSize: 14 }}>
-                  No workflows yet. Create one or add YAML files to workflows/.
+              <View style={{ alignItems: "center", paddingTop: 60, gap: 12 }}>
+                <Zap size={36} color={t.surfaceBorder} />
+                <Text style={{ color: t.textMuted, fontSize: 15, fontWeight: "600" }}>
+                  No workflows yet
                 </Text>
+                <Text style={{ color: t.textDim, fontSize: 13, textAlign: "center", maxWidth: 300 }}>
+                  Create a workflow to automate multi-step tasks, or add YAML files to the workflows/ directory.
+                </Text>
+                <Pressable
+                  onPress={() => router.push("/admin/workflows/new" as any)}
+                  style={{
+                    flexDirection: "row", alignItems: "center", gap: 6,
+                    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8,
+                    backgroundColor: t.accent, marginTop: 8,
+                  }}
+                >
+                  <Plus size={14} color="#fff" />
+                  <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>Create Workflow</Text>
+                </Pressable>
               </View>
             )}
             {workflows && workflows.length > 0 && filtered.length === 0 && (
@@ -335,7 +351,7 @@ export default function WorkflowsPage() {
                 <SectionHeader key={item.key} label={item.label} count={item.count} />
               ) : (
                 <View key={item.key} style={{ marginBottom: 8 }}>
-                  <WorkflowCard workflow={item.workflow} t={t} />
+                  <WorkflowCard workflow={item.workflow} recentRuns={recentRuns} t={t} />
                 </View>
               ),
             )}
@@ -350,7 +366,27 @@ export default function WorkflowsPage() {
 // Workflow card
 // ---------------------------------------------------------------------------
 
-function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }) {
+function WorkflowCard({ workflow: w, recentRuns, t }: {
+  workflow: Workflow;
+  recentRuns?: WorkflowRun[];
+  t: ThemeTokens;
+}) {
+  // Get recent runs for this workflow (up to 5 status dots)
+  const myRuns = useMemo(
+    () => (recentRuns || []).filter((r) => r.workflow_id === w.id).slice(0, 5),
+    [recentRuns, w.id],
+  );
+
+  // Compute step type summary
+  const stepTypeSummary = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const step of w.steps) {
+      const type = step.type || "agent";
+      counts[type] = (counts[type] || 0) + 1;
+    }
+    return Object.entries(counts);
+  }, [w.steps]);
+
   return (
     <Link href={`/admin/workflows/${w.id}` as any} asChild>
       <Pressable
@@ -364,8 +400,8 @@ function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }
       >
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
           <View style={{ flex: 1 }}>
-            {/* Name + source badge */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            {/* Name + badges */}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <Zap size={16} color={t.accent} />
               <Text style={{ color: t.text, fontWeight: "600", fontSize: 14 }}>
                 {w.name}
@@ -385,7 +421,7 @@ function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }
                   borderColor: t.purpleBorder, paddingHorizontal: 6,
                   paddingVertical: 1, borderRadius: 4,
                 }}>
-                  <Text style={{ color: t.purple, fontSize: 10 }}>shared context</Text>
+                  <Text style={{ color: t.purple, fontSize: 10 }}>shared</Text>
                 </View>
               )}
             </View>
@@ -398,15 +434,29 @@ function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }
             ) : null}
 
             {/* Metadata row */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-              <Text style={{ color: t.textDim, fontSize: 11 }}>
-                {w.steps.length} step{w.steps.length !== 1 ? "s" : ""}
-              </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 6, flexWrap: "wrap" }}>
+              {/* Step type summary */}
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {stepTypeSummary.map(([type, count]) => {
+                  const st = STEP_TYPE_ICONS[type] || STEP_TYPE_ICONS.agent;
+                  const StIcon = st.icon;
+                  return (
+                    <span key={type} style={{
+                      display: "inline-flex", alignItems: "center", gap: 2,
+                      fontSize: 11, color: t.textDim,
+                    }}>
+                      <StIcon size={10} color={st.color(t)} />
+                      {count}
+                    </span>
+                  );
+                })}
+              </div>
               {Object.keys(w.params).length > 0 && (
                 <Text style={{ color: t.textDim, fontSize: 11 }}>
                   {Object.keys(w.params).length} param{Object.keys(w.params).length !== 1 ? "s" : ""}
                 </Text>
               )}
+              {/* Tags */}
               {w.tags.length > 0 && (
                 <View style={{ flexDirection: "row", gap: 4 }}>
                   {w.tags.map((tag) => (
@@ -419,6 +469,22 @@ function WorkflowCard({ workflow: w, t }: { workflow: Workflow; t: ThemeTokens }
                     </View>
                   ))}
                 </View>
+              )}
+              {/* Mini run status dots */}
+              {myRuns.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 3, marginLeft: 4 }}>
+                  {myRuns.map((run) => {
+                    const rs = getRunStatusStyle(run.status, t);
+                    return (
+                      <div key={run.id} style={{
+                        width: 7, height: 7, borderRadius: 4,
+                        background: rs.color,
+                      }}
+                      title={`${run.status} — ${fmtTime(run.created_at)}`}
+                      />
+                    );
+                  })}
+                </div>
               )}
             </View>
           </View>

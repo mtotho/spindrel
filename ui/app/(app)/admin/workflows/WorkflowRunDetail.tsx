@@ -16,7 +16,7 @@ import {
 import { Link } from "expo-router";
 
 import {
-  StatusBadge, fmtTime, MetaItem, StepNavItem, StepNavStrip,
+  StatusBadge, fmtTime, MetaItem, StepNavItem,
 } from "./WorkflowRunHelpers";
 import WorkflowRunFeed from "./WorkflowRunFeed";
 import WorkflowRunTasks from "./WorkflowRunTasks";
@@ -208,20 +208,56 @@ export default function WorkflowRunDetail({ runId, workflowId, onBack, onNavigat
       {/* Tasks spawned by this run */}
       <WorkflowRunTasks runId={runId} steps={steps} t={t} />
 
-      {/* Mobile: horizontal step strip */}
+      {/* Mobile: vertical step list with names + status */}
       {isMobile && (
         <div style={{
           flexShrink: 0, marginBottom: 8,
           borderRadius: 8, overflow: "hidden",
           border: `1px solid ${t.surfaceBorder}`, background: t.surface,
         }}>
-          <StepNavStrip
-            steps={steps}
-            stepStates={run.step_states}
-            activeIndex={activeStepIndex ?? -1}
-            onSelect={(i) => setActiveStepIndex(i)}
-            t={t}
-          />
+          <div style={{
+            display: "flex", flexDirection: "column",
+          }}>
+            {run.step_states.map((state, i) => {
+              const stepId = steps[i]?.id || `step_${i}`;
+              const isActive = activeStepIndex === i;
+              const dotColor =
+                state.status === "done" ? t.success :
+                state.status === "running" ? t.accent :
+                state.status === "failed" ? t.danger :
+                state.status === "awaiting_approval" ? t.warning :
+                state.status === "skipped" ? t.textDim :
+                t.inputBorder;
+              return (
+                <Pressable
+                  key={i}
+                  onPress={() => setActiveStepIndex(i)}
+                  style={{
+                    flexDirection: "row", alignItems: "center", gap: 8,
+                    paddingVertical: 8, paddingHorizontal: 12,
+                    borderLeftWidth: 2,
+                    borderLeftColor: isActive ? t.accent : "transparent",
+                    backgroundColor: isActive ? t.accentSubtle : "transparent",
+                    borderBottomWidth: i < run.step_states.length - 1 ? 1 : 0,
+                    borderBottomColor: t.surfaceBorder,
+                  }}
+                >
+                  <div style={{
+                    width: 8, height: 8, borderRadius: 4, flexShrink: 0,
+                    background: dotColor,
+                  }} />
+                  <Text style={{
+                    fontSize: 12, color: isActive ? t.text : t.textDim,
+                    fontWeight: isActive ? "600" : "400",
+                    flex: 1,
+                  }} numberOfLines={1}>
+                    {stepId}
+                  </Text>
+                  <StatusBadge status={state.status} t={t} />
+                </Pressable>
+              );
+            })}
+          </div>
         </div>
       )}
 
