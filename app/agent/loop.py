@@ -958,6 +958,20 @@ async def run_agent_tool_loop(
                 if len(_img_parts) > 1:
                     messages.append({"role": "user", "content": _img_parts})
 
+            # --- Skill learning nudge (one-shot after N iterations) ---
+            _nudge_after = settings.SKILL_NUDGE_AFTER_ITERATIONS
+            if (
+                _nudge_after
+                and iteration + 1 == _nudge_after
+                and bot.memory_scheme == "workspace-files"
+                and not compaction
+            ):
+                from app.config import DEFAULT_SKILL_NUDGE_PROMPT
+                messages.append({
+                    "role": "system",
+                    "content": DEFAULT_SKILL_NUDGE_PROMPT,
+                })
+
             # --- Within-run tool loop detection ---
             if settings.TOOL_LOOP_DETECTION_ENABLED and len(tool_call_trace) >= 3:
                 _detected_cycle_len = detect_cycle(tool_call_trace) or 0
