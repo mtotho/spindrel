@@ -43,8 +43,10 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 
 | | |
 |---|---|
-| ![Setup wizard](docs/images/setup-1.png) | ![First chat](docs/images/setup-10-first-chat.png) |
-| Interactive setup wizard — pick your provider, model, and search backend | Chat interface with sidebar navigation, workspace, and Mission Control |
+| ![Chat session](docs/images/chat-screenshot-2.png) | ![First chat](docs/images/setup-10-first-chat.png) |
+| Chat session — QA bot testing with task callbacks, workflow execution, and push-to-master integration | Chat interface with sidebar navigation, workspace, and Mission Control |
+| ![Setup wizard](docs/images/setup-1.png) | |
+| Interactive setup wizard — pick your provider, model, and search backend | |
 | ![Bot management](docs/images/bots-list-1-v1.png) | ![Channel workspace](docs/images/channel_workspace.png) |
 | Bot management — create and configure bots with different providers | Channel workspace — schema-guided file organization with active context injection |
 | ![Workflow editor](docs/images/workflow-editor-1.png) | ![Usage tracking](docs/images/usage-and-forecast.png) |
