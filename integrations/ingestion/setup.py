@@ -2,6 +2,33 @@
 
 SETUP = {
     "icon": "Rss",
+    "env_vars": [
+        {
+            "key": "INGESTION_CLASSIFIER_MODEL",
+            "required": False,
+            "type": "model_selection",
+            "description": "LLM model for content classification",
+            "default": "gpt-4o-mini",
+        },
+        {
+            "key": "INGESTION_QUARANTINE_RETENTION_DAYS",
+            "required": False,
+            "description": "Days to keep quarantined items before cleanup",
+            "default": "90",
+        },
+        {
+            "key": "INGESTION_MAX_BODY_BYTES",
+            "required": False,
+            "description": "Maximum content size in bytes for classification",
+            "default": "50000",
+        },
+        {
+            "key": "INGESTION_CLASSIFIER_MAX_RETRIES",
+            "required": False,
+            "description": "Retry attempts on transient classifier errors",
+            "default": "3",
+        },
+    ],
     "sidebar_section": {
         "id": "content-feeds",
         "title": "CONTENT FEEDS",
@@ -24,4 +51,8 @@ SETUP = {
             "icon": "Rss",
         },
     ],
+    "chat_hud_presets": {
+        "default": {"label": "Feed Status Strip", "widgets": ["feed-status"]},
+        "none": {"label": "No HUD", "widgets": []},
+    },
 }

@@ -27,6 +27,19 @@ export interface ActiveHud {
   widget: ChatHudWidget;
 }
 
+/** Resolve which widget IDs are visible for an integration based on its HUD preset. */
+function resolveVisibleWidgetIds(ig: { chat_hud?: { id: string }[]; chat_hud_presets?: Record<string, { widgets: string[] }>; activation_config?: Record<string, any> }): Set<string> | null {
+  const presets = ig.chat_hud_presets;
+  if (!presets || Object.keys(presets).length === 0) return null; // no presets → show all
+
+  const selectedPreset = ig.activation_config?.hud_preset as string | undefined;
+  const presetNames = Object.keys(presets);
+
+  // Use selected preset, fall back to first preset if invalid/missing
+  const preset = (selectedPreset && presets[selectedPreset]) ? presets[selectedPreset] : presets[presetNames[0]];
+  return new Set(preset.widgets);
+}
+
 /** Reads activated integrations for a channel and groups their HUD widgets by style. */
 export function useIntegrationHuds(channelId: string | undefined) {
   const { data: integrations } = useActivatableIntegrations(channelId);
@@ -41,7 +54,10 @@ export function useIntegrationHuds(channelId: string | undefined) {
       for (const ig of integrations) {
         if (!ig.activated) continue;
         const widgets = ig.chat_hud ?? [];
+        const visibleIds = resolveVisibleWidgetIds(ig);
         for (const w of widgets) {
+          // If presets are defined, filter by active preset's widget list
+          if (visibleIds !== null && !visibleIds.has(w.id)) continue;
           const hud: ActiveHud = {
             key: `${ig.integration_type}:${w.id}`,
             integrationId: ig.integration_type,

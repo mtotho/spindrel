@@ -503,6 +503,66 @@ def get_chat_huds() -> dict[str, list[dict]]:
     return _chat_huds
 
 
+_chat_hud_presets: dict[str, dict[str, dict]] | None = None
+
+
+def discover_chat_hud_presets() -> dict[str, dict[str, dict]]:
+    """Discover chat HUD layout presets from integration setup.py SETUP dicts.
+
+    Returns ``{integration_id: {preset_name: {"label": str, "widgets": [str]}}}``
+    for integrations that declare ``chat_hud_presets`` in SETUP.  Widget IDs in
+    each preset are validated against the integration's ``chat_hud`` widgets.
+    """
+    global _chat_hud_presets
+    huds = get_chat_huds()
+    results: dict[str, dict[str, dict]] = {}
+
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        setup_file = candidate / "setup.py"
+        if not setup_file.exists():
+            continue
+        try:
+            module = _import_module(integration_id, "setup", setup_file, is_external, source)
+            setup = getattr(module, "SETUP", {})
+            presets = setup.get("chat_hud_presets")
+            if not presets or not isinstance(presets, dict):
+                continue
+            # Validate widget IDs against declared chat_hud widgets
+            valid_widget_ids = {w["id"] for w in huds.get(integration_id, [])}
+            validated: dict[str, dict] = {}
+            for name, preset in presets.items():
+                if not isinstance(preset, dict) or "label" not in preset:
+                    logger.warning(
+                        "Integration %r chat_hud_presets[%r] missing label — skipping",
+                        integration_id, name,
+                    )
+                    continue
+                widgets = preset.get("widgets", [])
+                bad = [w for w in widgets if w not in valid_widget_ids]
+                if bad:
+                    logger.warning(
+                        "Integration %r chat_hud_presets[%r] references unknown widget IDs %s — skipping them",
+                        integration_id, name, bad,
+                    )
+                    widgets = [w for w in widgets if w in valid_widget_ids]
+                validated[name] = {"label": preset["label"], "widgets": widgets}
+            if validated:
+                results[integration_id] = validated
+        except Exception:
+            logger.exception("Failed to load chat_hud_presets for integration %r", integration_id)
+
+    _chat_hud_presets = results
+    return results
+
+
+def get_chat_hud_presets() -> dict[str, dict[str, dict]]:
+    """Return cached chat HUD presets, discovering if needed."""
+    global _chat_hud_presets
+    if _chat_hud_presets is None:
+        return discover_chat_hud_presets()
+    return _chat_hud_presets
+
+
 _activation_manifests: dict[str, dict] | None = None
 
 

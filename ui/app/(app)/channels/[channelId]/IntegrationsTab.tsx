@@ -13,6 +13,7 @@ import {
   useActivatableIntegrations,
   useActivateIntegration,
   useDeactivateIntegration,
+  useUpdateActivationConfig,
   type AvailableIntegration,
   type ConfigField,
   type BindingSuggestion,
@@ -100,6 +101,47 @@ function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
           injected
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HUD preset picker
+// ---------------------------------------------------------------------------
+
+function HudPresetPicker({
+  ig,
+  channelId,
+}: {
+  ig: ActivatableIntegration;
+  channelId: string;
+}) {
+  const t = useThemeTokens();
+  const configMut = useUpdateActivationConfig(channelId);
+  const presets = ig.chat_hud_presets;
+  if (!presets || Object.keys(presets).length < 2) return null;
+
+  const presetEntries = Object.entries(presets);
+  const currentPreset = ig.activation_config?.hud_preset as string | undefined;
+  const selectedKey = (currentPreset && presets[currentPreset]) ? currentPreset : presetEntries[0][0];
+
+  return (
+    <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${t.surfaceBorder}` }}>
+      <FormRow label="HUD Layout" description="Choose which HUD widgets to show in chat">
+        <SelectInput
+          value={selectedKey}
+          onChange={(val: string) => {
+            configMut.mutate({
+              integrationType: ig.integration_type,
+              config: { hud_preset: val },
+            });
+          }}
+          options={presetEntries.map(([key, preset]) => ({
+            value: key,
+            label: preset.label,
+          }))}
+        />
+      </FormRow>
     </div>
   );
 }
@@ -347,7 +389,10 @@ function ActivationsSection({
                   </div>
                 )}
                 {ig.activated ? (
-                  <InjectionDetails ig={ig} t={t} />
+                  <>
+                    <InjectionDetails ig={ig} t={t} />
+                    <HudPresetPicker ig={ig} channelId={channelId} />
+                  </>
                 ) : (
                   (ig.tools.length > 0 || ig.skill_count > 0) && (
                     <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3, fontStyle: "italic" }}>

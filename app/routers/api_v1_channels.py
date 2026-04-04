@@ -1237,6 +1237,8 @@ class AvailableIntegrationOut(BaseModel):
     compatible_template_tag: Optional[str] = None
     includes: list[str] = []
     chat_hud: list[dict] = []
+    chat_hud_presets: dict[str, dict] = {}
+    activation_config: dict = {}
 
 
 def _resolve_activation_client_id(integration_type: str, channel_id: uuid.UUID) -> str:
@@ -1399,7 +1401,7 @@ async def list_available_integrations(
     _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List all integrations that declare activation blocks, with current status."""
-    from integrations import get_activation_manifests, get_chat_huds
+    from integrations import get_activation_manifests, get_chat_huds, get_chat_hud_presets
 
     channel = await db.get(Channel, channel_id)
     if not channel:
@@ -1407,15 +1409,16 @@ async def list_available_integrations(
 
     manifests = get_activation_manifests()
     huds = get_chat_huds()
+    hud_presets = get_chat_hud_presets()
 
-    # Get currently activated integration types for this channel
-    activated_result = await db.execute(
-        select(ChannelIntegration.integration_type).where(
+    # Load full ChannelIntegration rows to get activated status + activation_config
+    ci_result = await db.execute(
+        select(ChannelIntegration).where(
             ChannelIntegration.channel_id == channel_id,
             ChannelIntegration.activated == True,  # noqa: E712
         )
     )
-    activated_types = {row for row in activated_result.scalars().all()}
+    ci_rows = {ci.integration_type: ci for ci in ci_result.scalars().all()}
 
     from app.agent.carapaces import resolve_carapaces
 
@@ -1431,12 +1434,15 @@ async def list_available_integrations(
             skill_count = len(resolved.skills)
             has_system_prompt = len(resolved.system_prompt_fragments) > 0
 
+        ci_row = ci_rows.get(itype)
+        activation_config = (ci_row.activation_config or {}) if ci_row else {}
+
         compat_tags = manifest.get("compatible_templates", [])
         result.append(AvailableIntegrationOut(
             integration_type=itype,
             description=manifest.get("description", ""),
             requires_workspace=manifest.get("requires_workspace", False),
-            activated=itype in activated_types,
+            activated=itype in ci_rows,
             carapaces=carapace_ids,
             tools=tool_names,
             skill_count=skill_count,
@@ -1445,6 +1451,43 @@ async def list_available_integrations(
             compatible_template_tag=compat_tags[0] if compat_tags else None,
             includes=manifest.get("includes", []),
             chat_hud=huds.get(itype, []),
+            chat_hud_presets=hud_presets.get(itype, {}),
+            activation_config=activation_config,
         ))
 
     return result
+
+
+class ActivationConfigUpdate(BaseModel):
+    config: dict
+
+
+@router.patch("/{channel_id}/integrations/{integration_type}/config")
+async def update_activation_config(
+    channel_id: uuid.UUID,
+    integration_type: str,
+    body: ActivationConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels.integrations:write")),
+):
+    """Merge values into the activation_config JSONB of a ChannelIntegration row."""
+    ci = (await db.execute(
+        select(ChannelIntegration).where(
+            ChannelIntegration.channel_id == channel_id,
+            ChannelIntegration.integration_type == integration_type,
+            ChannelIntegration.activated == True,  # noqa: E712
+        )
+    )).scalar_one_or_none()
+
+    if not ci:
+        raise HTTPException(status_code=404, detail="Activated integration not found on this channel")
+
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    merged = copy.deepcopy(ci.activation_config or {})
+    merged.update(body.config)
+    ci.activation_config = merged
+    flag_modified(ci, "activation_config")
+    await db.commit()
+    return {"ok": True, "activation_config": merged}

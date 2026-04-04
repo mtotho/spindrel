@@ -2191,10 +2191,12 @@ async def list_activatable_integrations_global(
     Used by the channel creation wizard to show what can be activated.
     All items returned with activated=False since there's no channel yet.
     """
-    from integrations import get_activation_manifests
+    from integrations import get_activation_manifests, get_chat_huds, get_chat_hud_presets
     from app.agent.carapaces import resolve_carapaces
 
     manifests = get_activation_manifests()
+    huds = get_chat_huds()
+    hud_presets = get_chat_hud_presets()
     result = []
     for itype, manifest in manifests.items():
         carapace_ids = manifest.get("carapaces", [])
@@ -2220,6 +2222,8 @@ async def list_activatable_integrations_global(
             "version": manifest.get("version"),
             "compatible_template_tag": compat_tags[0] if compat_tags else None,
             "includes": manifest.get("includes", []),
+            "chat_hud": huds.get(itype, []),
+            "chat_hud_presets": hud_presets.get(itype, {}),
         })
     return result
 

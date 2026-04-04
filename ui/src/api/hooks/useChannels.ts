@@ -267,6 +267,20 @@ export function useDeactivateIntegration(channelId: string) {
   });
 }
 
+export function useUpdateActivationConfig(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ integrationType, config }: { integrationType: string; config: Record<string, any> }) =>
+      apiFetch(
+        `/api/v1/channels/${channelId}/integrations/${integrationType}/config`,
+        { method: "PATCH", body: JSON.stringify({ config }) }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["activatable-integrations", channelId] });
+    },
+  });
+}
+
 export function useGlobalActivatableIntegrations() {
   return useQuery({
     queryKey: ["activatable-integrations-global"],

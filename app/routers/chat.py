@@ -808,6 +808,10 @@ async def chat_stream(
             response_actions = None
             was_cancelled = False
 
+            # Notify observers that streaming is starting
+            from app.services.channel_events import publish as _publish_stream
+            _publish_stream(channel_id, "stream_start")
+
             stream = run_stream(
                 messages, bot, message,
                 session_id=session_id, client_id=req.client_id,
@@ -834,6 +838,7 @@ async def chat_stream(
                     messages.append({"role": "assistant", "content": "[Cancelled by user]"})
                     event_with_session = {**event, "session_id": str(session_id)}
                     yield f"data: {json.dumps(event_with_session)}\n\n"
+                    _publish_stream(channel_id, "stream_event", {"event": event_with_session})
                     break
                 # Capture budget utilization for compaction trigger
                 if event.get("type") == "context_budget":
@@ -844,6 +849,8 @@ async def chat_stream(
                     response_actions = event.get("client_actions")
                 event_with_session = {**event, "session_id": str(session_id)}
                 yield f"data: {json.dumps(event_with_session)}\n\n"
+                # Relay to observers (other tabs/devices on the same channel)
+                _publish_stream(channel_id, "stream_event", {"event": event_with_session})
 
             # Use a fresh DB session — the dependency-injected `db` may be
             # closed by FastAPI before this streaming generator finishes.
@@ -859,6 +866,9 @@ async def chat_stream(
                     )
             except Exception:
                 logger.exception("CRITICAL: persist_turn failed for session %s — messages will be lost", session_id)
+
+            # Notify observers that streaming ended (after persist so data is committed)
+            _publish_stream(channel_id, "stream_end")
 
             # If SSE disconnected before the "response" event, extract from messages
             if not response_text and not was_cancelled:
@@ -898,6 +908,8 @@ async def chat_stream(
         except Exception as e:
             logger.exception("Streaming agent loop error")
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
+            from app.services.channel_events import publish as _publish_err
+            _publish_err(channel_id, "stream_end")
         finally:
             session_locks.release(session_id)
 

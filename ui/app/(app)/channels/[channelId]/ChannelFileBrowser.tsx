@@ -80,7 +80,7 @@ function ExplorerFileRow({
         flexDirection: "row",
         alignItems: "center",
         height: 28,
-        paddingLeft: 12 + depth * 16,
+        paddingLeft: 12 + depth * 20,
         paddingRight: 8,
         backgroundColor: selected ? t.accentSubtle : hovered ? t.surfaceOverlay : "transparent",
         cursor: "pointer" as any,
@@ -93,7 +93,7 @@ function ExplorerFileRow({
           key={i}
           style={{
             position: "absolute",
-            left: 20 + i * 16,
+            left: 20 + i * 20,
             top: 0,
             bottom: 0,
             width: 1,
@@ -178,7 +178,7 @@ function ExplorerFolderRow({
           flexDirection: "row",
           alignItems: "center",
           height: 28,
-          paddingLeft: 12 + depth * 16,
+          paddingLeft: 12 + depth * 20,
           paddingRight: 8,
           backgroundColor: hovered ? t.surfaceOverlay : "transparent",
           cursor: "pointer" as any,
@@ -191,7 +191,7 @@ function ExplorerFolderRow({
             key={i}
             style={{
               position: "absolute",
-              left: 20 + i * 16,
+              left: 20 + i * 20,
               top: 0,
               bottom: 0,
               width: 1,
@@ -217,7 +217,7 @@ function ExplorerFolderRow({
       {open && (
         <View>
           {isLoading && (
-            <View style={{ paddingLeft: 12 + (depth + 1) * 16, height: 28, justifyContent: "center" }}>
+            <View style={{ paddingLeft: 12 + (depth + 1) * 20, height: 28, justifyContent: "center" }}>
               <ActivityIndicator color={t.accent} size="small" />
             </View>
           )}

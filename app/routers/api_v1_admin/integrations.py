@@ -19,7 +19,12 @@ router = APIRouter()
 
 
 def _get_setup_vars(integration_id: str) -> list[dict]:
-    """Load the SETUP env_vars list for an integration from its setup.py."""
+    """Load the SETUP env_vars list for an integration from its setup.py.
+
+    Auto-injects a ``SIDEBAR_ENABLED`` setting for integrations that declare
+    a ``sidebar_section`` in their SETUP, so admins can toggle sidebar visibility
+    without any per-integration code.
+    """
     from integrations import _iter_integration_candidates, _import_module
 
     for candidate, iid, is_external, source in _iter_integration_candidates():
@@ -30,7 +35,21 @@ def _get_setup_vars(integration_id: str) -> list[dict]:
             return []
         module = _import_module(iid, "setup", setup_file, is_external, source)
         setup = getattr(module, "SETUP", {})
-        return setup.get("env_vars", [])
+        env_vars = list(setup.get("env_vars", []))
+
+        # Auto-inject SIDEBAR_ENABLED for integrations with sidebar_section
+        sidebar = setup.get("sidebar_section")
+        if sidebar and isinstance(sidebar, dict) and sidebar.get("items"):
+            existing_keys = {v["key"] for v in env_vars}
+            if "SIDEBAR_ENABLED" not in existing_keys:
+                env_vars.append({
+                    "key": "SIDEBAR_ENABLED",
+                    "required": False,
+                    "description": "Show this integration's sidebar section in the navigation",
+                    "default": "true",
+                })
+
+        return env_vars
     return []
 
 
@@ -60,10 +79,20 @@ async def list_integration_icons():
 
 @router.get("/integrations/sidebar-sections")
 async def list_sidebar_sections():
-    """Return sidebar sections declared by integrations via their SETUP manifests."""
-    from integrations import discover_sidebar_sections
+    """Return sidebar sections declared by integrations via their SETUP manifests.
 
-    return {"sections": discover_sidebar_sections()}
+    Filters out sections whose integration has ``SIDEBAR_ENABLED`` set to ``"false"``.
+    """
+    from integrations import discover_sidebar_sections
+    from app.services.integration_settings import get_value
+
+    sections = discover_sidebar_sections()
+    visible = []
+    for section in sections:
+        enabled = get_value(section["integration_id"], "SIDEBAR_ENABLED", "true")
+        if enabled.lower() != "false":
+            visible.append(section)
+    return {"sections": visible}
 
 
 @router.get("/integrations/{integration_id}/settings")

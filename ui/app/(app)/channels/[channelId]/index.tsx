@@ -3,7 +3,7 @@ import { View, Text, FlatList, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { Shield } from "lucide-react";
+import { Shield, ChevronUp, ChevronDown } from "lucide-react";
 import { ChannelFileExplorer } from "./ChannelFileExplorer";
 import { ChannelFileViewer } from "./ChannelFileViewer";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
@@ -36,6 +36,73 @@ import { ChannelHeader } from "./ChannelHeader";
 import { useChannelChat } from "./useChannelChat";
 import type { Message } from "@/src/types/api";
 import type { NativeSyntheticEvent, NativeScrollEvent } from "react-native";
+import type { ActiveHud } from "@/src/api/hooks/useChatHud";
+
+/** Collapsible wrapper around HUD status strips with a toggle icon. */
+function HudStripBar({
+  statusStrips,
+  channelId,
+  compact,
+}: {
+  statusStrips: ActiveHud[];
+  channelId: string;
+  compact: boolean;
+}) {
+  const t = useThemeTokens();
+  const hudCollapsed = useUIStore((s) => s.hudCollapsedChannels.includes(channelId));
+  const toggleHud = useUIStore((s) => s.toggleHudCollapsed);
+
+  if (hudCollapsed) {
+    return (
+      <button
+        onClick={() => toggleHud(channelId)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 4,
+          padding: "2px 0",
+          borderBottom: `1px solid ${t.surfaceBorder}`,
+          background: t.surfaceRaised,
+          border: "none",
+          cursor: "pointer",
+          width: "100%",
+          opacity: 0.5,
+        }}
+      >
+        <ChevronDown size={10} color={t.textDim} />
+        <span style={{ fontSize: 9, color: t.textDim }}>HUD</span>
+      </button>
+    );
+  }
+
+  return (
+    <View style={{ position: "relative" }}>
+      {statusStrips.map((h) => (
+        <HudStatusStrip key={h.key} hud={h} compact={compact} />
+      ))}
+      <button
+        onClick={() => toggleHud(channelId)}
+        style={{
+          position: "absolute",
+          right: 4,
+          top: 2,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 2,
+          borderRadius: 4,
+          display: "flex",
+          alignItems: "center",
+          opacity: 0.4,
+        }}
+        title="Collapse HUD"
+      >
+        <ChevronUp size={10} color={t.textDim} />
+      </button>
+    </View>
+  );
+}
 
 export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
@@ -270,10 +337,14 @@ export default function ChatScreen() {
       {/* What's active badge bar */}
       {channelId && <ActiveBadgeBar channelId={channelId} compact={isMobile} />}
 
-      {/* HUD status strips */}
-      {statusStrips.map((h) => (
-        <HudStatusStrip key={h.key} hud={h} compact={isMobile} />
-      ))}
+      {/* HUD status strips — collapsible */}
+      {statusStrips.length > 0 && (
+        <HudStripBar
+          statusStrips={statusStrips}
+          channelId={channelId!}
+          compact={isMobile}
+        />
+      )}
 
       {/* Protected channel warning */}
       {channel?.client_id === "orchestrator:home" && (

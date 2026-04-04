@@ -6,6 +6,8 @@ interface ChatChannelState {
   streamingContent: string;
   thinkingContent: string;
   isStreaming: boolean;
+  /** True when this tab initiated the stream (vs observing another tab's stream). */
+  isLocalStream: boolean;
   isProcessing: boolean;
   queuedTaskId: string | null;
   toolCalls: { name: string; args?: string; status: "running" | "done" | "awaiting_approval" | "denied"; approvalId?: string; approvalReason?: string }[];
@@ -33,6 +35,7 @@ const emptyChannel: ChatChannelState = {
   streamingContent: "",
   thinkingContent: "",
   isStreaming: false,
+  isLocalStream: false,
   isProcessing: false,
   queuedTaskId: null,
   toolCalls: [],
@@ -98,6 +101,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             ...ch,
             messages,
             isStreaming: true,
+            isLocalStream: true,
             isProcessing: false,
             queuedTaskId: null,
             streamingContent: "",
@@ -359,6 +363,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             ...ch,
             messages: newMessages,
             isStreaming: false,
+            isLocalStream: false,
             // Preserve isProcessing/queuedTaskId — if a "queued" event set these,
             // we must NOT clear them here. The SSE closes after "queued" which
             // triggers finishStreaming, but the background task is still running.

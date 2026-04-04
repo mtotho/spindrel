@@ -13,6 +13,9 @@ from app.services.channel_events import (
     _subscribers,
 )
 
+# Ensure the constant is what we expect (stream relay needs ≥512)
+assert QUEUE_MAX_SIZE == 512
+
 
 @pytest.fixture(autouse=True)
 def _clean_subscribers():

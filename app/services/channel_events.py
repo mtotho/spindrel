@@ -27,7 +27,7 @@ from typing import AsyncIterator
 
 logger = logging.getLogger(__name__)
 
-QUEUE_MAX_SIZE = 64
+QUEUE_MAX_SIZE = 512
 
 
 @dataclass(frozen=True)

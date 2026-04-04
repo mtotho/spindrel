@@ -296,6 +296,11 @@ export interface ChatHudWidget {
 }
 
 // Integration activation
+export interface ChatHudPreset {
+  label: string;
+  widgets: string[];
+}
+
 export interface ActivatableIntegration {
   integration_type: string;
   description: string;
@@ -309,6 +314,8 @@ export interface ActivatableIntegration {
   compatible_template_tag?: string | null;
   includes: string[];
   chat_hud?: ChatHudWidget[];
+  chat_hud_presets?: Record<string, ChatHudPreset>;
+  activation_config?: Record<string, any>;
 }
 
 export interface ActivationResult {
