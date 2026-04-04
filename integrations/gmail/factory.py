@@ -26,6 +26,7 @@ def create_feed() -> tuple[GmailFeed, IngestionStore]:
     config = IngestionConfig(
         agent_base_url=settings.AGENT_BASE_URL,
         agent_api_key=settings.AGENT_API_KEY,
+        classifier_model=settings.INGESTION_CLASSIFIER_MODEL,
     )
     pipeline = IngestionPipeline(config=config, store=store)
 

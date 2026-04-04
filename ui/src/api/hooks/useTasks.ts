@@ -27,6 +27,8 @@ export interface TaskDetail {
   model_override?: string | null;
   model_provider_id_override?: string | null;
   fallback_models?: { model: string; provider_id?: string | null }[] | null;
+  workflow_id?: string | null;
+  workflow_session_mode?: string | null;
   max_run_seconds?: number | null;
   trigger_rag_loop?: boolean;
   retry_count: number;
@@ -40,7 +42,7 @@ export interface TaskDetail {
 }
 
 export interface TaskCreatePayload {
-  prompt: string;
+  prompt?: string;
   bot_id: string;
   title?: string | null;
   channel_id?: string | null;
@@ -55,6 +57,8 @@ export interface TaskCreatePayload {
   trigger_rag_loop?: boolean;
   model_override?: string | null;
   model_provider_id_override?: string | null;
+  workflow_id?: string | null;
+  workflow_session_mode?: string | null;
 }
 
 export interface TaskUpdatePayload {
@@ -73,6 +77,8 @@ export interface TaskUpdatePayload {
   trigger_rag_loop?: boolean;
   model_override?: string | null;
   model_provider_id_override?: string | null;
+  workflow_id?: string | null;
+  workflow_session_mode?: string | null;
 }
 
 export function useTask(taskId: string | undefined) {
@@ -94,6 +100,7 @@ export function useCreateTask() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
+      qc.invalidateQueries({ queryKey: ["channel-workflow-connections"] });
     },
   });
 }
@@ -110,6 +117,7 @@ export function useUpdateTask(taskId: string | undefined) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
       qc.invalidateQueries({ queryKey: ["admin-task", taskId] });
+      qc.invalidateQueries({ queryKey: ["channel-workflow-connections"] });
     },
   });
 }
@@ -121,6 +129,7 @@ export function useDeleteTask() {
       apiFetch(`/api/v1/admin/tasks/${taskId}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
+      qc.invalidateQueries({ queryKey: ["channel-workflow-connections"] });
     },
   });
 }

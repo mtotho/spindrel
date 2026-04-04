@@ -88,7 +88,7 @@ def get_all_for_integration(integration_id: str, setup_vars: list[dict]) -> list
         is_set = bool(raw_value)
         display_value = _mask_value(raw_value) if (is_secret and is_set) else raw_value
 
-        results.append({
+        entry: dict[str, Any] = {
             "key": key,
             "description": var.get("description", ""),
             "required": var.get("required", False),
@@ -97,7 +97,11 @@ def get_all_for_integration(integration_id: str, setup_vars: list[dict]) -> list
             "source": source,
             "is_set": is_set,
             "default": default_value or None,
-        })
+        }
+        var_type = var.get("type")
+        if var_type:
+            entry["type"] = var_type
+        results.append(entry)
     return results
 
 

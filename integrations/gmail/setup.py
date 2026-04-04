@@ -50,6 +50,13 @@ SETUP = {
             "description": "Agent server base URL",
             "default": "http://localhost:8000",
         },
+        {
+            "key": "INGESTION_CLASSIFIER_MODEL",
+            "required": False,
+            "description": "Model for email safety classification",
+            "default": "gpt-4o-mini",
+            "type": "model_selection",
+        },
     ],
     "api_permissions": "slack_integration",
     "webhook": None,

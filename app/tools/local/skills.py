@@ -137,7 +137,8 @@ def _check_activated_integration_skill(channel_id, skill_id: str) -> bool:
 
 
 async def _check_extra_skill_access(bot, skill_id: str) -> bool:
-    """Check if skill_id is allowed via workspace DB skills or channel skills_extra."""
+    """Check if skill_id is allowed via workspace DB skills, channel skills_extra,
+    or channel carapaces_extra (resolved to their skills)."""
     # Check workspace DB skills
     try:
         import uuid as _uuid
@@ -153,7 +154,7 @@ async def _check_extra_skill_access(bot, skill_id: str) -> bool:
     except Exception:
         pass
 
-    # Check channel skills_extra
+    # Check channel skills_extra and carapaces_extra
     try:
         from app.agent.context import current_channel_id
         _ch_id = current_channel_id.get()
@@ -161,12 +162,20 @@ async def _check_extra_skill_access(bot, skill_id: str) -> bool:
             from app.db.models import Channel
             async with async_session() as db:
                 ch = await db.get(Channel, _ch_id)
-            if ch and ch.skills_extra:
-                if any(
+            if ch:
+                # Direct skill_extra check
+                if ch.skills_extra and any(
                     (e["id"] if isinstance(e, dict) else e) == skill_id
                     for e in ch.skills_extra
                 ):
                     return True
+                # Resolve channel's carapaces_extra to check their skills
+                _ch_carapaces = getattr(ch, "carapaces_extra", None)
+                if _ch_carapaces:
+                    from app.agent.carapaces import resolve_carapaces
+                    _resolved = resolve_carapaces(_ch_carapaces)
+                    if skill_id in {s.id for s in _resolved.skills}:
+                        return True
     except Exception:
         pass
 

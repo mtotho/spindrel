@@ -731,10 +731,11 @@ async def chat_stream(
 
     async def event_generator():
         try:
-            # _with_keepalive uses ensure_future(__anext__), so each chunk runs in a new
-            # Task that copies *this* task's ContextVars — not the child that run_stream
-            # sets on its first step. Prime the parent so tools (e.g. create_task) see
-            # bot_id, dispatch_config, session_id on every chunk.
+            # _with_keepalive uses ensure_future(__anext__), so each chunk runs
+            # in a new Task.  The bridge in _with_keepalive propagates dynamic
+            # context vars (resolved_skill_ids, model_override, etc.) across
+            # Task boundaries, but we still prime the basic vars here so they
+            # are present from the very first Task.
             set_agent_context(
                 session_id=session_id,
                 client_id=req.client_id,
@@ -902,14 +903,64 @@ async def _with_keepalive(
 ) -> AsyncGenerator[dict[str, Any] | None, None]:
     """Wrap an async generator, yielding None as a keepalive signal when no
     event arrives within *interval* seconds.  Prevents idle SSE connections
-    from being dropped by React Native's XHR layer."""
-    pending = asyncio.ensure_future(agen.__anext__())
+    from being dropped by React Native's XHR layer.
+
+    IMPORTANT: Each ``ensure_future(__anext__())`` runs the generator step in a
+    new asyncio Task that copies the *parent's* ContextVars.  Changes made
+    inside the generator (e.g. ``current_resolved_skill_ids`` set by
+    ``assemble_context``) are lost when the Task ends.  To bridge them, we
+    capture the child Task's context-var values after each step and restore
+    them in the parent so the next Task inherits the updated state.
+    """
+    from app.agent.context import (
+        current_resolved_skill_ids,
+        current_model_override,
+        current_provider_id_override,
+        current_channel_model_tier_overrides,
+        current_injected_tools,
+        current_ephemeral_skills,
+        current_ephemeral_delegates,
+        current_allowed_secrets,
+        task_creation_count,
+        current_pending_delegation_posts,
+    )
+
+    # Context vars that are set *inside* the generator (by assemble_context /
+    # run_stream) and read by tools or inner loops.  We capture their values
+    # after each generator step and restore them in the parent context.
+    _BRIDGE_VARS = [
+        current_resolved_skill_ids,
+        current_model_override,
+        current_provider_id_override,
+        current_channel_model_tier_overrides,
+        current_injected_tools,
+        current_ephemeral_skills,
+        current_ephemeral_delegates,
+        current_allowed_secrets,
+        task_creation_count,
+        current_pending_delegation_posts,
+    ]
+
+    _bridge: dict = {}  # ContextVar -> value, shared with child Task
+
+    async def _next():
+        result = await agen.__anext__()
+        # Capture context vars from the child Task so we can restore them
+        for var in _BRIDGE_VARS:
+            _bridge[var] = var.get()
+        return result
+
+    pending = asyncio.ensure_future(_next())
     try:
         while True:
             try:
                 event = await asyncio.wait_for(asyncio.shield(pending), timeout=interval)
+                # Restore child's context changes into the parent so the
+                # next ensure_future() inherits them.
+                for var, val in _bridge.items():
+                    var.set(val)
                 yield event
-                pending = asyncio.ensure_future(agen.__anext__())
+                pending = asyncio.ensure_future(_next())
             except asyncio.TimeoutError:
                 yield None
             except StopAsyncIteration:

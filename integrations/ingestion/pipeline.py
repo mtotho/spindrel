@@ -75,7 +75,7 @@ class IngestionPipeline:
         # Layer 3 — AI classifier (always runs; Layer 2 flags inform but don't skip)
         result = await classify(
             body,
-            classifier_url=self.config.classifier_url,
+            base_url=self.config.agent_base_url,
             model=self.config.classifier_model,
             timeout=self.config.classifier_timeout,
             api_key=self.config.agent_api_key,

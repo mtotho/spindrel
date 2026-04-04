@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { Workflow, WorkflowRun } from "../../types/api";
+import type { Workflow, WorkflowRun, WorkflowConnection } from "../../types/api";
 import type { TasksResponse } from "../../components/shared/TaskConstants";
 
 export function useWorkflows() {
@@ -93,7 +93,7 @@ export function useActiveWorkflowRuns() {
     refetchInterval: (query) => {
       const runs = query.state.data;
       if (runs && runs.length > 0) return 3000;
-      return 15000; // Still poll occasionally to catch newly started runs
+      return 5000; // Poll frequently to catch newly started runs quickly
     },
   });
 }
@@ -208,6 +208,16 @@ export function useRetryWorkflowStep() {
   });
 }
 
+// --- Channel Workflow Connections (heartbeat + scheduled task triggers) ---
+
+export function useChannelWorkflowConnections(channelId?: string) {
+  return useQuery({
+    queryKey: ["channel-workflow-connections", channelId],
+    queryFn: () => apiFetch<WorkflowConnection[]>(`/api/v1/admin/channels/${channelId}/workflow-connections`),
+    enabled: !!channelId,
+  });
+}
+
 // --- Channel Workflow Runs (active runs for chat strip) ---
 
 export function useChannelWorkflowRuns(channelId?: string) {
@@ -218,7 +228,7 @@ export function useChannelWorkflowRuns(channelId?: string) {
     refetchInterval: (query) => {
       const runs = query.state.data;
       if (runs && runs.length > 0) return 3000;
-      return false;
+      return 10000; // Poll to catch workflow runs started by background processes
     },
   });
 }

@@ -4,7 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks";
-import { useWorkflowRun } from "@/src/api/hooks/useWorkflows";
+import { useWorkflowRun, useWorkflows } from "@/src/api/hooks/useWorkflows";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useState } from "react";
@@ -259,6 +259,7 @@ export default function TaskDetailScreen() {
   const deleteMut = useDeleteTask();
   const { data: bots } = useBots();
   const { data: channels } = useChannels();
+  const { data: workflows } = useWorkflows();
 
   const { width: winWidth } = useWindowDimensions();
   const isWide = winWidth >= 768;
@@ -275,7 +276,11 @@ export default function TaskDetailScreen() {
   const [recurrence, setRecurrence] = useState("");
   const [triggerRagLoop, setTriggerRagLoop] = useState(false);
   const [modelOverride, setModelOverride] = useState("");
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const [workflowSessionMode, setWorkflowSessionMode] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [snapshot, setSnapshot] = useState("");
 
   if (task && !initialized) {
     setTitle(task.title || "");
@@ -290,13 +295,31 @@ export default function TaskDetailScreen() {
     setRecurrence(task.recurrence || "");
     setTriggerRagLoop(task.trigger_rag_loop ?? task.callback_config?.trigger_rag_loop ?? false);
     setModelOverride(task.model_override || task.callback_config?.model_override || "");
+    setWorkflowId(task.workflow_id ?? null);
+    setWorkflowSessionMode(task.workflow_session_mode ?? null);
     setInitialized(true);
+    setSnapshot(JSON.stringify([
+      task.title || "", task.prompt || "", task.prompt_template_id || null,
+      task.workspace_file_path ?? null, task.workspace_id ?? null, task.bot_id || "",
+      task.status || "pending", task.task_type || "scheduled",
+      task.scheduled_at ? new Date(task.scheduled_at).toISOString().slice(0, 16) : "",
+      task.recurrence || "",
+      task.trigger_rag_loop ?? task.callback_config?.trigger_rag_loop ?? false,
+      task.model_override || task.callback_config?.model_override || "",
+      task.workflow_id ?? null, task.workflow_session_mode ?? null,
+    ]));
   }
 
-  const hasPrompt = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath;
+  const hasPromptOrWorkflow = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath || !!workflowId;
+  const currentSnap = JSON.stringify([
+    title, prompt, promptTemplateId, workspaceFilePath, workspaceId, botId,
+    status, taskType, scheduledAt, recurrence, triggerRagLoop, modelOverride,
+    workflowId, workflowSessionMode,
+  ]);
+  const isDirty = initialized && currentSnap !== snapshot;
 
   const handleSave = useCallback(async () => {
-    if (!hasPrompt || !botId) return;
+    if (!hasPromptOrWorkflow || !botId) return;
     await updateMut.mutateAsync({
       prompt,
       title: title || null,
@@ -310,9 +333,14 @@ export default function TaskDetailScreen() {
       task_type: taskType,
       trigger_rag_loop: triggerRagLoop,
       model_override: modelOverride || null,
+      workflow_id: workflowId || null,
+      workflow_session_mode: workflowSessionMode || null,
     });
     qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
-  }, [prompt, title, promptTemplateId, workspaceFilePath, workspaceId, botId, status, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, hasPrompt, updateMut, qc]);
+    setSnapshot(currentSnap);
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 2000);
+  }, [prompt, title, promptTemplateId, workspaceFilePath, workspaceId, botId, status, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, workflowId, workflowSessionMode, hasPromptOrWorkflow, updateMut, qc, currentSnap]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -324,13 +352,6 @@ export default function TaskDetailScreen() {
   const goBack = goBackNav;
 
   const botOptions = (bots || []).map((b) => ({ label: b.name || b.id, value: b.id }));
-  const channelOptions = [
-    { label: "\u2014 None \u2014", value: "" },
-    ...(channels || []).map((c: any) => ({
-      label: c.display_name || c.name || c.id,
-      value: String(c.id),
-    })),
-  ];
 
   if (isLoading) {
     return (
@@ -382,16 +403,17 @@ export default function TaskDetailScreen() {
         />
         <button
           onClick={handleSave}
-          disabled={updateMut.isPending || !hasPrompt || !botId}
+          disabled={updateMut.isPending || !hasPromptOrWorkflow || !botId || !isDirty}
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!hasPrompt || !botId) ? t.surfaceBorder : t.accent,
-            color: (!hasPrompt || !botId) ? t.textDim : "#fff",
-            cursor: (!hasPrompt || !botId) ? "not-allowed" : "pointer",
+            background: savedFlash ? t.success : (!hasPromptOrWorkflow || !botId || !isDirty) ? t.surfaceBorder : t.accent,
+            color: savedFlash ? "#fff" : (!hasPromptOrWorkflow || !botId || !isDirty) ? t.textDim : "#fff",
+            cursor: (!hasPromptOrWorkflow || !botId || !isDirty) ? "default" : "pointer",
+            transition: "background 0.2s",
           }}
         >
-          {updateMut.isPending ? "..." : "Save"}
+          {updateMut.isPending ? "..." : savedFlash ? "Saved!" : isDirty ? "Save" : "Saved"}
         </button>
       </div>
 
@@ -441,7 +463,7 @@ export default function TaskDetailScreen() {
                         value={prompt}
                         onChange={setPrompt}
                         label="Prompt"
-                        placeholder={promptTemplateId ? "Using linked template..." : "Task prompt..."}
+                        placeholder={workflowId ? "Optional — workflow will be triggered directly" : promptTemplateId ? "Using linked template..." : "Task prompt..."}
                         rows={isWide ? 12 : 6}
                         fieldType="task_prompt"
                         botId={botId}
@@ -494,12 +516,20 @@ export default function TaskDetailScreen() {
               </FormRow>
 
               <FormRow label="Channel">
-                <SelectInput
-                  value={task?.channel_id || ""}
-                  onChange={() => {}}
-                  options={channelOptions}
-                  style={{ opacity: 0.5, pointerEvents: "none" }}
-                />
+                {task?.channel_id ? (
+                  <Link
+                    href={`/channels/${task.channel_id}` as any}
+                    style={{ fontSize: 13, color: t.accent, paddingVertical: 7 }}
+                  >
+                    {channels?.find((c: any) => String(c.id) === String(task.channel_id))?.display_name
+                      || channels?.find((c: any) => String(c.id) === String(task.channel_id))?.name
+                      || task.channel_id}
+                  </Link>
+                ) : (
+                  <span style={{ fontSize: 13, color: t.textDim, padding: "7px 0" }}>
+                    No channel
+                  </span>
+                )}
               </FormRow>
 
               <FormRow label="Status">
@@ -509,6 +539,33 @@ export default function TaskDetailScreen() {
               <FormRow label="Task Type">
                 <SelectInput value={taskType} onChange={setTaskType} options={TASK_TYPE_OPTIONS} />
               </FormRow>
+
+              <FormRow label="Workflow Trigger" description="Run a workflow instead of a prompt">
+                <SelectInput
+                  value={workflowId || ""}
+                  onChange={(v) => {
+                    setWorkflowId(v || null);
+                    if (!v) setWorkflowSessionMode(null);
+                  }}
+                  options={[
+                    { label: "None", value: "" },
+                    ...(workflows || []).map((w) => ({ label: `${w.name} (${w.id})`, value: w.id })),
+                  ]}
+                />
+              </FormRow>
+              {workflowId && (
+                <FormRow label="Session Mode" description="Workflow step session isolation">
+                  <SelectInput
+                    value={workflowSessionMode || ""}
+                    onChange={(v) => setWorkflowSessionMode(v || null)}
+                    options={[
+                      { label: "Default (from workflow)", value: "" },
+                      { label: "Shared", value: "shared" },
+                      { label: "Isolated", value: "isolated" },
+                    ]}
+                  />
+                </FormRow>
+              )}
             </Section>
 
             <Section title="Scheduling">

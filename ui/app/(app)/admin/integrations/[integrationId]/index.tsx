@@ -27,6 +27,7 @@ import {
   useRevokeIntegrationApiKey,
   type IntegrationItem,
 } from "@/src/api/hooks/useIntegrations";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { StatusBadge, CapBadge, EnvVarPill, formatUptime } from "../components";
 import { IntegrationDebugSection } from "./IntegrationDebugSection";
 
@@ -203,24 +204,33 @@ function SettingsForm({ integrationId }: { integrationId: string }) {
               </button>
             )}
           </div>
-          <input
-            type={s.secret ? "password" : "text"}
-            value={draft[s.key] ?? ""}
-            onChange={(e) => setDraft((prev) => ({ ...prev, [s.key]: e.target.value }))}
-            placeholder={s.secret && s.is_set ? "\u2022\u2022\u2022\u2022\u2022 (unchanged)" : s.description}
-            style={{
-              background: t.surface,
-              border: `1px solid ${t.inputBorder}`,
-              borderRadius: 6,
-              padding: "6px 10px",
-              color: t.inputText,
-              fontSize: 13,
-              width: "100%",
-              outline: "none",
-            }}
-            onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
-            onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
-          />
+          {s.type === "model_selection" ? (
+            <LlmModelDropdown
+              value={draft[s.key] ?? ""}
+              onChange={(modelId) => setDraft((prev) => ({ ...prev, [s.key]: modelId }))}
+              placeholder={s.description || "Select model..."}
+              allowClear
+            />
+          ) : (
+            <input
+              type={s.secret ? "password" : "text"}
+              value={draft[s.key] ?? ""}
+              onChange={(e) => setDraft((prev) => ({ ...prev, [s.key]: e.target.value }))}
+              placeholder={s.secret && s.is_set ? "\u2022\u2022\u2022\u2022\u2022 (unchanged)" : s.description}
+              style={{
+                background: t.surface,
+                border: `1px solid ${t.inputBorder}`,
+                borderRadius: 6,
+                padding: "6px 10px",
+                color: t.inputText,
+                fontSize: 13,
+                width: "100%",
+                outline: "none",
+              }}
+              onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
+              onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+            />
+          )}
           {s.description && <div style={{ fontSize: 11, color: t.textDim }}>{s.description}</div>}
         </div>
       ))}

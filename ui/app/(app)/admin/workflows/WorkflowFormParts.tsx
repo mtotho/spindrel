@@ -350,6 +350,12 @@ export function TriggersEditor({ value, onChange, disabled }: TriggersEditorProp
         label="Heartbeat"
         description="Can be triggered from heartbeat prompts"
       />
+      <Toggle
+        value={!!value.task}
+        onChange={(v) => update("task", v)}
+        label="Scheduled Task"
+        description="Can be triggered by scheduled tasks"
+      />
     </View>
   );
 }

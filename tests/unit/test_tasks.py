@@ -259,6 +259,8 @@ class TestRunTask:
         task.retry_count = overrides.get("retry_count", 0)
         task.status = overrides.get("status", "pending")
         task.max_run_seconds = overrides.get("max_run_seconds", None)
+        task.workflow_id = overrides.get("workflow_id", None)
+        task.workflow_session_mode = overrides.get("workflow_session_mode", None)
         return task
 
     def _mock_db_session(self, task_obj):

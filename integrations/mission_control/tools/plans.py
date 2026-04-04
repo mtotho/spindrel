@@ -168,8 +168,8 @@ async def update_plan_step(
         if not db_plan:
             return f"Plan '{plan_id}' not found"
 
-        if db_plan.status not in ("executing", "approved"):
-            return f"Plan '{plan_id}' is [{db_plan.status}] — can only update steps on executing/approved plans"
+        if db_plan.status not in ("executing", "approved", "awaiting_approval"):
+            return f"Plan '{plan_id}' is [{db_plan.status}] — can only update steps on executing/approved/awaiting_approval plans"
 
         await session.refresh(db_plan, ["steps"])
         step = next((s for s in db_plan.steps if s.position == step_number), None)
@@ -185,7 +185,7 @@ async def update_plan_step(
         elif status in ("done", "skipped", "failed"):
             step.completed_at = now
 
-        if db_plan.status == "approved":
+        if db_plan.status in ("approved", "awaiting_approval"):
             db_plan.status = "executing"
 
         all_terminal = all(s.status in ("done", "skipped", "failed") for s in db_plan.steps)
@@ -263,7 +263,7 @@ async def update_plan_status(
     allowed = {
         "approved": ("draft",),
         "complete": ("executing",),
-        "abandoned": ("draft", "approved", "executing"),
+        "abandoned": ("draft", "approved", "executing", "awaiting_approval"),
     }
 
     async with await mc_session() as session:

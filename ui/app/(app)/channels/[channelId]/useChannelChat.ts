@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { useChatStream, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
+import { useChannelWorkflowRuns } from "@/src/api/hooks/useWorkflows";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
 import { apiFetch } from "@/src/api/client";
 import { extractDisplayText } from "@/src/components/chat/MessageBubble";
@@ -148,6 +149,19 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
       queryClient.invalidateQueries({ queryKey: ["session-messages"] });
     }
   }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient]);
+
+  // Refetch messages when background workflow runs change (heartbeats, scheduled tasks
+  // post lifecycle messages that wouldn't otherwise be picked up by SSE).
+  const { data: channelWorkflowRuns } = useChannelWorkflowRuns(channelId);
+  const prevRunsRef = useRef<string>("");
+  useEffect(() => {
+    if (!channelId || !channelWorkflowRuns) return;
+    const sig = channelWorkflowRuns.map((r) => `${r.id}:${r.status}`).join(",");
+    if (prevRunsRef.current && prevRunsRef.current !== sig) {
+      queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+    }
+    prevRunsRef.current = sig;
+  }, [channelId, channelWorkflowRuns, queryClient]);
 
   // ---- Per-channel pending buffers so concurrent streams don't mix deltas ----
   const pendingTextRef = useRef<Record<string, string>>({});

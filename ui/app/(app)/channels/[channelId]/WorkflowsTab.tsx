@@ -1,15 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ActivityIndicator, Text, Pressable } from "react-native";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
-import { EmptyState } from "@/src/components/shared/FormControls";
+import { EmptyState, SelectInput, FormRow } from "@/src/components/shared/FormControls";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/src/api/client";
 import { Link } from "expo-router";
 import {
   Loader2, CheckCircle2, XCircle, ShieldCheck, Clock, X, Minus,
-  CircleDot, ChevronDown, ChevronRight, ExternalLink,
+  CircleDot, ChevronDown, ChevronRight, ExternalLink, Play, Link2, CalendarClock, Heart,
 } from "lucide-react";
-import type { WorkflowRun, WorkflowStepState } from "@/src/types/api";
+import type { WorkflowRun, WorkflowStepState, WorkflowConnection } from "@/src/types/api";
+import { useChannelWorkflowConnections, useWorkflows, useTriggerWorkflow } from "@/src/api/hooks/useWorkflows";
 
 type StatusFilter = "active" | "all";
 
@@ -64,6 +65,158 @@ function fmtTime(iso: string): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Connections Section
+// ---------------------------------------------------------------------------
+
+function ConnectionsSection({ channelId, t }: { channelId: string; t: ThemeTokens }) {
+  const { data: connections, isLoading } = useChannelWorkflowConnections(channelId);
+
+  if (isLoading) return <ActivityIndicator color={t.accent} style={{ marginBottom: 12 }} />;
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+      }}>
+        <Link2 size={13} color={t.textMuted} />
+        <span style={{ fontSize: 12, fontWeight: 700, color: t.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Connections
+        </span>
+      </div>
+      {!connections || connections.length === 0 ? (
+        <div style={{ fontSize: 12, color: t.textDim, padding: "4px 0 0", marginBottom: 4 }}>
+          No workflow connections. Configure a heartbeat or scheduled task with a workflow trigger to connect one.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {connections.map((c, i) => (
+            <ConnectionCard key={`${c.type}-${c.task_id || "hb"}-${i}`} connection={c} t={t} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConnectionCard({ connection: c, t }: { connection: WorkflowConnection; t: ThemeTokens }) {
+  const isHeartbeat = c.type === "heartbeat";
+  const Icon = isHeartbeat ? Heart : CalendarClock;
+  const label = isHeartbeat ? "Heartbeat" : (c.title || "Scheduled Task");
+  const href = isHeartbeat ? undefined : (`/admin/tasks/${c.task_id}` as any);
+  const enabled = isHeartbeat ? c.enabled : c.status === "active";
+
+  return (
+    <div style={{
+      padding: 10, borderRadius: 8,
+      background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+      display: "flex", alignItems: "center", gap: 10,
+    }}>
+      <Icon size={14} color={enabled ? t.accent : t.textDim} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{label}</span>
+          <span style={{
+            fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 4,
+            background: enabled ? t.successSubtle : t.surfaceBorder,
+            color: enabled ? t.success : t.textDim,
+          }}>
+            {enabled ? "active" : "disabled"}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+          <span style={{ fontSize: 11, color: t.textDim }}>
+            {c.workflow_id}
+          </span>
+          {c.recurrence && (
+            <span style={{ fontSize: 11, color: t.textMuted }}>every {c.recurrence}</span>
+          )}
+          {c.interval_minutes != null && (
+            <span style={{ fontSize: 11, color: t.textMuted }}>every {c.interval_minutes}m</span>
+          )}
+        </div>
+      </div>
+      {href && (
+        <Link href={href}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent }}>
+            <ExternalLink size={10} />
+            Edit
+          </span>
+        </Link>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Quick Trigger Section
+// ---------------------------------------------------------------------------
+
+function QuickTriggerSection({ channelId, t }: { channelId: string; t: ThemeTokens }) {
+  const { data: workflows } = useWorkflows();
+  const [selectedId, setSelectedId] = useState("");
+  const triggerMut = useTriggerWorkflow(selectedId);
+
+  // Auto-clear success message after 3s
+  useEffect(() => {
+    if (!triggerMut.isSuccess) return;
+    const t2 = setTimeout(() => triggerMut.reset(), 3000);
+    return () => clearTimeout(t2);
+  }, [triggerMut.isSuccess]);
+
+  const options = [
+    { label: "Select workflow...", value: "" },
+    ...(workflows || []).map((w) => ({ label: `${w.name} (${w.id})`, value: w.id })),
+  ];
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+      }}>
+        <Play size={13} color={t.textMuted} />
+        <span style={{ fontSize: 12, fontWeight: 700, color: t.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Quick Trigger
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ flex: 1, maxWidth: 320 }}>
+          <SelectInput value={selectedId} onChange={setSelectedId} options={options} />
+        </div>
+        <button
+          onClick={() => {
+            if (!selectedId) return;
+            triggerMut.mutate({ params: {}, channel_id: channelId });
+          }}
+          disabled={!selectedId || triggerMut.isPending}
+          style={{
+            padding: "7px 16px", fontSize: 12, fontWeight: 600, borderRadius: 6,
+            border: "none", cursor: selectedId ? "pointer" : "default",
+            background: selectedId ? t.accent : t.surfaceBorder,
+            color: selectedId ? "#fff" : t.textDim,
+          }}
+        >
+          {triggerMut.isPending ? "..." : "Run"}
+        </button>
+      </div>
+      {triggerMut.isSuccess && (
+        <div style={{ fontSize: 11, color: t.success, marginTop: 4 }}>
+          Workflow triggered successfully
+        </div>
+      )}
+      {triggerMut.isError && (
+        <div style={{ fontSize: 11, color: t.danger, marginTop: 4 }}>
+          {(triggerMut.error as Error)?.message || "Trigger failed"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Tab
+// ---------------------------------------------------------------------------
+
 export function WorkflowsTab({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
   const [filter, setFilter] = useState<StatusFilter>("active");
@@ -83,6 +236,22 @@ export function WorkflowsTab({ channelId }: { channelId: string }) {
 
   return (
     <>
+      {/* Connections */}
+      <ConnectionsSection channelId={channelId} t={t} />
+
+      {/* Quick Trigger */}
+      <QuickTriggerSection channelId={channelId} t={t} />
+
+      {/* Recent Runs */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 6, marginBottom: 8,
+      }}>
+        <Clock size={13} color={t.textMuted} />
+        <span style={{ fontSize: 12, fontWeight: 700, color: t.text, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          Recent Runs
+        </span>
+      </div>
+
       {/* Filter pills */}
       <div style={{
         display: "flex", alignItems: "center", gap: 4, marginBottom: 12,
@@ -121,6 +290,10 @@ export function WorkflowsTab({ channelId }: { channelId: string }) {
     </>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Run Card + Step Row (unchanged)
+// ---------------------------------------------------------------------------
 
 function RunCard({ run, t }: { run: WorkflowRun; t: ThemeTokens }) {
   const [expanded, setExpanded] = useState(

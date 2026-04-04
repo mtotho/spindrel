@@ -110,16 +110,18 @@ async def advance_plan(plan_db_id: str) -> None:
         # Ensure plan is in executing state
         if db_plan.status == "approved":
             db_plan.status = "executing"
+
+        if requires_approval:
+            # Pause at approval gate — set status atomically in this session
+            db_plan.status = "awaiting_approval"
+            await session.commit()
+        else:
+            # Mark step as in_progress atomically before creating the task
+            next_step.status = "in_progress"
+            next_step.started_at = datetime.now(timezone.utc)
             await session.commit()
 
     if requires_approval:
-        # Pause at approval gate
-        async with await mc_session() as session:
-            db_plan = await session.get(McPlan, plan_db_id)
-            if db_plan:
-                db_plan.status = "awaiting_approval"
-                await session.commit()
-
         await _render_plans_md(channel_id)
         try:
             await append_timeline(
@@ -148,14 +150,6 @@ async def advance_plan(plan_db_id: str) -> None:
         step_content=step_content,
     )
 
-    # Mark step as in_progress
-    async with await mc_session() as session:
-        step = await session.get(McPlanStep, step_db_id)
-        if step:
-            step.status = "in_progress"
-            step.started_at = datetime.now(timezone.utc)
-            await session.commit()
-
     await _render_plans_md(channel_id)
 
     # Move linked kanban card to In Progress
@@ -182,7 +176,23 @@ async def _create_step_task(
     step_position: int,
     step_content: str,
 ) -> None:
-    """Create a core Task to execute a plan step."""
+    """Create a core Task to execute a plan step.
+
+    Idempotent: if the step already has a task_id, returns immediately.
+    """
+    # Idempotency guard — skip if step already has a linked task
+    from integrations.mission_control.db.engine import mc_session as _mc_session
+    from integrations.mission_control.db.models import McPlanStep as _McPlanStep
+
+    async with await _mc_session() as _session:
+        _step = await _session.get(_McPlanStep, step_db_id)
+        if _step and _step.task_id:
+            logger.info(
+                "_create_step_task: step %s already has task %s, skipping",
+                step_db_id, _step.task_id,
+            )
+            return
+
     import uuid as _uuid
 
     from app.db.engine import async_session

@@ -174,6 +174,8 @@ async def _spawn_from_schedule(schedule_id: uuid.UUID) -> None:
             recurrence=None,  # concrete task, not a schedule
             parent_task_id=schedule.id,
             max_run_seconds=schedule.max_run_seconds,
+            workflow_id=schedule.workflow_id,
+            workflow_session_mode=schedule.workflow_session_mode,
             created_at=datetime.now(timezone.utc),
         )
         db.add(concrete)
@@ -421,12 +423,84 @@ async def run_exec_task(task: Task) -> None:
             logger.exception("Failed to schedule exec failure record for task %s", task.id)
 
 
+async def _run_workflow_trigger_task(task: Task) -> None:
+    """Trigger a workflow run from a scheduled task. Mirrors heartbeat's _fire_heartbeat_workflow."""
+    from app.db.models import WorkflowRun
+    from app.services.workflow_executor import trigger_workflow
+
+    # Dedup: skip if there's already an active run for this workflow
+    async with async_session() as db:
+        active_run = (await db.execute(
+            select(WorkflowRun.id)
+            .where(WorkflowRun.workflow_id == task.workflow_id)
+            .where(WorkflowRun.status.in_(["running", "awaiting_approval"]))
+            .limit(1)
+        )).scalar_one_or_none()
+        if active_run:
+            logger.info(
+                "Task %s: skipping workflow %s — active run %s already exists",
+                task.id, task.workflow_id, active_run,
+            )
+            async with async_session() as db2:
+                t = await db2.get(Task, task.id)
+                if t:
+                    t.status = "complete"
+                    t.result = f"Skipped: active workflow run {active_run} already exists"
+                    t.completed_at = datetime.now(timezone.utc)
+                    await db2.commit()
+            await _fire_task_complete(task, "complete")
+            return
+
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        t = await db.get(Task, task.id)
+        if t is None:
+            return
+        t.status = "running"
+        t.run_at = now
+        await db.commit()
+
+    try:
+        run = await trigger_workflow(
+            task.workflow_id,
+            {},
+            bot_id=task.bot_id,
+            channel_id=task.channel_id,
+            triggered_by="task",
+            dispatch_type=task.dispatch_type if task.dispatch_type != "none" else None,
+            dispatch_config=dict(task.dispatch_config) if task.dispatch_config else None,
+            session_mode=task.workflow_session_mode,
+        )
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "complete"
+                t.result = f"Triggered workflow run {run.id}"
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        await _fire_task_complete(task, "complete")
+    except Exception as exc:
+        logger.exception("Workflow trigger task %s failed", task.id)
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "failed"
+                t.error = str(exc)[:4000]
+                t.completed_at = datetime.now(timezone.utc)
+                await db.commit()
+        await _fire_task_complete(task, "failed")
+
+
 async def run_task(task: Task) -> None:
     """Execute a single task: run the agent, store result, dispatch."""
     # Route on task_type (preferred) with fallback to dispatch_type for legacy rows
     if task.task_type == "exec" or (task.task_type == "agent" and task.dispatch_type == "exec"):
         await run_exec_task(task)
         return
+    if task.workflow_id:
+        await _run_workflow_trigger_task(task)
+        return
+
     if task.task_type == "claude_code":
         try:
             from integrations.claude_code.executor import run_claude_code_task

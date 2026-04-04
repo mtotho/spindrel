@@ -170,6 +170,22 @@ export interface WorkflowStepState {
   retry_count?: number;
 }
 
+export interface WorkflowConnection {
+  type: "heartbeat" | "scheduled_task";
+  workflow_id: string;
+  // heartbeat fields
+  enabled?: boolean;
+  interval_minutes?: number;
+  // scheduled_task fields
+  task_id?: string;
+  workflow_session_mode?: string | null;
+  recurrence?: string | null;
+  status?: string;
+  title?: string | null;
+  bot_id?: string;
+  scheduled_at?: string | null;
+}
+
 // Tool group from editor data
 export interface ToolPack {
   pack: string;

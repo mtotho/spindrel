@@ -16,7 +16,6 @@ def _make_pipeline() -> IngestionPipeline:
     config = IngestionConfig(
         agent_base_url="http://localhost:8000",
         agent_api_key="test-key",
-        classifier_url="http://localhost:8000/v1/chat/completions",
     )
     store = IngestionStore(db_path=":memory:")
     store._conn.row_factory = sqlite3.Row

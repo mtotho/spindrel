@@ -58,6 +58,8 @@ class TaskDetailOut(BaseModel):
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
     trigger_rag_loop: bool = False
+    workflow_id: Optional[str] = None
+    workflow_session_mode: Optional[str] = None
     max_run_seconds: Optional[int] = None
     retry_count: int = 0
     run_count: int = 0
@@ -92,7 +94,7 @@ def _validate_recurrence(v: str | None) -> str | None:
 
 
 class TaskCreateIn(BaseModel):
-    prompt: str
+    prompt: str = ""
     bot_id: str
     title: Optional[str] = None
     channel_id: Optional[uuid.UUID] = None
@@ -107,6 +109,8 @@ class TaskCreateIn(BaseModel):
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
     max_run_seconds: Optional[int] = None
+    workflow_id: Optional[str] = None
+    workflow_session_mode: Optional[str] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -117,6 +121,13 @@ class TaskCreateIn(BaseModel):
             raise ValueError(f"task_type must be one of {sorted(ALLOWED_TASK_TYPES)}, got '{v}'")
         return v
 
+    @model_validator(mode="after")
+    def _require_prompt_or_workflow(self):
+        has_prompt = bool(self.prompt.strip()) or self.prompt_template_id or self.workspace_file_path
+        if not has_prompt and not self.workflow_id:
+            raise ValueError("Either prompt (or prompt_template_id/workspace_file_path) or workflow_id is required")
+        return self
+
 
 class TaskUpdateIn(BaseModel):
     prompt: Optional[str] = None
@@ -124,7 +135,7 @@ class TaskUpdateIn(BaseModel):
     title: Optional[str] = None
     prompt_template_id: Optional[uuid.UUID] = None
     workspace_file_path: Optional[str] = None
-    workspace_id: Optional[uuid.UUID] = None
+    workspace_id: Optional[str] = None
     status: Optional[str] = None
     scheduled_at: Optional[str] = None
     recurrence: Optional[str] = None
@@ -134,6 +145,8 @@ class TaskUpdateIn(BaseModel):
     model_provider_id_override: Optional[str] = None
     fallback_models: Optional[list[dict]] = None
     max_run_seconds: Optional[int] = None
+    workflow_id: Optional[str] = None
+    workflow_session_mode: Optional[str] = None
 
     _check_recurrence = field_validator("recurrence")(_validate_recurrence)
 
@@ -258,6 +271,8 @@ async def admin_list_tasks(
             "trigger_rag_loop": cb.get("trigger_rag_loop", False),
             "workflow_run_id": cb.get("workflow_run_id"),
             "workflow_step_index": cb.get("workflow_step_index"),
+            "workflow_id": t.workflow_id,
+            "workflow_session_mode": t.workflow_session_mode,
             "max_run_seconds": t.max_run_seconds,
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
@@ -369,9 +384,12 @@ async def admin_create_task(
     # If recurrence is set, create as an active schedule template
     initial_status = "active" if body.recurrence else "pending"
 
+    # Use placeholder prompt when workflow_id is set and prompt is empty
+    effective_prompt = body.prompt or ("[Workflow trigger]" if body.workflow_id else "")
+
     task = Task(
         bot_id=body.bot_id,
-        prompt=body.prompt,
+        prompt=effective_prompt,
         title=body.title,
         prompt_template_id=body.prompt_template_id,
         workspace_file_path=body.workspace_file_path,
@@ -388,6 +406,8 @@ async def admin_create_task(
         session_id=session_id,
         channel_id=channel_id,
         max_run_seconds=body.max_run_seconds,
+        workflow_id=body.workflow_id,
+        workflow_session_mode=body.workflow_session_mode,
     )
     db.add(task)
     await db.commit()
@@ -411,7 +431,7 @@ async def admin_update_task(
 
     updates = body.model_dump(exclude_unset=True)
 
-    for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title", "max_run_seconds"):
+    for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title", "max_run_seconds", "workflow_id", "workflow_session_mode"):
         if field in updates:
             setattr(task, field, updates[field])
     if "recurrence" in updates:

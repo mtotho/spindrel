@@ -268,6 +268,12 @@ async def approve_step_endpoint(
             raise HTTPException(404, f"Step {position} not found in plan '{plan_id}'")
         if not step.requires_approval:
             raise HTTPException(409, f"Step {position} does not require approval")
+        if step.status != "pending":
+            raise HTTPException(
+                409,
+                f"Step {position} is [{step.status}], expected [pending] — "
+                "may have already been approved",
+            )
 
         # Mark step as in_progress and set plan back to executing.
         # Preserve requires_approval so the flag remains as metadata.

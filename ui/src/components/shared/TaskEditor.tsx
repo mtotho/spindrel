@@ -6,6 +6,7 @@ import { ChevronLeft, Trash2, Copy, FileText } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type TaskDetail } from "@/src/api/hooks/useTasks";
+import { useWorkflows } from "@/src/api/hooks/useWorkflows";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
@@ -264,7 +265,10 @@ export function TaskEditor({
   const [modelOverride, setModelOverride] = useState("");
   const [fallbackModels, setFallbackModels] = useState<Array<{ model: string; provider_id?: string | null }>>([]);
   const [maxRunSeconds, setMaxRunSeconds] = useState<string>("");
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const [workflowSessionMode, setWorkflowSessionMode] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const { data: workflows } = useWorkflows();
 
   // Populate form when existing task loads (edit mode)
   if (!isCreate && !cloneFromId && existingTask && !initialized) {
@@ -283,6 +287,8 @@ export function TaskEditor({
     setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
     setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
     setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
+    setWorkflowId(existingTask.workflow_id ?? null);
+    setWorkflowSessionMode(existingTask.workflow_session_mode ?? null);
     setInitialized(true);
   }
 
@@ -302,6 +308,8 @@ export function TaskEditor({
     setModelOverride(existingTask.model_override ?? existingTask.execution_config?.model_override ?? existingTask.callback_config?.model_override ?? "");
     setFallbackModels(existingTask.fallback_models ?? existingTask.execution_config?.fallback_models ?? []);
     setMaxRunSeconds(existingTask.max_run_seconds != null ? String(existingTask.max_run_seconds) : "");
+    setWorkflowId(existingTask.workflow_id ?? null);
+    setWorkflowSessionMode(existingTask.workflow_session_mode ?? null);
     setInitialized(true);
   }
 
@@ -322,15 +330,15 @@ export function TaskEditor({
     }
   }, [qc, extraQueryKeysToInvalidate]);
 
-  const hasPrompt = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath;
+  const hasPromptOrWorkflow = !!prompt.trim() || !!promptTemplateId || !!workspaceFilePath || !!workflowId;
 
   const handleSave = useCallback(async () => {
-    if (!hasPrompt || !botId) return;
+    if (!hasPromptOrWorkflow || !botId) return;
     try {
       const scheduledAtISO = localInputToISO(scheduledAt) || null;
       if (isCreate) {
         await createMut.mutateAsync({
-          prompt,
+          prompt: prompt || undefined,
           title: title || null,
           prompt_template_id: promptTemplateId,
           workspace_file_path: workspaceFilePath,
@@ -344,6 +352,8 @@ export function TaskEditor({
           model_override: modelOverride || null,
           fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
+          workflow_id: workflowId || null,
+          workflow_session_mode: workflowSessionMode || null,
         });
       } else {
         await updateMut.mutateAsync({
@@ -361,6 +371,8 @@ export function TaskEditor({
           model_override: modelOverride || null,
           fallback_models: fallbackModels.length > 0 ? fallbackModels : null,
           max_run_seconds: maxRunSeconds ? parseInt(maxRunSeconds) : null,
+          workflow_id: workflowId || null,
+          workflow_session_mode: workflowSessionMode || null,
         });
       }
       invalidateExtra();
@@ -368,7 +380,7 @@ export function TaskEditor({
     } catch {
       // error is shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId || !confirm("Delete this task?")) return;
@@ -496,13 +508,13 @@ export function TaskEditor({
         )}
         <button
           onClick={handleSave}
-          disabled={saving || !hasPrompt || !botId}
+          disabled={saving || !hasPromptOrWorkflow || !botId}
           style={{
             padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
             border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!hasPrompt || !botId) ? t.surfaceBorder : t.accent,
-            color: (!hasPrompt || !botId) ? t.textDim : "#fff",
-            cursor: (!hasPrompt || !botId) ? "not-allowed" : "pointer",
+            background: (!hasPromptOrWorkflow || !botId) ? t.surfaceBorder : t.accent,
+            color: (!hasPromptOrWorkflow || !botId) ? t.textDim : "#fff",
+            cursor: (!hasPromptOrWorkflow || !botId) ? "not-allowed" : "pointer",
           }}
         >
           {saving ? "..." : isCreate ? "Create" : "Save"}
@@ -561,7 +573,7 @@ export function TaskEditor({
                     value={prompt}
                     onChange={setPrompt}
                     label="Prompt"
-                    placeholder={promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
+                    placeholder={workflowId ? "Optional — workflow will be triggered directly" : promptTemplateId ? "Using linked template..." : "Task prompt... (type @ for autocomplete)"}
                     rows={isWide ? 12 : 6}
                     fieldType="task_prompt"
                     botId={botId}
@@ -640,6 +652,33 @@ export function TaskEditor({
                     options={TASK_TYPE_OPTIONS}
                   />
                 </FormRow>
+
+                <FormRow label="Workflow Trigger" description="Run a workflow instead of a prompt">
+                  <SelectInput
+                    value={workflowId || ""}
+                    onChange={(v) => {
+                      setWorkflowId(v || null);
+                      if (!v) setWorkflowSessionMode(null);
+                    }}
+                    options={[
+                      { label: "None", value: "" },
+                      ...(workflows || []).map((w) => ({ label: `${w.name} (${w.id})`, value: w.id })),
+                    ]}
+                  />
+                </FormRow>
+                {workflowId && (
+                  <FormRow label="Session Mode" description="Workflow step session isolation">
+                    <SelectInput
+                      value={workflowSessionMode || ""}
+                      onChange={(v) => setWorkflowSessionMode(v || null)}
+                      options={[
+                        { label: "Default (from workflow)", value: "" },
+                        { label: "Shared", value: "shared" },
+                        { label: "Isolated", value: "isolated" },
+                      ]}
+                    />
+                  </FormRow>
+                )}
               </Section>
 
               <Section title="Scheduling">

@@ -1087,6 +1087,8 @@ class Task(Base):
         nullable=True,
     )
     max_run_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    workflow_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workflow_session_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     __table_args__ = (

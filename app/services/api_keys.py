@@ -64,6 +64,8 @@ ALL_SCOPES = [
     "carapaces:read", "carapaces:write",
     # Workflows
     "workflows:read", "workflows:write",
+    # LLM
+    "llm:completions",
 ]
 
 # Scope descriptions (shown in admin UI)
@@ -118,6 +120,7 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "carapaces:write": "Create, update, and delete carapaces",
     "workflows:read": "List workflows, view workflow runs and step details",
     "workflows:write": "Create, update, delete workflows; trigger, cancel, approve, skip, retry runs",
+    "llm:completions": "Make LLM chat completion calls through the server's provider system",
 }
 
 # Grouped scopes for the UI — each group has a description and ordered scope list.
@@ -216,6 +219,10 @@ SCOPE_GROUPS: dict[str, dict] = {
         "description": "Multi-step automations with conditions, approvals, and cross-bot coordination",
         "scopes": ["workflows:read", "workflows:write"],
     },
+    "LLM": {
+        "description": "Direct LLM calls through the server's multi-provider infrastructure",
+        "scopes": ["llm:completions"],
+    },
 }
 
 # Pre-built scope bundles for common use cases.
@@ -223,13 +230,14 @@ SCOPE_GROUPS: dict[str, dict] = {
 SCOPE_PRESETS: dict[str, dict] = {
     "slack_integration": {
         "name": "Messaging Integration",
-        "description": "Chat, channels, sessions, model switching — for Slack, Discord, BlueBubbles, etc.",
+        "description": "Chat, channels, sessions, model switching, LLM calls — for Slack, Discord, BlueBubbles, Gmail, etc.",
         "scopes": [
             "chat", "bots:read",
             "channels:read", "channels:write",
             "channels.config:read", "channels.config:write",
             "sessions:read", "sessions:write",
             "todos:read",
+            "llm:completions",
         ],
         "instructions": (
             "Set this key as `AGENT_API_KEY` in your integration environment.\n\n"

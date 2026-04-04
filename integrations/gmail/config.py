@@ -51,5 +51,9 @@ class _Settings:
     def AGENT_API_KEY(self) -> str:
         return _get("AGENT_API_KEY")
 
+    @property
+    def INGESTION_CLASSIFIER_MODEL(self) -> str:
+        return _get("INGESTION_CLASSIFIER_MODEL", "gpt-4o-mini")
+
 
 settings = _Settings()

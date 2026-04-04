@@ -31,23 +31,33 @@ const rootStyle = `
   top: 0;
   left: 0;
   right: 0;
-  /* Use dvh (dynamic viewport height) instead of bottom:0.
-     bottom:0 uses the layout viewport which doesn't resize for the
-     iOS keyboard. dvh tracks the dynamic viewport (address bar changes).
-     The visualViewport JS handler below covers keyboard resize. */
   height: 100vh;
   height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Safe areas — pure CSS, no framework dependency.
+     Requires viewport-fit=cover in the meta tag. */
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }
 `;
 
-// Fix iOS Safari keyboard viewport: the visualViewport API is the only
-// reliable way to get the actual visible height when the virtual keyboard
-// is open.  CSS dvh does NOT account for the keyboard — only for browser
-// chrome (address bar).  This script sets an explicit pixel height on #root
-// so the flex layout reflows above the keyboard.
+// Fix iOS Safari keyboard + viewport issues:
+//
+// 1. CSS dvh does NOT shrink for the virtual keyboard — only for browser
+//    chrome (address bar). The visualViewport API is the only reliable way
+//    to get the actual visible height when the keyboard is open.
+//
+// 2. On iOS Safari, focusing an input causes the browser to scroll the
+//    layout viewport so the input is visible. position:fixed elements stay
+//    at the layout-viewport origin, but the visual viewport shifts down by
+//    visualViewport.offsetTop pixels. We must track BOTH height and top.
+//
+// 3. When the keyboard is open it replaces the home-indicator safe area,
+//    so we clear padding-bottom to avoid wasting space.
 const viewportScript = `
 (function() {
   var vv = window.visualViewport;
@@ -55,16 +65,31 @@ const viewportScript = `
   var root = document.getElementById('root');
   if (!root) return;
   var pending = false;
+  var initialHeight = vv.height;
+
   function sync() {
     pending = false;
+    // Track visual viewport position — iOS scrolls the layout viewport
+    // when the keyboard opens, shifting fixed elements out of view.
+    root.style.top = vv.offsetTop + 'px';
     root.style.height = vv.height + 'px';
+
+    // When keyboard is open (viewport significantly smaller than initial),
+    // clear bottom safe area — the keyboard replaces the home indicator.
+    if (vv.height < initialHeight * 0.85) {
+      root.style.paddingBottom = '0px';
+    } else {
+      root.style.paddingBottom = '';
+    }
   }
+
   function onResize() {
     if (!pending) {
       pending = true;
       requestAnimationFrame(sync);
     }
   }
+
   vv.addEventListener('resize', onResize);
   vv.addEventListener('scroll', onResize);
 })();

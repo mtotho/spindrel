@@ -1363,6 +1363,61 @@ async def admin_channel_workflow_runs(
     return [WorkflowRunOut.model_validate(r) for r in rows]
 
 
+@router.get("/channels/{channel_id}/workflow-connections")
+async def admin_channel_workflow_connections(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """List workflow connections for a channel: heartbeats and scheduled tasks that trigger workflows."""
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    connections: list[dict] = []
+
+    # Heartbeat connections
+    hb = (await db.execute(
+        select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id == channel_id)
+    )).scalar_one_or_none()
+    if hb and hb.workflow_id:
+        connections.append({
+            "type": "heartbeat",
+            "workflow_id": hb.workflow_id,
+            "workflow_session_mode": getattr(hb, "workflow_session_mode", None),
+            "enabled": hb.enabled,
+            "interval_minutes": hb.interval_minutes,
+            "bot_id": channel.bot_id,
+        })
+
+    # Scheduled task connections
+    task_stmt = (
+        select(Task)
+        .where(
+            Task.channel_id == channel_id,
+            Task.workflow_id.isnot(None),
+            Task.recurrence.isnot(None),
+            Task.status.in_(["active", "cancelled"]),
+        )
+        .order_by(Task.created_at.desc())
+    )
+    task_rows = (await db.execute(task_stmt)).scalars().all()
+    for t in task_rows:
+        connections.append({
+            "type": "scheduled_task",
+            "task_id": str(t.id),
+            "workflow_id": t.workflow_id,
+            "workflow_session_mode": t.workflow_session_mode,
+            "recurrence": t.recurrence,
+            "status": t.status,
+            "title": t.title,
+            "bot_id": t.bot_id,
+            "scheduled_at": t.scheduled_at.isoformat() if t.scheduled_at else None,
+        })
+
+    return connections
+
+
 # ---------------------------------------------------------------------------
 # Plans
 # ---------------------------------------------------------------------------

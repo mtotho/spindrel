@@ -615,3 +615,186 @@ async def _get_plans(channel_id: str) -> list[dict]:
     """Helper to trigger migration and get plans."""
     from integrations.mission_control.services import _get_plans_as_dicts
     return await _get_plans_as_dicts(channel_id)
+
+
+# ---------------------------------------------------------------------------
+# Helper to create a plan and put it into a target status
+# ---------------------------------------------------------------------------
+
+async def _create_plan_in_status(
+    channel_id: str,
+    title: str,
+    steps: list[str],
+    target_status: str,
+    approval_steps: list[int] | None = None,
+) -> tuple[str, str]:
+    """Create a plan and drive it to *target_status*. Returns (plan_id, plan_db_id)."""
+    from integrations.mission_control.db.engine import mc_session
+    from integrations.mission_control.db.models import McPlan
+    from integrations.mission_control.services import approve_plan
+    from integrations.mission_control.tools.plans import draft_plan
+    from sqlalchemy import select
+
+    result_text = await draft_plan(channel_id, title, steps, approval_steps=approval_steps)
+    plan_id = re.search(r"plan-\w+", result_text).group()
+
+    if target_status == "draft":
+        pass
+    elif target_status in ("approved", "executing", "awaiting_approval"):
+        with patch(
+            "integrations.mission_control.plan_executor.advance_plan",
+            new_callable=AsyncMock,
+        ):
+            await approve_plan(channel_id, plan_id)
+
+        if target_status in ("executing", "awaiting_approval"):
+            async with await mc_session() as session:
+                db_plan = (await session.execute(
+                    select(McPlan).where(McPlan.plan_id == plan_id)
+                )).scalar_one()
+                db_plan.status = target_status
+                await session.commit()
+
+    async with await mc_session() as session:
+        db_plan = (await session.execute(
+            select(McPlan).where(McPlan.plan_id == plan_id)
+        )).scalar_one()
+        return plan_id, db_plan.id
+
+
+@pytest.mark.asyncio
+class TestApprovalGateBugs:
+    """Bug 1 & 2: Plans stuck at awaiting_approval can't be updated or abandoned."""
+
+    async def test_update_step_on_awaiting_approval_plan(self, mc_db, mock_workspace):
+        """update_plan_step should work on awaiting_approval plans."""
+        from integrations.mission_control.tools.plans import update_plan_step
+
+        plan_id, _ = await _create_plan_in_status(
+            CHANNEL_ID, "Gated plan", ["Step 1", "Step 2"], "awaiting_approval",
+        )
+
+        result = await update_plan_step(CHANNEL_ID, plan_id, 1, "done")
+        assert "done" in result
+        assert "can only update" not in result.lower()
+
+    async def test_update_step_transitions_awaiting_to_executing(self, mc_db, mock_workspace):
+        """Updating a step on an awaiting_approval plan should move it to executing."""
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan
+        from integrations.mission_control.tools.plans import update_plan_step
+        from sqlalchemy import select
+
+        plan_id, _ = await _create_plan_in_status(
+            CHANNEL_ID, "Resume plan", ["Step 1", "Step 2"], "awaiting_approval",
+        )
+
+        await update_plan_step(CHANNEL_ID, plan_id, 1, "in_progress")
+
+        async with await mc_session() as session:
+            db_plan = (await session.execute(
+                select(McPlan).where(McPlan.plan_id == plan_id)
+            )).scalar_one()
+            assert db_plan.status == "executing"
+
+    async def test_abandon_from_awaiting_approval_via_tool(self, mc_db, mock_workspace):
+        """Bot tool update_plan_status should allow abandoning an awaiting_approval plan."""
+        from integrations.mission_control.tools.plans import update_plan_status
+
+        plan_id, _ = await _create_plan_in_status(
+            CHANNEL_ID, "Abandon gated", ["Step 1"], "awaiting_approval",
+        )
+
+        result = await update_plan_status(CHANNEL_ID, plan_id, "abandoned")
+        assert "abandoned" in result
+        assert "Cannot transition" not in result
+
+    async def test_abandon_from_awaiting_approval_via_reject(self, mc_db, mock_workspace):
+        """API reject_plan should work on awaiting_approval plans."""
+        from integrations.mission_control.services import reject_plan
+
+        plan_id, _ = await _create_plan_in_status(
+            CHANNEL_ID, "Reject gated", ["Step 1"], "awaiting_approval",
+        )
+
+        # Should NOT raise ValueError
+        result = await reject_plan(CHANNEL_ID, plan_id)
+        assert result["plan"]["status"] == "abandoned"
+
+    async def test_reject_plan_from_executing(self, mc_db, mock_workspace):
+        """API reject_plan should work on executing plans."""
+        from integrations.mission_control.services import reject_plan
+
+        plan_id, _ = await _create_plan_in_status(
+            CHANNEL_ID, "Reject executing", ["Step 1"], "executing",
+        )
+
+        result = await reject_plan(CHANNEL_ID, plan_id)
+        assert result["plan"]["status"] == "abandoned"
+
+
+@pytest.mark.asyncio
+class TestPlanExecutorRace:
+    """Bug 3: Race condition — step must be marked in_progress atomically."""
+
+    async def test_advance_plan_marks_step_in_progress_atomically(self, mc_db, mock_workspace):
+        """Step should be in_progress BEFORE _create_step_task is called."""
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlanStep
+
+        plan_id, plan_db_id = await _create_plan_in_status(
+            CHANNEL_ID, "Atomic test", ["Step 1", "Step 2"], "approved",
+        )
+
+        step_status_at_task_creation = None
+
+        async def _capture_step_status(**kwargs):
+            nonlocal step_status_at_task_creation
+            step_db_id = kwargs["step_db_id"]
+            async with await mc_session() as session:
+                step = await session.get(McPlanStep, step_db_id)
+                step_status_at_task_creation = step.status
+
+        with patch(
+            "integrations.mission_control.plan_executor._create_step_task",
+            new_callable=AsyncMock,
+            side_effect=_capture_step_status,
+        ):
+            from integrations.mission_control.plan_executor import advance_plan
+            await advance_plan(plan_db_id)
+
+        assert step_status_at_task_creation == "in_progress", (
+            f"Step was '{step_status_at_task_creation}' when _create_step_task was called — "
+            "expected 'in_progress' (atomicity violation)"
+        )
+
+    async def test_idempotent_step_task_creation(self, mc_db, mock_workspace):
+        """_create_step_task should be a no-op if step already has a task_id."""
+        from integrations.mission_control.db.engine import mc_session
+        from integrations.mission_control.db.models import McPlan, McPlanStep
+        from integrations.mission_control.plan_executor import _create_step_task
+        from sqlalchemy import select
+
+        plan_id, plan_db_id = await _create_plan_in_status(
+            CHANNEL_ID, "Idempotent test", ["Step 1"], "executing",
+        )
+
+        # Manually set a task_id on the step to simulate it was already created
+        async with await mc_session() as session:
+            db_plan = await session.get(McPlan, plan_db_id)
+            await session.refresh(db_plan, ["steps"])
+            step = db_plan.steps[0]
+            step.task_id = str(uuid.uuid4())
+            step_db_id = step.id
+            await session.commit()
+
+        # _create_step_task should return early without touching core DB
+        # (If it doesn't, it will fail because there's no core DB in unit tests)
+        await _create_step_task(
+            channel_id=CHANNEL_ID,
+            plan_id=plan_id,
+            plan_title="Idempotent test",
+            step_db_id=step_db_id,
+            step_position=1,
+            step_content="Step 1",
+        )

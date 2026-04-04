@@ -1,6 +1,6 @@
-"""Layer 3 — AI safety classifier via isolated HTTP call.
+"""Layer 3 — AI safety classifier via the server's LLM completions API.
 
-Sends sanitized text to a configurable LLM endpoint and parses a strict
+Sends sanitized text to /api/v1/llm/completions and parses a strict
 JSON verdict. Fails closed: any error results in quarantine.
 """
 
@@ -40,16 +40,17 @@ class ClassifierResult:
 async def classify(
     text: str,
     *,
-    classifier_url: str,
+    base_url: str,
     model: str,
     timeout: int = 15,
     api_key: str = "",
 ) -> ClassifierResult:
-    """Classify text via LLM. Fails closed — any error returns unsafe/high."""
+    """Classify text via the server's LLM completions API. Fails closed — any error returns unsafe/high."""
     headers: dict[str, str] = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    url = f"{base_url.rstrip('/')}/api/v1/llm/completions"
     payload = {
         "model": model,
         "messages": [
@@ -61,11 +62,11 @@ async def classify(
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(classifier_url, json=payload, headers=headers)
+            resp = await client.post(url, json=payload, headers=headers)
             resp.raise_for_status()
 
         data = resp.json()
-        content = data["choices"][0]["message"]["content"]
+        content = data["content"]
         verdict = json.loads(content)
 
         if not isinstance(verdict.get("safe"), bool):
@@ -75,7 +76,7 @@ async def classify(
 
         return ClassifierResult(
             safe=verdict["safe"],
-            reason=verdict.get("reason", ""),
+            reason=verdict.get("reason") or "",
             risk_level=verdict["risk_level"],
         )
 

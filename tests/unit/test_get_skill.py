@@ -156,3 +156,103 @@ def test_snapshot_restore_preserves_resolved_skill_ids():
         assert current_resolved_skill_ids.get() == {"skill-a", "skill-b", "skill-c"}
     finally:
         current_resolved_skill_ids.reset(tok)
+
+
+@pytest.mark.asyncio
+async def test_channel_carapaces_extra_fallback():
+    """When resolved_skill_ids is None and bot has no carapaces, channel
+    carapaces_extra should be resolved to find the skill."""
+    from app.tools.local.skills import get_skill
+    from app.agent.context import current_channel_id
+
+    fake_bot = MagicMock()
+    fake_bot.skills = [MagicMock(id="base-skill")]
+    fake_bot.skill_ids = ["base-skill"]
+    fake_bot.api_permissions = None
+    fake_bot.shared_workspace_id = None
+    fake_bot.carapaces = []  # no carapaces on the bot itself
+
+    fake_row = MagicMock()
+    fake_row.id = "carapaces/orchestrator/workflow-compiler"
+    fake_row.name = "Workflow Compiler"
+    fake_row.content = "# Compiler content"
+
+    import uuid as _uuid
+    _ch_id = _uuid.uuid4()
+
+    # Channel has carapaces_extra: ["orchestrator"]
+    fake_channel = MagicMock()
+    fake_channel.skills_extra = None
+    fake_channel.carapaces_extra = ["orchestrator"]
+
+    mock_db = AsyncMock()
+    async def _fake_get(model, pk):
+        if model.__name__ == "Channel":
+            return fake_channel
+        if pk == "carapaces/orchestrator/workflow-compiler":
+            return fake_row
+        return None
+    mock_db.get = AsyncMock(side_effect=_fake_get)
+
+    mock_session_ctx = MagicMock()
+    mock_session_ctx.__aenter__ = AsyncMock(return_value=mock_db)
+    mock_session_ctx.__aexit__ = AsyncMock(return_value=False)
+    mock_session_factory = MagicMock(return_value=mock_session_ctx)
+
+    # Resolved carapace returns the skill
+    mock_resolved = MagicMock()
+    mock_resolved.skills = [MagicMock(id="carapaces/orchestrator/workflow-compiler")]
+
+    tok_resolved = current_resolved_skill_ids.set(None)
+    tok_eph = current_ephemeral_skills.set([])
+    tok_ch = current_channel_id.set(_ch_id)
+
+    try:
+        with (
+            patch("app.tools.local.skills.current_bot_id") as mock_bot_id,
+            patch("app.tools.local.skills.async_session", mock_session_factory),
+            patch("app.agent.bots.get_bot", return_value=fake_bot),
+            patch("app.agent.carapaces.resolve_carapaces", return_value=mock_resolved),
+        ):
+            mock_bot_id.get.return_value = "mybot"
+
+            result = await get_skill(skill_id="carapaces/orchestrator/workflow-compiler")
+    finally:
+        current_resolved_skill_ids.reset(tok_resolved)
+        current_ephemeral_skills.reset(tok_eph)
+        current_channel_id.reset(tok_ch)
+
+    assert "Compiler content" in result
+    assert "not configured" not in result
+
+
+@pytest.mark.asyncio
+async def test_keepalive_context_var_bridge():
+    """_with_keepalive should propagate context var changes across Task boundaries."""
+    import asyncio
+
+    test_var = current_resolved_skill_ids  # reuse a real context var
+
+    async def fake_stream():
+        test_var.set({"skill-from-assembly"})
+        yield {"type": "assembly"}
+        # Next yield boundary — with the fix, the var should survive
+        val = test_var.get()
+        yield {"type": "check", "value": val}
+
+    from app.routers.chat import _with_keepalive
+
+    tok = test_var.set(None)
+    try:
+        events = []
+        async for event in _with_keepalive(fake_stream(), interval=60):
+            if event is not None:
+                events.append(event)
+    finally:
+        test_var.reset(tok)
+
+    assert len(events) == 2
+    assert events[0]["type"] == "assembly"
+    assert events[1]["type"] == "check"
+    # The critical assertion: the var survived the Task boundary
+    assert events[1]["value"] == {"skill-from-assembly"}

@@ -82,6 +82,7 @@ export interface IntegrationSettingItem {
   source: "db" | "env" | "default";
   is_set: boolean;
   default?: string | null;
+  type?: string;
 }
 
 // ---------------------------------------------------------------------------

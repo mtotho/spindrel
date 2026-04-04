@@ -1392,7 +1392,8 @@ async def approve_plan(channel_id: str, plan_id: str) -> dict:
 async def reject_plan(channel_id: str, plan_id: str) -> dict:
     """Reject a plan -> abandoned. Returns {"plan": dict}.
 
-    Raises ValueError if plan not found or not in draft/approved status.
+    Raises ValueError if plan not found or not in a rejectable status
+    (draft, approved, executing, awaiting_approval).
     """
     from integrations.mission_control.db.engine import mc_session
     from integrations.mission_control.db.models import McPlan
@@ -1409,8 +1410,8 @@ async def reject_plan(channel_id: str, plan_id: str) -> dict:
 
         if not db_plan:
             raise ValueError(f"Plan '{plan_id}' not found")
-        if db_plan.status not in ("draft", "approved"):
-            raise ValueError(f"Plan is [{db_plan.status}], expected [draft] or [approved]")
+        if db_plan.status not in ("draft", "approved", "executing", "awaiting_approval"):
+            raise ValueError(f"Plan is [{db_plan.status}], expected [draft], [approved], [executing], or [awaiting_approval]")
 
         db_plan.status = "abandoned"
         await session.commit()
