@@ -1,4 +1,3 @@
-import { View, Text, Pressable, ScrollView } from "react-native";
 import { useRouter } from "expo-router";
 import {
   FileText, Wrench, BookOpen, Plug,
@@ -54,99 +53,109 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
 
   const nav = (hash: string) => router.push(`/channels/${channelId}/settings#${hash}` as any);
 
+  const pillStyle: React.CSSProperties = {
+    display: "flex",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    padding: 0,
+    whiteSpace: "nowrap",
+  };
+
   const badges = (
     <>
       {/* Template badge */}
       {template && (
-        <Pressable onPress={() => nav("workspace")} style={pillStyle}>
+        <button onClick={() => nav("workspace")} style={pillStyle}>
           <FileText size={11} color={t.accent} />
-          <Text numberOfLines={1} style={{ fontSize: 11, color: t.accent, fontWeight: "500", maxWidth: 160 }}>
+          <span style={{ fontSize: 11, color: t.accent, fontWeight: 500, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>
             {template.name}
-          </Text>
-        </Pressable>
+          </span>
+        </button>
       )}
 
       {/* Activated integrations — green dot + name */}
       {activeIntegrations.map((ig) => {
         const Icon = resolveIcon(icons[ig.integration_type]);
         return (
-          <Pressable key={ig.integration_type} onPress={() => nav("integrations")} style={pillStyle}>
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.success }} />
-            <Text numberOfLines={1} style={{ fontSize: 11, color: t.textMuted, fontWeight: "500", maxWidth: 140 }}>
+          <button key={ig.integration_type} onClick={() => nav("integrations")} style={pillStyle}>
+            <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.success, display: "inline-block", flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 500, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>
               {prettyIntegrationName(ig.integration_type)}
-            </Text>
-          </Pressable>
+            </span>
+          </button>
         );
       })}
 
       {/* Bound-only integrations — dim dot + name */}
       {boundOnly.map((b) => (
-        <Pressable key={b.id} onPress={() => nav("integrations")} style={pillStyle}>
-          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.textDim, opacity: 0.5 }} />
-          <Text numberOfLines={1} style={{ fontSize: 11, color: t.textDim, fontWeight: "500", maxWidth: 140 }}>
+        <button key={b.id} onClick={() => nav("integrations")} style={pillStyle}>
+          <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.textDim, opacity: 0.5, display: "inline-block", flexShrink: 0 }} />
+          <span style={{ fontSize: 11, color: t.textDim, fontWeight: 500, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>
             {prettyIntegrationName(b.integration_type)}
-          </Text>
-        </Pressable>
+          </span>
+        </button>
       ))}
 
       {/* Tool/skill counts — inline text, no pill */}
       {totalTools > 0 && (
-        <Pressable onPress={() => nav("tools")} style={pillStyle}>
+        <button onClick={() => nav("tools")} style={pillStyle}>
           <Wrench size={10} color={t.textDim} />
-          <Text style={{ fontSize: 10, color: t.textDim }}>
+          <span style={{ fontSize: 10, color: t.textDim }}>
             {totalTools}
-          </Text>
-        </Pressable>
+          </span>
+        </button>
       )}
       {totalSkills > 0 && (
-        <Pressable onPress={() => nav("integrations")} style={pillStyle}>
+        <button onClick={() => nav("integrations")} style={pillStyle}>
           <BookOpen size={10} color={t.textDim} />
-          <Text style={{ fontSize: 10, color: t.textDim }}>
+          <span style={{ fontSize: 10, color: t.textDim }}>
             {totalSkills}
-          </Text>
-        </Pressable>
+          </span>
+        </button>
       )}
     </>
   );
 
-  // Compact mode: horizontal scroll, single row, no wrap (mobile)
+  // Compact mode: horizontal scroll, single row, no wrap
   if (compact) {
     return (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ flexShrink: 0, maxHeight: 26, borderBottomWidth: 1, borderBottomColor: t.surfaceBorder }}
-        contentContainerStyle={{
-          paddingHorizontal: 12,
-          paddingVertical: 4,
-          gap: 12,
-          alignItems: "center",
+      <div
+        className="hide-scrollbar"
+        style={{
+          display: "flex",
           flexDirection: "row",
+          alignItems: "center",
+          overflowX: "auto",
+          flexShrink: 0,
+          maxHeight: 26,
+          padding: "4px 12px",
+          gap: 12,
+          borderBottom: `1px solid ${t.surfaceBorder}`,
         }}
       >
         {badges}
-      </ScrollView>
+      </div>
     );
   }
 
   // Default: wrapping row (desktop)
   return (
-    <View
-      className="flex-row items-center border-b border-surface-border"
+    <div
       style={{
-        paddingHorizontal: 16,
-        paddingVertical: 4,
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        padding: "4px 16px",
         gap: 12,
         flexWrap: "wrap",
+        borderBottom: `1px solid ${t.surfaceBorder}`,
       }}
     >
       {badges}
-    </View>
+    </div>
   );
 }
-
-const pillStyle = {
-  flexDirection: "row" as const,
-  alignItems: "center" as const,
-  gap: 4,
-};

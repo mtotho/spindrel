@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { View, Text, Pressable, Platform, ScrollView, ActivityIndicator } from "react-native";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useHudData, type ActiveHud } from "@/src/api/hooks/useChatHud";
 import { HudItemRenderer } from "./HudItemRenderer";
 import { resolveHudIcon } from "./hudIcons";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 /**
  * Collapsible panel on the right side of chat.
@@ -29,80 +28,90 @@ export function HudSidePanel({ hud }: { hud: ActiveHud }) {
 
   if (collapsed) {
     return (
-      <Pressable
-        onPress={() => setCollapsed(false)}
+      <button
+        onClick={() => setCollapsed(false)}
+        aria-label="Expand panel"
         style={{
-          width: 28,
+          width: 32,
+          display: "flex",
+          flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          borderLeftWidth: 1,
-          borderLeftColor: t.surfaceBorder,
           backgroundColor: t.surfaceRaised,
+          border: "none",
+          borderLeft: `1px solid ${t.surfaceBorder}`,
+          cursor: "pointer",
+          padding: 0,
+          flexShrink: 0,
         }}
       >
         <ChevronLeft size={14} color={t.textDim} />
-        <Text style={{
+        <span style={{
           fontSize: 10,
           color: t.textDim,
-          writingDirection: "ltr",
-          transform: [{ rotate: "-90deg" }],
+          writingMode: "vertical-lr",
+          transform: "rotate(180deg)",
           marginTop: 8,
-          width: 80,
-          textAlign: "center",
         }}>
           {hud.widget.label ?? hud.widget.id}
-        </Text>
-      </Pressable>
+        </span>
+      </button>
     );
   }
 
   return (
-    <View style={{
+    <div style={{
       width,
-      borderLeftWidth: 1,
-      borderLeftColor: t.surfaceBorder,
+      borderLeft: `1px solid ${t.surfaceBorder}`,
       backgroundColor: t.surfaceRaised,
+      display: "flex",
+      flexDirection: "column",
+      flexShrink: 0,
     }}>
       {/* Header */}
-      <View style={{
+      <div style={{
+        display: "flex",
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: t.surfaceBorder,
+        padding: "8px 12px",
+        borderBottom: `1px solid ${t.surfaceBorder}`,
       }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <LabelIcon size={13} color={t.textDim} />
-          <Text style={{ fontSize: 12, fontWeight: "600", color: t.text }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
             {hud.widget.label ?? hud.widget.id}
-          </Text>
-        </View>
-        <Pressable onPress={() => setCollapsed(true)}>
+          </span>
+        </div>
+        <button
+          onClick={() => setCollapsed(true)}
+          className="header-icon-btn"
+          aria-label="Collapse panel"
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 6, borderRadius: 4 }}
+        >
           <ChevronRight size={14} color={t.textDim} />
-        </Pressable>
-      </View>
+        </button>
+      </div>
 
       {/* Content */}
-      {isIframe && Platform.OS === "web" ? (
+      {isIframe ? (
         <IframeContent integrationId={hud.integrationId} iframePath={hud.widget.iframe_path!} />
       ) : isLoading && !data ? (
-        <View style={{ padding: 16, alignItems: "center" }}>
-          <ActivityIndicator size="small" color={t.textDim} />
-        </View>
+        <div style={{ padding: 16, display: "flex", justifyContent: "center" }}>
+          <div className="chat-spinner" />
+        </div>
       ) : data?.visible ? (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 8 }}>
+        <div style={{ flex: 1, overflow: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
           {data.items.map((item, i) => (
             <HudItemRenderer key={i} item={item} hudQueryKey={queryKey} vertical />
           ))}
-        </ScrollView>
+        </div>
       ) : (
-        <View style={{ padding: 12 }}>
-          <Text style={{ fontSize: 12, color: t.textDim }}>No data</Text>
-        </View>
+        <div style={{ padding: 12 }}>
+          <span style={{ fontSize: 12, color: t.textDim }}>No data</span>
+        </div>
       )}
-    </View>
+    </div>
   );
 }
 
@@ -114,6 +123,7 @@ function IframeContent({ integrationId, iframePath }: { integrationId: string; i
   return (
     <iframe
       src={src}
+      title="HUD panel content"
       style={{
         border: "none",
         width: "100%",

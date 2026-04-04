@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
-import { ArrowLeft, Save, RotateCw, Columns2 } from "lucide-react";
+import { ArrowLeft, Save, RotateCw, Columns2, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelWorkspaceFileContent,
   useWriteChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
+import { CodeEditor } from "./CodeEditor";
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp"]);
 
@@ -54,7 +55,6 @@ export function ChannelFileViewer({ channelId, filePath, onBack, splitMode, onTo
 
   const [editContent, setEditContent] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Reset edit state when file changes or data loads
   useEffect(() => {
@@ -108,6 +108,7 @@ export function ChannelFileViewer({ channelId, filePath, onBack, splitMode, onTo
   }, [isDirty, onBack]);
 
   const fileName = filePath.split("/").pop() ?? filePath;
+  const pathSegments = filePath.split("/");
 
   return (
     <View style={{ flex: 1, backgroundColor: t.surface }}>
@@ -128,24 +129,52 @@ export function ChannelFileViewer({ channelId, filePath, onBack, splitMode, onTo
           onPress={handleBack}
           style={{ padding: 6, borderRadius: 4 }}
           className="hover:bg-surface-overlay active:bg-surface-overlay"
-          {...(Platform.OS === "web" ? { title: "Back to chat" } as any : {})}
+          {...(Platform.OS === "web" ? { title: "Back (Esc)" } as any : {})}
         >
           <ArrowLeft size={16} color={t.textMuted} />
         </Pressable>
 
+        {/* Breadcrumb path */}
         <View style={{ flex: 1, minWidth: 0 }}>
-          <Text
-            style={{ color: t.text, fontSize: 13, fontWeight: "600", fontFamily: "monospace" }}
-            numberOfLines={1}
-          >
-            {fileName}
-            {isDirty && (
-              <Text style={{ color: t.accent }}> *</Text>
-            )}
-          </Text>
-          <Text style={{ color: t.textDim, fontSize: 10 }} numberOfLines={1}>
-            {filePath}
-          </Text>
+          {Platform.OS === "web" ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 2, minWidth: 0, overflow: "hidden" }}>
+              {pathSegments.map((seg, i) => {
+                const isLast = i === pathSegments.length - 1;
+                return (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 2, flexShrink: isLast ? 1 : 0, minWidth: 0 }}>
+                    {i > 0 && <ChevronRight size={10} color={t.textDim} style={{ flexShrink: 0 }} />}
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: isLast ? 600 : 400,
+                        color: isLast ? t.text : t.textDim,
+                        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {seg}
+                    </span>
+                  </div>
+                );
+              })}
+              {isDirty && <span style={{ color: t.accent, fontWeight: 600, marginLeft: 2 }}>*</span>}
+            </div>
+          ) : (
+            <>
+              <Text
+                style={{ color: t.text, fontSize: 13, fontWeight: "600", fontFamily: "monospace" }}
+                numberOfLines={1}
+              >
+                {fileName}
+                {isDirty && <Text style={{ color: t.accent }}> *</Text>}
+              </Text>
+              <Text style={{ color: t.textDim, fontSize: 10 }} numberOfLines={1}>
+                {filePath}
+              </Text>
+            </>
+          )}
         </View>
 
         {savedAt && !isDirty && (
@@ -232,28 +261,12 @@ export function ChannelFileViewer({ channelId, filePath, onBack, splitMode, onTo
           <ActivityIndicator color={t.accent} />
         </View>
       ) : Platform.OS === "web" ? (
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-          <textarea
-            ref={textareaRef as any}
-            value={displayContent}
-            onChange={(e) => setEditContent(e.target.value)}
-            spellCheck={false}
-            style={{
-              flex: 1,
-              width: "100%",
-              padding: 16,
-              backgroundColor: t.surfaceRaised,
-              color: t.text,
-              fontSize: 13,
-              lineHeight: "1.6",
-              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-              border: "none",
-              outline: "none",
-              resize: "none",
-              tabSize: 2,
-            }}
-          />
-        </div>
+        <CodeEditor
+          content={displayContent}
+          onChange={setEditContent}
+          filePath={filePath}
+          t={t}
+        />
       ) : (
         <View style={{ flex: 1, padding: 16 }}>
           <Text style={{ color: t.textDim, fontSize: 12 }}>

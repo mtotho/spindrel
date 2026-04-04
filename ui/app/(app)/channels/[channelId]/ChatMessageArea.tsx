@@ -85,7 +85,11 @@ function WebChatList({
     const root = scrollRef.current;
     if (!sentinel || !root) return;
     const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) handleLoadMoreRef.current(); },
+      ([e]) => {
+        if (e.isIntersecting) {
+          handleLoadMoreRef.current();
+        }
+      },
       { root, rootMargin: "200px 0px 0px 0px", threshold: 0 },
     );
     obs.observe(sentinel);
@@ -93,13 +97,19 @@ function WebChatList({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // After a page loads and renders, re-check if the sentinel is still visible.
+  // After a page finishes loading, re-check if the sentinel is still visible.
   // The stable observer above won't re-fire if the sentinel never left the
   // viewport (e.g. short message list that doesn't fill the screen).
-  // A 200ms delay prevents rapid-fire visual churn during bulk loading.
+  // Only triggers on isFetchingNextPage true→false transitions.  The natural
+  // sentinel-visibility check stops loading once content fills the viewport.
   const recheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevFetchingRef = useRef(false);
   useEffect(() => {
+    const wasFetching = prevFetchingRef.current;
+    prevFetchingRef.current = isFetchingNextPage;
     if (isFetchingNextPage) return;
+    // Only recheck on true→false transition (page just finished loading)
+    if (!wasFetching) return;
     if (recheckRef.current) clearTimeout(recheckRef.current);
     recheckRef.current = setTimeout(() => {
       const sentinel = sentinelRef.current;
@@ -107,12 +117,15 @@ function WebChatList({
       if (!sentinel || !root) return;
       const rootRect = root.getBoundingClientRect();
       const sentinelRect = sentinel.getBoundingClientRect();
+      // Sentinel within viewport (extended 200px above)?  Load another page.
+      // Once content fills the viewport, sentinel moves above this zone and
+      // loading stops naturally — no artificial cap needed.
       if (sentinelRect.bottom >= rootRect.top - 200 && sentinelRect.top <= rootRect.bottom) {
         handleLoadMoreRef.current();
       }
-    }, 200);
+    }, 500);
     return () => { if (recheckRef.current) clearTimeout(recheckRef.current); };
-  }, [isFetchingNextPage, invertedData.length]);
+  }, [isFetchingNextPage]);
 
   // Track scroll position for FAB visibility
   useEffect(() => {

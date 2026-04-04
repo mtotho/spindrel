@@ -1,4 +1,3 @@
-import { View, Text, ScrollView } from "react-native";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useHudData, type ActiveHud } from "@/src/api/hooks/useChatHud";
 import { HudItemRenderer } from "./HudItemRenderer";
@@ -19,25 +18,24 @@ export function HudStatusStrip({ hud, compact }: { hud: ActiveHud; compact?: boo
   // Loading skeleton on first fetch
   if (isLoading && !data) {
     return (
-      <View style={{
+      <div style={{
+        display: "flex",
         flexDirection: "row",
         alignItems: "center",
-        paddingHorizontal: compact ? 12 : 16,
-        paddingVertical: 4,
+        padding: compact ? "4px 12px" : "4px 16px",
         gap: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: t.surfaceBorder,
+        borderBottom: `1px solid ${t.surfaceBorder}`,
         backgroundColor: t.surfaceRaised,
       }}>
         {[80, 60, 50].map((w, i) => (
-          <View key={i} style={{
+          <div key={i} style={{
             width: w,
             height: 18,
             borderRadius: 9,
             backgroundColor: t.surfaceOverlay,
           }} />
         ))}
-      </View>
+      </div>
     );
   }
 
@@ -56,20 +54,20 @@ export function HudStatusStrip({ hud, compact }: { hud: ActiveHud; compact?: boo
     <>
       <LabelIcon size={11} color={t.textDim} />
       {hud.widget.label && (
-        <Text style={{ fontSize: 10, color: t.textDim, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.5 }}>
+        <span style={{ fontSize: 10, color: t.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
           {hud.widget.label}
-        </Text>
+        </span>
       )}
-      <View style={{ width: 1, height: 12, backgroundColor: t.surfaceBorder, marginHorizontal: 2 }} />
+      <div style={{ width: 1, height: 12, backgroundColor: t.surfaceBorder, margin: "0 2px" }} />
       {data.items.map((item, i) => (
         <HudItemRenderer key={i} item={item} hudQueryKey={queryKey} />
       ))}
       {agoText && (
         <>
-          <View style={{ flex: 1 }} />
-          <Text style={{ fontSize: 9, color: t.textDim, opacity: 0.6, fontVariant: ["tabular-nums"] }}>
+          <div style={{ flex: 1 }} />
+          <span style={{ fontSize: 9, color: t.textDim, opacity: 0.6, fontVariantNumeric: "tabular-nums" }}>
             {agoText}
-          </Text>
+          </span>
         </>
       )}
     </>
@@ -77,42 +75,38 @@ export function HudStatusStrip({ hud, compact }: { hud: ActiveHud; compact?: boo
 
   if (compact) {
     return (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
+      <div
+        className="hide-scrollbar"
         style={{
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          overflowX: "auto",
           flexShrink: 0,
           maxHeight: 28,
-          borderBottomWidth: 1,
-          borderBottomColor: t.surfaceBorder,
-          backgroundColor: t.surfaceRaised,
-        }}
-        contentContainerStyle={{
-          paddingHorizontal: 12,
-          paddingVertical: 4,
+          padding: "4px 12px",
           gap: 6,
-          alignItems: "center",
-          flexDirection: "row",
+          borderBottom: `1px solid ${t.surfaceBorder}`,
+          backgroundColor: t.surfaceRaised,
         }}
       >
         {items}
-      </ScrollView>
+      </div>
     );
   }
 
   return (
-    <View style={{
+    <div style={{
+      display: "flex",
       flexDirection: "row",
       alignItems: "center",
-      paddingHorizontal: 16,
-      paddingVertical: 4,
+      padding: "4px 16px",
       gap: 6,
       flexWrap: "wrap",
-      borderBottomWidth: 1,
-      borderBottomColor: t.surfaceBorder,
+      borderBottom: `1px solid ${t.surfaceBorder}`,
       backgroundColor: t.surfaceRaised,
     }}>
       {items}
-    </View>
+    </div>
   );
 }

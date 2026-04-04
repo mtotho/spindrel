@@ -8,7 +8,7 @@ import { AttachmentImages } from "./AttachmentDisplay";
 import { ToolBadges } from "./ToolBadges";
 import { MessageActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
-import { extractDisplayText, parseSlackPrefix, resolveDisplay, avatarColor } from "./messageUtils";
+import { extractDisplayText, parseSlackPrefix, stripBBPrefix, resolveDisplay, avatarColor } from "./messageUtils";
 import type { Message, ToolCall } from "../../types/api";
 
 // Re-export for external consumers
@@ -30,13 +30,15 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const isWeb = Platform.OS === "web";
   const t = useThemeTokens();
   const meta = message.metadata || {};
-  // Extract text from content (handles JSON-array content blocks) then strip Slack prefix
+  // Extract text from content (handles JSON-array content blocks) then strip integration prefixes
   const rawText = extractDisplayText(message.content);
-  const { slackUserId, cleaned: displayContent } = parseSlackPrefix(rawText);
-  const { name: displayName, isCurrentUser, isSlack, isMemberBot } = resolveDisplay(message, botName, slackUserId);
+  const { slackUserId, cleaned: afterSlack } = parseSlackPrefix(rawText);
+  const { name: displayName, isCurrentUser, isSlack, isMemberBot, sourceLabel } = resolveDisplay(message, botName, slackUserId);
+  // Strip BB sender prefix from display when metadata provides sender info.
+  // Use strict === false to avoid stripping legacy messages (where is_from_me is undefined).
+  const displayContent = meta.source === "bluebubbles" && meta.is_from_me === false ? stripBBPrefix(afterSlack) : afterSlack;
   const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);
-  const sourceLabel = isSlack ? "via Slack" : null;
   const toolsUsed: string[] = (meta.tools_used as string[]) || [];
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;

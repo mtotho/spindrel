@@ -324,11 +324,12 @@ def _make_channel(require_mention: bool = True, bot_id: str = "default"):
     return ch
 
 
-def _make_binding(channel_id, client_id="bb:iMessage;-;+15551234567", dispatch_config=None):
+def _make_binding(channel_id, client_id="bb:iMessage;-;+15551234567", dispatch_config=None, display_name=None):
     b = MagicMock()
     b.channel_id = channel_id
     b.client_id = client_id
     b.dispatch_config = dispatch_config
+    b.display_name = display_name
     return b
 
 

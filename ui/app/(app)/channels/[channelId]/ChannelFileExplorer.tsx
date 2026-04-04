@@ -25,6 +25,18 @@ import {
   DataSection,
 } from "./ChannelFileExplorerData";
 
+function formatRelativeTime(unixSeconds: number): string {
+  const seconds = Math.floor(Date.now() / 1000 - unixSeconds);
+  if (seconds < 60) return "now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d`;
+  return `${Math.floor(days / 30)}mo`;
+}
+
 interface ChannelFileExplorerProps {
   channelId: string;
   activeFile: string | null;
@@ -149,6 +161,9 @@ function FileRow({
 
   const isRecentlyModified = file.modified_at > 0 && (Date.now() / 1000 - file.modified_at) < 3600;
 
+  // Relative time display for modified_at
+  const modifiedStr = file.modified_at > 0 ? formatRelativeTime(file.modified_at) : "";
+
   return (
     <>
       <Pressable
@@ -245,7 +260,11 @@ function FileRow({
                     flexShrink: 0,
                   }} />
                 )}
-                {sizeStr ? (
+                {modifiedStr ? (
+                  <Text style={{ color: t.textDim, fontSize: 9, flexShrink: 0 }}>
+                    {modifiedStr}
+                  </Text>
+                ) : sizeStr ? (
                   <Text style={{ color: t.textDim, fontSize: 10, flexShrink: 0 }}>
                     {sizeStr}
                   </Text>
@@ -409,7 +428,18 @@ function FileSection({
 
       {/* File list */}
       {isOpen && (
-        <View>
+        <View style={{ position: "relative" }}>
+          {/* Indent guide line */}
+          {files.length > 0 && (
+            <View style={{
+              position: "absolute",
+              left: 21,
+              top: 0,
+              bottom: 0,
+              width: 1,
+              backgroundColor: `${t.text}12`,
+            }} />
+          )}
           {files.map((f) => (
             <FileRow
               key={f.path}

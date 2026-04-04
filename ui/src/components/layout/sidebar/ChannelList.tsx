@@ -1,4 +1,3 @@
-import { View, Text, Pressable } from "react-native";
 import { Link, usePathname } from "expo-router";
 import {
   Plus,
@@ -25,7 +24,7 @@ import { useChannelReadStore } from "../../../stores/channelRead";
 import { useThemeTokens } from "../../../theme/tokens";
 import type { Channel } from "../../../types/api";
 import type { BotConfig } from "../../../types/api";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo } from "react";
 
 /** Resolve a lucide icon name to a component. */
 const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
@@ -40,34 +39,29 @@ function resolveIcon(name: string): React.ComponentType<{ size: number; color: s
 export function ChannelSkeletons() {
   const t = useThemeTokens();
   return (
-    <View className="gap-1">
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {[1, 2, 3, 4].map((i) => (
-        <View key={i} className="flex-row items-center gap-3 px-3 py-2.5">
-          <View
-            className="rounded animate-pulse"
-            style={{ width: 18, height: 18, backgroundColor: t.skeletonBg }}
-          />
-          <View className="flex-1 gap-1.5">
-            <View
-              className="rounded animate-pulse"
-              style={{
-                height: 13,
-                width: `${50 + i * 10}%`,
-                backgroundColor: t.skeletonBg,
-              }}
-            />
-            <View
-              className="rounded animate-pulse"
-              style={{
-                height: 10,
-                width: `${30 + i * 8}%`,
-                backgroundColor: t.skeletonBg,
-              }}
-            />
-          </View>
-        </View>
+        <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px" }}>
+          <div style={{
+            width: 18, height: 18, borderRadius: 4,
+            backgroundColor: t.skeletonBg,
+            animation: "pulse 2s ease-in-out infinite",
+          }} />
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{
+              height: 13, width: `${50 + i * 10}%`, borderRadius: 4,
+              backgroundColor: t.skeletonBg,
+              animation: "pulse 2s ease-in-out infinite",
+            }} />
+            <div style={{
+              height: 10, width: `${30 + i * 8}%`, borderRadius: 4,
+              backgroundColor: t.skeletonBg,
+              animation: "pulse 2s ease-in-out infinite",
+            }} />
+          </div>
+        </div>
       ))}
-    </View>
+    </div>
   );
 }
 
@@ -89,89 +83,81 @@ function ChannelItem({ channel, bot, mobile, channelPy, isStreaming, integration
   const isActive = pathname.includes(channel.id);
   const unread = !isActive && isUnread(channel.id, channel.updated_at);
   const displayName = channel.display_name || channel.name || channel.client_id;
+  const py = channelPy === "py-3" ? "12px" : "8px";
 
   return (
-    <Link href={`/channels/${channel.id}` as any} asChild>
-      <Pressable
-        onPress={closeMobile}
-        className={`flex-row items-center gap-2.5 rounded-md px-3 ${channelPy} ${
-          isActive ? "bg-accent/10" : "hover:bg-surface-overlay active:bg-surface-overlay"
-        }`}
+    <Link href={`/channels/${channel.id}` as any} onPress={closeMobile}>
+      <div
+        className="sidebar-nav-item"
+        style={{
+          display: "flex", alignItems: "center", gap: 10,
+          padding: `${py} 12px`, borderRadius: 6, cursor: "pointer",
+          backgroundColor: isActive ? "rgba(59,130,246,0.1)" : undefined,
+        }}
       >
         {channel.private ? (
           <Lock size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
         ) : (
           <Hash size={mobile ? 20 : 16} color={isActive ? t.accent : t.textDim} />
         )}
-        <View className="flex-1 min-w-0">
-          <Text
-            style={mobile ? { fontSize: 15 } : undefined}
-            className={`${mobile ? "" : "text-sm"} ${
-              isActive ? "text-accent font-medium" : unread ? "text-text font-semibold" : "text-text-muted"
-            }`}
-            numberOfLines={1}
-          >
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <span style={{
+            fontSize: mobile ? 15 : 14,
+            color: isActive ? t.accent : unread ? t.text : t.textMuted,
+            fontWeight: isActive ? 500 : unread ? 600 : 400,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
             {displayName}
-          </Text>
+          </span>
           {bot && (
-            <View className="flex-row items-center gap-1">
-              <Text className={`${mobile ? "text-xs" : "text-[11px]"} text-text-dim`} numberOfLines={1}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{
+                fontSize: mobile ? 12 : 11, color: t.textDim,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
                 {bot.name}
-              </Text>
+              </span>
               {channel.channel_workspace_enabled && (
                 <Container size={11} color={t.textDim} style={{ opacity: 0.5 }} />
               )}
               {channel.integrations?.map((binding) => {
                 const IIcon = resolveIcon(integrationIcons[binding.integration_type] || "Plug");
-                return <View key={binding.id} style={{ opacity: 0.6 }}><IIcon size={11} color={t.textDim} /></View>;
+                return <span key={binding.id} style={{ opacity: 0.6 }}><IIcon size={11} color={t.textDim} /></span>;
               })}
-            </View>
+            </div>
           )}
           {channel.tags && channel.tags.length > 0 && (
-            <Text className="text-[10px] text-text-dim" numberOfLines={1} style={{ opacity: 0.6 }}>
+            <span style={{ fontSize: 10, color: t.textDim, opacity: 0.6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {channel.tags.slice(0, 2).join(", ")}
-            </Text>
+            </span>
           )}
-        </View>
+        </div>
         {isStreaming && (
-          <View
-            className="animate-pulse"
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: t.accent,
-              flexShrink: 0,
-            }}
-          />
+          <span style={{
+            width: 8, height: 8, borderRadius: 4,
+            backgroundColor: t.accent, flexShrink: 0,
+            animation: "pulse 2s ease-in-out infinite",
+            display: "inline-block",
+          }} />
         )}
         {channel.heartbeat_enabled && !channel.heartbeat_in_quiet_hours && !isStreaming && (
-          <View
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: 3,
-              backgroundColor: "#22c55e",
-              flexShrink: 0,
-              opacity: 0.8,
-            }}
-          />
+          <span style={{
+            width: 6, height: 6, borderRadius: 3,
+            backgroundColor: "#22c55e", flexShrink: 0, opacity: 0.8,
+            display: "inline-block",
+          }} />
         )}
         {channel.heartbeat_in_quiet_hours && !isStreaming && (
           <Moon size={12} color={t.textDim} style={{ flexShrink: 0, opacity: 0.5 }} />
         )}
         {unread && !isStreaming && (
-          <View
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: t.accent,
-              flexShrink: 0,
-            }}
-          />
+          <span style={{
+            width: 8, height: 8, borderRadius: 4,
+            backgroundColor: t.accent, flexShrink: 0,
+            display: "inline-block",
+          }} />
         )}
-      </Pressable>
+      </div>
     </Link>
   );
 }
@@ -184,42 +170,40 @@ function OrchestratorItem({ channel, mobile, channelPy }: { channel: Channel; mo
 
   const isActive = pathname.includes(channel.id);
   const unread = !isActive && isUnread(channel.id, channel.updated_at);
+  const py = channelPy === "py-3" ? "12px" : "8px";
 
   return (
-    <View className="px-2 pt-1.5 pb-0.5">
-      <Link href={`/channels/${channel.id}` as any} asChild>
-        <Pressable
-          onPress={closeMobile}
-          className={`flex-row items-center gap-2.5 rounded-lg px-3 ${channelPy} ${
-            isActive ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
-          }`}
-          style={!isActive ? { backgroundColor: t.accent + "08" } : undefined}
+    <div style={{ padding: "6px 8px 2px" }}>
+      <Link href={`/channels/${channel.id}` as any} onPress={closeMobile}>
+        <div
+          className="sidebar-nav-item"
+          style={{
+            display: "flex", alignItems: "center", gap: 10,
+            padding: `${py} 12px`, borderRadius: 8, cursor: "pointer",
+            backgroundColor: isActive ? "rgba(59,130,246,0.15)" : `${t.accent}08`,
+          }}
         >
           <Home size={mobile ? 20 : 16} color={isActive ? t.accent : t.text} />
-          <Text
-            style={mobile ? { fontSize: 15 } : undefined}
-            className={`flex-1 ${mobile ? "" : "text-sm"} ${
-              isActive ? "text-accent font-medium" : unread ? "text-text font-semibold" : "text-text font-medium"
-            }`}
-            numberOfLines={1}
-          >
+          <span style={{
+            flex: 1,
+            fontSize: mobile ? 15 : 14,
+            color: isActive ? t.accent : unread ? t.text : t.text,
+            fontWeight: isActive || !unread ? 500 : 600,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
             Orchestrator
-          </Text>
+          </span>
           <Shield size={12} color={t.textDim} style={{ opacity: 0.6, flexShrink: 0 }} />
           {unread && (
-            <View
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: 4,
-                backgroundColor: t.accent,
-                flexShrink: 0,
-              }}
-            />
+            <span style={{
+              width: 8, height: 8, borderRadius: 4,
+              backgroundColor: t.accent, flexShrink: 0,
+              display: "inline-block",
+            }} />
           )}
-        </Pressable>
+        </div>
       </Link>
-    </View>
+    </div>
   );
 }
 
@@ -259,23 +243,33 @@ function CategoryGroup({ category, channels, botMap, integrationIcons, mobile, c
   }
 
   return (
-    <View>
-      <Pressable
-        onPress={() => setCollapsed(!collapsed)}
-        className="flex-row items-center gap-1.5 px-3 py-1 rounded hover:bg-surface-overlay active:bg-surface-overlay"
+    <div>
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="sidebar-nav-item"
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "4px 12px", borderRadius: 4,
+          background: "none", border: "none", cursor: "pointer",
+          width: "100%", textAlign: "left",
+        }}
       >
         {collapsed ? (
           <ChevronRight size={12} color={t.textDim} />
         ) : (
           <ChevronDown size={12} color={t.textDim} />
         )}
-        <Text className="text-text-dim text-[10px] font-semibold tracking-wider flex-1" numberOfLines={1}>
+        <span style={{
+          flex: 1, fontSize: 10, fontWeight: 600,
+          letterSpacing: 0.5, color: t.textDim,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
           {category.toUpperCase()}
-        </Text>
-        <Text className="text-text-dim text-[10px]" style={{ opacity: 0.5 }}>
+        </span>
+        <span style={{ fontSize: 10, color: t.textDim, opacity: 0.5 }}>
           {channels.length}
-        </Text>
-      </Pressable>
+        </span>
+      </button>
       {!collapsed &&
         channels.map((channel) => (
           <ChannelItem
@@ -288,7 +282,7 @@ function CategoryGroup({ category, channels, botMap, integrationIcons, mobile, c
             integrationIcons={integrationIcons}
           />
         ))}
-    </View>
+    </div>
   );
 }
 
@@ -329,7 +323,6 @@ export function ChannelList({
       list.push(ch);
       grouped.set(cat, list);
     }
-    // Sort: named categories alphabetically first, then uncategorized at end
     const sorted: { category: string | null; channels: Channel[] }[] = [];
     const namedCategories = [...grouped.keys()].filter((k): k is string => k !== null).sort();
     for (const cat of namedCategories) {
@@ -352,21 +345,24 @@ export function ChannelList({
       )}
 
       {/* Channels */}
-      <View className="px-2 py-1.5">
-        <View className="flex-row items-center justify-between px-3 mb-1">
-          <Text className="text-text-dim text-[11px] font-semibold tracking-wider py-1.5">
+      <div style={{ padding: "6px 8px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.5, color: t.textDim, padding: "6px 0" }}>
             CHANNELS
-          </Text>
-          <Link href={"/channels/new" as any} asChild>
-            <Pressable
-              onPress={closeMobile}
-              className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
-              style={{ width: 28, height: 28 }}
+          </span>
+          <Link href={"/channels/new" as any} onPress={closeMobile}>
+            <div
+              className="sidebar-icon-btn"
+              style={{
+                width: 28, height: 28, borderRadius: 4,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer",
+              }}
             >
               <Plus size={14} color={t.textDim} />
-            </Pressable>
+            </div>
           </Link>
-        </View>
+        </div>
 
         {channelsLoading ? (
           <ChannelSkeletons />
@@ -397,29 +393,24 @@ export function ChannelList({
               />
             ))}
             {regularChannels.length === 0 && (
-              <Link href={"/channels/new" as any} asChild>
-                <Pressable
-                  className="mx-2 my-1 rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+              <Link href={"/channels/new" as any}>
+                <div
+                  className="sidebar-nav-item"
                   style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    paddingHorizontal: 8,
-                    paddingVertical: 6,
-                    borderWidth: 1,
-                    borderStyle: "dashed" as any,
-                    borderColor: t.surfaceBorder,
-                    borderRadius: 6,
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "6px 8px", margin: "4px 8px",
+                    border: `1px dashed ${t.surfaceBorder}`,
+                    borderRadius: 6, cursor: "pointer",
                   }}
                 >
                   <Plus size={12} color={t.textDim} />
-                  <Text style={{ fontSize: 11, color: t.textDim }}>Create a channel</Text>
-                </Pressable>
+                  <span style={{ fontSize: 11, color: t.textDim }}>Create a channel</span>
+                </div>
               </Link>
             )}
           </>
         )}
-      </View>
+      </div>
     </>
   );
 }

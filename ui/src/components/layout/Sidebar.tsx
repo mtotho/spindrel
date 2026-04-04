@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { View, Text, Pressable, ScrollView } from "react-native";
 import { Link, usePathname } from "expo-router";
 import {
   MessageSquare,
@@ -171,28 +170,35 @@ function IntegrationSidebarSection({
   };
 
   return (
-    <View className="px-2 py-1.5">
-      <Pressable
-        onPress={toggle}
-        className="flex-row items-center px-3 py-1.5 rounded hover:bg-surface-overlay"
-        style={{ gap: 6 }}
+    <div style={{ padding: "6px 8px" }}>
+      <button
+        onClick={toggle}
+        className="sidebar-nav-item"
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "6px 12px", borderRadius: 4,
+          background: "none", border: "none", cursor: "pointer",
+          width: "100%", textAlign: "left",
+        }}
       >
         <SectionIcon size={12} color={hasActive ? t.accent : t.textDim} />
-        <Text
-          className={`${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider`}
-          style={{ flex: 1, color: hasActive ? t.accent : t.textDim }}
-        >
+        <span style={{
+          flex: 1,
+          fontSize: mobile ? 12 : 11, fontWeight: 600,
+          letterSpacing: 0.5,
+          color: hasActive ? t.accent : t.textDim,
+        }}>
           {section.title}
-        </Text>
+        </span>
         <ChevronRight
           size={10}
           color={t.textDim}
           style={{
-            transform: [{ rotate: collapsed ? "0deg" : "90deg" }],
+            transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
             transition: "transform 0.15s",
-          } as any}
+          }}
         />
-      </Pressable>
+      </button>
       {!collapsed && (
         <>
           {items.map((item) => (
@@ -220,7 +226,7 @@ function IntegrationSidebarSection({
           })}
         </>
       )}
-    </View>
+    </div>
   );
 }
 
@@ -251,17 +257,19 @@ function IntegrationRailIcons({
               : `/${segs[0] || ""}`;
           const active = seg !== "/" && (pathname === seg || pathname.startsWith(seg + "/"));
           return (
-            <Link key={section.id} href={homeHref as any} asChild>
-              <Pressable
-                onPress={closeMobile}
-                className={`items-center justify-center rounded-lg ${
-                  active ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
-                }`}
-                style={{ width: 44, height: 44 }}
-                accessibilityLabel={section.title}
+            <Link key={section.id} href={homeHref as any} onPress={closeMobile}>
+              <div
+                className="sidebar-icon-btn"
+                title={section.title}
+                style={{
+                  width: 44, height: 44, borderRadius: 8,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  cursor: "pointer",
+                  backgroundColor: active ? "rgba(59,130,246,0.15)" : undefined,
+                }}
               >
                 <Icon size={18} color={active ? t.accent : t.textDim} />
-              </Pressable>
+              </div>
             </Link>
           );
         })}
@@ -302,104 +310,120 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   // -----------------------------------------------------------------------
   if (collapsed) {
     return (
-      <View className="bg-surface border-r border-surface-border items-center" style={{ width: 56, flexShrink: 0, height: '100%' }}>
-        <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ alignItems: "center", paddingTop: 10, paddingBottom: 10, gap: 2 }}>
+      <div style={{
+        width: 56, flexShrink: 0, height: "100%",
+        display: "flex", flexDirection: "column",
+        alignItems: "center",
+        backgroundColor: t.surface,
+        borderRight: `1px solid ${t.surfaceBorder}`,
+      }}>
+        <div style={{
+          flex: 1, overflowY: "auto", overflowX: "hidden",
+          display: "flex", flexDirection: "column", alignItems: "center",
+          paddingTop: 10, paddingBottom: 10, gap: 2,
+        }}>
           {/* Logo */}
-          <View className="items-center justify-center" style={{ width: 44, height: 36 }}>
+          <div style={{ width: 44, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <SpindrelLogo size={22} color={t.text} />
-          </View>
+          </div>
 
           {/* Expand toggle */}
-          <Pressable
-            onPress={toggleSidebar}
-            className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 44, height: 44 }}
-            accessibilityLabel="Expand sidebar"
+          <button
+            onClick={toggleSidebar}
+            className="sidebar-icon-btn"
+            style={{
+              width: 44, height: 44, borderRadius: 8,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "none", border: "none", cursor: "pointer", padding: 0,
+            }}
+            aria-label="Expand sidebar"
           >
             <ChevronRight size={16} color={t.textDim} />
-          </Pressable>
+          </button>
 
           {/* Home (orchestrator) icon */}
           {orchestratorChannel && (() => {
             const orchActive = pathname.includes(orchestratorChannel.id);
             return (
-              <Link href={`/channels/${orchestratorChannel.id}` as any} asChild>
-                <Pressable
-                  onPress={closeMobile}
-                  className={`items-center justify-center rounded-lg ${
-                    orchActive ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
-                  }`}
-                  style={{ width: 44, height: 44 }}
-                  accessibilityLabel="Home"
+              <Link href={`/channels/${orchestratorChannel.id}` as any} onPress={closeMobile}>
+                <div
+                  className="sidebar-icon-btn"
+                  title="Home"
+                  style={{
+                    width: 44, height: 44, borderRadius: 8,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    cursor: "pointer",
+                    backgroundColor: orchActive ? "rgba(59,130,246,0.15)" : undefined,
+                  }}
                 >
                   <Home size={18} color={orchActive ? t.accent : t.textDim} />
-                </Pressable>
+                </div>
               </Link>
             );
           })()}
 
           {/* Channels icon */}
-          <Link href="/" asChild>
-            <Pressable
-              onPress={closeMobile}
-              className={`items-center justify-center rounded-lg ${
-                pathname === "/" ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
-              }`}
-              style={{ width: 44, height: 44 }}
-              accessibilityLabel="Channels"
+          <Link href={"/" as any} onPress={closeMobile}>
+            <div
+              className="sidebar-icon-btn"
+              title="Channels"
+              style={{
+                width: 44, height: 44, borderRadius: 8,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer",
+                backgroundColor: pathname === "/" ? "rgba(59,130,246,0.15)" : undefined,
+              }}
             >
-              <View>
+              <div style={{ position: "relative" }}>
                 <MessageSquare size={18} color={pathname === "/" ? t.accent : t.textDim} />
                 {channels?.filter((ch) => ch.client_id !== "orchestrator:home").some((ch) => !pathname.includes(ch.id) && isUnread(ch.id, ch.updated_at)) && (
-                  <View
-                    style={{
-                      position: "absolute",
-                      top: -2,
-                      right: -2,
-                      width: 7,
-                      height: 7,
-                      borderRadius: 4,
-                      backgroundColor: t.accent,
-                    }}
-                  />
+                  <span style={{
+                    position: "absolute", top: -2, right: -2,
+                    width: 7, height: 7, borderRadius: 4,
+                    backgroundColor: t.accent, display: "inline-block",
+                  }} />
                 )}
-              </View>
-            </Pressable>
+              </div>
+            </div>
           </Link>
 
           {/* Workspace icon */}
-          <Link href={workspaces?.[0] ? `/admin/workspaces/${workspaces[0].id}` as any : "/admin/workspaces" as any} asChild>
-            <Pressable
-              onPress={closeMobile}
-              className={`items-center justify-center rounded-lg ${
-                pathname.startsWith("/admin/workspaces") ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
-              }`}
-              style={{ width: 44, height: 44 }}
-              accessibilityLabel="Workspaces"
+          <Link href={(workspaces?.[0] ? `/admin/workspaces/${workspaces[0].id}` : "/admin/workspaces") as any} onPress={closeMobile}>
+            <div
+              className="sidebar-icon-btn"
+              title="Workspaces"
+              style={{
+                width: 44, height: 44, borderRadius: 8,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer",
+                backgroundColor: pathname.startsWith("/admin/workspaces") ? "rgba(59,130,246,0.15)" : undefined,
+              }}
             >
               <Container size={18} color={pathname.startsWith("/admin/workspaces") ? t.accent : t.textDim} />
-            </Pressable>
+            </div>
           </Link>
 
           {/* Upcoming icon */}
-          <Link href={"/admin/upcoming" as any} asChild>
-            <Pressable
-              onPress={closeMobile}
-              className={`items-center justify-center rounded-lg ${
-                pathname.startsWith("/admin/upcoming") ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
-              }`}
-              style={{ width: 44, height: 44 }}
-              accessibilityLabel="Upcoming Activity"
+          <Link href={"/admin/upcoming" as any} onPress={closeMobile}>
+            <div
+              className="sidebar-icon-btn"
+              title="Upcoming Activity"
+              style={{
+                width: 44, height: 44, borderRadius: 8,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: "pointer",
+                backgroundColor: pathname.startsWith("/admin/upcoming") ? "rgba(59,130,246,0.15)" : undefined,
+              }}
             >
               <Clock size={18} color={pathname.startsWith("/admin/upcoming") ? t.accent : t.textDim} />
-            </Pressable>
+            </div>
           </Link>
 
           {/* Integration sidebar section icons */}
           <IntegrationRailIcons sections={sidebarSections} pathname={pathname} closeMobile={closeMobile} t={t} />
 
           {/* Divider */}
-          <View className="bg-surface-border my-1.5" style={{ height: 1, width: 32 }} />
+          <div style={{ height: 1, width: 32, backgroundColor: t.surfaceBorder, margin: "6px 0" }} />
 
           {/* Admin nav icons */}
           {ALL_NAV_ITEMS.map((item) => (
@@ -409,10 +433,10 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
               active={pathname.startsWith(item.href)}
             />
           ))}
-        </ScrollView>
+        </div>
 
         <SidebarFooterCollapsed version={version} />
-      </View>
+      </div>
     );
   }
 
@@ -422,24 +446,36 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const channelPy = mobile ? "py-3" : "py-2";
 
   return (
-    <View className="bg-surface border-r border-surface-border" style={{ width: mobile ? "100%" : 260, flexShrink: 0, height: '100%' }}>
-      <ScrollView className="flex-1" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }}>
+    <div style={{
+      width: mobile ? "100%" : 260, flexShrink: 0, height: "100%",
+      display: "flex", flexDirection: "column",
+      backgroundColor: t.surface,
+      borderRight: `1px solid ${t.surfaceBorder}`,
+    }}>
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", paddingBottom: 8 }}>
         {/* Header */}
-        <View className="flex-row items-center justify-between px-4 py-4">
-          <Link href="/" asChild>
-            <Pressable className="flex-row items-center gap-2">
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "16px 16px",
+        }}>
+          <Link href={"/" as any}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
               <SpindrelLogo size={22} color={t.text} />
-              <Text style={{ fontSize: 15, fontWeight: "700", letterSpacing: 1.5, color: t.text }}>SPINDREL</Text>
-            </Pressable>
+              <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: 1.5, color: t.text }}>SPINDREL</span>
+            </div>
           </Link>
-          <Pressable
-            onPress={toggleSidebar}
-            className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 32, height: 32 }}
+          <button
+            onClick={toggleSidebar}
+            className="sidebar-icon-btn"
+            style={{
+              width: 32, height: 32, borderRadius: 4,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: "none", border: "none", cursor: "pointer", padding: 0,
+            }}
           >
             <ChevronLeft size={16} color={t.textDim} />
-          </Pressable>
-        </View>
+          </button>
+        </div>
 
         {/* Channel list (orchestrator + regular channels with category grouping) */}
         <ChannelList
@@ -456,116 +492,135 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
         {workspaces && workspaces.length > 0 && (() => {
           const ws = workspaces[0];
           return (
-            <View className="px-2 py-1.5">
-              <View className="flex-row items-center justify-between px-3 mb-1">
-                <Text className={`text-text-dim ${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider py-1.5`}>
+            <div style={{ padding: "6px 8px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 12px", marginBottom: 4 }}>
+                <span style={{ fontSize: mobile ? 12 : 11, fontWeight: 600, letterSpacing: 0.5, color: t.textDim, padding: "6px 0" }}>
                   WORKSPACE
-                </Text>
-                <Link href={`/admin/workspaces/${ws.id}` as any} asChild>
-                  <Pressable
-                    onPress={closeMobile}
-                    className="items-center justify-center rounded hover:bg-surface-overlay active:bg-surface-overlay"
-                    style={{ width: 28, height: 28 }}
+                </span>
+                <Link href={`/admin/workspaces/${ws.id}` as any} onPress={closeMobile}>
+                  <div
+                    className="sidebar-icon-btn"
+                    style={{
+                      width: 28, height: 28, borderRadius: 4,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer",
+                    }}
                   >
                     <Settings size={12} color={t.textDim} />
-                  </Pressable>
+                  </div>
                 </Link>
-              </View>
-              <View className="flex-row items-center rounded-lg border border-surface-border overflow-hidden" style={{ marginHorizontal: 4 }}>
-                <Link href={`/admin/workspaces/${ws.id}/files` as any} asChild>
-                  <Pressable
-                    onPress={closeMobile}
-                    className="flex-1 flex-row items-center gap-2.5 px-3 hover:bg-surface-overlay active:bg-surface-overlay"
-                    style={{ paddingVertical: 8 }}
+              </div>
+              <div style={{
+                display: "flex", alignItems: "center",
+                borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
+                overflow: "hidden", margin: "0 4px",
+              }}>
+                <Link href={`/admin/workspaces/${ws.id}/files` as any} onPress={closeMobile}>
+                  <div
+                    className="sidebar-nav-item"
+                    style={{
+                      flex: 1, display: "flex", alignItems: "center", gap: 10,
+                      padding: "8px 12px", cursor: "pointer",
+                    }}
                   >
-                    <View style={{
+                    <span style={{
                       width: 8, height: 8, borderRadius: 4,
                       backgroundColor: ws.status === "running" ? "#22c55e" : t.textDim,
+                      display: "inline-block", flexShrink: 0,
                     }} />
-                    <Text
-                      style={mobile ? { fontSize: 15 } : undefined}
-                      className={`flex-1 ${mobile ? "" : "text-sm"} text-accent font-medium`}
-                      numberOfLines={1}
-                    >
+                    <span style={{
+                      flex: 1, fontSize: mobile ? 15 : 14,
+                      color: t.accent, fontWeight: 500,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
                       {ws.name}
-                    </Text>
-                  </Pressable>
+                    </span>
+                  </div>
                 </Link>
-              </View>
-            </View>
+              </div>
+            </div>
           );
         })()}
 
         {/* Upcoming activity */}
-        <View className="px-2 py-1.5">
-          <Link href={"/admin/upcoming" as any} asChild>
-            <Pressable
-              onPress={closeMobile}
-              className="flex-row items-center justify-between px-3 mb-1 rounded hover:bg-surface-overlay active:bg-surface-overlay"
+        <div style={{ padding: "6px 8px" }}>
+          <Link href={"/admin/upcoming" as any} onPress={closeMobile}>
+            <div
+              className="sidebar-nav-item"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "0 12px", marginBottom: 4, borderRadius: 4, cursor: "pointer",
+              }}
             >
-              <Text className="text-text-dim text-[11px] font-semibold tracking-wider py-1.5">
+              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.5, color: t.textDim, padding: "6px 0" }}>
                 UPCOMING
-              </Text>
+              </span>
               <Clock size={12} color={t.textDim} />
-            </Pressable>
+            </div>
           </Link>
 
           {upcomingLoading ? (
-            <View className="gap-1">
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               {[1, 2].map((i) => (
-                <View key={i} className="flex-row items-center gap-2.5 px-3 py-1.5">
-                  <View
-                    className="rounded animate-pulse"
-                    style={{ width: 14, height: 14, backgroundColor: t.skeletonBg }}
-                  />
-                  <View className="flex-1 gap-1">
-                    <View
-                      className="rounded animate-pulse"
-                      style={{ height: 12, width: `${50 + i * 15}%`, backgroundColor: t.skeletonBg }}
-                    />
-                  </View>
-                </View>
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 12px" }}>
+                  <div style={{
+                    width: 14, height: 14, borderRadius: 4,
+                    backgroundColor: t.skeletonBg,
+                    animation: "pulse 2s ease-in-out infinite",
+                  }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{
+                      height: 12, width: `${50 + i * 15}%`, borderRadius: 4,
+                      backgroundColor: t.skeletonBg,
+                      animation: "pulse 2s ease-in-out infinite",
+                    }} />
+                  </div>
+                </div>
               ))}
-            </View>
+            </div>
           ) : !upcomingItems?.length ? (
-            <Text className="text-text-dim text-xs px-3 py-1">No upcoming activity</Text>
+            <span style={{ fontSize: 12, color: t.textDim, padding: "4px 12px", display: "block" }}>
+              No upcoming activity
+            </span>
           ) : (
             upcomingItems.map((item, idx) => {
               const href = item.type === "heartbeat" && item.channel_id
                 ? `/channels/${item.channel_id}/settings#heartbeat`
                 : "/admin/tasks";
               return (
-                <Link key={`${item.type}-${idx}`} href={href as any} asChild>
-                  <Pressable
-                    onPress={closeMobile}
-                    className="flex-row items-center gap-2 rounded-md px-3 py-1.5 hover:bg-surface-overlay active:bg-surface-overlay"
+                <Link key={`${item.type}-${idx}`} href={href as any} onPress={closeMobile}>
+                  <div
+                    className="sidebar-nav-item"
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      borderRadius: 6, padding: "6px 12px", cursor: "pointer",
+                    }}
                   >
                     {item.type === "heartbeat" ? (
                       <Heart size={13} color={item.in_quiet_hours ? t.textDim : t.warning} style={item.in_quiet_hours ? { opacity: 0.4 } : undefined} />
                     ) : (
                       <ClipboardList size={13} color={t.accent} />
                     )}
-                    <View
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: 3,
-                        backgroundColor: botDotColor(item.bot_id),
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Text className="text-text-muted text-xs flex-1" numberOfLines={1}>
+                    <span style={{
+                      width: 6, height: 6, borderRadius: 3,
+                      backgroundColor: botDotColor(item.bot_id),
+                      flexShrink: 0, display: "inline-block",
+                    }} />
+                    <span style={{
+                      flex: 1, fontSize: 12, color: t.textMuted,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
                       {item.type === "heartbeat" && item.channel_name ? `#${item.channel_name}` : item.title}
-                    </Text>
-                    <Text className="text-text-dim text-[10px]" style={{ flexShrink: 0 }}>
+                    </span>
+                    <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>
                       {item.scheduled_at ? relativeTime(item.scheduled_at) : ""}
-                    </Text>
-                  </Pressable>
+                    </span>
+                  </div>
                 </Link>
               );
             })
           )}
-        </View>
+        </div>
 
         {/* Integration sidebar sections (e.g. Mission Control) */}
         {sidebarSections.map((section) => (
@@ -579,9 +634,9 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
 
         {/* Admin sections */}
         <AdminSections pathname={pathname} mobile={mobile} />
-      </ScrollView>
+      </div>
 
       <SidebarFooterExpanded pathname={pathname} mobile={mobile} version={version} />
-    </View>
+    </div>
   );
 }

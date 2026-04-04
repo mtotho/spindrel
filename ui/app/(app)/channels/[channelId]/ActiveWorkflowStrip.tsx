@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable } from "react-native";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelWorkflowRuns, useCancelWorkflowRun,
   useApproveWorkflowStep, useSkipWorkflowStep,
 } from "@/src/api/hooks/useWorkflows";
-import { Link } from "expo-router";
+import { useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Loader2, CheckCircle2, XCircle, ShieldCheck, ExternalLink, X,
@@ -55,7 +54,7 @@ export function ActiveWorkflowStrip({ channelId }: { channelId: string }) {
   if (visible.length === 0) return null;
 
   return (
-    <View style={{ borderTopWidth: 1, borderTopColor: t.surfaceBorder }}>
+    <div style={{ borderTop: `1px solid ${t.surfaceBorder}` }}>
       {visible.map((run) => (
         <RunStrip
           key={run.id}
@@ -64,7 +63,7 @@ export function ActiveWorkflowStrip({ channelId }: { channelId: string }) {
           onDismiss={() => setDismissed((s) => new Set(s).add(run.id))}
         />
       ))}
-    </View>
+    </div>
   );
 }
 
@@ -99,6 +98,7 @@ function getCurrentStepId(run: WorkflowRun): string | null {
 }
 
 function RunStrip({ run, t, onDismiss }: { run: WorkflowRun; t: ThemeTokens; onDismiss: () => void }) {
+  const router = useRouter();
   const cancelMut = useCancelWorkflowRun();
   const approveMut = useApproveWorkflowStep();
   const skipMut = useSkipWorkflowStep();
@@ -175,63 +175,76 @@ function RunStrip({ run, t, onDismiss }: { run: WorkflowRun; t: ThemeTokens; onD
       {/* Approve/Skip buttons for approval state */}
       {isApproval && (
         <>
-          <Pressable
-            onPress={() => approveMut.mutate({ runId: run.id, stepIndex: run.current_step_index })}
+          <button
+            onClick={() => approveMut.mutate({ runId: run.id, stepIndex: run.current_step_index })}
             disabled={approvalBusy}
             style={{
-              flexDirection: "row", alignItems: "center",
-              paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
-              backgroundColor: t.successSubtle, borderWidth: 1, borderColor: t.successBorder,
+              display: "flex", alignItems: "center",
+              padding: "6px 12px", borderRadius: 10,
+              backgroundColor: t.successSubtle, border: `1px solid ${t.successBorder}`,
+              color: t.success, fontSize: 11, fontWeight: 600,
+              cursor: approvalBusy ? "default" : "pointer",
               opacity: approvalBusy ? 0.5 : 1,
             }}
           >
-            <Text style={{ fontSize: 10, color: t.success, fontWeight: "600" }}>Approve</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => skipMut.mutate({ runId: run.id, stepIndex: run.current_step_index })}
+            Approve
+          </button>
+          <button
+            onClick={() => skipMut.mutate({ runId: run.id, stepIndex: run.current_step_index })}
             disabled={approvalBusy}
             style={{
-              flexDirection: "row", alignItems: "center",
-              paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
-              backgroundColor: t.surfaceOverlay, borderWidth: 1, borderColor: t.surfaceBorder,
+              display: "flex", alignItems: "center",
+              padding: "6px 12px", borderRadius: 10,
+              backgroundColor: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`,
+              color: t.textDim, fontSize: 11, fontWeight: 600,
+              cursor: approvalBusy ? "default" : "pointer",
               opacity: approvalBusy ? 0.5 : 1,
             }}
           >
-            <Text style={{ fontSize: 10, color: t.textDim, fontWeight: "600" }}>Skip</Text>
-          </Pressable>
+            Skip
+          </button>
         </>
       )}
 
-      <Link href={`/admin/workflows/${run.workflow_id}?tab=runs&run=${run.id}` as any}>
-        <Pressable style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-          <ExternalLink size={11} color={t.accent} />
-          <Text style={{ fontSize: 11, color: t.accent }}>View</Text>
-        </Pressable>
-      </Link>
+      <button
+        onClick={() => router.push(`/admin/workflows/${run.workflow_id}?tab=runs&run=${run.id}` as any)}
+        style={{
+          display: "flex", alignItems: "center", gap: 3,
+          background: "none", border: "none", cursor: "pointer",
+          padding: "6px 8px", borderRadius: 4,
+        }}
+        aria-label="View workflow run"
+      >
+        <ExternalLink size={11} color={t.accent} />
+        <span style={{ fontSize: 11, color: t.accent }}>View</span>
+      </button>
 
       {/* Cancel button for active runs */}
       {isActive && (
-        <Pressable
-          onPress={() => cancelMut.mutate(run.id)}
+        <button
+          onClick={() => cancelMut.mutate(run.id)}
           disabled={cancelMut.isPending}
           style={{
-            flexDirection: "row", alignItems: "center", gap: 3,
-            paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4,
-            backgroundColor: t.dangerSubtle, borderWidth: 1, borderColor: t.dangerBorder,
+            display: "flex", alignItems: "center", gap: 3,
+            padding: "6px 10px", borderRadius: 4,
+            backgroundColor: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+            color: t.danger, fontSize: 11, fontWeight: 600,
+            cursor: cancelMut.isPending ? "default" : "pointer",
             opacity: cancelMut.isPending ? 0.5 : 1,
           }}
         >
-          <Text style={{ fontSize: 10, color: t.danger, fontWeight: "600" }}>Cancel</Text>
-        </Pressable>
+          Cancel
+        </button>
       )}
 
       {/* Dismiss button */}
-      <Pressable
-        onPress={onDismiss}
-        style={{ padding: 2 }}
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss workflow"
+        style={{ background: "none", border: "none", cursor: "pointer", padding: 6, borderRadius: 4 }}
       >
         <X size={13} color={t.textDim} />
-      </Pressable>
+      </button>
     </div>
   );
 }

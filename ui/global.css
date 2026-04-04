@@ -251,6 +251,28 @@ textarea::placeholder {
   background-color: rgb(var(--color-surface-overlay));
 }
 
+/* HUD floating action button */
+.hud-fab { transition: transform 0.15s ease, filter 0.15s ease; }
+.hud-fab:hover { transform: scale(1.08); filter: brightness(1.1); }
+.hud-fab:active { transform: scale(0.95); }
+
+/* ── Sidebar ──────────────────────────────────────────── */
+
+/* Sidebar nav items — hover effect */
+.sidebar-nav-item { transition: background-color 0.1s ease; }
+.sidebar-nav-item:hover { background-color: rgb(var(--color-surface-overlay)); }
+.sidebar-nav-item:active { background-color: rgb(var(--color-surface-border)); }
+
+/* Sidebar icon button (collapsed rail) */
+.sidebar-icon-btn { transition: background-color 0.1s ease; }
+.sidebar-icon-btn:hover { background-color: rgb(var(--color-surface-overlay)); }
+.sidebar-icon-btn:active { background-color: rgb(var(--color-surface-border)); }
+
+/* Skeleton pulse (explicit — survives Tailwind tree-shaking) */
+@keyframes pulse {
+  50% { opacity: .5; }
+}
+
 /* Pulsing spike alert dot */
 @keyframes spike-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }

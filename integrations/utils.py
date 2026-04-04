@@ -116,6 +116,7 @@ async def inject_message(
     notify: bool = True,
     dispatch_config: dict | None = None,
     execution_config: dict | None = None,
+    extra_metadata: dict | None = None,
     db: AsyncSession,
 ) -> dict[str, Any]:
     """
@@ -125,6 +126,7 @@ async def inject_message(
     - run_agent=True: creates an async Task to run the agent on this message
     - dispatch_config: if provided, used on the Task instead of session.dispatch_config
       (allows per-event data like comment_target to be passed through)
+    - extra_metadata: additional metadata merged into the message (sender info, etc.)
 
     Returns {"message_id": ..., "session_id": ..., "task_id": ... or None}
     """
@@ -133,6 +135,8 @@ async def inject_message(
         raise ValueError(f"Session {session_id} not found")
 
     metadata = {"source": source}
+    if extra_metadata:
+        metadata.update(extra_metadata)
     await store_passive_message(db, session_id, content, metadata, channel_id=session.channel_id)
 
     result = await db.execute(

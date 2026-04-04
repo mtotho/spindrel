@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, Platform } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FlatList } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { Shield, ChevronUp, ChevronDown } from "lucide-react";
@@ -58,22 +57,23 @@ function HudStripBar({
     return (
       <button
         onClick={() => toggleHud(channelId)}
+        aria-label="Expand HUD"
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           gap: 4,
-          padding: "2px 0",
+          padding: "6px 0",
           border: "none",
           borderBottom: `1px solid ${t.surfaceBorder}`,
           background: t.surfaceRaised,
           cursor: "pointer",
           width: "100%",
-          opacity: 0.5,
+          opacity: 0.6,
         }}
       >
-        <ChevronDown size={10} color={t.textDim} />
-        <span style={{ fontSize: 9, color: t.textDim }}>HUD</span>
+        <ChevronDown size={12} color={t.textDim} />
+        <span style={{ fontSize: 10, color: t.textDim }}>HUD</span>
       </button>
     );
   }
@@ -85,6 +85,7 @@ function HudStripBar({
       ))}
       <button
         onClick={() => toggleHud(channelId)}
+        className="header-icon-btn"
         style={{
           position: "absolute",
           right: 4,
@@ -92,15 +93,16 @@ function HudStripBar({
           background: "none",
           border: "none",
           cursor: "pointer",
-          padding: 2,
+          padding: 6,
           borderRadius: 4,
           display: "flex",
           alignItems: "center",
           opacity: 0.4,
         }}
         title="Collapse HUD"
+        aria-label="Collapse HUD"
       >
-        <ChevronUp size={10} color={t.textDim} />
+        <ChevronUp size={12} color={t.textDim} />
       </button>
     </div>
   );
@@ -122,10 +124,8 @@ export default function ChatScreen() {
 
   const { statusStrips, sidePanels, inputBars, floatingActions } = useIntegrationHuds(channelId);
 
-  const isWeb = Platform.OS === "web";
   const showHamburger = columns === "single" || sidebarCollapsed;
   const t = useThemeTokens();
-  const safeInsets = useSafeAreaInsets();
 
   const markRead = useChannelReadStore((s) => s.markRead);
 
@@ -191,12 +191,12 @@ export default function ChatScreen() {
       const meta = (item.metadata ?? {}) as Record<string, any>;
       if (item.role === "user" && meta.trigger && SUPPORTED_TRIGGERS.has(meta.trigger)) {
         const card = <TriggerCard message={item} botName={bot?.name} />;
-        return isWeb ? <>{dateSep}{card}</> : <>{card}{dateSep}</>;
+        return <>{dateSep}{card}</>;
       }
       const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={showDateSep ? false : grouped} />;
-      return isWeb ? <>{dateSep}{bubble}</> : <>{bubble}{dateSep}</>;
+      return <>{dateSep}{bubble}</>;
     },
-    [invertedData, bot?.name, isWeb]
+    [invertedData, bot?.name]
   );
 
   // ---- Workspace / file explorer state ----
@@ -281,7 +281,7 @@ export default function ChatScreen() {
   }, [workspaceId, channelId, expandDir]);
 
   const handleOpenEditor = useCallback(async () => {
-    if (!workspaceId || !channelId || !isWeb) return;
+    if (!workspaceId || !channelId) return;
     try {
       await enableEditorMutation.mutateAsync();
       const { serverUrl } = useAuthStore.getState();
@@ -372,34 +372,22 @@ export default function ChatScreen() {
 
       {/* Protected channel warning */}
       {channel?.client_id === "orchestrator:home" && (
-        isWeb ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              padding: "6px 16px",
-              borderBottom: "1px solid rgba(245, 158, 11, 0.2)",
-              backgroundColor: "rgba(245, 158, 11, 0.08)",
-            }}
-          >
-            <Shield size={13} color="#d97706" />
-            <span style={{ fontSize: 12, color: "#d97706" }}>
-              System admin channel — this bot has unrestricted tool access and can delegate to all bots.
-            </span>
-          </div>
-        ) : (
-          <View
-            className="flex-row items-center gap-2 px-4 py-1.5 border-b border-amber-500/20"
-            style={{ backgroundColor: "rgba(245,158,11,0.08)" }}
-          >
-            <Shield size={13} color="#d97706" />
-            <Text style={{ fontSize: 12, color: "#d97706" }}>
-              System admin channel — this bot has unrestricted tool access and can delegate to all bots.
-            </Text>
-          </View>
-        )
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 16px",
+            borderBottom: "1px solid rgba(245, 158, 11, 0.2)",
+            backgroundColor: "rgba(245, 158, 11, 0.08)",
+          }}
+        >
+          <Shield size={13} color="#d97706" />
+          <span style={{ fontSize: 12, color: "#d97706" }}>
+            System admin channel — this bot has unrestricted tool access and can delegate to all bots.
+          </span>
+        </div>
       )}
 
       {/* Content area -- explorer + chat/file viewer */}
@@ -422,12 +410,12 @@ export default function ChatScreen() {
           />
         ) : (
           <>
-            <View style={{ flex: 1, position: "relative" }}>
+            <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
               <ChatMessageArea {...messageAreaProps} />
               {floatingActions.map((h) => (
                 <HudFloatingAction key={h.key} hud={h} />
               ))}
-            </View>
+            </div>
             {chatState.error && (
               <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
             )}
@@ -448,7 +436,7 @@ export default function ChatScreen() {
         )
       ) : (
         /* ---- Desktop/tablet: side-by-side layout ---- */
-        <View style={{ flex: 1, flexDirection: "row", overflow: "hidden" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden" }}>
           {/* Explorer panel + resize handle */}
           {showExplorer && channelId && (
             <>
@@ -459,24 +447,22 @@ export default function ChatScreen() {
                 onClose={handleCloseExplorer}
                 width={explorerWidth}
               />
-              {isWeb && (
-                <ResizeHandle
-                  direction="horizontal"
-                  onResize={(delta) => setExplorerWidth(explorerWidth + delta)}
-                />
-              )}
+              <ResizeHandle
+                direction="horizontal"
+                onResize={(delta) => setExplorerWidth(explorerWidth + delta)}
+              />
             </>
           )}
 
           {/* Chat column -- messages + input stacked vertically */}
           {(!showFileViewer || splitMode) && (
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <View style={{ flex: 1, position: "relative" }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+              <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
                 <ChatMessageArea {...messageAreaProps} />
                 {floatingActions.map((h) => (
                   <HudFloatingAction key={h.key} hud={h} />
                 ))}
-              </View>
+              </div>
               {chatState.error && (
                 <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
               )}
@@ -493,16 +479,17 @@ export default function ChatScreen() {
                 <HudInputBar key={h.key} hud={h} />
               ))}
               <MessageInput {...messageInputProps} />
-            </View>
+            </div>
           )}
 
           {/* File viewer -- visible when a file is selected */}
           {showFileViewer && channelId && (
-            <View style={{
+            <div style={{
               flex: 1,
+              display: "flex",
+              flexDirection: "column",
               minWidth: 0,
-              borderLeftWidth: splitMode ? 1 : 0,
-              borderLeftColor: t.surfaceBorder,
+              borderLeft: splitMode ? `1px solid ${t.surfaceBorder}` : "none",
             }}>
               <ChannelFileViewer
                 channelId={channelId}
@@ -512,7 +499,7 @@ export default function ChatScreen() {
                 onToggleSplit={toggleSplit}
                 onDirtyChange={handleDirtyChange}
               />
-            </View>
+            </div>
           )}
 
           {/* HUD side panels */}
@@ -528,7 +515,7 @@ export default function ChatScreen() {
               primaryBotName={bot?.name}
             />
           )}
-        </View>
+        </div>
       )}
       <ConfirmDialog
         open={pendingDirtyAction !== null}
@@ -596,20 +583,9 @@ export default function ChatScreen() {
     </>
   );
 
-  if (isWeb) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface }}>
-        {outerChildren}
-      </div>
-    );
-  }
-
   return (
-    <View
-      className="flex-1 bg-surface"
-      style={{ paddingTop: safeInsets.top, paddingBottom: safeInsets.bottom }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface }}>
       {outerChildren}
-    </View>
+    </div>
   );
 }

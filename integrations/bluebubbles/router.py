@@ -163,6 +163,15 @@ def _parse_extra_wake_words(raw: str) -> list[str]:
     return [w.strip().lower() for w in raw.split(",") if w.strip()]
 
 
+def _format_handle_name(handle: dict) -> str | None:
+    """Build a display name from BB handle firstName/lastName fields."""
+    first = (handle.get("firstName") or "").strip()
+    last = (handle.get("lastName") or "").strip()
+    if first and last:
+        return f"{first} {last}"
+    return first or last or None
+
+
 def _bot_wake_words(bot_id: str) -> list[str]:
     """Return wake words derived from a bot's id and name."""
     try:
@@ -964,6 +973,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     # Extract sender info
     handle = data.get("handle") or {}
     sender = handle.get("address", "unknown") if not is_from_me else "me"
+    # Sender display name is resolved per-binding below (needs binding.display_name)
 
     # Read BB credentials
     from integrations.bluebubbles.config import settings as bb_settings
@@ -1033,10 +1043,29 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                 run_agent = False
                 content = f"[{sender}]: {text}"
 
+        # Resolve sender display name: BB contact info → binding display name → raw address
+        sender_display = (
+            handle.get("displayName")
+            or _format_handle_name(handle)
+            or binding.display_name
+            or (handle.get("address") if not is_from_me else None)
+        )
+
+        # Sender metadata for UI display (name, source label, etc.)
+        extra_metadata: dict = {
+            "sender_id": f"bb:{handle.get('address', 'unknown')}",
+            "is_from_me": is_from_me,
+        }
+        if sender_display and not is_from_me:
+            extra_metadata["sender_display_name"] = sender_display
+        if binding.display_name:
+            extra_metadata["binding_display_name"] = binding.display_name
+
         result = await utils.inject_message(
             session_id, content, source="bluebubbles",
             run_agent=run_agent, notify=False,
             dispatch_config=dispatch_config,
+            extra_metadata=extra_metadata,
             db=db,
         )
         results.append(result)

@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from "react";
+import { useRef, useCallback, useEffect, useState } from "react";
 import { useThemeTokens } from "../../theme/tokens";
 
 interface ResizeHandleProps {
@@ -10,15 +10,25 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
   const t = useThemeTokens();
   const dragging = useRef(false);
   const lastPos = useRef(0);
-  // Keep a ref so the mousemove handler always calls the latest callback
+  const [hovered, setHovered] = useState(false);
+  // Keep a ref so the move handler always calls the latest callback
   const onResizeRef = useRef(onResize);
   useEffect(() => { onResizeRef.current = onResize; });
+
+  const startDrag = useCallback(
+    (startPos: number) => {
+      dragging.current = true;
+      lastPos.current = startPos;
+      document.body.style.cursor = direction === "horizontal" ? "col-resize" : "row-resize";
+      document.body.style.userSelect = "none";
+    },
+    [direction],
+  );
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      dragging.current = true;
-      lastPos.current = direction === "horizontal" ? e.clientX : e.clientY;
+      startDrag(direction === "horizontal" ? e.clientX : e.clientY);
 
       const onMouseMove = (ev: MouseEvent) => {
         if (!dragging.current) return;
@@ -38,10 +48,37 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
 
       document.addEventListener("mousemove", onMouseMove);
       document.addEventListener("mouseup", onMouseUp);
-      document.body.style.cursor = direction === "horizontal" ? "col-resize" : "row-resize";
-      document.body.style.userSelect = "none";
     },
-    [direction]
+    [direction, startDrag],
+  );
+
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      startDrag(direction === "horizontal" ? touch.clientX : touch.clientY);
+
+      const onTouchMove = (ev: TouchEvent) => {
+        if (!dragging.current || ev.touches.length !== 1) return;
+        ev.preventDefault(); // prevent scroll while dragging
+        const pos = direction === "horizontal" ? ev.touches[0].clientX : ev.touches[0].clientY;
+        const delta = pos - lastPos.current;
+        lastPos.current = pos;
+        onResizeRef.current(delta);
+      };
+
+      const onTouchEnd = () => {
+        dragging.current = false;
+        document.removeEventListener("touchmove", onTouchMove);
+        document.removeEventListener("touchend", onTouchEnd);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.addEventListener("touchmove", onTouchMove, { passive: false });
+      document.addEventListener("touchend", onTouchEnd);
+    },
+    [direction, startDrag],
   );
 
   const isHorizontal = direction === "horizontal";
@@ -49,25 +86,32 @@ export function ResizeHandle({ direction, onResize }: ResizeHandleProps) {
   return (
     <div
       onMouseDown={onMouseDown}
+      onTouchStart={onTouchStart}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        width: isHorizontal ? 5 : "100%",
-        height: isHorizontal ? "100%" : 5,
+        width: isHorizontal ? 9 : "100%",
+        height: isHorizontal ? "100%" : 9,
         cursor: isHorizontal ? "col-resize" : "row-resize",
         background: "transparent",
         position: "relative",
         flexShrink: 0,
         zIndex: 10,
+        touchAction: "none", // prevent browser scroll/zoom during drag
       }}
     >
       <div
         style={{
           position: "absolute",
-          [isHorizontal ? "left" : "top"]: 2,
+          [isHorizontal ? "left" : "top"]: 4,
           [isHorizontal ? "width" : "height"]: 1,
           [isHorizontal ? "height" : "width"]: "100%",
-          background: t.surfaceBorder,
+          background: hovered ? t.accent : t.surfaceBorder,
           top: isHorizontal ? 0 : undefined,
           left: isHorizontal ? undefined : 0,
+          transition: "background 0.15s ease, width 0.15s ease, height 0.15s ease",
+          ...(hovered && isHorizontal ? { width: 2, left: 3 } : {}),
+          ...(hovered && !isHorizontal ? { height: 2, top: 3 } : {}),
         }}
       />
     </div>

@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { View, Text, Pressable } from "react-native";
 import { Link } from "expo-router";
 import {
   Bot,
@@ -106,22 +105,26 @@ export function NavLink({ item, active, mobile }: { item: NavItem; active: boole
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   const t = useThemeTokens();
   return (
-    <Link href={item.href as any} asChild>
-      <Pressable
-        onPress={closeMobile}
-        className={`flex-row items-center gap-3 rounded-md px-3 ${mobile ? "py-3" : "py-2"} ${
-          active ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
-        }`}
+    <Link href={item.href as any} onPress={closeMobile}>
+      <div
+        className="sidebar-nav-item"
+        style={{
+          display: "flex", alignItems: "center", gap: 12,
+          padding: mobile ? "12px 12px" : "8px 12px",
+          borderRadius: 6, cursor: "pointer",
+          backgroundColor: active ? "rgba(59,130,246,0.15)" : undefined,
+        }}
       >
         <Icon size={mobile ? 20 : 16} color={active ? t.accent : t.textDim} />
-        <Text
-          style={mobile ? { fontSize: 15 } : undefined}
-          className={`${mobile ? "" : "text-sm"} ${active ? "text-accent font-medium" : "text-text-muted"}`}
-          numberOfLines={1}
-        >
+        <span style={{
+          fontSize: mobile ? 15 : 14,
+          color: active ? t.accent : t.textMuted,
+          fontWeight: active ? 500 : 400,
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
           {item.label}
-        </Text>
-      </Pressable>
+        </span>
+      </div>
     </Link>
   );
 }
@@ -131,17 +134,19 @@ export function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   const t = useThemeTokens();
   return (
-    <Link href={item.href as any} asChild>
-      <Pressable
-        onPress={closeMobile}
-        className={`items-center justify-center rounded-lg ${
-          active ? "bg-accent/15" : "hover:bg-surface-overlay active:bg-surface-overlay"
-        }`}
-        style={{ width: 44, height: 44 }}
-        accessibilityLabel={item.label}
+    <Link href={item.href as any} onPress={closeMobile}>
+      <div
+        className="sidebar-icon-btn"
+        title={item.label}
+        style={{
+          width: 44, height: 44, borderRadius: 8,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          cursor: "pointer",
+          backgroundColor: active ? "rgba(59,130,246,0.15)" : undefined,
+        }}
       >
         <Icon size={18} color={active ? t.accent : t.textDim} />
-      </Pressable>
+      </div>
     </Link>
   );
 }
@@ -174,14 +179,11 @@ export function AdminSections({ pathname, mobile }: { pathname: string; mobile?:
   const t = useThemeTokens();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     const saved = loadCollapsed();
-    // Default: sections without defaultOpen start collapsed (unless they have the active page)
     const initial: Record<string, boolean> = {};
     for (const section of ADMIN_SECTIONS) {
       if (saved[section.title] !== undefined) {
-        // Respect saved preference, but always expand if active page is in section
         initial[section.title] = sectionHasActive(section, pathname) ? false : saved[section.title];
       } else {
-        // First load: defaultOpen sections start expanded, others collapsed unless active
         initial[section.title] = section.defaultOpen ? false : !sectionHasActive(section, pathname);
       }
     }
@@ -212,35 +214,42 @@ export function AdminSections({ pathname, mobile }: { pathname: string; mobile?:
   };
 
   return (
-    <>
+    <nav>
       {ADMIN_SECTIONS.map((section) => {
         const isCollapsed = collapsed[section.title] ?? false;
         const hasActive = sectionHasActive(section, pathname);
         return (
-          <View key={section.title} className="px-2 py-1.5">
-            <Pressable
-              onPress={() => toggle(section.title)}
-              className="flex-row items-center px-3 py-1.5 rounded hover:bg-surface-overlay"
-              style={{ gap: 4 }}
+          <div key={section.title} style={{ padding: "6px 8px" }}>
+            <button
+              onClick={() => toggle(section.title)}
+              className="sidebar-nav-item"
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "6px 12px", borderRadius: 4,
+                background: "none", border: "none", cursor: "pointer",
+                width: "100%", textAlign: "left",
+              }}
             >
               <ChevronRight
                 size={10}
                 color={hasActive ? t.accent : t.textDim}
                 style={{
-                  transform: [{ rotate: isCollapsed ? "0deg" : "90deg" }],
+                  transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
                   transition: "transform 0.15s",
-                } as any}
+                }}
               />
-              <Text
-                className={`${mobile ? "text-xs" : "text-[11px]"} font-semibold tracking-wider`}
-                style={{ flex: 1, color: hasActive ? t.accent : t.textDim }}
-              >
+              <span style={{
+                flex: 1,
+                fontSize: mobile ? 12 : 11, fontWeight: 600,
+                letterSpacing: 0.5,
+                color: hasActive ? t.accent : t.textDim,
+              }}>
                 {section.title}
-              </Text>
+              </span>
               {isCollapsed && hasActive && (
-                <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: t.accent }} />
+                <span style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: t.accent, display: "inline-block" }} />
               )}
-            </Pressable>
+            </button>
             {!isCollapsed &&
               section.items.map((item) => (
                 <NavLink
@@ -250,9 +259,9 @@ export function AdminSections({ pathname, mobile }: { pathname: string; mobile?:
                   mobile={mobile}
                 />
               ))}
-          </View>
+          </div>
         );
       })}
-    </>
+    </nav>
   );
 }

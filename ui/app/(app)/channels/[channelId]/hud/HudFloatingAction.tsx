@@ -1,4 +1,3 @@
-import { Pressable, View, Text } from "react-native";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -27,15 +26,17 @@ export function HudFloatingAction({ hud }: { hud: ActiveHud }) {
   });
 
   const onClick = hud.widget.on_click;
-  const handlePress = () => {
+  const handleClick = () => {
     if (onClick?.type === "link" && onClick.href) {
       router.push(onClick.href as any);
     }
   };
 
   return (
-    <Pressable
-      onPress={handlePress}
+    <button
+      onClick={handleClick}
+      className="hud-fab"
+      aria-label={hud.widget.label ?? "Open HUD action"}
       style={{
         position: "absolute",
         bottom: 16,
@@ -44,19 +45,19 @@ export function HudFloatingAction({ hud }: { hud: ActiveHud }) {
         height: 44,
         borderRadius: 22,
         backgroundColor: t.accent,
+        display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 4,
+        border: "none",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+        cursor: "pointer",
         zIndex: 10,
+        padding: 0,
       }}
     >
       <Icon size={20} color="#fff" />
       {badgeData?.count != null && badgeData.count > 0 && (
-        <View style={{
+        <span style={{
           position: "absolute",
           top: -2,
           right: -2,
@@ -64,15 +65,17 @@ export function HudFloatingAction({ hud }: { hud: ActiveHud }) {
           height: 18,
           borderRadius: 9,
           backgroundColor: t.danger,
+          display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          paddingHorizontal: 4,
+          padding: "0 4px",
+          fontSize: 10,
+          color: "#fff",
+          fontWeight: 700,
         }}>
-          <Text style={{ fontSize: 10, color: "#fff", fontWeight: "700" }}>
-            {badgeData.count > 99 ? "99+" : badgeData.count}
-          </Text>
-        </View>
+          {badgeData.count > 99 ? "99+" : badgeData.count}
+        </span>
       )}
-    </Pressable>
+    </button>
   );
 }
