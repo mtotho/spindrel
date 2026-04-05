@@ -17,7 +17,6 @@ _SYS_MSG_PREFIXES: list[tuple[str, str]] = [
     ("Tagged knowledge", "sys:tagged_knowledge"),
     ("Pinned skill context", "sys:skill_pinned"),
     ("Available skills (use get_skill", "sys:skill_index"),
-    ("Relevant skill context:\n", "sys:skill_rag"),
     ("Relevant context:\n", "sys:skill_context"),
     ("Available sub-agents", "sys:delegate_index"),
     ("Relevant memories from past", "sys:memory"),

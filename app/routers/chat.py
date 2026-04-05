@@ -401,6 +401,28 @@ async def _maybe_route_to_member_bot(db: AsyncSession, channel, bot, message: st
     return bot, {}
 
 
+def _apply_user_attribution(messages: list[dict]) -> None:
+    """Add [Name]: prefix to user messages based on _metadata.sender_display_name.
+
+    Must be called while _metadata is still present (before strip_metadata_keys).
+    Safe to call alongside _rewrite_history_for_member_bot — duplicate-prefix
+    check prevents double-prefixing.
+    """
+    for msg in messages:
+        if msg.get("role") != "user":
+            continue
+        meta = msg.get("_metadata") or {}
+        sender_name = meta.get("sender_display_name", "")
+        if not sender_name:
+            continue
+        content = msg.get("content", "")
+        # Skip multimodal messages (list content from image attachments)
+        if not isinstance(content, str):
+            continue
+        if not content.startswith(f"[{sender_name}]:"):
+            msg["content"] = f"[{sender_name}]: {content}"
+
+
 def _rewrite_history_for_member_bot(
     messages: list[dict],
     member_bot_id: str,
@@ -469,6 +491,10 @@ def _rewrite_history_for_member_bot(
             sender_name = meta.get("sender_display_name", "")
             if sender_name:
                 content = msg.get("content", "")
+                # Skip multimodal messages (list content from image attachments)
+                if not isinstance(content, str):
+                    i += 1
+                    continue
                 # Don't double-prefix if already prefixed
                 if not content.startswith(f"[{sender_name}]:"):
                     msg["content"] = f"[{sender_name}]: {content}"
@@ -655,10 +681,12 @@ async def _run_member_bot_reply(
         correlation_id = uuid.uuid4()
         from_index = len(messages)
 
-        # Trigger prompt — include context so member bot understands the conversation
+        # Trigger prompt — include identity + context so member bot knows who it is
         prompt = (
+            f"You are {member_bot.name} (bot_id: {member_bot_id}). "
             f"{mentioning_bot.name} (@{mentioning_bot_id}) mentioned you in the channel conversation. "
-            f"Read the conversation above and respond naturally to what was discussed."
+            f"Read the conversation above and respond naturally to what was discussed. "
+            f"Do not @-mention yourself."
         )
         model_override = member_config.get("model_override")
 
@@ -832,6 +860,9 @@ async def chat(
         from app.agent.bots import get_bot as _get_bot_nc
         _pb_nc = _get_bot_nc(_primary_bot_id_nc)
         _rewrite_history_for_member_bot(messages, bot.id, primary_bot_name=_pb_nc.name if _pb_nc else None)
+
+    # Add [Name]: prefix to user messages so the bot can distinguish speakers
+    _apply_user_attribution(messages)
 
     # Strip internal _metadata now that rewriting is done
     from app.services.sessions import strip_metadata_keys
@@ -1070,6 +1101,9 @@ async def chat_stream(
         from app.agent.bots import get_bot as _get_bot_s
         _pb_s = _get_bot_s(_primary_bot_id)
         _rewrite_history_for_member_bot(messages, bot.id, primary_bot_name=_pb_s.name if _pb_s else None)
+
+    # Add [Name]: prefix to user messages so the bot can distinguish speakers
+    _apply_user_attribution(messages)
 
     # Strip internal _metadata now that rewriting is done
     from app.services.sessions import strip_metadata_keys

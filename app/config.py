@@ -386,11 +386,6 @@ class Settings(BaseSettings):
     # Max run time for tasks/heartbeats (seconds). Per-task > per-channel > this global default.
     TASK_MAX_RUN_SECONDS: int = 1200         # 20 minutes
 
-    # Web tools
-    WEB_SEARCH_MODE: str = "searxng"  # "searxng" (self-hosted), "ddgs" (lightweight), or "none"
-    SEARXNG_URL: str = "http://searxng:8080"
-    PLAYWRIGHT_WS_URL: str = "ws://playwright:3000"
-
     # Context compaction
     COMPACTION_MODEL: str = ""
     COMPACTION_INTERVAL: int = 30 # Every time there gets to be N turns in the session (minus the compaction message), the compaction will run.
@@ -533,7 +528,7 @@ class Settings(BaseSettings):
     RAG_RERANK_MAX_CHUNKS: int = 20         # max chunks to keep after reranking
     RAG_RERANK_MAX_TOKENS: int = 1000       # max output tokens for reranker response (LLM backend only)
     RAG_RERANK_CROSS_ENCODER_MODEL: str = "Xenova/ms-marco-MiniLM-L-6-v2"  # cross-encoder model name
-    RAG_RERANK_SCORE_THRESHOLD: float = 0.01  # min cross-encoder score to keep a chunk (0-1 range)
+    RAG_RERANK_SCORE_THRESHOLD: float = 0.01  # min relevance probability after sigmoid (0-1); 0.01 = keep >1% relevant
 
     # Chat History defaults
     DEFAULT_HISTORY_MODE: str = "file"  # "summary" | "structured" | "file"

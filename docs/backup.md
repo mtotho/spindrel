@@ -43,7 +43,7 @@ rclone lsd "$RCLONE_REMOTE"
 
 This will:
 1. `pg_dump` the database via `docker compose exec`
-2. Bundle the dump with `.env`, `bots/`, `skills/`, `mcp.yaml`, and `config/searxng/settings.yml`
+2. Bundle the dump with `.env`, `bots/`, `skills/`, `tools/`, `integrations/`, and `mcp.yaml`
 3. Upload the tarball to the rclone remote (`RCLONE_REMOTE`)
 4. Prune local backups to the most recent 7
 
@@ -107,7 +107,7 @@ Both scripts support environment variable overrides:
 | `bots/*.yaml` | Bot configurations |
 | `skills/*.md` | Skill definitions |
 | `mcp.yaml` | MCP server config |
-| `config/searxng/settings.yml` | SearXNG customization |
+| `integrations/` | Integration directories (tools, configs, etc.) |
 
 ## Migration to a new server
 

@@ -24,7 +24,7 @@ from app.services.paths import local_to_host, local_workspace_base
 
 logger = logging.getLogger(__name__)
 
-PROJECT_PREFIX = "spindrel-stack-"
+PROJECT_PREFIX = "spindrel-"
 
 # Blocked Compose keys (security-sensitive)
 _BLOCKED_SERVICE_KEYS = {
@@ -280,6 +280,12 @@ class StackService:
             if network_name:
                 await self._connect_workspace(stack.created_by_bot, network_name)
 
+            # Bridge stack containers into additional networks (integration stacks)
+            if stack.connect_networks and container_ids:
+                for net in stack.connect_networks:
+                    for cid in container_ids.values():
+                        await self._connect_network(net, cid)
+
             return await self._get(stack.id)
 
         except Exception as e:
@@ -344,6 +350,8 @@ class StackService:
 
     async def destroy(self, stack: DockerStack, remove_volumes: bool = True) -> None:
         """Tear down a stack completely and delete the DB row."""
+        if stack.source == "integration":
+            raise StackError("Integration stacks cannot be destroyed — they are managed by code")
         # Disconnect workspace first
         if stack.network_name:
             await self._disconnect_workspace(stack.created_by_bot, stack.network_name)
@@ -559,6 +567,73 @@ class StackService:
 
         return fixed
 
+    async def sync_integration_stack(
+        self,
+        integration_id: str,
+        name: str,
+        compose_definition: str,
+        project_name: str,
+        description: str | None = None,
+        connect_networks: list[str] | None = None,
+        config_files: dict[str, str] | None = None,
+    ) -> DockerStack:
+        """Upsert an integration-owned stack.
+
+        Creates or updates the DB row and materializes compose + config files
+        to the stacks directory.  Skips validate_compose() since integration
+        compose files are trusted checked-in code.
+
+        Args:
+            integration_id: e.g. "web_search"
+            name: human-readable name
+            compose_definition: raw YAML string
+            project_name: Docker Compose project name (must start with PROJECT_PREFIX)
+            description: optional description
+            connect_networks: Docker networks to bridge containers into after start
+            config_files: {relative_path: file_content} for volume-mounted config files
+        """
+        async with async_session() as db:
+            # Look up by integration_id
+            row = (await db.execute(
+                select(DockerStack).where(DockerStack.integration_id == integration_id)
+            )).scalar_one_or_none()
+
+            if row:
+                # Update if compose changed
+                if row.compose_definition != compose_definition:
+                    row.compose_definition = compose_definition
+                    row.updated_at = datetime.now(timezone.utc)
+                row.connect_networks = connect_networks or []
+                row.name = name
+                row.description = description
+                row.project_name = project_name
+                await db.commit()
+                await db.refresh(row)
+            else:
+                row = DockerStack(
+                    name=name,
+                    description=description,
+                    created_by_bot="_integration",
+                    compose_definition=compose_definition,
+                    project_name=project_name,
+                    status="stopped",
+                    source="integration",
+                    integration_id=integration_id,
+                    connect_networks=connect_networks or [],
+                )
+                db.add(row)
+                await db.commit()
+                await db.refresh(row)
+
+        # Materialize compose file + config files to stacks directory
+        stack_id = str(row.id)
+        self._materialize(stack_id, compose_definition)
+        if config_files:
+            for rel_path, content in config_files.items():
+                self._materialize_file(stack_id, rel_path, content)
+
+        return row
+
     # --- Internal helpers ---
 
     async def _get(self, stack_id: uuid.UUID) -> DockerStack:
@@ -575,6 +650,13 @@ class StackService:
         path = _compose_path(stack_id)
         with open(path, "w") as f:
             f.write(yaml_content)
+
+    def _materialize_file(self, stack_id: str, rel_path: str, content: str) -> None:
+        """Write an auxiliary file (e.g. config) to the stack directory."""
+        target = os.path.join(_stack_dir(stack_id), rel_path)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w") as f:
+            f.write(content)
 
     async def _compose_cmd(
         self,
@@ -710,6 +792,25 @@ class StackService:
             await proc.communicate()
         except Exception:
             pass  # Best-effort
+
+    async def _connect_network(self, network: str, container_id: str) -> None:
+        """Connect a container to an external Docker network."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "network", "connect", network, container_id,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                logger.info("Connected container %s to network %s", container_id, network)
+            elif b"already exists" in stderr:
+                pass  # Already connected
+            else:
+                logger.warning("Failed to connect container %s to network %s: %s",
+                               container_id, network, stderr.decode())
+        except Exception:
+            logger.warning("Error connecting container to network", exc_info=True)
 
     async def _find_workspace_container(self, bot_id: str) -> str | None:
         """Find the workspace container name for a bot."""

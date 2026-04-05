@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -25,22 +26,21 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _RAG_PREFIXES: list[tuple[str, str]] = [
-    ("Pinned skill context:\n\n", "skill_pinned"),
-    ("Relevant skill context:\n\n", "skill_rag"),
     ("Relevant memories from past conversations", "memory"),
-    ("Pinned knowledge (always available):\n\n", "pinned_knowledge"),
     ("Relevant knowledge:\n\n", "knowledge"),
     ("Relevant files from workspace", "filesystem"),
     ("Relevant code/files", "filesystem"),
-    ("Workspace pinned skills:\n\n", "ws_skill_pinned"),
-    ("Relevant workspace skills:\n\n", "ws_skill_rag"),
     ("Relevant conversation history sections:\n\n", "conversation_sections"),
-    # Note: memory bootstrap/log messages are in _EXCLUDED_PREFIXES — they're
-    # structural (always auto-injected) and should never be reranked.
+    # Note: pinned skills/knowledge and memory bootstrap/log messages are in
+    # _EXCLUDED_PREFIXES — they're always-present content that should never be
+    # reranked or filtered out.
 ]
 
-# Prefixes that are NEVER re-ranked (user explicitly requested, or structural)
+# Prefixes that are NEVER re-ranked (pinned content, user explicitly requested, or structural)
 _EXCLUDED_PREFIXES: list[str] = [
+    "Pinned skill context",
+    "Pinned knowledge (always available)",
+    "Workspace pinned skills",
     "Tagged skill context",
     "Tagged knowledge",
     "Your persistent memory (memory/MEMORY.md",
@@ -220,6 +220,14 @@ async def _rerank_via_llm(
 # Cross-encoder backend
 # ---------------------------------------------------------------------------
 
+def _sigmoid(x: float) -> float:
+    """Convert logit score to 0-1 probability."""
+    try:
+        return 1.0 / (1.0 + math.exp(-x))
+    except OverflowError:
+        return 0.0 if x < 0 else 1.0
+
+
 async def _rerank_via_cross_encoder(
     all_chunks: list[tuple[_RagMessage, int, str]],
     user_message: str,
@@ -243,17 +251,39 @@ async def _rerank_via_cross_encoder(
         logger.warning("Cross-encoder reranking failed, skipping", exc_info=True)
         return None
 
-    # Pair scores with indices, sort descending
-    scored = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
+    # Normalize logit scores to 0-1 probabilities via sigmoid
+    normed = [_sigmoid(s) for s in scores]
+
+    # Log score distribution for debugging
+    threshold = settings.RAG_RERANK_SCORE_THRESHOLD
+    if normed:
+        sorted_scores = sorted(normed, reverse=True)
+        above = sum(1 for s in normed if s >= threshold)
+        logger.debug(
+            "Cross-encoder scores (n=%d): min=%.4f max=%.4f median=%.4f above_threshold=%d (threshold=%.4f)",
+            len(normed), sorted_scores[-1], sorted_scores[0],
+            sorted_scores[len(sorted_scores) // 2], above, threshold,
+        )
+
+    # Pair normalized scores with indices, sort descending
+    scored = sorted(enumerate(normed), key=lambda x: x[1], reverse=True)
 
     # Apply score threshold and max chunks
     keep: set[int] = set()
     for idx, score in scored:
-        if score < settings.RAG_RERANK_SCORE_THRESHOLD:
+        if score < threshold:
             break
         keep.add(idx)
         if len(keep) >= settings.RAG_RERANK_MAX_CHUNKS:
             break
+
+    if not keep and all_chunks:
+        logger.warning(
+            "Cross-encoder reranking kept 0/%d chunks — all scores below threshold %.4f "
+            "(raw score range: %.4f to %.4f)",
+            len(all_chunks), threshold,
+            min(scores) if scores else 0, max(scores) if scores else 0,
+        )
 
     return keep
 
@@ -276,11 +306,13 @@ async def rerank_rag_context(
     Returns a ``RerankResult`` on success with before/after stats.
     """
     if not settings.RAG_RERANK_ENABLED:
+        logger.debug("RAG reranking disabled")
         return None
 
     # Identify RAG messages
     rag_msgs = _identify_rag_messages(messages)
     if not rag_msgs:
+        logger.debug("RAG reranking: no RAG messages found, skipping")
         return None
 
     # Count total chunks and chars
@@ -292,10 +324,16 @@ async def rerank_rag_context(
             total_chars += len(chunk)
 
     if total_chars < settings.RAG_RERANK_THRESHOLD_CHARS:
+        logger.debug(
+            "RAG reranking: %d chars below threshold %d, skipping",
+            total_chars, settings.RAG_RERANK_THRESHOLD_CHARS,
+        )
         return None
 
     # Dispatch to backend
     backend = settings.RAG_RERANK_BACKEND
+    logger.info("RAG reranking: backend=%s, threshold=%.4f, chunks=%d, chars=%d",
+                backend, settings.RAG_RERANK_SCORE_THRESHOLD, len(all_chunks), total_chars)
     if backend == "cross-encoder":
         keep_set = await _rerank_via_cross_encoder(all_chunks, user_message)
     elif backend == "llm":
@@ -339,10 +377,17 @@ async def rerank_rag_context(
     for idx in sorted(indices_to_remove, reverse=True):
         messages.pop(idx)
 
-    return RerankResult(
+    result = RerankResult(
         original_chunks=len(all_chunks),
         kept_chunks=kept_chunks,
         original_chars=total_chars,
         kept_chars=kept_chars,
         removed_message_indices=indices_to_remove,
     )
+    logger.info(
+        "RAG reranking complete: %d→%d chunks, %d→%d chars, %d messages removed",
+        result.original_chunks, result.kept_chunks,
+        result.original_chars, result.kept_chars,
+        len(indices_to_remove),
+    )
+    return result

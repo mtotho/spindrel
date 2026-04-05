@@ -4,7 +4,7 @@ import { Search, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useSkills, type SkillItem } from "@/src/api/hooks/useSkills";
 
-type SkillEntry = { id: string; mode?: string; similarity_threshold?: number };
+type SkillEntry = { id: string; mode?: string };
 
 function SectionDivider({ label, count, level }: { label: string; count?: number; level?: number }) {
   const t = useThemeTokens();
@@ -73,7 +73,7 @@ export function WorkspaceSkills({
   const setMode = (id: string, mode: string) => {
     onChange(
       skills.map((s) =>
-        s.id === id ? { ...s, mode, similarity_threshold: mode === "rag" ? s.similarity_threshold : undefined } : s,
+        s.id === id ? { ...s, mode } : s,
       ),
     );
   };
@@ -142,8 +142,7 @@ export function WorkspaceSkills({
       <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8 }}>
         Check to assign skills to all bots in this workspace.{" "}
         <strong style={{ color: t.textMuted }}>on_demand</strong>: index + get_skill.{" "}
-        <strong style={{ color: t.textMuted }}>pinned</strong>: full content every turn.{" "}
-        <strong style={{ color: t.textMuted }}>rag</strong>: similarity per turn.
+        <strong style={{ color: t.textMuted }}>pinned</strong>: full content every turn.
       </div>
 
       {/* Search */}
@@ -205,12 +204,12 @@ export function WorkspaceSkills({
                 )}
                 {sel && entry && (
                   <div style={{ marginLeft: 28 }}>
-                    <select value={entry.mode || "on_demand"} onChange={(e: any) => setMode(skill.id, e.target.value)}
-                      style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}>
-                      <option value="on_demand">on_demand</option>
-                      <option value="pinned">pinned</option>
-                      <option value="rag">rag</option>
-                    </select>
+                    <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted, cursor: "pointer" }}>
+                      <input type="checkbox" checked={entry.mode === "pinned"}
+                        onChange={(e) => setMode(skill.id, e.target.checked ? "pinned" : "on_demand")}
+                        style={{ accentColor: t.accent }} />
+                      pin (full content every turn)
+                    </label>
                   </div>
                 )}
               </div>
@@ -245,16 +244,15 @@ export function WorkspaceSkills({
               </div>
               <SourceBadge type={skill.source_type} />
               {sel && entry ? (
-                <select
-                  value={entry.mode || "on_demand"}
-                  onChange={(e: any) => setMode(skill.id, e.target.value)}
+                <label
+                  style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted, cursor: "pointer" }}
                   onClick={(e) => e.stopPropagation()}
-                  style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}
                 >
-                  <option value="on_demand">on_demand</option>
-                  <option value="pinned">pinned</option>
-                  <option value="rag">rag</option>
-                </select>
+                  <input type="checkbox" checked={entry.mode === "pinned"}
+                    onChange={(e) => setMode(skill.id, e.target.checked ? "pinned" : "on_demand")}
+                    style={{ accentColor: t.accent }} />
+                  pin
+                </label>
               ) : <span />}
             </label>
           );

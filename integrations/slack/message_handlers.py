@@ -11,6 +11,37 @@ from state import get_channel_state
 
 logger = logging.getLogger(__name__)
 
+# Cache Slack user display names to avoid repeated API calls.
+# Key: Slack user ID (e.g., "U0AN0N161B8"), Value: display name string.
+_user_name_cache: dict[str, str] = {}
+
+
+async def _resolve_slack_display_name(client, user_id: str) -> str:
+    """Look up a Slack user's display name, with caching.
+
+    Tries profile.display_name first, falls back to real_name, then user_id.
+    """
+    if user_id in _user_name_cache:
+        return _user_name_cache[user_id]
+
+    try:
+        resp = await client.users_info(user=user_id)
+        if resp and resp.get("ok"):
+            profile = resp.get("user", {}).get("profile", {})
+            name = (
+                profile.get("display_name")
+                or profile.get("real_name")
+                or resp.get("user", {}).get("real_name")
+                or user_id
+            )
+            _user_name_cache[user_id] = name
+            return name
+    except Exception:
+        logger.debug("Failed to resolve Slack user %s display name", user_id, exc_info=True)
+
+    _user_name_cache[user_id] = user_id
+    return user_id
+
 TEXT_MIMES = {
     "text/plain",
     "text/markdown",
@@ -697,6 +728,11 @@ async def dispatch(
     is_bot_sender = user.startswith("bot:")
     is_passive = not mentioned and config["require_mention"] and not (is_bot_sender and config.get("allow_bot_messages"))
 
+    # Resolve Slack user's display name for attribution
+    _slack_display_name = user
+    if not is_bot_sender:
+        _slack_display_name = await _resolve_slack_display_name(client, user)
+
     msg_metadata = {
         "passive": is_passive,
         "include_in_memory": config["passive_memory"],
@@ -704,10 +740,11 @@ async def dispatch(
         "source": "slack",
         "sender_type": "bot" if is_bot_sender else "human",
         "sender_id": f"slack:{user}",
+        "sender_display_name": _slack_display_name,
         "recipient_id": f"bot:{bot_id}" if mentioned else None,
     }
 
-    full_message = f"[Slack channel:{channel} user:{user}] {text}{appended}"
+    full_message = f"[Slack channel:{channel} user:{_slack_display_name}] {text}{appended}"
 
     if is_passive:
         # Store message without running agent

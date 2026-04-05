@@ -25,7 +25,7 @@ SOURCE_PREFIX = "workspace_skill"
 class WorkspaceSkill:
     workspace_id: str
     source_path: str        # e.g. "common/skills/pinned/coding.md"
-    mode: str               # pinned | rag | on_demand
+    mode: str               # pinned | on_demand
     skill_id: str           # derived: "ws:{workspace_id_short}:{path_hash}"
     bot_id: str | None      # None for common skills
     content: str
@@ -37,7 +37,7 @@ def _mode_from_path(rel_path: str) -> str:
     """Determine skill mode from the path within skills/ directory.
 
     pinned/  → pinned
-    rag/     → rag
+    rag/     → on_demand  (legacy dir name, treated as on_demand)
     on-demand/ → on_demand
     top-level (no subdir) → pinned (default)
     """

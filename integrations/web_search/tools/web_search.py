@@ -4,8 +4,8 @@ import re
 
 import httpx
 
-from app.config import settings
-from app.tools.registry import register
+from integrations.web_search.config import settings
+from integrations._register import register
 from app.utils.url_validation import validate_url as _validate_url
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ async def web_search(query: str, num_results: int = 5) -> str:
     elif mode == "ddgs":
         return await _web_search_ddgs(query, num_results)
     else:
-        return json.dumps({"error": "Web search is disabled. Enable it in Settings > Web Search."})
+        return json.dumps({"error": "Web search is disabled. Enable it in Settings > Integrations > Web Search."})
 
 
 async def _web_search_searxng(query: str, num_results: int = 5) -> str:
@@ -63,7 +63,7 @@ async def _web_search_searxng(query: str, num_results: int = 5) -> str:
             resp.raise_for_status()
             data = resp.json()
     except httpx.ConnectError:
-        return json.dumps({"error": f"Cannot connect to SearXNG at {settings.SEARXNG_URL}. Are the containers running? (COMPOSE_PROFILES=web-search)"})
+        return json.dumps({"error": f"Cannot connect to SearXNG at {settings.SEARXNG_URL}. Check that the SearXNG container is running or your SEARXNG_URL is correct."})
     except httpx.TimeoutException:
         return json.dumps({"error": f"SearXNG request timed out ({settings.SEARXNG_URL})"})
     except httpx.HTTPStatusError as exc:

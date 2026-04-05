@@ -2005,11 +2005,6 @@ async def admin_channel_context_preview(
             index_lines = "\n".join(f"- {r.id}: {r.name}" for r in rows)
             blocks.append({"label": f"Skill Index ({len(rows)})", "role": "system", "content": f"Available skills (use get_skill to retrieve full content):\n{index_lines}"})
 
-    # --- RAG skills placeholder ---
-    rag_skills = [s for s in bot.skills if s.mode == "rag"]
-    if rag_skills:
-        blocks.append({"label": f"RAG Skills ({len(rag_skills)})", "role": "system", "content": "[RAG skill chunks — varies by query similarity]"})
-
     # --- Delegate bot index ---
     if bot.delegate_bots:
         lines = []

@@ -228,7 +228,7 @@ export default function WorkspaceDetailScreen() {
   const [skillsEnabled, setSkillsEnabled] = useState(true);
   const [basePromptEnabled, setBasePromptEnabled] = useState(true);
   const [writeProtectedPaths, setWriteProtectedPaths] = useState<string[]>([]);
-  const [dbSkills, setDbSkills] = useState<{ id: string; mode?: string; similarity_threshold?: number }[]>([]);
+  const [dbSkills, setDbSkills] = useState<{ id: string; mode?: string }[]>([]);
   const [initialized, setInitialized] = useState(isNew);
 
   if (workspace && !initialized) {

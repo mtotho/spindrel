@@ -27,6 +27,9 @@ class DockerStackOut(BaseModel):
     network_name: str | None = None
     container_ids: dict = {}
     exposed_ports: dict = {}
+    source: str = "bot"
+    integration_id: str | None = None
+    connect_networks: list = []
     last_started_at: datetime | None = None
     last_stopped_at: datetime | None = None
     created_at: datetime | None = None
@@ -125,6 +128,8 @@ async def destroy_docker_stack(stack_id: uuid.UUID, db: AsyncSession = Depends(g
     row = await db.get(DockerStack, stack_id)
     if not row:
         raise HTTPException(status_code=404, detail="Stack not found")
+    if row.source == "integration":
+        raise HTTPException(status_code=403, detail="Integration stacks cannot be destroyed — they are managed by code")
 
     from app.services.docker_stacks import stack_service
     await stack_service.destroy(row)

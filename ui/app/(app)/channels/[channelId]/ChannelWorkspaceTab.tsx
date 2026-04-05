@@ -511,7 +511,7 @@ export function ChannelWorkspaceTab({
             {/* Shared workspace overrides — only when bot has a workspace */}
             {hasSharedWorkspace && (
               <Section title="Shared Workspace Overrides" description="Override workspace-level settings for this channel. These control features inherited from the bot's shared workspace.">
-                <FormRow label="Workspace skills" description="Skill .md files from the workspace filesystem, injected into context by mode (pinned/rag/on-demand).">
+                <FormRow label="Workspace skills" description="Skill .md files from the workspace filesystem, injected into context by mode (pinned/on-demand).">
                   <SelectInput
                     value={form.workspace_skills_enabled === null || form.workspace_skills_enabled === undefined ? "inherit" : form.workspace_skills_enabled ? "on" : "off"}
                     options={[

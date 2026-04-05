@@ -36,7 +36,7 @@ docker compose -f "$REPO_DIR/docker-compose.yml" exec -T postgres \
 # ── 2. Bundle dump + config files into a tarball ────────────────────────────
 echo "[backup] Creating archive …"
 TAR_ARGS=( -C "$BACKUP_DIR" "$DUMP_FILE"
-           -C "$REPO_DIR"   .env bots skills tools integrations mcp.yaml config/searxng/settings.yml )
+           -C "$REPO_DIR"   .env bots skills tools integrations mcp.yaml )
 
 # Include workspace data if it exists
 # Use WORKSPACE_BASE_DIR from .env, fall back to ~/.spindrel-workspaces

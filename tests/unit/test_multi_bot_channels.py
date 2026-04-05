@@ -420,6 +420,128 @@ class TestContextInjection:
         assert "[" not in line
 
 
+class TestMultiBotIdentity:
+    """Test that multi-bot awareness correctly identifies primary vs member bots
+    and includes 'You are' identity."""
+
+    def test_awareness_identifies_current_bot(self):
+        """Awareness message should start with 'You are {bot.name}'."""
+        bot = _make_bot(id="helper", name="Helper Bot")
+        # Simulate the awareness message construction from context_assembly.py
+        # when the responding bot is a member (not the primary)
+        primary_bot_id = "primary"
+        member_bot_ids = ["helper"]
+
+        _all_bot_ids = [primary_bot_id] + [mid for mid in member_bot_ids if mid != primary_bot_id]
+        if bot.id != primary_bot_id and bot.id not in _all_bot_ids:
+            _all_bot_ids.append(bot.id)
+
+        participant_lines = []
+        for _bid in _all_bot_ids:
+            _is_primary = _bid == primary_bot_id
+            _is_self = _bid == bot.id
+            _role_label = "primary" if _is_primary else "member"
+            _you_marker = " ← you" if _is_self else ""
+            participant_lines.append(f"  - {_bid} ({_role_label}): Bot{_you_marker}")
+
+        msg = (
+            f"You are {bot.name} (bot_id: {bot.id}).\n\n"
+            "This channel has multiple bot participants:\n"
+            + "\n".join(participant_lines)
+            + "\nDo not @-mention yourself."
+        )
+
+        assert msg.startswith("You are Helper Bot (bot_id: helper).")
+        assert "helper (member)" in msg
+        assert "← you" in msg
+        assert "primary (primary)" in msg
+
+    def test_member_bot_not_labeled_as_primary(self):
+        """When a member bot is responding, it should NOT be labeled (primary)."""
+        bot = _make_bot(id="helper", name="Helper Bot")
+        primary_bot_id = "rolland"
+        member_bot_ids = ["helper"]
+
+        _all_bot_ids = [primary_bot_id] + [mid for mid in member_bot_ids if mid != primary_bot_id]
+        if bot.id != primary_bot_id and bot.id not in _all_bot_ids:
+            _all_bot_ids.append(bot.id)
+
+        participant_lines = []
+        for _bid in _all_bot_ids:
+            _is_primary = _bid == primary_bot_id
+            _is_self = _bid == bot.id
+            _role_label = "primary" if _is_primary else "member"
+            _you_marker = " ← you" if _is_self else ""
+            participant_lines.append(f"  - {_bid} ({_role_label}): Bot{_you_marker}")
+
+        msg = "\n".join(participant_lines)
+
+        # Helper should be labeled as member, not primary
+        assert "helper (member)" in msg
+        assert "helper (primary)" not in msg
+        # Primary should be labeled as primary
+        assert "rolland (primary)" in msg
+        # Helper should have the "← you" marker
+        assert "helper (member): Bot ← you" in msg
+        # Primary should NOT have "← you"
+        assert "rolland (primary): Bot ← you" not in msg
+
+    def test_primary_bot_labeled_correctly_when_responding(self):
+        """When the primary bot is responding, it should be labeled (primary) and ← you."""
+        bot = _make_bot(id="primary", name="Primary Bot")
+        primary_bot_id = "primary"
+        member_bot_ids = ["helper"]
+
+        _all_bot_ids = [primary_bot_id] + [mid for mid in member_bot_ids if mid != primary_bot_id]
+        if bot.id != primary_bot_id and bot.id not in _all_bot_ids:
+            _all_bot_ids.append(bot.id)
+
+        participant_lines = []
+        for _bid in _all_bot_ids:
+            _is_primary = _bid == primary_bot_id
+            _is_self = _bid == bot.id
+            _role_label = "primary" if _is_primary else "member"
+            _you_marker = " ← you" if _is_self else ""
+            participant_lines.append(f"  - {_bid} ({_role_label}): Bot{_you_marker}")
+
+        msg = "\n".join(participant_lines)
+
+        assert "primary (primary): Bot ← you" in msg
+        assert "helper (member): Bot" in msg
+        # Helper should not have ← you
+        assert "helper (member): Bot ← you" not in msg
+
+    def test_awareness_includes_do_not_self_mention(self):
+        """Awareness message should tell the bot not to @-mention itself."""
+        bot = _make_bot(id="helper", name="Helper Bot")
+        msg = (
+            f"You are {bot.name} (bot_id: {bot.id}).\n\n"
+            "This channel has multiple bot participants:\n"
+            "  - primary (primary): Primary Bot\n"
+            "  - helper (member): Helper Bot ← you\n"
+            "Do not @-mention yourself."
+        )
+        assert "Do not @-mention yourself." in msg
+
+    def test_trigger_prompt_includes_identity(self):
+        """The trigger prompt for member bot replies should include bot identity."""
+        member_bot_name = "Helper Bot"
+        member_bot_id = "helper"
+        mentioning_bot_name = "Rolland"
+        mentioning_bot_id = "rolland"
+
+        prompt = (
+            f"You are {member_bot_name} (bot_id: {member_bot_id}). "
+            f"{mentioning_bot_name} (@{mentioning_bot_id}) mentioned you in the channel conversation. "
+            f"Read the conversation above and respond naturally to what was discussed. "
+            f"Do not @-mention yourself."
+        )
+
+        assert prompt.startswith("You are Helper Bot (bot_id: helper).")
+        assert "Do not @-mention yourself." in prompt
+        assert "Rolland (@rolland) mentioned you" in prompt
+
+
 # ---------------------------------------------------------------------------
 # Member bot memory flush
 # ---------------------------------------------------------------------------
@@ -1075,6 +1197,150 @@ class TestInjectMemberConfig:
         assert len(messages) == 1
         assert "Focus on code review." in messages[0]["content"]
         assert "detailed" in messages[0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# _apply_user_attribution (speaker identity for primary bot)
+# ---------------------------------------------------------------------------
+
+class TestApplyUserAttribution:
+    """Test that _apply_user_attribution adds [Name]: prefix to user messages
+    using _metadata.sender_display_name, so the primary bot can distinguish
+    multiple speakers."""
+
+    def test_adds_prefix_from_metadata(self):
+        from app.routers.chat import _apply_user_attribution
+
+        messages = [
+            {"role": "user", "content": "hello", "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+        ]
+        _apply_user_attribution(messages)
+        assert messages[0]["content"] == "[Mike]: hello"
+
+    def test_no_metadata_unchanged(self):
+        from app.routers.chat import _apply_user_attribution
+
+        messages = [
+            {"role": "user", "content": "hello"},
+        ]
+        _apply_user_attribution(messages)
+        assert messages[0]["content"] == "hello"
+
+    def test_empty_display_name_unchanged(self):
+        from app.routers.chat import _apply_user_attribution
+
+        messages = [
+            {"role": "user", "content": "hello", "_metadata": {}},
+        ]
+        _apply_user_attribution(messages)
+        assert messages[0]["content"] == "hello"
+
+    def test_no_double_prefix(self):
+        from app.routers.chat import _apply_user_attribution
+
+        messages = [
+            {"role": "user", "content": "[Mike]: hello", "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+        ]
+        _apply_user_attribution(messages)
+        assert messages[0]["content"] == "[Mike]: hello"
+
+    def test_assistant_messages_untouched(self):
+        from app.routers.chat import _apply_user_attribution
+
+        messages = [
+            {"role": "assistant", "content": "hi", "_metadata": {
+                "sender_display_name": "Bot",
+            }},
+        ]
+        _apply_user_attribution(messages)
+        assert messages[0]["content"] == "hi"
+
+    def test_system_messages_untouched(self):
+        from app.routers.chat import _apply_user_attribution
+
+        messages = [
+            {"role": "system", "content": "prompt", "_metadata": {
+                "sender_display_name": "System",
+            }},
+        ]
+        _apply_user_attribution(messages)
+        assert messages[0]["content"] == "prompt"
+
+    def test_multiple_users_distinguished(self):
+        """Two different users get their own prefixes."""
+        from app.routers.chat import _apply_user_attribution
+
+        messages = [
+            {"role": "user", "content": "What's the status?", "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+            {"role": "assistant", "content": "All good."},
+            {"role": "user", "content": "Can you elaborate?", "_metadata": {
+                "sender_display_name": "Sarah",
+            }},
+        ]
+        _apply_user_attribution(messages)
+
+        assert messages[0]["content"] == "[Mike]: What's the status?"
+        assert messages[1]["content"] == "All good."
+        assert messages[2]["content"] == "[Sarah]: Can you elaborate?"
+
+    def test_safe_with_member_bot_rewrite(self):
+        """When called after _rewrite_history_for_member_bot, no double-prefix."""
+        from app.routers.chat import _apply_user_attribution, _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "user", "content": "hello", "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+            {"role": "assistant", "content": "response", "_metadata": {
+                "sender_id": "bot:primary", "sender_display_name": "Primary Bot",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+        _apply_user_attribution(messages)
+
+        assert messages[0]["content"] == "[Mike]: hello"
+        # No double prefix on the rewritten bot message (now role=user)
+        assert messages[1]["content"] == "[Primary Bot]: response"
+
+    def test_multimodal_content_skipped(self):
+        """List content (images) is left untouched — no crash."""
+        from app.routers.chat import _apply_user_attribution
+
+        multimodal = [
+            {"type": "text", "text": "describe this"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+        ]
+        messages = [
+            {"role": "user", "content": multimodal, "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+        ]
+        _apply_user_attribution(messages)
+        # Content should be unchanged (still the list)
+        assert messages[0]["content"] is multimodal
+
+    def test_rewrite_multimodal_user_skipped(self):
+        """_rewrite_history_for_member_bot also handles list content safely."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        multimodal = [
+            {"type": "text", "text": "see this image"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+        ]
+        messages = [
+            {"role": "user", "content": multimodal, "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+        # Content should be unchanged (still the list, no crash)
+        assert messages[0]["content"] is multimodal
 
 
 # ---------------------------------------------------------------------------

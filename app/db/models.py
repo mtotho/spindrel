@@ -1509,6 +1509,9 @@ class DockerStack(Base):
     network_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     container_ids: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     exposed_ports: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'bot'"))
+    integration_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connect_networks: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     last_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     last_stopped_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
@@ -1516,4 +1519,10 @@ class DockerStack(Base):
 
     __table_args__ = (
         Index("ix_docker_stacks_bot_channel", "created_by_bot", "channel_id"),
+        Index(
+            "ix_docker_stacks_integration_id_unique",
+            "integration_id",
+            unique=True,
+            postgresql_where=text("integration_id IS NOT NULL"),
+        ),
     )

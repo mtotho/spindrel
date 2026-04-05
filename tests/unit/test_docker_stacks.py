@@ -16,6 +16,7 @@ from app.services.docker_stacks import (
     validate_compose,
     PROJECT_PREFIX,
     _image_matches,
+    _stacks_base_dir,
 )
 
 
@@ -580,3 +581,239 @@ class TestManageDockerStackTool:
             result = json.loads(await manage_docker_stack(action="nonexistent"))
             assert "error" in result
             assert "Unknown action" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Integration stack features
+# ---------------------------------------------------------------------------
+
+class TestProjectPrefix:
+    """Verify broadened prefix accepts both bot and integration stacks."""
+
+    def test_prefix_is_spindrel(self):
+        assert PROJECT_PREFIX == "spindrel-"
+
+    def test_bot_stacks_still_match(self):
+        """Old bot stack names (spindrel-stack-*) still start with the prefix."""
+        assert "spindrel-stack-abc123".startswith(PROJECT_PREFIX)
+
+    def test_integration_stacks_match(self):
+        assert "spindrel-web-search".startswith(PROJECT_PREFIX)
+
+    @pytest.mark.asyncio
+    async def test_compose_cmd_accepts_integration_prefix(self):
+        service = StackService()
+        mock_stack = MagicMock()
+        mock_stack.id = uuid.uuid4()
+        mock_stack.project_name = "spindrel-web-search"
+        with patch("asyncio.create_subprocess_exec") as mock_exec:
+            mock_proc = AsyncMock()
+            mock_proc.communicate.return_value = (b"", b"")
+            mock_proc.returncode = 0
+            mock_exec.return_value = mock_proc
+            result = await service._compose_cmd(mock_stack, ["ps"])
+            assert result.exit_code == 0
+
+
+class TestDestroyGuard:
+    """Integration stacks cannot be destroyed."""
+
+    @pytest.mark.asyncio
+    async def test_destroy_raises_for_integration_stack(self):
+        service = StackService()
+        mock_stack = MagicMock()
+        mock_stack.source = "integration"
+        mock_stack.network_name = None
+        with pytest.raises(StackError, match="Integration stacks cannot be destroyed"):
+            await service.destroy(mock_stack)
+
+    @pytest.mark.asyncio
+    async def test_destroy_allows_bot_stack(self):
+        """Bot stacks can be destroyed (would proceed to docker compose down)."""
+        service = StackService()
+        mock_stack = MagicMock()
+        mock_stack.id = uuid.uuid4()
+        mock_stack.source = "bot"
+        mock_stack.network_name = "test_default"
+        mock_stack.project_name = "spindrel-stack-abc123"
+        mock_stack.created_by_bot = "test-bot"
+        # Mock the compose command + DB session to avoid real Docker calls
+        with patch.object(service, "_compose_cmd") as mock_cmd, \
+             patch.object(service, "_disconnect_workspace") as mock_disc, \
+             patch("app.services.docker_stacks.async_session") as mock_session_ctx, \
+             patch("os.path.exists", return_value=False):
+            mock_cmd.return_value = MagicMock(exit_code=0)
+            mock_disc.return_value = None
+            mock_db = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_db.get.return_value = mock_stack
+            await service.destroy(mock_stack)
+
+
+class TestSyncIntegrationStack:
+    """Tests for sync_integration_stack upsert behavior."""
+
+    @pytest.mark.asyncio
+    async def test_creates_new_integration_stack(self):
+        service = StackService()
+        compose_yaml = "services:\n  searxng:\n    image: searxng/searxng\n"
+
+        with patch("app.services.docker_stacks.async_session") as mock_session_ctx, \
+             patch.object(service, "_materialize") as mock_mat, \
+             patch.object(service, "_materialize_file") as mock_mat_file:
+            mock_db = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            # No existing row
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = None
+            mock_db.execute.return_value = mock_result
+
+            # db.add() is synchronous in SQLAlchemy — use MagicMock for it
+            added_rows = []
+            def capture_add(row):
+                row.id = uuid.uuid4()
+                added_rows.append(row)
+            mock_db.add = MagicMock(side_effect=capture_add)
+
+            result = await service.sync_integration_stack(
+                integration_id="web_search",
+                name="SearXNG + Playwright",
+                compose_definition=compose_yaml,
+                project_name="spindrel-web-search",
+                description="Web search containers",
+                connect_networks=["agent-server_default"],
+                config_files={"config/searxng/settings.yml": "use_default_settings: true\n"},
+            )
+
+            # Verify row was created with correct fields
+            assert len(added_rows) == 1
+            row = added_rows[0]
+            assert row.source == "integration"
+            assert row.integration_id == "web_search"
+            assert row.created_by_bot == "_integration"
+            assert row.connect_networks == ["agent-server_default"]
+            assert row.project_name == "spindrel-web-search"
+
+            # Verify files materialized
+            mock_mat.assert_called_once()
+            mock_mat_file.assert_called_once_with(
+                str(row.id),
+                "config/searxng/settings.yml",
+                "use_default_settings: true\n",
+            )
+
+    @pytest.mark.asyncio
+    async def test_updates_existing_integration_stack(self):
+        service = StackService()
+        old_yaml = "services:\n  old:\n    image: old:1\n"
+        new_yaml = "services:\n  new:\n    image: new:2\n"
+
+        existing = MagicMock()
+        existing.id = uuid.uuid4()
+        existing.compose_definition = old_yaml
+        existing.connect_networks = []
+        existing.name = "Old Name"
+        existing.description = "Old desc"
+        existing.project_name = "spindrel-web-search"
+
+        with patch("app.services.docker_stacks.async_session") as mock_session_ctx, \
+             patch.object(service, "_materialize") as mock_mat:
+            mock_db = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = existing
+            mock_db.execute.return_value = mock_result
+
+            await service.sync_integration_stack(
+                integration_id="web_search",
+                name="New Name",
+                compose_definition=new_yaml,
+                project_name="spindrel-web-search",
+            )
+
+            # Verify compose was updated
+            assert existing.compose_definition == new_yaml
+            assert existing.name == "New Name"
+
+
+class TestStartNetworkConnect:
+    """Test that start() calls _connect_network for connect_networks."""
+
+    @pytest.mark.asyncio
+    async def test_start_connects_extra_networks(self):
+        service = StackService()
+        mock_stack = MagicMock()
+        mock_stack.id = uuid.uuid4()
+        mock_stack.project_name = "spindrel-web-search"
+        mock_stack.compose_definition = "services:\n  s:\n    image: x\n"
+        mock_stack.status = "stopped"
+        mock_stack.created_by_bot = "_integration"
+        mock_stack.connect_networks = ["agent-server_default"]
+        mock_stack.network_name = None
+
+        with patch.object(service, "_compose_cmd") as mock_cmd, \
+             patch.object(service, "_inspect_stack") as mock_inspect, \
+             patch.object(service, "_materialize"), \
+             patch.object(service, "_connect_workspace"), \
+             patch.object(service, "_connect_network") as mock_cn, \
+             patch.object(service, "_get") as mock_get, \
+             patch("app.services.docker_stacks.async_session") as mock_session_ctx:
+            mock_cmd.return_value = MagicMock(exit_code=0)
+            mock_inspect.return_value = ({"searxng": "abc123", "playwright": "def456"}, {}, "spindrel-web-search_default")
+            mock_get.return_value = mock_stack
+
+            mock_db = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            await service.start(mock_stack)
+
+            # Should connect each container to each connect_network
+            assert mock_cn.call_count == 2
+            calls = [c.args for c in mock_cn.call_args_list]
+            assert ("agent-server_default", "abc123") in calls
+            assert ("agent-server_default", "def456") in calls
+
+
+class TestDiscoverDockerComposeStacks:
+    """Tests for discover_docker_compose_stacks integration discovery."""
+
+    def test_discovers_web_search(self):
+        from integrations import discover_docker_compose_stacks
+        results = discover_docker_compose_stacks()
+        # web_search declares a docker_compose block
+        web_search = [r for r in results if r["integration_id"] == "web_search"]
+        assert len(web_search) == 1
+        info = web_search[0]
+        assert info["project_name"] == "spindrel-web-search"
+        assert info["enabled_setting"] == "WEB_SEARCH_CONTAINERS"
+        assert "agent-server_default" in info["connect_networks"]
+        assert "config/searxng/settings.yml" in info["config_files"]
+        assert info["compose_definition"]  # non-empty
+
+    def test_config_files_loaded(self):
+        from integrations import discover_docker_compose_stacks
+        results = discover_docker_compose_stacks()
+        web_search = [r for r in results if r["integration_id"] == "web_search"]
+        assert len(web_search) == 1
+        config_content = web_search[0]["config_files"].get("config/searxng/settings.yml", "")
+        assert "use_default_settings" in config_content
+
+
+class TestMaterializeFile:
+    """Test the _materialize_file helper."""
+
+    def test_creates_nested_dirs(self, tmp_path):
+        service = StackService()
+        stack_id = str(uuid.uuid4())
+        # Temporarily override the stacks base dir
+        with patch("app.services.docker_stacks._stack_dir", return_value=str(tmp_path / stack_id)):
+            service._materialize_file(stack_id, "config/searxng/settings.yml", "test: true")
+            target = tmp_path / stack_id / "config" / "searxng" / "settings.yml"
+            assert target.exists()
+            assert target.read_text() == "test: true"

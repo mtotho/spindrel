@@ -44,27 +44,6 @@ services:
       retries: 5
     restart: unless-stopped
 
-  searxng:
-    image: searxng/searxng
-    profiles: [web-search]
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./config/searxng/settings.yml:/etc/searxng/settings.yml:ro
-    environment:
-      - SEARXNG_BASE_URL=http://localhost:8080/
-    restart: unless-stopped
-
-  playwright:
-    image: ghcr.io/browserless/chromium
-    profiles: [web-search]
-    ports:
-      - "3000:3000"
-    environment:
-      - TIMEOUT=60000
-      - CONCURRENT=5
-    restart: unless-stopped
-
   ui:
     build: ./ui
     ports:

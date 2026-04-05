@@ -14,8 +14,8 @@ export interface SkillsTabProps {
   setSkillsEnabled: (v: boolean) => void;
   basePromptEnabled: boolean;
   setBasePromptEnabled: (v: boolean) => void;
-  dbSkills: { id: string; mode?: string; similarity_threshold?: number }[];
-  setDbSkills: (v: { id: string; mode?: string; similarity_threshold?: number }[]) => void;
+  dbSkills: { id: string; mode?: string }[];
+  setDbSkills: (v: { id: string; mode?: string }[]) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ export function SkillsTab({
           <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>Directory conventions:</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <span><code style={{ color: t.accent }}>common/skills/pinned/*.md</code> {"\u2014"} injected into every request</span>
-            <span><code style={{ color: t.accent }}>common/skills/rag/*.md</code> {"\u2014"} retrieved by similarity</span>
+            <span><code style={{ color: t.accent }}>common/skills/rag/*.md</code> {"\u2014"} available via tool call (same as on-demand)</span>
             <span><code style={{ color: t.accent }}>common/skills/on-demand/*.md</code> {"\u2014"} available via tool call</span>
             <span><code style={{ color: t.accent }}>common/skills/*.md</code> {"\u2014"} top-level defaults to pinned</span>
             <span style={{ marginTop: 4 }}><code style={{ color: t.warningMuted }}>{"bots/<bot-id>/skills/..."}</code> {"\u2014"} same structure, scoped to specific bot</span>

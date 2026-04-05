@@ -453,6 +453,40 @@ async def lifespan(application: FastAPI):
         except Exception:
             logger.exception("Failed to reconcile docker stacks")
 
+    # Sync integration Docker Compose stacks (runs independently of DOCKER_STACKS_ENABLED —
+    # integration containers are code-managed, not user-created)
+    try:
+        from app.services.docker_stacks import stack_service
+        from integrations import discover_docker_compose_stacks
+        from app.services.integration_settings import get_value as _get_int_setting
+        for _dc_info in discover_docker_compose_stacks():
+            _int_id = _dc_info["integration_id"]
+            try:
+                _stack = await stack_service.sync_integration_stack(
+                    integration_id=_int_id,
+                    name=_dc_info["description"] or _int_id,
+                    compose_definition=_dc_info["compose_definition"],
+                    project_name=_dc_info["project_name"],
+                    description=_dc_info["description"],
+                    connect_networks=_dc_info["connect_networks"],
+                    config_files=_dc_info["config_files"],
+                )
+                # Check enabled_setting to decide start/stop
+                _enabled = False
+                if _dc_info["enabled_setting"]:
+                    _val = _get_int_setting(_int_id, _dc_info["enabled_setting"], "false")
+                    _enabled = _val.lower() in ("true", "1", "yes")
+                if _enabled and _stack.status != "running":
+                    logger.info("Auto-starting integration stack: %s", _int_id)
+                    await stack_service.start(_stack)
+                elif not _enabled and _stack.status == "running":
+                    logger.info("Stopping disabled integration stack: %s", _int_id)
+                    await stack_service.stop(_stack)
+            except Exception:
+                logger.exception("Failed to sync integration stack: %s", _int_id)
+    except Exception:
+        logger.exception("Failed to discover/sync integration docker stacks")
+
     if settings.STT_PROVIDER:
         logger.info("Warming up STT provider (%s)...", settings.STT_PROVIDER)
         from app.stt import warm_up as stt_warm_up

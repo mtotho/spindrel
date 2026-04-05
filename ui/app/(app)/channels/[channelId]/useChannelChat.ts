@@ -288,6 +288,18 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         if (ch.isLocalStream) {
           finishStreaming(channelId);
         }
+
+        // If a member bot stream is pending, schedule a safety-net refetch.
+        // If the observer stream works normally, this is a harmless no-op.
+        // If SSE is broken (stream_start never arrives), the DB-persisted
+        // response will appear via this refetch. The 60s observer timeout
+        // in useChannelEvents handles the case where stream_start arrived
+        // but stream_end was missed.
+        if (ch.pendingMemberStream) {
+          setTimeout(() => {
+            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          }, 5000);
+        }
       }
       // Refetch messages to get real DB records (with attachments, full metadata, etc.)
       // persist_turn runs before the SSE connection closes, so data is ready.

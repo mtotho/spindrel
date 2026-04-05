@@ -80,14 +80,14 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "KNOWLEDGE_MAX_INJECT_CHARS": {"group": "Embeddings & RAG", "label": "Knowledge Max Inject Chars", "description": "Max chars per knowledge doc injected", "type": "int", "min": 500, "max": 50000},
     "MEMORY_MAX_INJECT_CHARS": {"group": "Embeddings & RAG", "label": "Memory Max Inject Chars", "description": "Max chars per memory item injected", "type": "int", "min": 500, "max": 50000},
     # --- RAG Re-ranking ---
-    "RAG_RERANK_ENABLED": {"group": "RAG Re-ranking", "label": "Enabled", "description": "Re-rank RAG chunks across sources for relevance", "type": "bool"},
-    "RAG_RERANK_BACKEND": {"group": "RAG Re-ranking", "label": "Backend", "description": "cross-encoder: fast ONNX model (~120ms, zero API cost). llm: full LLM call (~2s, API cost)", "type": "string", "options": ["cross-encoder", "llm"]},
-    "RAG_RERANK_MODEL": {"group": "RAG Re-ranking", "label": "LLM Model", "description": "Model for LLM re-ranking backend (empty = compaction model)", "type": "string", "widget": "model"},
-    "RAG_RERANK_THRESHOLD_CHARS": {"group": "RAG Re-ranking", "label": "Threshold (chars)", "description": "Only re-rank when total RAG chars exceed this", "type": "int", "min": 500, "max": 100000},
-    "RAG_RERANK_MAX_CHUNKS": {"group": "RAG Re-ranking", "label": "Max Chunks", "description": "Max chunks to keep after re-ranking", "type": "int", "min": 1, "max": 100},
-    "RAG_RERANK_MAX_TOKENS": {"group": "RAG Re-ranking", "label": "Max Tokens", "description": "Max output tokens for LLM re-ranker response", "type": "int", "min": 100, "max": 4000},
-    "RAG_RERANK_CROSS_ENCODER_MODEL": {"group": "RAG Re-ranking", "label": "Cross-Encoder Model", "description": "ONNX cross-encoder model name for cross-encoder backend", "type": "string"},
-    "RAG_RERANK_SCORE_THRESHOLD": {"group": "RAG Re-ranking", "label": "Score Threshold", "description": "Min cross-encoder score to keep a chunk (0-1)", "type": "float", "min": 0.0, "max": 1.0},
+    "RAG_RERANK_ENABLED": {"group": "RAG Re-ranking", "label": "Enabled", "description": "Filter dynamically-retrieved RAG chunks by relevance. Pinned skills/knowledge are never filtered.", "type": "bool"},
+    "RAG_RERANK_BACKEND": {"group": "RAG Re-ranking", "label": "Backend", "description": "cross-encoder (recommended): fast local ONNX model, ~120ms, zero API cost. llm: full LLM call, ~2s, API cost per request", "type": "string", "options": ["cross-encoder", "llm"]},
+    "RAG_RERANK_MODEL": {"group": "RAG Re-ranking", "label": "LLM Model", "description": "Model for LLM backend only. A small/fast model works well (e.g. gemini-2.0-flash-lite). Empty = compaction model", "type": "string", "widget": "model"},
+    "RAG_RERANK_THRESHOLD_CHARS": {"group": "RAG Re-ranking", "label": "Threshold (chars)", "description": "Only re-rank when total RAG content exceeds this many chars. Default 5000 (~2-3 skill chunks)", "type": "int", "min": 500, "max": 100000},
+    "RAG_RERANK_MAX_CHUNKS": {"group": "RAG Re-ranking", "label": "Max Chunks", "description": "Max chunks to keep after re-ranking. 20 is generous; lower to 10-15 for tighter context", "type": "int", "min": 1, "max": 100},
+    "RAG_RERANK_MAX_TOKENS": {"group": "RAG Re-ranking", "label": "Max Tokens (LLM)", "description": "Max output tokens for LLM re-ranker response. Only used with LLM backend", "type": "int", "min": 100, "max": 4000},
+    "RAG_RERANK_CROSS_ENCODER_MODEL": {"group": "RAG Re-ranking", "label": "Cross-Encoder Model", "description": "ONNX model for cross-encoder backend. Default (ms-marco-MiniLM-L-6-v2) is fast and effective for general use", "type": "string"},
+    "RAG_RERANK_SCORE_THRESHOLD": {"group": "RAG Re-ranking", "label": "Score Threshold", "description": "Min relevance probability (0-1) to keep a chunk. 0.01 = keep anything >1%% likely relevant. Raise to 0.05-0.1 for stricter filtering", "type": "float", "min": 0.0, "max": 1.0},
     # --- Hybrid Search ---
     "HYBRID_SEARCH_ENABLED": {"group": "Embeddings & RAG", "label": "Hybrid Search", "description": "Combine BM25 keyword search with vector search via Reciprocal Rank Fusion", "type": "bool"},
     "HYBRID_SEARCH_RRF_K": {"group": "Embeddings & RAG", "label": "RRF K Parameter", "description": "Reciprocal Rank Fusion k: higher values give more weight to top results", "type": "int", "min": 1, "max": 200},
@@ -112,10 +112,6 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "WHISPER_COMPUTE_TYPE": {"group": "Speech-to-Text", "label": "Compute Type", "description": "Compute precision", "type": "string", "options": ["auto", "int8", "float16", "float32"]},
     "WHISPER_BEAM_SIZE": {"group": "Speech-to-Text", "label": "Beam Size", "description": "Beam search width", "type": "int", "min": 1, "max": 10},
     "WHISPER_LANGUAGE": {"group": "Speech-to-Text", "label": "Language", "description": "Transcription language code", "type": "string"},
-    # --- Web Search ---
-    "WEB_SEARCH_MODE": {"group": "Web Search", "label": "Search Backend", "description": "SearXNG: self-hosted, private — uses a SearXNG instance (built-in containers or your own). DDGs: lightweight, uses DuckDuckGo and other public search engines, no containers needed. None: disables web_search — bring your own search tool in tools/.", "type": "string", "options": ["searxng", "ddgs", "none"]},
-    "SEARXNG_URL": {"group": "Web Search", "label": "SearXNG URL", "description": "URL of the SearXNG instance (only used in searxng mode). Default points to the built-in container; change to use an external instance.", "type": "string"},
-    "PLAYWRIGHT_WS_URL": {"group": "Web Search", "label": "Playwright WebSocket URL", "description": "Playwright/Chromium instance for JS-rendered page fetching (used by fetch_url). Default points to the built-in container; change to use an external instance.", "type": "string"},
     # --- API Rate Limiting ---
     "RATE_LIMIT_ENABLED": {"group": "API Rate Limiting", "label": "Enabled", "description": "Rate-limit incoming requests to the Spindrel API (not LLM provider calls). Uses in-memory token bucket per API key or client IP. Requires server restart to take effect.", "type": "bool"},
     "RATE_LIMIT_DEFAULT": {"group": "API Rate Limiting", "label": "Default Limit", "description": "Rate limit for all Spindrel API endpoints (e.g. 100/minute, 10/second, 5000/hour)", "type": "string"},
@@ -161,7 +157,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 
 # Group ordering for consistent display
 GROUP_ORDER = [
-    "System", "Paths", "General", "Security", "API Rate Limiting", "Web Search", "Agent", "Chat History",
+    "System", "Paths", "General", "Security", "API Rate Limiting", "Agent", "Chat History",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization",
     "Tool Policies", "Speech-to-Text", "Heartbeat", "Docker Stacks", "Attachments", "Data Retention", "Image Generation", "Prompt Generation",
 ]

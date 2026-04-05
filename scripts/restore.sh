@@ -74,8 +74,11 @@ if [[ -d "$RESTORE_DIR/tools" ]] && ls "$RESTORE_DIR/tools/"* &>/dev/null; then
   mkdir -p "$REPO_DIR/tools"
   cp -r "$RESTORE_DIR/tools/"* "$REPO_DIR/tools/"
 fi
-mkdir -p "$REPO_DIR/config/searxng"
-cp "$RESTORE_DIR/config/searxng/settings.yml" "$REPO_DIR/config/searxng/settings.yml"
+# Legacy: restore old SearXNG config to integration location if present in backup
+if [[ -f "$RESTORE_DIR/config/searxng/settings.yml" ]]; then
+  mkdir -p "$REPO_DIR/integrations/web_search/config/searxng"
+  cp "$RESTORE_DIR/config/searxng/settings.yml" "$REPO_DIR/integrations/web_search/config/searxng/settings.yml"
+fi
 
 # Restore workspace data if present in backup — detect the workspace dir name from the archive
 _WS_BASE="${WORKSPACE_BASE_DIR:-${HOME}/.spindrel-workspaces}"

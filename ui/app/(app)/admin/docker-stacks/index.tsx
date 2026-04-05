@@ -11,7 +11,7 @@ import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
   Boxes, Search, Play, Square, Trash2,
-  CheckCircle2, XCircle, Loader2, AlertTriangle, Minus,
+  CheckCircle2, XCircle, Loader2, AlertTriangle, Minus, Plug,
 } from "lucide-react";
 import { useRouter } from "expo-router";
 import type { DockerStack } from "@/src/types/api";
@@ -72,6 +72,7 @@ function StackCard({
 }) {
   const router = useRouter();
   const serviceCount = Object.keys(stack.container_ids || {}).length;
+  const isIntegration = stack.source === "integration";
 
   return (
     <Pressable
@@ -90,6 +91,17 @@ function StackCard({
             <Text className="text-base font-semibold" style={{ color: t.text }}>
               {stack.name}
             </Text>
+            {isIntegration && (
+              <View
+                className="flex-row items-center gap-1 rounded-full px-2 py-0.5"
+                style={{ backgroundColor: t.accentSubtle, borderWidth: 1, borderColor: t.accentBorder }}
+              >
+                <Plug size={10} color={t.accent} />
+                <Text className="text-xs font-medium" style={{ color: t.accent }}>
+                  Integration
+                </Text>
+              </View>
+            )}
           </View>
           {stack.description ? (
             <Text className="text-sm" style={{ color: t.textMuted }} numberOfLines={1}>
@@ -98,7 +110,7 @@ function StackCard({
           ) : null}
           <View className="flex-row items-center gap-3 mt-1">
             <Text className="text-xs" style={{ color: t.textDim }}>
-              Bot: {stack.created_by_bot}
+              {isIntegration ? `Integration: ${stack.integration_id}` : `Bot: ${stack.created_by_bot}`}
             </Text>
             {serviceCount > 0 && (
               <Text className="text-xs" style={{ color: t.textDim }}>
@@ -139,7 +151,7 @@ function StackCard({
                 <Square size={14} color={t.warning} />
               </Pressable>
             )}
-            {stack.status === "stopped" && (
+            {!isIntegration && stack.status === "stopped" && (
               <Pressable
                 onPress={(e) => {
                   e.stopPropagation();

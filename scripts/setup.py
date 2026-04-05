@@ -137,7 +137,7 @@ def write_env_file(config: dict[str, str]) -> None:
         ("Auth", ["API_KEY", "ADMIN_API_KEY"]),
         ("Database", ["DATABASE_URL"]),
         ("LLM Provider", ["DEFAULT_MODEL", "LLM_BASE_URL", "LLM_API_KEY"]),
-        ("Web Search", ["WEB_SEARCH_MODE", "SEARXNG_URL", "PLAYWRIGHT_WS_URL", "COMPOSE_PROFILES"]),
+        ("Web Search", ["WEB_SEARCH_MODE", "WEB_SEARCH_CONTAINERS", "SEARXNG_URL", "PLAYWRIGHT_WS_URL"]),
     ]
 
     written_keys: set[str] = set()
@@ -353,7 +353,7 @@ def main() -> None:
 
     if web_mode == "searxng":
         env_config["WEB_SEARCH_MODE"] = "searxng"
-        env_config["COMPOSE_PROFILES"] = "web-search"
+        env_config["WEB_SEARCH_CONTAINERS"] = "true"
     elif web_mode == "searxng-external":
         env_config["WEB_SEARCH_MODE"] = "searxng"
         searxng_url = questionary.text(

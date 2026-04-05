@@ -723,6 +723,68 @@ def _resolve_cmd(cmd: list[str], watch_paths: list[str] | None) -> list[str]:
     return ["watchfiles", "--filter", "python", " ".join(resolved)] + watch_paths
 
 
+def discover_docker_compose_stacks() -> list[dict]:
+    """Discover integration Docker Compose stacks from setup.py manifests.
+
+    Returns list of dicts:
+        {integration_id, project_name, compose_definition, config_files,
+         enabled_setting, connect_networks, description}
+    for integrations that declare a ``docker_compose`` key in SETUP.
+    """
+    results: list[dict] = []
+
+    for candidate, integration_id, is_external, source in _iter_integration_candidates():
+        setup_file = candidate / "setup.py"
+        if not setup_file.exists():
+            continue
+        try:
+            module = _import_module(integration_id, "setup", setup_file, is_external, source)
+            setup = getattr(module, "SETUP", {})
+            dc = setup.get("docker_compose")
+            if not dc or not isinstance(dc, dict):
+                continue
+
+            compose_file = dc.get("file")
+            if not compose_file:
+                continue
+
+            compose_path = candidate / compose_file
+            if not compose_path.exists():
+                logger.warning(
+                    "Integration %r declares docker_compose but file not found: %s",
+                    integration_id, compose_path,
+                )
+                continue
+
+            compose_definition = compose_path.read_text()
+
+            # Read config files
+            config_files: dict[str, str] = {}
+            for rel_path in dc.get("config_files", []):
+                cfg_path = candidate / rel_path
+                if cfg_path.exists():
+                    config_files[rel_path] = cfg_path.read_text()
+                else:
+                    logger.warning(
+                        "Integration %r docker_compose config_file not found: %s",
+                        integration_id, cfg_path,
+                    )
+
+            results.append({
+                "integration_id": integration_id,
+                "project_name": dc.get("project_name", f"spindrel-{integration_id}"),
+                "compose_definition": compose_definition,
+                "config_files": config_files,
+                "enabled_setting": dc.get("enabled_setting"),
+                "connect_networks": dc.get("connect_networks", []),
+                "description": dc.get("description", ""),
+            })
+        except Exception:
+            logger.exception("Failed to load docker_compose config for integration %r", integration_id)
+
+    return results
+
+
 def discover_processes() -> list[dict]:
     """Discover integration background processes.
 

@@ -4,6 +4,9 @@ import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useChatStore } from "../../stores/chat";
 import type { SSEEvent } from "../../types/api";
 
+/** Timeout (ms) for observed streams — if stream_end doesn't arrive, force-finish. */
+const OBSERVER_STREAM_TIMEOUT = 60_000;
+
 /**
  * Subscribe to real-time channel events via SSE.
  *
@@ -27,6 +30,9 @@ export function useChannelEvents(channelId: string | undefined) {
   const pendingTextRef = useRef<string>("");
   const pendingThinkRef = useRef<string>("");
   const rafRef = useRef<number>(0);
+
+  // Observer stream timeout — force-finish if stream_end never arrives
+  const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flushDeltas = useCallback(
     (chId: string) => {
@@ -58,6 +64,30 @@ export function useChannelEvents(channelId: string | undefined) {
     let retryCount = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;
+
+    function clearObserverTimeout() {
+      if (observerTimeoutRef.current) {
+        clearTimeout(observerTimeoutRef.current);
+        observerTimeoutRef.current = null;
+      }
+    }
+
+    function startObserverTimeout(chId: string) {
+      clearObserverTimeout();
+      observerTimeoutRef.current = setTimeout(() => {
+        observerTimeoutRef.current = null;
+        const ch = useChatStore.getState().getChannel(chId);
+        if (ch.isStreaming && !ch.isLocalStream) {
+          // Flush any remaining deltas
+          if (pendingTextRef.current || pendingThinkRef.current) {
+            cancelAnimationFrame(rafRef.current);
+            flushDeltas(chId);
+          }
+          finishStreaming(chId);
+          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        }
+      }, OBSERVER_STREAM_TIMEOUT);
+    }
 
     function connect() {
       if (stopped) return;
@@ -177,6 +207,9 @@ export function useChannelEvents(channelId: string | undefined) {
             },
           };
         });
+
+        // Start observer timeout — if stream_end never arrives, force-finish
+        startObserverTimeout(chId);
         return;
       }
 
@@ -216,6 +249,7 @@ export function useChannelEvents(channelId: string | undefined) {
 
       if (payload.type === "stream_end") {
         if (!ch.isStreaming || ch.isLocalStream) return;
+        clearObserverTimeout();
         // Flush any remaining deltas
         if (pendingTextRef.current || pendingThinkRef.current) {
           cancelAnimationFrame(rafRef.current);
@@ -232,6 +266,7 @@ export function useChannelEvents(channelId: string | undefined) {
     return () => {
       stopped = true;
       abortRef.current?.abort();
+      clearObserverTimeout();
       if (retryTimer) clearTimeout(retryTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };

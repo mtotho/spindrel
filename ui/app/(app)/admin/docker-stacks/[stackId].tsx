@@ -19,7 +19,7 @@ import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 import {
   Boxes, ArrowLeft, Play, Square, Trash2,
   CheckCircle2, XCircle, Loader2, AlertTriangle, Minus,
-  Server, FileCode, ScrollText,
+  Server, FileCode, ScrollText, Plug,
 } from "lucide-react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import type { DockerStackServiceStatus } from "@/src/types/api";
@@ -359,7 +359,21 @@ export default function DockerStackDetailPage() {
           }}
         >
           <View className="flex-row flex-wrap gap-4">
-            <InfoItem label="Bot" value={stack.created_by_bot} t={t} />
+            {stack.source === "integration" ? (
+              <View className="flex-row items-center gap-1.5">
+                <View>
+                  <Text className="text-xs" style={{ color: t.textDim }}>Integration</Text>
+                  <View className="flex-row items-center gap-1">
+                    <Plug size={12} color={t.accent} />
+                    <Text className="text-sm font-medium" style={{ color: t.text }}>
+                      {stack.integration_id}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <InfoItem label="Bot" value={stack.created_by_bot} t={t} />
+            )}
             <InfoItem label="Project" value={stack.project_name} t={t} />
             {stack.network_name && <InfoItem label="Network" value={stack.network_name} t={t} />}
             {stack.last_started_at && (
@@ -406,7 +420,7 @@ export default function DockerStackDetailPage() {
               t={t}
             />
           )}
-          {(stack.status === "stopped" || stack.status === "error") && (
+          {stack.source !== "integration" && (stack.status === "stopped" || stack.status === "error") && (
             <ActionButton
               label="Destroy"
               icon={Trash2}

@@ -143,13 +143,14 @@ Or without the CLI: `sudo systemctl restart spindrel`
 
 ## Web Search
 
-The `web_search` tool backend is controlled by `WEB_SEARCH_MODE` (configurable at runtime in **Settings > Web Search**):
+Web search is provided by the `web_search` integration. Configure it via **Admin UI > Integrations > Web Search**, or with env vars:
 
-| Mode | Backend | Containers | Description |
+| Mode | `WEB_SEARCH_MODE` | `WEB_SEARCH_CONTAINERS` | Description |
 |---|---|---|---|
-| `searxng` (default) | SearXNG + Playwright | built-in or external | Self-hosted, private, JS rendering |
-| `ddgs` | DuckDuckGo + public engines | none | Lightweight, no infrastructure needed |
-| `none` | disabled | none | Bring your own search tool in `tools/` |
+| Managed SearXNG | `searxng` | `true` | Integration starts SearXNG + Playwright containers |
+| External SearXNG | `searxng` | (unset) | User provides `SEARXNG_URL` |
+| DuckDuckGo | `ddgs` | (unset) | Lightweight, no containers needed |
+| Disabled | `disabled` | (unset) | Bring your own search tool in `tools/` |
 
 ### SearXNG mode (default)
 
@@ -157,8 +158,10 @@ The `web_search` tool backend is controlled by `WEB_SEARCH_MODE` (configurable a
 
 ```bash
 WEB_SEARCH_MODE=searxng
-COMPOSE_PROFILES=web-search
+WEB_SEARCH_CONTAINERS=true
 ```
+
+The integration automatically starts SearXNG and Playwright containers and connects them to the agent server network. Managed containers appear in **Admin UI > Docker Stacks** where you can monitor status, view service health, read logs, and start/stop them.
 
 **External instances** (bring your own SearXNG/Playwright):
 
@@ -168,7 +171,7 @@ SEARXNG_URL=http://my-searxng:8080
 PLAYWRIGHT_WS_URL=ws://my-playwright:3000   # optional — fetch_url falls back to httpx
 ```
 
-Both URLs are also configurable at runtime in **Settings > Web Search**. Private — queries never leave your network.
+All settings are configurable at runtime in **Admin UI > Integrations > Web Search**. Private — queries never leave your network.
 
 ### DuckDuckGo mode
 
@@ -181,14 +184,14 @@ Uses `ddgs` to search DuckDuckGo, Google, Brave, and other public engines. No co
 ### Disabled
 
 ```bash
-WEB_SEARCH_MODE=none
+WEB_SEARCH_MODE=disabled
 ```
 
-The `web_search` tool returns an error directing bots to ask the admin. Add custom search tools in `tools/`.
+The `web_search` tool returns an error directing bots to enable it. Add custom search tools in `tools/`.
 
-You can switch modes at any time via the Settings UI — no restart required. The `fetch_url` tool always works regardless of mode (falls back to httpx when Playwright is unavailable).
+You can switch modes at any time via the Integrations UI — no restart required. The `fetch_url` tool always works regardless of mode (falls back to httpx when Playwright is unavailable).
 
-> **Upgrading?** If you already use web search, add `COMPOSE_PROFILES=web-search` to your `.env` — without it, SearXNG and Playwright containers won't start after this update.
+> **Upgrading from COMPOSE_PROFILES?** Replace `COMPOSE_PROFILES=web-search` with `WEB_SEARCH_CONTAINERS=true` in your `.env`.
 
 ## LLM Provider Configuration
 
@@ -475,6 +478,7 @@ agent-server/
 │   ├── claude_code/       # Claude Code CLI integration
 │   ├── bluebubbles/       # iMessage via BlueBubbles
 │   ├── ingestion/         # Document ingestion pipeline
+│   ├── web_search/        # Web search (SearXNG, DuckDuckGo)
 │   └── example/           # Template for new integrations
 ├── workflows/              # Workflow YAML definitions (multi-step automations)
 ├── migrations/             # Alembic database migrations

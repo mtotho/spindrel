@@ -5,8 +5,24 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from app.tools.local.web_search import web_search, _sanitize_fetched_content
+from integrations.web_search.tools.web_search import web_search, _sanitize_fetched_content
 from app.utils.url_validation import validate_url as _check_ssrf, _BLOCKED_NETWORKS
+
+
+def _patch_mode(mode: str):
+    """Patch _get so WEB_SEARCH_MODE returns the given mode."""
+    original_get = None
+
+    def _fake_get(key, default=""):
+        if key == "WEB_SEARCH_MODE":
+            return mode
+        if original_get:
+            return original_get(key, default)
+        return default
+
+    import integrations.web_search.config as _cfg
+    original_get = _cfg._get
+    return patch.object(_cfg, "_get", side_effect=_fake_get)
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +60,7 @@ class TestWebSearchModeDispatch:
         ]}
         ctx = _mock_searxng_client(response_data=data)
         try:
-            with patch("app.config.settings.WEB_SEARCH_MODE", "searxng"):
+            with _patch_mode("searxng"):
                 result = await web_search("test query", num_results=1)
         finally:
             ctx.stop()
@@ -58,7 +74,7 @@ class TestWebSearchModeDispatch:
         ddgs_results = [
             {"title": "DDG Result", "href": "https://ddg.example.com", "body": "found it"},
         ]
-        with patch("app.config.settings.WEB_SEARCH_MODE", "ddgs"), \
+        with _patch_mode("ddgs"), \
              patch("asyncio.to_thread", new_callable=AsyncMock, return_value=ddgs_results):
             result = await web_search("test query", num_results=1)
 
@@ -69,7 +85,7 @@ class TestWebSearchModeDispatch:
 
     @pytest.mark.asyncio
     async def test_none_mode_returns_error(self):
-        with patch("app.config.settings.WEB_SEARCH_MODE", "none"):
+        with _patch_mode("none"):
             result = await web_search("test query")
 
         parsed = json.loads(result)
@@ -79,7 +95,7 @@ class TestWebSearchModeDispatch:
     @pytest.mark.asyncio
     async def test_unknown_mode_returns_error(self):
         """Typo or invalid mode should behave like 'none'."""
-        with patch("app.config.settings.WEB_SEARCH_MODE", "typo"):
+        with _patch_mode("typo"):
             result = await web_search("test query")
 
         parsed = json.loads(result)
@@ -91,7 +107,7 @@ class TestSearXNGErrors:
     async def test_connection_error(self):
         ctx = _mock_searxng_client(side_effect=httpx.ConnectError("Connection refused"))
         try:
-            with patch("app.config.settings.WEB_SEARCH_MODE", "searxng"):
+            with _patch_mode("searxng"):
                 result = await web_search("test query")
         finally:
             ctx.stop()
@@ -99,13 +115,13 @@ class TestSearXNGErrors:
         parsed = json.loads(result)
         assert "error" in parsed
         assert "Cannot connect" in parsed["error"]
-        assert "COMPOSE_PROFILES" in parsed["error"]
+        assert "SEARXNG_URL" in parsed["error"]
 
     @pytest.mark.asyncio
     async def test_timeout_error(self):
         ctx = _mock_searxng_client(side_effect=httpx.ReadTimeout("timed out"))
         try:
-            with patch("app.config.settings.WEB_SEARCH_MODE", "searxng"):
+            with _patch_mode("searxng"):
                 result = await web_search("slow query")
         finally:
             ctx.stop()
@@ -118,7 +134,7 @@ class TestSearXNGErrors:
     async def test_http_500_error(self):
         ctx = _mock_searxng_client(status_code=500)
         try:
-            with patch("app.config.settings.WEB_SEARCH_MODE", "searxng"):
+            with _patch_mode("searxng"):
                 result = await web_search("test query")
         finally:
             ctx.stop()
@@ -133,7 +149,7 @@ class TestDDGSErrors:
     async def test_ddgs_empty_results(self):
         """ddgs returning None or empty list should return empty JSON array."""
         for empty in (None, []):
-            with patch("app.config.settings.WEB_SEARCH_MODE", "ddgs"), \
+            with _patch_mode("ddgs"), \
                  patch("asyncio.to_thread", new_callable=AsyncMock, return_value=empty):
                 result = await web_search("obscure query")
 
@@ -143,7 +159,7 @@ class TestDDGSErrors:
     @pytest.mark.asyncio
     async def test_ddgs_exception_returns_error(self):
         """ddgs network/rate-limit errors should return clean JSON error."""
-        with patch("app.config.settings.WEB_SEARCH_MODE", "ddgs"), \
+        with _patch_mode("ddgs"), \
              patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=Exception("Rate limit")):
             result = await web_search("test query")
 

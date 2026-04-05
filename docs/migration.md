@@ -32,7 +32,7 @@ This creates a timestamped archive containing:
 | `tools/` | Custom Python tools |
 | `integrations/` | All integration directories |
 | `mcp.yaml` | MCP server config |
-| `config/searxng/settings.yml` | SearXNG customization |
+| `integrations/web_search/config/searxng/settings.yml` | SearXNG customization |
 | Workspace files | `~/.spindrel-workspaces/` (MEMORY.md, daily logs, reference docs) |
 
 The archive is uploaded to your S3 bucket (configured via `RCLONE_REMOTE` in `.env`).
@@ -108,7 +108,7 @@ mkdir -p bots skills tools backups
 ```
 
 This pulls the latest backup from S3 and:
-1. Restores config files (`.env`, `bots/`, `skills/`, `tools/`, `mcp.yaml`, SearXNG config)
+1. Restores config files (`.env`, `bots/`, `skills/`, `tools/`, `mcp.yaml`, integration configs)
 2. Restores workspace files to `WORKSPACE_BASE_DIR`
 3. Starts Postgres and restores the database dump
 4. Starts backing services (Postgres, SearXNG, Playwright)
@@ -151,9 +151,10 @@ DATABASE_URL=postgresql+asyncpg://agent:agent@postgres:5432/agentdb
 WORKSPACE_HOST_DIR=/Users/yourname/.spindrel-workspaces   # real host path
 WORKSPACE_LOCAL_DIR=/workspace-data                         # mount path inside container
 
-# SearXNG and Playwright — use Docker service names
-SEARXNG_URL=http://searxng:8080
-PLAYWRIGHT_WS_URL=ws://playwright:3000
+# SearXNG and Playwright — use container names (managed by web_search integration)
+# These are auto-detected when WEB_SEARCH_CONTAINERS=true; only set for external instances.
+# SEARXNG_URL=http://spindrel-searxng:8080
+# PLAYWRIGHT_WS_URL=ws://spindrel-playwright:3000
 ```
 
 **Native mode `.env`** (no changes needed for these — localhost works):
@@ -271,7 +272,7 @@ Switching from running the server on the host to running it inside Docker.
 **Changes:**
 1. Add `WORKSPACE_HOST_DIR` and `WORKSPACE_LOCAL_DIR` to `.env`
 2. Change `DATABASE_URL` hostname from `localhost` to `postgres`
-3. Change `SEARXNG_URL` to use `searxng` hostname (if using Docker Compose networking)
+3. Set `WEB_SEARCH_CONTAINERS=true` if using built-in SearXNG containers
 4. Run `docker compose up -d` instead of `spindrel start`
 5. Disable the systemd service if it exists: `sudo systemctl disable --now spindrel`
 

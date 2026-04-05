@@ -1,7 +1,7 @@
 """Simplify skill modes: remove RAG mode and skills_override
 
 - Convert all mode="rag" to mode="on_demand" in bots.skills, channels.skills_extra,
-  channels.skills_override, shared_workspaces.skills
+  shared_workspaces.skills
 - NULL out channels.skills_override (legacy whitelist removed)
 - Remove similarity_threshold keys from skill config dicts
 - Column NOT dropped for rollback safety
@@ -9,6 +9,8 @@
 Revision ID: 169
 Revises: 168
 """
+import json
+
 from alembic import op
 import sqlalchemy as sa
 
@@ -16,35 +18,6 @@ revision = "169"
 down_revision = "168"
 branch_labels = None
 depends_on = None
-
-
-def _migrate_jsonb_skills(conn, table, column):
-    """Convert rag→on_demand and strip similarity_threshold in a JSONB skills column."""
-    rows = conn.execute(
-        sa.text(f"SELECT id, {column} FROM {table} WHERE {column} IS NOT NULL")
-    ).fetchall()
-    for row_id, skills in rows:
-        if not isinstance(skills, list):
-            continue
-        changed = False
-        new_skills = []
-        for entry in skills:
-            if not isinstance(entry, dict):
-                new_skills.append(entry)
-                continue
-            updated = dict(entry)
-            if updated.get("mode") == "rag":
-                updated["mode"] = "on_demand"
-                changed = True
-            if "similarity_threshold" in updated:
-                del updated["similarity_threshold"]
-                changed = True
-            new_skills.append(updated)
-        if changed:
-            conn.execute(
-                sa.text(f"UPDATE {table} SET {column} = :skills WHERE id = :id"),
-                {"skills": sa.func.cast(str(new_skills).replace("'", '"'), sa.Text()), "id": row_id},
-            )
 
 
 def upgrade() -> None:
@@ -72,7 +45,6 @@ def upgrade() -> None:
                 changed = True
             new_skills.append(updated)
         if changed:
-            import json
             conn.execute(
                 sa.text("UPDATE bots SET skills = :skills WHERE id = :id"),
                 {"skills": json.dumps(new_skills), "id": row_id},
@@ -100,37 +72,8 @@ def upgrade() -> None:
                 changed = True
             new_skills.append(updated)
         if changed:
-            import json
             conn.execute(
                 sa.text("UPDATE channels SET skills_extra = :skills WHERE id = :id"),
-                {"skills": json.dumps(new_skills), "id": row_id},
-            )
-
-    # Convert in channels.skills_override (before we stop reading it)
-    co_rows = conn.execute(
-        sa.text("SELECT id, skills_override FROM channels WHERE skills_override IS NOT NULL")
-    ).fetchall()
-    for row_id, skills in co_rows:
-        if not isinstance(skills, list):
-            continue
-        changed = False
-        new_skills = []
-        for entry in skills:
-            if not isinstance(entry, dict):
-                new_skills.append(entry)
-                continue
-            updated = dict(entry)
-            if updated.get("mode") == "rag":
-                updated["mode"] = "on_demand"
-                changed = True
-            if "similarity_threshold" in updated:
-                del updated["similarity_threshold"]
-                changed = True
-            new_skills.append(updated)
-        if changed:
-            import json
-            conn.execute(
-                sa.text("UPDATE channels SET skills_override = :skills WHERE id = :id"),
                 {"skills": json.dumps(new_skills), "id": row_id},
             )
 
@@ -159,7 +102,6 @@ def upgrade() -> None:
                 changed = True
             new_skills.append(updated)
         if changed:
-            import json
             conn.execute(
                 sa.text("UPDATE shared_workspaces SET skills = :skills WHERE id = :id"),
                 {"skills": json.dumps(new_skills), "id": row_id},
