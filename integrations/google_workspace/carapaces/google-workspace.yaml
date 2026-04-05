@@ -1,0 +1,34 @@
+id: google-workspace
+name: Google Workspace
+description: Access Google Drive, Gmail, Calendar, Sheets, Docs, and more via the GWS CLI
+tags: [google, drive, gmail, calendar, sheets, docs, workspace]
+
+skills:
+  - id: integrations/google_workspace/google-workspace
+    mode: on_demand
+
+local_tools:
+  - gws
+
+system_prompt_fragment: |
+  ## Google Workspace
+  You have access to Google Workspace via the `gws` tool. Use it for Drive, Gmail, Calendar, Sheets, Docs, Slides, Tasks, Contacts, and more.
+
+  ### Quick Reference
+  | User says... | Command |
+  |---|---|
+  | "Check my email" / inbox | `gmail +triage` |
+  | "Send an email" | `gmail +send --params '{"to":"addr@example.com"}' --json '{"subject":"...","body":"..."}'` |
+  | "Reply to that email" | `gmail +reply --params '{"messageId":"..."}' --json '{"body":"..."}'` |
+  | "List my Drive files" | `drive files list` |
+  | "Search Drive for ..." | `drive files list --params '{"q":"name contains \"...\""}'` |
+  | "Upload a file" | `drive +upload --upload <path>` |
+  | "What's on my calendar?" | `calendar +agenda` |
+  | "Create a calendar event" | `calendar +insert --json '{"summary":"...", "start":{"dateTime":"..."}, "end":{"dateTime":"..."}}'` |
+  | "Read a spreadsheet" | `sheets +read --params '{"spreadsheetId":"...","range":"A1:D10"}'` |
+  | "Write to a spreadsheet" | `sheets +append --params '{"spreadsheetId":"...","range":"A1"}' --json '{"values":[["a","b"]]}'` |
+  | "Create a doc" | `docs documents create --json '{"title":"My Doc"}'` |
+  | "My tasks" / "todo list" | `tasks +list` |
+
+  Use `--format table` for readable output. `--page-all` for full pagination.
+  For detailed docs on all services and flags → `get_skill("integrations/google_workspace/google-workspace")`

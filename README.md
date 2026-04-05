@@ -9,7 +9,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 ## Why Spindrel
 
 - **Any LLM provider, mix and match** — OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM, or any OpenAI-compatible endpoint. Assign different providers per bot. Automatic retry with exponential backoff and fallback models.
-- **Composable expertise (carapaces)** — Snap-on skillsets that bundle tools, skills, and behavioral instructions. Give a bot `carapaces: [qa, code-review]` and it instantly knows how to test and review code. Carapaces compose via `includes`.
+- **Capabilities (auto-discovered expertise)** — Composable bundles of tools, skills, and behavioral instructions. Bots discover and activate relevant capabilities at runtime — or pin specific ones to always include. Capabilities compose via `includes` for layered expertise.
 - **Workspace-driven memory** — Bots maintain `MEMORY.md`, daily logs, and reference documents on disk — all indexed for RAG retrieval. No opaque vector-only memory.
 - **Channel workspaces** — Per-channel file stores with schema-guided organization. 7 built-in templates (Software Dev, Research, QA, PM Hub, etc.) or custom schemas. Active files auto-inject into context.
 - **Conversation continuity** — Conversations are automatically archived into titled, searchable sections. Bots can browse, search, and read full transcripts across fresh starts. No history is ever lost.
@@ -23,7 +23,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Bot-to-bot delegation** — Orchestrator bots delegate to specialists, synchronously or as background tasks, up to 3 levels deep.
 - **Docker sandboxes** — Long-lived Docker containers with `docker exec`. Session, client, agent, or shared scope modes. Assign sandbox profiles per bot for safe code execution.
 - **Self-improving agents** — Bots can author their own skills at runtime using `manage_bot_skill`. Skills enter the RAG pipeline and are semantically retrieved in future sessions — bots get smarter over time.
-- **Custom tools & extensions** — Drop a `.py` file in `tools/` to add a tool. Keep a personal extensions repo with tools, carapaces, and skills — load it via `INTEGRATION_DIRS` with no boilerplate.
+- **Custom tools & extensions** — Drop a `.py` file in `tools/` to add a tool. Keep a personal extensions repo with tools, capabilities, and skills — load it via `INTEGRATION_DIRS` with no boilerplate.
 
 ## Quick Start
 
@@ -67,7 +67,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
        │            Agent Server (FastAPI)         │
        ├──────────────────────────────────────────┤
        │  Context Assembly                         │
-       │    skills, memory, workspace, carapaces,  │
+       │    skills, memory, workspace, capabilities, │
        │    tool RAG, conversation history         │
        │  Agent Loop                               │
        │    LLM ↔ tools until text response        │
@@ -90,7 +90,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | Guide | Description |
 |-------|-------------|
 | [Setup Guide](docs/setup.md) | Installation, providers, workspaces, integrations |
-| [How Spindrel Works](docs/guides/how-spindrel-works.md) | Mental model — channels, templates, activation, carapaces |
+| [How Spindrel Works](docs/guides/how-spindrel-works.md) | Mental model — channels, templates, activation, capabilities |
 | [Templates & Activation](docs/guides/templates-and-activation.md) | Activate integrations on channels, workspace templates |
 | [Slack Integration](docs/guides/slack.md) | Slack bot setup and channel config |
 | [Discord Integration](docs/guides/discord.md) | Discord bot setup |

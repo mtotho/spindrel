@@ -140,7 +140,7 @@ export default function CarapaceDetailPage() {
 
   return (
     <div style={{ overflow: "auto", flex: 1, background: t.surface }}>
-      <MobileHeader title={isNew ? "New Carapace" : draft.name || "Carapace"} />
+      <MobileHeader title={isNew ? "New Capability" : draft.name || "Capability"} />
       <div style={{ padding: 16, maxWidth: 720 }}>
         {/* Top actions */}
         <div
@@ -161,7 +161,7 @@ export default function CarapaceDetailPage() {
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
               onClick={() => setShowHelp(true)}
-              title="Help — what are carapaces?"
+              title="Help — what are capabilities?"
               style={{
                 background: "none",
                 border: "none",
@@ -252,7 +252,7 @@ export default function CarapaceDetailPage() {
           >
             <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 } as any} />
             <span>
-              This carapace is managed by a {existing?.source_type} ({existing?.source_path}).
+              This capability is managed by a {existing?.source_type} ({existing?.source_path}).
               Edit the source to make changes.
             </span>
           </div>
@@ -288,7 +288,7 @@ export default function CarapaceDetailPage() {
               />
             </FormRow>
 
-            <FormRow label="Description" description="Brief summary of what this carapace provides.">
+            <FormRow label="Description" description="Brief summary of what this capability provides.">
               <input
                 value={draft.description || ""}
                 onChange={(e) => update({ description: e.target.value })}
@@ -324,8 +324,8 @@ export default function CarapaceDetailPage() {
 
         {/* ─── Capabilities ─────────────────────────────── */}
         <Section
-          title="Capabilities"
-          description="Tools and skills the bot gains when this carapace is active"
+          title="Tools & Skills"
+          description="Tools and skills the bot gains when this capability is active"
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <FormRow
@@ -418,7 +418,7 @@ export default function CarapaceDetailPage() {
         {/* ─── Behavior ─────────────────────────────────── */}
         <Section
           title="Behavior"
-          description="System prompt fragment — the 'soul' of this carapace"
+          description="System prompt fragment — the 'soul' of this capability"
         >
           <FormRow
             label="System Prompt Fragment"
@@ -445,11 +445,11 @@ export default function CarapaceDetailPage() {
         {/* ─── Composition ──────────────────────────────── */}
         <Section
           title="Composition"
-          description="Include other carapaces to inherit their tools, skills, and fragments"
+          description="Include other capabilities to inherit their tools, skills, and fragments"
         >
           <FormRow
             label="Includes"
-            description="Comma-separated carapace IDs. Resolved depth-first (max 5 levels, cycle-safe). All tools, skills, and prompt fragments merge in."
+            description="Comma-separated capability IDs. Resolved depth-first (max 5 levels, cycle-safe). All tools, skills, and prompt fragments merge in."
           >
             <input
               value={(draft.includes || []).join(", ")}
@@ -473,7 +473,7 @@ export default function CarapaceDetailPage() {
 
         {/* ─── Used By ─────────────────────────────────── */}
         {!isNew && usage && usage.length > 0 && (
-          <Section title="Used By" description="Bots and channels that reference this carapace">
+          <Section title="Used By" description="Bots and channels that reference this capability">
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {usage.map((item, i) => (
                 <UsageRow key={`${item.type}-${item.id}-${i}`} item={item} t={t} />
@@ -509,8 +509,8 @@ export default function CarapaceDetailPage() {
               </span>
               {hasIncludes && (
                 <span style={{ fontSize: 11, color: t.textDim }}>
-                  ({resolved.resolved_ids.length} carapace
-                  {resolved.resolved_ids.length !== 1 ? "s" : ""})
+                  ({resolved.resolved_ids.length} capabilit
+                  {resolved.resolved_ids.length !== 1 ? "ies" : "y"})
                 </span>
               )}
             </button>
@@ -574,8 +574,8 @@ export default function CarapaceDetailPage() {
       {showHelp && <CarapaceHelpModal onClose={() => setShowHelp(false)} />}
       <ConfirmDialog
         open={showDeleteConfirm}
-        title="Delete Carapace"
-        message={`Delete carapace "${draft.name}"? This cannot be undone.`}
+        title="Delete Capability"
+        message={`Delete capability "${draft.name}"? This cannot be undone.`}
         confirmLabel="Delete"
         variant="danger"
         onConfirm={doDelete}

@@ -325,6 +325,55 @@ async def install_deps(integration_id: str):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.post("/integrations/{integration_id}/install-npm-deps")
+async def install_npm_deps(integration_id: str):
+    """Install npm dependencies declared in the integration's setup.py."""
+    from integrations import _iter_integration_candidates, _import_module
+
+    # Find the integration and read its SETUP
+    npm_deps = None
+    for candidate, iid, is_external, source in _iter_integration_candidates():
+        if iid == integration_id:
+            setup_file = candidate / "setup.py"
+            if setup_file.exists():
+                module = _import_module(iid, "setup", setup_file, is_external, source)
+                setup = getattr(module, "SETUP", {})
+                npm_deps = setup.get("npm_dependencies", [])
+            break
+
+    if not npm_deps:
+        raise HTTPException(status_code=404, detail=f"No npm_dependencies found for integration {integration_id!r}")
+
+    packages = [dep["package"] for dep in npm_deps]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "npm", "install", "-g", *packages,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+
+        if proc.returncode != 0:
+            err = (stderr or stdout or b"").decode(errors="replace").strip()
+            logger.error("npm install failed for %s: %s", integration_id, err)
+            raise HTTPException(status_code=500, detail=f"npm install failed: {err[:500]}")
+
+        logger.info("Installed npm dependencies for integration %s: %s", integration_id, packages)
+        return {
+            "integration_id": integration_id,
+            "installed": True,
+            "message": "npm packages installed. Restart the server if needed.",
+        }
+
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="npm install timed out after 120s")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to install npm deps for %s", integration_id)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # ---------------------------------------------------------------------------
 # Integration API key endpoints
 # ---------------------------------------------------------------------------

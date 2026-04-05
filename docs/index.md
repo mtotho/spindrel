@@ -20,9 +20,9 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
 OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM — or any OpenAI-compatible endpoint. Mix providers across bots. Automatic retry with fallback models. Cost tracking via LiteLLM pricing data.
 
-### Composable Expertise (Carapaces)
+### Capabilities (Auto-Discovered Expertise)
 
-Snap-on skillsets that bundle tools, knowledge, and behavioral instructions. Give a bot `carapaces: [qa, code-review]` and it instantly knows how to test and review code. Carapaces compose via `includes` for layered expertise.
+Composable bundles of tools, skills, and behavioral instructions. Bots discover and activate relevant capabilities at runtime — or pin specific ones like `carapaces: [qa, code-review]` to always include. Capabilities compose via `includes` for layered expertise.
 
 ### Workspace Memory + Conversation Continuity
 
@@ -79,7 +79,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
 | Guide | Description |
 |-------|-------------|
-| [How Spindrel Works](guides/how-spindrel-works.md) | The mental model — channels, templates, activation, carapaces, and how they compose. |
+| [How Spindrel Works](guides/how-spindrel-works.md) | The mental model — channels, templates, activation, capabilities, and how they compose. |
 | [Setup Guide](setup.md) | Installation, providers, workspaces, integrations, troubleshooting. |
 | [Templates & Activation](guides/templates-and-activation.md) | Activate integrations on channels, pick workspace templates, instant project setup. |
 | [Slack Integration](guides/slack.md) | Connect Spindrel to Slack via Socket Mode. |
@@ -92,9 +92,9 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Usage & Billing](guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting, and provider pricing. |
 | [Workflows](guides/workflows.md) | Multi-step automations with conditions, approval gates, cross-bot delegation, and scoped secrets. |
 | [Heartbeats](guides/heartbeats.md) | Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and workflow triggers. |
-| [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair with carapaces for domain expertise. |
+| [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair with capabilities for domain expertise. |
 | [Self-Improving Agents](guides/bot-skills.md) | Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility. |
-| [Custom Tools & Extensions](guides/custom-tools.md) | Create custom tools, manage a personal extensions repo, load external carapaces and skills. |
+| [Custom Tools & Extensions](guides/custom-tools.md) | Create custom tools, manage a personal extensions repo, load external capabilities and skills. |
 | [Creating Integrations](integrations/index.md) | Build custom integrations with routers, dispatchers, hooks, and HUD widgets. |
 | [Chat History](guides/chat-history.md) | Conversation archival, searchable sections, and continuity across fresh starts. |
 | [Developer API](guides/api.md) | Authentication, scoped keys, streaming, SSE events. |

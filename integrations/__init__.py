@@ -313,6 +313,26 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                     entry["python_dependencies"] = deps_status
                     entry["deps_installed"] = all_installed
 
+                # npm / binary dependencies check
+                npm_deps = setup.get("npm_dependencies", [])
+                if npm_deps:
+                    import shutil
+                    npm_status = []
+                    all_npm_installed = True
+                    for dep in npm_deps:
+                        binary = dep.get("binary_name", dep["package"])
+                        installed = shutil.which(binary) is not None
+                        npm_status.append({"package": dep["package"], "binary_name": binary, "installed": installed})
+                        if not installed:
+                            all_npm_installed = False
+                    entry["npm_dependencies"] = npm_status
+                    entry["npm_deps_installed"] = all_npm_installed
+
+                # OAuth config (pass through to UI)
+                oauth = setup.get("oauth")
+                if oauth:
+                    entry["oauth"] = oauth
+
                 # API permissions
                 ap = setup.get("api_permissions")
                 if ap:
@@ -344,9 +364,9 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             except Exception:
                 pass
 
-        # Determine status from required env vars + python dependencies
+        # Determine status from required env vars + python/npm dependencies
         required_vars = [v for v in entry["env_vars"] if v["required"]]
-        deps_ok = entry.get("deps_installed", True)  # True if no deps declared
+        deps_ok = entry.get("deps_installed", True) and entry.get("npm_deps_installed", True)
         if not required_vars:
             # No required vars declared — "ready" if has any capability file AND deps installed
             if entry["has_router"] or entry["has_dispatcher"] or entry["has_hooks"] or entry["has_tools"] or entry["has_carapaces"]:

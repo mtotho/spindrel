@@ -7,7 +7,7 @@ a compatible stub that just attaches the schema to the function.
 """
 
 try:
-    from app.tools.registry import register  # noqa: F401
+    from app.tools.registry import register, get_settings  # noqa: F401
 except ImportError:
 
     def register(schema, *, source_dir=None):
@@ -18,3 +18,8 @@ except ImportError:
             return func
 
         return decorator
+
+    def get_settings():
+        """Stub get_settings — returns a function that reads env vars."""
+        import os
+        return lambda key, default="": os.environ.get(key, default)

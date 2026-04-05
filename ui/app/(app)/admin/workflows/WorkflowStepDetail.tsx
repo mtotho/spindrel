@@ -247,7 +247,7 @@ export function WorkflowStepDetail({
             />
           </FormRow>
 
-          <FormRow label="Carapaces" description="Comma-separated carapace IDs">
+          <FormRow label="Capabilities" description="Comma-separated capability IDs">
             <input
               value={(step.carapaces || []).join(", ")}
               onChange={(e) => onChange({ carapaces: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}

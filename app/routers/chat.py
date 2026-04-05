@@ -453,6 +453,12 @@ def _rewrite_history_for_member_bot(
         meta = msg.get("_metadata") or {}
         role = msg.get("role")
 
+        # Remove hidden messages (member-mention trigger prompts, etc.)
+        # These are system-injected prompts for specific bots, not real user input.
+        if meta.get("hidden"):
+            messages.pop(i)
+            continue
+
         if role == "assistant":
             sender_id = meta.get("sender_id", "")
             sender_name = meta.get("sender_display_name", "")
@@ -855,11 +861,17 @@ async def chat(
     _primary_bot_id_nc = bot.id
     bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
 
-    # If routed to a member bot, rewrite history so it has proper identity
-    if bot.id != _primary_bot_id_nc:
-        from app.agent.bots import get_bot as _get_bot_nc
-        _pb_nc = _get_bot_nc(_primary_bot_id_nc)
-        _rewrite_history_for_member_bot(messages, bot.id, primary_bot_name=_pb_nc.name if _pb_nc else None)
+    # Rewrite history for multi-bot identity: convert other bots' assistant
+    # messages to user messages with attribution, remove hidden trigger prompts.
+    # Always run — it's a no-op for single-bot channels (no sender_id metadata).
+    _is_primary_nc = bot.id == _primary_bot_id_nc
+    from app.agent.bots import get_bot as _get_bot_nc
+    _pb_nc = _get_bot_nc(_primary_bot_id_nc) if not _is_primary_nc else None
+    _rewrite_history_for_member_bot(
+        messages, bot.id,
+        primary_bot_name=_pb_nc.name if _pb_nc else None,
+        is_primary=_is_primary_nc,
+    )
 
     # Add [Name]: prefix to user messages so the bot can distinguish speakers
     _apply_user_attribution(messages)
@@ -1096,11 +1108,17 @@ async def chat_stream(
     _primary_bot_id = bot.id
     bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
 
-    # If routed to a member bot, rewrite history so it has proper identity
-    if bot.id != _primary_bot_id:
-        from app.agent.bots import get_bot as _get_bot_s
-        _pb_s = _get_bot_s(_primary_bot_id)
-        _rewrite_history_for_member_bot(messages, bot.id, primary_bot_name=_pb_s.name if _pb_s else None)
+    # Rewrite history for multi-bot identity: convert other bots' assistant
+    # messages to user messages with attribution, remove hidden trigger prompts.
+    # Always run — it's a no-op for single-bot channels (no sender_id metadata).
+    _is_primary_s = bot.id == _primary_bot_id
+    from app.agent.bots import get_bot as _get_bot_s
+    _pb_s = _get_bot_s(_primary_bot_id) if not _is_primary_s else None
+    _rewrite_history_for_member_bot(
+        messages, bot.id,
+        primary_bot_name=_pb_s.name if _pb_s else None,
+        is_primary=_is_primary_s,
+    )
 
     # Add [Name]: prefix to user messages so the bot can distinguish speakers
     _apply_user_attribution(messages)
@@ -1422,11 +1440,16 @@ async def chat_stream(
                         except Exception:
                             _pending_bots.append({"id": _mbid, "name": _mbid})
 
-                    # Tell the primary tab that member bot streams are imminent.
-                    # This goes via the direct SSE (before it closes), so the tab can
-                    # prepare to transition from local stream to observer mode.
+                    # Notify via BOTH channels so the UI reliably receives the signal:
+                    # 1. Direct SSE — processed by handleSSEEvent (sets pendingMemberStream flag)
+                    # 2. Channel events bus — processed by useChannelEvents.  Because this
+                    #    is the SAME connection that will deliver stream_start, FIFO ordering
+                    #    guarantees pending_member_stream arrives first, eliminating the race
+                    #    where stream_start was dropped because the flag wasn't set yet.
                     _pending_event = {"type": "pending_member_stream", "bots": _pending_bots}
                     yield f"data: {json.dumps(_pending_event)}\n\n"
+                    from app.services.channel_events import publish as _publish_pending
+                    _publish_pending(channel_id, "pending_member_stream", {"bots": _pending_bots})
 
                     # Launch background tasks for each mentioned member bot
                     for _mbid, _mbcfg in _mentioned:

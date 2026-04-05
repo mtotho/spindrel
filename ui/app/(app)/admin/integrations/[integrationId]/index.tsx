@@ -4,6 +4,7 @@ import { useLocalSearchParams } from "expo-router";
 import {
   ChevronLeft, Check, X, Copy, ChevronDown, ChevronRight,
   RotateCcw, Play, Square, RefreshCw, Download, Key, Trash2, Power,
+  Link, Unlink,
 } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
@@ -22,10 +23,13 @@ import {
   useAutoStart,
   useSetAutoStart,
   useInstallDeps,
+  useInstallNpmDeps,
   useIntegrationApiKey,
   useProvisionIntegrationApiKey,
   useRevokeIntegrationApiKey,
   useSetIntegrationDisabled,
+  useOAuthStatus,
+  useOAuthDisconnect,
   type IntegrationItem,
 } from "@/src/api/hooks/useIntegrations";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -459,6 +463,192 @@ function DependencySection({ item }: { item: IntegrationItem }) {
 }
 
 // ---------------------------------------------------------------------------
+// npm dependency section
+// ---------------------------------------------------------------------------
+
+function NpmDependencySection({ item }: { item: IntegrationItem }) {
+  const t = useThemeTokens();
+  const installMut = useInstallNpmDeps(item.id);
+
+  const deps = item.npm_dependencies;
+  if (!deps || deps.length === 0) return null;
+
+  const allInstalled = deps.every((d) => d.installed);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {deps.map((d) => (
+          <span
+            key={d.package}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
+              background: d.installed ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+              color: d.installed ? "#22c55e" : "#ef4444",
+              fontFamily: "monospace",
+            }}
+          >
+            {d.installed ? <Check size={10} /> : <X size={10} />}
+            {d.package}
+          </span>
+        ))}
+      </div>
+      {!allInstalled && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            onClick={() => installMut.mutate()}
+            disabled={installMut.isPending}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "5px 14px", borderRadius: 5, border: "none",
+              background: t.accent, color: "#fff", fontSize: 12, fontWeight: 600,
+              cursor: installMut.isPending ? "wait" : "pointer",
+              opacity: installMut.isPending ? 0.6 : 1,
+            }}
+          >
+            <Download size={12} />
+            {installMut.isPending ? "Installing..." : "Install npm Packages"}
+          </button>
+          {installMut.isSuccess && <span style={{ fontSize: 11, color: "#22c55e" }}>Installed</span>}
+          {installMut.isError && <span style={{ fontSize: 11, color: "#ef4444" }}>Install failed</span>}
+        </div>
+      )}
+      {allInstalled && <span style={{ fontSize: 11, color: "#22c55e" }}>All npm packages installed</span>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OAuth section
+// ---------------------------------------------------------------------------
+
+function OAuthSection({ item }: { item: IntegrationItem }) {
+  const t = useThemeTokens();
+  const oauth = item.oauth;
+  if (!oauth) return null;
+
+  const { data: status, isLoading } = useOAuthStatus(item.id, oauth.status);
+  const disconnectMut = useOAuthDisconnect(item.id, oauth.disconnect);
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(
+    oauth.scope_services.slice(0, 3)
+  );
+
+  const handleConnect = () => {
+    const scopeParam = selectedScopes.join(",");
+    window.open(`${oauth.auth_start}?scopes=${scopeParam}`, "_blank");
+  };
+
+  const toggleScope = (scope: string) => {
+    setSelectedScopes((prev) =>
+      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]
+    );
+  };
+
+  if (isLoading) {
+    return <div style={{ fontSize: 12, color: t.textDim }}>Checking connection...</div>;
+  }
+
+  if (status?.connected) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
+              background: "rgba(34,197,94,0.1)", color: "#22c55e",
+            }}
+          >
+            <Link size={10} />
+            Connected{status.email ? ` as ${status.email}` : ""}
+          </span>
+          <button
+            onClick={() => {
+              if (window.confirm("Disconnect Google account? Bots will lose access to Google services.")) {
+                disconnectMut.mutate();
+              }
+            }}
+            disabled={disconnectMut.isPending}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "3px 10px", borderRadius: 4, border: "none",
+              background: "rgba(239,68,68,0.15)", color: "#ef4444",
+              fontSize: 11, fontWeight: 600,
+              cursor: disconnectMut.isPending ? "wait" : "pointer",
+              opacity: disconnectMut.isPending ? 0.5 : 1,
+            }}
+          >
+            <Unlink size={10} /> Disconnect
+          </button>
+        </div>
+        {status.scopes && status.scopes.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+            {status.scopes.map((s) => (
+              <span
+                key={s}
+                style={{
+                  fontSize: 10, fontFamily: "monospace",
+                  padding: "1px 6px", borderRadius: 3,
+                  background: "rgba(107,114,128,0.08)", color: t.textMuted,
+                }}
+              >
+                {s}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 12, color: t.textDim }}>
+        Select services to authorize, then connect your Google account.
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {oauth.scope_services.map((svc) => {
+          const active = selectedScopes.includes(svc);
+          return (
+            <button
+              key={svc}
+              onClick={() => toggleScope(svc)}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: 4,
+                padding: "3px 10px", borderRadius: 4, border: "none",
+                background: active ? "rgba(59,130,246,0.15)" : "rgba(107,114,128,0.08)",
+                color: active ? "#3b82f6" : t.textDim,
+                fontSize: 11, fontWeight: 500, cursor: "pointer",
+              }}
+            >
+              {active ? <Check size={10} /> : <X size={10} />}
+              {svc}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        onClick={handleConnect}
+        disabled={selectedScopes.length === 0}
+        style={{
+          display: "flex", alignItems: "center", gap: 6, alignSelf: "flex-start",
+          padding: "6px 16px", borderRadius: 6, border: "none",
+          background: selectedScopes.length > 0 ? t.accent : t.surfaceOverlay,
+          color: selectedScopes.length > 0 ? "#fff" : t.textDim,
+          fontSize: 12, fontWeight: 600,
+          cursor: selectedScopes.length > 0 ? "pointer" : "not-allowed",
+          opacity: selectedScopes.length > 0 ? 1 : 0.6,
+        }}
+      >
+        <Link size={13} />
+        Connect Google Account
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // API key section
 // ---------------------------------------------------------------------------
 
@@ -779,7 +969,7 @@ export default function IntegrationDetailScreen() {
             <CapBadge label="hooks" active={item.has_hooks} />
             <CapBadge label="tools" active={item.has_tools} />
             <CapBadge label="skills" active={item.has_skills} />
-            <CapBadge label="carapaces" active={item.has_carapaces} />
+            <CapBadge label="capabilities" active={item.has_carapaces} />
             <CapBadge label="process" active={item.has_process} />
           </div>
           <WebhookRow webhook={item.webhook} />
@@ -819,6 +1009,20 @@ export default function IntegrationDetailScreen() {
         {item.python_dependencies && item.python_dependencies.length > 0 && (
           <SectionBox title="Python Dependencies">
             <DependencySection item={item} />
+          </SectionBox>
+        )}
+
+        {/* npm dependencies */}
+        {item.npm_dependencies && item.npm_dependencies.length > 0 && (
+          <SectionBox title="npm Dependencies">
+            <NpmDependencySection item={item} />
+          </SectionBox>
+        )}
+
+        {/* OAuth connection */}
+        {item.oauth && (
+          <SectionBox title="OAuth Connection">
+            <OAuthSection item={item} />
           </SectionBox>
         )}
 

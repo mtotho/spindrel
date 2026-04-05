@@ -53,7 +53,7 @@ export const ADMIN_SECTIONS: SectionDef[] = [
       { label: "Integrations", href: "/admin/integrations", icon: Plug },
       { label: "Providers", href: "/admin/providers", icon: Server },
       { label: "MCP Servers", href: "/admin/mcp-servers", icon: Cable },
-      { label: "Carapaces (Expertise)", href: "/admin/carapaces", icon: Layers },
+      { label: "Capabilities", href: "/admin/carapaces", icon: Layers },
       { label: "Tools", href: "/admin/tools", icon: Wrench },
       { label: "Skills", href: "/admin/skills", icon: BookOpen },
       { label: "Templates", href: "/admin/prompt-templates", icon: FileText },

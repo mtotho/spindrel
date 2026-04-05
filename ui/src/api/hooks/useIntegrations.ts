@@ -29,6 +29,19 @@ export interface PythonDependency {
   installed: boolean;
 }
 
+export interface NpmDependency {
+  package: string;
+  binary_name: string;
+  installed: boolean;
+}
+
+export interface OAuthConfig {
+  auth_start: string;
+  status: string;
+  disconnect: string;
+  scope_services: string[];
+}
+
 export interface DebugAction {
   id: string;
   label: string;
@@ -55,6 +68,9 @@ export interface IntegrationItem {
   env_vars: IntegrationEnvVar[];
   python_dependencies?: PythonDependency[];
   deps_installed?: boolean;
+  npm_dependencies?: NpmDependency[];
+  npm_deps_installed?: boolean;
+  oauth?: OAuthConfig;
   webhook: IntegrationWebhook | null;
   api_permissions: string | string[] | null;
   icon?: string;
@@ -166,6 +182,53 @@ export function useInstallDeps(id: string) {
         { method: "POST" }
       ),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-integrations"] });
+    },
+  });
+}
+
+export function useInstallNpmDeps(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ installed: boolean; message: string }>(
+        `/api/v1/admin/integrations/${id}/install-npm-deps`,
+        { method: "POST" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-integrations"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// OAuth status hooks
+// ---------------------------------------------------------------------------
+
+export interface OAuthStatus {
+  connected: boolean;
+  scopes: string[];
+  email: string | null;
+}
+
+export function useOAuthStatus(id: string, statusEndpoint: string | undefined) {
+  return useQuery({
+    queryKey: ["admin-integration-oauth-status", id],
+    queryFn: () => apiFetch<OAuthStatus>(statusEndpoint!),
+    enabled: !!statusEndpoint,
+    staleTime: 30_000,
+  });
+}
+
+export function useOAuthDisconnect(id: string, disconnectEndpoint: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => {
+      if (!disconnectEndpoint) return Promise.reject(new Error("No disconnect endpoint"));
+      return apiFetch(disconnectEndpoint, { method: "POST" });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-integration-oauth-status", id] });
       qc.invalidateQueries({ queryKey: ["admin-integrations"] });
     },
   });

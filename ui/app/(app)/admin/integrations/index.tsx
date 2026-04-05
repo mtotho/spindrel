@@ -114,7 +114,7 @@ function IntegrationRow({ item, isWide }: { item: IntegrationItem; isWide: boole
     item.has_hooks && "hooks",
     item.has_tools && "tools",
     item.has_skills && "skills",
-    item.has_carapaces && "carapaces",
+    item.has_carapaces && "capabilities",
   ].filter(Boolean) as string[];
 
   const rowOpacity = isDisabled ? 0.45 : 1;

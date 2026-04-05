@@ -247,6 +247,22 @@ export function useChannelEvents(channelId: string | undefined) {
         return;
       }
 
+      if (payload.type === "pending_member_stream") {
+        // Set pendingMemberStream flag so the next stream_start is allowed through
+        // even if isLocalStream is still true.  Published on the same SSE connection
+        // as stream_start, so FIFO ordering guarantees this arrives first.
+        useChatStore.setState((s) => {
+          const prev = s.channels[chId] ?? useChatStore.getState().getChannel(chId);
+          return {
+            channels: {
+              ...s.channels,
+              [chId]: { ...prev, pendingMemberStream: true },
+            },
+          };
+        });
+        return;
+      }
+
       if (payload.type === "stream_end") {
         if (!ch.isStreaming || ch.isLocalStream) return;
         clearObserverTimeout();

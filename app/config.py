@@ -451,6 +451,9 @@ class Settings(BaseSettings):
     # in addition to ./integrations/. See docs/integrations/README.md.
     INTEGRATION_DIRS: str = ""
 
+    # Capability auto-discovery
+    CAPABILITIES_DISABLED: str = ""  # comma-separated carapace IDs to hide globally
+
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
     TOOL_RETRIEVAL_THRESHOLD: float = 0.45
     TOOL_RETRIEVAL_TOP_K: int = 10

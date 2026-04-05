@@ -121,10 +121,10 @@ export function CarapacesSection({
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div style={{ fontSize: 11, color: t.textDim }}>
-          Composable skill+tool bundles. Select carapaces to equip this bot with pre-configured expertise.
+          Capabilities are auto-discovered at runtime — the bot will activate what it needs per-conversation. Pin specific ones here to always include them.
         </div>
         <div style={{ color: t.textDim, fontSize: 12, padding: 12, textAlign: "center" }}>
-          No carapaces available. Create one in the Carapaces admin page.
+          No capabilities available. Create one in the Capabilities admin page.
         </div>
       </div>
     );
@@ -133,7 +133,7 @@ export function CarapacesSection({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontSize: 11, color: t.textDim }}>
-        Composable skill+tool bundles. Select carapaces to equip this bot with pre-configured expertise.
+        Capabilities are auto-discovered at runtime — the bot will activate what it needs per-conversation. Pin specific ones here to always include them.
       </div>
       {allCarapaces.length > 6 && (
         <div style={{
@@ -142,7 +142,7 @@ export function CarapacesSection({
         }}>
           <Search size={12} color={t.textDim} />
           <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter carapaces..." style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 12 }} />
+            placeholder="Filter capabilities..." style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 12 }} />
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 0 }}>

@@ -79,6 +79,47 @@ class TestCoerceArgs:
         result = _coerce_args(args, schema_props)
         assert result["steps"] is None
 
+    def test_string_to_integer(self):
+        """A string value for an integer param should be coerced to int."""
+        schema_props = {"num_results": {"type": "integer"}}
+        args = {"num_results": "5"}
+        result = _coerce_args(args, schema_props)
+        assert result["num_results"] == 5
+        assert isinstance(result["num_results"], int)
+
+    def test_integer_stays_integer(self):
+        """Already-correct integer values should pass through."""
+        schema_props = {"num_results": {"type": "integer"}}
+        args = {"num_results": 5}
+        result = _coerce_args(args, schema_props)
+        assert result["num_results"] == 5
+
+    def test_invalid_string_to_integer_passthrough(self):
+        """A non-numeric string for an integer param should pass through."""
+        schema_props = {"count": {"type": "integer"}}
+        args = {"count": "abc"}
+        result = _coerce_args(args, schema_props)
+        assert result["count"] == "abc"
+
+    def test_string_to_number(self):
+        """A string value for a number param should be coerced to float."""
+        schema_props = {"threshold": {"type": "number"}}
+        args = {"threshold": "0.75"}
+        result = _coerce_args(args, schema_props)
+        assert result["threshold"] == 0.75
+        assert isinstance(result["threshold"], float)
+
+    def test_string_to_boolean(self):
+        """A string 'true'/'false' for a boolean param should be coerced."""
+        schema_props = {"verbose": {"type": "boolean"}}
+        args = {"verbose": "true"}
+        result = _coerce_args(args, schema_props)
+        assert result["verbose"] is True
+
+        args2 = {"verbose": "false"}
+        result2 = _coerce_args(args2, schema_props)
+        assert result2["verbose"] is False
+
 
 # ---------------------------------------------------------------------------
 # draft_plan: string steps → should create exactly 1 step, not N characters

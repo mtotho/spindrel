@@ -1149,12 +1149,71 @@ class TestRewriteHistoryForMemberBot:
         assert messages[2]["role"] == "user"
         assert messages[2]["content"] == "[Rolland]: Everything looks good. Let me ask @dev_bot."
 
-        # Trigger prompt — user role, already has attribution
-        assert messages[3]["role"] == "user"
+        # Hidden trigger prompt is REMOVED (it's a system-injected prompt, not real input)
+        # Dev bot's own response stays as assistant — now at index 3
+        assert len(messages) == 4
+        assert messages[3]["role"] == "assistant"
+        assert messages[3]["content"] == "I checked the CI — all green."
 
-        # Dev bot's own response stays as assistant
-        assert messages[4]["role"] == "assistant"
-        assert messages[4]["content"] == "I checked the CI — all green."
+    def test_primary_bot_sees_member_responses_with_attribution(self):
+        """Primary bot should see member bot responses as attributed user messages."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "system", "content": "You are Rolland."},
+            {"role": "user", "content": "Deploy the app", "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+            # Primary bot's own response
+            {"role": "assistant", "content": "Sure, let me ask @dev_bot to handle it.", "_metadata": {
+                "sender_id": "bot:rolland", "sender_display_name": "Rolland",
+            }},
+            # Trigger prompt for dev_bot (hidden)
+            {"role": "user", "content": "You are Dev Bot. Rolland mentioned you.", "_metadata": {
+                "trigger": "member_mention", "hidden": True,
+                "sender_display_name": "Rolland",
+            }},
+            # Dev bot's response
+            {"role": "assistant", "content": "Deployment started. ETA 5 minutes.", "_metadata": {
+                "sender_id": "bot:dev_bot", "sender_display_name": "Dev Bot",
+            }},
+        ]
+        # Rewrite from PRIMARY bot's perspective
+        _rewrite_history_for_member_bot(
+            messages, "rolland", primary_bot_name="Rolland", is_primary=True,
+        )
+
+        assert messages[0]["role"] == "system"
+
+        # User message gets attribution
+        assert messages[1]["content"] == "[Mike]: Deploy the app"
+
+        # Primary bot's own response stays as assistant
+        assert messages[2]["role"] == "assistant"
+        assert "Sure, let me ask @dev_bot" in messages[2]["content"]
+
+        # Hidden trigger prompt is removed
+        # Dev bot's response is rewritten to user with attribution
+        assert len(messages) == 4
+        assert messages[3]["role"] == "user"
+        assert messages[3]["content"] == "[Dev Bot]: Deployment started. ETA 5 minutes."
+
+    def test_hidden_messages_removed(self):
+        """Messages with hidden=True metadata are removed during rewrite."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "system", "content": "System prompt"},
+            {"role": "user", "content": "Normal message"},
+            {"role": "user", "content": "Hidden trigger", "_metadata": {"hidden": True}},
+            {"role": "assistant", "content": "Bot response", "_metadata": {
+                "sender_id": "bot:test_bot",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "test_bot")
+        assert len(messages) == 3
+        assert messages[1]["content"] == "Normal message"
+        assert messages[2]["role"] == "assistant"
 
 
 # ---------------------------------------------------------------------------

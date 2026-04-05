@@ -64,7 +64,7 @@ function InjectionSummaryLine({ ig }: { ig: ActivatableIntegration }) {
   return (
     <span>
       Adds {parts.join(", ")}
-      {carapaceLabel ? ` via ${carapaceLabel} carapace` : ""}
+      {carapaceLabel ? ` via ${carapaceLabel} capability` : ""}
     </span>
   );
 }
@@ -75,7 +75,7 @@ function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
     <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${t.surfaceBorder}` }}>
       {ig.carapaces.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>Carapace:</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>Capability:</span>
           {ig.carapaces.map((id) => (
             <CarapacePill key={id} id={id} t={t} />
           ))}

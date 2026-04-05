@@ -115,14 +115,31 @@ def is_local_tool(name: str) -> bool:
 def _coerce_args(args: dict, schema_props: dict) -> dict:
     """Fix common LLM type mistakes based on declared schema.
 
-    Currently handles: scalar value passed for an array parameter → wrap in list.
+    Handles:
+    - scalar value passed for an array parameter → wrap in list
+    - string value passed for an integer parameter → int()
+    - string value passed for a number parameter → float()
+    - string "true"/"false" passed for a boolean parameter → bool
     """
     for key, val in args.items():
         prop = schema_props.get(key)
         if prop is None or val is None:
             continue
-        if prop.get("type") == "array" and not isinstance(val, list):
+        declared = prop.get("type")
+        if declared == "array" and not isinstance(val, list):
             args[key] = [val]
+        elif declared == "integer" and isinstance(val, str):
+            try:
+                args[key] = int(val)
+            except (ValueError, TypeError):
+                pass
+        elif declared == "number" and isinstance(val, str):
+            try:
+                args[key] = float(val)
+            except (ValueError, TypeError):
+                pass
+        elif declared == "boolean" and isinstance(val, str):
+            args[key] = val.lower() in ("true", "1", "yes")
     return args
 
 

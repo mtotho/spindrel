@@ -110,12 +110,12 @@ export default function CarapacesPage() {
   return (
     <View className="flex-1 bg-surface">
       <MobileHeader
-        title="Carapaces (Expertise)"
+        title="Capabilities"
         right={
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={() => setShowHelp(true)}
-              title="What are carapaces?"
+              title="What are capabilities?"
               style={{
                 display: "flex", alignItems: "center",
                 padding: "6px 8px", fontSize: 12,
@@ -157,7 +157,7 @@ export default function CarapacesPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter carapaces..."
+            placeholder="Filter capabilities..."
             style={{
               background: "none", border: "none", outline: "none",
               color: t.text, fontSize: 12, flex: 1, width: "100%",
@@ -169,7 +169,7 @@ export default function CarapacesPage() {
             {search && filtered.length !== carapaces.length
               ? `${filtered.length} / ${carapaces.length}`
               : carapaces.length}{" "}
-            carapaces
+            capabilities
           </span>
         )}
       </div>
@@ -185,14 +185,14 @@ export default function CarapacesPage() {
               <View style={{ alignItems: "center", paddingTop: 60 }}>
                 <Layers size={32} color={t.textMuted} />
                 <Text style={{ color: t.textMuted, marginTop: 12, fontSize: 14 }}>
-                  No carapaces yet. Create one to get started.
+                  No capabilities yet. Create one to get started.
                 </Text>
               </View>
             )}
             {carapaces && carapaces.length > 0 && filtered.length === 0 && (
               <View style={{ alignItems: "center", paddingTop: 60 }}>
                 <Text style={{ color: t.textDim, fontSize: 13 }}>
-                  No carapaces match "{search}"
+                  No capabilities match "{search}"
                 </Text>
               </View>
             )}

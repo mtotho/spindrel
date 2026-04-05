@@ -308,7 +308,7 @@ def _bb_webhook_payload(
     chat_guid: str = "iMessage;-;+15551234567",
     is_from_me: bool = False,
     msg_guid: str = "msg-abc-123",
-    sender: str = "+15559999999",
+    sender: str = "+15551234567",
     event_type: str = "new-message",
     date_created: int | None = None,
 ) -> dict:
@@ -682,8 +682,9 @@ class TestWebhookEndpoint:
         binding = _make_binding(ch.id)
         session_id = uuid.uuid4()
 
+        # Sender matches the chat GUID so sender filtering doesn't interfere
         request = _webhook_request(_bb_webhook_payload(
-            text="random chatter", sender="+15559999999",
+            text="random chatter",
         ))
         db = AsyncMock()
 
@@ -705,7 +706,7 @@ class TestWebhookEndpoint:
         call_kwargs = mock_utils.inject_message.call_args
         assert call_kwargs.kwargs["run_agent"] is False
         # Passive content should have sender prefix
-        assert call_kwargs.args[1].startswith("[+15559999999]:")
+        assert call_kwargs.args[1].startswith("[+15551234567]:")
 
     @pytest.mark.asyncio
     async def test_duplicate_guid_rejected(self, _bypass_guid_dedup):
@@ -1277,3 +1278,181 @@ class TestTextFooter:
         call_kwargs = mock_utils.inject_message.call_args
         dc = call_kwargs.kwargs["dispatch_config"]
         assert "text_footer" not in dc
+
+
+# ---------------------------------------------------------------------------
+# Sender filtering — 1:1 chat expected sender
+# ---------------------------------------------------------------------------
+
+
+class TestExpectedSender:
+    """Test _expected_sender_from_guid and _normalize_address helpers."""
+
+    def test_1to1_chat_extracts_number(self):
+        from integrations.bluebubbles.router import _expected_sender_from_guid
+        assert _expected_sender_from_guid("iMessage;-;+15551234567") == "15551234567"
+
+    def test_group_chat_returns_none(self):
+        from integrations.bluebubbles.router import _expected_sender_from_guid
+        assert _expected_sender_from_guid("iMessage;+;chat123") is None
+
+    def test_email_address_extracted(self):
+        from integrations.bluebubbles.router import _expected_sender_from_guid
+        assert _expected_sender_from_guid("iMessage;-;user@example.com") == "user@example.com"
+
+    def test_normalize_strips_formatting(self):
+        from integrations.bluebubbles.router import _normalize_address
+        assert _normalize_address("+1 (555) 123-4567") == "15551234567"
+        assert _normalize_address("+15551234567") == "15551234567"
+        assert _normalize_address("15551234567") == "15551234567"
+
+
+class TestSenderFiltering:
+    """Test that messages from unexpected senders in 1:1 chats are stored passively."""
+
+    @pytest.fixture(autouse=True)
+    def _bypass_guid_dedup(self):
+        with patch("integrations.bluebubbles.router._guid_dedup") as mock_dedup:
+            mock_dedup.check_and_record.return_value = False
+            mock_dedup.save_to_db = AsyncMock()
+            yield mock_dedup
+
+    @pytest.fixture(autouse=True)
+    def _skip_db_loading(self):
+        from integrations.bluebubbles import router as _router_mod
+        _router_mod._echo_state_loaded["done"] = True
+        yield
+        _router_mod._echo_state_loaded.clear()
+
+    @pytest.mark.asyncio
+    async def test_expected_sender_triggers_agent(self):
+        """Message from the expected sender (bound contact) triggers the agent."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id, client_id="bb:iMessage;-;+15559999999")
+        session_id = uuid.uuid4()
+
+        # Sender matches the number in the chat GUID
+        request = _webhook_request(_bb_webhook_payload(
+            text="hello", sender="+15559999999",
+            chat_guid="iMessage;-;+15559999999",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+    @pytest.mark.asyncio
+    async def test_unexpected_sender_stored_passively(self):
+        """Message from an unexpected sender in a 1:1 chat → passive storage."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id, client_id="bb:iMessage;-;+15559999999")
+        session_id = uuid.uuid4()
+
+        # Sender does NOT match the number in the chat GUID
+        request = _webhook_request(_bb_webhook_payload(
+            text="hello from another phone", sender="+15551111111",
+            chat_guid="iMessage;-;+15559999999",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": None})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is False
+
+    @pytest.mark.asyncio
+    async def test_group_chat_no_sender_filtering(self):
+        """Group chats don't filter by sender (no expected sender in GUID)."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id, client_id="bb:iMessage;+;chat123")
+        session_id = uuid.uuid4()
+
+        # Group chat — any sender should trigger
+        request = _webhook_request(_bb_webhook_payload(
+            text="hello from anyone", sender="+15551111111",
+            chat_guid="iMessage;+;chat123",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True
+
+    @pytest.mark.asyncio
+    async def test_is_from_me_bypasses_sender_filter(self):
+        """is_from_me messages bypass sender filtering (they have no handle)."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id, client_id="bb:iMessage;-;+15559999999")
+        session_id = uuid.uuid4()
+
+        request = _webhook_request(_bb_webhook_payload(
+            text="hello from my mac", is_from_me=True,
+            chat_guid="iMessage;-;+15559999999",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={"message_id": "m1", "session_id": str(session_id), "task_id": "t1"})
+
+            result = await webhook(request, db)
+
+        assert result["status"] == "processed"
+        call_kwargs = mock_utils.inject_message.call_args
+        assert call_kwargs.kwargs["run_agent"] is True

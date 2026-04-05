@@ -442,6 +442,22 @@ async def assemble_context(
         except Exception:
             logger.warning("Failed to inject activation carapaces", exc_info=True)
 
+    # --- merge session-activated capabilities into bot's carapace list ---
+    _session_cap_ids: set[str] = set()
+    if correlation_id is not None:
+        from app.agent.capability_session import get_activated as _get_cap_activated
+        _session_cap_ids = _get_cap_activated(str(correlation_id))
+        if _session_cap_ids:
+            _existing_caps = set(bot.carapaces or [])
+            _ch_caps_disabled = set(getattr(_ch_row, "carapaces_disabled", None) or []) if _ch_row else set()
+            _new_session_caps = [
+                cid for cid in _session_cap_ids
+                if cid not in _existing_caps and cid not in _ch_caps_disabled
+            ]
+            if _new_session_caps:
+                bot = _dc_replace(bot, carapaces=list(bot.carapaces or []) + _new_session_caps)
+                yield {"type": "session_capabilities_merged", "count": len(_new_session_caps), "ids": _new_session_caps}
+
     # --- carapace resolution ---
     _carapace_ids = list(bot.carapaces or [])
     if _carapace_ids:
@@ -489,6 +505,51 @@ async def assemble_context(
             })
             _budget_consume("carapace_prompts", _carapace_prompt)
             yield {"type": "carapace_context", "count": len(_carapace_ids), "chars": len(_carapace_prompt)}
+
+    # --- capability auto-discovery index ---
+    # Build a compact index of available-but-not-active carapaces for the LLM.
+    # The LLM can call activate_capability(id) to load one for the session.
+    _cap_index_ids: list[str] = []
+    try:
+        from app.agent.carapaces import list_carapaces as _list_all_carapaces
+        _all_caps = _list_all_carapaces()
+        _active_cap_ids = set(_carapace_ids) if _carapace_ids else set()
+        _globally_disabled_raw = getattr(settings, "CAPABILITIES_DISABLED", "") or ""
+        _globally_disabled = {s.strip() for s in _globally_disabled_raw.split(",") if s.strip()}
+        _ch_caps_disabled_set = set(getattr(_ch_row, "carapaces_disabled", None) or []) if _ch_row else set()
+        _cap_excluded = _active_cap_ids | _globally_disabled | _ch_caps_disabled_set
+
+        _cap_lines: list[str] = []
+        for _c in _all_caps:
+            _cid = _c["id"]
+            if _cid in _cap_excluded:
+                continue
+            _cname = _c.get("name", _cid)
+            _cdesc = _c.get("description") or ""
+            _cap_lines.append(f"- {_cid}: {_cname}" + (f" — {_cdesc}" if _cdesc else ""))
+            _cap_index_ids.append(_cid)
+
+        if _cap_lines:
+            _cap_index_content = (
+                "Available capabilities (not yet active). "
+                "Call activate_capability(id=\"<id>\", reason=\"...\") to load one for this session:\n"
+                + "\n".join(_cap_lines)
+            )
+            if _budget_can_afford(_cap_index_content):
+                messages.append({"role": "system", "content": _cap_index_content})
+                _budget_consume("capability_index", _cap_index_content)
+                _inject_chars["capability_index"] = len(_cap_index_content)
+                yield {"type": "capability_index", "count": len(_cap_lines)}
+
+                # Inject activate_capability tool into bot's available tools
+                if "activate_capability" not in (bot.local_tools or []):
+                    bot = _dc_replace(
+                        bot,
+                        local_tools=list(bot.local_tools or []) + ["activate_capability"],
+                        pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + ["activate_capability"])),
+                    )
+    except Exception:
+        logger.warning("Failed to build capability index", exc_info=True)
 
     # --- auto-discover bot-authored skills (source_type="tool") ---
     if bot.id:

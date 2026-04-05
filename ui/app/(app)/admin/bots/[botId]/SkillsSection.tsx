@@ -7,7 +7,7 @@ import type { BotConfig, BotEditorData, SkillOption } from "@/src/types/api";
 
 const AUTO_INJECTED_SKILLS: Record<string, string> = {
   "integrations/mission_control/mission_control":
-    "Auto-injected via mission-control carapace for workspace-enabled channels",
+    "Auto-injected via mission-control capability for workspace-enabled channels",
 };
 
 function SourceBadge({ type }: { type: string }) {

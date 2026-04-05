@@ -61,7 +61,7 @@ export function CarapaceHelpModal({ onClose }: Props) {
           }}
         >
           <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>
-            Understanding Carapaces
+            Understanding Capabilities
           </span>
           <Pressable onPress={onClose} hitSlop={8}>
             <X size={16} color={t.textDim} />
@@ -70,18 +70,24 @@ export function CarapaceHelpModal({ onClose }: Props) {
 
         {/* Scrollable body */}
         <div style={{ overflow: "auto", padding: "16px 20px 20px" }}>
-          <HelpSection title="What are Carapaces?" t={t}>
-            Carapaces are composable expertise bundles that give bots instant domain knowledge.
-            Each carapace packages together tools, skills, behavioral instructions, and references
-            to other carapaces into a reusable profile. Think of them as "hats" a bot can wear
-            — a QA Expert carapace, a Code Reviewer carapace, an Orchestrator carapace.
+          <HelpSection title="What are Capabilities?" t={t}>
+            Capabilities are composable expertise bundles that give bots instant domain knowledge.
+            Each capability packages together tools, skills, behavioral instructions, and references
+            to other capabilities into a reusable profile. Think of them as "hats" a bot can wear
+            — a QA Expert capability, a Code Reviewer capability, an Orchestrator capability.
+          </HelpSection>
+
+          <HelpSection title="Auto-Discovery" t={t}>
+            Bots automatically discover available capabilities at runtime. When a user's request
+            matches a capability, the bot activates it for the session — no manual configuration needed.
+            You can pin capabilities to a bot (always active) or disable them per-channel.
           </HelpSection>
 
           <HelpSection title="Composition via Includes" t={t}>
-            Carapaces can reference other carapaces through the <Code t={t}>includes</Code> field.
-            When applied, all included carapaces are resolved depth-first (max 5 levels, cycle-safe).
+            Capabilities can reference other capabilities through the <Code t={t}>includes</Code> field.
+            When applied, all included capabilities are resolved depth-first (max 5 levels, cycle-safe).
             This lets you build complex expertise from simple building blocks.
-            For example, a "QA Expert" carapace might include "Code Reviewer" to inherit its
+            For example, a "QA Expert" capability might include "Code Reviewer" to inherit its
             tools and skills while adding its own QA-specific instructions.
           </HelpSection>
 
@@ -106,11 +112,11 @@ export function CarapaceHelpModal({ onClose }: Props) {
             </FieldDef>
             <FieldDef name="System Prompt Fragment" t={t}>
               Behavioral instructions injected into the system prompt when active.
-              This is the "soul" of the carapace — workflow steps, priorities,
+              This is the "soul" of the capability — workflow steps, priorities,
               decision-making guidelines. Write in markdown.
             </FieldDef>
             <FieldDef name="Includes" t={t}>
-              Other carapace IDs to compose with. All their tools, skills, and prompt fragments
+              Other capability IDs to compose with. All their tools, skills, and prompt fragments
               merge in during resolution.
             </FieldDef>
             <FieldDef name="Tags" t={t}>
@@ -118,20 +124,19 @@ export function CarapaceHelpModal({ onClose }: Props) {
             </FieldDef>
           </HelpSection>
 
-          <HelpSection title="How Carapaces Get Applied" t={t}>
+          <HelpSection title="How Capabilities Get Applied" t={t}>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <ApplyMethod label="Bot config" t={t}>
-                <Code t={t}>carapaces: [qa, code-review]</Code> in bot YAML — always active for that bot.
+              <ApplyMethod label="Auto-discovery" t={t}>
+                The bot sees all available capabilities and activates what it needs per-conversation.
+              </ApplyMethod>
+              <ApplyMethod label="Pinned to bot" t={t}>
+                <Code t={t}>carapaces: [qa, code-review]</Code> in bot config — always active for that bot.
               </ApplyMethod>
               <ApplyMethod label="Channel overrides" t={t}>
-                <Code t={t}>carapaces_extra</Code> adds and{" "}
-                <Code t={t}>carapaces_disabled</Code> removes per-channel.
+                Add or disable capabilities per-channel via channel settings.
               </ApplyMethod>
-              <ApplyMethod label="Task execution" t={t}>
-                Pass carapaces in <Code t={t}>execution_config</Code> for scheduled/deferred tasks.
-              </ApplyMethod>
-              <ApplyMethod label="Delegation" t={t}>
-                Include carapaces when delegating work to another bot.
+              <ApplyMethod label="Integration activation" t={t}>
+                Integrations (GitHub, Slack, etc.) auto-inject their capability when activated.
               </ApplyMethod>
             </div>
           </HelpSection>

@@ -510,6 +510,21 @@ async def lifespan(application: FastAPI):
         from app.services.config_export import config_export_worker
         _workers.append(safe_create_task(config_export_worker(), name="config_export"))
 
+    # Periodic session store cleanup (capability activations + session allows)
+    async def _session_cleanup_worker():
+        while True:
+            try:
+                await asyncio.sleep(600)  # every 10 minutes
+                from app.agent.capability_session import cleanup_stale as _cap_cleanup
+                from app.agent.session_allows import cleanup_stale as _allow_cleanup
+                cap_removed = _cap_cleanup()
+                allow_removed = _allow_cleanup()
+                if cap_removed or allow_removed:
+                    logger.debug("Session cleanup: %d capability + %d allow sessions evicted", cap_removed, allow_removed)
+            except Exception:
+                logger.warning("Session cleanup failed", exc_info=True)
+    _workers.append(safe_create_task(_session_cleanup_worker(), name="session_cleanup"))
+
     # Start integration background processes (non-blocking, like other workers)
     from app.services.integration_processes import process_manager
     _workers.append(safe_create_task(process_manager.start_auto_start_processes(), name="integration_processes"))

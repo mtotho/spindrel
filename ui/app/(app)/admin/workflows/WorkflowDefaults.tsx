@@ -128,7 +128,7 @@ export function DefaultsEditor({ value, onChange, disabled }: DefaultsEditorProp
         />
       </FormRow>
 
-      <FormRow label="Carapaces" description="Default carapaces for all steps">
+      <FormRow label="Capabilities" description="Default capabilities for all steps">
         <input
           value={(value.carapaces || []).join(", ")}
           onChange={(e) => update("carapaces", e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean))}

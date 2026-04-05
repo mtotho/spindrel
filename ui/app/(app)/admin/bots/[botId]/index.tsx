@@ -106,7 +106,7 @@ export default function BotEditorScreen() {
       tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "discovery", "summarization"],
       skills: ["skill"],
       learning: ["learning", "authored", "surfac", "knowledge"],
-      carapaces: ["carapace", "bundle", "expert"],
+      carapaces: ["capability", "carapace", "bundle", "expert"],
       memory: ["memory", "cross", "channel"],
       knowledge: ["knowledge"],
       attachments: ["attachment", "summarization", "vision"],

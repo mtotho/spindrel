@@ -179,7 +179,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
             type="text"
             value={filter}
             onChange={(e: any) => setFilter(e.target.value)}
-            placeholder="Filter tools, skills & carapaces..."
+            placeholder="Filter tools, skills & capabilities..."
             style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 12 }}
           />
           {filter && (
@@ -211,7 +211,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
       {/* Carapaces */}
       {filteredCarapaces.length > 0 && (
         <>
-          <SectionDivider label="Carapaces" count={filteredCarapaces.length} />
+          <SectionDivider label="Capabilities" count={filteredCarapaces.length} />
           {filteredCarapaces.map((c) => {
             const isExtra = extras.has(c.id);
             const isDisabled = disabled.has(c.id);
@@ -358,7 +358,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
         <>
           <SectionDivider label="Summary" />
           <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
-            {effective.local_tools.length} local, {effective.mcp_servers.length} MCP, {effective.client_tools.length} client, {effective.pinned_tools.length} pinned, {effective.skills.length} skills, {effective.carapaces.length} carapaces
+            {effective.local_tools.length} local, {effective.mcp_servers.length} MCP, {effective.client_tools.length} client, {effective.pinned_tools.length} pinned, {effective.skills.length} skills, {effective.carapaces.length} capabilities
           </span>
         </>
       )}

@@ -172,6 +172,26 @@ def _format_handle_name(handle: dict) -> str | None:
     return first or last or None
 
 
+def _normalize_address(addr: str) -> str:
+    """Normalize a phone/email address for comparison (strip +, spaces, dashes)."""
+    import re
+    return re.sub(r"[\s\-\(\)\+]", "", addr).lower()
+
+
+def _expected_sender_from_guid(chat_guid: str) -> str | None:
+    """Extract the expected sender address from a 1:1 chat GUID.
+
+    1:1 format: ``iMessage;-;+15551234567`` → ``15551234567``
+    Group format: ``iMessage;+;chat123`` → None (no single expected sender)
+    """
+    if ";-;" not in chat_guid:
+        return None  # Group chat or unknown format
+    parts = chat_guid.split(";-;", 1)
+    if len(parts) == 2 and parts[1]:
+        return _normalize_address(parts[1])
+    return None
+
+
 def _bot_wake_words(bot_id: str) -> list[str]:
     """Return wake words derived from a bot's id and name."""
     try:
@@ -1010,7 +1030,26 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         if binding_text_footer:
             dispatch_config["text_footer"] = binding_text_footer
 
-        if not channel.require_mention:
+        # Sender filtering: for 1:1 chats, only the bound contact's messages
+        # should trigger the bot.  Messages from other phone numbers (e.g. the
+        # user texting from a secondary device) are stored passively.
+        _unexpected_sender = False
+        if not is_from_me:
+            _expected = _expected_sender_from_guid(chat_guid)
+            if _expected:
+                sender_addr = (handle.get("address") or "").strip()
+                if sender_addr and _normalize_address(sender_addr) != _expected:
+                    _unexpected_sender = True
+                    logger.info(
+                        "BB webhook: unexpected sender %s (expected %s), storing passively",
+                        sender_addr, _expected,
+                    )
+
+        if _unexpected_sender:
+            # Not from the expected contact — store passively regardless of settings
+            run_agent = False
+            content = f"[{sender}]: {text}"
+        elif not channel.require_mention:
             # No mention required
             if is_from_me:
                 # Human texting from their own phone — always active
