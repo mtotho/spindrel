@@ -183,7 +183,7 @@ function WebChatList({
   ) : null;
 
   return (
-    <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+    <div style={{ height: "100%", position: "relative", minHeight: 0 }}>
       <div
         ref={scrollRef}
         className="chat-scroll-web"
