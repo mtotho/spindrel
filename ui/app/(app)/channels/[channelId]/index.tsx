@@ -513,6 +513,7 @@ export default function ChatScreen() {
               channelId={channelId}
               primaryBotId={channel?.bot_id ?? ""}
               primaryBotName={bot?.name}
+              onClose={() => setParticipantsPanelOpen(false)}
             />
           )}
         </div>
@@ -584,7 +585,7 @@ export default function ChatScreen() {
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface, overflow: "hidden" }}>
       {outerChildren}
     </div>
   );

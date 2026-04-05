@@ -31,6 +31,7 @@ import { LogsTab } from "./LogsTab";
 import { AttachmentsTab } from "./AttachmentsTab";
 import { ChannelWorkspaceTab } from "./ChannelWorkspaceTab";
 import { WorkflowsTab } from "./WorkflowsTab";
+import { ParticipantsTab } from "./ParticipantsTab";
 
 // ---------------------------------------------------------------------------
 // Tab definitions — ordered by importance / frequency of use.
@@ -38,6 +39,7 @@ import { WorkflowsTab } from "./WorkflowsTab";
 // ---------------------------------------------------------------------------
 const PRIMARY_TABS = [
   { key: "general", label: "General" },
+  { key: "participants", label: "Participants" },
   { key: "workspace", label: "Workspace" },
   { key: "heartbeat", label: "Heartbeat" },
   { key: "history", label: "History" },
@@ -388,6 +390,9 @@ export default function ChannelSettingsScreen() {
       >
         {tab === "general" && (
           <GeneralTab form={form} patch={patch} bots={bots} settings={settings} workspaceId={currentBot?.shared_workspace_id} channelId={channelId!} />
+        )}
+        {tab === "participants" && (
+          <ParticipantsTab channelId={channelId!} primaryBotId={settings?.bot_id ?? ""} />
         )}
         {tab === "workspace" && (
           <ChannelWorkspaceTab

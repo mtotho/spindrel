@@ -1032,6 +1032,7 @@ async def assemble_context(
 
     # --- multi-bot channel awareness + member bot injection ---
     _member_bot_ids: list[str] = []
+    _member_configs: dict[str, dict] = {}
     if channel_id:
         try:
             from sqlalchemy import select as _sel
@@ -1039,9 +1040,11 @@ async def assemble_context(
             from app.db.models import ChannelBotMember as _CBM
             async with _async_session() as _mbdb:
                 _mb_rows = (await _mbdb.execute(
-                    _sel(_CBM.bot_id).where(_CBM.channel_id == channel_id)
-                )).scalars().all()
-                _member_bot_ids = list(_mb_rows)
+                    _sel(_CBM).where(_CBM.channel_id == channel_id)
+                )).all()
+                for (_row,) in _mb_rows:
+                    _member_bot_ids.append(_row.bot_id)
+                    _member_configs[_row.bot_id] = _row.config or {}
         except Exception:
             logger.debug("Failed to load channel bot members for %s", channel_id, exc_info=True)
 
@@ -1053,7 +1056,14 @@ async def assemble_context(
         for _mbid in _member_bot_ids:
             try:
                 _mb = _get_bot_mb(_mbid)
-                _participant_lines.append(f"  - {_mbid} (member): {_mb.name}")
+                _cfg = _member_configs.get(_mbid, {})
+                _cfg_parts: list[str] = []
+                if _cfg.get("auto_respond"):
+                    _cfg_parts.append("auto-respond")
+                if _cfg.get("response_style"):
+                    _cfg_parts.append(f"style={_cfg['response_style']}")
+                _cfg_suffix = f" [{', '.join(_cfg_parts)}]" if _cfg_parts else ""
+                _participant_lines.append(f"  - {_mbid} (member): {_mb.name}{_cfg_suffix}")
             except Exception:
                 _participant_lines.append(f"  - {_mbid} (member)")
         _awareness_msg = (

@@ -169,6 +169,7 @@ class ChannelBotMember(Base):
         UUID(as_uuid=True), ForeignKey("channels.id", ondelete="CASCADE"), nullable=False,
     )
     bot_id: Mapped[str] = mapped_column(Text, nullable=False)
+    config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"), nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     channel: Mapped["Channel"] = relationship(back_populates="bot_members")

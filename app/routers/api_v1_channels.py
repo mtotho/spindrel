@@ -62,6 +62,7 @@ class ChannelBotMemberOut(BaseModel):
     channel_id: uuid.UUID
     bot_id: str
     bot_name: Optional[str] = None
+    config: dict = {}
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -1542,6 +1543,15 @@ class AddBotMemberRequest(BaseModel):
     bot_id: str
 
 
+class UpdateBotMemberConfigRequest(BaseModel):
+    max_rounds: Optional[int] = None
+    auto_respond: Optional[bool] = None
+    response_style: Optional[str] = None
+    system_prompt_addon: Optional[str] = None
+    model_override: Optional[str] = None
+    priority: Optional[int] = None
+
+
 @router.get("/{channel_id}/bot-members", response_model=list[ChannelBotMemberOut])
 async def list_bot_members(
     channel_id: uuid.UUID,
@@ -1630,3 +1640,62 @@ async def remove_bot_member(
         raise HTTPException(status_code=404, detail="Bot member not found")
     await db.delete(bm)
     await db.commit()
+
+
+_VALID_RESPONSE_STYLES = {"brief", "normal", "detailed"}
+_VALID_CONFIG_KEYS = {"max_rounds", "auto_respond", "response_style", "system_prompt_addon", "model_override", "priority"}
+
+
+@router.patch("/{channel_id}/bot-members/{bot_id}/config", response_model=ChannelBotMemberOut)
+async def update_bot_member_config(
+    channel_id: uuid.UUID,
+    bot_id: str,
+    body: UpdateBotMemberConfigRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:write")),
+):
+    """Update per-member config for a bot member. Setting a field to null removes it."""
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    result = await db.execute(
+        select(ChannelBotMember).where(
+            ChannelBotMember.channel_id == channel_id,
+            ChannelBotMember.bot_id == bot_id,
+        )
+    )
+    bm = result.scalar_one_or_none()
+    if not bm:
+        raise HTTPException(status_code=404, detail="Bot member not found")
+
+    # Validate response_style if provided
+    updates = body.model_dump(exclude_unset=True)
+    if "response_style" in updates and updates["response_style"] is not None:
+        if updates["response_style"] not in _VALID_RESPONSE_STYLES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid response_style: must be one of {sorted(_VALID_RESPONSE_STYLES)}",
+            )
+
+    # Deep-copy + merge + flag_modified (standard JSONB mutation pattern)
+    new_config = copy.deepcopy(bm.config or {})
+    for key, value in updates.items():
+        if key not in _VALID_CONFIG_KEYS:
+            continue
+        if value is None:
+            new_config.pop(key, None)
+        else:
+            new_config[key] = value
+    bm.config = new_config
+    flag_modified(bm, "config")
+
+    await db.commit()
+    await db.refresh(bm)
+
+    from app.agent.bots import get_bot as _get_bot
+    out = ChannelBotMemberOut.model_validate(bm)
+    try:
+        out.bot_name = _get_bot(bm.bot_id).name
+    except Exception:
+        out.bot_name = bm.bot_id
+    return out

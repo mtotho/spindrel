@@ -327,11 +327,21 @@ export interface ActivationResult {
   warnings: Array<{ code: string; message: string }>;
 }
 
+export interface ChannelBotMemberConfig {
+  max_rounds?: number | null;
+  auto_respond?: boolean;
+  response_style?: "brief" | "normal" | "detailed" | null;
+  system_prompt_addon?: string | null;
+  model_override?: string | null;
+  priority?: number;
+}
+
 export interface ChannelBotMember {
   id: string;
   channel_id: string;
   bot_id: string;
   bot_name?: string;
+  config: ChannelBotMemberConfig;
   created_at: string;
 }
 

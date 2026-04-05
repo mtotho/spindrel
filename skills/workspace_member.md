@@ -188,12 +188,6 @@ search_workspace(query="authentication flow", top_k=5)
 
 Returns chunks with file paths, symbols, and line numbers. Use `exec_command` with `cat <filepath>` to read full files from results.
 
-To force a full re-index of your workspace files:
-
-```
-reindex_workspace()
-```
-
 ---
 
 ## Memory System

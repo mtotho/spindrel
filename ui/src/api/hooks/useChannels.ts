@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { Channel, ChannelBotMember, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult } from "../../types/api";
+import type { Channel, ChannelBotMember, ChannelBotMemberConfig, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult } from "../../types/api";
 import { useChatStore } from "../../stores/chat";
 import { useDraftsStore } from "../../stores/drafts";
 import { useChannelReadStore } from "../../stores/channelRead";
@@ -481,6 +481,20 @@ export function useRemoveBotMember(channelId: string) {
       qc.invalidateQueries({ queryKey: ["channel-bot-members", channelId] });
       qc.invalidateQueries({ queryKey: ["channels", channelId] });
       qc.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+}
+
+export function useUpdateBotMemberConfig(channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ botId, config }: { botId: string; config: Partial<ChannelBotMemberConfig> }) =>
+      apiFetch<ChannelBotMember>(`/api/v1/channels/${channelId}/bot-members/${botId}/config`, {
+        method: "PATCH",
+        body: JSON.stringify(config),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["channel-bot-members", channelId] });
     },
   });
 }

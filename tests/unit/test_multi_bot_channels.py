@@ -32,24 +32,43 @@ def _make_bot(**overrides):
 # _maybe_route_to_member_bot
 # ---------------------------------------------------------------------------
 
+def _make_member_row(bot_id, config=None):
+    """Create a mock ChannelBotMember row."""
+    row = MagicMock()
+    row.bot_id = bot_id
+    row.config = config or {}
+    return row
+
+
+def _mock_db_with_member_rows(rows):
+    """Create a mock DB session that returns the given member rows from execute."""
+    db = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = rows
+    db.execute = AsyncMock(return_value=mock_result)
+    return db
+
+
 class TestMemberBotRouting:
     @pytest.mark.asyncio
     async def test_no_message_returns_original_bot(self):
         from app.routers.chat import _maybe_route_to_member_bot
 
         bot = _make_bot()
-        result = await _maybe_route_to_member_bot(MagicMock(), MagicMock(), bot, "")
-        assert result is bot
+        result_bot, result_cfg = await _maybe_route_to_member_bot(MagicMock(), MagicMock(), bot, "")
+        assert result_bot is bot
+        assert result_cfg == {}
 
     @pytest.mark.asyncio
     async def test_no_tags_returns_original_bot(self):
         from app.routers.chat import _maybe_route_to_member_bot
 
         bot = _make_bot()
-        result = await _maybe_route_to_member_bot(
+        result_bot, result_cfg = await _maybe_route_to_member_bot(
             MagicMock(), MagicMock(), bot, "hello world no tags here"
         )
-        assert result is bot
+        assert result_bot is bot
+        assert result_cfg == {}
 
     @pytest.mark.asyncio
     async def test_tag_matches_member_bot(self):
@@ -60,18 +79,15 @@ class TestMemberBotRouting:
         channel = MagicMock()
         channel.id = uuid.uuid4()
 
-        # Mock DB to return member bot IDs
-        db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = ["helper"]
-        db.execute = AsyncMock(return_value=mock_result)
+        db = _mock_db_with_member_rows([_make_member_row("helper")])
 
         with patch("app.routers.chat.get_bot", return_value=member):
-            result = await _maybe_route_to_member_bot(
+            result_bot, result_cfg = await _maybe_route_to_member_bot(
                 db, channel, primary, "@helper what do you think?"
             )
 
-        assert result.id == "helper"
+        assert result_bot.id == "helper"
+        assert result_cfg == {}
 
     @pytest.mark.asyncio
     async def test_typed_bot_tag_matches(self):
@@ -82,17 +98,14 @@ class TestMemberBotRouting:
         channel = MagicMock()
         channel.id = uuid.uuid4()
 
-        db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = ["helper"]
-        db.execute = AsyncMock(return_value=mock_result)
+        db = _mock_db_with_member_rows([_make_member_row("helper")])
 
         with patch("app.routers.chat.get_bot", return_value=member):
-            result = await _maybe_route_to_member_bot(
+            result_bot, result_cfg = await _maybe_route_to_member_bot(
                 db, channel, primary, "@bot:helper please respond"
             )
 
-        assert result.id == "helper"
+        assert result_bot.id == "helper"
 
     @pytest.mark.asyncio
     async def test_non_bot_typed_tag_ignored(self):
@@ -103,15 +116,12 @@ class TestMemberBotRouting:
         channel = MagicMock()
         channel.id = uuid.uuid4()
 
-        db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = ["helper"]
-        db.execute = AsyncMock(return_value=mock_result)
+        db = _mock_db_with_member_rows([_make_member_row("helper")])
 
-        result = await _maybe_route_to_member_bot(
+        result_bot, _ = await _maybe_route_to_member_bot(
             db, channel, primary, "@skill:helper describe yourself"
         )
-        assert result is primary
+        assert result_bot is primary
 
     @pytest.mark.asyncio
     async def test_tag_not_in_members_returns_original(self):
@@ -121,15 +131,12 @@ class TestMemberBotRouting:
         channel = MagicMock()
         channel.id = uuid.uuid4()
 
-        db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = ["helper"]
-        db.execute = AsyncMock(return_value=mock_result)
+        db = _mock_db_with_member_rows([_make_member_row("helper")])
 
-        result = await _maybe_route_to_member_bot(
+        result_bot, _ = await _maybe_route_to_member_bot(
             db, channel, primary, "@unknown_bot hello"
         )
-        assert result is primary
+        assert result_bot is primary
 
     @pytest.mark.asyncio
     async def test_no_members_returns_original(self):
@@ -139,15 +146,12 @@ class TestMemberBotRouting:
         channel = MagicMock()
         channel.id = uuid.uuid4()
 
-        db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        db.execute = AsyncMock(return_value=mock_result)
+        db = _mock_db_with_member_rows([])
 
-        result = await _maybe_route_to_member_bot(
+        result_bot, _ = await _maybe_route_to_member_bot(
             db, channel, primary, "@helper hello"
         )
-        assert result is primary
+        assert result_bot is primary
 
     @pytest.mark.asyncio
     async def test_member_bot_not_in_registry_falls_through(self):
@@ -158,17 +162,53 @@ class TestMemberBotRouting:
         channel = MagicMock()
         channel.id = uuid.uuid4()
 
-        db = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = ["helper"]
-        db.execute = AsyncMock(return_value=mock_result)
+        db = _mock_db_with_member_rows([_make_member_row("helper")])
 
         with patch("app.routers.chat.get_bot", side_effect=Exception("not found")):
-            result = await _maybe_route_to_member_bot(
+            result_bot, _ = await _maybe_route_to_member_bot(
                 db, channel, primary, "@helper hello"
             )
 
-        assert result is primary
+        assert result_bot is primary
+
+    @pytest.mark.asyncio
+    async def test_routing_returns_member_config(self):
+        """When routed to a member bot, the member's config dict is returned."""
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        member = _make_bot(id="helper", name="Helper Bot")
+        channel = MagicMock()
+        channel.id = uuid.uuid4()
+
+        cfg = {"model_override": "gpt-4o", "auto_respond": True, "priority": 1}
+        db = _mock_db_with_member_rows([_make_member_row("helper", config=cfg)])
+
+        with patch("app.routers.chat.get_bot", return_value=member):
+            result_bot, result_cfg = await _maybe_route_to_member_bot(
+                db, channel, primary, "@helper hello"
+            )
+
+        assert result_bot.id == "helper"
+        assert result_cfg == cfg
+        assert result_cfg["model_override"] == "gpt-4o"
+
+    @pytest.mark.asyncio
+    async def test_routing_returns_empty_config_for_primary(self):
+        """When no member is matched, config is empty dict."""
+        from app.routers.chat import _maybe_route_to_member_bot
+
+        primary = _make_bot(id="primary-bot")
+        channel = MagicMock()
+        channel.id = uuid.uuid4()
+
+        db = _mock_db_with_member_rows([_make_member_row("helper", config={"auto_respond": True})])
+
+        result_bot, result_cfg = await _maybe_route_to_member_bot(
+            db, channel, primary, "@unknown hello"
+        )
+        assert result_bot is primary
+        assert result_cfg == {}
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +390,33 @@ class TestContextInjection:
         assert "helper (member): Helper Bot" in msg
         assert "qa (member): QA Bot" in msg
         assert "@-mention" in msg
+
+    def test_awareness_message_includes_config_badges(self):
+        """Verify config info is included in awareness message."""
+        cfg = {"auto_respond": True, "response_style": "brief"}
+        cfg_parts = []
+        if cfg.get("auto_respond"):
+            cfg_parts.append("auto-respond")
+        if cfg.get("response_style"):
+            cfg_parts.append(f"style={cfg['response_style']}")
+        cfg_suffix = f" [{', '.join(cfg_parts)}]" if cfg_parts else ""
+
+        line = f"  - helper (member): Helper Bot{cfg_suffix}"
+        assert "[auto-respond, style=brief]" in line
+
+    def test_awareness_message_no_config_no_suffix(self):
+        """Members with empty config get no suffix."""
+        cfg = {}
+        cfg_parts = []
+        if cfg.get("auto_respond"):
+            cfg_parts.append("auto-respond")
+        if cfg.get("response_style"):
+            cfg_parts.append(f"style={cfg['response_style']}")
+        cfg_suffix = f" [{', '.join(cfg_parts)}]" if cfg_parts else ""
+
+        line = f"  - helper (member): Helper Bot{cfg_suffix}"
+        assert line == "  - helper (member): Helper Bot"
+        assert "[" not in line
 
 
 # ---------------------------------------------------------------------------

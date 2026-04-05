@@ -1035,7 +1035,7 @@ def _format_retrieval_results(
     )
 
     results: list[str] = []
-    limit = top_k or settings.FS_INDEX_TOP_K
+    limit = int(top_k or settings.FS_INDEX_TOP_K)
     for row in rows:
         similarity = 1.0 - row.distance
         if similarity < threshold:

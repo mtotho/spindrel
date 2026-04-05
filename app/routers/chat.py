@@ -342,11 +342,11 @@ async def _transcribe_audio_data(audio_b64: str, audio_format: str | None) -> st
 async def _maybe_route_to_member_bot(db: AsyncSession, channel, bot, message: str):
     """Check if the user @-tagged a member bot and route to it.
 
-    Returns the member BotConfig if matched, otherwise the original bot.
+    Returns (BotConfig, member_config_dict) — member_config_dict is {} for the primary bot.
     Uses the same session (shared history) — only the responding bot changes.
     """
     if not message:
-        return bot
+        return bot, {}
 
     from app.agent.tags import _TAG_RE
     from app.db.models import ChannelBotMember
@@ -355,15 +355,15 @@ async def _maybe_route_to_member_bot(db: AsyncSession, channel, bot, message: st
     # Quick regex scan — look for @bot:name or plain @name patterns
     tag_matches = _TAG_RE.findall(message)
     if not tag_matches:
-        return bot
+        return bot, {}
 
-    # Load channel member bot IDs
+    # Load channel member bot rows (with config)
     result = await db.execute(
-        select(ChannelBotMember.bot_id).where(ChannelBotMember.channel_id == channel.id)
+        select(ChannelBotMember).where(ChannelBotMember.channel_id == channel.id)
     )
-    member_bot_ids = set(result.scalars().all())
-    if not member_bot_ids:
-        return bot
+    member_rows = {row.bot_id: row for row in result.scalars().all()}
+    if not member_rows:
+        return bot, {}
 
     # Check each tag for a member bot match
     for prefix, name in tag_matches:
@@ -371,18 +371,18 @@ async def _maybe_route_to_member_bot(db: AsyncSession, channel, bot, message: st
         # Only consider bot-typed tags or untyped tags that match a member
         if forced_type and forced_type != "bot":
             continue
-        if name in member_bot_ids:
+        if name in member_rows:
             try:
                 member_bot = get_bot(name)
                 logger.info(
                     "Routing to member bot %r in channel %s (was primary %r)",
                     name, channel.id, bot.id,
                 )
-                return member_bot
+                return member_bot, member_rows[name].config or {}
             except Exception:
                 logger.warning("Member bot %r not found in registry", name)
 
-    return bot
+    return bot, {}
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -454,7 +454,7 @@ async def chat(
     channel_id = channel.id
 
     # Multi-bot channel: if user @-tagged a member bot, route to that bot
-    bot = await _maybe_route_to_member_bot(db, channel, bot, message)
+    bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
 
     logger.info("POST /chat  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
                 bot.id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
@@ -528,6 +528,14 @@ async def chat(
         await db.rollback()
 
     try:
+        # Apply member-level config overrides
+        _effective_model_override = req.model_override or _member_config.get("model_override")
+        _member_addon = _member_config.get("system_prompt_addon")
+        if _member_addon:
+            # Inject as system message into conversation history so it appears in context
+            # without triggering the task-prompt framing that system_preamble uses
+            messages.append({"role": "system", "content": f"[Member bot instructions for this channel]\n{_member_addon}"})
+
         result = await run(
             messages, bot, message,
             session_id=session_id, client_id=req.client_id,
@@ -537,7 +545,7 @@ async def chat(
             dispatch_type=req.dispatch_type,
             dispatch_config=req.dispatch_config,
             channel_id=channel_id,
-            model_override=req.model_override,
+            model_override=_effective_model_override,
             provider_id_override=req.model_provider_id_override,
         )
     except Exception as e:
