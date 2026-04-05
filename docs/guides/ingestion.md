@@ -223,7 +223,7 @@ Each integration gets its own SQLite database (e.g. `~/.agent-workspaces/.ingest
 
 ### Bot Tool: `query_feed_store`
 
-Bots can query feed stores directly using the `query_feed_store` tool. This is available when the `gmail-feeds` or `mission-control` carapace is active.
+Bots can query feed stores directly using the `query_feed_store` tool. This is available when the `gmail-feeds` or `mission-control` capability is active.
 
 | Action | Description |
 |---|---|

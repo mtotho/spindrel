@@ -259,7 +259,7 @@ homeassistant:
 mcp_servers: [homeassistant]
 ```
 
-For a full walkthrough including carapaces, workspace templates, and a Home Assistant worked example, see the [MCP Servers guide](guides/mcp-servers.md).
+For a full walkthrough including capabilities, workspace templates, and a Home Assistant worked example, see the [MCP Servers guide](guides/mcp-servers.md).
 
 ## Workspaces
 
@@ -345,7 +345,7 @@ Integrations are discovered from `integrations/*/` directories. Each can provide
 - **Process** — background service (e.g., Slack bot, MQTT listener)
 - **Tools** — bot-callable functions
 - **Skills** — knowledge documents
-- **Carapaces** — composable expertise bundles
+- **Capabilities** — composable expertise bundles
 - **Templates** — workspace schema templates
 
 ### Enabling an Integration
@@ -361,7 +361,7 @@ Once an integration is enabled, you can **activate** it on individual channels t
 
 1. Open a channel and go to the **Integrations** tab
 2. Click **Activate** on the integration
-3. The integration's carapace is injected — the bot gains new capabilities for this channel only
+3. The integration's capability is injected — the bot gains new capabilities for this channel only
 
 For example, activating Mission Control gives the bot task board tools, project management skills, and knowledge of the MC protocol — without manually configuring any of that on the bot.
 
@@ -410,7 +410,7 @@ TOOL_DIRS=/path/to/more/tools
 
 ### Personal Extensions Repo
 
-Keep your own tools, carapaces, and skills in a separate repo and load everything via `INTEGRATION_DIRS`. Structure your repo with a subdirectory that contains `tools/`, `carapaces/`, and/or `skills/`:
+Keep your own tools, capabilities, and skills in a separate repo and load everything via `INTEGRATION_DIRS`. Structure your repo with a subdirectory that contains `tools/`, `carapaces/`, and/or `skills/`:
 
 ```
 my-extensions/              # your repo
@@ -431,7 +431,7 @@ INTEGRATION_DIRS=/path/to/my-extensions
 
 Colon-separated for multiple directories (e.g. `/path/one:/path/two`). Tilde (`~`) is expanded to your home directory. This also makes `TOOL_DIRS` unnecessary — tools inside any `INTEGRATION_DIRS` subdirectory are auto-discovered.
 
-No `setup.py` or boilerplate needed — the server auto-discovers tools, carapaces, and skills from any subdirectory.
+No `setup.py` or boilerplate needed — the server auto-discovers tools, capabilities, and skills from any subdirectory.
 
 For Docker, mount the directory into the container:
 
@@ -466,7 +466,7 @@ agent-server/
 ├── bots/                   # Bot YAML configs (gitignored, user-created)
 ├── skills/                 # Skill markdown files (gitignored, user-created)
 ├── tools/                  # Custom tool scripts (gitignored, user-created)
-├── carapaces/              # Carapace YAML definitions (composable expertise bundles)
+├── carapaces/              # Capability YAML definitions (composable expertise bundles)
 ├── integrations/           # Integration packages
 │   ├── slack/             # Slack integration
 │   ├── github/            # GitHub webhooks

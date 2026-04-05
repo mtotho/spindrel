@@ -8,7 +8,7 @@ When you create a channel in Spindrel, it starts as a blank conversation. Templa
 
 Two layers combine to configure a channel:
 
-1. **Integration activation** — Enables an integration on a channel, automatically injecting its tools, skills, and behavioral instructions (via carapaces). One click, no manual tool configuration.
+1. **Integration activation** — Enables an integration on a channel, automatically injecting its tools, skills, and behavioral instructions (via capabilities). One click, no manual tool configuration.
 
 2. **Workspace template** — Defines the file structure for the channel's workspace (which `.md` files to create, their headings, their purpose). Templates are independent of activation — you can use a template without activating anything, or activate without a template.
 
@@ -23,19 +23,19 @@ Two layers combine to configure a channel:
 1. Open a channel and go to the **Integrations** tab
 2. You'll see available integrations with activation status
 3. Click **Activate** on the integration you want
-4. The integration's carapace is injected — tools, skills, and system prompt guidance are now active
+4. The integration's capability is injected — tools, skills, and system prompt guidance are now active
 
 ### What Activation Does
 
 When you activate an integration, its **activation manifest** kicks in:
 
-- **Carapaces injected** — The integration's carapace(s) are added to the bot's context for this channel. This brings in tools, skills, and a system prompt fragment that teaches the bot how to use them.
-- **No manual tool config** — You don't need to add individual tools to the bot's config. The carapace bundles everything.
+- **Capabilities injected** — The integration's capability bundle(s) are added to the bot's context for this channel. This brings in tools, skills, and a system prompt fragment that teaches the bot how to use them.
+- **No manual tool config** — You don't need to add individual tools to the bot's config. The capability bundles everything.
 - **Per-channel** — Activation is scoped to the channel. Other channels using the same bot are unaffected.
 
 ### Deactivating
 
-Click **Deactivate** in the Integrations tab. The carapace is removed and the bot loses those capabilities on this channel. Workspace files are not deleted.
+Click **Deactivate** in the Integrations tab. The capability is removed and the bot loses those capabilities on this channel. Workspace files are not deleted.
 
 ---
 
@@ -128,7 +128,7 @@ After activation + template selection:
 In the **Integrations** tab, you can see:
 - Which integrations are activated
 - What tools, skills, and system prompt fragments are injected
-- Links to the carapace detail pages for full inspection
+- Links to the capability detail pages for full inspection
 
 ---
 
@@ -137,6 +137,6 @@ In the **Integrations** tab, you can see:
 If you're building an integration and want it to support activation and template compatibility, see [Activation & Template Compatibility](../integrations/activation-and-templates.md) for the developer guide covering:
 
 - The `activation` block in `setup.py`
-- Carapace injection mechanics
+- Capability injection mechanics
 - Declaring `compatible_templates` tags
 - Creating compatible workspace schema templates

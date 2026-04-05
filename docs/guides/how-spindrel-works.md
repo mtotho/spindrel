@@ -86,7 +86,7 @@ A capability bundles:
 
 Bots automatically discover available capabilities at runtime. On every request, the bot sees a compact index of capabilities it doesn't already have loaded. When a user's request matches one, the bot calls `activate_capability()` to load it for the session — no manual configuration needed.
 
-You can also **pin** capabilities to a bot (`carapaces: [qa, code-review]` in bot config) so they're always active, or **disable** specific ones per-channel.
+You can also **pin** capabilities to a bot (`carapaces: [qa, code-review]` in bot config — `carapaces` is the config key for capabilities) so they're always active, or **disable** specific ones per-channel.
 
 ### How the Bot Finds Skills
 
@@ -99,7 +99,7 @@ Skills aren't all loaded at once (that would blow the context window). Instead, 
 ### How Capabilities Activate
 
 - **Auto-discovered** — Bot sees the capability index and activates what it needs per-conversation.
-- **Pinned** — Declared in bot config: `carapaces: [qa, code-review]`. Always active.
+- **Pinned** — Declared in bot config: `carapaces: [qa, code-review]` (`carapaces` is the config key for capabilities). Always active.
 - **Integration-injected** — Automatically loaded when an integration is activated on a channel. Can be disabled per-channel.
 
 ### Composition
@@ -146,7 +146,7 @@ The result: the bot has exactly the right tools, knowledge, and context for this
 | **Template** | Workspace file organization guide | `prompts/*.md` or Admin > Templates |
 | **Integration** | Connection to an external service | `integrations/*/` directory |
 | **Activation** | Enabling an integration's full capabilities on a channel | Channel > Integrations tab |
-| **Capability** | Bundle of tools + skills + behavior | `carapaces/*.yaml` or Admin > Capabilities |
+| **Capability** | Bundle of tools + skills + behavior | `carapaces/*.yaml` (directory name) or Admin > Capabilities |
 | **Skill** | Markdown knowledge document | `skills/*.md` or capability subdirectory |
 | **Workspace** | Per-channel file store | `~/.spindrel-workspaces/` on disk |
 
@@ -167,7 +167,7 @@ The result: the bot has exactly the right tools, knowledge, and context for this
 2. Bot processes incoming emails, builds digests, tracks action items
 
 ### "I want a code review channel"
-1. Create channel → The bot auto-discovers `code-review` (or pin it: `carapaces: [code-review]`)
+1. Create channel → The bot auto-discovers `code-review` (or pin it: `carapaces: [code-review]` — `carapaces` is the config key for capabilities)
 2. No activation needed — code review is a standalone capability, not integration-bound
 
 ### "I want to add my own tools and capabilities"

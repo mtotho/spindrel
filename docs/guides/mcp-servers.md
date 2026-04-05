@@ -2,7 +2,7 @@
 
 MCP (Model Context Protocol) servers expose external tools to your bots — Home Assistant, databases, development environments, custom APIs, and more. Any [MCP-compatible server](https://modelcontextprotocol.io/) can be connected to Spindrel.
 
-When you connect an MCP server, its tools are automatically discovered, indexed for retrieval, and available to any bot you assign it to. Pair with a [carapace](#carapaces-the-intelligence-layer) to teach the bot *how* to use the tools effectively.
+When you connect an MCP server, its tools are automatically discovered, indexed for retrieval, and available to any bot you assign it to. Pair with a [capability](#capabilities-the-intelligence-layer) to teach the bot *how* to use the tools effectively.
 
 ![MCP servers list showing connected servers with tool counts and connection status](../images/mcp-list.png)
 *Admin > MCP Servers — connected servers with discovered tool counts and live connection status.*
@@ -66,48 +66,48 @@ MCP Server (external)     Spindrel                    LLM
 4. **Execution**: When the LLM calls a tool, Spindrel proxies the request to the MCP server and returns the result
 5. **Caching**: Tool schemas are cached for 60 seconds to avoid repeated discovery calls
 
-## Carapaces: The Intelligence Layer
+## Capabilities: The Intelligence Layer
 
-An MCP server gives your bot tools. A **carapace** teaches the bot *when and how* to use them well.
+An MCP server gives your bot tools. A **capability** teaches the bot *when and how* to use them well.
 
-Without a carapace, a bot with 92 Home Assistant tools can technically control your home — but it won't know your light preferences, won't learn your routines, won't maintain a device inventory, and won't proactively check device health. It's tools without expertise.
+Without a capability, a bot with 92 Home Assistant tools can technically control your home — but it won't know your light preferences, won't learn your routines, won't maintain a device inventory, and won't proactively check device health. It's tools without expertise.
 
-A carapace adds:
+A capability adds:
 
 - **System prompt fragment** — always-injected routing instructions ("when the user says X, do Y")
 - **Skills** — on-demand deep knowledge the bot fetches when needed (automation patterns, debugging guides, service call reference)
 - **Local tools** — complementary tools from Spindrel itself (task boards, timelines)
 - **Workspace schema** — a template that organizes the channel's files for the domain
 
-### Shipped carapaces for MCP servers
+### Shipped capabilities for MCP servers
 
-Spindrel ships carapaces designed for popular MCP servers:
+Spindrel ships capabilities designed for popular MCP servers:
 
-| Carapace | MCP Server | What it adds |
+| Capability | MCP Server | What it adds |
 |----------|-----------|--------------|
 | `home-assistant` | [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) | Preference learning, routine tracking, device inventory, automation management, daily health checks |
 
 These live in `integrations/mission_control/carapaces/` and are Mission Control compatible (task boards, timelines).
 
-### Using a shipped carapace
+### Using a shipped capability
 
 ```yaml
 # bots/assistant.yaml
 mcp_servers: [homeassistant]       # your HA MCP server name
-carapaces: [home-assistant]         # shipped carapace
+carapaces: [home-assistant]         # shipped capability (`carapaces` is the config key for capabilities)
 ```
 
-The carapace doesn't care what you named your MCP server — it references tool names (like `ha_call_service`) which are stable across all ha-mcp installations.
+The capability doesn't care what you named your MCP server — it references tool names (like `ha_call_service`) which are stable across all ha-mcp installations.
 
-### Building your own carapace for an MCP server
+### Building your own capability for an MCP server
 
 If you connect a new MCP server and want to add an intelligence layer:
 
-1. Create a carapace YAML (in your extensions dir or `carapaces/`)
+1. Create a capability YAML (in your extensions dir or `carapaces/`)
 2. Write a skill with domain knowledge
 3. Optionally create a workspace schema template
 
-See the [Custom Tools & Extensions](custom-tools.md) guide for the full walkthrough, or use the `home-assistant` carapace as a reference: `integrations/mission_control/carapaces/home-assistant.yaml`.
+See the [Custom Tools & Extensions](custom-tools.md) guide for the full walkthrough, or use the `home-assistant` capability as a reference: `integrations/mission_control/carapaces/home-assistant.yaml`.
 
 ## Worked Example: Home Assistant
 
@@ -126,7 +126,7 @@ There are two ways to connect Home Assistant via MCP — you can use either or b
 | **Setup** | Enable in HA Integrations page | Add repository to Add-on Store |
 | **Entity access** | Only entities exposed to voice assistants | All entities |
 
-**Recommendation**: Install ha-mcp for the full toolset. Keep the official integration too if you already have it — the `home-assistant` carapace handles both tool naming conventions automatically.
+**Recommendation**: Install ha-mcp for the full toolset. Keep the official integration too if you already have it — the `home-assistant` capability handles both tool naming conventions automatically.
 
 ### Option A: Official HA MCP Integration (quick start)
 
@@ -202,7 +202,7 @@ memory_scheme: workspace-files
 history_mode: file
 ```
 
-The `home-assistant` carapace gives the bot:
+The `home-assistant` capability gives the bot:
 
 - **Preference learning** — remembers your lighting, temperature, and comfort preferences per room and time of day
 - **Routine management** — named routines (Morning, Movie Night, Good Night) with exact service calls
@@ -287,7 +287,7 @@ Each server's tools are indexed independently and retrieved based on relevance.
 | "No tools discovered" | Verify the MCP URL is reachable from the Spindrel container. Test with `curl <url>`. |
 | Tools appear but bot doesn't use them | Tool retrieval may not be matching. Try pinning key tools or lowering `tool_similarity_threshold`. |
 | "Connection refused" | MCP server may not be running. Check its logs. For Docker, ensure both containers are on the same network. |
-| Tools work but bot doesn't know *how* | Add a carapace. Without one, the bot has tools but no domain expertise. |
+| Tools work but bot doesn't know *how* | Add a capability. Without one, the bot has tools but no domain expertise. |
 | Stale tool list after MCP server update | Tool schemas are cached for 60s. Wait or restart the Spindrel server. |
 | Official HA MCP: "entity not found" | Entity isn't exposed to voice assistants. Go to HA **Settings > Voice Assistants > Expose**. |
 | ha-mcp not in HACS | ha-mcp is an **add-on repository**, not a HACS integration. Add `https://github.com/homeassistant-ai/ha-mcp` in **Settings > Add-ons > Add-on Store > ⋮ > Repositories**. |

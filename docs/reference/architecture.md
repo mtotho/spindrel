@@ -26,8 +26,8 @@ Builds the message array for each LLM call. The pipeline runs in order:
 2. **Context pruning** (trim stale tool results from old turns)
 3. **Channel-level overrides** (tool/skill override/disabled lists, model overrides)
 4. **Workspace DB skills merge** (if bot has `shared_workspace_id`)
-5. **Carapace resolution** (merge skills + tools + system prompt fragments from carapaces)
-6. **Integration activation injection** (auto-inject carapaces from activated integrations)
+5. **Capability resolution** (merge skills + tools + system prompt fragments from capabilities)
+6. **Integration activation injection** (auto-inject capabilities from activated integrations)
 7. **Memory scheme setup** (MEMORY.md, daily logs, reference index)
 8. **Channel workspace files** (inject active `.md` files + schema)
 9. **@mention tag resolution** (`@skill:name`, `@tool:name`, `@bot:name`)
@@ -50,23 +50,23 @@ Routes tool calls to the correct executor:
 
 Retry/backoff, fallback model support, tool result summarization for context management.
 
-## Carapaces
+## Capabilities
 
-Composable expertise bundles that give bots instant capabilities in specific domains. A carapace bundles:
+Composable expertise bundles that give bots instant capabilities in specific domains. A capability bundles:
 
 - **Tools** — function schemas added to the LLM's tool list
 - **Skills** — knowledge documents injected into context (pinned, RAG, or on-demand)
 - **System prompt fragment** — behavioral instructions always injected into the system prompt
 
-Carapaces compose via `includes` — a carapace can reference others, resolved depth-first with cycle detection (max 5 levels). Source types: `file` (YAML, read-only), `manual` (API/UI), `integration`, `tool`.
+Capabilities compose via `includes` — a capability can reference others, resolved depth-first with cycle detection (max 5 levels). Source types: `file` (YAML, read-only), `manual` (API/UI), `integration`, `tool`.
 
 **Fragment-as-index pattern:** The system prompt fragment acts as an index to on-demand skills. It must contain concrete trigger phrases ("when the user asks to X, fetch skill Y") — not just topic descriptions. Without clear triggers, the bot won't know when to load deeper skills.
 
-Core logic: `app/agent/carapaces.py`. Bot config: `carapaces: [qa, code-review]`. Channel overrides: `carapaces_extra` (add) and `carapaces_disabled` (remove).
+Core logic: `app/agent/carapaces.py`. Bot config: `carapaces: [qa, code-review]` (*`carapaces` is the config key for capabilities*). Channel overrides: `carapaces_extra` (add) and `carapaces_disabled` (remove) (*channel-level capability overrides*).
 
 ## Integration Activation
 
-Integrations can declare an **activation manifest** in their `setup.py` that specifies which carapaces to inject when the integration is activated on a channel.
+Integrations can declare an **activation manifest** in their `setup.py` that specifies which capabilities to inject when the integration is activated on a channel.
 
 ```python
 # integrations/mission_control/setup.py
@@ -77,7 +77,7 @@ Integrations can declare an **activation manifest** in their `setup.py` that spe
 }
 ```
 
-During context assembly, the system checks each channel's active integrations and auto-injects their declared carapaces. This gives the bot integration-specific tools and skills without any manual bot configuration.
+During context assembly, the system checks each channel's active integrations and auto-injects their declared capabilities. This gives the bot integration-specific tools and skills without any manual bot configuration.
 
 **Template compatibility:** Integrations declare which workspace template tags they work with. The UI highlights compatible templates when an integration is active, guiding users to pick file structures that match the integration's tools.
 
@@ -110,7 +110,7 @@ Reusable multi-step automations defined in YAML. Each workflow is a sequence of 
 |-------|--------|-------|
 | Environment | `.env` → `app/config.py` | Runtime config |
 | Bot Config | `bots/*.yaml` → DB (seed-once) | Per-bot behavior |
-| Carapaces | `carapaces/*.yaml` + `integrations/*/carapaces/` | Composable expertise |
+| Capabilities | `carapaces/*.yaml` + `integrations/*/carapaces/` | Composable expertise |
 | Skills | `skills/*.md` → DB (re-embed on change) | Knowledge injection |
 | Workflows | `workflows/*.yaml` + `integrations/*/workflows/` | Multi-step automations |
 | MCP Servers | Admin UI (or `mcp.yaml` seed) → DB | Tool endpoints |
@@ -124,7 +124,7 @@ PostgreSQL with pgvector for embedding storage. Key tables:
 - `channel_integrations` — per-channel integration bindings with `activated` flag
 - `sessions` / `messages` — conversation history
 - `bots` — bot configuration (seeded from YAML)
-- `carapaces` — composable expertise bundles
+- `carapaces` — composable expertise bundles (*`carapaces` is the DB table name for capabilities*)
 - `prompt_templates` — workspace schema templates
 - `tasks` — scheduled and on-demand agent execution
 - `workflows` / `workflow_runs` — multi-step automation definitions and execution history

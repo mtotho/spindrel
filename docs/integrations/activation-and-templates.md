@@ -8,11 +8,11 @@ This guide explains how integrations interact with channel workspace templates â
 
 When an integration is **activated** on a channel, two independent layers engage:
 
-1. **Carapace injection** (automatic): Tools, skills, and a system prompt fragment are injected into every agent call. The bot gains new capabilities without any manual configuration.
+1. **Capability injection** (automatic): Tools, skills, and a system prompt fragment are injected into every agent call. The bot gains new capabilities without any manual configuration.
 
 2. **Workspace template** (user-selected): Defines the `.md` file structure for the channel workspace. This is NOT auto-selected â€” the user picks a template (or writes a custom schema).
 
-**Key principle:** Templates do NOT repeat integration behavioral instructions. The carapace provides "how to behave" (tools, skills, prompts); the template provides "what files to work with" (file layout, column formats, section headings).
+**Key principle:** Templates do NOT repeat integration behavioral instructions. The capability provides "how to behave" (tools, skills, prompts); the template provides "what files to work with" (file layout, column formats, section headings).
 
 What happens without a compatible template: the integration's tools still work, but the bot lacks structural guidance and may create files in unexpected formats.
 
@@ -106,7 +106,7 @@ SETUP = {
 }
 ```
 
-### 2. Carapace (`integrations/mission_control/carapaces/mission-control/carapace.yaml`)
+### 2. Capability (`integrations/mission_control/carapaces/mission-control/carapace.yaml`)
 
 Declares 6 tools (`create_task_card`, `move_task_card`, etc.), 5 skills, and a system prompt fragment that teaches the bot the MC protocol.
 
@@ -120,7 +120,7 @@ Nine workspace schemas, each defining file structures like `tasks.md` (kanban fo
 2. UI detects active integration with `compatible_template_tag: "mission-control"`
 3. Workspace Schema section shows recommended templates with green compatibility badges
 4. User picks "Software Development" template
-5. Bot now has MC tools (from carapace) AND structured file layout (from template)
+5. Bot now has MC tools (from capability) AND structured file layout (from template)
 
 ### 5. Wrong template selected
 
@@ -181,7 +181,7 @@ SETUP = {
 }
 ```
 
-### 2. Create a carapace
+### 2. Create a capability
 
 `integrations/qa_testing/carapaces/qa-testing/carapace.yaml` with tools for test case management, skills for test planning, and a system prompt fragment.
 

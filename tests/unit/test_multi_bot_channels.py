@@ -541,9 +541,9 @@ class TestMultiBotIdentity:
         assert "Do not @-mention yourself." in preamble
         assert "Rolland (@rolland) mentioned you" in preamble
 
-        # user_message should be a short RAG-friendly prompt
-        prompt = "Respond to the conversation above."
-        assert "You are" not in prompt
+        # user_message is empty — no text to leak into the response
+        prompt = ""
+        assert prompt == ""
 
 
 # ---------------------------------------------------------------------------

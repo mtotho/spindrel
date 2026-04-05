@@ -68,7 +68,7 @@ Spindrel defines **51 scopes** across **22 groups**:
 | **Settings** | `settings:read`, `settings:write` | Server-wide settings |
 | **Operations** | `operations:read`, `operations:write` | Backups, git pull, restart |
 | **Usage** | `usage:read` | Cost analytics and usage limits |
-| **Carapaces** | `carapaces:read`, `carapaces:write` | Skill+tool bundle management |
+| **Capabilities** | `carapaces:read`, `carapaces:write` | Skill+tool bundle management |
 | **Workflows** | `workflows:read`, `workflows:write` | Workflow definitions and run management |
 | **LLM** | `llm:completions` | Direct LLM calls through the server's provider system |
 | **Mission Control** | `mission_control:read`, `mission_control:write` | Dashboard data (kanban, journal, etc.) |

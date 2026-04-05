@@ -22,7 +22,7 @@ OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM — or any OpenAI-compatible
 
 ### Capabilities (Auto-Discovered Expertise)
 
-Composable bundles of tools, skills, and behavioral instructions. Bots discover and activate relevant capabilities at runtime — or pin specific ones like `carapaces: [qa, code-review]` to always include. Capabilities compose via `includes` for layered expertise.
+Composable bundles of tools, skills, and behavioral instructions. Bots discover and activate relevant capabilities at runtime — or pin specific ones like `carapaces: [qa, code-review]` (`carapaces` is the config key for capabilities) to always include. Capabilities compose via `includes` for layered expertise.
 
 ### Workspace Memory + Conversation Continuity
 

@@ -706,14 +706,16 @@ async def _run_member_bot_reply(
         correlation_id = uuid.uuid4()
         from_index = len(messages)
 
-        # Identity/context as system_preamble (not user message) to avoid LLM echo
+        # Identity/context as system_preamble (not user message) to avoid LLM echo.
+        # user_message is empty — the conversation history + preamble are sufficient.
+        # An empty user_message also means no RAG retrieval runs (skills, tools, etc.),
+        # which is correct since the member bot just needs to respond to the conversation.
         _system_preamble = (
             f"You are {member_bot.name} (bot_id: {member_bot_id}). "
             f"{mentioning_bot.name} (@{mentioning_bot_id}) mentioned you. "
             f"Read the conversation and respond naturally. Do not @-mention yourself."
         )
-        # Short user_message for RAG retrieval purposes only
-        prompt = "Respond to the conversation above."
+        prompt = ""
         model_override = member_config.get("model_override")
 
         # Set agent context so run_stream internals have proper metadata

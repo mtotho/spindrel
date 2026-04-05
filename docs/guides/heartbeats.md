@@ -25,7 +25,7 @@ The heartbeat worker polls every 30 seconds for due heartbeats. When one fires:
 
 1. The **prompt is resolved** (workspace file → template → inline → global fallback)
 2. **Metadata is injected** — current time, channel activity since last run, previous results
-3. The bot **runs the prompt** with all its normal tools, skills, and carapaces
+3. The bot **runs the prompt** with all its normal tools, skills, and capabilities
 4. The result is **dispatched** based on dispatch mode (auto-post or LLM decides)
 5. The **next run is scheduled** using clock-aligned intervals
 

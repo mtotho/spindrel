@@ -1,6 +1,6 @@
 # Custom Tools & Extensions
 
-This guide covers creating your own tools, managing a personal extensions repo, and loading external carapaces and tools into Spindrel.
+This guide covers creating your own tools, managing a personal extensions repo, and loading external capabilities and tools into Spindrel.
 
 ---
 
@@ -142,7 +142,7 @@ Colon-separated, absolute or relative paths. Tilde (`~`) is expanded to your hom
 
 ## Personal Extensions Repo
 
-The recommended way to manage your own tools, carapaces, and skills: create a separate repo and point `INTEGRATION_DIRS` at it. Everything below is a complete, copy-paste-ready example.
+The recommended way to manage your own tools, capabilities, and skills: create a separate repo and point `INTEGRATION_DIRS` at it. Everything below is a complete, copy-paste-ready example.
 
 ### 1. Create the directory structure
 
@@ -258,7 +258,7 @@ async def get_weather(city: str, units: str = "imperial") -> str:
     })
 ```
 
-**`my-tools/carapaces/home-assistant/carapace.yaml`** — An expertise bundle that gives any bot smart-home knowledge.
+**`my-tools/carapaces/home-assistant/carapace.yaml`** — A capability bundle that gives any bot smart-home knowledge.
 
 ```yaml
 name: Home Assistant
@@ -272,7 +272,7 @@ skills:
     mode: on_demand
 ```
 
-**`my-tools/carapaces/home-assistant/skills/smart-home.md`** — The skill content loaded by the carapace.
+**`my-tools/carapaces/home-assistant/skills/smart-home.md`** — The skill content loaded by the capability.
 
 ```markdown
 # Smart Home Automation
@@ -299,10 +299,10 @@ skills:
 - Automation not firing: check conditions, time ranges, entity IDs
 ```
 
-!!! tip "Shipped Home Assistant carapace"
-    Spindrel ships a comprehensive `home-assistant` carapace with preference learning, routine tracking, device inventory, and daily health checks. Use `carapaces: [home-assistant]` in your bot YAML — no need to build your own. See the [MCP Servers guide](mcp-servers.md#worked-example-home-assistant) for the full walkthrough.
+!!! tip "Shipped Home Assistant capability"
+    Spindrel ships a comprehensive `home-assistant` capability with preference learning, routine tracking, device inventory, and daily health checks. Use `carapaces: [home-assistant]` (*`carapaces` is the config key for capabilities*) in your bot YAML — no need to build your own. See the [MCP Servers guide](mcp-servers.md#worked-example-home-assistant) for the full walkthrough.
 
-**`my-tools/skills/cooking-tips.md`** — A standalone skill (not part of a carapace).
+**`my-tools/skills/cooking-tips.md`** — A standalone skill (not part of a capability).
 
 ```markdown
 # Cooking Tips
@@ -328,7 +328,7 @@ Add one line to your `.env`:
 INTEGRATION_DIRS=/home/you/my-spindrel-extensions
 ```
 
-Restart the server. Your extension appears in **Admin > Integrations** as an **EXTERNAL** integration with tools and carapaces badges.
+Restart the server. Your extension appears in **Admin > Integrations** as an **EXTERNAL** integration with tools and capabilities badges.
 
 ### 4. Configure API keys
 
@@ -385,7 +385,7 @@ async def my_tool() -> str:
 
 ### 5. Use it
 
-Assign the carapace to a bot:
+Assign the capability to a bot:
 
 ```yaml
 # bots/assistant.yaml
@@ -437,13 +437,13 @@ The `SETUP` dict controls what appears in the Admin UI for your extension.
 
 **Other optional `SETUP` fields:** `icon`, `webhook`, `binding`, `sidebar_section`, `dashboard_modules`, `activation`. See [Creating Integrations](../integrations/index.md) for the full manifest reference.
 
-> **Tip:** Check **Admin > Integrations** to see your extension, **Admin > Carapaces** to see discovered carapaces and their IDs.
+> **Tip:** Check **Admin > Integrations** to see your extension, **Admin > Capabilities** to see discovered capabilities and their IDs.
 
 ---
 
 ## Full Integration (Advanced)
 
-If your extension needs more than tools, carapaces, and settings — webhooks, background processes, dispatchers, or custom UI pages — create a full integration. See the [Creating Integrations](../integrations/index.md) guide.
+If your extension needs more than tools, capabilities, and settings — webhooks, background processes, dispatchers, or custom UI pages — create a full integration. See the [Creating Integrations](../integrations/index.md) guide.
 
 The short version: add any of these optional files to your extension directory:
 

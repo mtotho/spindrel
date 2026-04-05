@@ -187,7 +187,7 @@ Emails that fail any layer are quarantined in a local SQLite database (`~/.agent
 
 ## Bot Tools
 
-Three tools are available to bots with the `gmail-feeds` carapace:
+Three tools are available to bots with the `gmail-feeds` capability:
 
 - **`check_gmail_status`** — Test IMAP connectivity, show email and folder count
 - **`trigger_gmail_poll`** — Run a poll cycle immediately, deliver passed emails to bound channel workspaces, and return a summary. Supports optional overrides:
@@ -213,9 +213,9 @@ query_feed_store(action="quarantine", store="gmail")
 query_feed_store(action="sources")
 ```
 
-## Carapace Composition
+## Capability Composition
 
-The `gmail-feeds` carapace includes `mission-control`, so bots get both Gmail tools and MC tools (kanban, timeline, plans):
+The `gmail-feeds` capability includes `mission-control`, so bots get both Gmail tools and MC tools (kanban, timeline, plans):
 
 ```yaml
 # In your bot YAML:

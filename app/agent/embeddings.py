@@ -94,6 +94,9 @@ async def embed_text(text: str, *, model: str | None = None) -> list[float]:
     """
     effective_model = model or settings.EMBEDDING_MODEL
     truncated = _truncate(text)
+    if not truncated.strip():
+        # Empty/whitespace-only text — return zero vector to avoid unnecessary API calls
+        return [0.0] * settings.EMBEDDING_DIMENSIONS
     cache_key = (effective_model, truncated)
     cache = _get_cache()
 

@@ -1651,10 +1651,12 @@ async def assemble_context(
         user_msg = _build_audio_user_message(audio_data, audio_format)
         messages.append(user_msg)
         result.user_msg_index = len(messages) - 1
-    else:
+    elif user_message:
         user_content = _build_user_message_content(user_message, attachments)
         messages.append({"role": "user", "content": user_content})
         result.user_msg_index = len(messages) - 1
+    # When user_message is empty (e.g. member bot replies), no user message is
+    # appended — the system_preamble and conversation history are sufficient.
 
     # --- store budget utilization for downstream (compaction trigger) ---
     if budget is not None:

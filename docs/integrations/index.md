@@ -818,9 +818,9 @@ lets users disable the HUD entirely without removing the integration.
 
 ### `activation` — Integration activation + template compatibility
 
-Integrations can declare an activation manifest that auto-injects carapaces and
+Integrations can declare an activation manifest that auto-injects capabilities and
 declares template compatibility. See [Activation & Templates](activation-and-templates.md)
-for the full guide on carapace injection, workspace template compatibility, versioning,
+for the full guide on capability injection, workspace template compatibility, versioning,
 and how to create compatible templates.
 
 ---
