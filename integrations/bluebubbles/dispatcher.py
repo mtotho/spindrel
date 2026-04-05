@@ -85,6 +85,10 @@ class BlueBubblesDispatcher:
         if extra_metadata and extra_metadata.get("delegated_by_display"):
             text = f"[Delegated by {extra_metadata['delegated_by_display']}]\n{text}"
 
+        footer = cfg.get("text_footer")
+        if footer:
+            text = f"{text}\n{footer}"
+
         chunks = _split_text(text)
         for chunk in chunks:
             if not await _bb_send(server_url, password, chat_guid, chunk, method=send_method):
@@ -113,6 +117,10 @@ class BlueBubblesDispatcher:
         if not all((server_url, password, chat_guid)):
             logger.warning("BlueBubblesDispatcher.post_message: missing config")
             return False
+
+        footer = dispatch_config.get("text_footer")
+        if footer:
+            text = f"{text}\n{footer}"
 
         chunks = _split_text(text)
         for chunk in chunks:

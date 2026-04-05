@@ -418,3 +418,72 @@ class TestCountByReasonPrefix:
         store = IngestionStore(":memory:")
         assert store.count_by_reason_prefix(None, "classifier error:") == 0
         store.close()
+
+
+class TestPreMigrationDB:
+    """Verify that DBs created before the metadata column still work via router."""
+
+    @pytest.mark.asyncio
+    async def test_list_and_detail_on_old_schema_db(self, tmp_path):
+        """A DB without the metadata column should be auto-migrated on read."""
+        import sqlite3 as _sqlite3
+
+        ingestion = tmp_path / ".ingestion"
+        ingestion.mkdir()
+        db_path = ingestion / "legacy.db"
+
+        # Create a DB with the OLD schema (no metadata column)
+        conn = _sqlite3.connect(str(db_path))
+        conn.executescript("""
+            CREATE TABLE processed_ids (
+                source TEXT NOT NULL, source_id TEXT NOT NULL, processed_at TEXT NOT NULL,
+                PRIMARY KEY (source, source_id)
+            );
+            CREATE TABLE quarantine (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL, source_id TEXT NOT NULL,
+                raw_content TEXT NOT NULL, risk_level TEXT NOT NULL,
+                flags TEXT, reason TEXT, quarantined_at TEXT NOT NULL
+            );
+            CREATE TABLE audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL, source_id TEXT NOT NULL,
+                action TEXT NOT NULL, risk_level TEXT, ts TEXT NOT NULL
+            );
+            CREATE TABLE cursors (
+                key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+        """)
+        # Insert a quarantine row WITHOUT metadata
+        conn.execute(
+            "INSERT INTO quarantine (source, source_id, raw_content, risk_level, flags, reason, quarantined_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("gmail", "old-msg", "old content", "high", '["test"]', "old reason", "2026-01-01T00:00:00"),
+        )
+        conn.execute(
+            "INSERT INTO audit_log (source, source_id, action, risk_level, ts) VALUES (?, ?, ?, ?, ?)",
+            ("gmail", "old-msg", "quarantined", "high", "2026-01-01T00:00:00"),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("integrations.ingestion.router.INGESTION_DB_DIR", str(ingestion)):
+            app = _make_app()
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as c:
+                # List endpoint should work and return items with metadata=None
+                resp = await c.get("/integrations/ingestion/stores/legacy/quarantine")
+                assert resp.status_code == 200
+                data = resp.json()
+                assert len(data["items"]) == 1
+                assert data["items"][0]["source_id"] == "old-msg"
+                assert data["items"][0]["metadata"] is None
+
+                # Detail endpoint should also work
+                item_id = data["items"][0]["id"]
+                resp = await c.get(f"/integrations/ingestion/stores/legacy/quarantine/{item_id}")
+                assert resp.status_code == 200
+                detail = resp.json()["item"]
+                assert detail is not None
+                assert detail["raw_content"] == "old content"
+                assert detail["metadata"] is None

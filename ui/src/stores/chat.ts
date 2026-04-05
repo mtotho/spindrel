@@ -14,6 +14,9 @@ interface ChatChannelState {
   correlationId: string | null;
   error: string | null;
   secretWarning: { patterns: { type: string }[] } | null;
+  /** Bot currently responding (for multi-bot channels). */
+  respondingBotId: string | null;
+  respondingBotName: string | null;
 }
 
 interface ChatState {
@@ -42,6 +45,8 @@ const emptyChannel: ChatChannelState = {
   correlationId: null,
   error: null,
   secretWarning: null,
+  respondingBotId: null,
+  respondingBotName: null,
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -110,6 +115,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             correlationId: null,
             error: null,
             secretWarning: null,
+            respondingBotId: null,
+            respondingBotName: null,
           },
         },
       };
@@ -246,7 +253,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           return {
             channels: {
               ...s.channels,
-              [channelId]: { ...ch, isStreaming: false, streamingContent: "", thinkingContent: "", toolCalls: [] },
+              [channelId]: { ...ch, isStreaming: false, streamingContent: "", thinkingContent: "", toolCalls: [], respondingBotId: null, respondingBotName: null },
             },
           };
         }
@@ -318,6 +325,19 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             },
           };
         }
+        case "stream_meta": {
+          const data = event.data as { responding_bot_id?: string; responding_bot_name?: string };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                respondingBotId: data.responding_bot_id ?? ch.respondingBotId,
+                respondingBotName: data.responding_bot_name ?? ch.respondingBotName,
+              },
+            },
+          };
+        }
         case "secret_warning": {
           const data = event.data as { patterns?: { type: string }[] };
           return {
@@ -372,6 +392,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             thinkingContent: "",
             toolCalls: [],
             correlationId: null,
+            respondingBotId: null,
+            respondingBotName: null,
           },
         },
       };
@@ -397,6 +419,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           ...(s.channels[channelId] ?? emptyChannel),
           error,
           isStreaming: false,
+          respondingBotId: null,
+          respondingBotName: null,
         },
       },
     })),

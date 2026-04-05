@@ -33,6 +33,7 @@ from app.agent.tools import retrieve_tools
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas
 from app.tools.mcp import get_mcp_server_for_tool
+from app.tools.registry import get_local_tool_schemas
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,73 @@ def invalidate_bot_skill_cache(bot_id: str | None = None) -> None:
         _bot_skill_cache.pop(bot_id, None)
     else:
         _bot_skill_cache.clear()
+
+
+# ---------------------------------------------------------------------------
+# Core + integration skill auto-enrollment cache
+# ---------------------------------------------------------------------------
+_core_skill_cache: tuple[float, list[str]] | None = None
+_integration_skill_cache: dict[str, tuple[float, list[str]]] = {}
+_SKILL_CACHE_TTL = 60.0  # seconds
+
+
+async def _get_core_skill_ids() -> list[str]:
+    """Return IDs of all core skills (source_type='file', not integration-prefixed)."""
+    import time
+    global _core_skill_cache
+    now = time.monotonic()
+    if _core_skill_cache and (now - _core_skill_cache[0]) < _SKILL_CACHE_TTL:
+        return _core_skill_cache[1]
+
+    from sqlalchemy import select as _sa_select
+    from app.db.engine import async_session as _cs_session
+    from app.db.models import Skill as _SkillRow
+
+    async with _cs_session() as _cs_db:
+        rows = (await _cs_db.execute(
+            _sa_select(_SkillRow.id).where(
+                _SkillRow.source_type == "file",
+                ~_SkillRow.id.like("integrations/%"),
+                ~_SkillRow.id.like("bots/%"),
+            )
+        )).scalars().all()
+
+    result = list(rows)
+    _core_skill_cache = (now, result)
+    return result
+
+
+async def _get_integration_skill_ids(integration_type: str) -> list[str]:
+    """Return IDs of skills for a specific integration."""
+    import time
+    now = time.monotonic()
+    cached = _integration_skill_cache.get(integration_type)
+    if cached and (now - cached[0]) < _SKILL_CACHE_TTL:
+        return cached[1]
+
+    from sqlalchemy import select as _sa_select
+    from app.db.engine import async_session as _is_session
+    from app.db.models import Skill as _SkillRow
+
+    prefix = f"integrations/{integration_type}/"
+    async with _is_session() as _is_db:
+        rows = (await _is_db.execute(
+            _sa_select(_SkillRow.id).where(
+                _SkillRow.id.like(f"{prefix}%"),
+                _SkillRow.source_type == "integration",
+            )
+        )).scalars().all()
+
+    result = list(rows)
+    _integration_skill_cache[integration_type] = (now, result)
+    return result
+
+
+def invalidate_skill_auto_enroll_cache() -> None:
+    """Clear auto-enrollment caches after file sync."""
+    global _core_skill_cache
+    _core_skill_cache = None
+    _integration_skill_cache.clear()
 
 
 def _render_channel_workspace_prompt(
@@ -459,6 +527,55 @@ async def assemble_context(
                     yield {"type": "bot_authored_skills", "count": len(_bot_new_skills)}
         except Exception:
             logger.warning("Failed to auto-discover bot-authored skills for %s", bot.id, exc_info=True)
+
+    # --- auto-enroll core skills (on_demand for all bots) ---
+    try:
+        from app.agent.bots import SkillConfig as _SkillConfig
+        _core_ids = await _get_core_skill_ids()
+        if _core_ids:
+            _existing = {s.id for s in bot.skills}
+            # Respect channel skills_disabled
+            _disabled = set()
+            if _ch_row is not None:
+                _disabled = set(getattr(_ch_row, "skills_disabled", None) or [])
+            _auto_skills = [
+                _SkillConfig(id=sid, mode="on_demand")
+                for sid in _core_ids
+                if sid not in _existing and sid not in _disabled
+            ]
+            if _auto_skills:
+                bot = _dc_replace(bot, skills=list(bot.skills) + _auto_skills)
+                from app.agent.context import current_resolved_skill_ids
+                current_resolved_skill_ids.set({s.id for s in bot.skills})
+                yield {"type": "core_skills_enrolled", "count": len(_auto_skills)}
+    except Exception:
+        logger.warning("Failed to auto-enroll core skills", exc_info=True)
+
+    # --- auto-enroll integration skills from activated integrations ---
+    if _ch_row is not None:
+        try:
+            from app.agent.bots import SkillConfig as _ISC
+            _activated_types: list[str] = []
+            for _ci in (getattr(_ch_row, "integrations", None) or []):
+                if getattr(_ci, "activated", False):
+                    _activated_types.append(_ci.integration_type)
+            if _activated_types:
+                _existing = {s.id for s in bot.skills}
+                _disabled = set(getattr(_ch_row, "skills_disabled", None) or [])
+                _int_auto: list = []
+                for _itype in _activated_types:
+                    _int_ids = await _get_integration_skill_ids(_itype)
+                    for sid in _int_ids:
+                        if sid not in _existing and sid not in _disabled:
+                            _int_auto.append(_ISC(id=sid, mode="on_demand"))
+                            _existing.add(sid)
+                if _int_auto:
+                    bot = _dc_replace(bot, skills=list(bot.skills) + _int_auto)
+                    from app.agent.context import current_resolved_skill_ids
+                    current_resolved_skill_ids.set({s.id for s in bot.skills})
+                    yield {"type": "integration_skills_enrolled", "count": len(_int_auto)}
+        except Exception:
+            logger.warning("Failed to auto-enroll integration skills", exc_info=True)
 
     # --- memory scheme: tool hiding + tool injection ---
     _memory_scheme_injected_paths: set[str] = set()  # track injected files for fs RAG dedup
@@ -1315,33 +1432,50 @@ async def assemble_context(
     # --- tool retrieval (tool RAG) ---
     pre_selected_tools: list[dict[str, Any]] | None = None
     _authorized_names: set[str] | None = None
-    if bot.tool_retrieval and (bot.local_tools or bot.mcp_servers or bot.client_tools):
-        by_name = await _all_tool_schemas_by_name(bot)
+    if bot.tool_retrieval:
+        by_name = await _all_tool_schemas_by_name(bot) if (bot.local_tools or bot.mcp_servers or bot.client_tools) else {}
+        # Always include get_tool_info when tool retrieval is on (allows LLM to inspect discovered tools)
+        if "get_tool_info" not in by_name:
+            for _gti in get_local_tool_schemas(["get_tool_info"]):
+                by_name[_gti["function"]["name"]] = _gti
         _authorized_names = set(by_name.keys())
+        th = (
+            bot.tool_similarity_threshold
+            if bot.tool_similarity_threshold is not None
+            else settings.TOOL_RETRIEVAL_THRESHOLD
+        )
+        retrieved, tool_sim, tool_candidates = await retrieve_tools(
+            user_message,
+            bot.local_tools,
+            bot.mcp_servers,
+            threshold=th,
+            discover_all=bot.tool_discovery,
+        )
+        # Filter discovered tools against channel disabled list
+        _ch_disabled_tools = set(getattr(_ch_row, "local_tools_disabled", None) or []) if _ch_row else set()
+        if _ch_disabled_tools:
+            retrieved = [t for t in retrieved if t.get("function", {}).get("name") not in _ch_disabled_tools]
+        # Add discovered tool names to authorized set
+        for _rt in retrieved:
+            _rn = _rt.get("function", {}).get("name")
+            if _rn:
+                _authorized_names.add(_rn)
+                if _rn not in by_name:
+                    by_name[_rn] = _rt
+
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="tool_retrieval",
+                count=len(retrieved),
+                data={"best_similarity": tool_sim, "threshold": th,
+                      "selected": [t["function"]["name"] for t in retrieved],
+                      "top_candidates": tool_candidates},
+            ))
         if by_name:
-            th = (
-                bot.tool_similarity_threshold
-                if bot.tool_similarity_threshold is not None
-                else settings.TOOL_RETRIEVAL_THRESHOLD
-            )
-            retrieved, tool_sim, tool_candidates = await retrieve_tools(
-                user_message,
-                bot.local_tools,
-                bot.mcp_servers,
-                threshold=th,
-            )
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="tool_retrieval",
-                    count=len(retrieved),
-                    data={"best_similarity": tool_sim, "threshold": th,
-                          "selected": [t["function"]["name"] for t in retrieved],
-                          "top_candidates": tool_candidates},
-                ))
             _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names + ["get_tool_info"]
             pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
             # Also support server-level pinning: if a pinned entry is an MCP server name,
@@ -1358,7 +1492,7 @@ async def assemble_context(
             else:
                 pre_selected_tools = merged
 
-            # Inject compact usage index for unretrieved tools
+            # Inject compact usage index for unretrieved tools from bot's declared set
             _retrieved_names = {t["function"]["name"] for t in pre_selected_tools}
             _unretrieved = [
                 (n, s["function"])

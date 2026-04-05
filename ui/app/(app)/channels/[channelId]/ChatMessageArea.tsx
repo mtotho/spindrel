@@ -39,7 +39,7 @@ export interface ChatMessageAreaProps {
   flatListRef: React.RefObject<FlatList | null>;
   invertedData: Message[];
   renderMessage: (info: { item: Message; index: number }) => React.JSX.Element;
-  chatState: { isStreaming: boolean; streamingContent: string; toolCalls: any[]; thinkingContent: string };
+  chatState: { isStreaming: boolean; streamingContent: string; toolCalls: any[]; thinkingContent: string; respondingBotName?: string | null };
   bot: { name?: string } | undefined;
   isLoading: boolean;
   isFetchingNextPage: boolean;
@@ -171,15 +171,16 @@ function WebChatList({
     scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
+  const streamingBotName = chatState.respondingBotName || bot?.name;
   const indicator = chatState.isStreaming ? (
     <StreamingIndicator
       content={chatState.streamingContent}
       toolCalls={chatState.toolCalls}
-      botName={bot?.name}
+      botName={streamingBotName}
       thinkingContent={chatState.thinkingContent}
     />
   ) : isProcessing ? (
-    <ProcessingIndicator botName={bot?.name} />
+    <ProcessingIndicator botName={streamingBotName} />
   ) : null;
 
   return (
@@ -311,17 +312,19 @@ function NativeChatList({
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
-        ListHeaderComponent={
-          chatState.isStreaming ? (
+        ListHeaderComponent={(() => {
+          const nativeBotName = chatState.respondingBotName || bot?.name;
+          return chatState.isStreaming ? (
             <StreamingIndicator
               content={chatState.streamingContent}
               toolCalls={chatState.toolCalls}
-              botName={bot?.name}
+              botName={nativeBotName}
               thinkingContent={chatState.thinkingContent}
             />
           ) : isProcessing ? (
-            <ProcessingIndicator botName={bot?.name} />
-          ) : null
+            <ProcessingIndicator botName={nativeBotName} />
+          ) : null;
+        })()
         }
         ListFooterComponent={
           isFetchingNextPage ? (

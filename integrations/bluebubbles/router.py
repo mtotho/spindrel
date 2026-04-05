@@ -998,6 +998,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         # Per-binding send method override (empty = use global default)
         binding_send_method = dc.get("send_method", "") or None
 
+        binding_text_footer = dc.get("text_footer", "") or ""
         dispatch_config = {
             "type": "bluebubbles",
             "chat_guid": chat_guid,
@@ -1006,15 +1007,18 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         }
         if binding_send_method:
             dispatch_config["send_method"] = binding_send_method
+        if binding_text_footer:
+            dispatch_config["text_footer"] = binding_text_footer
 
-        if is_from_me:
-            # Human texting from their own phone — always active
-            run_agent = True
-            content = text
-        elif not channel.require_mention:
-            # Channel doesn't require mention — but suppress if we just replied
-            # (catches echoed bot messages that iMessage modified, breaking content hash)
-            if shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
+        if not channel.require_mention:
+            # No mention required
+            if is_from_me:
+                # Human texting from their own phone — always active
+                run_agent = True
+                content = text
+            elif shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
+                # Suppress if we just replied (catches echoed bot messages
+                # that iMessage modified, breaking content hash)
                 logger.info("BB webhook: echo suppress (no-mention path), chat_guid=%s", chat_guid)
                 run_agent = False
                 content = f"[{sender}]: {text}"
@@ -1022,16 +1026,18 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                 run_agent = True
                 content = text
         else:
-            # Build per-channel wake words: binding-specific + global extras
+            # require_mention is True — check wake words for ALL messages
+            # (including is_from_me so the user can text in monitored chats
+            # without accidentally triggering the bot)
             wake_words = per_binding_words + extra_wake_words
             if use_bot_wake:
                 wake_words = _bot_wake_words(channel.bot_id) + wake_words
             text_lower = text.lower()
             mentioned = any(w in text_lower for w in wake_words) if wake_words else False
             if mentioned:
-                # Wake word matched — but suppress if we just replied
-                # (the bot's own echoed response likely contains the wake word)
-                if shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
+                # Wake word matched — skip echo suppress for is_from_me
+                # (user deliberately typed the wake word)
+                if not is_from_me and shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
                     logger.info("BB webhook: echo suppress (wake word path), chat_guid=%s", chat_guid)
                     run_agent = False
                     content = f"[{sender}]: {text}"
@@ -1041,7 +1047,7 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
             else:
                 # Passive — store with sender prefix, no agent run
                 run_agent = False
-                content = f"[{sender}]: {text}"
+                content = f"[{sender}]: {text}" if not is_from_me else text
 
         # Resolve sender display name: BB contact info → binding display name → raw address
         sender_display = (

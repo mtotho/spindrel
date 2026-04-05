@@ -1,9 +1,8 @@
 ---
-name: workspace-files
-description: >
-  Guide for using the `file` tool vs `exec_command` for file operations.
-  Load when the bot needs to read, write, append, or edit files in its workspace,
-  or when it's deciding between file tool and shell commands for a task.
+name: Workspace Files
+description: Guide for using the file tool vs exec_command for reading, writing, and editing files
+triggers: file tool, read file, write file, append, edit file, exec_command, workspace files
+category: workspace
 ---
 
 # Workspace Files — `file` Tool Guide

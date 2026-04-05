@@ -275,6 +275,17 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
         content_hash = _sha256(raw)
         meta, _ = _parse_frontmatter(raw)
         display_name = meta.get("name", skill_id.replace("_", " ").replace("/", " / ").title())
+        description = meta.get("description")
+        if isinstance(description, str):
+            description = description.strip()
+        category = meta.get("category")
+        triggers_raw = meta.get("triggers", [])
+        if isinstance(triggers_raw, str):
+            triggers = [t.strip() for t in triggers_raw.split(",") if t.strip()]
+        elif isinstance(triggers_raw, list):
+            triggers = triggers_raw
+        else:
+            triggers = []
         source_path = str(path.resolve())
 
         try:
@@ -284,6 +295,9 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                     row = SkillRow(
                         id=skill_id,
                         name=display_name,
+                        description=description,
+                        category=category,
+                        triggers=triggers,
                         content=raw,
                         content_hash=content_hash,
                         source_path=source_path,
@@ -297,6 +311,9 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                     await _embed_skill_from_content(skill_id, raw, content_hash)
                 elif existing.content_hash != content_hash:
                     existing.name = display_name
+                    existing.description = description
+                    existing.category = category
+                    existing.triggers = triggers
                     existing.content = raw
                     existing.content_hash = content_hash
                     existing.source_path = source_path
@@ -730,6 +747,14 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
     )
     if counts["errors"]:
         logger.warning("file_sync errors: %s", counts["errors"])
+
+    # Invalidate auto-enrollment caches so next context assembly picks up changes
+    try:
+        from app.agent.context_assembly import invalidate_skill_auto_enroll_cache
+        invalidate_skill_auto_enroll_cache()
+    except Exception:
+        pass
+
     return counts
 
 

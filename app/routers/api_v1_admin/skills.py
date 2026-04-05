@@ -23,6 +23,9 @@ router = APIRouter()
 class SkillOut(BaseModel):
     id: str
     name: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    triggers: list[str] = []
     content: str = ""
     source_type: str = "manual"
     source_path: Optional[str] = None
@@ -98,6 +101,9 @@ async def admin_list_skills(
         SkillOut(
             id=s.id,
             name=s.name,
+            description=s.description,
+            category=s.category,
+            triggers=s.triggers or [],
             content=s.content or "",
             source_type=s.source_type,
             source_path=s.source_path,
@@ -184,6 +190,8 @@ async def admin_get_skill(
     )).scalar_one()
     return SkillOut(
         id=row.id, name=row.name, content=row.content or "",
+        description=row.description, category=row.category,
+        triggers=row.triggers or [],
         source_type=row.source_type, source_path=row.source_path,
         chunk_count=chunk_count,
         created_at=row.created_at, updated_at=row.updated_at,

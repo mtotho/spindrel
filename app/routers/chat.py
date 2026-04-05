@@ -238,21 +238,35 @@ async def _resolve_mirror_target(channel) -> tuple[str | None, dict | None]:
         return None, None
 
     integration = binding.integration_type
-    dispatch_config = binding.dispatch_config
+    binding_config = binding.dispatch_config or {}
     logger.info(
         "Mirror: found binding type=%s client_id=%s has_dispatch_config=%s",
-        integration, binding.client_id, dispatch_config is not None,
+        integration, binding.client_id, bool(binding_config),
     )
 
-    # If binding has no dispatch_config, try to construct one from client_id
-    if not dispatch_config and binding.client_id:
-        # Ask the integration's registered resolver first
+    # Try to resolve dispatch_config via integration hook first (provides
+    # credentials like server_url/password), then merge in per-binding
+    # settings (text_footer, send_method) from the binding's config_fields.
+    dispatch_config = None
+    if binding.client_id:
         from app.agent.hooks import get_integration_meta
         meta = get_integration_meta(integration)
         if meta and meta.resolve_dispatch_config:
             dispatch_config = meta.resolve_dispatch_config(binding.client_id)
+            if dispatch_config and binding_config:
+                # Merge per-binding settings that the dispatcher needs
+                # (e.g. send_method, text_footer for BB)
+                _INTERNAL_KEYS = {"extra_wake_words", "use_bot_wake_word", "echo_suppress_window"}
+                for k, v in binding_config.items():
+                    if k not in _INTERNAL_KEYS and k not in dispatch_config and v not in ("", None):
+                        dispatch_config[k] = v
             logger.info("Mirror: resolved dispatch_config via hook: %s", dispatch_config is not None)
-        else:
+
+    if not dispatch_config:
+        if binding_config and binding_config.get("type"):
+            # Binding has a full dispatch_config with type (non-config-fields style)
+            dispatch_config = binding_config
+        elif binding.client_id:
             # Legacy fallback: Slack-style token lookup
             prefix = f"{integration}:"
             native_id = binding.client_id.removeprefix(prefix) if binding.client_id.startswith(prefix) else None
@@ -476,7 +490,6 @@ async def _run_member_bot_reply(
 ) -> None:
     """Execute a member bot's reply after being @-mentioned by another bot."""
     from app.agent.bots import get_bot
-    from app.agent.loop import run
     from app.db.engine import async_session as _async_session
     from app.db.models import Channel, Session
     from app.services.sessions import load_or_create, persist_turn
@@ -500,7 +513,7 @@ async def _run_member_bot_reply(
         logger.warning("Member bot %s timed out waiting for session lock in channel %s", member_bot_id, channel_id)
         return
 
-    result = None
+    response_text = ""
     try:
         _record_channel_run(str(channel_id))
 
@@ -520,8 +533,11 @@ async def _run_member_bot_reply(
         correlation_id = uuid.uuid4()
         from_index = len(messages)
 
-        # Trigger prompt — stored as user message with bot metadata
-        prompt = f"[Channel: {mentioning_bot.name} mentioned you]"
+        # Trigger prompt — include context so member bot understands the conversation
+        prompt = (
+            f"{mentioning_bot.name} (@{mentioning_bot_id}) mentioned you in the channel conversation. "
+            f"Read the conversation above and respond naturally to what was discussed."
+        )
         model_override = member_config.get("model_override")
 
         # Set agent context so run_stream internals have proper metadata
@@ -534,14 +550,25 @@ async def _run_member_bot_reply(
             channel_id=channel_id,
         )
 
-        result = await run(
+        # Stream the reply so the UI shows typing indicators for the member bot
+        from app.agent.loop import run_stream
+        _publish_event(channel_id, "stream_start", {
+            "responding_bot_id": member_bot_id,
+            "responding_bot_name": member_bot.name,
+        })
+
+        async for event in run_stream(
             messages, member_bot, prompt,
             session_id=session_id,
             client_id="member-mention",
             correlation_id=correlation_id,
             channel_id=channel_id,
             model_override=model_override,
-        )
+        ):
+            if event.get("type") == "response":
+                response_text = event.get("text", "")
+            event_with_session = {**event, "session_id": str(session_id)}
+            _publish_event(channel_id, "stream_event", {"event": event_with_session})
 
         # Persist with metadata so UI knows this is a bot-triggered turn
         msg_metadata = {
@@ -559,16 +586,17 @@ async def _run_member_bot_reply(
                 msg_metadata=msg_metadata,
             )
 
-        # Notify UI
+        # Notify UI that streaming ended (after persist so data is committed)
+        _publish_event(channel_id, "stream_end")
         _publish_event(channel_id, "new_message")
 
         # Mirror to integration
-        if result.response:
+        if response_text:
             async with _async_session() as db:
                 channel = await db.get(Channel, channel_id)
             if channel:
                 await _mirror_to_integration(
-                    channel, result.response, bot_id=member_bot_id,
+                    channel, response_text, bot_id=member_bot_id,
                 )
 
         # Restore session bot_id to the channel's primary bot
@@ -589,14 +617,16 @@ async def _run_member_bot_reply(
 
     except Exception:
         logger.exception("Member bot %s reply failed in channel %s", member_bot_id, channel_id)
+        # Ensure streaming ends even on error so UI doesn't stay in streaming state
+        _publish_event(channel_id, "stream_end")
     finally:
         session_locks.release(session_id)
 
     # Chain: check if member bot's response mentions another member bot
     # (done AFTER releasing the lock so the next bot can acquire it)
-    if result and result.response:
+    if response_text:
         await _trigger_member_bot_replies(
-            channel_id, session_id, member_bot_id, result.response,
+            channel_id, session_id, member_bot_id, response_text,
             _depth=_depth,
         )
 
@@ -1090,9 +1120,16 @@ async def chat_stream(
             _effective_model_override_s = req.model_override or _member_config.get("model_override")
             _inject_member_config(messages, _member_config)
 
+            # Tell the initiating tab which bot is responding (for typing indicator)
+            _stream_meta = {"type": "stream_meta", "responding_bot_id": bot.id, "responding_bot_name": bot.name}
+            yield f"data: {json.dumps(_stream_meta)}\n\n"
+
             # Notify observers that streaming is starting
             from app.services.channel_events import publish as _publish_stream
-            _publish_stream(channel_id, "stream_start")
+            _publish_stream(channel_id, "stream_start", {
+                "responding_bot_id": bot.id,
+                "responding_bot_name": bot.name,
+            })
 
             stream = run_stream(
                 messages, bot, message,

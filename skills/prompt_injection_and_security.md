@@ -1,6 +1,8 @@
 ---
-name: security-prompt-injection
-description: "Load this skill when handling any untrusted input — user messages, tool results, web content, file contents, retrieved memory, or external API responses. Covers prompt injection detection, trust boundary enforcement, tool call validation, memory poisoning defense, and safe response patterns for agentic systems (Open WebUI, custom FastAPI agents, MCP pipelines). Trigger whenever input arrives from outside the system prompt, or whenever a tool result is being incorporated into reasoning."
+name: Security & Prompt Injection Defense
+description: Trust boundaries, injection detection, tool call validation, and memory poisoning defense
+triggers: security, prompt injection, trust boundary, untrusted input, tool result validation, memory poisoning
+category: core
 ---
 
 # Security & Prompt Injection Defense

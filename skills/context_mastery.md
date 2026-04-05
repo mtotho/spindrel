@@ -1,12 +1,8 @@
 ---
 name: Context Mastery
-description: >
-  Extended guide for context window management, reference file authoring, and
-  research delegation. Load when you need to: swap content between tiers (active
-  vs reference vs archive), create structured reference documents, delegate
-  research to cheaper models via schedule_task, or plan a cold start sequence.
-  Your base memory instructions already cover the basics — this skill has the
-  detailed patterns and examples.
+description: Advanced context window management, reference file authoring, and research delegation patterns
+triggers: context window, reference file, cold start, tier management, hot warm cold, archive content, research delegation
+category: core
 ---
 
 # Context Mastery — Extended Patterns
@@ -43,21 +39,21 @@ for managing content, authoring reference files, and delegating efficiently.
 
 ## Moving Content Between Tiers
 
-### Hot → Warm (topic no longer actively changing)
+### Hot -> Warm (topic no longer actively changing)
 ```
 file(read, "active-topic.md")
 file(write, "memory/reference/topic-name.md", content)
 file(delete, "active-topic.md")
-file(edit, "memory/MEMORY.md", find="...", replace="...→ see reference/topic-name.md")
+file(edit, "memory/MEMORY.md", find="...", replace="...-> see reference/topic-name.md")
 ```
 
-### Warm → Hot (reference topic becomes active again)
+### Warm -> Hot (reference topic becomes active again)
 ```
 file(read, "memory/reference/topic-name.md")
 file(write, "active-topic.md", content)
 ```
 
-### Hot → Cold (concern fully resolved)
+### Hot -> Cold (concern fully resolved)
 ```
 file(read, "resolved-item.md")
 file(write, "archive/resolved-item.md", content)
@@ -119,11 +115,6 @@ Step-by-step when the quick reference isn't enough.
 | Tool trick or usage pattern | `memory/reference/tool-patterns.md` |
 | User preferences (brief) | `memory/MEMORY.md` — one line, not a file |
 | Decision rationale | Daily log + MEMORY.md pointer |
-
-**Example**: After debugging a sourdough overproofing problem, write
-`memory/reference/proofing-troubleshooting.md` with diagnostic signs, fixes, and
-temperature adjustments. Next session when the user describes a flat loaf, you see
-"proofing-troubleshooting.md" in your reference listing and fetch it instantly.
 
 ---
 

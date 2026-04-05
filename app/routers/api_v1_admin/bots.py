@@ -359,6 +359,7 @@ class BotUpdateIn(BaseModel):
     pinned_tools: Optional[list[str]] = None
     skills: Optional[list[dict]] = None
     tool_retrieval: Optional[bool] = None
+    tool_discovery: Optional[bool] = None
     tool_similarity_threshold: Optional[float] = None
     tool_result_config: Optional[dict] = None
     persona: Optional[bool] = None
@@ -497,6 +498,7 @@ class BotCreateIn(BaseModel):
     pinned_tools: Optional[list[str]] = None
     skills: Optional[list[dict]] = None
     tool_retrieval: Optional[bool] = True
+    tool_discovery: Optional[bool] = True
     tool_similarity_threshold: Optional[float] = None
     tool_result_config: Optional[dict] = None
     persona: Optional[bool] = False

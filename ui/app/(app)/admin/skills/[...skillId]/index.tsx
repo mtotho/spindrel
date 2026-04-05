@@ -223,16 +223,40 @@ export default function SkillDetailScreen() {
             )}
 
             {skill && (
-              <Section title="Info">
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <InfoRow label="ID" value={skill.id} />
-                  <InfoRow label="Source" value={skill.source_type} />
-                  {skill.source_path && <InfoRow label="Path" value={skill.source_path} />}
-                  <InfoRow label="Chunks" value={String(skill.chunk_count)} />
-                  <InfoRow label="Created" value={fmtDate(skill.created_at)} />
-                  <InfoRow label="Updated" value={fmtDate(skill.updated_at)} />
-                </div>
-              </Section>
+              <>
+                {skill.description && (
+                  <Section title="Description">
+                    <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
+                      {skill.description}
+                    </div>
+                  </Section>
+                )}
+                <Section title="Info">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <InfoRow label="ID" value={skill.id} />
+                    <InfoRow label="Source" value={skill.source_type} />
+                    {skill.source_path && <InfoRow label="Path" value={skill.source_path} />}
+                    {skill.category && <InfoRow label="Category" value={skill.category} />}
+                    <InfoRow label="Chunks" value={String(skill.chunk_count)} />
+                    <InfoRow label="Created" value={fmtDate(skill.created_at)} />
+                    <InfoRow label="Updated" value={fmtDate(skill.updated_at)} />
+                  </div>
+                </Section>
+                {skill.triggers && skill.triggers.length > 0 && (
+                  <Section title="Triggers">
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {skill.triggers.map((trigger) => (
+                        <span key={trigger} style={{
+                          padding: "2px 8px", borderRadius: 4, fontSize: 11,
+                          background: t.surfaceOverlay, color: t.textMuted,
+                        }}>
+                          {trigger}
+                        </span>
+                      ))}
+                    </div>
+                  </Section>
+                )}
+              </>
             )}
           </div>
         </div>

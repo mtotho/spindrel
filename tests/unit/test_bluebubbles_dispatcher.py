@@ -238,3 +238,65 @@ class TestBlueBubblesDispatcher:
             "http://bb:1234", "pass123", "chat-1", "Hello",
             method="apple-script",
         )
+
+    @pytest.mark.asyncio
+    @patch("integrations.bluebubbles.dispatcher._bb_send", new_callable=AsyncMock)
+    async def test_deliver_with_text_footer(self, mock_send, dispatcher):
+        """text_footer in dispatch_config is appended to outgoing message."""
+        mock_send.return_value = True
+
+        task = MagicMock()
+        task.id = "task-1"
+        task.session_id = "sess-1"
+        task.client_id = "bb:chat-1"
+        task.bot_id = "bot-1"
+        task.dispatch_config = {
+            "server_url": "http://bb:1234",
+            "password": "pass123",
+            "chat_guid": "chat-1",
+            "text_footer": " - Michael Bot",
+        }
+
+        with patch("app.services.sessions.store_dispatch_echo", new_callable=AsyncMock):
+            await dispatcher.deliver(task, "Hello world")
+
+        sent_text = mock_send.call_args[0][3]
+        assert sent_text == "Hello world\n - Michael Bot"
+
+    @pytest.mark.asyncio
+    @patch("integrations.bluebubbles.dispatcher._bb_send", new_callable=AsyncMock)
+    async def test_deliver_no_footer_when_empty(self, mock_send, dispatcher):
+        """No text_footer → message sent as-is."""
+        mock_send.return_value = True
+
+        task = MagicMock()
+        task.id = "task-1"
+        task.session_id = "sess-1"
+        task.client_id = "bb:chat-1"
+        task.bot_id = "bot-1"
+        task.dispatch_config = {
+            "server_url": "http://bb:1234",
+            "password": "pass123",
+            "chat_guid": "chat-1",
+        }
+
+        with patch("app.services.sessions.store_dispatch_echo", new_callable=AsyncMock):
+            await dispatcher.deliver(task, "Hello world")
+
+        sent_text = mock_send.call_args[0][3]
+        assert sent_text == "Hello world"
+
+    @pytest.mark.asyncio
+    @patch("integrations.bluebubbles.dispatcher._bb_send", new_callable=AsyncMock)
+    async def test_post_message_with_text_footer(self, mock_send, dispatcher):
+        """text_footer appended in post_message path too."""
+        mock_send.return_value = True
+
+        result = await dispatcher.post_message(
+            {"server_url": "http://bb:1234", "password": "pass123",
+             "chat_guid": "chat-1", "text_footer": "\n— Sent by Bot"},
+            "Response text",
+        )
+        assert result is True
+        sent_text = mock_send.call_args[0][3]
+        assert sent_text == "Response text\n\n— Sent by Bot"

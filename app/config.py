@@ -419,7 +419,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "local/BAAI/bge-small-en-v1.5"
     EMBEDDING_DIMENSIONS: int = 1536
     RAG_TOP_K: int = 5
-    RAG_SIMILARITY_THRESHOLD: float = 0.3
+    RAG_SIMILARITY_THRESHOLD: float = 0.45
 
     # Hybrid search (BM25 + vector fusion via Reciprocal Rank Fusion)
     HYBRID_SEARCH_ENABLED: bool = True
@@ -457,7 +457,7 @@ class Settings(BaseSettings):
     INTEGRATION_DIRS: str = ""
 
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
-    TOOL_RETRIEVAL_THRESHOLD: float = 0.35
+    TOOL_RETRIEVAL_THRESHOLD: float = 0.45
     TOOL_RETRIEVAL_TOP_K: int = 10
 
     # Memory
@@ -526,7 +526,7 @@ class Settings(BaseSettings):
     DOCKER_STACK_LOG_TAIL_MAX: int = 1000
 
     # RAG re-ranking (post-assembly cross-source relevance filtering)
-    RAG_RERANK_ENABLED: bool = False
+    RAG_RERANK_ENABLED: bool = True
     RAG_RERANK_BACKEND: str = "cross-encoder"  # "cross-encoder" (fast ONNX, zero API cost) or "llm" (full LLM call)
     RAG_RERANK_MODEL: str = ""              # LLM backend: empty = use COMPACTION_MODEL
     RAG_RERANK_THRESHOLD_CHARS: int = 5000  # only rerank when total RAG chars exceed this

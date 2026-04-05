@@ -115,6 +115,7 @@ SETUP = {
                 {"value": "apple-script", "label": "AppleScript (reliable)"},
                 {"value": "private-api", "label": "Private API (requires helper)"},
             ]},
+            {"key": "text_footer", "type": "string", "label": "Text Footer", "description": "Text appended to every outgoing message (e.g. ' - Michael Bot')", "default": ""},
         ],
     },
 }

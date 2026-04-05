@@ -1,6 +1,8 @@
 ---
-name: attachments-and-images
-description: "Load when the task involves images, attachments, or file handling: generating images, editing images, sending files to the channel, finding uploaded files, referencing earlier uploads, or any use of generate_image, send_file, list_attachments, or get_attachment tools. Also trigger when a delegated bot needs to work with images from the parent channel. Do NOT trigger for plain text conversations with no file/image component."
+name: Attachments & Files
+description: Sending files, finding uploads, image generation/editing, and delegation with attachments
+triggers: image, attachment, upload, file, send_file, generate_image, list_attachments, get_attachment, photo, picture
+category: core
 ---
 
 # Attachments & Files

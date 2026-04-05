@@ -1,6 +1,8 @@
 ---
-name: search-history
-description: "Load when the agent needs to search or retrieve historical channel messages — for compaction context, answering 'what did we discuss about X', reconstructing past decisions, or any query over message history. Trigger phrases: 'what did we talk about', 'find messages about X', 'search history', 'look back at', 'what was said about', 'when did we discuss'. Also load proactively during memory compaction when prior context is thin. Do NOT load for searching knowledge docs, memories, or codebase — those have separate tools."
+name: Search History
+description: Search and retrieve historical channel messages across sessions
+triggers: search history, what did we talk about, find messages, look back, past conversations, compaction context
+category: core
 ---
 
 # Search History Tool

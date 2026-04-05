@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect } from "react";
-import { View, Text, Pressable, ScrollView, TextInput as RNTextInput } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ArrowLeft, ArrowRight, Check, Search } from "lucide-react";
@@ -144,29 +143,34 @@ export default function NewChannelScreen() {
   const canProceed = name.trim().length > 0;
 
   const errorBanner = createChannel.isError ? (
-    <Text className="text-red-400 text-xs" style={{ marginTop: 8 }}>
+    <span style={{ color: "#f87171", fontSize: 12, marginTop: 8, display: "block" }}>
       {createChannel.error instanceof Error ? createChannel.error.message : "Failed to create channel"}
-    </Text>
+    </span>
   ) : null;
 
   return (
-    <View className="flex-1 bg-surface">
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: theme.surface }}>
       {/* Header */}
-      <View className="flex-row items-center gap-3 px-4 py-3 border-b border-surface-border">
-        <Pressable
-          onPress={goBack}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay"
+      <div style={{
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
+        padding: "12px 16px",
+        borderBottom: `1px solid ${theme.surfaceBorder}`,
+      }}>
+        <button
+          type="button"
+          className="header-icon-btn"
+          onClick={goBack}
           style={{ width: 44, height: 44 }}
         >
           <ArrowLeft size={20} color={theme.textMuted} />
-        </Pressable>
-        <Text className="text-text font-semibold text-sm flex-1">New Channel</Text>
+        </button>
+        <span style={{ flex: 1, color: theme.text, fontWeight: 600, fontSize: 14 }}>New Channel</span>
         {/* Step indicator */}
-        <View className="flex-row items-center gap-1.5">
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           {(["basics", "template", "integrations"] as WizardStep[])
             .filter((s) => s !== "integrations" || hasActivatable)
             .map((s) => (
-              <View
+              <div
                 key={s}
                 style={{
                   width: 8,
@@ -176,356 +180,393 @@ export default function NewChannelScreen() {
                 }}
               />
             ))}
-        </View>
-      </View>
+        </div>
+      </div>
 
       {/* Step 1: Basics */}
       {step === "basics" && (
-        <ScrollView
-          className="flex-1"
-          contentContainerStyle={{ padding: 20, maxWidth: 520 }}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={{ gap: 16 }}>
-            <Section title="Channel Name">
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="my-channel"
-              />
-            </Section>
-
-            {/* Model picker */}
-            {!useBotMode && (
-              <Section title="Model">
-                <LlmModelDropdown
-                  value={selectedModel}
-                  onChange={(modelId) => setSelectedModel(modelId)}
-                  placeholder="Default (from bot)"
-                  allowClear
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+          <div style={{ padding: 20, maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <Section title="Channel Name">
+                <TextInput
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="my-channel"
                 />
               </Section>
-            )}
 
-            {/* Bot mode toggle */}
-            <Pressable
-              onPress={() => setUseBotMode(!useBotMode)}
-              className="flex-row items-center gap-2"
-            >
-              <Text className="text-text-muted text-xs underline">
-                {useBotMode ? "Pick a model instead" : "Or use an existing bot"}
-              </Text>
-            </Pressable>
-
-            {useBotMode && (
-              <Section title="Bot">
-                <SelectInput
-                  value={botId}
-                  onChange={setBotId}
-                  options={botOptions}
-                />
-              </Section>
-            )}
-
-            {/* Category */}
-            <Section title="Category (optional)">
-              <TextInput
-                value={category}
-                onChangeText={setCategory}
-                placeholder="e.g. Work, Personal, Projects"
-              />
-              {categorySuggestions.length > 0 && (
-                <View className="flex-row flex-wrap gap-1.5" style={{ marginTop: 6 }}>
-                  {categorySuggestions.slice(0, 5).map((cat) => (
-                    <Pressable
-                      key={cat}
-                      onPress={() => setCategory(cat)}
-                      style={{
-                        backgroundColor: theme.surfaceBorder,
-                        paddingHorizontal: 8,
-                        paddingVertical: 3,
-                        borderRadius: 4,
-                      }}
-                    >
-                      <Text style={{ fontSize: 11, color: theme.textMuted }}>{cat}</Text>
-                    </Pressable>
-                  ))}
-                </View>
+              {/* Model picker */}
+              {!useBotMode && (
+                <Section title="Model">
+                  <LlmModelDropdown
+                    value={selectedModel}
+                    onChange={(modelId) => setSelectedModel(modelId)}
+                    placeholder="Default (from bot)"
+                    allowClear
+                  />
+                </Section>
               )}
-            </Section>
 
-            <Toggle
-              value={isPrivate}
-              onChange={setIsPrivate}
-              label="Private"
-              description="Only visible to you"
-            />
+              {/* Bot mode toggle */}
+              <button
+                type="button"
+                onClick={() => setUseBotMode(!useBotMode)}
+                style={{
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
+                  background: "none", border: "none", cursor: "pointer", padding: 0,
+                  font: "inherit",
+                }}
+              >
+                <span style={{ color: theme.textMuted, fontSize: 12, textDecoration: "underline" }}>
+                  {useBotMode ? "Pick a model instead" : "Or use an existing bot"}
+                </span>
+              </button>
 
-            {/* Member bots (multi-bot channel) */}
-            {(bots ?? []).filter((b) => b.id !== (useBotMode ? botId : "default")).length > 0 && (
-              <Section title="Member Bots (optional)" description="Add additional bots that can participate when @-mentioned">
-                <View style={{ gap: 6 }}>
-                  {(bots ?? [])
-                    .filter((b) => b.id !== (useBotMode ? botId : "default"))
-                    .map((b) => {
-                      const selected = memberBotIds.includes(b.id);
-                      return (
-                        <Pressable
-                          key={b.id}
-                          onPress={() => setMemberBotIds((prev) =>
-                            selected ? prev.filter((x) => x !== b.id) : [...prev, b.id]
-                          )}
-                          style={{
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 8,
-                            paddingVertical: 6,
-                            paddingHorizontal: 10,
-                            borderRadius: 6,
-                            borderWidth: 1,
-                            borderColor: selected ? theme.accent : theme.surfaceBorder,
-                            backgroundColor: selected ? `${theme.accent}10` : "transparent",
-                          }}
-                        >
-                          {selected && <Check size={14} color={theme.accent} />}
-                          <Text style={{ fontSize: 13, color: theme.text, flex: 1 }}>{b.name}</Text>
-                          <Text style={{ fontSize: 11, color: theme.textDim }}>{b.id}</Text>
-                        </Pressable>
-                      );
-                    })}
-                </View>
+              {useBotMode && (
+                <Section title="Bot">
+                  <SelectInput
+                    value={botId}
+                    onChange={setBotId}
+                    options={botOptions}
+                  />
+                </Section>
+              )}
+
+              {/* Category */}
+              <Section title="Category (optional)">
+                <TextInput
+                  value={category}
+                  onChangeText={setCategory}
+                  placeholder="e.g. Work, Personal, Projects"
+                />
+                {categorySuggestions.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                    {categorySuggestions.slice(0, 5).map((cat) => (
+                      <button
+                        type="button"
+                        key={cat}
+                        onClick={() => setCategory(cat)}
+                        style={{
+                          backgroundColor: theme.surfaceBorder,
+                          padding: "3px 8px",
+                          borderRadius: 4,
+                          border: "none",
+                          cursor: "pointer",
+                          font: "inherit",
+                          fontSize: 11,
+                          color: theme.textMuted,
+                        }}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </Section>
-            )}
 
-            {/* Action buttons */}
-            <View style={{ gap: 10, marginTop: 8 }}>
-              <Pressable
-                onPress={() => canProceed && setStep("template")}
-                disabled={!canProceed}
-                style={{
-                  backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
-                  paddingHorizontal: 20,
-                  paddingVertical: 12,
-                  borderRadius: 8,
-                  alignItems: "center",
-                  flexDirection: "row",
-                  justifyContent: "center",
-                  gap: 8,
-                  opacity: canProceed ? 1 : 0.5,
-                }}
-              >
-                <Text style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: "600" }}>
-                  Continue
-                </Text>
-                <ArrowRight size={16} color={canProceed ? "#fff" : theme.textDim} />
-              </Pressable>
+              <Toggle
+                value={isPrivate}
+                onChange={setIsPrivate}
+                label="Private"
+                description="Only visible to you"
+              />
 
-              <Pressable
-                onPress={handleQuickCreate}
-                disabled={!canProceed || createChannel.isPending}
-                style={{
-                  borderWidth: 1,
-                  borderColor: theme.surfaceBorder,
-                  paddingHorizontal: 20,
-                  paddingVertical: 10,
-                  borderRadius: 8,
-                  alignItems: "center",
-                }}
-              >
-                <Text className="text-text-muted text-sm">
+              {/* Member bots (multi-bot channel) */}
+              {(bots ?? []).filter((b) => b.id !== (useBotMode ? botId : "default")).length > 0 && (
+                <Section title="Member Bots (optional)" description="Add additional bots that can participate when @-mentioned">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {(bots ?? [])
+                      .filter((b) => b.id !== (useBotMode ? botId : "default"))
+                      .map((b) => {
+                        const selected = memberBotIds.includes(b.id);
+                        return (
+                          <button
+                            type="button"
+                            key={b.id}
+                            onClick={() => setMemberBotIds((prev) =>
+                              selected ? prev.filter((x) => x !== b.id) : [...prev, b.id]
+                            )}
+                            style={{
+                              display: "flex",
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "6px 10px",
+                              borderRadius: 6,
+                              border: `1px solid ${selected ? theme.accent : theme.surfaceBorder}`,
+                              background: selected ? `${theme.accent}10` : "transparent",
+                              cursor: "pointer",
+                              font: "inherit",
+                              textAlign: "left",
+                              color: "inherit",
+                            }}
+                          >
+                            {selected && <Check size={14} color={theme.accent} />}
+                            <span style={{ fontSize: 13, color: theme.text, flex: 1 }}>{b.name}</span>
+                            <span style={{ fontSize: 11, color: theme.textDim }}>{b.id}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </Section>
+              )}
+
+              {/* Action buttons */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => canProceed && setStep("template")}
+                  disabled={!canProceed}
+                  style={{
+                    backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
+                    padding: "12px 20px",
+                    borderRadius: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    opacity: canProceed ? 1 : 0.5,
+                    border: "none",
+                    cursor: canProceed ? "pointer" : "default",
+                    font: "inherit",
+                  }}
+                >
+                  <span style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: 600 }}>
+                    Continue
+                  </span>
+                  <ArrowRight size={16} color={canProceed ? "#fff" : theme.textDim} />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleQuickCreate}
+                  disabled={!canProceed || createChannel.isPending}
+                  style={{
+                    border: `1px solid ${theme.surfaceBorder}`,
+                    padding: "10px 20px",
+                    borderRadius: 8,
+                    textAlign: "center",
+                    cursor: canProceed && !createChannel.isPending ? "pointer" : "default",
+                    background: "none",
+                    font: "inherit",
+                    color: theme.textMuted,
+                    fontSize: 14,
+                  }}
+                >
                   {createChannel.isPending ? "Creating..." : "Quick Create (skip wizard)"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-          {errorBanner}
-        </ScrollView>
+                </button>
+              </div>
+            </div>
+            {errorBanner}
+          </div>
+        </div>
       )}
 
       {/* Step 2: Template — pinned header + scrollable cards + sticky footer */}
       {step === "template" && (
-        <View style={{ flex: 1 }}>
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
           {/* Fixed header + search */}
-          <View style={{ padding: 20, paddingBottom: 12, maxWidth: 520 }}>
-            <Text className="text-text font-semibold text-sm">Choose a Template</Text>
-            <Text className="text-text-muted text-xs" style={{ marginTop: 4 }}>
+          <div style={{ padding: "20px 20px 12px", maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
+            <span style={{ color: theme.text, fontWeight: 600, fontSize: 14, display: "block" }}>
+              Choose a Template
+            </span>
+            <span style={{ color: theme.textMuted, fontSize: 12, marginTop: 4, display: "block" }}>
               Templates organize your workspace with structured files and schemas.
-            </Text>
+            </span>
             {(templates?.length ?? 0) > 4 && (
-              <View
+              <div
                 style={{
+                  display: "flex",
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 6,
                   backgroundColor: theme.surfaceOverlay,
-                  borderWidth: 1,
-                  borderColor: theme.surfaceBorder,
+                  border: `1px solid ${theme.surfaceBorder}`,
                   borderRadius: 6,
-                  paddingHorizontal: 8,
-                  paddingVertical: 6,
+                  padding: "6px 8px",
                   marginTop: 12,
                 }}
               >
                 <Search size={13} color={theme.textDim} />
-                <RNTextInput
+                <input
                   value={templateFilter}
-                  onChangeText={setTemplateFilter}
+                  onChange={(e) => setTemplateFilter(e.target.value)}
                   placeholder="Search templates..."
-                  placeholderTextColor={theme.textDim}
-                  style={{ flex: 1, color: theme.text, fontSize: 12 }}
+                  style={{
+                    flex: 1,
+                    color: theme.text,
+                    fontSize: 12,
+                    background: "none",
+                    border: "none",
+                    outline: "none",
+                    font: "inherit",
+                  }}
                 />
-              </View>
+              </div>
             )}
-          </View>
+          </div>
 
           {/* Scrollable template cards */}
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 12, maxWidth: 520 }}
-            keyboardShouldPersistTaps="handled"
-          >
-            <TemplateCardGrid
-              templates={filteredTemplates}
-              selectedId={templateId}
-              onSelect={(id) => setTemplateId(id === templateId ? null : id)}
-              highlightIntegrations={enabledIntegrations}
-              hideSkip
-            />
-          </ScrollView>
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <div style={{ padding: "0 20px 12px", maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
+              <TemplateCardGrid
+                templates={filteredTemplates}
+                selectedId={templateId}
+                onSelect={(id) => setTemplateId(id === templateId ? null : id)}
+                highlightIntegrations={enabledIntegrations}
+                hideSkip
+              />
+            </div>
+          </div>
 
           {/* Sticky footer */}
-          <View
+          <div
             style={{
-              borderTopWidth: 1,
-              borderColor: theme.surfaceBorder,
-              paddingHorizontal: 20,
-              paddingVertical: 14,
-              maxWidth: 520,
+              borderTop: `1px solid ${theme.surfaceBorder}`,
+              padding: "14px 20px",
+              maxWidth: 560,
+              width: "100%",
+              boxSizing: "border-box",
             }}
           >
             {errorBanner}
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Pressable
-                onPress={() => setStep("basics")}
+            <div style={{ display: "flex", flexDirection: "row", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setStep("basics")}
                 style={{
-                  borderWidth: 1,
-                  borderColor: theme.surfaceBorder,
-                  paddingHorizontal: 20,
-                  paddingVertical: 10,
+                  border: `1px solid ${theme.surfaceBorder}`,
+                  padding: "10px 20px",
                   borderRadius: 8,
-                  alignItems: "center",
+                  textAlign: "center",
                   flex: 1,
+                  cursor: "pointer",
+                  background: "none",
+                  font: "inherit",
+                  color: theme.textMuted,
+                  fontSize: 14,
                 }}
               >
-                <Text className="text-text-muted text-sm">Back</Text>
-              </Pressable>
+                Back
+              </button>
 
-              <Pressable
-                onPress={handleTemplateNext}
+              <button
+                type="button"
+                onClick={handleTemplateNext}
                 disabled={createChannel.isPending}
                 style={{
                   backgroundColor: theme.accent,
-                  paddingHorizontal: 20,
-                  paddingVertical: 12,
+                  padding: "12px 20px",
                   borderRadius: 8,
+                  display: "flex",
                   alignItems: "center",
-                  flexDirection: "row",
                   justifyContent: "center",
                   gap: 8,
                   flex: 1,
+                  border: "none",
+                  cursor: createChannel.isPending ? "default" : "pointer",
+                  font: "inherit",
                 }}
               >
                 {!hasActivatable && <Check size={16} color="#fff" />}
-                <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
+                <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>
                   {createChannel.isPending
                     ? "Creating..."
                     : hasActivatable
                       ? templateId ? "Continue" : "Skip — no workspace"
                       : templateId ? "Create Channel" : "Create without workspace"}
-                </Text>
+                </span>
                 {hasActivatable && <ArrowRight size={16} color="#fff" />}
-              </Pressable>
-            </View>
-          </View>
-        </View>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Step 3: Integrations — scrollable content + sticky footer */}
       {step === "integrations" && (
-        <View style={{ flex: 1 }}>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ padding: 20, maxWidth: 520 }}
-            keyboardShouldPersistTaps="handled"
-          >
-            <View style={{ gap: 16 }}>
-              <View>
-                <Text className="text-text font-semibold text-sm">Activate Integrations</Text>
-                <Text className="text-text-muted text-xs" style={{ marginTop: 4 }}>
-                  Integrations inject specialized tools and skills into your channel.
-                </Text>
-              </View>
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <div style={{ padding: 20, maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <span style={{ color: theme.text, fontWeight: 600, fontSize: 14, display: "block" }}>
+                    Activate Integrations
+                  </span>
+                  <span style={{ color: theme.textMuted, fontSize: 12, marginTop: 4, display: "block" }}>
+                    Integrations inject specialized tools and skills into your channel.
+                  </span>
+                </div>
 
-              <IntegrationActivationList
-                integrations={activatableIntegrations ?? []}
-                enabled={enabledIntegrations}
-                onToggle={handleToggleIntegration}
-                workspaceEnabled={workspaceEnabled}
-              />
-            </View>
-          </ScrollView>
+                <IntegrationActivationList
+                  integrations={activatableIntegrations ?? []}
+                  enabled={enabledIntegrations}
+                  onToggle={handleToggleIntegration}
+                  workspaceEnabled={workspaceEnabled}
+                />
+              </div>
+            </div>
+          </div>
 
           {/* Sticky footer */}
-          <View
+          <div
             style={{
-              borderTopWidth: 1,
-              borderColor: theme.surfaceBorder,
-              paddingHorizontal: 20,
-              paddingVertical: 14,
-              maxWidth: 520,
+              borderTop: `1px solid ${theme.surfaceBorder}`,
+              padding: "14px 20px",
+              maxWidth: 560,
+              width: "100%",
+              boxSizing: "border-box",
             }}
           >
             {errorBanner}
-            <View style={{ flexDirection: "row", gap: 10 }}>
-              <Pressable
-                onPress={() => setStep("template")}
+            <div style={{ display: "flex", flexDirection: "row", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setStep("template")}
                 style={{
-                  borderWidth: 1,
-                  borderColor: theme.surfaceBorder,
-                  paddingHorizontal: 20,
-                  paddingVertical: 10,
+                  border: `1px solid ${theme.surfaceBorder}`,
+                  padding: "10px 20px",
                   borderRadius: 8,
-                  alignItems: "center",
+                  textAlign: "center",
                   flex: 1,
+                  cursor: "pointer",
+                  background: "none",
+                  font: "inherit",
+                  color: theme.textMuted,
+                  fontSize: 14,
                 }}
               >
-                <Text className="text-text-muted text-sm">Back</Text>
-              </Pressable>
+                Back
+              </button>
 
-              <Pressable
-                onPress={handleSubmit}
+              <button
+                type="button"
+                onClick={handleSubmit}
                 disabled={createChannel.isPending}
                 style={{
                   backgroundColor: theme.accent,
-                  paddingHorizontal: 20,
-                  paddingVertical: 12,
+                  padding: "12px 20px",
                   borderRadius: 8,
+                  display: "flex",
                   alignItems: "center",
-                  flexDirection: "row",
                   justifyContent: "center",
                   gap: 8,
                   flex: 1,
+                  border: "none",
+                  cursor: createChannel.isPending ? "default" : "pointer",
+                  font: "inherit",
                 }}
               >
                 <Check size={16} color="#fff" />
-                <Text style={{ color: "#fff", fontSize: 14, fontWeight: "600" }}>
+                <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>
                   {createChannel.isPending ? "Creating..." : "Create Channel"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
-    </View>
+    </div>
   );
 }

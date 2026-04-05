@@ -1,11 +1,8 @@
 ---
-name: channel-workspace
-description: >
-  Operational guide for bots running in a channel with workspace enabled.
-  Trigger this skill whenever a Channel Workspace section appears in your system
-  context, or when you are about to read, write, create, or reference any file
-  in the channel workspace. Use it to decide when to write to workspace vs memory,
-  how to manage active vs archived files, and how to search the archive correctly.
+name: Channel Workspace
+description: How to use channel workspace files — active vs archived, workspace vs memory, cross-channel search
+triggers: workspace, channel files, archive, active files, data files, cross-channel search, workspace vs memory
+category: workspace
 ---
 
 # Channel Workspace — Bot Operating Guide

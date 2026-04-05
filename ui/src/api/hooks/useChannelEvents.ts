@@ -141,6 +141,8 @@ export function useChannelEvents(channelId: string | undefined) {
               thinkingContent: "",
               toolCalls: [],
               error: null,
+              respondingBotId: payload.responding_bot_id ?? null,
+              respondingBotName: payload.responding_bot_name ?? null,
             },
           },
         }));

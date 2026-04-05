@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { View, Text, Pressable } from "react-native";
 import { Link, useRouter } from "expo-router";
 import { useChannels, useEnsureOrchestrator } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -39,55 +38,71 @@ function ChannelCard({ channel, bot, t, isOrchestrator }: {
 }) {
   const Icon = isOrchestrator ? Home : channel.private ? Lock : Hash;
   return (
-    <Link
-      href={`/channels/${channel.id}` as any}
-      asChild
-    >
-      <Pressable
-        className="bg-surface-raised border rounded-lg flex-row items-center gap-4 hover:border-accent/40 active:bg-surface-overlay cursor-pointer"
+    <Link href={`/channels/${channel.id}` as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+      <div
         style={{
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 16,
           padding: 16,
-          borderColor: isOrchestrator ? t.accent + "40" : t.surfaceBorder,
+          backgroundColor: t.surfaceRaised,
+          border: `1px solid ${isOrchestrator ? t.accent + "40" : t.surfaceBorder}`,
+          borderRadius: 8,
+          cursor: "pointer",
+          transition: "border-color 0.15s",
         }}
+        onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.accent + "40"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.borderColor = isOrchestrator ? t.accent + "40" : t.surfaceBorder; }}
       >
-        <View style={{
+        <div style={{
           width: 44, height: 44, borderRadius: 8,
           backgroundColor: isOrchestrator ? t.accent + "20" : t.accentSubtle,
-          alignItems: "center", justifyContent: "center",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          flexShrink: 0,
         }}>
           <Icon size={22} color={t.accent} />
-        </View>
-        <View className="flex-1 min-w-0">
-          <Text style={{ fontSize: 15, fontWeight: "600", color: t.text }} numberOfLines={1}>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{
+            fontSize: 15, fontWeight: 600, color: t.text, display: "block",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          }}>
             {channel.display_name || channel.name || channel.client_id}
-          </Text>
-          <View className="flex-row items-center gap-2 mt-1">
+          </span>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
             {isOrchestrator ? (
-              <Text style={{ fontSize: 13, color: t.textMuted }}>
+              <span style={{ fontSize: 13, color: t.textMuted }}>
                 Setup, projects, and system management
-              </Text>
+              </span>
             ) : (
               <>
                 <Bot size={13} color={t.textMuted} />
-                <Text style={{ fontSize: 13, color: t.textMuted }}>
+                <span style={{ fontSize: 13, color: t.textMuted }}>
                   {bot?.name ?? channel.bot_id}
-                </Text>
+                </span>
                 {(channel.integrations?.length ?? 0) > 0 ? (
                   channel.integrations!.map((b) => (
-                    <Text key={b.id} className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
+                    <span key={b.id} style={{
+                      fontSize: 12, color: t.textDim, backgroundColor: t.surfaceOverlay,
+                      padding: "1px 8px", borderRadius: 4,
+                    }}>
                       {prettyIntegrationName(b.integration_type)}
-                    </Text>
+                    </span>
                   ))
                 ) : channel.integration ? (
-                  <Text className="text-text-dim text-xs bg-surface-overlay px-2 py-0.5 rounded">
+                  <span style={{
+                    fontSize: 12, color: t.textDim, backgroundColor: t.surfaceOverlay,
+                    padding: "1px 8px", borderRadius: 4,
+                  }}>
                     {prettyIntegrationName(channel.integration)}
-                  </Text>
+                  </span>
                 ) : null}
               </>
             )}
-          </View>
-        </View>
-      </Pressable>
+          </div>
+        </div>
+      </div>
     </Link>
   );
 }
@@ -105,95 +120,111 @@ function OnboardingCards({ templates, t }: { templates: PromptTemplate[]; t: Ret
   const shown = sorted.slice(0, 6);
 
   return (
-    <View style={{ gap: 16 }}>
-      <View style={{ gap: 4 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Sparkles size={18} color={t.accent} />
-          <Text style={{ fontSize: 17, fontWeight: "700", color: t.text }}>
+          <span style={{ fontSize: 17, fontWeight: 700, color: t.text }}>
             Create your first channel
-          </Text>
-        </View>
-        <Text style={{ fontSize: 13, color: t.textMuted, lineHeight: 19 }}>
+          </span>
+        </div>
+        <span style={{ fontSize: 13, color: t.textMuted, lineHeight: "19px" }}>
           Pick a template to start with structured files and the right tools, or create a blank channel.
-        </Text>
-      </View>
+        </span>
+      </div>
 
-      <View style={{ gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {shown.length === 0 && (
-          <View style={{ paddingVertical: 8 }}>
+          <div style={{ padding: "8px 0" }}>
             <Activity size={16} color={t.textDim} />
-          </View>
+          </div>
         )}
         {shown.map((tpl) => {
           const integrationTags = (tpl.tags ?? []).filter((tag) => tag.startsWith("integration:"));
           return (
-            <Link key={tpl.id} href={`/channels/new?templateId=${tpl.id}` as any} asChild>
-              <Pressable
-                className="border rounded-lg hover:border-accent/40 active:bg-surface-overlay cursor-pointer"
+            <Link key={tpl.id} href={`/channels/new?templateId=${tpl.id}` as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+              <div
                 style={{
                   padding: 14,
-                  borderColor: t.surfaceBorder,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  borderRadius: 8,
+                  display: "flex",
+                  flexDirection: "column",
                   gap: 4,
+                  cursor: "pointer",
+                  transition: "border-color 0.15s",
                 }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.accent + "40"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceBorder; }}
               >
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
                   <FileText size={16} color={t.accent} />
-                  <Text style={{ fontSize: 14, fontWeight: "600", color: t.text, flex: 1 }} numberOfLines={1}>
+                  <span style={{
+                    fontSize: 14, fontWeight: 600, color: t.text, flex: 1,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
                     {tpl.name}
-                  </Text>
+                  </span>
                   {integrationTags.length > 0 && (
-                    <View style={{ flexDirection: "row", gap: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
                       {integrationTags.slice(0, 2).map((tag) => (
-                        <View
+                        <span
                           key={tag}
                           style={{
                             backgroundColor: t.success + "15",
-                            paddingHorizontal: 6,
-                            paddingVertical: 1,
+                            padding: "1px 6px",
                             borderRadius: 3,
+                            fontSize: 10,
+                            color: t.success,
+                            fontWeight: 500,
                           }}
                         >
-                          <Text style={{ fontSize: 10, color: t.success, fontWeight: "500" }}>
-                            {prettyIntegrationName(tag.replace("integration:", ""))}
-                          </Text>
-                        </View>
+                          {prettyIntegrationName(tag.replace("integration:", ""))}
+                        </span>
                       ))}
-                    </View>
+                    </div>
                   )}
                   <ChevronRight size={14} color={t.textDim} />
-                </View>
+                </div>
                 {tpl.description && (
-                  <Text style={{ fontSize: 12, color: t.textMuted, marginLeft: 24 }} numberOfLines={1}>
+                  <span style={{
+                    fontSize: 12, color: t.textMuted, marginLeft: 24,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
                     {tpl.description}
-                  </Text>
+                  </span>
                 )}
-              </Pressable>
+              </div>
             </Link>
           );
         })}
 
         {/* Blank channel option */}
-        <Link href={"/channels/new" as any} asChild>
-          <Pressable
-            className="border rounded-lg hover:border-accent/40 active:bg-surface-overlay cursor-pointer"
+        <Link href={"/channels/new" as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+          <div
             style={{
               padding: 14,
-              borderColor: t.surfaceBorder,
-              borderStyle: "dashed" as any,
+              border: `1px dashed ${t.surfaceBorder}`,
+              borderRadius: 8,
+              display: "flex",
               flexDirection: "row",
               alignItems: "center",
               gap: 8,
+              cursor: "pointer",
+              transition: "border-color 0.15s",
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.accent + "40"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceBorder; }}
           >
             <Plus size={16} color={t.textDim} />
-            <Text style={{ fontSize: 14, color: t.textMuted, flex: 1 }}>
+            <span style={{ fontSize: 14, color: t.textMuted, flex: 1 }}>
               Start from scratch
-            </Text>
+            </span>
             <ChevronRight size={14} color={t.textDim} />
-          </Pressable>
+          </div>
         </Link>
-      </View>
-    </View>
+      </div>
+    </div>
   );
 }
 
@@ -209,10 +240,15 @@ function CategoryCardGroup({ category, channels, botMap, t }: {
   const label = category ? category.toUpperCase() : "CHANNELS";
 
   return (
-    <View style={{ gap: 4 }}>
-      <Pressable
-        onPress={() => setCollapsed(!collapsed)}
-        style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 2 }}
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        style={{
+          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "2px 0",
+          background: "none", border: "none", cursor: "pointer", font: "inherit",
+          color: "inherit", textAlign: "left",
+        }}
       >
         {category ? (
           collapsed ? (
@@ -221,13 +257,13 @@ function CategoryCardGroup({ category, channels, botMap, t }: {
             <ChevronDown size={14} color={t.textDim} />
           )
         ) : null}
-        <Text style={{ fontSize: 13, fontWeight: "600", color: t.textDim, letterSpacing: 0.5, flex: 1 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: t.textDim, letterSpacing: 0.5, flex: 1 }}>
           {label}
-        </Text>
-        <Text style={{ fontSize: 12, color: t.textDim, opacity: 0.5 }}>
+        </span>
+        <span style={{ fontSize: 12, color: t.textDim, opacity: 0.5 }}>
           {channels.length}
-        </Text>
-      </Pressable>
+        </span>
+      </button>
       {!collapsed && channels.map((channel) => (
         <ChannelCard
           key={channel.id}
@@ -237,7 +273,7 @@ function CategoryCardGroup({ category, channels, botMap, t }: {
           isOrchestrator={false}
         />
       ))}
-    </View>
+    </div>
   );
 }
 
@@ -289,91 +325,108 @@ export default function HomeScreen() {
   const hasChannels = (channels?.length ?? 0) > 0;
 
   return (
-    <View className="flex-1 bg-surface">
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface }}>
       <MobileHeader
         title="Channels"
         subtitle="Select a channel to start chatting"
         right={
-          <Link href={"/channels/new" as any} asChild>
-            <Pressable
-              className="flex-row items-center gap-1.5 bg-accent rounded-lg"
-              style={{ paddingHorizontal: 14, paddingVertical: 8 }}
-            >
+          <Link href={"/channels/new" as any} style={{ textDecoration: "none" } as any}>
+            <div style={{
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
+              backgroundColor: t.accent, borderRadius: 8,
+              padding: "8px 14px", cursor: "pointer",
+            }}>
               <Plus size={14} color="#fff" />
-              <Text style={{ color: "#fff", fontSize: 13, fontWeight: "600" }}>New</Text>
-            </Pressable>
+              <span style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>New</span>
+            </div>
           </Link>
         }
       />
 
-      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1" contentContainerStyle={{ padding: columns === "single" ? 16 : 28 }}>
-        <View className="max-w-2xl w-full mx-auto gap-6">
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
+        <div style={{
+          padding: columns === "single" ? 16 : 28,
+          maxWidth: 672,
+          width: "100%",
+          margin: "0 auto",
+          boxSizing: "border-box",
+          display: "flex",
+          flexDirection: "column",
+          gap: 24,
+        }}>
 
         {/* Orchestrator hero */}
         {!channelsLoading && orchestratorChannel && (
-          <Link href={`/channels/${orchestratorChannel.id}` as any} asChild>
-            <Pressable
-              className="rounded-xl border hover:opacity-90 active:opacity-80 cursor-pointer"
+          <Link href={`/channels/${orchestratorChannel.id}` as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+            <div
               style={{
                 padding: 20,
-                borderColor: t.accent + "50",
+                border: `1px solid ${t.accent}50`,
                 backgroundColor: t.accent + "08",
+                borderRadius: 12,
+                cursor: "pointer",
+                transition: "opacity 0.15s",
               }}
             >
-              <View className="flex-row items-center gap-3">
-                <View style={{
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
+                <div style={{
                   width: 48, height: 48, borderRadius: 12,
                   backgroundColor: t.accent + "20",
-                  alignItems: "center", justifyContent: "center",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0,
                 }}>
                   <Home size={24} color={t.accent} />
-                </View>
-                <View className="flex-1">
-                  <Text style={{ fontSize: 17, fontWeight: "700", color: t.text }}>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontSize: 17, fontWeight: 700, color: t.text, display: "block" }}>
                     Home
-                  </Text>
-                  <Text style={{ fontSize: 13, color: t.textMuted, marginTop: 2 }}>
+                  </span>
+                  <span style={{ fontSize: 13, color: t.textMuted, marginTop: 2, display: "block" }}>
                     Setup, projects, and system management
-                  </Text>
-                </View>
+                  </span>
+                </div>
                 <ChevronRight size={18} color={t.textDim} />
-              </View>
-            </Pressable>
+              </div>
+            </div>
           </Link>
         )}
 
         {/* No provider banner — shown when no DB providers and no orchestrator */}
         {!channelsLoading && !orchestratorChannel && isAdmin && !hasProviders && (
-          <Link href={"/admin/providers" as any} asChild>
-            <Pressable
-              className="rounded-xl border hover:opacity-90 active:opacity-80 cursor-pointer"
+          <Link href={"/admin/providers" as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+            <div
               style={{
                 padding: 16,
-                borderColor: t.warning + "40",
+                border: `1px solid ${t.warning}40`,
                 backgroundColor: t.warning + "08",
+                borderRadius: 12,
+                display: "flex",
                 flexDirection: "row",
                 alignItems: "center",
                 gap: 12,
+                cursor: "pointer",
+                transition: "opacity 0.15s",
               }}
             >
               <AlertTriangle size={20} color={t.warning} />
-              <View className="flex-1">
-                <Text style={{ fontSize: 14, fontWeight: "600", color: t.text }}>
+              <div style={{ flex: 1 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, color: t.text, display: "block" }}>
                   No LLM provider configured
-                </Text>
-                <Text style={{ fontSize: 12, color: t.textMuted, marginTop: 2 }}>
+                </span>
+                <span style={{ fontSize: 12, color: t.textMuted, marginTop: 2, display: "block" }}>
                   Add one in Admin &gt; Providers to start chatting.
-                </Text>
-              </View>
+                </span>
+              </div>
               <ChevronRight size={16} color={t.textDim} />
-            </Pressable>
+            </div>
           </Link>
         )}
 
         {/* Setup options when orchestrator doesn't exist (admin only, has provider) */}
         {!channelsLoading && !orchestratorChannel && isAdmin && hasProviders && (
-          <Pressable
-            onPress={() => {
+          <button
+            type="button"
+            onClick={() => {
               ensureOrchestrator.mutate(undefined, {
                 onSuccess: (data) => {
                   router.push(`/channels/${data.id}` as any);
@@ -381,55 +434,61 @@ export default function HomeScreen() {
               });
             }}
             disabled={ensureOrchestrator.isPending}
-            className="rounded-xl border hover:opacity-90 active:opacity-80 cursor-pointer"
             style={{
               padding: 20,
-              borderColor: t.accent + "50",
+              border: `1px solid ${t.accent}50`,
               backgroundColor: t.accent + "08",
+              borderRadius: 12,
+              cursor: ensureOrchestrator.isPending ? "default" : "pointer",
+              textAlign: "left",
+              font: "inherit",
+              color: "inherit",
+              transition: "opacity 0.15s",
             }}
           >
-            <View className="flex-row items-center gap-3">
-              <View style={{
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
+              <div style={{
                 width: 48, height: 48, borderRadius: 12,
                 backgroundColor: t.accent + "20",
-                alignItems: "center", justifyContent: "center",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                flexShrink: 0,
               }}>
                 <Home size={24} color={t.accent} />
-              </View>
-              <View className="flex-1">
-                <Text style={{ fontSize: 17, fontWeight: "700", color: t.text }}>
+              </div>
+              <div style={{ flex: 1 }}>
+                <span style={{ fontSize: 17, fontWeight: 700, color: t.text, display: "block" }}>
                   {ensureOrchestrator.isPending ? "Setting up..." : "Guided Setup"}
-                </Text>
-                <Text style={{ fontSize: 13, color: t.textMuted, marginTop: 2 }}>
+                </span>
+                <span style={{ fontSize: 13, color: t.textMuted, marginTop: 2, display: "block" }}>
                   AI-guided walkthrough for creating bots and channels
-                </Text>
+                </span>
                 {ensureOrchestrator.isError && (
-                  <Text style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>
+                  <span style={{ fontSize: 12, color: "#ef4444", marginTop: 4, display: "block" }}>
                     {ensureOrchestrator.error instanceof Error ? ensureOrchestrator.error.message : "Failed to create orchestrator"}
-                  </Text>
+                  </span>
                 )}
-              </View>
+              </div>
               <ChevronRight size={18} color={t.textDim} />
-            </View>
-          </Pressable>
+            </div>
+          </button>
         )}
 
         {/* Channel list */}
         {channelsError ? (
-          <View className="items-center py-12 gap-2">
-            <Text className="text-red-400 text-sm font-semibold">Failed to load channels</Text>
-            <Text className="text-text-dim text-xs text-center max-w-xs">
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 0", gap: 8 }}>
+            <span style={{ color: "#f87171", fontSize: 14, fontWeight: 600 }}>Failed to load channels</span>
+            <span style={{ color: t.textDim, fontSize: 12, textAlign: "center", maxWidth: 256 }}>
               {channelsError instanceof Error ? channelsError.message : "Unknown error"}
-            </Text>
-          </View>
+            </span>
+          </div>
         ) : channelsLoading ? (
-          <View className="items-center py-12">
-            <Activity size={24} color={t.textDim} className="animate-spin" />
-          </View>
+          <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
+            <div className="chat-spinner" />
+          </div>
         ) : !hasChannels || otherChannels.length === 0 ? (
           <OnboardingCards templates={templates ?? []} t={t} />
         ) : hasCategories ? (
-          <View style={{ gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {categoryGroups.map((group) => (
               <CategoryCardGroup
                 key={group.category ?? "__uncategorized"}
@@ -439,12 +498,12 @@ export default function HomeScreen() {
                 t={t}
               />
             ))}
-          </View>
+          </div>
         ) : (
-          <View className="gap-1">
-            <Text style={{ fontSize: 13, fontWeight: "600", color: t.textDim, letterSpacing: 0.5, marginBottom: 4 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: t.textDim, letterSpacing: 0.5, marginBottom: 4 }}>
               CHANNELS
-            </Text>
+            </span>
             {otherChannels.map((channel) => (
               <ChannelCard
                 key={channel.id}
@@ -454,10 +513,10 @@ export default function HomeScreen() {
                 isOrchestrator={false}
               />
             ))}
-          </View>
+          </div>
         )}
-        </View>
+        </div>
       </RefreshableScrollView>
-    </View>
+    </div>
   );
 }

@@ -1,6 +1,8 @@
 ---
-name: generate-image
-description: "Load when the user asks to generate, create, edit, combine, or modify images. Covers provider differences (OpenAI vs Gemini), image editing limitations, prompt best practices, and model selection."
+name: Image Generation
+description: Generate, edit, and combine images with provider-specific guidance (OpenAI vs Gemini)
+triggers: generate image, create image, edit image, combine images, dall-e, gpt-image, image generation
+category: core
 ---
 
 # generate_image Tool Guide

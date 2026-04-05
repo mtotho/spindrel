@@ -799,6 +799,7 @@ class Bot(Base):
     docker_sandbox_profiles: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     docker_stacks_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     tool_retrieval: Mapped[bool] = mapped_column(nullable=False, default=True)
+    tool_discovery: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"), default=True)
     tool_similarity_threshold: Mapped[float | None] = mapped_column(nullable=True)
     persona: Mapped[bool] = mapped_column(nullable=False, default=False)
     base_prompt: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"), default=True)
@@ -949,6 +950,9 @@ class Skill(Base):
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str | None] = mapped_column(Text, nullable=True)
+    triggers: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
     content_hash: Mapped[str] = mapped_column(Text, nullable=False, default="")
     source_path: Mapped[str | None] = mapped_column(Text, nullable=True)

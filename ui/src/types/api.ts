@@ -610,7 +610,8 @@ export type SSEEventType =
   | "approval_request"
   | "approval_resolved"
   | "delegation_post"
-  | "pending_tasks";
+  | "pending_tasks"
+  | "stream_meta";
 
 export interface SSEEvent {
   event: SSEEventType;

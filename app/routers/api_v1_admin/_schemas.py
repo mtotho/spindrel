@@ -46,6 +46,7 @@ class BotOut(BaseModel):
     pinned_tools: list[str] = []
     skills: list[SkillConfigOut] = []
     tool_retrieval: bool = True
+    tool_discovery: bool = True
     tool_similarity_threshold: Optional[float] = None
     tool_result_config: dict = {}
     persona: bool = False

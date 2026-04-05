@@ -4,6 +4,9 @@ import { apiFetch } from "../client";
 export interface SkillItem {
   id: string;
   name: string;
+  description?: string | null;
+  category?: string | null;
+  triggers?: string[];
   content: string;
   source_type: string;
   source_path?: string | null;

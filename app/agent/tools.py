@@ -295,17 +295,24 @@ async def retrieve_tools(
     *,
     top_k: int | None = None,
     threshold: float | None = None,
+    discover_all: bool = False,
 ) -> tuple[list[dict[str, Any]], float, list[dict[str, Any]]]:
     """Return (tool_dicts, best_similarity, top_candidates) for local + MCP tools above threshold.
 
     Results are cached for 5 minutes keyed on (query, tool_names, server_names, top_k, threshold)
     to avoid redundant embedding API calls and pgvector queries.
+
+    When discover_all=True, searches the full tool pool (all indexed local tools)
+    in addition to the declared tools, surfacing relevant tools the bot didn't
+    explicitly declare. Declared tools are filtered by threshold; discovered
+    tools use a stricter threshold (threshold + 0.1) to avoid noise.
     """
     top_k = settings.TOOL_RETRIEVAL_TOP_K if top_k is None else top_k
     threshold = settings.TOOL_RETRIEVAL_THRESHOLD if threshold is None else threshold
 
     # Check cache
-    ck = _cache_key(query, local_tool_names, mcp_server_names, top_k, threshold)
+    _discover_tag = "d" if discover_all else ""
+    ck = _cache_key(query, local_tool_names, mcp_server_names, top_k, threshold) + _discover_tag
     cached = _tool_cache.get(ck)
     if cached is not None:
         ts, c_out, c_sim, c_cand = cached
@@ -316,12 +323,19 @@ async def retrieve_tools(
             del _tool_cache[ck]
 
     filters: list[Any] = []
-    if local_tool_names:
-        filters.append(
-            and_(ToolEmbedding.server_name.is_(None), ToolEmbedding.tool_name.in_(local_tool_names))
-        )
-    if mcp_server_names:
-        filters.append(ToolEmbedding.server_name.in_(mcp_server_names))
+    if discover_all:
+        # Search entire local tool pool + declared MCP servers
+        _local_filter = ToolEmbedding.server_name.is_(None)
+        filters.append(_local_filter)
+        if mcp_server_names:
+            filters.append(ToolEmbedding.server_name.in_(mcp_server_names))
+    else:
+        if local_tool_names:
+            filters.append(
+                and_(ToolEmbedding.server_name.is_(None), ToolEmbedding.tool_name.in_(local_tool_names))
+            )
+        if mcp_server_names:
+            filters.append(ToolEmbedding.server_name.in_(mcp_server_names))
 
     if not filters:
         return [], 0.0, []
@@ -335,11 +349,13 @@ async def retrieve_tools(
     from app.agent.vector_ops import halfvec_cosine_distance
     distance_expr = halfvec_cosine_distance(ToolEmbedding.embedding, query_embedding)
 
+    # Increase limit when discovering to get a wider pool
+    _limit = top_k * 2 if discover_all else top_k
     stmt = (
-        select(ToolEmbedding.schema_, distance_expr.label("distance"))
+        select(ToolEmbedding.schema_, ToolEmbedding.tool_name, distance_expr.label("distance"))
         .where(or_(*filters))
         .order_by(distance_expr)
-        .limit(top_k)
+        .limit(_limit)
     )
 
     try:
@@ -353,21 +369,28 @@ async def retrieve_tools(
     if not rows:
         return [], 0.0, []
 
-    best_sim = 1.0 - rows[0][1]
+    best_sim = 1.0 - rows[0][2]
     logger.info(
-        "Tool retrieval: best_similarity=%.3f threshold=%.3f query=%s...",
+        "Tool retrieval: best_similarity=%.3f threshold=%.3f discover=%s query=%s...",
         best_sim,
         threshold,
+        discover_all,
         query[:60],
     )
 
+    # When discovering, undeclared tools get a stricter threshold to avoid noise
+    _declared_names = set(local_tool_names) if discover_all else set()
+    _discover_threshold = min(threshold + 0.1, 0.65) if discover_all else threshold
+
     out: list[dict[str, Any]] = []
     top_candidates: list[dict[str, Any]] = []  # top 5 regardless of threshold, for diagnostics
-    for schema_obj, distance in rows:
+    for schema_obj, tool_name, distance in rows:
         similarity = 1.0 - distance
         if isinstance(schema_obj, dict) and len(top_candidates) < 5:
             top_candidates.append({"name": schema_obj.get("function", {}).get("name", "?"), "sim": round(similarity, 4)})
-        if similarity < threshold:
+        # Apply appropriate threshold
+        _eff_threshold = threshold if (not discover_all or tool_name in _declared_names) else _discover_threshold
+        if similarity < _eff_threshold:
             continue
         if isinstance(schema_obj, dict):
             out.append(schema_obj)

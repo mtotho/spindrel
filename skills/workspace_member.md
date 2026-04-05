@@ -1,6 +1,8 @@
 ---
-name: workspace-member
-description: "Load when the bot is a member of a shared workspace and needs to execute commands, call the server API, write scripts, manage files, use workspace skills, work with memory, or interact with the agent server from inside the workspace container. Trigger when: using exec_command or delegate_to_exec, writing scripts that use agent CLI or agent-api, ingesting documents for RAG, injecting messages into channels, polling task status, searching workspace files, reading shared resources, managing todos, or reasoning about what tools and APIs are available inside the container. Do NOT load for orchestrator-level workspace management (delegation, multi-bot coordination, workspace lifecycle)."
+name: Workspace Member
+description: Operating inside a shared workspace container — CLI, API, file management, and cross-bot coordination
+triggers: workspace member, exec_command, agent CLI, agent-api, shared workspace, container, workspace bot
+category: workspace
 ---
 
 # Workspace Member

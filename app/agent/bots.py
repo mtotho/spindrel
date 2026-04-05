@@ -165,6 +165,7 @@ class BotConfig:
     local_tools: list[str] = field(default_factory=list)
     pinned_tools: list[str] = field(default_factory=list)
     tool_retrieval: bool = True
+    tool_discovery: bool = True  # discover undeclared tools via RAG (requires tool_retrieval)
     tool_similarity_threshold: float | None = None
     client_tools: list[str] = field(default_factory=list)
     skills: list[SkillConfig] = field(default_factory=list)
@@ -404,6 +405,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         local_tools=row.local_tools or [],
         pinned_tools=row.pinned_tools or [],
         tool_retrieval=row.tool_retrieval,
+        tool_discovery=getattr(row, "tool_discovery", True),
         tool_similarity_threshold=row.tool_similarity_threshold,
         client_tools=row.client_tools or [],
         skills=[_parse_skill_entry(e) for e in (row.skills or [])],
@@ -488,6 +490,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "docker_sandbox_profiles": data.get("docker_sandbox_profiles", []),
         "docker_stacks_config": data.get("docker_stacks", {}),
         "tool_retrieval": data.get("tool_retrieval", True),
+        "tool_discovery": data.get("tool_discovery", True),
         "tool_similarity_threshold": data.get("tool_similarity_threshold"),
         "persona": data.get("persona", False),
         "base_prompt": data.get("base_prompt", True),
@@ -686,6 +689,7 @@ async def ensure_default_bot() -> None:
             "skills": [],
             "docker_sandbox_profiles": [],
             "tool_retrieval": True,
+            "tool_discovery": True,
             "persona": False,
             "base_prompt": True,
             "context_compaction": True,

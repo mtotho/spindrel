@@ -23,7 +23,23 @@ def _discover_stores() -> dict[str, Path]:
 
 
 def _open_readonly(db_path: Path) -> IngestionStore:
-    """Open a store in read-only mode (uses file URI with mode=ro)."""
+    """Open a store in read-only mode (uses file URI with mode=ro).
+
+    Runs schema migration (read-write) first to ensure new columns exist,
+    then reopens as read-only for the actual queries.
+    """
+    try:
+        rw = sqlite3.connect(str(db_path), check_same_thread=False)
+        try:
+            rw.execute("ALTER TABLE quarantine ADD COLUMN metadata TEXT")
+            rw.commit()
+        except Exception:
+            pass  # Column already exists
+        finally:
+            rw.close()
+    except Exception:
+        pass  # DB locked or other issue — proceed with read-only
+
     uri = f"file:{db_path}?mode=ro"
     store = object.__new__(IngestionStore)
     store.db_path = db_path

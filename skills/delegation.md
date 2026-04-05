@@ -1,8 +1,8 @@
 ---
 name: Delegation & Model Tiers
-description: >
-  Compact guide for using delegate_to_agent effectively with model tiers.
-  For any bot with delegates — teaches when and how to delegate cost-effectively.
+description: When and how to delegate work to other bots using cost-effective model tiers
+triggers: delegate, delegation, fan-out, escalate, parallel, model tier, cheap scan, scanner
+category: core
 ---
 
 # Delegation & Model Tiers
@@ -46,11 +46,11 @@ delegate_to_agent(bot_id="scanner", prompt="...", model_tier="standard")
 
 ## Common Delegation Patterns
 
-### Cheap Scan → Your Synthesis
+### Cheap Scan -> Your Synthesis
 Delegate the grunt work, synthesize the results yourself:
 ```python
 delegate_to_agent(bot_id="scanner", prompt="Read all test files and list untested functions")
-# → You get back a structured list, then decide what to do with it
+# -> You get back a structured list, then decide what to do with it
 ```
 
 ### Parallel Fan-Out
@@ -58,7 +58,7 @@ Break a task into independent pieces and delegate each:
 ```python
 delegate_to_agent(bot_id="scanner", prompt="Scan backend for auth patterns")
 delegate_to_agent(bot_id="scanner", prompt="Scan frontend for auth patterns")
-# → Collect both results, synthesize
+# -> Collect both results, synthesize
 ```
 
 ### Escalation

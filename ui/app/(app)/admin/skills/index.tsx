@@ -116,9 +116,20 @@ function SectionHeader({ label, count, level, isWide }: { label: string; count: 
   );
 }
 
+function CategoryBadge({ category }: { category: string }) {
+  const t = useThemeTokens();
+  return (
+    <span style={{
+      padding: "1px 6px", borderRadius: 3, fontSize: 10, fontWeight: 500,
+      background: t.surfaceOverlay, color: t.textMuted,
+    }}>
+      {category}
+    </span>
+  );
+}
+
 function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () => void; isWide: boolean }) {
   const t = useThemeTokens();
-  const firstLine = (skill.content || "").split("\n").find((l) => l.trim() && !l.startsWith("#"))?.trim() || "";
   const isWs = skill.source_type === "workspace";
   const isBotAuthored = skill.source_type === "tool";
   const wsDetail = isWs
@@ -128,7 +139,9 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
       : undefined;
   const description = isWs
     ? `${skill.source_path}${skill.mode ? ` \u2022 ${skill.mode}` : ""}`
-    : firstLine;
+    : skill.description
+      || (skill.content || "").split("\n").find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("---"))?.trim()
+      || "";
 
   if (!isWide) {
     // Mobile: card layout
@@ -146,6 +159,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>
             {skill.name}
           </span>
+          {skill.category && <CategoryBadge category={skill.category} />}
           <SourceBadge type={skill.source_type} detail={wsDetail} />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: t.textDim }}>
@@ -192,6 +206,7 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {skill.name}
           </span>
+          {skill.category && <CategoryBadge category={skill.category} />}
           {isWs && skill.workspace_name && (
             <span style={{ fontSize: 10, color: t.purple, whiteSpace: "nowrap" }}>{skill.workspace_name}</span>
           )}
@@ -270,7 +285,10 @@ export default function SkillsScreen() {
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.id.toLowerCase().includes(q) ||
-        s.source_type.toLowerCase().includes(q),
+        s.source_type.toLowerCase().includes(q) ||
+        (s.description || "").toLowerCase().includes(q) ||
+        (s.category || "").toLowerCase().includes(q) ||
+        (s.triggers || []).some((t) => t.toLowerCase().includes(q)),
     );
   }, [skills, search]);
 
