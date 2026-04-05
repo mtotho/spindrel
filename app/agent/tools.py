@@ -288,6 +288,142 @@ async def remove_integration_embeddings(integration_id: str) -> int:
     return count
 
 
+async def _bm25_tool_search(
+    db,
+    query: str,
+    local_tool_names: list[str],
+    mcp_server_names: list[str],
+    discover_all: bool,
+    limit: int,
+) -> list[tuple[dict, str, float]]:
+    """Run BM25 full-text search on tool_embeddings. Returns (schema, tool_name, rank)."""
+    from sqlalchemy import text as sa_text
+
+    try:
+        # Build WHERE clause matching the same filter logic as the vector query
+        filter_parts: list[str] = []
+        params: dict[str, Any] = {"q": query, "lim": limit}
+
+        if discover_all:
+            filter_parts.append("server_name IS NULL")
+            if mcp_server_names:
+                params["mcp_servers"] = list(mcp_server_names)
+                filter_parts.append("server_name = ANY(:mcp_servers)")
+        else:
+            if local_tool_names:
+                params["local_names"] = list(local_tool_names)
+                filter_parts.append("(server_name IS NULL AND tool_name = ANY(:local_names))")
+            if mcp_server_names:
+                params["mcp_servers"] = list(mcp_server_names)
+                filter_parts.append("server_name = ANY(:mcp_servers)")
+
+        if not filter_parts:
+            return []
+
+        where_clause = " OR ".join(filter_parts)
+        sql = sa_text(f"""
+            SELECT "schema", tool_name,
+                   ts_rank(to_tsvector('english', embed_text), plainto_tsquery('english', :q)) AS rank
+            FROM tool_embeddings
+            WHERE ({where_clause})
+              AND to_tsvector('english', embed_text) @@ plainto_tsquery('english', :q)
+            ORDER BY rank DESC
+            LIMIT :lim
+        """)
+        result = await db.execute(sql, params)
+        return [(row[0], row[1], float(row[2])) for row in result.all()]
+    except Exception:
+        logger.debug("BM25 tool search failed, falling back to vector-only", exc_info=True)
+        return []
+
+
+def _vector_only_tool_results(
+    rows: list,
+    threshold: float,
+    declared_names: set[str],
+    discover_threshold: float,
+    discover_all: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Process cosine-only results with threshold filtering."""
+    out: list[dict[str, Any]] = []
+    top_candidates: list[dict[str, Any]] = []
+    for schema_obj, tool_name, distance in rows:
+        similarity = 1.0 - distance
+        if isinstance(schema_obj, dict) and len(top_candidates) < 5:
+            top_candidates.append({"name": schema_obj.get("function", {}).get("name", "?"), "sim": round(similarity, 4)})
+        _eff_threshold = threshold if (not discover_all or tool_name in declared_names) else discover_threshold
+        if similarity < _eff_threshold:
+            continue
+        if isinstance(schema_obj, dict):
+            out.append(schema_obj)
+    return out, top_candidates
+
+
+def _fuse_tool_results(
+    vector_rows: list,
+    bm25_rows: list[tuple[dict, str, float]],
+    threshold: float,
+    declared_names: set[str],
+    discover_threshold: float,
+    discover_all: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fuse vector + BM25 tool results using Reciprocal Rank Fusion."""
+    from app.agent.hybrid_search import reciprocal_rank_fusion
+
+    k = settings.HYBRID_SEARCH_RRF_K
+
+    # Build ranked lists keyed by tool_name for dedup
+    vector_list = [(tool_name,) for _, tool_name, _ in vector_rows]
+    bm25_list = [(tool_name,) for _, tool_name, _ in bm25_rows]
+
+    fused = reciprocal_rank_fusion(vector_list, bm25_list, k=k)
+
+    # Build lookups
+    vector_sims: dict[str, float] = {}
+    vector_schemas: dict[str, dict] = {}
+    for schema_obj, tool_name, distance in vector_rows:
+        if tool_name not in vector_sims:
+            vector_sims[tool_name] = 1.0 - distance
+            vector_schemas[tool_name] = schema_obj
+    bm25_names = {tool_name for _, tool_name, _ in bm25_rows}
+    bm25_schemas: dict[str, dict] = {}
+    for schema_obj, tool_name, _ in bm25_rows:
+        if tool_name not in bm25_schemas:
+            bm25_schemas[tool_name] = schema_obj
+
+    out: list[dict[str, Any]] = []
+    top_candidates: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+
+    for item, rrf_score in fused:
+        tool_name = item[0]
+        if tool_name in seen_names:
+            continue
+
+        schema_obj = vector_schemas.get(tool_name) or bm25_schemas.get(tool_name)
+        if not isinstance(schema_obj, dict):
+            continue
+
+        vec_sim = vector_sims.get(tool_name)
+        _eff_threshold = threshold if (not discover_all or tool_name in declared_names) else discover_threshold
+
+        if len(top_candidates) < 5:
+            _display_sim = vec_sim if vec_sim is not None else 0.0
+            top_candidates.append({"name": schema_obj.get("function", {}).get("name", "?"), "sim": round(_display_sim, 4)})
+
+        # Include if: above vector threshold, OR has BM25 match (keyword relevance)
+        if vec_sim is not None and vec_sim >= _eff_threshold:
+            out.append(schema_obj)
+            seen_names.add(tool_name)
+        elif tool_name in bm25_names:
+            # BM25 matched — include even if below vector threshold
+            out.append(schema_obj)
+            seen_names.add(tool_name)
+
+    logger.info("Tool hybrid search: %d vector + %d bm25 → %d fused results", len(vector_rows), len(bm25_rows), len(out))
+    return out, top_candidates
+
+
 async def retrieve_tools(
     query: str,
     local_tool_names: list[str],
@@ -362,6 +498,16 @@ async def retrieve_tools(
         async with async_session() as db:
             result = await db.execute(stmt)
             rows = result.all()
+
+            # Hybrid search: BM25 + RRF fusion (PostgreSQL only)
+            bm25_rows: list[tuple[dict, str, float]] = []
+            if settings.HYBRID_SEARCH_ENABLED and rows:
+                from app.agent.hybrid_search import is_postgres_dialect
+                if is_postgres_dialect(db.bind):
+                    bm25_rows = await _bm25_tool_search(
+                        db, query, local_tool_names, mcp_server_names, discover_all, _limit,
+                    )
+
     except Exception:
         logger.exception("Tool retrieval query failed")
         return [], 0.0, []
@@ -382,18 +528,15 @@ async def retrieve_tools(
     _declared_names = set(local_tool_names) if discover_all else set()
     _discover_threshold = min(threshold + 0.1, 0.65) if discover_all else threshold
 
-    out: list[dict[str, Any]] = []
-    top_candidates: list[dict[str, Any]] = []  # top 5 regardless of threshold, for diagnostics
-    for schema_obj, tool_name, distance in rows:
-        similarity = 1.0 - distance
-        if isinstance(schema_obj, dict) and len(top_candidates) < 5:
-            top_candidates.append({"name": schema_obj.get("function", {}).get("name", "?"), "sim": round(similarity, 4)})
-        # Apply appropriate threshold
-        _eff_threshold = threshold if (not discover_all or tool_name in _declared_names) else _discover_threshold
-        if similarity < _eff_threshold:
-            continue
-        if isinstance(schema_obj, dict):
-            out.append(schema_obj)
+    # Fuse vector + BM25 results if hybrid search produced results
+    if bm25_rows:
+        out, top_candidates = _fuse_tool_results(
+            rows, bm25_rows, threshold, _declared_names, _discover_threshold, discover_all,
+        )
+    else:
+        out, top_candidates = _vector_only_tool_results(
+            rows, threshold, _declared_names, _discover_threshold, discover_all,
+        )
 
     # Store in cache
     _tool_cache[ck] = (time.monotonic(), out, best_sim, top_candidates)

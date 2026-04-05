@@ -191,6 +191,7 @@ async def load_or_create(
     bot_id: str,
     locked: bool = False,
     channel_id: uuid.UUID | None = None,
+    preserve_metadata: bool = False,
 ) -> tuple[uuid.UUID, list[dict]]:
     if session_id is not None:
         existing = await db.get(Session, session_id)
@@ -202,7 +203,7 @@ async def load_or_create(
                 )
                 await db.commit()
                 await db.refresh(existing)
-            messages = await _load_messages(db, existing)
+            messages = await _load_messages(db, existing, preserve_metadata=preserve_metadata)
             return session_id, messages
 
     if session_id is None:
@@ -252,8 +253,13 @@ def _format_passive_context(passive_msgs: list[dict]) -> str:
 
 
 
-async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
-    """Load messages for a session, using compacted summary when available."""
+async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadata: bool = False) -> list[dict]:
+    """Load messages for a session, using compacted summary when available.
+
+    When preserve_metadata=True, the internal ``_metadata`` dict is kept on each
+    message so callers can inspect ``sender_id`` etc.  The caller is responsible
+    for stripping it before passing messages to the LLM (use ``strip_metadata_keys``).
+    """
     bot = get_bot(session.bot_id)
 
     ws_base_enabled = await _resolve_workspace_base_prompt_enabled(
@@ -325,7 +331,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
                 messages.extend(active)
                 messages.append({"role": "system", "content": "--- END RECENT CONVERSATION HISTORY ---"})
-            return _sanitize_tool_messages(_strip_metadata_keys(messages))
+            return _sanitize_tool_messages(messages if preserve_metadata else _strip_metadata_keys(messages))
         else:
             # watermark gone but summary exists — inject summary + all non-system messages
             logger.warning("Watermark message missing for session %s, falling back to summary + full history", session.id)
@@ -350,7 +356,7 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
                 messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
                 messages.extend(active)
                 messages.append({"role": "system", "content": "--- END RECENT CONVERSATION HISTORY ---"})
-            return _sanitize_tool_messages(_strip_metadata_keys(messages))
+            return _sanitize_tool_messages(messages if preserve_metadata else _strip_metadata_keys(messages))
 
     result = await db.execute(
         select(Message)
@@ -366,7 +372,17 @@ async def _load_messages(db: AsyncSession, session: Session) -> list[dict]:
     messages = _base_messages()
     _inject_channel_context(messages, passive)
     messages.extend(active)
-    return _sanitize_tool_messages(_strip_metadata_keys(messages))
+    return _sanitize_tool_messages(messages if preserve_metadata else _strip_metadata_keys(messages))
+
+
+def strip_metadata_keys(messages: list[dict]) -> list[dict]:
+    """Public wrapper for stripping internal ``_metadata`` keys.
+
+    Call after history rewriting when messages were loaded with
+    ``preserve_metadata=True``.
+    """
+    return _strip_metadata_keys(messages)
+
 
 async def persist_turn(
     db: AsyncSession,

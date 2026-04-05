@@ -1012,6 +1012,33 @@ async def assemble_context(
                 })
                 _surfaced_skill_ids.update(_skill_ids_in_chunks)
 
+            # Trigger keyword boost: surface RAG skills whose triggers match but cosine missed
+            _surfaced_rag_ids = set(
+                src.removeprefix("skill:") for _, src in chunks
+            ) if chunks else set()
+            _trigger_missed = await _trigger_boost_rag_skills(
+                user_message, _rag_skills, _surfaced_rag_ids,
+            )
+            if _trigger_missed:
+                _trigger_texts = []
+                for _tm_id, _tm_content in _trigger_missed:
+                    _trigger_texts.append(f"[skill:{_tm_id}]\n{_tm_content}")
+                    _surfaced_skill_ids.add(_tm_id)
+                _trigger_ctx = "\n\n---\n\n".join(_trigger_texts)
+                _trigger_chars = sum(len(c) for _, c in _trigger_missed)
+                _inject_chars["skill_trigger_boost"] = _trigger_chars
+                _trigger_hint = ", ".join(
+                    f'get_skill(skill_id="{sid}")' for sid, _ in _trigger_missed
+                )
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        f"Trigger-matched skill context (partial — call {_trigger_hint} "
+                        f"for full content if needed):\n\n{_trigger_ctx}"
+                    ),
+                })
+                yield {"type": "skill_trigger_boost", "count": len(_trigger_missed), "chars": _trigger_chars}
+
         # On-demand skills: inject index, agent uses get_skill()
         if _on_demand_skills:
             from sqlalchemy import select as _sa_select
@@ -1020,11 +1047,18 @@ async def assemble_context(
             _od_ids = [s.id for s in _on_demand_skills]
             async with _async_session() as _db:
                 _rows = (await _db.execute(
-                    _sa_select(_SkillRow.id, _SkillRow.name)
+                    _sa_select(_SkillRow.id, _SkillRow.name, _SkillRow.description, _SkillRow.triggers)
                     .where(_SkillRow.id.in_(_od_ids))
                 )).all()
             if _rows:
-                _index_lines = "\n".join(f"- {r.id}: {r.name}" for r in _rows)
+                def _fmt_od(r) -> str:
+                    parts = [f"- {r.id}: {r.name}"]
+                    if r.description:
+                        parts.append(f" — {r.description}")
+                    if r.triggers:
+                        parts.append(f" [{', '.join(r.triggers)}]")
+                    return "".join(parts)
+                _index_lines = "\n".join(_fmt_od(r) for r in _rows)
                 messages.append({
                     "role": "system",
                     "content": (
@@ -1455,6 +1489,21 @@ async def assemble_context(
         _ch_disabled_tools = set(getattr(_ch_row, "local_tools_disabled", None) or []) if _ch_row else set()
         if _ch_disabled_tools:
             retrieved = [t for t in retrieved if t.get("function", {}).get("name") not in _ch_disabled_tools]
+        # Pre-filter discovered tools against unconditional deny policies
+        if settings.TOOL_POLICY_ENABLED and retrieved:
+            from app.db.engine import async_session as _policy_session_factory
+            from app.services.tool_policies import evaluate_tool_policy
+            async with _policy_session_factory() as _pol_db:
+                _policy_allowed = []
+                for _rt in retrieved:
+                    _rn = _rt.get("function", {}).get("name")
+                    if _rn and _rn not in _authorized_names:
+                        # Discovered (not declared) — check deny policy with empty args
+                        _decision = await evaluate_tool_policy(_pol_db, bot.id, _rn, {})
+                        if _decision.action == "deny":
+                            continue
+                    _policy_allowed.append(_rt)
+                retrieved = _policy_allowed
         # Add discovered tool names to authorized set
         for _rt in retrieved:
             _rn = _rt.get("function", {}).get("name")
@@ -1602,6 +1651,65 @@ async def assemble_context(
             event_type="context_injection_summary",
             data=_summary_data,
         ))
+
+
+async def _trigger_boost_rag_skills(
+    user_message: str,
+    rag_skills: list,
+    surfaced_ids: set[str],
+) -> list[tuple[str, str]]:
+    """Find RAG skills with trigger keyword matches that cosine missed.
+
+    Returns list of (skill_id, top_chunk_content) for trigger-matched but unsurfaced skills.
+    """
+    from sqlalchemy import select as _sel
+    from app.db.engine import async_session as _asess
+    from app.db.models import Skill as _SkRow
+
+    _rag_ids = [s.id for s in rag_skills]
+    _missed_ids = [sid for sid in _rag_ids if sid not in surfaced_ids]
+    if not _missed_ids:
+        return []
+
+    # Fetch triggers for unsurfaced RAG skills
+    try:
+        async with _asess() as _db:
+            _rows = (await _db.execute(
+                _sel(_SkRow.id, _SkRow.triggers).where(_SkRow.id.in_(_missed_ids))
+            )).all()
+    except Exception:
+        logger.debug("Failed to fetch skill triggers for boost", exc_info=True)
+        return []
+
+    # Match trigger keywords against user message (case-insensitive word match)
+    _user_lower = user_message.lower()
+    _user_words = set(_user_lower.split())
+    _trigger_matched: list[str] = []
+    for _row in _rows:
+        if not _row.triggers:
+            continue
+        for _t in _row.triggers:
+            _t_lower = _t.lower()
+            # Match either as a word or as a substring (for multi-word triggers)
+            if _t_lower in _user_words or _t_lower in _user_lower:
+                _trigger_matched.append(_row.id)
+                break
+
+    if not _trigger_matched:
+        return []
+
+    # Fetch top chunk for each trigger-matched skill
+    from app.agent.rag import fetch_skill_chunks_by_id
+
+    result: list[tuple[str, str]] = []
+    for _sid in _trigger_matched:
+        try:
+            _chunks = await fetch_skill_chunks_by_id(_sid)
+            if _chunks:
+                result.append((_sid, _chunks[0]))
+        except Exception:
+            logger.debug("Failed to fetch trigger-boosted chunk for %r", _sid, exc_info=True)
+    return result
 
 
 async def _update_skill_surfacing(skill_ids: set[str]) -> None:

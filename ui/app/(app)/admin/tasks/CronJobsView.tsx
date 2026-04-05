@@ -1,4 +1,3 @@
-import { View, ActivityIndicator } from "react-native";
 import { AlertTriangle, RefreshCw, Server, Container } from "lucide-react";
 import { useCronJobs } from "@/src/api/hooks/useTasks";
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,9 +11,9 @@ export function CronJobsView() {
 
   if (isLoading) {
     return (
-      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 40 }}>
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}>
+        <div className="chat-spinner" />
+      </div>
     );
   }
 

@@ -42,6 +42,7 @@ export interface BotConfig {
   pinned_tools?: string[];
   skills?: SkillConfig[];
   tool_retrieval?: boolean;
+  tool_discovery?: boolean;
   tool_similarity_threshold?: number | null;
   tool_result_config?: Record<string, any>;
   persona?: boolean;
@@ -611,7 +612,8 @@ export type SSEEventType =
   | "approval_resolved"
   | "delegation_post"
   | "pending_tasks"
-  | "stream_meta";
+  | "stream_meta"
+  | "pending_member_stream";
 
 export interface SSEEvent {
   event: SSEEventType;

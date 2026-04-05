@@ -4,212 +4,26 @@ import { useRouter } from "expo-router";
 import { ChevronLeft, Trash2, Copy, FileText } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
-import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type TaskDetail } from "@/src/api/hooks/useTasks";
+import { useTask, useCreateTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks";
 import { useWorkflows } from "@/src/api/hooks/useWorkflows";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { FormRow, TextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
-import { DateTimePicker } from "@/src/components/shared/DateTimePicker";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { formatDateTime, isoToLocalInput, localInputToISO } from "@/src/utils/time";
 import { useThemeTokens } from "../../theme/tokens";
+import {
+  ScheduledAtPicker,
+  RecurrencePicker,
+  ScheduleSummary,
+  EnableToggle,
+  InfoRow,
+  STATUS_OPTIONS,
+  TASK_TYPE_OPTIONS_CREATE,
+} from "./SchedulingPickers";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-const STATUS_OPTIONS = [
-  { label: "Pending", value: "pending" },
-  { label: "Active (Schedule)", value: "active" },
-  { label: "Running", value: "running" },
-  { label: "Complete", value: "complete" },
-  { label: "Failed", value: "failed" },
-  { label: "Cancelled", value: "cancelled" },
-];
-
-const TASK_TYPE_OPTIONS = [
-  { label: "Scheduled", value: "scheduled" },
-  { label: "Delegation", value: "delegation" },
-  { label: "Exec", value: "exec" },
-  { label: "API", value: "api" },
-  { label: "Agent", value: "agent" },
-];
-
-const SCHEDULE_PRESETS = [
-  { label: "+30m", value: "+30m" },
-  { label: "+1h", value: "+1h" },
-  { label: "+2h", value: "+2h" },
-  { label: "+6h", value: "+6h" },
-  { label: "+1d", value: "+1d" },
-  { label: "+7d", value: "+7d" },
-];
-
-const RECURRENCE_PRESETS = [
-  { label: "None", value: "" },
-  { label: "30 min", value: "+30m" },
-  { label: "1 hour", value: "+1h" },
-  { label: "2 hours", value: "+2h" },
-  { label: "6 hours", value: "+6h" },
-  { label: "12 hours", value: "+12h" },
-  { label: "Daily", value: "+1d" },
-  { label: "Weekly", value: "+1w" },
-];
-
-// ---------------------------------------------------------------------------
-// EnableToggle
-// ---------------------------------------------------------------------------
-function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
-  const t = useThemeTokens();
-  return (
-    <button
-      onClick={() => onChange(!enabled)}
-      title={enabled ? "Enabled" : "Disabled"}
-      style={{
-        display: "flex", alignItems: "center", gap: compact ? 0 : 6,
-        padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
-        border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
-        background: enabled ? t.successSubtle : t.dangerSubtle,
-        color: enabled ? t.success : t.danger,
-      }}
-    >
-      <div style={{
-        width: 28, height: 16, borderRadius: 8, position: "relative",
-        background: enabled ? t.success : t.textDim,
-        transition: "background 0.2s",
-      }}>
-        <div style={{
-          width: 12, height: 12, borderRadius: 6, background: "#fff",
-          position: "absolute", top: 2,
-          left: enabled ? 14 : 2,
-          transition: "left 0.2s",
-        }} />
-      </div>
-      {!compact && (enabled ? "Enabled" : "Disabled")}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ScheduledAtPicker
-// ---------------------------------------------------------------------------
-function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const t = useThemeTokens();
-  const isRelative = /^\+\d+[smhdw]$/.test(value);
-
-  return (
-    <FormRow label="Scheduled At">
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-          <button
-            onClick={() => onChange("")}
-            style={{
-              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 6,
-              background: !value ? t.accent : t.surfaceRaised,
-              color: !value ? "#fff" : t.textMuted,
-            }}
-          >
-            Now
-          </button>
-          {SCHEDULE_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => onChange(p.value)}
-              style={{
-                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-                borderRadius: 6,
-                background: value === p.value ? t.accent : t.surfaceRaised,
-                color: value === p.value ? "#fff" : t.textMuted,
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <DateTimePicker
-          value={isRelative ? "" : value}
-          onChange={onChange}
-          placeholder="Pick a date & time..."
-        />
-        {isRelative && (
-          <div style={{ fontSize: 10, color: t.textDim }}>
-            Relative: runs {value} from now
-          </div>
-        )}
-      </div>
-    </FormRow>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// RecurrencePicker
-// ---------------------------------------------------------------------------
-function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const t = useThemeTokens();
-  const isPreset = RECURRENCE_PRESETS.some((p) => p.value === value);
-  const showCustom = !!value && !isPreset;
-
-  return (
-    <FormRow label="Recurrence">
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {RECURRENCE_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => onChange(p.value)}
-              style={{
-                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-                borderRadius: 6,
-                background: value === p.value ? (p.value ? t.warningSubtle : t.surfaceBorder) : t.surfaceRaised,
-                color: value === p.value ? (p.value ? t.warningMuted : t.text) : t.textMuted,
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
-          <button
-            onClick={() => { if (!showCustom) onChange("+3h"); }}
-            style={{
-              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 6,
-              background: showCustom ? t.warningSubtle : t.surfaceRaised,
-              color: showCustom ? t.warningMuted : t.textMuted,
-            }}
-          >
-            Custom
-          </button>
-        </div>
-        {showCustom && (
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="+3h, +45m, etc."
-            style={{
-              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
-              padding: "7px 12px", color: t.text, fontSize: 13, outline: "none",
-              maxWidth: 200,
-            }}
-          />
-        )}
-      </div>
-    </FormRow>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// InfoRow
-// ---------------------------------------------------------------------------
-function InfoRow({ label, value }: { label: string; value: string }) {
-  const t = useThemeTokens();
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
-      <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // TaskEditor (near-fullscreen overlay)
@@ -649,7 +463,7 @@ export function TaskEditor({
                   <SelectInput
                     value={taskType}
                     onChange={setTaskType}
-                    options={TASK_TYPE_OPTIONS}
+                    options={TASK_TYPE_OPTIONS_CREATE}
                   />
                 </FormRow>
 
@@ -684,6 +498,7 @@ export function TaskEditor({
               <Section title="Scheduling">
                 <ScheduledAtPicker value={scheduledAt} onChange={setScheduledAt} />
                 <RecurrencePicker value={recurrence} onChange={setRecurrence} />
+                <ScheduleSummary scheduledAt={scheduledAt} recurrence={recurrence} />
               </Section>
 
               <Section title="Options">

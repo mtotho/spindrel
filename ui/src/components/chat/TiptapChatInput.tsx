@@ -87,7 +87,8 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
     const [cmdActiveIdx, setCmdActiveIdx] = useState(0);
     const cmdFilteredRef = useRef<CompletionItem[]>([]);
     const cmdActiveIdxRef = useRef(0);
-    // Sync ref mirrors React state so the keymap handler sees the latest value instantly
+    // Sync refs mirror React state so the keymap handler sees the latest value instantly
+    const showMenuRef = useRef(false);
     const showCmdMenuRef = useRef(false);
 
     useEffect(() => { filteredRef.current = filtered; }, [filtered]);
@@ -151,6 +152,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           setActiveIdx(0);
           activeIdxRef.current = 0;
           updateMenuPos();
+          showMenuRef.current = props.items.length > 0;
           setShowMenu(props.items.length > 0);
         },
         onUpdate: (props: SuggestionProps<CompletionItem>) => {
@@ -160,9 +162,11 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           setActiveIdx(0);
           activeIdxRef.current = 0;
           updateMenuPos();
+          showMenuRef.current = props.items.length > 0;
           setShowMenu(props.items.length > 0);
         },
         onExit: () => {
+          showMenuRef.current = false;
           setShowMenu(false);
           commandRef.current = null;
         },
@@ -207,6 +211,8 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
             // Enter outside code block → submit (code block Enter handled by raw plugin below)
             Enter: ({ editor: ed }) => {
               if (ed.isActive("codeBlock")) return false;
+              // Let the suggestion plugin handle Enter when @-mention menu is open
+              if (showMenuRef.current) return false;
               // If slash command menu is open, execute the selected command
               if (showCmdMenuRef.current && cmdFilteredRef.current.length > 0) {
                 const item = cmdFilteredRef.current[cmdActiveIdxRef.current];

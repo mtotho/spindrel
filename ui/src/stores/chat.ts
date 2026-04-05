@@ -17,6 +17,8 @@ interface ChatChannelState {
   /** Bot currently responding (for multi-bot channels). */
   respondingBotId: string | null;
   respondingBotName: string | null;
+  /** True when a member bot stream is about to start (set by pending_member_stream event). */
+  pendingMemberStream: boolean;
 }
 
 interface ChatState {
@@ -47,6 +49,7 @@ const emptyChannel: ChatChannelState = {
   secretWarning: null,
   respondingBotId: null,
   respondingBotName: null,
+  pendingMemberStream: false,
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -117,6 +120,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             secretWarning: null,
             respondingBotId: null,
             respondingBotName: null,
+            pendingMemberStream: false,
           },
         },
       };
@@ -335,6 +339,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 respondingBotId: data.responding_bot_id ?? ch.respondingBotId,
                 respondingBotName: data.responding_bot_name ?? ch.respondingBotName,
               },
+            },
+          };
+        }
+        case "pending_member_stream": {
+          // Server tells us a member bot stream is about to start.
+          // Set flag so useChannelEvents allows the imminent stream_start through
+          // even if isLocalStream hasn't been cleared yet by onComplete.
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: { ...ch, pendingMemberStream: true },
             },
           };
         }

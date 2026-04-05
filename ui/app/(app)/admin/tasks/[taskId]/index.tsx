@@ -1,5 +1,4 @@
-import { useCallback } from "react";
-import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { useCallback, useState, useEffect } from "react";
 import { useLocalSearchParams } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useQueryClient } from "@tanstack/react-query";
@@ -7,211 +6,30 @@ import { useTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks"
 import { useWorkflowRun, useWorkflows } from "@/src/api/hooks/useWorkflows";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
-import { useState } from "react";
 import { ChevronLeft, Trash2, Zap } from "lucide-react";
 import { Link } from "expo-router";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
-import { FormRow, TextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
-import { DateTimePicker } from "@/src/components/shared/DateTimePicker";
+import { FormRow, TextInput as FormTextInput, SelectInput, Toggle, Section } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { isoToLocalInput, localInputToISO } from "@/src/utils/time";
 import { useThemeTokens } from "@/src/theme/tokens";
-
-const STATUS_OPTIONS = [
-  { label: "Pending", value: "pending" },
-  { label: "Active (Schedule)", value: "active" },
-  { label: "Running", value: "running" },
-  { label: "Complete", value: "complete" },
-  { label: "Failed", value: "failed" },
-  { label: "Cancelled", value: "cancelled" },
-];
-
-const TASK_TYPE_OPTIONS = [
-  { label: "Scheduled", value: "scheduled" },
-  { label: "Heartbeat", value: "heartbeat" },
-  { label: "Delegation", value: "delegation" },
-  { label: "Exec", value: "exec" },
-  { label: "Callback", value: "callback" },
-  { label: "API", value: "api" },
-  { label: "Workflow", value: "workflow" },
-  { label: "Agent", value: "agent" },
-];
+import {
+  ScheduledAtPicker,
+  RecurrencePicker,
+  ScheduleSummary,
+  EnableToggle,
+  InfoRow,
+  STATUS_OPTIONS,
+  TASK_TYPE_OPTIONS_FULL,
+} from "@/src/components/shared/SchedulingPickers";
 
 function fmtDatetime(iso: string | null | undefined) {
   if (!iso) return "\u2014";
   return new Date(iso).toLocaleString(undefined, {
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
   });
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  const t = useThemeTokens();
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
-      <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Scheduled At picker — datetime-local + quick offset presets
-// ---------------------------------------------------------------------------
-const SCHEDULE_PRESETS = [
-  { label: "+30m", value: "+30m" },
-  { label: "+1h", value: "+1h" },
-  { label: "+2h", value: "+2h" },
-  { label: "+6h", value: "+6h" },
-  { label: "+1d", value: "+1d" },
-  { label: "+7d", value: "+7d" },
-];
-
-function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const t = useThemeTokens();
-  const isRelative = /^\+\d+[smhd]$/.test(value);
-
-  return (
-    <FormRow label="Scheduled At">
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
-          <button
-            onClick={() => onChange("")}
-            style={{
-              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 6,
-              background: !value ? t.accent : t.surfaceRaised,
-              color: !value ? "#fff" : t.textMuted,
-            }}
-          >
-            Now
-          </button>
-          {SCHEDULE_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => onChange(p.value)}
-              style={{
-                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-                borderRadius: 6,
-                background: value === p.value ? t.accent : t.surfaceRaised,
-                color: value === p.value ? "#fff" : t.textMuted,
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <DateTimePicker
-          value={isRelative ? "" : value}
-          onChange={onChange}
-          placeholder="Pick a date & time..."
-        />
-        {isRelative && (
-          <div style={{ fontSize: 10, color: t.textDim }}>
-            Relative: runs {value} from now
-          </div>
-        )}
-      </div>
-    </FormRow>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Recurrence picker — preset pills + custom input
-// ---------------------------------------------------------------------------
-const RECURRENCE_PRESETS = [
-  { label: "None", value: "" },
-  { label: "30 min", value: "+30m" },
-  { label: "1 hour", value: "+1h" },
-  { label: "2 hours", value: "+2h" },
-  { label: "6 hours", value: "+6h" },
-  { label: "12 hours", value: "+12h" },
-  { label: "Daily", value: "+1d" },
-  { label: "Weekly", value: "+7d" },
-];
-
-function RecurrencePicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const t = useThemeTokens();
-  const isPreset = RECURRENCE_PRESETS.some((p) => p.value === value);
-  const showCustom = !!value && !isPreset;
-
-  return (
-    <FormRow label="Recurrence">
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {RECURRENCE_PRESETS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => onChange(p.value)}
-              style={{
-                padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-                borderRadius: 6,
-                background: value === p.value ? (p.value ? t.warningSubtle : t.surfaceBorder) : t.surfaceRaised,
-                color: value === p.value ? (p.value ? t.warning : t.text) : t.textMuted,
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
-          <button
-            onClick={() => { if (!showCustom) onChange("+3h"); }}
-            style={{
-              padding: "4px 10px", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer",
-              borderRadius: 6,
-              background: showCustom ? t.warningSubtle : t.surfaceRaised,
-              color: showCustom ? t.warning : t.textMuted,
-            }}
-          >
-            Custom
-          </button>
-        </div>
-        {showCustom && (
-          <input
-            type="text"
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder="+3h, +45m, etc."
-            style={{
-              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
-              padding: "7px 12px", color: t.text, fontSize: 13, outline: "none",
-              maxWidth: 200,
-            }}
-          />
-        )}
-      </div>
-    </FormRow>
-  );
-}
-
-function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChange: (v: boolean) => void; compact?: boolean }) {
-  const t = useThemeTokens();
-  return (
-    <button
-      onClick={() => onChange(!enabled)}
-      title={enabled ? "Enabled" : "Disabled"}
-      style={{
-        display: "flex", alignItems: "center", gap: compact ? 0 : 6,
-        padding: compact ? "5px 6px" : "5px 12px", fontSize: 12, fontWeight: 600,
-        border: "none", cursor: "pointer", borderRadius: 6, flexShrink: 0,
-        background: enabled ? t.successSubtle : t.dangerSubtle,
-        color: enabled ? t.success : t.danger,
-      }}
-    >
-      <div style={{
-        width: 28, height: 16, borderRadius: 8, position: "relative",
-        background: enabled ? t.success : t.textDim,
-        transition: "background 0.2s",
-      }}>
-        <div style={{
-          width: 12, height: 12, borderRadius: 6, background: "#fff",
-          position: "absolute", top: 2,
-          left: enabled ? 14 : 2,
-          transition: "left 0.2s",
-        }} />
-      </div>
-      {!compact && (enabled ? "Enabled" : "Disabled")}
-    </button>
-  );
 }
 
 function WorkflowRunLink({ runId, stepIndex, t }: { runId: string; stepIndex?: number; t: ReturnType<typeof useThemeTokens> }) {
@@ -231,7 +49,7 @@ function WorkflowRunLink({ runId, stepIndex, t }: { runId: string; stepIndex?: n
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 11, color: t.textDim }}>Run</span>
           {href ? (
-            <Link href={href as any} style={{ fontSize: 11, color: t.accent, fontFamily: "monospace" }}>
+            <Link href={href as any} style={{ fontSize: 11, color: t.accent, fontFamily: "monospace" } as any}>
               {runId.slice(0, 8)}...
             </Link>
           ) : (
@@ -261,8 +79,12 @@ export default function TaskDetailScreen() {
   const { data: channels } = useChannels();
   const { data: workflows } = useWorkflows();
 
-  const { width: winWidth } = useWindowDimensions();
-  const isWide = winWidth >= 768;
+  const [isWide, setIsWide] = useState(() => typeof window !== "undefined" && window.innerWidth >= 768);
+  useEffect(() => {
+    const handler = () => setIsWide(window.innerWidth >= 768);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
 
   const [title, setTitle] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -291,7 +113,7 @@ export default function TaskDetailScreen() {
     setBotId(task.bot_id || "");
     setStatus(task.status || "pending");
     setTaskType(task.task_type || "scheduled");
-    setScheduledAt(task.scheduled_at ? new Date(task.scheduled_at).toISOString().slice(0, 16) : "");
+    setScheduledAt(task.scheduled_at ? isoToLocalInput(task.scheduled_at) : "");
     setRecurrence(task.recurrence || "");
     setTriggerRagLoop(task.trigger_rag_loop ?? task.callback_config?.trigger_rag_loop ?? false);
     setModelOverride(task.model_override || task.callback_config?.model_override || "");
@@ -302,7 +124,7 @@ export default function TaskDetailScreen() {
       task.title || "", task.prompt || "", task.prompt_template_id || null,
       task.workspace_file_path ?? null, task.workspace_id ?? null, task.bot_id || "",
       task.status || "pending", task.task_type || "scheduled",
-      task.scheduled_at ? new Date(task.scheduled_at).toISOString().slice(0, 16) : "",
+      task.scheduled_at ? isoToLocalInput(task.scheduled_at) : "",
       task.recurrence || "",
       task.trigger_rag_loop ?? task.callback_config?.trigger_rag_loop ?? false,
       task.model_override || task.callback_config?.model_override || "",
@@ -320,6 +142,7 @@ export default function TaskDetailScreen() {
 
   const handleSave = useCallback(async () => {
     if (!hasPromptOrWorkflow || !botId) return;
+    const scheduledAtISO = localInputToISO(scheduledAt) || null;
     await updateMut.mutateAsync({
       prompt,
       title: title || null,
@@ -328,7 +151,7 @@ export default function TaskDetailScreen() {
       workspace_id: workspaceId,
       bot_id: botId,
       status,
-      scheduled_at: scheduledAt || null,
+      scheduled_at: scheduledAtISO,
       recurrence: recurrence || null,
       task_type: taskType,
       trigger_rag_loop: triggerRagLoop,
@@ -355,14 +178,14 @@ export default function TaskDetailScreen() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 bg-surface items-center justify-center">
-        <ActivityIndicator color={t.accent} />
-      </View>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: t.surface }}>
+        <div className="chat-spinner" />
+      </div>
     );
   }
 
   return (
-    <View className="flex-1 bg-surface">
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, background: t.surface, overflow: "hidden" }}>
       {/* Header */}
       <div style={{
         display: "flex", alignItems: "center",
@@ -425,8 +248,9 @@ export default function TaskDetailScreen() {
       )}
 
       {/* Body */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{
-        ...(isWide ? { flexDirection: "row", flex: 1 } : {}),
+      <div style={{
+        flex: 1, overflowY: "auto", minHeight: 0,
+        ...(isWide ? { display: "flex", flexDirection: "row" as const } : {}),
       }}>
         {/* Prompt + Result/Error */}
         <div style={{
@@ -435,7 +259,7 @@ export default function TaskDetailScreen() {
         }}>
           <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 16 }}>
             <FormRow label="Title">
-              <TextInput
+              <FormTextInput
                 value={title}
                 onChangeText={setTitle}
                 placeholder="Short task title (optional)"
@@ -519,7 +343,7 @@ export default function TaskDetailScreen() {
                 {task?.channel_id ? (
                   <Link
                     href={`/channels/${task.channel_id}` as any}
-                    style={{ fontSize: 13, color: t.accent, paddingVertical: 7 }}
+                    style={{ fontSize: 13, color: t.accent, padding: "7px 0" } as any}
                   >
                     {channels?.find((c: any) => String(c.id) === String(task.channel_id))?.display_name
                       || channels?.find((c: any) => String(c.id) === String(task.channel_id))?.name
@@ -537,7 +361,7 @@ export default function TaskDetailScreen() {
               </FormRow>
 
               <FormRow label="Task Type">
-                <SelectInput value={taskType} onChange={setTaskType} options={TASK_TYPE_OPTIONS} />
+                <SelectInput value={taskType} onChange={setTaskType} options={TASK_TYPE_OPTIONS_FULL} />
               </FormRow>
 
               <FormRow label="Workflow Trigger" description="Run a workflow instead of a prompt">
@@ -571,6 +395,7 @@ export default function TaskDetailScreen() {
             <Section title="Scheduling">
               <ScheduledAtPicker value={scheduledAt} onChange={setScheduledAt} />
               <RecurrencePicker value={recurrence} onChange={setRecurrence} />
+              <ScheduleSummary scheduledAt={scheduledAt} recurrence={recurrence} />
             </Section>
 
             <Section title="Options">
@@ -643,7 +468,7 @@ export default function TaskDetailScreen() {
             )}
           </div>
         </div>
-      </ScrollView>
-    </View>
+      </div>
+    </div>
   );
 }

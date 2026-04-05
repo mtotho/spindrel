@@ -158,6 +158,7 @@ async def _resolve_channel_and_session(
     db: AsyncSession,
     req: ChatRequest,
     user=None,
+    preserve_metadata: bool = False,
 ):
     """Resolve channel + session from the request. Returns (channel, session_id, messages, is_integration)."""
     from app.db.models import Channel
@@ -201,6 +202,7 @@ async def _resolve_channel_and_session(
         db, resolved_session_id, req.client_id, req.bot_id,
         locked=is_integration,
         channel_id=channel.id,
+        preserve_metadata=preserve_metadata,
     )
 
     return channel, session_id, messages, is_integration
@@ -399,6 +401,80 @@ async def _maybe_route_to_member_bot(db: AsyncSession, channel, bot, message: st
     return bot, {}
 
 
+def _rewrite_history_for_member_bot(
+    messages: list[dict],
+    member_bot_id: str,
+    primary_bot_name: str | None = None,
+    is_primary: bool = False,
+) -> None:
+    """Rewrite conversation history so a bot has proper identity.
+
+    In a shared session, all assistant messages have role="assistant" but may
+    come from different bots.  Without rewriting, the bot sees another bot's
+    responses as its own (the LLM treats role=assistant as "I said that").
+
+    This function:
+    - Converts other bots' assistant messages to user messages with name prefix
+    - Keeps the target bot's own assistant messages as-is
+    - Adds speaker attribution to user messages
+    - Drops other bots' tool_call/tool messages (not relevant to the target bot)
+    - Treats untagged assistant messages (no sender_id) as coming from another bot
+      (since the member bot is joining an existing conversation)
+    - When ``is_primary=True``, untagged messages are treated as the primary bot's
+      own (they predate multi-bot metadata and were authored by the primary bot)
+    """
+    member_sender_id = f"bot:{member_bot_id}"
+    fallback_label = primary_bot_name or "Other bot"
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        meta = msg.get("_metadata") or {}
+        role = msg.get("role")
+
+        if role == "assistant":
+            sender_id = meta.get("sender_id", "")
+            sender_name = meta.get("sender_display_name", "")
+
+            # If sender_id matches this bot, keep as assistant (it's our own message)
+            if sender_id == member_sender_id:
+                i += 1
+                continue
+
+            # Untagged messages (no sender_id) predate multi-bot metadata.
+            # For the primary bot they're its own; for member bots, treat as other.
+            if not sender_id and is_primary:
+                i += 1
+                continue
+
+            # Otherwise — explicitly another bot, or untagged for a member bot.
+            if msg.get("tool_calls"):
+                # Drop tool-call messages from other bots (and their results)
+                tool_call_ids = {
+                    tc.get("id") for tc in msg["tool_calls"] if tc.get("id")
+                }
+                messages.pop(i)
+                # Remove following tool result messages
+                while i < len(messages) and messages[i].get("role") == "tool":
+                    if messages[i].get("tool_call_id") in tool_call_ids:
+                        messages.pop(i)
+                    else:
+                        break
+                continue
+            # Rewrite text-only assistant message to user with attribution
+            content = msg.get("content", "")
+            label = sender_name or fallback_label
+            msg["role"] = "user"
+            msg["content"] = f"[{label}]: {content}"
+        elif role == "user":
+            sender_name = meta.get("sender_display_name", "")
+            if sender_name:
+                content = msg.get("content", "")
+                # Don't double-prefix if already prefixed
+                if not content.startswith(f"[{sender_name}]:"):
+                    msg["content"] = f"[{sender_name}]: {content}"
+        i += 1
+
+
 def _inject_member_config(messages: list[dict], config: dict) -> None:
     """Inject member-level config overrides as system messages."""
     parts: list[str] = []
@@ -420,44 +496,52 @@ def _inject_member_config(messages: list[dict], config: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Bot-to-bot @-mention: when a bot's response mentions a member bot,
-# trigger a follow-up run so that member bot responds in the same channel.
+# Bot-to-bot @-mention: when a bot's response mentions another channel bot
+# (member or primary), trigger a follow-up run so that bot responds.
 # ---------------------------------------------------------------------------
 _MEMBER_MENTION_MAX_DEPTH = 3
 
 
-async def _trigger_member_bot_replies(
+async def _detect_member_mentions(
     channel_id: uuid.UUID,
-    session_id: uuid.UUID,
     responding_bot_id: str,
     response_text: str,
     *,
     _depth: int = 0,
-) -> None:
-    """Parse a bot response for @-mentions of channel member bots and fire replies."""
+) -> list[tuple[str, dict]]:
+    """Detect which channel bots are @-mentioned in a response.
+
+    Returns a list of (bot_id, config) tuples for mentioned bots.
+    Includes both member bots AND the primary bot — so member bots can
+    mention the primary bot back for back-and-forth conversation.
+    """
     if _depth >= _MEMBER_MENTION_MAX_DEPTH:
-        logger.info("Member mention chain depth limit (%d) reached", _MEMBER_MENTION_MAX_DEPTH)
-        return
+        return []
     if not response_text:
-        return
+        return []
 
     from app.agent.tags import _TAG_RE
     from app.db.engine import async_session as _async_session
-    from app.db.models import ChannelBotMember
+    from app.db.models import Channel, ChannelBotMember
     from sqlalchemy import select
 
     tag_matches = _TAG_RE.findall(response_text)
     if not tag_matches:
-        return
+        return []
 
-    # Load member bots for this channel
+    # Load member bots AND the primary bot for this channel
     async with _async_session() as db:
         rows = (await db.execute(
             select(ChannelBotMember).where(ChannelBotMember.channel_id == channel_id)
         )).scalars().all()
+        channel = await db.get(Channel, channel_id)
+
     member_map = {r.bot_id: r.config or {} for r in rows}
+    # Include primary bot as a valid mention target (enables back-and-forth)
+    if channel and channel.bot_id and channel.bot_id not in member_map:
+        member_map[channel.bot_id] = {}
     if not member_map:
-        return
+        return []
 
     # Deduplicate mentioned member bots (preserve order)
     mentioned: list[tuple[str, dict]] = []
@@ -470,6 +554,19 @@ async def _trigger_member_bot_replies(
             mentioned.append((name, member_map[name]))
             seen.add(name)
 
+    return mentioned
+
+
+async def _trigger_member_bot_replies(
+    channel_id: uuid.UUID,
+    session_id: uuid.UUID,
+    responding_bot_id: str,
+    response_text: str,
+    *,
+    _depth: int = 0,
+) -> None:
+    """Parse a bot response for @-mentions of channel member bots and fire replies."""
+    mentioned = await _detect_member_mentions(channel_id, responding_bot_id, response_text, _depth=_depth)
     for bot_id, member_config in mentioned:
         asyncio.create_task(
             _run_member_bot_reply(
@@ -520,12 +617,37 @@ async def _run_member_bot_reply(
         member_bot = get_bot(member_bot_id)
         mentioning_bot = get_bot(mentioning_bot_id)
 
-        # Load session with member bot's system prompt
+        # Load session with member bot's system prompt (preserve _metadata for
+        # history rewriting — we need sender_id to distinguish message authors)
         async with _async_session() as db:
             _, messages = await load_or_create(
                 db, session_id, "member-mention", member_bot_id,
                 channel_id=channel_id,
+                preserve_metadata=True,
             )
+
+        # Look up primary bot name for fallback attribution on old messages
+        _primary_bot_name: str | None = None
+        _primary_bot_id: str | None = None
+        async with _async_session() as db:
+            _ch = await db.get(Channel, channel_id)
+            if _ch and _ch.bot_id:
+                _primary_bot_id = _ch.bot_id
+                _pb = get_bot(_ch.bot_id)
+                _primary_bot_name = _pb.name if _pb else _ch.bot_id
+
+        # Rewrite history so the bot sees other bots' messages with attribution
+        # (prevents it from thinking another bot's words are its own)
+        _is_primary = member_bot_id == _primary_bot_id
+        _rewrite_history_for_member_bot(
+            messages, member_bot_id,
+            primary_bot_name=_primary_bot_name,
+            is_primary=_is_primary,
+        )
+
+        # Strip internal _metadata now that rewriting is done
+        from app.services.sessions import strip_metadata_keys
+        messages[:] = strip_metadata_keys(messages)
 
         # Apply member config overrides (response_style, system_prompt_addon)
         _inject_member_config(messages, member_config)
@@ -550,7 +672,7 @@ async def _run_member_bot_reply(
             channel_id=channel_id,
         )
 
-        # Stream the reply so the UI shows typing indicators for the member bot
+        # Stream the reply so the UI shows typing indicators for the member bot.
         from app.agent.loop import run_stream
         _publish_event(channel_id, "stream_start", {
             "responding_bot_id": member_bot_id,
@@ -693,14 +815,27 @@ async def chat(
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
     try:
-        channel, session_id, messages, is_integration = await _resolve_channel_and_session(db, req, user=user)
+        channel, session_id, messages, is_integration = await _resolve_channel_and_session(
+            db, req, user=user, preserve_metadata=True,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
 
     channel_id = channel.id
 
     # Multi-bot channel: if user @-tagged a member bot, route to that bot
+    _primary_bot_id_nc = bot.id
     bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
+
+    # If routed to a member bot, rewrite history so it has proper identity
+    if bot.id != _primary_bot_id_nc:
+        from app.agent.bots import get_bot as _get_bot_nc
+        _pb_nc = _get_bot_nc(_primary_bot_id_nc)
+        _rewrite_history_for_member_bot(messages, bot.id, primary_bot_name=_pb_nc.name if _pb_nc else None)
+
+    # Strip internal _metadata now that rewriting is done
+    from app.services.sessions import strip_metadata_keys
+    messages[:] = strip_metadata_keys(messages)
 
     logger.info("POST /chat  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
                 bot.id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
@@ -918,14 +1053,27 @@ async def chat_stream(
     att_payload = [a.model_dump() for a in req.attachments] if req.attachments else None
 
     try:
-        channel, session_id, messages, is_integration = await _resolve_channel_and_session(db, req, user=user)
+        channel, session_id, messages, is_integration = await _resolve_channel_and_session(
+            db, req, user=user, preserve_metadata=True,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
 
     channel_id = channel.id
 
     # Multi-bot channel: if user @-tagged a member bot, route to that bot
+    _primary_bot_id = bot.id
     bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
+
+    # If routed to a member bot, rewrite history so it has proper identity
+    if bot.id != _primary_bot_id:
+        from app.agent.bots import get_bot as _get_bot_s
+        _pb_s = _get_bot_s(_primary_bot_id)
+        _rewrite_history_for_member_bot(messages, bot.id, primary_bot_name=_pb_s.name if _pb_s else None)
+
+    # Strip internal _metadata now that rewriting is done
+    from app.services.sessions import strip_metadata_keys
+    messages[:] = strip_metadata_keys(messages)
 
     logger.info("POST /chat/stream  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
                 req.bot_id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
@@ -1225,11 +1373,35 @@ async def chat_stream(
                 budget_utilization=_budget_utilization,
             )
 
-            # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply
+            # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply.
+            # Detect mentions first so we can notify the primary tab BEFORE the SSE closes.
+            # This prevents a race where stream_start arrives before onComplete clears isLocalStream.
             if not was_cancelled and response_text and channel_id:
-                asyncio.create_task(
-                    _trigger_member_bot_replies(channel_id, session_id, bot.id, response_text)
-                )
+                _mentioned = await _detect_member_mentions(channel_id, bot.id, response_text)
+                if _mentioned:
+                    # Resolve bot names for the pending notification
+                    _pending_bots = []
+                    for _mbid, _mbcfg in _mentioned:
+                        try:
+                            _mb = get_bot(_mbid)
+                            _pending_bots.append({"id": _mbid, "name": _mb.name if _mb else _mbid})
+                        except Exception:
+                            _pending_bots.append({"id": _mbid, "name": _mbid})
+
+                    # Tell the primary tab that member bot streams are imminent.
+                    # This goes via the direct SSE (before it closes), so the tab can
+                    # prepare to transition from local stream to observer mode.
+                    _pending_event = {"type": "pending_member_stream", "bots": _pending_bots}
+                    yield f"data: {json.dumps(_pending_event)}\n\n"
+
+                    # Launch background tasks for each mentioned member bot
+                    for _mbid, _mbcfg in _mentioned:
+                        asyncio.create_task(
+                            _run_member_bot_reply(
+                                channel_id, session_id, _mbid, _mbcfg,
+                                bot.id, _depth=1,
+                            )
+                        )
         except Exception as e:
             logger.exception("Streaming agent loop error")
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"

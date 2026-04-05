@@ -103,7 +103,7 @@ export default function BotEditorScreen() {
       identity: ["id", "name", "model", "provider", "temperature", "params", "creativity"],
       prompt: ["system", "prompt"],
       persona: ["persona", "personality", "tone"],
-      tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "summarization"],
+      tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "discovery", "summarization"],
       skills: ["skill"],
       learning: ["learning", "authored", "surfac", "knowledge"],
       carapaces: ["carapace", "bundle", "expert"],

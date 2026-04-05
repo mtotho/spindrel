@@ -557,6 +557,60 @@ class TestMemberBotFlush:
 
 
 # ---------------------------------------------------------------------------
+# _detect_member_mentions
+# ---------------------------------------------------------------------------
+
+class TestDetectMemberMentions:
+    @pytest.mark.asyncio
+    async def test_detects_member_mention(self):
+        from app.routers.chat import _detect_member_mentions
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("helper-bot", config={"auto_respond": True})
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        # Mock Channel lookup (primary bot)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            result = await _detect_member_mentions(
+                channel_id, "primary-bot", "Hey @helper-bot, help me!"
+            )
+
+        assert len(result) == 1
+        assert result[0][0] == "helper-bot"
+        assert result[0][1] == {"auto_respond": True}
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_for_no_mentions(self):
+        from app.routers.chat import _detect_member_mentions
+
+        result = await _detect_member_mentions(
+            uuid.uuid4(), "primary-bot", "No mentions here"
+        )
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_at_depth_limit(self):
+        from app.routers.chat import _detect_member_mentions, _MEMBER_MENTION_MAX_DEPTH
+
+        result = await _detect_member_mentions(
+            uuid.uuid4(), "primary-bot", "@helper-bot hello",
+            _depth=_MEMBER_MENTION_MAX_DEPTH,
+        )
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
 # Bot-to-bot @-mention trigger
 # ---------------------------------------------------------------------------
 
@@ -594,6 +648,9 @@ class TestBotToBotMention:
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []  # no members
         mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
 
         mock_cm = AsyncMock()
         mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
@@ -622,6 +679,9 @@ class TestBotToBotMention:
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [member_row]
         mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
 
         mock_cm = AsyncMock()
         mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
@@ -648,6 +708,9 @@ class TestBotToBotMention:
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [member_row]
         mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
 
         mock_cm = AsyncMock()
         mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
@@ -690,6 +753,9 @@ class TestBotToBotMention:
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [member_row]
         mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
 
         mock_cm = AsyncMock()
         mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
@@ -718,6 +784,9 @@ class TestBotToBotMention:
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [member_row]
         mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
 
         mock_cm = AsyncMock()
         mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
@@ -762,3 +831,475 @@ class TestBotToBotMention:
             )
             # Should have tried multiple times then given up
             assert mock_locks.acquire.call_count == 30
+
+
+# ---------------------------------------------------------------------------
+# History rewriting for member bots
+# ---------------------------------------------------------------------------
+
+class TestRewriteHistoryForMemberBot:
+    """Tests for _rewrite_history_for_member_bot — ensures member bots
+    have proper identity by rewriting other bots' messages."""
+
+    def test_member_bot_own_messages_kept_as_assistant(self):
+        """Messages from the member bot itself stay as role=assistant."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "system", "content": "You are helper."},
+            {"role": "user", "content": "hello", "_metadata": {}},
+            {"role": "assistant", "content": "Hi there!", "_metadata": {
+                "sender_id": "bot:helper", "sender_display_name": "Helper Bot",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        assert messages[2]["role"] == "assistant"
+        assert messages[2]["content"] == "Hi there!"
+
+    def test_other_bot_messages_rewritten_to_user(self):
+        """Messages from another bot become role=user with name prefix."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "system", "content": "You are helper."},
+            {"role": "user", "content": "hello", "_metadata": {}},
+            {"role": "assistant", "content": "I'm the primary bot.", "_metadata": {
+                "sender_id": "bot:primary", "sender_display_name": "Primary Bot",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        assert messages[2]["role"] == "user"
+        assert messages[2]["content"] == "[Primary Bot]: I'm the primary bot."
+
+    def test_untagged_messages_treated_as_other_bot(self):
+        """Messages without sender_id (old messages) are treated as another bot."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "system", "content": "You are helper."},
+            {"role": "user", "content": "hello", "_metadata": {}},
+            {"role": "assistant", "content": "Old response with no metadata.", "_metadata": {}},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper", primary_bot_name="Rolland")
+
+        assert messages[2]["role"] == "user"
+        assert messages[2]["content"] == "[Rolland]: Old response with no metadata."
+
+    def test_untagged_messages_use_fallback_label(self):
+        """Without primary_bot_name, fallback label is 'Other bot'."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "assistant", "content": "No metadata at all."},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        assert messages[0]["role"] == "user"
+        assert messages[0]["content"] == "[Other bot]: No metadata at all."
+
+    def test_other_bot_tool_calls_dropped(self):
+        """Tool call messages from other bots (and their results) are removed."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "user", "content": "run a search", "_metadata": {}},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "tc_1", "type": "function", "function": {"name": "web_search", "arguments": "{}"}}
+            ], "_metadata": {"sender_id": "bot:primary", "sender_display_name": "Primary Bot"}},
+            {"role": "tool", "tool_call_id": "tc_1", "content": "search results"},
+            {"role": "assistant", "content": "Here's what I found.", "_metadata": {
+                "sender_id": "bot:primary", "sender_display_name": "Primary Bot",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        # Tool call + tool result should be gone, text response should be rewritten
+        assert len(messages) == 2  # user + rewritten assistant
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == "[Primary Bot]: Here's what I found."
+
+    def test_member_bot_tool_calls_kept(self):
+        """Tool call messages from the member bot itself are kept intact."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "user", "content": "do something", "_metadata": {}},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "tc_1", "type": "function", "function": {"name": "file_read", "arguments": "{}"}}
+            ], "_metadata": {"sender_id": "bot:helper", "sender_display_name": "Helper Bot"}},
+            {"role": "tool", "tool_call_id": "tc_1", "content": "file contents"},
+            {"role": "assistant", "content": "Done!", "_metadata": {
+                "sender_id": "bot:helper", "sender_display_name": "Helper Bot",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        assert len(messages) == 4  # all kept
+        assert messages[1]["role"] == "assistant"
+        assert messages[1].get("tool_calls")
+        assert messages[2]["role"] == "tool"
+        assert messages[3]["role"] == "assistant"
+        assert messages[3]["content"] == "Done!"
+
+    def test_user_messages_get_attribution(self):
+        """User messages with sender_display_name get prefixed."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "user", "content": "What's up?", "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        assert messages[0]["content"] == "[Mike]: What's up?"
+
+    def test_user_messages_not_double_prefixed(self):
+        """Already-prefixed user messages aren't double-prefixed."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "user", "content": "[Mike]: hello", "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        assert messages[0]["content"] == "[Mike]: hello"
+
+    def test_user_messages_without_display_name_unchanged(self):
+        """User messages without sender_display_name stay unchanged."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "user", "content": "just a message", "_metadata": {}},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        assert messages[0]["content"] == "just a message"
+
+    def test_system_messages_untouched(self):
+        """System messages are never modified."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "system", "content": "You are a helpful bot."},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        assert messages[0]["role"] == "system"
+        assert messages[0]["content"] == "You are a helpful bot."
+
+    def test_mixed_conversation_realistic(self):
+        """Realistic multi-bot conversation with proper rewriting."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "system", "content": "You are dev_bot."},
+            {"role": "user", "content": "Hey what's the status?", "_metadata": {
+                "sender_display_name": "Mike",
+            }},
+            {"role": "assistant", "content": "Everything looks good. Let me ask @dev_bot.", "_metadata": {
+                "sender_id": "bot:rolland", "sender_display_name": "Rolland",
+            }},
+            # Trigger prompt (hidden in UI, but present in history)
+            {"role": "user", "content": "Rolland (@rolland) mentioned you.", "_metadata": {
+                "trigger": "member_mention", "hidden": True,
+                "sender_display_name": "Rolland",
+            }},
+            {"role": "assistant", "content": "I checked the CI — all green.", "_metadata": {
+                "sender_id": "bot:dev_bot", "sender_display_name": "Dev Bot",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "dev_bot", primary_bot_name="Rolland")
+
+        # System stays as-is
+        assert messages[0]["role"] == "system"
+
+        # User message gets attribution
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == "[Mike]: Hey what's the status?"
+
+        # Rolland's assistant message → rewritten to user
+        assert messages[2]["role"] == "user"
+        assert messages[2]["content"] == "[Rolland]: Everything looks good. Let me ask @dev_bot."
+
+        # Trigger prompt — user role, already has attribution
+        assert messages[3]["role"] == "user"
+
+        # Dev bot's own response stays as assistant
+        assert messages[4]["role"] == "assistant"
+        assert messages[4]["content"] == "I checked the CI — all green."
+
+
+# ---------------------------------------------------------------------------
+# _inject_member_config
+# ---------------------------------------------------------------------------
+
+class TestInjectMemberConfig:
+    def test_empty_config_no_injection(self):
+        from app.routers.chat import _inject_member_config
+
+        messages = [{"role": "system", "content": "base"}]
+        _inject_member_config(messages, {})
+        assert len(messages) == 1
+
+    def test_system_prompt_addon_injected(self):
+        from app.routers.chat import _inject_member_config
+
+        messages = [{"role": "system", "content": "base"}]
+        _inject_member_config(messages, {"system_prompt_addon": "Always be brief."})
+        assert len(messages) == 2
+        assert "Always be brief." in messages[1]["content"]
+        assert messages[1]["role"] == "system"
+
+    def test_response_style_injected(self):
+        from app.routers.chat import _inject_member_config
+
+        messages = []
+        _inject_member_config(messages, {"response_style": "brief"})
+        assert len(messages) == 1
+        assert "brief and concise" in messages[0]["content"]
+
+    def test_combined_config(self):
+        from app.routers.chat import _inject_member_config
+
+        messages = []
+        _inject_member_config(messages, {
+            "system_prompt_addon": "Focus on code review.",
+            "response_style": "detailed",
+        })
+        assert len(messages) == 1
+        assert "Focus on code review." in messages[0]["content"]
+        assert "detailed" in messages[0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# Bug fix: _metadata must survive for history rewriting
+# ---------------------------------------------------------------------------
+
+class TestMetadataPreservation:
+    """Verify that _metadata is preserved when loading messages for member bot
+    rewriting, and stripped afterwards."""
+
+    def test_rewriting_uses_metadata_for_sender_identity(self):
+        """With _metadata present, member bot correctly identifies its own messages."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "assistant", "content": "Primary said this.", "_metadata": {
+                "sender_id": "bot:primary", "sender_display_name": "Primary Bot",
+            }},
+            {"role": "assistant", "content": "Helper said this.", "_metadata": {
+                "sender_id": "bot:helper", "sender_display_name": "Helper Bot",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        # Primary bot's message should be rewritten
+        assert messages[0]["role"] == "user"
+        assert "[Primary Bot]:" in messages[0]["content"]
+        # Helper's own message stays as assistant
+        assert messages[1]["role"] == "assistant"
+        assert messages[1]["content"] == "Helper said this."
+
+    def test_rewriting_without_metadata_treats_all_as_other(self):
+        """Without _metadata (the bug), all messages are treated as other bot."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        # Simulate what happened before the fix: _metadata stripped before rewriting
+        messages = [
+            {"role": "assistant", "content": "Primary said this."},
+            {"role": "assistant", "content": "Helper said this."},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper")
+
+        # Both get rewritten — this is the correct behavior for stripped metadata
+        # (without metadata, we can't distinguish, so all are treated as other)
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "user"
+
+    def test_strip_metadata_keys_removes_metadata(self):
+        """strip_metadata_keys properly removes _metadata from messages."""
+        from app.services.sessions import strip_metadata_keys
+
+        messages = [
+            {"role": "assistant", "content": "test", "_metadata": {"sender_id": "bot:x"}},
+            {"role": "user", "content": "hi"},
+        ]
+        result = strip_metadata_keys(messages)
+
+        assert "_metadata" not in result[0]
+        assert result[0]["content"] == "test"
+        assert result[1] == {"role": "user", "content": "hi"}
+
+
+# ---------------------------------------------------------------------------
+# Bug fix: is_primary flag for primary bot history rewriting
+# ---------------------------------------------------------------------------
+
+class TestIsPrimaryRewriting:
+    """When the primary bot is triggered via @-mention from a member bot,
+    is_primary=True ensures untagged messages are kept as its own."""
+
+    def test_primary_bot_untagged_messages_kept(self):
+        """With is_primary=True, untagged assistant messages stay as assistant."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "assistant", "content": "Old message before multi-bot.", "_metadata": {}},
+            {"role": "assistant", "content": "Primary's recent message.", "_metadata": {
+                "sender_id": "bot:primary", "sender_display_name": "Primary Bot",
+            }},
+            {"role": "assistant", "content": "Helper's message.", "_metadata": {
+                "sender_id": "bot:helper", "sender_display_name": "Helper Bot",
+            }},
+        ]
+        _rewrite_history_for_member_bot(messages, "primary", is_primary=True)
+
+        # Untagged message stays as assistant (primary bot's own)
+        assert messages[0]["role"] == "assistant"
+        # Explicitly tagged as primary stays as assistant
+        assert messages[1]["role"] == "assistant"
+        # Helper's message gets rewritten
+        assert messages[2]["role"] == "user"
+        assert "[Helper Bot]:" in messages[2]["content"]
+
+    def test_member_bot_untagged_messages_rewritten(self):
+        """With is_primary=False (default), untagged messages are treated as other bot."""
+        from app.routers.chat import _rewrite_history_for_member_bot
+
+        messages = [
+            {"role": "assistant", "content": "Old message before multi-bot.", "_metadata": {}},
+        ]
+        _rewrite_history_for_member_bot(messages, "helper", primary_bot_name="Primary Bot")
+
+        # Untagged message is rewritten (not the member bot's own)
+        assert messages[0]["role"] == "user"
+        assert "[Primary Bot]:" in messages[0]["content"]
+
+
+# ---------------------------------------------------------------------------
+# Bug fix: primary bot detectable in _detect_member_mentions
+# ---------------------------------------------------------------------------
+
+class TestPrimaryBotMentionBack:
+    """Member bots can @-mention the primary bot to trigger a reply."""
+
+    @pytest.mark.asyncio
+    async def test_primary_bot_detected_in_mentions(self):
+        """Primary bot is included as a valid mention target."""
+        from app.routers.chat import _detect_member_mentions
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("helper-bot")
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        # Mock the Channel with a primary bot
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            result = await _detect_member_mentions(
+                channel_id, "helper-bot", "Hey @primary-bot, can you check this?"
+            )
+
+        assert len(result) == 1
+        assert result[0][0] == "primary-bot"
+        assert result[0][1] == {}  # primary bot has no member config
+
+    @pytest.mark.asyncio
+    async def test_primary_bot_not_triggered_by_self(self):
+        """Primary bot mentioning itself doesn't trigger."""
+        from app.routers.chat import _detect_member_mentions
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("helper-bot")
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            result = await _detect_member_mentions(
+                channel_id, "primary-bot", "I am @primary-bot."
+            )
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_back_and_forth_chain(self):
+        """Primary → member → primary chain is allowed within depth limit."""
+        from app.routers.chat import _detect_member_mentions
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("helper-bot", config={"auto_respond": True})
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        # Depth 0: primary bot mentions helper (allowed)
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            result = await _detect_member_mentions(
+                channel_id, "primary-bot", "Hey @helper-bot check this",
+                _depth=0,
+            )
+        assert len(result) == 1
+        assert result[0][0] == "helper-bot"
+
+        # Depth 1: helper mentions primary back (allowed)
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            result = await _detect_member_mentions(
+                channel_id, "helper-bot", "Done, @primary-bot here are results",
+                _depth=1,
+            )
+        assert len(result) == 1
+        assert result[0][0] == "primary-bot"
+
+        # Depth 2: primary mentions helper again (allowed, depth < 3)
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            result = await _detect_member_mentions(
+                channel_id, "primary-bot", "@helper-bot one more thing",
+                _depth=2,
+            )
+        assert len(result) == 1
+        assert result[0][0] == "helper-bot"
+
+        # Depth 3: blocked by max depth
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            result = await _detect_member_mentions(
+                channel_id, "helper-bot", "@primary-bot results",
+                _depth=3,
+            )
+        assert result == []

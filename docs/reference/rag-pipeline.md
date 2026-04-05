@@ -210,8 +210,12 @@ Default `k = 60` (configurable: `HYBRID_SEARCH_RRF_K`). Higher k gives more weig
 1. Check 5-minute TTL cache (keyed by query + tool scope)
 2. Embed query
 3. Vector search on `tool_embeddings` (filtered by bot's local tools + MCP servers)
-4. Threshold filter (default: 0.35)
-5. Return top `TOOL_RETRIEVAL_TOP_K` (default: 10) tool schemas
+4. BM25 full-text search on `embed_text` column (if `HYBRID_SEARCH_ENABLED`, PostgreSQL only)
+5. RRF fusion of vector + BM25 results (same `reciprocal_rank_fusion()` as skills)
+6. Threshold filter — BM25-matched tools included even below vector threshold (keyword relevance rescues them)
+7. Return top `TOOL_RETRIEVAL_TOP_K` (default: 10) tool schemas
+
+**GIN index**: `ix_tool_embeddings_fts` on `to_tsvector('english', embed_text)` (migration 168)
 
 ---
 
@@ -256,7 +260,7 @@ After context assembly, a post-processing step scores all RAG-injected chunks an
 
 `assemble_context()` in `app/agent/context_assembly.py` orchestrates how retrieved content enters the LLM's context window. RAG-related steps (simplified from the full 15-step pipeline):
 
-1. **Skills injection** — Pinned skills: full content always injected. RAG skills: top-K chunks from `retrieve_context()`. On-demand skills: index injected, bot fetches full content via `get_skill()` tool.
+1. **Skills injection** — Pinned skills: full content always injected. RAG skills: top-K chunks from `retrieve_context()`, plus trigger keyword boost for skills whose `triggers` match the user message but weren't surfaced by cosine (fetches top chunk via `fetch_skill_chunks_by_id()`). On-demand skills: enriched index injected (id, name, description, triggers), bot fetches full content via `get_skill()` tool.
 2. **Workspace filesystem RAG** — Top-K chunks from `retrieve_filesystem_context()`, injected as a system message with file headers.
 3. **Tool retrieval** — Top-K tools from `retrieve_tools()`, passed in the `tools` parameter of the LLM call.
 
@@ -332,8 +336,11 @@ On successful fallback: primary model gets a cooldown entry (`LLM_FALLBACK_COOLD
 |--------|------|-------------|
 | `tool_key` | text | `"local:{name}"` or `"mcp:{server}:{name}"` |
 | `embedding` | vector(1536) | Embedding vector |
+| `embed_text` | text | Concatenated tool description (name + params + description) |
 | `schema_` | jsonb | Full OpenAI function schema |
 | `content_hash` | text | SHA256 of embed text |
+
+**FTS index**: `ix_tool_embeddings_fts` — GIN index on `to_tsvector('english', embed_text)` for BM25 hybrid search.
 
 ### Vector Indexes
 

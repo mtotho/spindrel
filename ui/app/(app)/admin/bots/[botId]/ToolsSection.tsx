@@ -412,6 +412,18 @@ export function ToolsSection({
         )}
       </div>
 
+      {/* Tool Discovery */}
+      {(draft.tool_retrieval ?? true) && (
+        <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
+          <Toggle
+            value={draft.tool_discovery ?? true}
+            onChange={(v) => update({ tool_discovery: v })}
+            label="Tool Discovery"
+            description="Discover undeclared tools from the full tool pool via RAG. Disable to restrict to manually configured tools only. Tool policies still apply at execution time."
+          />
+        </div>
+      )}
+
       {/* Tool Result Summarization */}
       <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
         <div style={{ fontSize: 12, fontWeight: 500, color: t.text, marginBottom: 4 }}>Tool Result Summarization</div>

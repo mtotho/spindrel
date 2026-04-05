@@ -325,7 +325,7 @@ export default function HomeScreen() {
   const hasChannels = (channels?.length ?? 0) > 0;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: t.surface }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", backgroundColor: t.surface }}>
       <MobileHeader
         title="Channels"
         subtitle="Select a channel to start chatting"

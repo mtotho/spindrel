@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "expo-router";
-import { View, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -178,7 +177,7 @@ export default function TasksScreen() {
     : undefined;
 
   return (
-    <View className="flex-1 bg-surface">
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, background: t.surface, overflow: "hidden" }}>
       <MobileHeader
         title="Tasks"
         subtitle={subtitle}
@@ -310,9 +309,9 @@ export default function TasksScreen() {
           <CronJobsView />
         </RefreshableScrollView>
       ) : isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color={t.accent} />
-        </View>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div className="chat-spinner" />
+        </div>
       ) : viewMode === "schedule" ? (
         <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
           <ScheduleView
@@ -362,6 +361,6 @@ export default function TasksScreen() {
           onClone={(id) => setEditorState({ mode: "clone", cloneFromId: id })}
         />
       )}
-    </View>
+    </div>
   );
 }

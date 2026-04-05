@@ -68,7 +68,7 @@ export function getTimezoneAbbr(): string {
  * "2025-03-26T14:30" → "2025-03-26T14:30:00-04:00" (if browser is in EDT)
  */
 export function localInputToISO(value: string): string {
-  if (!value || /^\+\d+[smhd]$/.test(value)) return value;
+  if (!value || /^\+\d+[smhdw]$/.test(value)) return value;
   // datetime-local gives "YYYY-MM-DDTHH:MM" — parse it as local time
   const d = new Date(value);
   if (isNaN(d.getTime())) return value; // unparseable, pass through

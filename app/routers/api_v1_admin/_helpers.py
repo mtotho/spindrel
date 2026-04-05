@@ -54,6 +54,7 @@ def _bot_to_out(
             for s in bot.skills
         ],
         tool_retrieval=bot.tool_retrieval,
+        tool_discovery=bot.tool_discovery,
         tool_similarity_threshold=bot.tool_similarity_threshold,
         tool_result_config=getattr(bot, "tool_result_config", {}),
         persona=bot.persona,

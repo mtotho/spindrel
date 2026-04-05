@@ -127,25 +127,56 @@ export function useChannelEvents(channelId: string | undefined) {
       }
 
       if (payload.type === "stream_start") {
-        // Only start observing if this tab didn't initiate the stream
-        if (ch.isLocalStream || ch.isStreaming) return;
-        // Set streaming state but mark as non-local
-        useChatStore.setState((s) => ({
-          channels: {
-            ...s.channels,
-            [chId]: {
-              ...(s.channels[chId] ?? useChatStore.getState().getChannel(chId)),
-              isStreaming: true,
-              isLocalStream: false,
-              streamingContent: "",
-              thinkingContent: "",
-              toolCalls: [],
-              error: null,
-              respondingBotId: payload.responding_bot_id ?? null,
-              respondingBotName: payload.responding_bot_name ?? null,
+        // Skip if this tab initiated the current stream and no member bot is pending.
+        // When pendingMemberStream is true, we allow stream_start through even during
+        // isLocalStream — this handles the race where stream_start arrives before
+        // onComplete clears isLocalStream.
+        if (ch.isLocalStream && !ch.pendingMemberStream) return;
+        if (ch.isStreaming && !ch.isLocalStream) return; // Already observing another stream
+
+        // If we're transitioning from a local stream to observing a member bot,
+        // materialize the current streaming content as a message first.
+        useChatStore.setState((s) => {
+          const prev = s.channels[chId] ?? useChatStore.getState().getChannel(chId);
+          let messages = prev.messages;
+          if (prev.isLocalStream && prev.streamingContent) {
+            const toolsUsed = prev.toolCalls.length > 0
+              ? prev.toolCalls.map((tc) => tc.name)
+              : undefined;
+            const metadata = toolsUsed ? { tools_used: toolsUsed } : undefined;
+            messages = [
+              ...messages,
+              {
+                id: `msg-${Date.now()}`,
+                session_id: "",
+                role: "assistant" as const,
+                content: prev.streamingContent,
+                created_at: new Date().toISOString(),
+                correlation_id: prev.correlationId ?? undefined,
+                metadata,
+              },
+            ];
+          }
+          return {
+            channels: {
+              ...s.channels,
+              [chId]: {
+                ...prev,
+                messages,
+                isStreaming: true,
+                isLocalStream: false,
+                pendingMemberStream: false,
+                streamingContent: "",
+                thinkingContent: "",
+                toolCalls: [],
+                correlationId: null,
+                error: null,
+                respondingBotId: payload.responding_bot_id ?? null,
+                respondingBotName: payload.responding_bot_name ?? null,
+              },
             },
-          },
-        }));
+          };
+        });
         return;
       }
 

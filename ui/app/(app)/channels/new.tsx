@@ -149,7 +149,7 @@ export default function NewChannelScreen() {
   ) : null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, backgroundColor: theme.surface }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", backgroundColor: theme.surface }}>
       {/* Header */}
       <div style={{
         display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
@@ -185,180 +185,193 @@ export default function NewChannelScreen() {
 
       {/* Step 1: Basics */}
       {step === "basics" && (
-        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-          <div style={{ padding: 20, maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <Section title="Channel Name">
-                <TextInput
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="my-channel"
-                />
-              </Section>
-
-              {/* Model picker */}
-              {!useBotMode && (
-                <Section title="Model">
-                  <LlmModelDropdown
-                    value={selectedModel}
-                    onChange={(modelId) => setSelectedModel(modelId)}
-                    placeholder="Default (from bot)"
-                    allowClear
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+          {/* Scrollable form content */}
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <div style={{ padding: 20, maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <Section title="Channel Name">
+                  <TextInput
+                    value={name}
+                    onChangeText={setName}
+                    placeholder="my-channel"
                   />
                 </Section>
-              )}
 
-              {/* Bot mode toggle */}
+                {/* Model picker */}
+                {!useBotMode && (
+                  <Section title="Model">
+                    <LlmModelDropdown
+                      value={selectedModel}
+                      onChange={(modelId) => setSelectedModel(modelId)}
+                      placeholder="Default (from bot)"
+                      allowClear
+                    />
+                  </Section>
+                )}
+
+                {/* Bot mode toggle */}
+                <button
+                  type="button"
+                  onClick={() => setUseBotMode(!useBotMode)}
+                  style={{
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
+                    background: "none", border: "none", cursor: "pointer", padding: 0,
+                    font: "inherit",
+                  }}
+                >
+                  <span style={{ color: theme.textMuted, fontSize: 12, textDecoration: "underline" }}>
+                    {useBotMode ? "Pick a model instead" : "Or use an existing bot"}
+                  </span>
+                </button>
+
+                {useBotMode && (
+                  <Section title="Bot">
+                    <SelectInput
+                      value={botId}
+                      onChange={setBotId}
+                      options={botOptions}
+                    />
+                  </Section>
+                )}
+
+                {/* Category */}
+                <Section title="Category (optional)">
+                  <TextInput
+                    value={category}
+                    onChangeText={setCategory}
+                    placeholder="e.g. Work, Personal, Projects"
+                  />
+                  {categorySuggestions.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                      {categorySuggestions.slice(0, 5).map((cat) => (
+                        <button
+                          type="button"
+                          key={cat}
+                          onClick={() => setCategory(cat)}
+                          style={{
+                            backgroundColor: theme.surfaceBorder,
+                            padding: "3px 8px",
+                            borderRadius: 4,
+                            border: "none",
+                            cursor: "pointer",
+                            font: "inherit",
+                            fontSize: 11,
+                            color: theme.textMuted,
+                          }}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+
+                <Toggle
+                  value={isPrivate}
+                  onChange={setIsPrivate}
+                  label="Private"
+                  description="Only visible to you"
+                />
+
+                {/* Member bots (multi-bot channel) */}
+                {(bots ?? []).filter((b) => b.id !== (useBotMode ? botId : "default")).length > 0 && (
+                  <Section title="Member Bots (optional)" description="Add additional bots that can participate when @-mentioned">
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {(bots ?? [])
+                        .filter((b) => b.id !== (useBotMode ? botId : "default"))
+                        .map((b) => {
+                          const selected = memberBotIds.includes(b.id);
+                          return (
+                            <button
+                              type="button"
+                              key={b.id}
+                              onClick={() => setMemberBotIds((prev) =>
+                                selected ? prev.filter((x) => x !== b.id) : [...prev, b.id]
+                              )}
+                              style={{
+                                display: "flex",
+                                flexDirection: "row",
+                                alignItems: "center",
+                                gap: 8,
+                                padding: "6px 10px",
+                                borderRadius: 6,
+                                border: `1px solid ${selected ? theme.accent : theme.surfaceBorder}`,
+                                background: selected ? `${theme.accent}10` : "transparent",
+                                cursor: "pointer",
+                                font: "inherit",
+                                textAlign: "left",
+                                color: "inherit",
+                              }}
+                            >
+                              {selected && <Check size={14} color={theme.accent} />}
+                              <span style={{ fontSize: 13, color: theme.text, flex: 1 }}>{b.name}</span>
+                              <span style={{ fontSize: 11, color: theme.textDim }}>{b.id}</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </Section>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Sticky footer — always visible */}
+          <div
+            style={{
+              borderTop: `1px solid ${theme.surfaceBorder}`,
+              padding: "14px 20px",
+              maxWidth: 560,
+              width: "100%",
+              boxSizing: "border-box",
+            }}
+          >
+            {errorBanner}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <button
                 type="button"
-                onClick={() => setUseBotMode(!useBotMode)}
+                onClick={() => canProceed && setStep("template")}
+                disabled={!canProceed}
                 style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                  background: "none", border: "none", cursor: "pointer", padding: 0,
+                  backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
+                  padding: "12px 20px",
+                  borderRadius: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  opacity: canProceed ? 1 : 0.5,
+                  border: "none",
+                  cursor: canProceed ? "pointer" : "default",
                   font: "inherit",
                 }}
               >
-                <span style={{ color: theme.textMuted, fontSize: 12, textDecoration: "underline" }}>
-                  {useBotMode ? "Pick a model instead" : "Or use an existing bot"}
+                <span style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: 600 }}>
+                  Continue
                 </span>
+                <ArrowRight size={16} color={canProceed ? "#fff" : theme.textDim} />
               </button>
 
-              {useBotMode && (
-                <Section title="Bot">
-                  <SelectInput
-                    value={botId}
-                    onChange={setBotId}
-                    options={botOptions}
-                  />
-                </Section>
-              )}
-
-              {/* Category */}
-              <Section title="Category (optional)">
-                <TextInput
-                  value={category}
-                  onChangeText={setCategory}
-                  placeholder="e.g. Work, Personal, Projects"
-                />
-                {categorySuggestions.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                    {categorySuggestions.slice(0, 5).map((cat) => (
-                      <button
-                        type="button"
-                        key={cat}
-                        onClick={() => setCategory(cat)}
-                        style={{
-                          backgroundColor: theme.surfaceBorder,
-                          padding: "3px 8px",
-                          borderRadius: 4,
-                          border: "none",
-                          cursor: "pointer",
-                          font: "inherit",
-                          fontSize: 11,
-                          color: theme.textMuted,
-                        }}
-                      >
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </Section>
-
-              <Toggle
-                value={isPrivate}
-                onChange={setIsPrivate}
-                label="Private"
-                description="Only visible to you"
-              />
-
-              {/* Member bots (multi-bot channel) */}
-              {(bots ?? []).filter((b) => b.id !== (useBotMode ? botId : "default")).length > 0 && (
-                <Section title="Member Bots (optional)" description="Add additional bots that can participate when @-mentioned">
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {(bots ?? [])
-                      .filter((b) => b.id !== (useBotMode ? botId : "default"))
-                      .map((b) => {
-                        const selected = memberBotIds.includes(b.id);
-                        return (
-                          <button
-                            type="button"
-                            key={b.id}
-                            onClick={() => setMemberBotIds((prev) =>
-                              selected ? prev.filter((x) => x !== b.id) : [...prev, b.id]
-                            )}
-                            style={{
-                              display: "flex",
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 8,
-                              padding: "6px 10px",
-                              borderRadius: 6,
-                              border: `1px solid ${selected ? theme.accent : theme.surfaceBorder}`,
-                              background: selected ? `${theme.accent}10` : "transparent",
-                              cursor: "pointer",
-                              font: "inherit",
-                              textAlign: "left",
-                              color: "inherit",
-                            }}
-                          >
-                            {selected && <Check size={14} color={theme.accent} />}
-                            <span style={{ fontSize: 13, color: theme.text, flex: 1 }}>{b.name}</span>
-                            <span style={{ fontSize: 11, color: theme.textDim }}>{b.id}</span>
-                          </button>
-                        );
-                      })}
-                  </div>
-                </Section>
-              )}
-
-              {/* Action buttons */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => canProceed && setStep("template")}
-                  disabled={!canProceed}
-                  style={{
-                    backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
-                    padding: "12px 20px",
-                    borderRadius: 8,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 8,
-                    opacity: canProceed ? 1 : 0.5,
-                    border: "none",
-                    cursor: canProceed ? "pointer" : "default",
-                    font: "inherit",
-                  }}
-                >
-                  <span style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: 600 }}>
-                    Continue
-                  </span>
-                  <ArrowRight size={16} color={canProceed ? "#fff" : theme.textDim} />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleQuickCreate}
-                  disabled={!canProceed || createChannel.isPending}
-                  style={{
-                    border: `1px solid ${theme.surfaceBorder}`,
-                    padding: "10px 20px",
-                    borderRadius: 8,
-                    textAlign: "center",
-                    cursor: canProceed && !createChannel.isPending ? "pointer" : "default",
-                    background: "none",
-                    font: "inherit",
-                    color: theme.textMuted,
-                    fontSize: 14,
-                  }}
-                >
-                  {createChannel.isPending ? "Creating..." : "Quick Create (skip wizard)"}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleQuickCreate}
+                disabled={!canProceed || createChannel.isPending}
+                style={{
+                  border: `1px solid ${theme.surfaceBorder}`,
+                  padding: "10px 20px",
+                  borderRadius: 8,
+                  textAlign: "center",
+                  cursor: canProceed && !createChannel.isPending ? "pointer" : "default",
+                  background: "none",
+                  font: "inherit",
+                  color: theme.textMuted,
+                  fontSize: 14,
+                }}
+              >
+                {createChannel.isPending ? "Creating..." : "Quick Create (skip wizard)"}
+              </button>
             </div>
-            {errorBanner}
           </div>
         </div>
       )}

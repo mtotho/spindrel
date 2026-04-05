@@ -281,7 +281,13 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
           cancelAnimationFrame(rafRef.current[channelId] || 0);
           flushChannel(channelId);
         }
-        finishStreaming(channelId);
+        // Only finishStreaming if we're still the local stream.
+        // If a member bot's stream_start already arrived (via useChannelEvents),
+        // isLocalStream was cleared and we're now observing — don't interrupt that.
+        const ch = useChatStore.getState().getChannel(channelId);
+        if (ch.isLocalStream) {
+          finishStreaming(channelId);
+        }
       }
       // Refetch messages to get real DB records (with attachments, full metadata, etc.)
       // persist_turn runs before the SSE connection closes, so data is ready.
