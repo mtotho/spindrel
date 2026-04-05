@@ -51,27 +51,28 @@ class TestClamp:
 
 class TestParseSkillEntries:
     def test_strings_are_on_demand(self):
-        pinned, rag, on_demand = _parse_skill_entries(["skill1", "skill2"])
+        pinned, on_demand = _parse_skill_entries(["skill1", "skill2"])
         assert len(on_demand) == 2
         assert on_demand[0]["id"] == "skill1"
         assert pinned == []
-        assert rag == []
 
     def test_pinned_dict(self):
-        pinned, rag, on_demand = _parse_skill_entries([{"id": "s1", "mode": "pinned"}])
+        pinned, on_demand = _parse_skill_entries([{"id": "s1", "mode": "pinned"}])
         assert len(pinned) == 1
         assert pinned[0]["mode"] == "pinned"
 
-    def test_rag_dict(self):
-        pinned, rag, on_demand = _parse_skill_entries([{"id": "s1", "mode": "rag"}])
-        assert len(rag) == 1
+    def test_rag_dict_falls_to_on_demand(self):
+        """Legacy rag mode entries should land in on_demand bucket."""
+        pinned, on_demand = _parse_skill_entries([{"id": "s1", "mode": "rag"}])
+        assert len(on_demand) == 1
+        assert pinned == []
 
     def test_default_mode_on_demand(self):
-        pinned, rag, on_demand = _parse_skill_entries([{"id": "s1"}])
+        pinned, on_demand = _parse_skill_entries([{"id": "s1"}])
         assert len(on_demand) == 1
 
     def test_non_string_non_dict(self):
-        pinned, rag, on_demand = _parse_skill_entries([42])
+        pinned, on_demand = _parse_skill_entries([42])
         assert len(on_demand) == 1
         assert on_demand[0]["id"] == "42"
 

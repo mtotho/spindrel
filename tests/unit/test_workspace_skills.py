@@ -24,7 +24,7 @@ class TestModeFromPath:
         assert _mode_from_path("common/skills/pinned/coding.md") == "pinned"
 
     def test_rag_subdir(self):
-        assert _mode_from_path("common/skills/rag/knowledge.md") == "rag"
+        assert _mode_from_path("common/skills/rag/knowledge.md") == "on_demand"
 
     def test_on_demand_subdir(self):
         assert _mode_from_path("common/skills/on-demand/reference.md") == "on_demand"
@@ -36,7 +36,7 @@ class TestModeFromPath:
         assert _mode_from_path("bots/coder/skills/pinned/style.md") == "pinned"
 
     def test_bot_rag(self):
-        assert _mode_from_path("bots/coder/skills/rag/api.md") == "rag"
+        assert _mode_from_path("bots/coder/skills/rag/api.md") == "on_demand"
 
     def test_bot_on_demand(self):
         assert _mode_from_path("bots/coder/skills/on-demand/ref.md") == "on_demand"
@@ -134,13 +134,14 @@ class TestDiscoverWorkspaceSkills:
         assert "common/skills/pinned/coding.md" in pinned_paths
 
     @patch("app.services.workspace_skills.shared_workspace_service")
-    def test_discover_common_skills_rag(self, mock_svc):
+    def test_discover_rag_subdir_maps_to_on_demand(self, mock_svc):
+        """The rag/ subdirectory now maps to on_demand mode."""
         mock_svc.list_files.side_effect = _mock_list_files
         mock_svc.read_file.side_effect = _mock_read_file
         skills = discover_workspace_skills("ws-123")
-        rag = [s for s in skills if s.mode == "rag"]
-        assert len(rag) == 1
-        assert rag[0].source_path == "common/skills/rag/knowledge.md"
+        from_rag_dir = [s for s in skills if "rag/knowledge.md" in s.source_path]
+        assert len(from_rag_dir) == 1
+        assert from_rag_dir[0].mode == "on_demand"
 
     @patch("app.services.workspace_skills.shared_workspace_service")
     def test_discover_common_skills_on_demand(self, mock_svc):
@@ -148,8 +149,11 @@ class TestDiscoverWorkspaceSkills:
         mock_svc.read_file.side_effect = _mock_read_file
         skills = discover_workspace_skills("ws-123")
         od = [s for s in skills if s.mode == "on_demand"]
-        assert len(od) == 1
-        assert od[0].source_path == "common/skills/on-demand/reference.md"
+        # Both rag/knowledge.md and on-demand/reference.md should be on_demand now
+        assert len(od) == 2
+        paths = {s.source_path for s in od}
+        assert "common/skills/rag/knowledge.md" in paths
+        assert "common/skills/on-demand/reference.md" in paths
 
     @patch("app.services.workspace_skills.shared_workspace_service")
     def test_discover_common_skills_toplevel_defaults_pinned(self, mock_svc):
@@ -216,12 +220,11 @@ class TestGetWorkspaceSkillsForBot:
         mock_svc.read_file.side_effect = _mock_read_file
         result = await get_workspace_skills_for_bot("ws-123", "coder")
         assert "pinned" in result
-        assert "rag" in result
         assert "on_demand" in result
         # quickstart.md + coding.md + style.md are pinned
         assert len(result["pinned"]) == 3
-        assert len(result["rag"]) == 1
-        assert len(result["on_demand"]) == 1
+        # rag/ now maps to on_demand, so on_demand has both rag/knowledge.md + on-demand/reference.md
+        assert len(result["on_demand"]) == 2
 
     @pytest.mark.asyncio
     @patch("app.services.workspace_skills.shared_workspace_service")
@@ -229,7 +232,7 @@ class TestGetWorkspaceSkillsForBot:
         mock_svc.list_files.side_effect = _mock_list_files
         mock_svc.read_file.side_effect = _mock_read_file
         result = await get_workspace_skills_for_bot("ws-123", "coder")
-        all_skills = result["pinned"] + result["rag"] + result["on_demand"]
+        all_skills = result["pinned"] + result["on_demand"]
         # Common (4) + bot-specific (1) = 5
         assert len(all_skills) == 5
         bot_skills = [s for s in all_skills if s.bot_id == "coder"]

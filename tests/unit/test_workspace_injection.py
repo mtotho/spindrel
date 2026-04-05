@@ -82,61 +82,6 @@ class TestInjectWorkspaceSkillsPinned:
 
 
 # ---------------------------------------------------------------------------
-# _inject_workspace_skills — RAG injection
-# ---------------------------------------------------------------------------
-
-class TestInjectWorkspaceSkillsRag:
-    @pytest.mark.asyncio
-    @patch("app.agent.rag.retrieve_context", new_callable=AsyncMock)
-    @patch("app.services.workspace_skills.shared_workspace_service")
-    async def test_rag_skills_retrieved_and_injected(self, mock_svc, mock_retrieve):
-        """RAG workspace skills should query retrieve_context and inject results."""
-        from app.agent.context_assembly import _inject_workspace_skills
-
-        mock_svc.list_files.return_value = []
-        rag = _skill("ws-1", "common/skills/rag/api.md", "rag", "API reference content")
-        mock_retrieve.return_value = ([("Retrieved chunk about API", "ws_skill:ws-1:common/skills/rag/api.md")], 0.85)
-
-        with patch("app.services.workspace_skills.discover_workspace_skills", return_value=[rag]):
-            messages = []
-            inject_chars = {}
-            events = []
-            async for evt in _inject_workspace_skills(messages, "ws-1", "coder", "how does the API work?", inject_chars):
-                events.append(evt)
-
-            # Should have called retrieve_context with sources filter
-            mock_retrieve.assert_called_once()
-            call_kwargs = mock_retrieve.call_args
-            assert "sources" in call_kwargs.kwargs or len(call_kwargs.args) > 1
-
-            # Should inject retrieved content
-            assert len(messages) == 1
-            assert "Relevant workspace skills:" in messages[0]["content"]
-            assert "Retrieved chunk about API" in messages[0]["content"]
-            assert any(e["type"] == "ws_skill_rag_context" for e in events)
-
-    @pytest.mark.asyncio
-    @patch("app.agent.rag.retrieve_context", new_callable=AsyncMock)
-    @patch("app.services.workspace_skills.shared_workspace_service")
-    async def test_rag_no_results_no_message(self, mock_svc, mock_retrieve):
-        """If RAG retrieval returns no chunks, no message should be injected."""
-        from app.agent.context_assembly import _inject_workspace_skills
-
-        mock_svc.list_files.return_value = []
-        rag = _skill("ws-1", "common/skills/rag/api.md", "rag", "API reference content")
-        mock_retrieve.return_value = ([], 0.0)
-
-        with patch("app.services.workspace_skills.discover_workspace_skills", return_value=[rag]):
-            messages = []
-            events = []
-            async for evt in _inject_workspace_skills(messages, "ws-1", "coder", "unrelated query", {}):
-                events.append(evt)
-
-            assert len(messages) == 0
-            assert not any(e.get("type") == "ws_skill_rag_context" for e in events)
-
-
-# ---------------------------------------------------------------------------
 # _inject_workspace_skills — on-demand injection
 # ---------------------------------------------------------------------------
 
@@ -163,6 +108,27 @@ class TestInjectWorkspaceSkillsOnDemand:
             assert od.display_name in messages[0]["content"]
             assert any(e["type"] == "ws_skill_index" for e in events)
 
+    @pytest.mark.asyncio
+    @patch("app.services.workspace_skills.shared_workspace_service")
+    async def test_rag_dir_skills_appear_as_on_demand(self, mock_svc):
+        """Skills from the rag/ directory should now be treated as on_demand (index listed)."""
+        from app.agent.context_assembly import _inject_workspace_skills
+
+        mock_svc.list_files.return_value = []
+        # rag/ directory now maps to on_demand mode
+        from_rag_dir = _skill("ws-1", "common/skills/rag/api.md", "on_demand", "API reference content")
+
+        with patch("app.services.workspace_skills.discover_workspace_skills", return_value=[from_rag_dir]):
+            messages = []
+            events = []
+            async for evt in _inject_workspace_skills(messages, "ws-1", "coder", "how does API work?", {}):
+                events.append(evt)
+
+            assert len(messages) == 1
+            assert "Available workspace skills" in messages[0]["content"]
+            assert from_rag_dir.skill_id in messages[0]["content"]
+            assert any(e["type"] == "ws_skill_index" for e in events)
+
 
 # ---------------------------------------------------------------------------
 # _inject_workspace_skills — mixed modes
@@ -170,18 +136,15 @@ class TestInjectWorkspaceSkillsOnDemand:
 
 class TestInjectWorkspaceSkillsMixed:
     @pytest.mark.asyncio
-    @patch("app.agent.rag.retrieve_context", new_callable=AsyncMock)
     @patch("app.services.workspace_skills.shared_workspace_service")
-    async def test_all_three_modes_injected(self, mock_svc, mock_retrieve):
-        """When all three modes are present, all three should produce messages."""
+    async def test_pinned_and_on_demand_injected(self, mock_svc):
+        """When both pinned and on-demand skills are present, both should produce messages."""
         from app.agent.context_assembly import _inject_workspace_skills
 
         mock_svc.list_files.return_value = []
-        mock_retrieve.return_value = ([("RAG chunk", "ws_skill:ws-1:common/skills/rag/b.md")], 0.9)
 
         skills = [
             _skill("ws-1", "common/skills/pinned/a.md", "pinned", "Pinned content"),
-            _skill("ws-1", "common/skills/rag/b.md", "rag", "RAG content"),
             _skill("ws-1", "common/skills/on-demand/c.md", "on_demand", "OD content"),
         ]
 
@@ -192,15 +155,13 @@ class TestInjectWorkspaceSkillsMixed:
             async for evt in _inject_workspace_skills(messages, "ws-1", "coder", "test query", inject_chars):
                 events.append(evt)
 
-            # Should have 3 system messages (pinned + rag + on-demand index)
-            assert len(messages) == 3
+            # Should have 2 system messages (pinned + on-demand index)
+            assert len(messages) == 2
             assert "Workspace pinned skills:" in messages[0]["content"]
-            assert "Relevant workspace skills:" in messages[1]["content"]
-            assert "Available workspace skills" in messages[2]["content"]
+            assert "Available workspace skills" in messages[1]["content"]
 
             event_types = [e["type"] for e in events]
             assert "ws_skill_pinned_context" in event_types
-            assert "ws_skill_rag_context" in event_types
             assert "ws_skill_index" in event_types
 
     @pytest.mark.asyncio

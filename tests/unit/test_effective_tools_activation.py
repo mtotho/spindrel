@@ -37,7 +37,6 @@ def _channel(**kwargs) -> SimpleNamespace:
         client_tools_override=None,
         client_tools_disabled=None,
         pinned_tools_override=None,
-        skills_override=None,
         skills_disabled=None,
         skills_extra=None,
         carapaces_extra=None,

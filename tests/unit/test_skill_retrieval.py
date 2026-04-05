@@ -1,4 +1,4 @@
-"""Tests for skill retrieval enhancements: enriched on-demand index, trigger keyword boost."""
+"""Tests for skill retrieval enhancements: enriched on-demand index, SkillConfig normalization."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -109,214 +109,40 @@ class TestOnDemandSkillIndex:
 
 
 # ---------------------------------------------------------------------------
-# Trigger keyword boost for RAG skills
+# SkillConfig normalization
 # ---------------------------------------------------------------------------
 
 
-class TestTriggerBoostRagSkills:
-    """Test the _trigger_boost_rag_skills helper."""
+class TestSkillConfigNormalization:
+    """Test that SkillConfig normalizes legacy 'rag' mode to 'on_demand'."""
 
-    @pytest.mark.asyncio
-    async def test_trigger_match_surfaces_missed_skill(self):
-        """A RAG skill with trigger 'python' should surface when user says 'python'."""
+    def test_rag_mode_normalized_to_on_demand(self):
+        """mode='rag' should be silently converted to 'on_demand'."""
         from app.agent.bots import SkillConfig
-        import app.agent.context_assembly as ctx_mod
 
-        rag_skills = [
-            SkillConfig(id="python-guide", mode="rag"),
-            SkillConfig(id="java-guide", mode="rag"),
-        ]
-        surfaced_ids = {"java-guide"}  # python-guide was missed by cosine
+        sc = SkillConfig(id="test-skill", mode="rag")
+        assert sc.mode == "on_demand"
 
-        # Mock DB to return triggers
-        mock_python_row = MagicMock()
-        mock_python_row.id = "python-guide"
-        mock_python_row.triggers = ["python", "pip"]
-
-        with patch("app.db.engine.async_session") as mock_session:
-            mock_db = AsyncMock()
-            mock_result = MagicMock()
-            # Only python-guide is in the missed set (java-guide already surfaced)
-            mock_result.all.return_value = [mock_python_row]
-            mock_db.execute.return_value = mock_result
-            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            with patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock) as mock_fetch:
-                mock_fetch.return_value = ["Python is a great language..."]
-
-                result = await ctx_mod._trigger_boost_rag_skills(
-                    "how do I use python for scripting?",
-                    rag_skills,
-                    surfaced_ids,
-                )
-
-                assert len(result) == 1
-                assert result[0][0] == "python-guide"
-                assert result[0][1] == "Python is a great language..."
-                mock_fetch.assert_called_once_with("python-guide")
-
-    @pytest.mark.asyncio
-    async def test_no_trigger_match_returns_empty(self):
-        """When no triggers match the user message, return empty."""
+    def test_on_demand_mode_unchanged(self):
+        """mode='on_demand' should remain unchanged."""
         from app.agent.bots import SkillConfig
-        import app.agent.context_assembly as ctx_mod
 
-        rag_skills = [SkillConfig(id="python-guide", mode="rag")]
-        surfaced_ids = set()
+        sc = SkillConfig(id="test-skill", mode="on_demand")
+        assert sc.mode == "on_demand"
 
-        mock_row = MagicMock()
-        mock_row.id = "python-guide"
-        mock_row.triggers = ["python"]
-
-        with patch("app.db.engine.async_session") as mock_session:
-            mock_db = AsyncMock()
-            mock_result = MagicMock()
-            mock_result.all.return_value = [mock_row]
-            mock_db.execute.return_value = mock_result
-            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            result = await ctx_mod._trigger_boost_rag_skills(
-                "tell me about java programming",
-                rag_skills,
-                surfaced_ids,
-            )
-
-            assert result == []
-
-    @pytest.mark.asyncio
-    async def test_already_surfaced_not_boosted(self):
-        """Skills already surfaced by cosine should not be trigger-boosted."""
+    def test_pinned_mode_unchanged(self):
+        """mode='pinned' should remain unchanged."""
         from app.agent.bots import SkillConfig
-        import app.agent.context_assembly as ctx_mod
 
-        rag_skills = [SkillConfig(id="python-guide", mode="rag")]
-        surfaced_ids = {"python-guide"}  # already surfaced
+        sc = SkillConfig(id="test-skill", mode="pinned")
+        assert sc.mode == "pinned"
 
-        result = await ctx_mod._trigger_boost_rag_skills(
-            "how do I use python",
-            rag_skills,
-            surfaced_ids,
-        )
-
-        # Should return empty since python-guide is already surfaced
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_multi_word_trigger_matches_as_substring(self):
-        """Multi-word triggers should match as substrings in the message."""
+    def test_default_mode_is_on_demand(self):
+        """Default mode should be 'on_demand'."""
         from app.agent.bots import SkillConfig
-        import app.agent.context_assembly as ctx_mod
 
-        rag_skills = [SkillConfig(id="api-guide", mode="rag")]
-        surfaced_ids = set()
-
-        mock_row = MagicMock()
-        mock_row.id = "api-guide"
-        mock_row.triggers = ["rest api", "api design"]
-
-        with patch("app.db.engine.async_session") as mock_session:
-            mock_db = AsyncMock()
-            mock_result = MagicMock()
-            mock_result.all.return_value = [mock_row]
-            mock_db.execute.return_value = mock_result
-            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            with patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock) as mock_fetch:
-                mock_fetch.return_value = ["REST API best practices..."]
-
-                result = await ctx_mod._trigger_boost_rag_skills(
-                    "help me with rest api endpoints",
-                    rag_skills,
-                    surfaced_ids,
-                )
-
-                assert len(result) == 1
-                assert result[0][0] == "api-guide"
-
-    @pytest.mark.asyncio
-    async def test_case_insensitive_matching(self):
-        """Trigger matching should be case-insensitive."""
-        from app.agent.bots import SkillConfig
-        import app.agent.context_assembly as ctx_mod
-
-        rag_skills = [SkillConfig(id="docker-guide", mode="rag")]
-        surfaced_ids = set()
-
-        mock_row = MagicMock()
-        mock_row.id = "docker-guide"
-        mock_row.triggers = ["Docker", "container"]
-
-        with patch("app.db.engine.async_session") as mock_session:
-            mock_db = AsyncMock()
-            mock_result = MagicMock()
-            mock_result.all.return_value = [mock_row]
-            mock_db.execute.return_value = mock_result
-            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            with patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock) as mock_fetch:
-                mock_fetch.return_value = ["Docker containers..."]
-
-                result = await ctx_mod._trigger_boost_rag_skills(
-                    "how to set up docker compose",
-                    rag_skills,
-                    surfaced_ids,
-                )
-
-                assert len(result) == 1
-
-    @pytest.mark.asyncio
-    async def test_empty_triggers_skipped(self):
-        """Skills with empty triggers list should not match."""
-        from app.agent.bots import SkillConfig
-        import app.agent.context_assembly as ctx_mod
-
-        rag_skills = [SkillConfig(id="empty-skill", mode="rag")]
-        surfaced_ids = set()
-
-        mock_row = MagicMock()
-        mock_row.id = "empty-skill"
-        mock_row.triggers = []
-
-        with patch("app.db.engine.async_session") as mock_session:
-            mock_db = AsyncMock()
-            mock_result = MagicMock()
-            mock_result.all.return_value = [mock_row]
-            mock_db.execute.return_value = mock_result
-            mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            result = await ctx_mod._trigger_boost_rag_skills(
-                "anything at all",
-                rag_skills,
-                surfaced_ids,
-            )
-
-            assert result == []
-
-    @pytest.mark.asyncio
-    async def test_db_error_returns_empty(self):
-        """DB errors should be handled gracefully, returning empty list."""
-        from app.agent.bots import SkillConfig
-        import app.agent.context_assembly as ctx_mod
-
-        rag_skills = [SkillConfig(id="fail-skill", mode="rag")]
-        surfaced_ids = set()
-
-        with patch("app.db.engine.async_session") as mock_session:
-            mock_session.return_value.__aenter__ = AsyncMock(side_effect=Exception("DB error"))
-            mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
-            result = await ctx_mod._trigger_boost_rag_skills(
-                "trigger keyword here",
-                rag_skills,
-                surfaced_ids,
-            )
-
-            assert result == []
+        sc = SkillConfig(id="test-skill")
+        assert sc.mode == "on_demand"
 
 
 # ---------------------------------------------------------------------------

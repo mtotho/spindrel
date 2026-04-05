@@ -496,12 +496,23 @@ class TestSkillInjection:
         assert len(pinned_events) == 1
 
     @pytest.mark.asyncio
-    async def test_rag_skills_inject_when_similar(self, engine):
-        """RAG skills should inject content when similarity is above threshold."""
-        bot = _make_bot(skills=[SkillConfig(id="rag-skill", mode="rag")])
+    async def test_legacy_rag_mode_treated_as_on_demand(self, engine):
+        """Skills created with mode='rag' should be normalized to on_demand."""
+        # SkillConfig normalizes rag → on_demand in __post_init__
+        skill = SkillConfig(id="legacy-rag-skill", mode="rag")
+        assert skill.mode == "on_demand"
+
+        bot = _make_bot(skills=[skill])
         messages = [{"role": "system", "content": bot.system_prompt}]
         result = AssemblyResult()
         factory = _session_factory(engine)
+
+        # Mock the DB query for on-demand skill index
+        mock_skill_row = MagicMock()
+        mock_skill_row.id = "legacy-rag-skill"
+        mock_skill_row.name = "Legacy RAG Skill"
+        mock_skill_row.description = "Was RAG, now on-demand"
+        mock_skill_row.triggers = []
 
         with (
             patch("app.db.engine.async_session", factory),
@@ -509,11 +520,6 @@ class TestSkillInjection:
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
             patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
-            patch(
-                "app.agent.context_assembly.retrieve_context",
-                new_callable=AsyncMock,
-                return_value=([("RAG chunk content", "skill:rag-skill")], 0.85),
-            ),
         ):
             events = await _collect(assemble_context(
                 messages=messages,
@@ -530,13 +536,8 @@ class TestSkillInjection:
                 result=result,
             ))
 
-        # RAG content should be injected
-        rag_msgs = [m for m in messages if "RAG chunk content" in m.get("content", "")]
-        assert len(rag_msgs) == 1
-
-        # Should have a skill_context event
-        skill_events = [e for e in events if e.get("type") == "skill_context"]
-        assert len(skill_events) == 1
+        # The skill should be treated as on-demand (index listed, not RAG injected)
+        assert all(s.mode == "on_demand" for s in bot.skills)
 
 
 class TestDelegateIndex:
