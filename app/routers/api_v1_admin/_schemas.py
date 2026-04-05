@@ -28,7 +28,6 @@ class KnowledgeConfigOut(BaseModel):
 class SkillConfigOut(BaseModel):
     id: str
     mode: str = "on_demand"
-    similarity_threshold: Optional[float] = None
 
     model_config = {"from_attributes": True}
 

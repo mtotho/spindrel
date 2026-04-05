@@ -93,6 +93,32 @@ class TestMemoryFlushResolution:
         bot = _make_bot()
         assert _resolve_memory_flush_enabled(bot, None) is False
 
+    @patch("app.services.compaction.settings")
+    def test_resolve_memory_flush_auto_enable_workspace_files(self, mock_settings):
+        """workspace-files bots get memory flush auto-enabled."""
+        from app.services.compaction import _resolve_memory_flush_enabled
+        mock_settings.MEMORY_FLUSH_ENABLED = False
+        bot = _make_bot(memory_scheme="workspace-files")
+        ch = _make_channel(memory_flush_enabled=None)
+        assert _resolve_memory_flush_enabled(bot, ch) is True
+
+    @patch("app.services.compaction.settings")
+    def test_resolve_memory_flush_auto_enable_no_channel(self, mock_settings):
+        """workspace-files auto-enable works even without a channel object."""
+        from app.services.compaction import _resolve_memory_flush_enabled
+        mock_settings.MEMORY_FLUSH_ENABLED = False
+        bot = _make_bot(memory_scheme="workspace-files")
+        assert _resolve_memory_flush_enabled(bot, None) is True
+
+    @patch("app.services.compaction.settings")
+    def test_resolve_memory_flush_channel_override_beats_auto_enable(self, mock_settings):
+        """Channel-level disable overrides workspace-files auto-enable."""
+        from app.services.compaction import _resolve_memory_flush_enabled
+        mock_settings.MEMORY_FLUSH_ENABLED = False
+        bot = _make_bot(memory_scheme="workspace-files")
+        ch = _make_channel(memory_flush_enabled=False)
+        assert _resolve_memory_flush_enabled(bot, ch) is False
+
     def test_resolve_memory_flush_model_channel_override(self):
         from app.services.compaction import _get_memory_flush_model
         bot = _make_bot()

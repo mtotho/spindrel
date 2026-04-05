@@ -450,6 +450,10 @@ async def create_channel(
                 )
                 db.add(ci)
 
+            # Auto-select workspace template for the first integration that declares one
+            if not getattr(channel, "workspace_schema_template_id", None):
+                await _auto_select_workspace_template(channel, int_type, manifest, db)
+
     # Add member bots if specified
     if body.member_bot_ids:
         for mbid in body.member_bot_ids:
@@ -1314,6 +1318,43 @@ def _resolve_activation_client_id(integration_type: str, channel_id: uuid.UUID) 
     return resolved
 
 
+async def _auto_select_workspace_template(
+    channel: Channel,
+    integration_type: str,
+    manifest: dict,
+    db: AsyncSession,
+) -> None:
+    """Auto-assign a workspace template when an integration declares compatible_templates.
+
+    Only applies if: workspace is enabled, no template already set, no schema override,
+    and the integration declares compatible_templates tags.
+    """
+    if not channel.channel_workspace_enabled:
+        return
+    if getattr(channel, "workspace_schema_template_id", None):
+        return  # already has a template
+    if getattr(channel, "workspace_schema_content", None):
+        return  # has a manual override
+
+    compat_tags = manifest.get("compatible_templates", [])
+    if not compat_tags:
+        return
+
+    from app.db.models import PromptTemplate
+    # Look for a template matching the first compatible tag
+    tag = compat_tags[0]
+    row = (await db.execute(
+        select(PromptTemplate).where(
+            PromptTemplate.category == "workspace_schema",
+            PromptTemplate.tags.contains([tag]),
+        ).limit(1)
+    )).scalar_one_or_none()
+
+    if row:
+        channel.workspace_schema_template_id = row.id
+        db.add(channel)
+
+
 @router.post("/{channel_id}/integrations/{integration_type}/activate", response_model=ActivationOut)
 async def activate_integration(
     channel_id: uuid.UUID,
@@ -1385,6 +1426,9 @@ async def activate_integration(
             activated=True,
         )
         db.add(ci)
+
+    # Auto-select workspace template if applicable
+    await _auto_select_workspace_template(channel, integration_type, manifest, db)
 
     await db.commit()
 

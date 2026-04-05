@@ -339,3 +339,32 @@ class TestFormatSectionIndex:
         assert "read_conversation_history" in result
         assert "search:<query>" in result
         assert "tool:<id>" in result
+
+    def test_topic_map_appended_when_all_tags_provided(self):
+        """When total > displayed and all_tags given, topic frequency is appended."""
+        sections = [self._make_section(sequence=10)]
+        all_tags = ["auth", "deploy", "deploy", "auth", "auth", "config"]
+        result = format_section_index(sections, total_sections=10, all_tags=all_tags)
+        assert "Topic coverage (all 10 sections):" in result
+        assert "auth (3)" in result
+        assert "deploy (2)" in result
+        assert "config (1)" in result
+
+    def test_topic_map_not_shown_when_total_equals_displayed(self):
+        """No topic map when all sections are displayed."""
+        sections = [self._make_section(sequence=1, tags=["auth"])]
+        all_tags = ["auth"]
+        result = format_section_index(sections, total_sections=1, all_tags=all_tags)
+        assert "Topic coverage" not in result
+
+    def test_topic_map_not_shown_when_all_tags_none(self):
+        """No topic map when all_tags is not provided."""
+        sections = [self._make_section(sequence=10)]
+        result = format_section_index(sections, total_sections=20, all_tags=None)
+        assert "Topic coverage" not in result
+
+    def test_topic_map_empty_tags_skipped(self):
+        """Empty tag lists should not produce topic map."""
+        sections = [self._make_section(sequence=10)]
+        result = format_section_index(sections, total_sections=20, all_tags=[])
+        assert "Topic coverage" not in result

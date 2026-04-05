@@ -225,12 +225,16 @@ def _resolve_trigger_heartbeat(channel: Channel | None = None) -> bool:
 def _resolve_memory_flush_enabled(bot: BotConfig, channel: Channel | None = None) -> bool:
     """Resolve whether to run a dedicated memory flush before compaction.
 
-    Priority: channel.memory_flush_enabled → global MEMORY_FLUSH_ENABLED.
-    Falls back to the legacy trigger_heartbeat path if neither is set.
+    Priority: channel.memory_flush_enabled → global MEMORY_FLUSH_ENABLED
+    → auto-enable for workspace-files bots → False.
     """
     if channel and channel.memory_flush_enabled is not None:
         return channel.memory_flush_enabled
     if settings.MEMORY_FLUSH_ENABLED:
+        return True
+    # Auto-enable for workspace-files bots: this is the primary mechanism
+    # for cross-session learning, so it should be on by default
+    if bot.memory_scheme == "workspace-files":
         return True
     # Legacy fallback: if TRIGGER_HEARTBEAT_BEFORE_COMPACTION is set but
     # MEMORY_FLUSH_ENABLED is not, the old heartbeat path still fires
@@ -1890,10 +1894,20 @@ def _format_section_period(period_start, period_end, detailed: bool = False) -> 
     return f"{period_start.strftime('%b %-d')} — {period_end.strftime('%b %-d')}"
 
 
-def format_section_index(sections: list, verbosity: str = "standard", total_sections: int | None = None) -> str:
+def format_section_index(
+    sections: list,
+    verbosity: str = "standard",
+    total_sections: int | None = None,
+    all_tags: list[str] | None = None,
+) -> str:
     """Format a section index for injection into the system prompt.
 
     Sections are expected in **most-recent-first** order; output preserves that.
+
+    Args:
+        all_tags: Flat list of tags from *all* sections (not just displayed ones).
+            When provided and total_sections > displayed, a topic frequency summary
+            is appended so the bot has visibility into older history topics.
 
     Verbosity levels:
       compact  — title + date + tags only
@@ -1911,6 +1925,14 @@ def format_section_index(sections: list, verbosity: str = "standard", total_sect
             f"\n\nShowing {len(sections)} most recent of {total_sections} total sections. "
             "Use 'search:<query>' to find older sections by topic."
         )
+        # Append topic frequency map when all_tags are provided
+        if all_tags:
+            from collections import Counter
+            _tag_counts = Counter(all_tags)
+            if _tag_counts:
+                _sorted = sorted(_tag_counts.items(), key=lambda x: (-x[1], x[0]))
+                _tag_summary = ", ".join(f"{tag} ({cnt})" for tag, cnt in _sorted)
+                header += f"\n\nTopic coverage (all {total_sections} sections): {_tag_summary}"
 
     if verbosity == "compact":
         lines = [header]

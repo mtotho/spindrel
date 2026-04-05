@@ -970,11 +970,11 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         logger.info("BB webhook: echo detected (guid/hash match), guid=%s", msg_guid)
         return {"status": "ignored", "reason": "echo"}
 
-    # Reply cooldown: if we sent a reply to this chat recently, treat isFromMe as echo.
-    # This catches cases where the LLM takes longer than the echo TTL.
-    if is_from_me and shared_tracker.in_reply_cooldown(chat_guid):
-        logger.info("BB webhook: echo detected (reply cooldown), chat_guid=%s", chat_guid)
-        return {"status": "ignored", "reason": "echo_cooldown"}
+    # NOTE: Reply cooldown (in_reply_cooldown) removed.  It blocked ALL
+    # is_from_me messages for 2 minutes after every bot reply, preventing
+    # the user from using wake words.  Content-based echo detection
+    # (is_own_content above) + GUID-based detection (is_echo) are the real
+    # defenses.  The circuit breaker below is the safety net against loops.
 
     # Circuit breaker: if we've replied too many times to this chat recently, stop.
     if shared_tracker.is_circuit_open(chat_guid):

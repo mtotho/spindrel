@@ -50,7 +50,7 @@ def _bot_to_out(
         client_tools=bot.client_tools,
         pinned_tools=bot.pinned_tools,
         skills=[
-            SkillConfigOut(id=s.id, mode=s.mode, similarity_threshold=s.similarity_threshold)
+            SkillConfigOut(id=s.id, mode=s.mode)
             for s in bot.skills
         ],
         tool_retrieval=bot.tool_retrieval,

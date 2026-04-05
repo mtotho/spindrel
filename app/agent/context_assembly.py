@@ -667,6 +667,19 @@ async def assemble_context(
                     _memory_scheme_injected_paths.add(f"{_mem_rel}/MEMORY.md")
                     yield {"type": "memory_scheme_bootstrap", "chars": len(_mem_md_content)}
 
+                    # Nudge if MEMORY.md is getting too long
+                    _mem_line_count = _mem_md_content.count("\n") + 1
+                    if settings.MEMORY_MD_NUDGE_THRESHOLD > 0 and _mem_line_count > settings.MEMORY_MD_NUDGE_THRESHOLD:
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                f"[Memory housekeeping] Your MEMORY.md is {_mem_line_count} lines "
+                                f"(threshold: {settings.MEMORY_MD_NUDGE_THRESHOLD}). "
+                                "Consider pruning stale entries, merging duplicates, or moving detailed "
+                                "notes to reference/ files to keep MEMORY.md concise and fast to scan."
+                            ),
+                        })
+
             # 2. Today's daily log
             _today = _mem_date.today().isoformat()
             _today_path = _mem_os.path.join(_mem_root, "logs", f"{_today}.md")
@@ -704,7 +717,16 @@ async def assemble_context(
                     if f.endswith(".md") and _mem_os.path.isfile(_mem_os.path.join(_ref_dir, f))
                 )
                 if _ref_files:
-                    _ref_list = "\n".join(f"  - {f}" for f in _ref_files)
+                    from datetime import datetime as _ref_dt
+                    _ref_entries = []
+                    for _rf in _ref_files:
+                        try:
+                            _rf_mtime = _mem_os.path.getmtime(_mem_os.path.join(_ref_dir, _rf))
+                            _rf_date = _ref_dt.fromtimestamp(_rf_mtime).strftime("%Y-%m-%d")
+                            _ref_entries.append(f"  - {_rf} (modified {_rf_date})")
+                        except Exception:
+                            _ref_entries.append(f"  - {_rf}")
+                    _ref_list = "\n".join(_ref_entries)
                     messages.append({
                         "role": "system",
                         "content": f"Reference documents in {_mem_file_rel}/reference/ (use get_memory_file to read):\n{_ref_list}",
@@ -797,6 +819,11 @@ async def assemble_context(
 
             if _schema_content:
                 _cw_helper = _schema_content + "\n\n" + _cw_helper
+            else:
+                _cw_helper = (
+                    "Organize workspace files by purpose: use descriptive .md filenames, "
+                    "keep active documents at the root, and archive completed work to archive/.\n\n"
+                ) + _cw_helper
 
             _cw_body = ""
             if _cw_files:
@@ -1353,9 +1380,22 @@ async def assemble_context(
                             .select_from(_SISection)
                             .where(_SISection.channel_id == channel_id)
                         )).scalar() or 0
+                        # Query all section tags in the same session when needed
+                        _si_all_tags: list[str] | None = None
+                        if _si_rows and _si_total > len(_si_rows):
+                            _si_tag_rows = (await _si_db.execute(
+                                _si_select(_SISection.tags)
+                                .where(_SISection.channel_id == channel_id)
+                            )).scalars().all()
+                            _si_all_tags = [
+                                tag for tags in _si_tag_rows if tags for tag in tags
+                            ]
                     if _si_rows:
                         from app.services.compaction import format_section_index
-                        _si_text = format_section_index(_si_rows, verbosity=_si_verbosity, total_sections=_si_total)
+                        _si_text = format_section_index(
+                            _si_rows, verbosity=_si_verbosity,
+                            total_sections=_si_total, all_tags=_si_all_tags,
+                        )
                         _si_chars = len(_si_text)
                         _inject_chars["section_index"] = _si_chars
                         messages.append({"role": "system", "content": _si_text})

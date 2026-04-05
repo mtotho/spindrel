@@ -542,6 +542,9 @@ class Settings(BaseSettings):
     SECTION_RETENTION_VALUE: int = 100
     TRIGGER_HEARTBEAT_BEFORE_COMPACTION: bool = False  # deprecated — use MEMORY_FLUSH_ENABLED
 
+    # Memory scheme nudge — warn bot when MEMORY.md exceeds this many lines
+    MEMORY_MD_NUDGE_THRESHOLD: int = 100
+
     # Memory flush (dedicated pre-compaction memory save)
     MEMORY_FLUSH_ENABLED: bool = False
     MEMORY_FLUSH_MODEL: str = ""  # empty = use bot's model
