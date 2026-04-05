@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { View, ActivityIndicator } from "react-native";
 import { Play, Save, Archive, FolderOpen } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { OperationsPanel } from "@/app/(app)/admin/diagnostics/OperationsPanel";
@@ -62,7 +61,7 @@ function BackupConfigForm() {
   if (isLoading) {
     return (
       <div style={{ padding: 24, textAlign: "center" }}>
-        <ActivityIndicator color={t.accent} />
+        <div className="chat-spinner" />
       </div>
     );
   }
@@ -218,7 +217,7 @@ function BackupHistory() {
 
       {isLoading && (
         <div style={{ padding: 16, textAlign: "center" }}>
-          <ActivityIndicator color={t.accent} />
+          <div className="chat-spinner" />
         </div>
       )}
 
@@ -275,10 +274,10 @@ function BackupHistory() {
 
 export function BackupSection() {
   return (
-    <View style={{ gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <BackupConfigForm />
       <BackupActions />
       <BackupHistory />
-    </View>
+    </div>
   );
 }

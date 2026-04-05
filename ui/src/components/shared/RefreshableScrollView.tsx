@@ -1,55 +1,24 @@
 import React, { useRef, useCallback } from "react";
-import {
-  ScrollView,
-  Platform,
-  RefreshControl,
-  ActivityIndicator,
-  View,
-  type ScrollViewProps,
-} from "react-native";
 import { useThemeTokens } from "../../theme/tokens";
 
 const THRESHOLD = 70;
 
-interface Props extends ScrollViewProps {
+interface Props {
   refreshing: boolean;
   onRefresh: () => void;
+  children?: React.ReactNode;
+  style?: React.CSSProperties;
+  className?: string;
+  contentContainerStyle?: React.CSSProperties;
 }
 
-// ─── Native ──────────────────────────────────────────────────────────────────
-function NativeRefreshableScrollView({
-  refreshing,
-  onRefresh,
-  children,
-  ...rest
-}: Props) {
-  const t = useThemeTokens();
-  return (
-    <ScrollView
-      {...rest}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          tintColor={t.accent}
-          colors={[t.accent]}
-        />
-      }
-    >
-      {children}
-    </ScrollView>
-  );
-}
-
-// ─── Web ─────────────────────────────────────────────────────────────────────
-function WebRefreshableScrollView({
+export function RefreshableScrollView({
   refreshing,
   onRefresh,
   children,
   style,
   className,
   contentContainerStyle,
-  ...rest
 }: Props) {
   const t = useThemeTokens();
   const outerRef = useRef<HTMLDivElement>(null);
@@ -161,11 +130,11 @@ function WebRefreshableScrollView({
 
   return (
     <div
-      ref={outerRef as any}
-      onPointerDown={onPointerDown as any}
-      onPointerMove={onPointerMove as any}
-      onPointerUp={onPointerUp as any}
-      onPointerCancel={onPointerUp as any}
+      ref={outerRef}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
       className={className}
       style={{
         flex: 1,
@@ -174,11 +143,11 @@ function WebRefreshableScrollView({
         position: "relative",
         WebkitOverflowScrolling: "touch",
         ...(typeof style === "object" && !Array.isArray(style) ? style : {}),
-      } as any}
+      }}
     >
       {/* Pull indicator */}
       <div
-        ref={indicatorRef as any}
+        ref={indicatorRef}
         style={{
           position: "absolute",
           top: 0,
@@ -193,27 +162,22 @@ function WebRefreshableScrollView({
           zIndex: 10,
         }}
       >
-        <ActivityIndicator size="small" color={t.accent} />
+        <div className="chat-spinner" />
       </div>
 
       {/* Content wrapper */}
       <div
-        ref={contentRef as any}
+        ref={contentRef}
         style={{
           willChange: "transform",
           ...(typeof contentContainerStyle === "object" &&
           !Array.isArray(contentContainerStyle)
             ? contentContainerStyle
             : {}),
-        } as any}
+        }}
       >
         {children}
       </div>
     </div>
   );
 }
-
-export const RefreshableScrollView =
-  Platform.OS === "web"
-    ? WebRefreshableScrollView
-    : NativeRefreshableScrollView;

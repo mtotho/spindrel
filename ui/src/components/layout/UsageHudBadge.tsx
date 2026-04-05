@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback, forwardRef } from "react";
-import { View, Text, Pressable, Platform } from "react-native";
 import { createPortal } from "react-dom";
 import { Link } from "expo-router";
 import { DollarSign } from "lucide-react";
@@ -45,7 +44,7 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
   const enabled = useUsageHudStore((s) => s.enabled);
   const t = useThemeTokens();
   const [open, setOpen] = useState(false);
-  const anchorRef = useRef<any>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [popoverPos, setPopoverPos] = useState<{
     left: number;
@@ -81,63 +80,88 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Only render on web (popover uses raw HTML)
-  if (Platform.OS !== "web") return null;
-
   // Hidden by user preference
   if (!enabled) return null;
 
-  // Loading, error, or no data — always show a dim placeholder
+  // Loading, error, or no data -- always show a dim placeholder
   if (isLoading || isError || !data) {
     const dimColor = t.textDim;
     if (collapsed) {
       return (
-        <View>
+        <div>
           <Link href={"/admin/usage" as any} asChild>
-            <Pressable
-              className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-              style={{ width: 44, height: 44, opacity: isLoading ? 0.3 : 0.5 }}
-              accessibilityLabel={
+            <button
+              className="sidebar-icon-btn"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 44,
+                height: 44,
+                opacity: isLoading ? 0.3 : 0.5,
+                borderRadius: 8,
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
+                padding: 0,
+              }}
+              aria-label={
                 isLoading ? "Loading usage" : "Usage forecast unavailable"
               }
             >
-              <Text
+              <span
                 style={{
                   fontSize: 10,
-                  fontWeight: "700",
+                  fontWeight: 700,
                   color: dimColor,
-                  fontVariant: ["tabular-nums"] as any,
+                  fontVariant: "tabular-nums",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
                 }}
-                numberOfLines={1}
               >
                 {isLoading ? "$\u2026" : "$--"}
-              </Text>
-            </Pressable>
+              </span>
+            </button>
           </Link>
-        </View>
+        </div>
       );
     }
     return (
-      <View>
+      <div>
         <Link href={"/admin/usage" as any} asChild>
-          <Pressable
-            className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ opacity: isLoading ? 0.3 : 0.5 }}
+          <button
+            className="sidebar-nav-item"
+            style={{
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 8,
+              borderRadius: 6,
+              paddingLeft: 12,
+              paddingRight: 12,
+              paddingTop: 8,
+              paddingBottom: 8,
+              opacity: isLoading ? 0.3 : 0.5,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+            }}
           >
             <DollarSign size={14} color={dimColor} />
-            <Text
+            <span
               style={{
                 fontSize: 12,
-                fontWeight: "600",
+                fontWeight: 600,
                 color: dimColor,
-                fontVariant: ["tabular-nums"] as any,
+                fontVariant: "tabular-nums",
               }}
             >
               {isLoading ? "$\u2026" : "$-- today"}
-            </Text>
-          </Pressable>
+            </span>
+          </button>
         </Link>
-      </View>
+      </div>
     );
   }
 
@@ -172,27 +196,41 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
   if (collapsed) {
     return (
       <>
-        <View ref={anchorRef}>
-          <Pressable
-            onPress={() => (open ? setOpen(false) : openPopover())}
-            className="items-center justify-center rounded-lg hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 44, height: 44, position: "relative" }}
-            accessibilityLabel="Usage forecast"
+        <div ref={anchorRef}>
+          <button
+            className="sidebar-icon-btn"
+            onClick={() => (open ? setOpen(false) : openPopover())}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 44,
+              height: 44,
+              position: "relative",
+              borderRadius: 8,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              padding: 0,
+            }}
+            aria-label="Usage forecast"
           >
-            <Text
+            <span
               style={{
                 fontSize: 10,
-                fontWeight: "700",
+                fontWeight: 700,
                 color,
-                fontVariant: ["tabular-nums"] as any,
+                fontVariant: "tabular-nums",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
-              numberOfLines={1}
             >
               {fmt(data.daily_spend)}
-            </Text>
+            </span>
             {isSpiking && <SpikeDot t={t} />}
-          </Pressable>
-        </View>
+          </button>
+        </div>
         {popover}
       </>
     );
@@ -201,50 +239,67 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
   // --- Expanded sidebar: row with progress ---
   return (
     <>
-      <View ref={anchorRef}>
-        <Pressable
-          onPress={() => (open ? setOpen(false) : openPopover())}
-          className="flex-row items-center gap-2 rounded-md px-3 py-2 hover:bg-surface-overlay active:bg-surface-overlay"
-          style={{ position: "relative" }}
+      <div ref={anchorRef}>
+        <button
+          className="sidebar-nav-item"
+          onClick={() => (open ? setOpen(false) : openPopover())}
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            borderRadius: 6,
+            paddingLeft: 12,
+            paddingRight: 12,
+            paddingTop: 8,
+            paddingBottom: 8,
+            position: "relative",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            width: "100%",
+            textAlign: "left",
+          }}
         >
           <DollarSign size={14} color={color} />
-          <View style={{ flex: 1, gap: 2 }}>
-            <View
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+            <div
               style={{
+                display: "flex",
                 flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "space-between",
               }}
             >
-              <Text
+              <span
                 style={{
                   fontSize: 12,
-                  fontWeight: "600",
+                  fontWeight: 600,
                   color,
-                  fontVariant: ["tabular-nums"] as any,
+                  fontVariant: "tabular-nums",
                 }}
               >
                 {fmt(data.daily_spend)} today
-              </Text>
+              </span>
               {isSpiking ? (
-                <Text style={{ fontSize: 10, fontWeight: 700, color: t.danger }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: t.danger }}>
                   SPIKE {spikeData?.spike_ratio != null ? `${spikeData.spike_ratio.toFixed(1)}x` : ""}
-                </Text>
+                </span>
               ) : worstLimit ? (
-                <Text style={{ fontSize: 10, color: t.textDim }}>
+                <span style={{ fontSize: 10, color: t.textDim }}>
                   {Math.round(worstLimit.percentage)}%
-                </Text>
+                </span>
               ) : null}
-            </View>
+            </div>
             {worstLimit && (
-              <View
+              <div
                 style={{
                   height: 3,
                   borderRadius: 2,
                   backgroundColor: t.surfaceBorder,
                 }}
               >
-                <View
+                <div
                   style={{
                     height: 3,
                     borderRadius: 2,
@@ -252,11 +307,11 @@ export function UsageHudBadge({ collapsed }: { collapsed: boolean }) {
                     width: `${Math.min(worstLimit.percentage, 100)}%`,
                   }}
                 />
-              </View>
+              </div>
             )}
-          </View>
-        </Pressable>
-      </View>
+          </div>
+        </button>
+      </div>
       {popover}
     </>
   );
@@ -440,11 +495,19 @@ const PopoverContent = forwardRef<
         }}
       >
         <Link href={"/admin/usage" as any} asChild>
-          <Pressable onPress={onClose}>
-            <Text style={{ fontSize: 11, color: t.accent }}>
-              View details →
-            </Text>
-          </Pressable>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+              fontSize: 11,
+              color: t.accent,
+            }}
+          >
+            View details →
+          </button>
         </Link>
       </div>
     </div>

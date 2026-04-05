@@ -1,13 +1,9 @@
-import { Platform } from "react-native";
-
 /**
  * Spindrel logo — a triskelion vortex mark.
  * Three curved arms spiral outward from a center dot,
  * evoking spinning/weaving. Monochrome, adapts to theme.
- * Web-only (raw SVG); returns null on native platforms.
  */
 export function SpindrelLogo({ size = 20, color = "currentColor" }: { size?: number; color?: string }) {
-  if (Platform.OS !== "web") return null;
   return (
     <svg
       width={size}

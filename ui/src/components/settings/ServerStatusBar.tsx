@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { View, Text, ActivityIndicator } from "react-native";
 import { RefreshCw, ExternalLink } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
@@ -23,19 +22,21 @@ export function ServerStatusBar() {
 
   return (
     <>
-      <View
+      <div
         style={{
           backgroundColor: t.surfaceRaised,
           borderRadius: 10,
-          borderWidth: 1,
-          borderColor: t.surfaceBorder,
+          border: `1px solid ${t.surfaceBorder}`,
           padding: 14,
+          display: "flex",
+          flexDirection: "column",
           gap: 10,
         }}
       >
         {/* Row 1: Status + controls */}
-        <View
+        <div
           style={{
+            display: "flex",
             flexDirection: "row",
             alignItems: "center",
             gap: 10,
@@ -43,10 +44,10 @@ export function ServerStatusBar() {
           }}
         >
           {/* Status indicator */}
-          <View
-            style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+          <div
+            style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}
           >
-            <View
+            <div
               style={{
                 width: 8,
                 height: 8,
@@ -58,9 +59,9 @@ export function ServerStatusBar() {
               label={paused ? "Paused" : "Running"}
               variant={paused ? "warning" : "success"}
             />
-          </View>
+          </div>
 
-          <View style={{ flex: 1 }} />
+          <div style={{ flex: 1 }} />
 
           {/* Pause/Resume */}
           <ActionButton
@@ -85,30 +86,31 @@ export function ServerStatusBar() {
             size="small"
             icon={<RefreshCw size={12} />}
           />
-        </View>
+        </div>
 
         {/* Row 2: Version + update check */}
-        <View
+        <div
           style={{
+            display: "flex",
             flexDirection: "row",
             alignItems: "center",
             gap: 10,
             flexWrap: "wrap",
           }}
         >
-          <Text style={{ color: t.textDim, fontSize: 12, fontFamily: "monospace" }}>
+          <span style={{ color: t.textDim, fontSize: 12, fontFamily: "monospace" }}>
             Spindrel v{version ?? "..."}
             {checkUpdate.data?.git_hash
               ? ` (${checkUpdate.data.git_hash})`
               : ""}
-          </Text>
+          </span>
 
-          <View style={{ flex: 1 }} />
+          <div style={{ flex: 1 }} />
 
           {/* Update check result */}
           {checkUpdate.data && !checkUpdate.isFetching && (
             checkUpdate.data.update_available ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <StatusBadge label={`v${checkUpdate.data.latest} available`} variant="info" />
                 {checkUpdate.data.latest_url && (
                   <a
@@ -120,20 +122,20 @@ export function ServerStatusBar() {
                     <ExternalLink size={12} color={t.accent} />
                   </a>
                 )}
-              </View>
+              </div>
             ) : checkUpdate.data.error ? (
-              <Text style={{ color: t.textDim, fontSize: 11 }}>
+              <span style={{ color: t.textDim, fontSize: 11 }}>
                 Check failed
-              </Text>
+              </span>
             ) : (
-              <Text style={{ color: t.success, fontSize: 11 }}>
+              <span style={{ color: t.success, fontSize: 11 }}>
                 Up to date
-              </Text>
+              </span>
             )
           )}
 
           {checkUpdate.isFetching && (
-            <ActivityIndicator size="small" color={t.accent} />
+            <div className="chat-spinner" />
           )}
 
           <ActionButton
@@ -143,8 +145,8 @@ export function ServerStatusBar() {
             size="small"
             disabled={checkUpdate.isFetching}
           />
-        </View>
-      </View>
+        </div>
+      </div>
 
       {showRestartModal && (
         <RestartConfirmModal onClose={() => setShowRestartModal(false)} />

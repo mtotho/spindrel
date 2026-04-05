@@ -1,5 +1,4 @@
 import { useState, useRef } from "react";
-import { useWindowDimensions } from "react-native";
 import { Link2, Unlink, Pencil, X } from "lucide-react";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
 import { useThemeTokens } from "../../theme/tokens";
@@ -29,8 +28,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
   const [search, setSearch] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
   const { data: templates } = usePromptTemplates(undefined, category);
-  const { width: windowWidth } = useWindowDimensions();
-  const isMobile = windowWidth < 768;
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
   const t = useThemeTokens();
 
   const linked = templates?.find((tpl) => tpl.id === templateId);

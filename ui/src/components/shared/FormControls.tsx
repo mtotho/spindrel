@@ -3,7 +3,6 @@
  * All use raw HTML elements for web compat (no RN TextInput issues).
  */
 
-import { View, Text, Pressable } from "react-native";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 
 // ---------------------------------------------------------------------------
@@ -17,18 +16,18 @@ export function Section({ title, description, action, children }: {
 }) {
   const t = useThemeTokens();
   return (
-    <View style={{ gap: 16, borderTopWidth: 1, borderTopColor: t.surfaceBorder, paddingTop: 16 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <View>
-          <Text style={{ color: t.text, fontSize: 14, fontWeight: "600" }}>{title}</Text>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, borderTop: `1px solid ${t.surfaceBorder}`, paddingTop: 16 }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <div>
+          <span style={{ color: t.text, fontSize: 14, fontWeight: 600, display: "block" }}>{title}</span>
           {description && (
-            <Text style={{ color: t.textDim, fontSize: 12, marginTop: 2 }}>{description}</Text>
+            <span style={{ color: t.textDim, fontSize: 12, marginTop: 2, display: "block" }}>{description}</span>
           )}
-        </View>
+        </div>
         {action}
-      </View>
+      </div>
       {children}
-    </View>
+    </div>
   );
 }
 
@@ -129,7 +128,11 @@ export function Toggle({ value, onChange, label, description }: {
   const t = useThemeTokens();
   return (
     <div
+      role="switch"
+      aria-checked={value}
+      tabIndex={0}
       onClick={() => onChange(!value)}
+      onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onChange(!value); } }}
       style={{
         display: "flex",
         alignItems: "flex-start",

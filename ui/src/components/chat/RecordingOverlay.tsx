@@ -2,7 +2,7 @@
  * Inline overlay that replaces the textarea during audio recording.
  * Displays a pulsing red dot, duration timer, and cancel button.
  */
-import { Pressable } from "react-native";
+import { useState } from "react";
 import { X } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 
@@ -21,6 +21,7 @@ function formatDuration(ms: number): string {
 
 export function RecordingOverlay({ durationMs, onCancel, isMobile }: Props) {
   const t = useThemeTokens();
+  const [cancelHover, setCancelHover] = useState(false);
 
   return (
     <div
@@ -61,20 +62,27 @@ export function RecordingOverlay({ durationMs, onCancel, isMobile }: Props) {
       </span>
 
       {/* Cancel button */}
-      <Pressable
-        onPress={onCancel}
+      <button
+        onClick={onCancel}
+        onMouseEnter={() => setCancelHover(true)}
+        onMouseLeave={() => setCancelHover(false)}
         style={{
           width: 28,
           height: 28,
           borderRadius: 14,
+          display: "flex",
           alignItems: "center",
           justifyContent: "center",
           flexShrink: 0,
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+          backgroundColor: cancelHover ? t.surfaceOverlay : "transparent",
+          transition: "background-color 0.15s",
         }}
-        className="hover:bg-surface-overlay active:bg-surface-overlay"
       >
         <X size={16} color={t.textDim} />
-      </Pressable>
+      </button>
 
       {/* Keyframe animation for the pulsing dot */}
       <style>{`

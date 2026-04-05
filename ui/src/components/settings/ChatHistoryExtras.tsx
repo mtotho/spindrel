@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { Eye, ChevronRight } from "lucide-react";
 import { useRouter } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
@@ -63,33 +62,32 @@ export function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
     SECTION_INDEX_PREVIEW[verbosity] || SECTION_INDEX_PREVIEW.standard;
 
   return (
-    <View style={{ marginTop: 16, gap: 16 }}>
+    <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Section Index Preview */}
       <Section
         title="Section Index Preview"
         description={`System message injected into the bot's context each turn ("${verbosity}" verbosity)`}
       >
-        <View
+        <div
           style={{
             backgroundColor: t.surface,
             borderRadius: 8,
-            borderWidth: 1,
-            borderColor: t.surfaceOverlay,
+            border: `1px solid ${t.surfaceOverlay}`,
             padding: 14,
           }}
         >
-          <Text
+          <span
             style={{
               fontFamily: "monospace",
               fontSize: 11,
-              lineHeight: 18,
+              lineHeight: "18px",
               color: t.textMuted,
               whiteSpace: "pre-wrap",
-            } as any}
+            }}
           >
             {preview}
-          </Text>
-        </View>
+          </span>
+        </div>
       </Section>
 
       {/* Show Deviations */}
@@ -98,38 +96,41 @@ export function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
         description="Channels with chat history settings that differ from these global defaults"
       >
         {!showDeviations ? (
-          <Pressable
-            onPress={() => setShowDeviations(true)}
+          <button
+            onClick={() => setShowDeviations(true)}
             style={{
+              display: "flex",
               flexDirection: "row",
               alignItems: "center",
               gap: 6,
               backgroundColor: t.surfaceRaised,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
+              paddingLeft: 14,
+              paddingRight: 14,
+              paddingTop: 10,
+              paddingBottom: 10,
               borderRadius: 8,
-              borderWidth: 1,
-              borderColor: t.surfaceBorder,
+              border: `1px solid ${t.surfaceBorder}`,
               alignSelf: "flex-start",
+              cursor: "pointer",
             }}
           >
             <Eye size={14} color={t.accent} />
-            <Text style={{ color: t.accent, fontSize: 13 }}>
+            <span style={{ color: t.accent, fontSize: 13 }}>
               Show Deviations
-            </Text>
-          </Pressable>
+            </span>
+          </button>
         ) : isLoading ? (
-          <ActivityIndicator color={t.accent} />
+          <div className="chat-spinner" />
         ) : !data?.channels?.length ? (
-          <Text style={{ color: t.textDim, fontSize: 12 }}>
+          <span style={{ color: t.textDim, fontSize: 12 }}>
             All channels use global defaults.
-          </Text>
+          </span>
         ) : (
-          <View style={{ gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {data.channels.map((ch) => (
-              <Pressable
+              <button
                 key={ch.channel_id}
-                onPress={() =>
+                onClick={() =>
                   router.push(
                     `/channels/${ch.channel_id}/settings` as any
                   )
@@ -137,52 +138,56 @@ export function ChatHistoryExtras({ verbosity }: { verbosity: string }) {
                 style={{
                   backgroundColor: t.surfaceRaised,
                   borderRadius: 8,
-                  borderWidth: 1,
-                  borderColor: t.surfaceOverlay,
+                  border: `1px solid ${t.surfaceOverlay}`,
                   padding: 12,
+                  display: "flex",
                   flexDirection: "row",
                   alignItems: "center",
                   justifyContent: "space-between",
+                  cursor: "pointer",
+                  textAlign: "left",
                 }}
               >
-                <View style={{ flex: 1 }}>
-                  <Text
+                <div style={{ flex: 1 }}>
+                  <span
                     style={{
                       color: t.text,
                       fontSize: 13,
-                      fontWeight: "500",
+                      fontWeight: 500,
                       marginBottom: 4,
+                      display: "block",
                     }}
                   >
                     {ch.channel_name}
-                  </Text>
-                  <View
+                  </span>
+                  <div
                     style={{
+                      display: "flex",
                       flexDirection: "row",
                       flexWrap: "wrap",
                       gap: 6,
                     }}
                   >
                     {ch.deviations.map((d) => (
-                      <Text
+                      <span
                         key={d.field}
                         style={{ fontSize: 11, color: t.textMuted }}
                       >
                         {d.field}:{" "}
-                        <Text style={{ color: "#f59e0b" }}>
+                        <span style={{ color: "#f59e0b" }}>
                           {String(d.channel_value)}
-                        </Text>{" "}
+                        </span>{" "}
                         (global: {String(d.global_value)})
-                      </Text>
+                      </span>
                     ))}
-                  </View>
-                </View>
+                  </div>
+                </div>
                 <ChevronRight size={14} color={t.textDim} />
-              </Pressable>
+              </button>
             ))}
-          </View>
+          </div>
         )}
       </Section>
-    </View>
+    </div>
   );
 }

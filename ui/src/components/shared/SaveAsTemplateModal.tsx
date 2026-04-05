@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, ActivityIndicator } from "react-native";
 import { X } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { useCreatePromptTemplate } from "../../api/hooks/usePromptTemplates";
@@ -68,91 +67,116 @@ export function SaveAsTemplateModal({ content, onClose, onSaved }: Props) {
         }}
       >
         {/* Header */}
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <Text style={{ fontSize: 14, fontWeight: "700", color: t.text }}>Save as New Template</Text>
-          <Pressable onPress={onClose} hitSlop={8}>
-            <X size={16} color={t.textDim} />
-          </Pressable>
-        </View>
-
-        {/* Name */}
-        <View style={{ marginBottom: 12 }}>
-          <Text style={{ fontSize: 11, fontWeight: "600", color: t.textDim, marginBottom: 4 }}>Name</Text>
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="e.g. My Custom Schema"
-            placeholderTextColor={t.textDim}
-            autoFocus
+        <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>Save as New Template</span>
+          <button
+            onClick={onClose}
             style={{
-              background: t.inputBg,
-              borderWidth: 1,
-              borderColor: t.inputBorder,
-              borderRadius: 6,
-              padding: 8,
-              fontSize: 13,
-              color: t.inputText,
-            } as any}
-          />
-        </View>
-
-        {/* Description */}
-        <View style={{ marginBottom: 16 }}>
-          <Text style={{ fontSize: 11, fontWeight: "600", color: t.textDim, marginBottom: 4 }}>Description (optional)</Text>
-          <TextInput
-            value={description}
-            onChangeText={setDescription}
-            placeholder="Brief description of this schema"
-            placeholderTextColor={t.textDim}
-            style={{
-              background: t.inputBg,
-              borderWidth: 1,
-              borderColor: t.inputBorder,
-              borderRadius: 6,
-              padding: 8,
-              fontSize: 13,
-              color: t.inputText,
-            } as any}
-          />
-        </View>
-
-        {/* Actions */}
-        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-          <Pressable
-            onPress={onClose}
-            style={{
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 6,
-              borderWidth: 1,
-              borderColor: t.surfaceBorder,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: 4,
             }}
           >
-            <Text style={{ fontSize: 12, color: t.textDim }}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            onPress={handleSave}
+            <X size={16} color={t.textDim} />
+          </button>
+        </div>
+
+        {/* Name */}
+        <div style={{ marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim, marginBottom: 4, display: "block" }}>Name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. My Custom Schema"
+            autoFocus
+            style={{
+              width: "100%",
+              background: t.inputBg,
+              border: `1px solid ${t.inputBorder}`,
+              borderRadius: 6,
+              padding: 8,
+              fontSize: 13,
+              color: t.inputText,
+              outline: "none",
+            }}
+          />
+        </div>
+
+        {/* Description */}
+        <div style={{ marginBottom: 16 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim, marginBottom: 4, display: "block" }}>Description (optional)</span>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Brief description of this schema"
+            style={{
+              width: "100%",
+              background: t.inputBg,
+              border: `1px solid ${t.inputBorder}`,
+              borderRadius: 6,
+              padding: 8,
+              fontSize: 13,
+              color: t.inputText,
+              outline: "none",
+            }}
+          />
+        </div>
+
+        {/* Actions */}
+        <div style={{ display: "flex", flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+          <button
+            onClick={onClose}
+            style={{
+              paddingLeft: 12,
+              paddingRight: 12,
+              paddingTop: 6,
+              paddingBottom: 6,
+              borderRadius: 6,
+              border: `1px solid ${t.surfaceBorder}`,
+              background: "transparent",
+              cursor: "pointer",
+              fontSize: 12,
+              color: t.textDim,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
             disabled={!canSave}
             style={{
-              paddingHorizontal: 12,
-              paddingVertical: 6,
+              paddingLeft: 12,
+              paddingRight: 12,
+              paddingTop: 6,
+              paddingBottom: 6,
               borderRadius: 6,
-              backgroundColor: canSave ? t.accent : t.surfaceOverlay,
+              background: canSave ? t.accent : t.surfaceOverlay,
+              border: "none",
               opacity: canSave ? 1 : 0.5,
+              cursor: canSave ? "pointer" : "default",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#fff",
             }}
           >
             {createMutation.isPending ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <div className="chat-spinner" />
             ) : (
-              <Text style={{ fontSize: 12, fontWeight: "600", color: "#fff" }}>Save Template</Text>
+              "Save Template"
             )}
-          </Pressable>
-        </View>
+          </button>
+        </div>
 
         {createMutation.isError && (
-          <Text style={{ color: t.danger, fontSize: 11, marginTop: 8 }}>
+          <span style={{ color: t.danger, fontSize: 11, marginTop: 8, display: "block" }}>
             Failed to save template. Please try again.
-          </Text>
+          </span>
         )}
       </div>
     </>,

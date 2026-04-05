@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { View, Text, Pressable, ScrollView } from "react-native";
 import { FileText, File, Pencil, RotateCcw, Save, BookTemplate, X, Sparkles, Plug, Timer } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { prettyIntegrationName } from "../../utils/format";
@@ -107,136 +106,161 @@ export function WorkspaceSchemaEditor({
       : [];
 
     return (
-      <View>
+      <div>
         {suggested.length > 0 && (
-          <View style={{ marginBottom: 8 }}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 }}>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 }}>
               <Sparkles size={12} color={t.success} />
-              <Text style={{ fontSize: 11, fontWeight: "600", color: t.textDim }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim }}>
                 {activeIntegrationName
                   ? `Compatible with ${activeIntegrationName}`
                   : "Suggested templates"}
-              </Text>
-            </View>
-            <View style={{ gap: 6 }}>
+              </span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {suggested.map((tpl) => {
                 const slug = getIntegrationSlug(tpl.source_path);
                 const files = parseFiles(tpl.content);
                 return (
-                  <Pressable
+                  <button
                     key={tpl.id}
-                    onPress={() => handleTemplateLink(tpl.id)}
+                    onClick={() => handleTemplateLink(tpl.id)}
                     style={{
-                      borderWidth: 1,
-                      borderColor: t.success + "40",
-                      borderLeftWidth: 3,
-                      borderLeftColor: t.success,
+                      border: `1px solid ${t.success}40`,
+                      borderLeft: `3px solid ${t.success}`,
                       borderRadius: 6,
                       padding: 10,
-                      backgroundColor: t.success + "06",
+                      background: `${t.success}06`,
+                      cursor: "pointer",
+                      textAlign: "left",
                     }}
                   >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
                       <FileText size={14} color={t.success} />
-                      <Text style={{ fontSize: 12, fontWeight: "600", color: t.text, flex: 1 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: t.text, flex: 1 }}>
                         {tpl.name}
-                      </Text>
+                      </span>
                       {activeIntegrationName && (
-                        <View style={{
-                          backgroundColor: t.success + "18",
-                          paddingHorizontal: 6,
-                          paddingVertical: 2,
+                        <span style={{
+                          background: `${t.success}18`,
+                          paddingLeft: 6,
+                          paddingRight: 6,
+                          paddingTop: 2,
+                          paddingBottom: 2,
                           borderRadius: 3,
+                          fontSize: 9,
+                          fontWeight: 600,
+                          color: t.success,
                         }}>
-                          <Text style={{ fontSize: 9, fontWeight: "600", color: t.success }}>
-                            Recommended
-                          </Text>
-                        </View>
+                          Recommended
+                        </span>
                       )}
-                    </View>
+                    </div>
                     {tpl.description && (
-                      <Text
-                        numberOfLines={2}
-                        style={{ fontSize: 11, color: t.textMuted, marginTop: 3, lineHeight: 16 }}
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: t.textMuted,
+                          marginTop: 3,
+                          lineHeight: "16px",
+                          display: "-webkit-box",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                        }}
                       >
                         {tpl.description}
-                      </Text>
+                      </span>
                     )}
                     {/* File preview chips + provenance + heartbeat hint */}
                     {(files.length > 0 || slug) && (
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
                         {files.slice(0, 4).map((f) => (
-                          <View
+                          <span
                             key={f}
                             style={{
+                              display: "inline-flex",
                               flexDirection: "row",
                               alignItems: "center",
                               gap: 3,
-                              backgroundColor: t.surfaceOverlay,
-                              paddingHorizontal: 5,
-                              paddingVertical: 2,
+                              background: t.surfaceOverlay,
+                              paddingLeft: 5,
+                              paddingRight: 5,
+                              paddingTop: 2,
+                              paddingBottom: 2,
                               borderRadius: 3,
+                              fontSize: 9,
+                              color: t.textDim,
                             }}
                           >
                             <File size={8} color={t.textDim} />
-                            <Text style={{ fontSize: 9, color: t.textDim }}>{f.replace(".md", "")}</Text>
-                          </View>
+                            {f.replace(".md", "")}
+                          </span>
                         ))}
                         {files.length > 4 && (
-                          <Text style={{ fontSize: 9, color: t.textDim, alignSelf: "center" }}>
+                          <span style={{ fontSize: 9, color: t.textDim, alignSelf: "center" }}>
                             +{files.length - 4}
-                          </Text>
+                          </span>
                         )}
                         {tpl.recommended_heartbeat && (
-                          <View style={{
+                          <span style={{
+                            display: "inline-flex",
                             flexDirection: "row",
                             alignItems: "center",
                             gap: 3,
-                            backgroundColor: t.accent + "12",
-                            paddingHorizontal: 5,
-                            paddingVertical: 2,
+                            background: `${t.accent}12`,
+                            paddingLeft: 5,
+                            paddingRight: 5,
+                            paddingTop: 2,
+                            paddingBottom: 2,
                             borderRadius: 3,
+                            fontSize: 9,
+                            color: t.accent,
+                            fontWeight: 500,
                           }}>
                             <Timer size={8} color={t.accent} />
-                            <Text style={{ fontSize: 9, color: t.accent, fontWeight: "500" }}>
-                              {tpl.recommended_heartbeat.interval.charAt(0).toUpperCase() + tpl.recommended_heartbeat.interval.slice(1)}
-                            </Text>
-                          </View>
+                            {tpl.recommended_heartbeat.interval.charAt(0).toUpperCase() + tpl.recommended_heartbeat.interval.slice(1)}
+                          </span>
                         )}
                         {slug && (
-                          <View style={{
+                          <span style={{
+                            display: "inline-flex",
                             flexDirection: "row",
                             alignItems: "center",
                             gap: 3,
-                            backgroundColor: t.success + "12",
-                            paddingHorizontal: 5,
-                            paddingVertical: 2,
+                            background: `${t.success}12`,
+                            paddingLeft: 5,
+                            paddingRight: 5,
+                            paddingTop: 2,
+                            paddingBottom: 2,
                             borderRadius: 3,
                             marginLeft: "auto",
+                            fontSize: 9,
+                            color: t.success,
+                            fontWeight: 500,
                           }}>
                             <Plug size={8} color={t.success} />
-                            <Text style={{ fontSize: 9, color: t.success, fontWeight: "500" }}>
-                              {prettyIntegrationName(slug)}
-                            </Text>
-                          </View>
+                            {prettyIntegrationName(slug)}
+                          </span>
                         )}
-                      </View>
+                      </div>
                     )}
-                  </Pressable>
+                  </button>
                 );
               })}
-            </View>
+            </div>
             {/* Divider before other templates */}
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 2 }}>
-              <Text style={{ fontSize: 10, fontWeight: "600", color: t.textDim }}>Other templates</Text>
-              <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
-            </View>
-          </View>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 2 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: t.textDim }}>Other templates</span>
+              <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+            </div>
+          </div>
         )}
         {suggested.length === 0 && activeIntegrationName && (
-          <Text style={{ fontSize: 11, color: t.textDim, marginBottom: 6, fontStyle: "italic" }}>
+          <span style={{ fontSize: 11, color: t.textDim, marginBottom: 6, fontStyle: "italic", display: "block" }}>
             No templates found compatible with {activeIntegrationName}. You can link any template below.
-          </Text>
+          </span>
         )}
         <PromptTemplateLink
           templateId={null}
@@ -246,12 +270,12 @@ export function WorkspaceSchemaEditor({
           highlightTag={highlightTag}
           highlightLabel={activeIntegrationName}
         />
-      </View>
+      </div>
     );
   }
 
   return (
-    <View>
+    <div>
       {/* Template picker row */}
       <PromptTemplateLink
         templateId={templateId ?? null}
@@ -265,25 +289,25 @@ export function WorkspaceSchemaEditor({
       {/* Compatibility badge */}
       {hasTemplate && activeIntegrationName && highlightTag && (
         linkedTemplate.tags?.includes(highlightTag) ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
-            <Text style={{ fontSize: 10, color: t.success, fontWeight: "600" }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+            <span style={{ fontSize: 10, color: t.success, fontWeight: 600 }}>
               {"✓"} Compatible with {activeIntegrationName}
-            </Text>
-          </View>
+            </span>
+          </div>
         ) : (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
-            <Text style={{ fontSize: 10, color: t.warning, fontWeight: "600" }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
+            <span style={{ fontSize: 10, color: t.warning, fontWeight: 600 }}>
               {"⚠"} Not marked as compatible with {activeIntegrationName}
-            </Text>
-          </View>
+            </span>
+          </div>
         )
       )}
 
       {/* Template description */}
       {hasTemplate && linkedTemplate.description && !hasOverride && (
-        <Text style={{ color: t.textDim, fontSize: 12, lineHeight: 18, marginTop: 4 }}>
+        <span style={{ color: t.textDim, fontSize: 12, lineHeight: "18px", marginTop: 4, display: "block" }}>
           {linkedTemplate.description}
-        </Text>
+        </span>
       )}
 
       {/* File preview chips for linked template */}
@@ -291,85 +315,89 @@ export function WorkspaceSchemaEditor({
         const files = parseFiles(linkedTemplate.content);
         if (files.length === 0) return null;
         return (
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+          <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
             {files.slice(0, 5).map((f) => (
-              <View
+              <span
                 key={f}
                 style={{
+                  display: "inline-flex",
                   flexDirection: "row",
                   alignItems: "center",
                   gap: 3,
-                  backgroundColor: t.surfaceOverlay,
-                  paddingHorizontal: 5,
-                  paddingVertical: 2,
+                  background: t.surfaceOverlay,
+                  paddingLeft: 5,
+                  paddingRight: 5,
+                  paddingTop: 2,
+                  paddingBottom: 2,
                   borderRadius: 3,
+                  fontSize: 9,
+                  color: t.textDim,
                 }}
               >
                 <File size={8} color={t.textDim} />
-                <Text style={{ fontSize: 9, color: t.textDim }}>{f.replace(".md", "")}</Text>
-              </View>
+                {f.replace(".md", "")}
+              </span>
             ))}
             {files.length > 5 && (
-              <Text style={{ fontSize: 9, color: t.textDim, alignSelf: "center" }}>
+              <span style={{ fontSize: 9, color: t.textDim, alignSelf: "center" }}>
                 +{files.length - 5} more
-              </Text>
+              </span>
             )}
-          </View>
+          </div>
         );
       })()}
 
       {/* Heartbeat recommendation */}
       {hasTemplate && linkedTemplate.recommended_heartbeat && !hasOverride && (
-        <View style={{
+        <div style={{
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
           gap: 6,
           marginTop: 6,
           padding: 8,
           borderRadius: 6,
-          backgroundColor: t.accent + "08",
-          borderWidth: 1,
-          borderColor: t.accent + "20",
+          background: `${t.accent}08`,
+          border: `1px solid ${t.accent}20`,
         }}>
           <Timer size={12} color={t.accent} />
-          <Text style={{ fontSize: 11, color: t.textMuted, flex: 1 }}>
-            <Text style={{ fontWeight: "600", color: t.accent }}>
+          <span style={{ fontSize: 11, color: t.textMuted, flex: 1 }}>
+            <span style={{ fontWeight: 600, color: t.accent }}>
               {linkedTemplate.recommended_heartbeat.interval.charAt(0).toUpperCase()
                 + linkedTemplate.recommended_heartbeat.interval.slice(1)} heartbeat recommended
-            </Text>
+            </span>
             {" — "}
             {linkedTemplate.recommended_heartbeat.prompt.length > 80
               ? linkedTemplate.recommended_heartbeat.prompt.slice(0, 80) + "..."
               : linkedTemplate.recommended_heartbeat.prompt}
-          </Text>
-        </View>
+          </span>
+        </div>
       )}
 
       {hasOverride && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2, marginBottom: 4 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2, marginBottom: 4 }}>
           <Pencil size={10} color={t.warning} />
-          <Text style={{ fontSize: 10, color: t.warning, fontWeight: "600" }}>Customized for this channel</Text>
-        </View>
+          <span style={{ fontSize: 10, color: t.warning, fontWeight: 600 }}>Customized for this channel</span>
+        </div>
       )}
 
       {/* Blueprint card */}
-      <View
+      <div
         style={{
           marginTop: 8,
-          borderLeftWidth: 3,
-          borderLeftColor: hasOverride ? t.warning : t.accent,
+          borderLeft: `3px solid ${hasOverride ? t.warning : t.accent}`,
           borderRadius: 6,
-          backgroundColor: t.surfaceOverlay,
+          background: t.surfaceOverlay,
           padding: 12,
         }}
       >
         {/* Label */}
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 }}>
           <FileText size={12} color={t.textDim} />
-          <Text style={{ fontSize: 10, fontWeight: "700", color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
             Template
-          </Text>
-        </View>
+          </span>
+        </div>
 
         {editing ? (
           <>
@@ -391,88 +419,100 @@ export function WorkspaceSchemaEditor({
                 lineHeight: "1.5",
               }}
             />
-            <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-              <ActionButton
+            <div style={{ display: "flex", flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+              <SchemaActionButton
                 icon={<Save size={11} />}
                 label="Save"
                 color={t.accent}
-                onPress={handleSave}
+                onClick={handleSave}
                 t={t}
               />
-              <ActionButton
+              <SchemaActionButton
                 icon={<X size={11} />}
                 label="Cancel"
                 color={t.textDim}
-                onPress={handleCancel}
+                onClick={handleCancel}
                 t={t}
               />
               {hasTemplate && (
-                <ActionButton
+                <SchemaActionButton
                   icon={<RotateCcw size={11} />}
                   label="Reset to Template"
                   color={t.textDim}
-                  onPress={handleResetToTemplate}
+                  onClick={handleResetToTemplate}
                   t={t}
                 />
               )}
-              <ActionButton
+              <SchemaActionButton
                 icon={<BookTemplate size={11} />}
                 label="Save as New Template..."
                 color={t.textDim}
-                onPress={() => setShowSaveModal(true)}
+                onClick={() => setShowSaveModal(true)}
                 t={t}
               />
-            </View>
+            </div>
           </>
         ) : (
           <>
-            <Text
+            <span
               style={{
                 fontSize: 12,
                 fontFamily: "monospace",
                 color: t.text,
-                lineHeight: 18,
-              } as any}
+                lineHeight: "18px",
+                whiteSpace: "pre-wrap",
+                display: "block",
+              }}
             >
               {displayContent}
-            </Text>
+            </span>
             {isLong && (
-              <Pressable onPress={() => setExpanded(!expanded)} style={{ marginTop: 4 }}>
-                <Text style={{ fontSize: 11, color: t.accent, fontWeight: "500" }}>
-                  {expanded ? "Show less" : `Show all (${contentLines.length} lines)`}
-                </Text>
-              </Pressable>
+              <button
+                onClick={() => setExpanded(!expanded)}
+                style={{
+                  marginTop: 4,
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontSize: 11,
+                  color: t.accent,
+                  fontWeight: 500,
+                }}
+              >
+                {expanded ? "Show less" : `Show all (${contentLines.length} lines)`}
+              </button>
             )}
-            <View style={{ flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-              <ActionButton
+            <div style={{ display: "flex", flexDirection: "row", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+              <SchemaActionButton
                 icon={<Pencil size={11} />}
                 label={hasOverride ? "Edit" : "Customize for this channel"}
                 color={t.textDim}
-                onPress={handleCustomize}
+                onClick={handleCustomize}
                 t={t}
               />
               {hasOverride && hasTemplate && (
-                <ActionButton
+                <SchemaActionButton
                   icon={<RotateCcw size={11} />}
                   label="Reset to Template"
                   color={t.textDim}
-                  onPress={handleResetToTemplate}
+                  onClick={handleResetToTemplate}
                   t={t}
                 />
               )}
               {hasOverride && (
-                <ActionButton
+                <SchemaActionButton
                   icon={<BookTemplate size={11} />}
                   label="Save as New Template..."
                   color={t.textDim}
-                  onPress={() => setShowSaveModal(true)}
+                  onClick={() => setShowSaveModal(true)}
                   t={t}
                 />
               )}
-            </View>
+            </div>
           </>
         )}
-      </View>
+      </div>
 
       {showSaveModal && (
         <SaveAsTemplateModal
@@ -480,39 +520,46 @@ export function WorkspaceSchemaEditor({
           onClose={() => setShowSaveModal(false)}
         />
       )}
-    </View>
+    </div>
   );
 }
 
-function ActionButton({
+function SchemaActionButton({
   icon,
   label,
   color,
-  onPress,
+  onClick,
   t,
 }: {
   icon: React.ReactNode;
   label: string;
   color: string;
-  onPress: () => void;
+  onClick: () => void;
   t: ReturnType<typeof useThemeTokens>;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
+    <button
+      onClick={onClick}
       style={{
+        display: "flex",
         flexDirection: "row",
         alignItems: "center",
         gap: 4,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
+        paddingLeft: 8,
+        paddingRight: 8,
+        paddingTop: 4,
+        paddingBottom: 4,
         borderRadius: 4,
-        borderWidth: 1,
-        borderColor: t.surfaceBorder,
+        border: `1px solid ${t.surfaceBorder}`,
+        background: "transparent",
+        cursor: "pointer",
+        fontSize: 11,
+        color,
+        fontWeight: 500,
       }}
     >
       {icon}
-      <Text style={{ fontSize: 11, color, fontWeight: "500" }}>{label}</Text>
-    </Pressable>
+      {label}
+    </button>
   );
 }

@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { ChevronLeft, Trash2, Copy, FileText } from "lucide-react";
@@ -96,7 +95,7 @@ function EnableToggle({ enabled, onChange, compact }: { enabled: boolean; onChan
 // ---------------------------------------------------------------------------
 function ScheduledAtPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const t = useThemeTokens();
-  const isRelative = /^\+\d+[smhd]$/.test(value);
+  const isRelative = /^\+\d+[smhdw]$/.test(value);
 
   return (
     <FormRow label="Scheduled At">
@@ -245,8 +244,7 @@ export function TaskEditor({
   const deleteMut = useDeleteTask();
   const { data: bots } = useBots();
   const { data: channels } = useChannels();
-  const { width: winWidth } = useWindowDimensions();
-  const isWide = winWidth >= 768;
+  const isWide = typeof window !== "undefined" && window.innerWidth >= 768;
   const qc = useQueryClient();
 
   // Form state
@@ -389,10 +387,10 @@ export function TaskEditor({
     onSaved();
   }, [taskId, deleteMut, onSaved, invalidateExtra]);
 
+  const router = useRouter();
+
   if (typeof document === "undefined") return null;
   const ReactDOM = require("react-dom");
-
-  const router = useRouter();
   const selectedBot = bots?.find((b) => b.id === botId);
   const botOptions = (bots || []).map((b) => ({ label: b.name || b.id, value: b.id }));
   const channelOptions = [
@@ -531,11 +529,13 @@ export function TaskEditor({
       {/* Body */}
       {(((!isCreate && !cloneFromId) || cloneFromId) && loadingTask) ? (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color={t.accent} />
+          <div className="chat-spinner" />
         </div>
       ) : (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{
-          ...(isWide ? { flexDirection: "row", flex: 1 } : {}),
+        <div style={{
+          flex: 1,
+          overflowY: "auto",
+          ...(isWide ? { display: "flex", flexDirection: "row" as const } : {}),
         }}>
           {/* Prompt + Result/Error */}
           <div style={{
@@ -782,7 +782,7 @@ export function TaskEditor({
               )}
             </div>
           </div>
-        </ScrollView>
+        </div>
       )}
     </div>,
     document.body,

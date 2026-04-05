@@ -1,7 +1,7 @@
-import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { X, AlertTriangle } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useRestartServer } from "@/src/api/hooks/useServerOps";
+import ReactDOM from "react-dom";
 
 interface Props {
   onClose: () => void;
@@ -21,8 +21,6 @@ export function RestartConfirmModal({ onClose }: Props) {
 
   if (typeof document === "undefined") return null;
 
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const ReactDOM = require("react-dom");
   return ReactDOM.createPortal(
     <>
       {/* Backdrop */}
@@ -53,44 +51,55 @@ export function RestartConfirmModal({ onClose }: Props) {
         }}
       >
         {/* Header */}
-        <View
+        <div
           style={{
+            display: "flex",
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
             marginBottom: 16,
           }}
         >
-          <Text style={{ fontSize: 14, fontWeight: "700", color: t.text }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
             Restart Server
-          </Text>
+          </span>
           {!restartMut.isPending && !restartMut.isSuccess && (
-            <Pressable onPress={onClose} hitSlop={8}>
+            <button
+              onClick={onClose}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 4,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
               <X size={16} color={t.textDim} />
-            </Pressable>
+            </button>
           )}
-        </View>
+        </div>
 
         {restartMut.isSuccess ? (
-          <View style={{ alignItems: "center", gap: 12, paddingVertical: 16 }}>
-            <ActivityIndicator size="large" color={t.accent} />
-            <Text style={{ color: t.textMuted, fontSize: 13, textAlign: "center" }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, paddingTop: 16, paddingBottom: 16 }}>
+            <div className="chat-spinner" />
+            <span style={{ color: t.textMuted, fontSize: 13, textAlign: "center" }}>
               Server is restarting...
-            </Text>
-            <Text style={{ color: t.textDim, fontSize: 11, textAlign: "center" }}>
+            </span>
+            <span style={{ color: t.textDim, fontSize: 11, textAlign: "center" }}>
               The page will reconnect automatically when the server comes back up.
-            </Text>
-          </View>
+            </span>
+          </div>
         ) : (
           <>
             {/* Warning */}
-            <View
+            <div
               style={{
+                display: "flex",
                 flexDirection: "row",
                 gap: 10,
                 backgroundColor: "rgba(245,158,11,0.08)",
-                borderWidth: 1,
-                borderColor: "rgba(245,158,11,0.25)",
+                border: "1px solid rgba(245,158,11,0.25)",
                 borderRadius: 8,
                 padding: 12,
                 marginBottom: 16,
@@ -99,70 +108,82 @@ export function RestartConfirmModal({ onClose }: Props) {
               <AlertTriangle
                 size={15}
                 color="#f59e0b"
-                style={{ marginTop: 1, flexShrink: 0 } as any}
+                style={{ marginTop: 1, flexShrink: 0 }}
               />
-              <View style={{ flex: 1, gap: 4 }}>
-                <Text
-                  style={{ fontSize: 12, fontWeight: "600", color: "#f59e0b" }}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+                <span
+                  style={{ fontSize: 12, fontWeight: 600, color: "#f59e0b" }}
                 >
                   This will interrupt active connections
-                </Text>
-                <Text
-                  style={{ fontSize: 11, color: t.textMuted, lineHeight: 17 }}
+                </span>
+                <span
+                  style={{ fontSize: 11, color: t.textMuted, lineHeight: "17px" }}
                 >
                   The server will pull the latest code from git and restart via
                   systemd. All active agent runs and streaming connections will be
                   dropped.
-                </Text>
-              </View>
-            </View>
+                </span>
+              </div>
+            </div>
 
             {/* Actions */}
-            <View
-              style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}
+            <div
+              style={{ display: "flex", flexDirection: "row", justifyContent: "flex-end", gap: 8 }}
             >
-              <Pressable
-                onPress={onClose}
+              <button
+                onClick={onClose}
                 disabled={restartMut.isPending}
                 style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
+                  paddingLeft: 12,
+                  paddingRight: 12,
+                  paddingTop: 6,
+                  paddingBottom: 6,
                   borderRadius: 6,
-                  borderWidth: 1,
-                  borderColor: t.surfaceBorder,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  background: "none",
+                  cursor: "pointer",
+                  color: t.textDim,
+                  fontSize: 12,
                 }}
               >
-                <Text style={{ fontSize: 12, color: t.textDim }}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={handleRestart}
+                Cancel
+              </button>
+              <button
+                onClick={handleRestart}
                 disabled={restartMut.isPending}
                 style={{
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
+                  paddingLeft: 12,
+                  paddingRight: 12,
+                  paddingTop: 6,
+                  paddingBottom: 6,
                   borderRadius: 6,
                   backgroundColor: t.danger,
+                  border: "none",
                   opacity: restartMut.isPending ? 0.5 : 1,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
                 {restartMut.isPending ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <div className="chat-spinner" />
                 ) : (
-                  <Text
-                    style={{ fontSize: 12, fontWeight: "600", color: "#fff" }}
+                  <span
+                    style={{ fontSize: 12, fontWeight: 600, color: "#fff" }}
                   >
                     Restart Server
-                  </Text>
+                  </span>
                 )}
-              </Pressable>
-            </View>
+              </button>
+            </div>
 
             {restartMut.isError && (
-              <Text
-                style={{ color: t.danger, fontSize: 11, marginTop: 8 }}
+              <span
+                style={{ color: t.danger, fontSize: 11, marginTop: 8, display: "block" }}
               >
                 Failed to restart server. Check permissions and try again.
-              </Text>
+              </span>
             )}
           </>
         )}

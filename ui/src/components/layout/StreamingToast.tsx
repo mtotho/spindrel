@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, Platform } from "react-native";
 import { useRouter, usePathname } from "expo-router";
 import { useShallow } from "zustand/react/shallow";
 import { Loader2 } from "lucide-react";
@@ -55,42 +54,48 @@ export function StreamingToast() {
     }
   }, [backgroundStreamId]);
 
-  if (!mounted || Platform.OS !== "web") return null;
+  if (!mounted) return null;
 
   return (
-    <View
+    <div
       style={{
         position: "absolute",
         bottom: 16,
         left: 0,
         right: 0,
-        alignItems: "center",
+        display: "flex",
+        justifyContent: "center",
         zIndex: 50,
-        pointerEvents: "box-none",
+        pointerEvents: "none",
       }}
     >
-      <Pressable
-        onPress={() => {
+      <button
+        className="streaming-toast-btn"
+        onClick={() => {
           if (shownId) {
             router.push(`/channels/${shownId}` as any);
           }
         }}
         style={{
+          pointerEvents: "auto",
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
-          paddingHorizontal: 16,
-          paddingVertical: 10,
+          paddingLeft: 16,
+          paddingRight: 16,
+          paddingTop: 10,
+          paddingBottom: 10,
           borderRadius: 999,
           backgroundColor: t.surfaceRaised,
-          borderWidth: 1,
-          borderColor: t.accentBorder,
+          border: `1px solid ${t.accentBorder}`,
           opacity: visible ? 1 : 0,
-          transform: [{ translateY: visible ? 0 : 8 }],
-          transitionProperty: "opacity, transform",
-          transitionDuration: "200ms",
-          transitionTimingFunction: "ease-out",
+          transform: `translateY(${visible ? 0 : 8}px)`,
+          transition: "opacity 200ms ease-out, transform 200ms ease-out",
           boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          cursor: "pointer",
+          color: "inherit",
+          font: "inherit",
         }}
       >
         <Loader2
@@ -98,14 +103,14 @@ export function StreamingToast() {
           color={t.accent}
           className="animate-spin"
         />
-        <Text style={{ fontSize: 13, color: t.textMuted }}>
+        <span style={{ fontSize: 13, color: t.textMuted }}>
           Processing in{" "}
-          <Text style={{ color: t.accent, fontWeight: "600" }}>
+          <span style={{ color: t.accent, fontWeight: 600 }}>
             #{shownName ?? "channel"}
-          </Text>
+          </span>
           ...
-        </Text>
-      </Pressable>
-    </View>
+        </span>
+      </button>
+    </div>
   );
 }

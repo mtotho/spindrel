@@ -1,6 +1,4 @@
-import { View, Text, Pressable } from "react-native";
 import { ArrowLeft, Menu } from "lucide-react";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
 import { useThemeTokens } from "../../theme/tokens";
@@ -19,12 +17,11 @@ interface MobileHeaderProps {
  *
  * Always renders the header bar with title and optional right slot.
  * The nav button (hamburger / back) only shows when the sidebar is
- * hidden (mobile) or collapsed (desktop), unless onBack is set — then
+ * hidden (mobile) or collapsed (desktop), unless onBack is set -- then
  * the back arrow always appears.
  */
 export function MobileHeader({ title, subtitle, onBack, right }: MobileHeaderProps) {
   const columns = useResponsiveColumns();
-  const insets = useSafeAreaInsets();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const openMobileSidebar = useUIStore((s) => s.openMobileSidebar);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
@@ -33,42 +30,72 @@ export function MobileHeader({ title, subtitle, onBack, right }: MobileHeaderPro
   const sidebarHidden = columns === "single" || sidebarCollapsed;
 
   return (
-    <View
-      className="flex-row items-center gap-3 px-4 border-b border-surface-border bg-surface"
-      style={{ flexShrink: 0, minHeight: 52, paddingTop: insets.top }}
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingLeft: 16,
+        paddingRight: 16,
+        flexShrink: 0,
+        minHeight: 52,
+        borderBottom: `1px solid ${t.surfaceBorder}`,
+        backgroundColor: t.surface,
+      }}
     >
       {onBack ? (
-        <Pressable
-          onPress={onBack}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+        <button
+          className="header-icon-btn"
+          onClick={onBack}
           style={{ width: 44, height: 44 }}
-          accessibilityLabel="Go back"
+          aria-label="Go back"
         >
           <ArrowLeft size={20} color={t.textMuted} />
-        </Pressable>
+        </button>
       ) : sidebarHidden ? (
-        <Pressable
-          onPress={columns === "single" ? openMobileSidebar : toggleSidebar}
-          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+        <button
+          className="header-icon-btn"
+          onClick={columns === "single" ? openMobileSidebar : toggleSidebar}
           style={{ width: 44, height: 44 }}
-          accessibilityLabel="Open menu"
+          aria-label="Open menu"
         >
           <Menu size={20} color={t.textMuted} />
-        </Pressable>
+        </button>
       ) : null}
 
-      <View className="flex-1 min-w-0 py-2">
-        <Text style={{ fontSize: 16, fontWeight: "700", color: t.text }} numberOfLines={1}>
+      <div style={{ flex: 1, minWidth: 0, paddingTop: 8, paddingBottom: 8 }}>
+        <span
+          style={{
+            display: "block",
+            fontSize: 16,
+            fontWeight: 700,
+            color: t.text,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           {title}
-        </Text>
+        </span>
         {subtitle ? (
-          <Text className="text-text-muted text-xs mt-0.5" numberOfLines={1}>
+          <span
+            style={{
+              display: "block",
+              fontSize: 12,
+              color: t.textMuted,
+              marginTop: 2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
             {subtitle}
-          </Text>
+          </span>
         ) : null}
-      </View>
+      </div>
 
       {right}
-    </View>
+    </div>
   );
 }

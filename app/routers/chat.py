@@ -676,6 +676,9 @@ async def chat_stream(
 
     channel_id = channel.id
 
+    # Multi-bot channel: if user @-tagged a member bot, route to that bot
+    bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
+
     logger.info("POST /chat/stream  bot=%s  channel=%s  session=%s  passive=%s  file_metadata=%d  message=%r",
                 req.bot_id, channel_id, session_id, req.passive, len(req.file_metadata), message[:80])
 
@@ -865,6 +868,12 @@ async def chat_stream(
             response_actions = None
             was_cancelled = False
 
+            # Apply member-level config overrides
+            _effective_model_override_s = req.model_override or _member_config.get("model_override")
+            _member_addon_s = _member_config.get("system_prompt_addon")
+            if _member_addon_s:
+                messages.append({"role": "system", "content": f"[Member bot instructions for this channel]\n{_member_addon_s}"})
+
             # Notify observers that streaming is starting
             from app.services.channel_events import publish as _publish_stream
             _publish_stream(channel_id, "stream_start")
@@ -878,7 +887,7 @@ async def chat_stream(
                 dispatch_type=req.dispatch_type,
                 dispatch_config=req.dispatch_config,
                 channel_id=channel_id,
-                model_override=req.model_override,
+                model_override=_effective_model_override_s,
                 provider_id_override=req.model_provider_id_override,
             )
             _budget_utilization = None

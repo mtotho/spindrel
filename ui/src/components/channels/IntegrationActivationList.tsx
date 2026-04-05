@@ -1,4 +1,3 @@
-import { View, Text, Switch } from "react-native";
 import { Plug, AlertTriangle } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import type { ActivatableIntegration } from "../../types/api";
@@ -21,82 +20,132 @@ export function IntegrationActivationList({
   if (integrations.length === 0) return null;
 
   return (
-    <View style={{ gap: 10 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {integrations.map((integration) => {
         const isEnabled = enabled.includes(integration.integration_type);
         const needsWorkspace = integration.requires_workspace && !workspaceEnabled;
 
         return (
-          <View
+          <div
             key={integration.integration_type}
             style={{
-              borderWidth: 1,
-              borderColor: isEnabled ? t.accent + "40" : t.surfaceBorder,
+              border: `1px solid ${isEnabled ? t.accent + "40" : t.surfaceBorder}`,
               backgroundColor: isEnabled ? t.accent + "08" : "transparent",
               borderRadius: 10,
               padding: 14,
+              display: "flex",
+              flexDirection: "column",
               gap: 6,
               opacity: needsWorkspace ? 0.5 : 1,
             }}
           >
-            <View className="flex-row items-center gap-3">
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Plug size={16} color={isEnabled ? t.accent : t.textDim} />
-              <View style={{ flex: 1 }}>
-                <Text className={`text-sm font-medium ${isEnabled ? "text-accent" : "text-text"}`}>
+              <div style={{ flex: 1 }}>
+                <span style={{
+                  display: "block",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: isEnabled ? t.accent : t.text,
+                }}>
                   {integration.integration_type.replace(/_/g, " ")}
-                </Text>
+                </span>
                 {integration.description && (
-                  <Text className="text-text-muted text-xs" numberOfLines={1}>
+                  <span style={{
+                    display: "block",
+                    fontSize: 12,
+                    color: t.textMuted,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}>
                     {integration.description}
-                  </Text>
+                  </span>
                 )}
-              </View>
-              <Switch
-                value={isEnabled}
-                onValueChange={() => {
+              </div>
+              {/* Toggle switch */}
+              <button
+                onClick={() => {
                   if (!needsWorkspace) onToggle(integration.integration_type);
                 }}
                 disabled={needsWorkspace}
-                trackColor={{ false: t.surfaceBorder, true: t.accent }}
-              />
-            </View>
+                style={{
+                  width: 44,
+                  height: 24,
+                  borderRadius: 12,
+                  backgroundColor: isEnabled ? t.accent : t.surfaceBorder,
+                  border: "none",
+                  cursor: needsWorkspace ? "not-allowed" : "pointer",
+                  padding: 0,
+                  position: "relative",
+                  transition: "background-color 0.2s",
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: 10,
+                    backgroundColor: "white",
+                    position: "absolute",
+                    top: 2,
+                    left: isEnabled ? 22 : 2,
+                    transition: "left 0.2s",
+                    boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  }}
+                />
+              </button>
+            </div>
 
             {/* What it provides */}
-            <View className="flex-row flex-wrap gap-1.5" style={{ marginLeft: 28 }}>
+            <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, marginLeft: 28 }}>
               {integration.tools.length > 0 && (
-                <View style={{ backgroundColor: t.surfaceBorder, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                  <Text style={{ fontSize: 10, color: t.textDim }}>
-                    {integration.tools.length} tool{integration.tools.length !== 1 ? "s" : ""}
-                  </Text>
-                </View>
+                <span style={{
+                  backgroundColor: t.surfaceBorder,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  fontSize: 10,
+                  color: t.textDim,
+                }}>
+                  {integration.tools.length} tool{integration.tools.length !== 1 ? "s" : ""}
+                </span>
               )}
               {integration.skill_count > 0 && (
-                <View style={{ backgroundColor: t.surfaceBorder, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                  <Text style={{ fontSize: 10, color: t.textDim }}>
-                    {integration.skill_count} skill{integration.skill_count !== 1 ? "s" : ""}
-                  </Text>
-                </View>
+                <span style={{
+                  backgroundColor: t.surfaceBorder,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  fontSize: 10,
+                  color: t.textDim,
+                }}>
+                  {integration.skill_count} skill{integration.skill_count !== 1 ? "s" : ""}
+                </span>
               )}
               {integration.carapaces.length > 0 && (
-                <View style={{ backgroundColor: t.surfaceBorder, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                  <Text style={{ fontSize: 10, color: t.textDim }}>
-                    via {integration.carapaces.join(", ")}
-                  </Text>
-                </View>
+                <span style={{
+                  backgroundColor: t.surfaceBorder,
+                  padding: "2px 6px",
+                  borderRadius: 4,
+                  fontSize: 10,
+                  color: t.textDim,
+                }}>
+                  via {integration.carapaces.join(", ")}
+                </span>
               )}
-            </View>
+            </div>
 
             {needsWorkspace && (
-              <View className="flex-row items-center gap-1.5" style={{ marginLeft: 28 }}>
+              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 28 }}>
                 <AlertTriangle size={12} color={t.warning} />
-                <Text style={{ fontSize: 11, color: t.warning }}>
+                <span style={{ fontSize: 11, color: t.warning }}>
                   Requires workspace — select a template first
-                </Text>
-              </View>
+                </span>
+              </div>
             )}
-          </View>
+          </div>
         );
       })}
-    </View>
+    </div>
   );
 }

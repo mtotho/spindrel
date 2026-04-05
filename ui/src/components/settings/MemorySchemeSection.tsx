@@ -3,7 +3,6 @@
  * Enables/disables workspace-files memory mode across all bots at once.
  */
 import { useState, useCallback, useEffect } from "react";
-import { View, Text, Pressable, ActivityIndicator, Switch } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, HelpCircle, Save, X } from "lucide-react";
 import { useAdminBots } from "@/src/api/hooks/useBots";
@@ -101,7 +100,7 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
       }}
     >
       <div
-        onClick={(e: any) => e.stopPropagation()}
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
         style={{
           background: t.surface, border: `1px solid ${t.surfaceOverlay}`,
           borderRadius: 12, maxWidth: 780, width: "100%",
@@ -230,7 +229,7 @@ export function MemorySchemeSection() {
     }
     setPromptDirty(true);
     setPromptSaved(false);
-  }, [customPrompt]);
+  }, [customPrompt, builtInPrompt]);
 
   const enabledCount = bots?.filter((b) => b.memory_scheme === "workspace-files").length ?? 0;
   const totalCount = bots?.length ?? 0;
@@ -259,249 +258,283 @@ export function MemorySchemeSection() {
   const isBusy = enableAll.isPending || disableAll.isPending;
 
   return (
-    <View style={{ marginTop: 16, gap: 16 }}>
+    <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Header with help button */}
-      <View style={{ gap: 4 }}>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Text style={{ fontSize: 14, fontWeight: "700", color: t.text }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
             Workspace Files Memory
-          </Text>
-          <Pressable onPress={() => setShowHelp(true)} style={{ padding: 2 }}>
+          </span>
+          <button
+            onClick={() => setShowHelp(true)}
+            style={{ padding: 2, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center" }}
+          >
             <HelpCircle size={15} color={t.textDim} />
-          </Pressable>
-        </View>
-        <Text style={{ fontSize: 12, color: t.textDim }}>
+          </button>
+        </div>
+        <span style={{ fontSize: 12, color: t.textDim }}>
           File-based memory with daily logs, curated MEMORY.md, and reference docs.
           Replaces DB memory/knowledge tools when active.
-        </Text>
-      </View>
+        </span>
+      </div>
       {showHelp && <ArchitectureOverlay onClose={() => setShowHelp(false)} />}
 
       {isLoading ? (
-        <ActivityIndicator color={t.accent} style={{ alignSelf: "flex-start" }} />
+        <div style={{ alignSelf: "flex-start" }}>
+          <div className="chat-spinner" />
+        </div>
       ) : (
-        <View style={{ gap: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {/* Status summary */}
-            <View style={{
-              flexDirection: "row", alignItems: "center", gap: 12,
+            <div style={{
+              display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
               backgroundColor: t.inputBg, borderRadius: 8,
-              borderWidth: 1, borderColor: t.surfaceOverlay,
+              border: `1px solid ${t.surfaceOverlay}`,
               padding: 14,
             }}>
-              <View style={{
+              <div style={{
                 width: 40, height: 40, borderRadius: 20,
                 backgroundColor: allEnabled ? t.purpleSubtle : noneEnabled ? "rgba(100,100,100,0.15)" : t.purpleSubtle,
-                alignItems: "center", justifyContent: "center",
+                display: "flex", alignItems: "center", justifyContent: "center",
               }}>
-                <Text style={{
-                  fontSize: 16, fontWeight: "700",
+                <span style={{
+                  fontSize: 16, fontWeight: 700,
                   color: allEnabled ? t.purple : noneEnabled ? t.textDim : t.purpleMuted,
                 }}>
                   {enabledCount}
-                </Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: 13, color: t.text, fontWeight: "500" }}>
+                </span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <span style={{ fontSize: 13, color: t.text, fontWeight: 500, display: "block" }}>
                   {allEnabled
                     ? "All bots using workspace files"
                     : noneEnabled
                     ? "No bots using workspace files"
                     : `${enabledCount} of ${totalCount} bots using workspace files`}
-                </Text>
-                <Text style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
+                </span>
+                <span style={{ fontSize: 11, color: t.textDim, marginTop: 2, display: "block" }}>
                   {allEnabled
                     ? "DB memory and knowledge tools are hidden for all bots"
                     : noneEnabled
                     ? "All bots using database memory (legacy)"
                     : "Mixed mode — some bots on workspace files, others on database"}
-                </Text>
-              </View>
-            </View>
+                </span>
+              </div>
+            </div>
 
             {/* Per-bot status list */}
             {bots && bots.length > 0 && (
-              <View style={{
+              <div style={{
                 backgroundColor: t.surface, borderRadius: 8,
-                borderWidth: 1, borderColor: t.surfaceRaised,
+                border: `1px solid ${t.surfaceRaised}`,
                 overflow: "hidden",
               }}>
                 {bots.map((bot, i) => {
                   const enabled = bot.memory_scheme === "workspace-files";
                   return (
-                    <View
+                    <div
                       key={bot.id}
                       style={{
-                        flexDirection: "row", alignItems: "center",
-                        paddingVertical: 8, paddingHorizontal: 14,
-                        borderTopWidth: i > 0 ? 1 : 0,
-                        borderTopColor: t.surfaceRaised,
+                        display: "flex", flexDirection: "row", alignItems: "center",
+                        paddingTop: 8, paddingBottom: 8, paddingLeft: 14, paddingRight: 14,
+                        borderTop: i > 0 ? `1px solid ${t.surfaceRaised}` : "none",
                       }}
                     >
-                      <View style={{
+                      <div style={{
                         width: 8, height: 8, borderRadius: 4,
                         backgroundColor: enabled ? t.purple : t.surfaceBorder,
                         marginRight: 10,
                       }} />
-                      <Text style={{
+                      <span style={{
                         flex: 1, fontSize: 12,
                         color: enabled ? t.text : t.textDim,
                       }}>
                         {bot.name}
-                      </Text>
-                      <Text style={{
-                        fontSize: 10, fontWeight: "600",
+                      </span>
+                      <span style={{
+                        fontSize: 10, fontWeight: 600,
                         color: enabled ? t.purpleMuted : t.surfaceBorder,
                       }}>
                         {enabled ? "workspace-files" : "database"}
-                      </Text>
-                    </View>
+                      </span>
+                    </div>
                   );
                 })}
-              </View>
+              </div>
             )}
 
             {/* Action buttons */}
-            <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-              <Pressable
-                onPress={handleEnableAll}
+            <div style={{ display: "flex", flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+              <button
+                onClick={handleEnableAll}
                 disabled={isBusy || allEnabled}
                 style={{
-                  flexDirection: "row", alignItems: "center", gap: 6,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                   backgroundColor: allEnabled ? t.surfaceRaised : t.purpleSubtle,
-                  paddingHorizontal: 14, paddingVertical: 8,
-                  borderRadius: 8, borderWidth: 1,
-                  borderColor: allEnabled ? t.surfaceOverlay : t.purpleBorder,
+                  paddingLeft: 14, paddingRight: 14, paddingTop: 8, paddingBottom: 8,
+                  borderRadius: 8, border: `1px solid ${allEnabled ? t.surfaceOverlay : t.purpleBorder}`,
                   opacity: isBusy || allEnabled ? 0.5 : 1,
+                  cursor: isBusy || allEnabled ? "default" : "pointer",
                 }}
               >
                 {enableAll.isPending ? (
-                  <ActivityIndicator size="small" color={t.purple} />
+                  <div className="chat-spinner" />
                 ) : justEnabled ? (
                   <Check size={14} color={t.purple} />
                 ) : null}
-                <Text style={{
-                  fontSize: 12, fontWeight: "600",
+                <span style={{
+                  fontSize: 12, fontWeight: 600,
                   color: allEnabled ? t.textDim : t.purple,
                 }}>
                   {justEnabled ? "Enabled" : "Enable All Bots"}
-                </Text>
-              </Pressable>
+                </span>
+              </button>
 
-              <Pressable
-                onPress={handleDisableAll}
+              <button
+                onClick={handleDisableAll}
                 disabled={isBusy || noneEnabled}
                 style={{
-                  flexDirection: "row", alignItems: "center", gap: 6,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                   backgroundColor: t.surfaceRaised,
-                  paddingHorizontal: 14, paddingVertical: 8,
-                  borderRadius: 8, borderWidth: 1, borderColor: t.surfaceBorder,
+                  paddingLeft: 14, paddingRight: 14, paddingTop: 8, paddingBottom: 8,
+                  borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
                   opacity: isBusy || noneEnabled ? 0.5 : 1,
+                  cursor: isBusy || noneEnabled ? "default" : "pointer",
                 }}
               >
                 {disableAll.isPending ? (
-                  <ActivityIndicator size="small" color={t.textMuted} />
+                  <div className="chat-spinner" />
                 ) : justDisabled ? (
                   <Check size={14} color={t.textMuted} />
                 ) : null}
-                <Text style={{
-                  fontSize: 12, fontWeight: "600", color: noneEnabled ? t.surfaceBorder : t.textMuted,
+                <span style={{
+                  fontSize: 12, fontWeight: 600, color: noneEnabled ? t.surfaceBorder : t.textMuted,
                 }}>
                   {justDisabled ? "Disabled" : "Disable All"}
-                </Text>
-              </Pressable>
-            </View>
+                </span>
+              </button>
+            </div>
 
             {/* System prompt — view built-in or edit custom override */}
-            <View style={{
+            <div style={{
               backgroundColor: t.surface, borderRadius: 8,
-              borderWidth: 1, borderColor: t.surfaceRaised,
+              border: `1px solid ${t.surfaceRaised}`,
               overflow: "hidden",
             }}>
-              <Pressable
-                onPress={() => setShowPrompt(!showPrompt)}
+              <button
+                onClick={() => setShowPrompt(!showPrompt)}
                 style={{
-                  flexDirection: "row", alignItems: "center", gap: 8,
-                  paddingVertical: 10, paddingHorizontal: 14,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
+                  paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
+                  background: "none", border: "none", cursor: "pointer", width: "100%",
+                  textAlign: "left",
                 }}
               >
                 <ChevronDown
                   size={14}
                   color={t.textMuted}
-                  style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+                  style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}
                 />
-                <Text style={{ fontSize: 12, fontWeight: "600", color: t.textMuted }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>
                   System Prompt
-                </Text>
-                <View style={{
+                </span>
+                <div style={{
                   backgroundColor: useCustomPrompt ? t.warningSubtle : t.purpleSubtle,
-                  paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3,
+                  paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 3,
                   marginLeft: 4,
                 }}>
-                  <Text style={{ fontSize: 9, fontWeight: "600", color: useCustomPrompt ? t.warning : t.purpleMuted }}>
+                  <span style={{ fontSize: 9, fontWeight: 600, color: useCustomPrompt ? t.warning : t.purpleMuted }}>
                     {useCustomPrompt ? "custom" : "built-in"}
-                  </Text>
-                </View>
-              </Pressable>
+                  </span>
+                </div>
+              </button>
               {showPrompt && (
-                <View style={{ paddingHorizontal: 14, paddingBottom: 14, gap: 10 }}>
+                <div style={{ paddingLeft: 14, paddingRight: 14, paddingBottom: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                   {/* Toggle for custom override */}
-                  <Pressable
-                    onPress={() => handleToggleCustom(!useCustomPrompt)}
-                    style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+                  <button
+                    onClick={() => handleToggleCustom(!useCustomPrompt)}
+                    style={{
+                      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
+                      background: "none", border: "none", cursor: "pointer", padding: 0,
+                      textAlign: "left",
+                    }}
                   >
-                    <Switch
-                      value={useCustomPrompt}
-                      onValueChange={handleToggleCustom}
-                      trackColor={{ false: "#374151", true: t.warningSubtle }}
-                      thumbColor={t.text}
-                    />
-                    <Text style={{ fontSize: 11, color: useCustomPrompt ? t.warning : t.textDim }}>
+                    <div
+                      style={{
+                        width: 44,
+                        height: 24,
+                        borderRadius: 12,
+                        backgroundColor: useCustomPrompt ? t.warningSubtle : t.surfaceBorder,
+                        position: "relative",
+                        flexShrink: 0,
+                        transition: "background-color 0.2s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 20,
+                          height: 20,
+                          borderRadius: 10,
+                          backgroundColor: "white",
+                          position: "absolute",
+                          top: 2,
+                          left: useCustomPrompt ? 22 : 2,
+                          transition: "left 0.2s",
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontSize: 11, color: useCustomPrompt ? t.warning : t.textDim }}>
                       Use custom prompt (not recommended)
-                    </Text>
-                  </Pressable>
+                    </span>
+                  </button>
 
                   {useCustomPrompt ? (
                     <>
                       <textarea
                         value={customPrompt}
-                        onChange={(e: any) => { setCustomPrompt(e.target.value); setPromptDirty(true); setPromptSaved(false); }}
+                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => { setCustomPrompt(e.target.value); setPromptDirty(true); setPromptSaved(false); }}
                         style={{
                           width: "100%", minHeight: 280,
                           fontSize: 11, lineHeight: "1.7", color: t.text,
                           fontFamily: "monospace", whiteSpace: "pre-wrap",
                           background: t.inputBg, borderRadius: 6, padding: 12,
                           border: `1px solid ${t.surfaceOverlay}`, resize: "vertical",
+                          boxSizing: "border-box",
                         }}
                       />
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Pressable
-                          onPress={handleSavePrompt}
+                      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <button
+                          onClick={handleSavePrompt}
                           disabled={!promptDirty || updateSettings.isPending}
                           style={{
-                            flexDirection: "row", alignItems: "center", gap: 6,
+                            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
                             backgroundColor: promptDirty ? t.warningSubtle : t.surfaceRaised,
-                            paddingHorizontal: 12, paddingVertical: 6,
+                            paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6,
                             borderRadius: 6, opacity: promptDirty ? 1 : 0.5,
+                            border: "none", cursor: promptDirty ? "pointer" : "default",
                           }}
                         >
                           {updateSettings.isPending ? (
-                            <ActivityIndicator size="small" color={t.warning} />
+                            <div className="chat-spinner" />
                           ) : promptSaved ? (
                             <Check size={12} color={t.warning} />
                           ) : (
                             <Save size={12} color={t.warning} />
                           )}
-                          <Text style={{ fontSize: 11, fontWeight: "600", color: t.warning }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: t.warning }}>
                             {promptSaved ? "Saved" : "Save"}
-                          </Text>
-                        </Pressable>
-                        <Pressable
-                          onPress={() => { setCustomPrompt(builtInPrompt); setPromptDirty(true); }}
-                          style={{ paddingHorizontal: 8, paddingVertical: 4 }}
+                          </span>
+                        </button>
+                        <button
+                          onClick={() => { setCustomPrompt(builtInPrompt); setPromptDirty(true); }}
+                          style={{
+                            paddingLeft: 8, paddingRight: 8, paddingTop: 4, paddingBottom: 4,
+                            background: "none", border: "none", cursor: "pointer",
+                          }}
                         >
-                          <Text style={{ fontSize: 10, color: t.textDim }}>Reset to default</Text>
-                        </Pressable>
-                      </View>
+                          <span style={{ fontSize: 10, color: t.textDim }}>Reset to default</span>
+                        </button>
+                      </div>
                     </>
                   ) : (
                     <pre style={{
@@ -510,57 +543,59 @@ export function MemorySchemeSection() {
                       background: t.inputBg, borderRadius: 6, padding: 12,
                     }}>{builtInPrompt}</pre>
                   )}
-                </View>
+                </div>
               )}
-            </View>
+            </div>
 
             {/* Flush prompt override notice */}
-            <View style={{
+            <div style={{
               backgroundColor: t.surface, borderRadius: 8,
-              borderWidth: 1, borderColor: t.surfaceRaised,
+              border: `1px solid ${t.surfaceRaised}`,
               overflow: "hidden",
             }}>
-              <Pressable
-                onPress={() => setShowFlush(!showFlush)}
+              <button
+                onClick={() => setShowFlush(!showFlush)}
                 style={{
-                  flexDirection: "row", alignItems: "center", gap: 8,
-                  paddingVertical: 10, paddingHorizontal: 14,
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
+                  paddingTop: 10, paddingBottom: 10, paddingLeft: 14, paddingRight: 14,
+                  background: "none", border: "none", cursor: "pointer", width: "100%",
+                  textAlign: "left",
                 }}
               >
                 <ChevronDown
                   size={14}
                   color={t.textMuted}
-                  style={{ transform: showFlush ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+                  style={{ transform: showFlush ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}
                 />
-                <Text style={{ fontSize: 12, fontWeight: "600", color: t.textMuted }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>
                   Memory Flush Prompt
-                </Text>
-                <View style={{
+                </span>
+                <div style={{
                   backgroundColor: t.warningSubtle,
-                  paddingHorizontal: 6, paddingVertical: 2, borderRadius: 3,
+                  paddingLeft: 6, paddingRight: 6, paddingTop: 2, paddingBottom: 2, borderRadius: 3,
                   marginLeft: 4,
                 }}>
-                  <Text style={{ fontSize: 9, fontWeight: "600", color: t.warning }}>
+                  <span style={{ fontSize: 9, fontWeight: 600, color: t.warning }}>
                     overridden
-                  </Text>
-                </View>
-              </Pressable>
+                  </span>
+                </div>
+              </button>
               {showFlush && (
-                <View style={{ paddingHorizontal: 14, paddingBottom: 14 }}>
-                  <Text style={{ fontSize: 11, color: t.warning, marginBottom: 8 }}>
+                <div style={{ paddingLeft: 14, paddingRight: 14, paddingBottom: 14 }}>
+                  <span style={{ fontSize: 11, color: t.warning, marginBottom: 8, display: "block" }}>
                     The "Memory Flush Default Prompt" setting above is ignored for bots with
                     workspace-files enabled. This prompt is used instead:
-                  </Text>
+                  </span>
                   <pre style={{
                     margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
                     fontFamily: "monospace", whiteSpace: "pre-wrap",
                     background: t.inputBg, borderRadius: 6, padding: 12,
                   }}>{builtInFlushPrompt}</pre>
-                </View>
+                </div>
               )}
-            </View>
-          </View>
+            </div>
+          </div>
         )}
-    </View>
+    </div>
   );
 }

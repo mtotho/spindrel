@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { View, Text, Pressable, Platform } from "react-native";
+import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "expo-router";
 import { Activity, X, ChevronDown, ChevronUp } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
@@ -75,20 +74,21 @@ export function ActiveWorkflowsHud() {
     }
   }, [hasRuns, onWorkflowsPage]);
 
-  if (!mounted || Platform.OS !== "web") return null;
+  if (!mounted) return null;
 
   return (
-    <View
+    <div
       style={{
         position: "absolute",
         bottom: 16,
         right: 16,
         zIndex: 60,
-        pointerEvents: "box-none",
+        pointerEvents: "none",
       }}
     >
       <div
         style={{
+          pointerEvents: "auto",
           background: t.surfaceRaised,
           border: `1px solid ${t.accentBorder}`,
           borderRadius: 10,
@@ -101,35 +101,46 @@ export function ActiveWorkflowsHud() {
           maxWidth: 380,
         }}
       >
-        {/* Header bar — always visible */}
-        <Pressable
-          onPress={() => setExpanded(!expanded)}
+        {/* Header bar -- always visible */}
+        <button
+          className="hud-fab"
+          onClick={() => setExpanded(!expanded)}
           style={{
+            display: "flex",
             flexDirection: "row",
             alignItems: "center",
             gap: 8,
-            paddingHorizontal: 12,
-            paddingVertical: 8,
+            paddingLeft: 12,
+            paddingRight: 12,
+            paddingTop: 8,
+            paddingBottom: 8,
+            width: "100%",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            textAlign: "left",
+            color: "inherit",
+            font: "inherit",
           }}
         >
           <Activity size={14} color={t.accent} />
-          <Text
+          <span
             style={{
               flex: 1,
               fontSize: 12,
-              fontWeight: "600",
+              fontWeight: 600,
               color: t.text,
             }}
           >
             {activeRuns.length} workflow{activeRuns.length !== 1 ? "s" : ""}{" "}
             running
-          </Text>
+          </span>
           {expanded ? (
-            <ChevronDown size={14} color={t.textDim} />
-          ) : (
             <ChevronUp size={14} color={t.textDim} />
+          ) : (
+            <ChevronDown size={14} color={t.textDim} />
           )}
-        </Pressable>
+        </button>
 
         {/* Compact: mini progress bars */}
         {!expanded && (
@@ -213,7 +224,7 @@ export function ActiveWorkflowsHud() {
         }}
         onCancel={() => setCancelTarget(null)}
       />
-    </View>
+    </div>
   );
 }
 
@@ -231,7 +242,8 @@ function RunRow({
   const color = statusColor(run, t);
 
   return (
-    <div
+    <button
+      type="button"
       style={{
         display: "flex",
         alignItems: "center",
@@ -239,6 +251,12 @@ function RunRow({
         padding: "8px 12px",
         borderBottom: `1px solid ${t.surfaceBorder}`,
         cursor: "pointer",
+        background: "none",
+        border: "none",
+        width: "100%",
+        textAlign: "left",
+        font: "inherit",
+        color: "inherit",
       }}
       onClick={onNavigate}
     >
@@ -317,8 +335,8 @@ function RunRow({
       </div>
 
       {/* Cancel button */}
-      <Pressable
-        onPress={(e) => {
+      <button
+        onClick={(e) => {
           e.stopPropagation();
           onCancel();
         }}
@@ -326,10 +344,16 @@ function RunRow({
           padding: 4,
           borderRadius: 4,
           flexShrink: 0,
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
         <X size={12} color={t.textDim} />
-      </Pressable>
-    </div>
+      </button>
+    </button>
   );
 }

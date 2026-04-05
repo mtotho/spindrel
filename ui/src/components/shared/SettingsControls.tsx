@@ -4,7 +4,6 @@
  */
 
 import { useState } from "react";
-import { Pressable, Text, View } from "react-native";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 
@@ -24,15 +23,20 @@ export function AdvancedSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <View style={{ marginTop: 8 }}>
-      <Pressable
-        onPress={() => setOpen(!open)}
+    <div style={{ marginTop: 8 }}>
+      <button
+        onClick={() => setOpen(!open)}
         style={{
+          display: "flex",
           flexDirection: "row",
           alignItems: "center",
           gap: 6,
           minHeight: 44,
-          paddingHorizontal: 4,
+          paddingLeft: 4,
+          paddingRight: 4,
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
         }}
       >
         {open ? (
@@ -40,12 +44,12 @@ export function AdvancedSection({
         ) : (
           <ChevronRight size={14} color={t.textMuted} />
         )}
-        <Text style={{ color: t.textMuted, fontSize: 13, fontWeight: "600" }}>
+        <span style={{ color: t.textMuted, fontSize: 13, fontWeight: 600 }}>
           {title}
-        </Text>
-      </Pressable>
+        </span>
+      </button>
       {open && children}
-    </View>
+    </div>
   );
 }
 

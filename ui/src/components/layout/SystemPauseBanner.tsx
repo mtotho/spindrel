@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { View, Text, Pressable } from "react-native";
 import { AlertTriangle, X } from "lucide-react";
 
 interface Props {
@@ -16,21 +15,42 @@ export function SystemPauseBanner({ behavior }: Props) {
       : "Messages are being dropped.";
 
   return (
-    <View
-      className="flex-row items-center gap-2 px-4 py-2"
-      style={{ backgroundColor: "rgba(245, 158, 11, 0.15)", flexShrink: 0 }}
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingLeft: 16,
+        paddingRight: 16,
+        paddingTop: 8,
+        paddingBottom: 8,
+        backgroundColor: "rgba(245, 158, 11, 0.15)",
+        flexShrink: 0,
+      }}
     >
       <AlertTriangle size={16} color="#f59e0b" />
-      <Text className="text-sm flex-1" style={{ color: "#f59e0b" }}>
+      <span style={{ fontSize: 14, flex: 1, color: "#f59e0b" }}>
         System Paused — {description}
-      </Text>
-      <Pressable
-        onPress={() => setDismissed(true)}
-        className="items-center justify-center rounded-md"
-        style={{ width: 28, height: 28 }}
+      </span>
+      <button
+        className="banner-btn"
+        onClick={() => setDismissed(true)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 28,
+          height: 28,
+          borderRadius: 6,
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+          padding: 0,
+        }}
       >
         <X size={14} color="#f59e0b" />
-      </Pressable>
-    </View>
+      </button>
+    </div>
   );
 }

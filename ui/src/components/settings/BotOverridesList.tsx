@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { View, Text, Pressable } from "react-native";
 import { ChevronRight } from "lucide-react";
 import { useRouter } from "expo-router";
 import { useAdminBots } from "@/src/api/hooks/useBots";
@@ -29,52 +28,55 @@ export function BotOverridesList({ group }: { group: string }) {
   const sectionHash = "attachments";
 
   return (
-    <View style={{ marginTop: 20, gap: 8 }}>
-      <Text style={{ fontSize: 13, fontWeight: "600", color: t.text }}>
+    <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
         Bots with Overrides
-      </Text>
-      <Text style={{ fontSize: 11, color: t.textDim, lineHeight: 17 }}>
+      </span>
+      <span style={{ fontSize: 11, color: t.textDim, lineHeight: "17px" }}>
         These bots override one or more {group.toLowerCase()} settings.
-      </Text>
-      <View style={{ gap: 6 }}>
+      </span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {overrides.map((bot) => (
-          <Pressable
+          <button
             key={bot.id}
-            onPress={() =>
+            onClick={() =>
               router.push(`/admin/bots/${bot.id}#${sectionHash}` as any)
             }
             style={{
+              display: "flex",
               flexDirection: "row",
               alignItems: "center",
               justifyContent: "space-between",
               backgroundColor: t.surfaceRaised,
               borderRadius: 8,
-              borderWidth: 1,
-              borderColor: t.surfaceOverlay,
+              border: `1px solid ${t.surfaceOverlay}`,
               padding: 12,
+              cursor: "pointer",
+              textAlign: "left",
             }}
           >
-            <View>
-              <Text
-                style={{ color: t.text, fontSize: 13, fontWeight: "500" }}
+            <div>
+              <span
+                style={{ color: t.text, fontSize: 13, fontWeight: 500, display: "block" }}
               >
                 {bot.name}
-              </Text>
-              <Text
+              </span>
+              <span
                 style={{
                   color: t.textDim,
                   fontSize: 10,
                   fontFamily: "monospace",
                   marginTop: 2,
+                  display: "block",
                 }}
               >
                 {bot.id}
-              </Text>
-            </View>
+              </span>
+            </div>
             <ChevronRight size={14} color={t.textDim} />
-          </Pressable>
+          </button>
         ))}
-      </View>
-    </View>
+      </div>
+    </div>
   );
 }

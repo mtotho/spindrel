@@ -259,6 +259,11 @@ textarea::placeholder {
 .hud-fab:hover { transform: scale(1.08); filter: brightness(1.1); }
 .hud-fab:active { transform: scale(0.95); }
 
+/* Streaming toast button — uses filter only (inline transform for enter/exit animation) */
+.streaming-toast-btn { transition: opacity 200ms ease-out, transform 200ms ease-out, filter 0.15s ease; }
+.streaming-toast-btn:hover { filter: brightness(1.15); }
+.streaming-toast-btn:active { filter: brightness(0.95); }
+
 /* ── Sidebar ──────────────────────────────────────────── */
 
 /* Sidebar nav items — hover effect */

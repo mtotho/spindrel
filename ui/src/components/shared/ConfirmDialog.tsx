@@ -9,7 +9,6 @@
  */
 
 import { useState, useCallback, useRef } from "react";
-import { View, Text, Pressable, ActivityIndicator, Platform } from "react-native";
 import { AlertTriangle, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 
@@ -75,79 +74,102 @@ export function ConfirmDialog({
         }}
       >
         {/* Header */}
-        <View
+        <div
           style={{
+            display: "flex",
             flexDirection: "row",
             justifyContent: "space-between",
             alignItems: "center",
             marginBottom: 12,
           }}
         >
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
             {variant !== "default" && (
               <AlertTriangle
                 size={15}
                 color={variant === "danger" ? t.danger : "#f59e0b"}
               />
             )}
-            <Text style={{ fontSize: 14, fontWeight: "700", color: t.text }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: t.text }}>
               {title ?? "Confirm"}
-            </Text>
-          </View>
+            </span>
+          </div>
           {!loading && (
-            <Pressable onPress={onCancel} hitSlop={8}>
+            <button
+              onClick={onCancel}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: 4,
+              }}
+            >
               <X size={16} color={t.textDim} />
-            </Pressable>
+            </button>
           )}
-        </View>
+        </div>
 
         {/* Message */}
-        <Text
+        <span
           style={{
             fontSize: 13,
             color: t.textMuted,
-            lineHeight: 20,
+            lineHeight: "20px",
             marginBottom: 20,
+            display: "block",
           }}
         >
           {message}
-        </Text>
+        </span>
 
         {/* Actions */}
-        <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
-          <Pressable
-            onPress={onCancel}
+        <div style={{ display: "flex", flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
+          <button
+            onClick={onCancel}
             disabled={loading}
             style={{
-              paddingHorizontal: 12,
-              paddingVertical: 6,
+              paddingLeft: 12,
+              paddingRight: 12,
+              paddingTop: 6,
+              paddingBottom: 6,
               borderRadius: 6,
-              borderWidth: 1,
-              borderColor: t.surfaceBorder,
+              border: `1px solid ${t.surfaceBorder}`,
+              background: "transparent",
+              cursor: loading ? "default" : "pointer",
+              fontSize: 12,
+              color: t.textDim,
             }}
           >
-            <Text style={{ fontSize: 12, color: t.textDim }}>{cancelLabel}</Text>
-          </Pressable>
-          <Pressable
-            onPress={onConfirm}
+            {cancelLabel}
+          </button>
+          <button
+            onClick={onConfirm}
             disabled={loading}
             style={{
-              paddingHorizontal: 12,
-              paddingVertical: 6,
+              paddingLeft: 12,
+              paddingRight: 12,
+              paddingTop: 6,
+              paddingBottom: 6,
               borderRadius: 6,
-              backgroundColor: confirmBg,
+              background: confirmBg,
+              border: "none",
               opacity: loading ? 0.5 : 1,
+              cursor: loading ? "default" : "pointer",
+              fontSize: 12,
+              fontWeight: 600,
+              color: "#fff",
             }}
           >
             {loading ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <div className="chat-spinner" />
             ) : (
-              <Text style={{ fontSize: 12, fontWeight: "600", color: "#fff" }}>
-                {confirmLabel}
-              </Text>
+              confirmLabel
             )}
-          </Pressable>
-        </View>
+          </button>
+        </div>
       </div>
     </>,
     document.body,
@@ -183,8 +205,7 @@ export function useConfirm() {
 
   const confirm = useCallback(
     (message: string, options?: ConfirmOptions): Promise<boolean> => {
-      // Fallback for non-web
-      if (Platform.OS !== "web" || typeof document === "undefined") {
+      if (typeof document === "undefined") {
         return Promise.resolve(window.confirm(message));
       }
       return new Promise<boolean>((resolve) => {

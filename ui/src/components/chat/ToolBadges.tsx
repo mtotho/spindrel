@@ -5,7 +5,6 @@
  */
 
 import { useState } from "react";
-import { View, Text, Platform } from "react-native";
 import { Wrench, ChevronRight, ChevronDown } from "lucide-react";
 import { formatToolArgs } from "./toolCallUtils";
 import { normalizeToolCall } from "../../types/api";
@@ -42,104 +41,75 @@ export function ToolBadges({
     }
   }
 
-  const isWeb = Platform.OS === "web";
-
-  if (isWeb) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {items.map((item, idx) => {
-            const hasArgs = !!item.args;
-            const isExpanded = expandedIdx === idx;
-            return (
-              <div key={idx} style={{ display: "flex", flexDirection: "column" }}>
-                <div
-                  onClick={hasArgs ? () => setExpandedIdx(isExpanded ? null : idx) : undefined}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    paddingLeft: 6,
-                    paddingRight: 8,
-                    paddingTop: 3,
-                    paddingBottom: 3,
-                    borderRadius: 4,
-                    backgroundColor: isExpanded ? t.surfaceBorder : t.overlayLight,
-                    border: `1px solid ${t.overlayBorder}`,
-                    cursor: hasArgs ? "pointer" : "default",
-                    transition: "background-color 0.15s",
-                  }}
-                >
-                  <Wrench size={10} color={t.textDim} />
-                  <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "'Menlo', monospace" }}>
-                    {item.name}{item.count > 1 ? ` x${item.count}` : ""}
-                  </span>
-                  {hasArgs && (
-                    isExpanded
-                      ? <ChevronDown size={10} color={t.textDim} />
-                      : <ChevronRight size={10} color={t.textDim} />
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {expandedIdx !== null && items[expandedIdx]?.args && (() => {
-          const formatted = formatToolArgs(items[expandedIdx].args);
-          if (!formatted) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        {items.map((item, idx) => {
+          const hasArgs = !!item.args;
+          const isExpanded = expandedIdx === idx;
           return (
-            <div
-              style={{
-                borderRadius: 6,
-                backgroundColor: t.overlayLight,
-                border: `1px solid ${t.overlayBorder}`,
-                padding: "6px 10px",
-                maxHeight: 300,
-                overflowY: "auto",
-              }}
-            >
-              <pre
+            <div key={idx} style={{ display: "flex", flexDirection: "column" }}>
+              <div
+                onClick={hasArgs ? () => setExpandedIdx(isExpanded ? null : idx) : undefined}
                 style={{
-                  margin: 0,
-                  fontSize: 11,
-                  fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
-                  color: t.textMuted,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  lineHeight: "1.4",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  paddingLeft: 6,
+                  paddingRight: 8,
+                  paddingTop: 3,
+                  paddingBottom: 3,
+                  borderRadius: 4,
+                  backgroundColor: isExpanded ? t.surfaceBorder : t.overlayLight,
+                  border: `1px solid ${t.overlayBorder}`,
+                  cursor: hasArgs ? "pointer" : "default",
+                  transition: "background-color 0.15s",
                 }}
               >
-                {formatted}
-              </pre>
+                <Wrench size={10} color={t.textDim} />
+                <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "'Menlo', monospace" }}>
+                  {item.name}{item.count > 1 ? ` x${item.count}` : ""}
+                </span>
+                {hasArgs && (
+                  isExpanded
+                    ? <ChevronDown size={10} color={t.textDim} />
+                    : <ChevronRight size={10} color={t.textDim} />
+                )}
+              </div>
             </div>
           );
-        })()}
+        })}
       </div>
-    );
-  }
-
-  return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-      {items.map((item, idx) => (
-        <View
-          key={idx}
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-            paddingHorizontal: 6,
-            paddingVertical: 3,
-            borderRadius: 4,
-            backgroundColor: t.overlayLight,
-            borderWidth: 1,
-            borderColor: t.overlayBorder,
-          }}
-        >
-          <Text style={{ fontSize: 11, color: t.textMuted }}>
-            {item.name}{item.count > 1 ? ` x${item.count}` : ""}
-          </Text>
-        </View>
-      ))}
-    </View>
+      {expandedIdx !== null && items[expandedIdx]?.args && (() => {
+        const formatted = formatToolArgs(items[expandedIdx].args);
+        if (!formatted) return null;
+        return (
+          <div
+            style={{
+              borderRadius: 6,
+              backgroundColor: t.overlayLight,
+              border: `1px solid ${t.overlayBorder}`,
+              padding: "6px 10px",
+              maxHeight: 300,
+              overflowY: "auto",
+            }}
+          >
+            <pre
+              style={{
+                margin: 0,
+                fontSize: 11,
+                fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
+                color: t.textMuted,
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                lineHeight: "1.4",
+              }}
+            >
+              {formatted}
+            </pre>
+          </div>
+        );
+      })()}
+    </div>
   );
 }

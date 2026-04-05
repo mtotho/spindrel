@@ -1,5 +1,4 @@
 import { useRef, useCallback, useEffect } from "react";
-import { View, Text, Platform } from "react-native";
 import { useAuthStore } from "../../stores/auth";
 import { useThemeStore } from "../../stores/theme";
 
@@ -47,18 +46,8 @@ export function IntegrationFrame({ src }: IntegrationFrameProps) {
     sendTheme();
   }, [sendAuth, sendTheme]);
 
-  if (Platform.OS !== "web") {
-    return (
-      <View className="flex-1 items-center justify-center p-8">
-        <Text className="text-text-muted text-center">
-          Integration UIs are only available on web.
-        </Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={{ flex: 1 }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
       <iframe
         ref={iframeRef}
         src={src}
@@ -71,6 +60,6 @@ export function IntegrationFrame({ src }: IntegrationFrameProps) {
         }}
         allow="clipboard-read; clipboard-write"
       />
-    </View>
+    </div>
   );
 }

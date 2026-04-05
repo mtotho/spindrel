@@ -1,4 +1,3 @@
-import { View, Text } from "react-native";
 import { AlertTriangle } from "lucide-react";
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -11,13 +10,13 @@ export function FlushPromptOverrideWarning() {
   if (!wsFileBots.length) return null;
 
   return (
-    <View
+    <div
       style={{
+        display: "flex",
         flexDirection: "row",
         gap: 10,
         backgroundColor: "rgba(245,158,11,0.08)",
-        borderWidth: 1,
-        borderColor: "rgba(245,158,11,0.25)",
+        border: "1px solid rgba(245,158,11,0.25)",
         borderRadius: 8,
         padding: 12,
         marginBottom: 4,
@@ -26,20 +25,21 @@ export function FlushPromptOverrideWarning() {
       <AlertTriangle
         size={15}
         color="#f59e0b"
-        style={{ marginTop: 1, flexShrink: 0 } as any}
+        style={{ marginTop: 1, flexShrink: 0 }}
       />
-      <View style={{ flex: 1, gap: 4 }}>
-        <Text style={{ fontSize: 12, fontWeight: "600", color: "#f59e0b" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "#f59e0b" }}>
           Ignored by workspace-files bots
-        </Text>
-        <Text style={{ fontSize: 11, color: t.textMuted, lineHeight: 17 }}>
+        </span>
+        <span style={{ fontSize: 11, color: t.textMuted, lineHeight: "17px" }}>
           {wsFileBots.length === bots?.length
             ? "All bots use workspace-files memory — this prompt is never used. "
             : `This prompt is ignored for ${wsFileBots.length} bot${wsFileBots.length > 1 ? "s" : ""} using workspace-files memory. `}
           Those bots use a built-in flush prompt that writes to disk instead.
-        </Text>
-        <View
+        </span>
+        <div
           style={{
+            display: "flex",
             flexDirection: "row",
             flexWrap: "wrap",
             gap: 4,
@@ -47,24 +47,26 @@ export function FlushPromptOverrideWarning() {
           }}
         >
           {wsFileBots.map((b) => (
-            <View
+            <div
               key={b.id}
               style={{
                 backgroundColor: "rgba(245,158,11,0.1)",
-                paddingHorizontal: 7,
-                paddingVertical: 2,
+                paddingLeft: 7,
+                paddingRight: 7,
+                paddingTop: 2,
+                paddingBottom: 2,
                 borderRadius: 4,
               }}
             >
-              <Text
-                style={{ fontSize: 10, fontWeight: "600", color: "#f59e0b" }}
+              <span
+                style={{ fontSize: 10, fontWeight: 600, color: "#f59e0b" }}
               >
                 {b.name}
-              </Text>
-            </View>
+              </span>
+            </div>
           ))}
-        </View>
-      </View>
-    </View>
+        </div>
+      </div>
+    </div>
   );
 }

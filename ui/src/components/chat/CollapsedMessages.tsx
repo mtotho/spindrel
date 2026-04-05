@@ -7,7 +7,6 @@
  */
 
 import { useState } from "react";
-import { View, Text, Platform } from "react-native";
 import { ChevronRight, ChevronDown, ExternalLink } from "lucide-react";
 import { MarkdownContent } from "./MarkdownContent";
 import { WorkflowSummaryCard } from "./WorkflowSummaryCard";
@@ -33,17 +32,6 @@ export function CollapsedHeartbeat({
   t: ThemeTokens;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const isWeb = Platform.OS === "web";
-
-  if (!isWeb) {
-    return (
-      <View style={{ paddingHorizontal: 20, paddingVertical: 2 }}>
-        <Text style={{ fontSize: 12, color: t.textDim }}>
-          Heartbeat ran -- {timestamp}
-        </Text>
-      </View>
-    );
-  }
 
   return (
     <div
@@ -55,7 +43,8 @@ export function CollapsedHeartbeat({
         paddingBottom: 2,
       }}
     >
-      <div
+      <button
+        type="button"
         onClick={() => setExpanded((v) => !v)}
         style={{
           display: "flex",
@@ -66,6 +55,9 @@ export function CollapsedHeartbeat({
           borderRadius: 4,
           fontSize: 12,
           color: t.textDim,
+          background: "none",
+          border: "none",
+          font: "inherit",
         }}
       >
         {expanded
@@ -76,7 +68,7 @@ export function CollapsedHeartbeat({
         <span style={{ fontSize: 11, color: t.textDim, opacity: 0.7 }}>
           {timestamp}
         </span>
-      </div>
+      </button>
       {expanded && (
         <div style={{ paddingLeft: 30, paddingTop: 4, paddingBottom: 4 }}>
           <div style={{ fontSize: 14, lineHeight: "1.5", color: t.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
@@ -105,7 +97,6 @@ export function CollapsedWorkflow({
   t: ThemeTokens;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const isWeb = Platform.OS === "web";
   const meta = message.metadata || {};
 
   const wfEvent = (meta.workflow_event as string) || "unknown";
@@ -132,16 +123,6 @@ export function CollapsedWorkflow({
     : null;
 
   const isTerminal = wfEvent === "completed" || wfEvent === "failed";
-
-  if (!isWeb) {
-    return (
-      <View style={{ paddingHorizontal: 20, paddingVertical: 2 }}>
-        <Text style={{ fontSize: 12, color: t.textDim }}>
-          {wfName} -- {wfEvent} -- {timestamp}
-        </Text>
-      </View>
-    );
-  }
 
   // Terminal events: render the rich summary card (always expanded)
   if (isTerminal && wfRunId) {
@@ -170,7 +151,8 @@ export function CollapsedWorkflow({
         paddingBottom: 2,
       }}
     >
-      <div
+      <button
+        type="button"
         onClick={() => setExpanded((v) => !v)}
         style={{
           display: "flex",
@@ -181,6 +163,11 @@ export function CollapsedWorkflow({
           borderRadius: 4,
           fontSize: 12,
           color: t.textDim,
+          background: "none",
+          border: "none",
+          font: "inherit",
+          textAlign: "left",
+          width: "100%",
         }}
       >
         {expanded
@@ -224,24 +211,23 @@ export function CollapsedWorkflow({
           {timestamp}
         </span>
         {runDetailHref && (
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              window.location.href = runDetailHref;
-            }}
+          <a
+            href={runDetailHref}
+            onClick={(e) => { e.stopPropagation(); }}
             title="View workflow run"
             style={{
               display: "inline-flex", alignItems: "center", cursor: "pointer",
               color: t.textDim, opacity: 0.5,
               transition: "opacity 0.15s",
+              textDecoration: "none",
             }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = "0.5"; }}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.5"; }}
           >
             <ExternalLink size={11} />
-          </span>
+          </a>
         )}
-      </div>
+      </button>
       {expanded && displayContent.length > 0 && (
         <div style={{ paddingLeft: 30, paddingTop: 4, paddingBottom: 4 }}>
           <div style={{
