@@ -370,27 +370,27 @@ class TestContextInjection:
         assert all_delegate_ids == ["delegate-a", "tagged-b", "member-c"]
 
     def test_awareness_message_format(self):
-        """Verify the awareness message format includes primary and members."""
+        """Verify the awareness message format includes primary and members with @ prefix."""
         bot = _make_bot(id="primary", name="Primary Bot")
         member_bots = [
             _make_bot(id="helper", name="Helper Bot"),
             _make_bot(id="qa", name="QA Bot"),
         ]
 
-        participant_lines = [f"  - {bot.id} (primary): {bot.name}"]
+        participant_lines = [f"  - @{bot.id} (primary): {bot.name}"]
         for mb in member_bots:
-            participant_lines.append(f"  - {mb.id} (member): {mb.name}")
+            participant_lines.append(f"  - @{mb.id} (member): {mb.name}")
 
         msg = (
             "This channel has multiple bot participants:\n"
             + "\n".join(participant_lines)
-            + "\nYou can @-mention other bots to direct questions to them."
+            + "\nTo mention another bot, use @bot_id or @Display_Name."
         )
 
-        assert "primary (primary): Primary Bot" in msg
-        assert "helper (member): Helper Bot" in msg
-        assert "qa (member): QA Bot" in msg
-        assert "@-mention" in msg
+        assert "@primary (primary): Primary Bot" in msg
+        assert "@helper (member): Helper Bot" in msg
+        assert "@qa (member): QA Bot" in msg
+        assert "@bot_id" in msg
 
     def test_awareness_message_includes_config_badges(self):
         """Verify config info is included in awareness message."""
@@ -523,23 +523,27 @@ class TestMultiBotIdentity:
         )
         assert "Do not @-mention yourself." in msg
 
-    def test_trigger_prompt_includes_identity(self):
-        """The trigger prompt for member bot replies should include bot identity."""
+    def test_trigger_prompt_uses_system_preamble(self):
+        """The identity info should go into system_preamble (not user message)."""
         member_bot_name = "Helper Bot"
         member_bot_id = "helper"
         mentioning_bot_name = "Rolland"
         mentioning_bot_id = "rolland"
 
-        prompt = (
+        # system_preamble carries identity (injected as system message)
+        preamble = (
             f"You are {member_bot_name} (bot_id: {member_bot_id}). "
-            f"{mentioning_bot_name} (@{mentioning_bot_id}) mentioned you in the channel conversation. "
-            f"Read the conversation above and respond naturally to what was discussed. "
-            f"Do not @-mention yourself."
+            f"{mentioning_bot_name} (@{mentioning_bot_id}) mentioned you. "
+            f"Read the conversation and respond naturally. Do not @-mention yourself."
         )
 
-        assert prompt.startswith("You are Helper Bot (bot_id: helper).")
-        assert "Do not @-mention yourself." in prompt
-        assert "Rolland (@rolland) mentioned you" in prompt
+        assert preamble.startswith("You are Helper Bot (bot_id: helper).")
+        assert "Do not @-mention yourself." in preamble
+        assert "Rolland (@rolland) mentioned you" in preamble
+
+        # user_message should be a short RAG-friendly prompt
+        prompt = "Respond to the conversation above."
+        assert "You are" not in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -730,6 +734,129 @@ class TestDetectMemberMentions:
             _depth=_MEMBER_MENTION_MAX_DEPTH,
         )
         assert result == []
+
+    @pytest.mark.asyncio
+    async def test_display_name_resolves_to_bot_id(self):
+        """@Rolland (display name) should resolve to qa-bot (bot_id)."""
+        from app.routers.chat import _detect_member_mentions
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("qa-bot", config={"auto_respond": True})
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        bots = {
+            "qa-bot": _make_bot(id="qa-bot", name="Rolland"),
+            "primary-bot": _make_bot(id="primary-bot", name="Primary Bot"),
+        }
+
+        def _get_bot_side_effect(bid):
+            if bid in bots:
+                return bots[bid]
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Unknown bot: {bid}")
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("app.agent.bots.get_bot", side_effect=_get_bot_side_effect):
+            result = await _detect_member_mentions(
+                channel_id, "primary-bot", "Hey @Rolland, can you review this?"
+            )
+
+        assert len(result) == 1
+        assert result[0][0] == "qa-bot"
+
+    @pytest.mark.asyncio
+    async def test_case_insensitive_bot_id_match(self):
+        """@QA-BOT (uppercase) should resolve to qa-bot."""
+        from app.routers.chat import _detect_member_mentions
+
+        channel_id = uuid.uuid4()
+        # Note: tag regex requires [A-Za-z_][\w\-\.] so QA-BOT is valid
+        member_row = _make_member_row("qa-bot", config={})
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        bots = {
+            "qa-bot": _make_bot(id="qa-bot", name="QA Bot"),
+            "primary-bot": _make_bot(id="primary-bot", name="Primary Bot"),
+        }
+
+        def _get_bot_side_effect(bid):
+            if bid in bots:
+                return bots[bid]
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Unknown bot: {bid}")
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("app.agent.bots.get_bot", side_effect=_get_bot_side_effect):
+            result = await _detect_member_mentions(
+                channel_id, "primary-bot", "Hey @QA-BOT check this"
+            )
+
+        # QA-BOT → qa-bot via case-insensitive match
+        assert len(result) == 1
+        assert result[0][0] == "qa-bot"
+
+    @pytest.mark.asyncio
+    async def test_display_name_and_bot_id_deduplicated(self):
+        """@Rolland and @qa-bot in same message should only trigger once."""
+        from app.routers.chat import _detect_member_mentions
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("qa-bot", config={})
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        bots = {
+            "qa-bot": _make_bot(id="qa-bot", name="Rolland"),
+            "primary-bot": _make_bot(id="primary-bot", name="Primary Bot"),
+        }
+
+        def _get_bot_side_effect(bid):
+            if bid in bots:
+                return bots[bid]
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=f"Unknown bot: {bid}")
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("app.agent.bots.get_bot", side_effect=_get_bot_side_effect):
+            result = await _detect_member_mentions(
+                channel_id, "primary-bot", "@Rolland and @qa-bot both refer to the same bot"
+            )
+
+        # Both resolve to qa-bot; deduplication should give us exactly one
+        assert len(result) == 1
+        assert result[0][0] == "qa-bot"
 
 
 # ---------------------------------------------------------------------------

@@ -633,13 +633,18 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                 existing_count, cwd,
             )
 
-    # Reload carapace registry after sync
+    # Reload carapace registry after sync and re-index embeddings
     if carapace_files or seen_carapace_ids:
         try:
             from app.agent.carapaces import reload_carapaces
             await reload_carapaces()
         except Exception:
             logger.warning("file_sync: failed to reload carapaces", exc_info=True)
+        try:
+            from app.agent.capability_rag import index_capabilities
+            await index_capabilities()
+        except Exception:
+            logger.warning("file_sync: failed to reindex capability embeddings", exc_info=True)
 
     # --- Workflows ---
     from app.services.workflows import collect_workflow_files

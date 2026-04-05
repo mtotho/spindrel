@@ -346,8 +346,12 @@ async def install_npm_deps(integration_id: str):
 
     packages = [dep["package"] for dep in npm_deps]
     try:
+        # Use --prefix to install into the user's home directory instead of /usr/lib
+        # which requires root. The binaries go into ~/.local/bin (or npm's default prefix).
+        import os
+        npm_prefix = os.path.expanduser("~/.local")
         proc = await asyncio.create_subprocess_exec(
-            "npm", "install", "-g", *packages,
+            "npm", "install", "-g", f"--prefix={npm_prefix}", *packages,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

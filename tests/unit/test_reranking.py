@@ -50,15 +50,6 @@ class TestSigmoid:
 # ---------------------------------------------------------------------------
 
 class TestIdentifyRagMessages:
-    def test_skill_rag(self):
-        messages = [
-            {"role": "system", "content": "Relevant skill context:\n\nChunk A\n\n---\n\nChunk B"},
-        ]
-        result = _identify_rag_messages(messages)
-        assert len(result) == 1
-        assert result[0].source == "skill_rag"
-        assert len(result[0].chunks) == 2
-
     def test_pinned_skill_excluded(self):
         """Pinned skills are never reranked — they should be excluded."""
         messages = [
@@ -102,7 +93,7 @@ class TestIdentifyRagMessages:
 
     def test_non_system_ignored(self):
         messages = [
-            {"role": "user", "content": "Relevant skill context:\n\nChunk A"},
+            {"role": "user", "content": "Relevant knowledge:\n\nChunk A"},
         ]
         result = _identify_rag_messages(messages)
         assert len(result) == 0
@@ -128,15 +119,15 @@ class TestIdentifyRagMessages:
         messages = [
             {"role": "system", "content": "Base system prompt"},
             {"role": "system", "content": "Pinned skill context:\n\nskill_chunk"},  # excluded (pinned)
-            {"role": "system", "content": "Relevant skill context:\n\nrag_skill_chunk"},
-            {"role": "system", "content": "Relevant memories from past conversations:\n\nmem_chunk"},
             {"role": "system", "content": "Relevant knowledge:\n\nknowledge_chunk"},
+            {"role": "system", "content": "Relevant memories from past conversations:\n\nmem_chunk"},
+            {"role": "system", "content": "Relevant code/files from indexed directories:\n\nfile_chunk"},
             {"role": "user", "content": "hello"},
         ]
         result = _identify_rag_messages(messages)
         assert len(result) == 3
         sources = {r.source for r in result}
-        assert sources == {"skill_rag", "memory", "knowledge"}
+        assert sources == {"knowledge", "memory", "filesystem"}
 
     def test_multiple_pinned_types_all_excluded(self):
         """All three pinned prefix types should be excluded from reranking."""
@@ -188,7 +179,7 @@ class TestRerankRagContextLLM:
     @pytest.mark.asyncio
     async def test_below_threshold(self):
         messages = [
-            {"role": "system", "content": "Relevant skill context:\n\nshort"},
+            {"role": "system", "content": "Relevant knowledge:\n\nshort"},
         ]
         with patch("app.services.reranking.settings") as mock_settings:
             mock_settings.RAG_RERANK_ENABLED = True
@@ -203,7 +194,7 @@ class TestRerankRagContextLLM:
         chunk_c = "C" * 2000
         messages = [
             {"role": "system", "content": "Base prompt"},
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
             {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_c}"},
             {"role": "user", "content": "hello"},
         ]
@@ -240,7 +231,7 @@ class TestRerankRagContextLLM:
         chunk_b = "B" * 3000
         messages = [
             {"role": "system", "content": "Base prompt"},
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk_a}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_a}"},
             {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_b}"},
             {"role": "user", "content": "hello"},
         ]
@@ -275,7 +266,7 @@ class TestRerankRagContextLLM:
         """When all model settings are empty, LLM reranking skips gracefully."""
         chunk = "A" * 6000
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk}"},
         ]
 
         with patch("app.services.reranking.settings") as mock_settings:
@@ -296,7 +287,7 @@ class TestRerankRagContextLLM:
     async def test_llm_error_returns_none(self):
         chunk = "A" * 6000
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk}"},
         ]
 
         mock_client = AsyncMock()
@@ -320,7 +311,7 @@ class TestRerankRagContextLLM:
     async def test_parse_error_returns_none(self):
         chunk = "A" * 6000
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk}"},
         ]
 
         mock_response = MagicMock()
@@ -352,7 +343,7 @@ class TestRerankRagContextLLM:
         rag_chunk = "RAG" * 1000
         messages = [
             {"role": "system", "content": f"Pinned skill context:\n\n{pinned_chunk}"},
-            {"role": "system", "content": f"Relevant skill context:\n\n{rag_chunk}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{rag_chunk}"},
         ]
 
         mock_response = MagicMock()
@@ -397,7 +388,7 @@ class TestRerankRagContextCrossEncoder:
         chunk_c = "C" * 2000
         messages = [
             {"role": "system", "content": "Base prompt"},
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
             {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_c}"},
             {"role": "user", "content": "hello"},
         ]
@@ -428,7 +419,7 @@ class TestRerankRagContextCrossEncoder:
         chunk_a = "A" * 3000
         chunk_b = "B" * 3000
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
         ]
 
         # Raw logits: -2.0 → sigmoid ≈ 0.12 (above 0.01), -6.0 → sigmoid ≈ 0.0025 (below 0.01)
@@ -457,7 +448,7 @@ class TestRerankRagContextCrossEncoder:
         chunk_b = "B" * 2000
         chunk_c = "C" * 2000
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
         ]
 
         # All negative logits: -1 → sigmoid ≈ 0.27, -3 → sigmoid ≈ 0.047, -4 → sigmoid ≈ 0.018
@@ -484,7 +475,7 @@ class TestRerankRagContextCrossEncoder:
         chunk_a = "A" * 3000
         chunk_b = "B" * 3000
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}"},
         ]
 
         # Very negative logits: -10 → sigmoid ≈ 0.00005, -12 → sigmoid ≈ 0.000006
@@ -512,7 +503,7 @@ class TestRerankRagContextCrossEncoder:
         chunk_b = "B" * 2000
         chunk_c = "C" * 2000
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
         ]
 
         # All positive logits → sigmoid all > 0.5
@@ -540,7 +531,7 @@ class TestRerankRagContextCrossEncoder:
         chunk_c = "C" * 2000
         messages = [
             {"role": "system", "content": "Base prompt"},
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk_a}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_a}"},
             {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
             {"role": "user", "content": "hello"},
         ]
@@ -571,7 +562,7 @@ class TestRerankRagContextCrossEncoder:
         chunk_b = "BRAVO" * 400
         chunk_c = "CHARLIE" * 400
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk_a}{CHUNK_SEPARATOR}{chunk_b}{CHUNK_SEPARATOR}{chunk_c}"},
         ]
 
         # Keep chunk_a and chunk_c (positive logits), remove chunk_b (very negative)
@@ -599,7 +590,7 @@ class TestRerankRagContextCrossEncoder:
     async def test_cross_encoder_failure_returns_none(self):
         chunk = "A" * 6000
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk}"},
         ]
 
         mock_rerank = AsyncMock(side_effect=Exception("ONNX crash"))
@@ -621,7 +612,7 @@ class TestRerankRagContextCrossEncoder:
     async def test_unknown_backend_returns_none(self):
         chunk = "A" * 6000
         messages = [
-            {"role": "system", "content": f"Relevant skill context:\n\n{chunk}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{chunk}"},
         ]
 
         with patch("app.services.reranking.settings") as mock_settings:
@@ -641,7 +632,7 @@ class TestRerankRagContextCrossEncoder:
         rag_chunk_b = "RAG_B" * 600
         messages = [
             {"role": "system", "content": f"Pinned skill context:\n\n{pinned_chunk}"},
-            {"role": "system", "content": f"Relevant skill context:\n\n{rag_chunk_a}{CHUNK_SEPARATOR}{rag_chunk_b}"},
+            {"role": "system", "content": f"Relevant knowledge:\n\n{rag_chunk_a}{CHUNK_SEPARATOR}{rag_chunk_b}"},
         ]
 
         # Only 2 RAG chunks should be scored (not the pinned one)

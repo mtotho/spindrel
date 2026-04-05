@@ -103,8 +103,9 @@ def _build_credentials_json() -> dict | None:
 })
 async def gws(command: str) -> str:
     """Execute a Google Workspace CLI command with channel-scoped service access."""
-    # Check binary exists
-    if not shutil.which("gws"):
+    # Check binary exists (also check ~/.local/bin where user-prefix npm installs go)
+    _gws_bin = shutil.which("gws") or shutil.which("gws", path=os.path.expanduser("~/.local/bin"))
+    if not _gws_bin:
         return (
             "Error: GWS CLI binary not found. "
             "Install via Admin > Integrations > Google Workspace > Install npm Packages."
@@ -163,7 +164,7 @@ async def gws(command: str) -> str:
             pass
 
         try:
-            args = ["gws"] + shlex.split(command)
+            args = [_gws_bin] + shlex.split(command)
         except ValueError as exc:
             return f"Error: Invalid command syntax: {exc}"
 

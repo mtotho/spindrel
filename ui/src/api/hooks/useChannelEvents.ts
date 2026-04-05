@@ -96,7 +96,7 @@ export function useChannelEvents(channelId: string | undefined) {
       const ctrl = new AbortController();
       abortRef.current = ctrl;
 
-      fetch(`${serverUrl}/channels/${channelId}/events`, {
+      fetch(`${serverUrl}/api/v1/channels/${channelId}/events`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           Accept: "text/event-stream",
@@ -260,6 +260,19 @@ export function useChannelEvents(channelId: string | undefined) {
             },
           };
         });
+
+        // Safety-net polling: refetch at 3s, 8s, 15s to pick up member bot
+        // responses even if the observer stream pattern completely fails.
+        const delays = [3000, 8000, 15000];
+        for (const delay of delays) {
+          setTimeout(() => {
+            const latest = useChatStore.getState().getChannel(chId);
+            // Only refetch if we're not actively streaming (don't interfere with observer)
+            if (!latest.isStreaming) {
+              queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+            }
+          }, delay);
+        }
         return;
       }
 

@@ -1,5 +1,9 @@
 """get_skill tool — lets the agent fetch the full content of a configured skill on demand."""
+import asyncio
 import logging
+from datetime import datetime, timezone
+
+from sqlalchemy import update
 
 from app.agent.context import current_bot_id
 from app.tools.registry import register
@@ -84,6 +88,9 @@ async def get_skill(skill_id: str) -> str:
         row = await db.get(SkillRow, skill_id)
         if not row:
             return f"Skill '{skill_id}' not found."
+
+    # Track surfacing (fire-and-forget) — only counts actual LLM-initiated fetches
+    asyncio.create_task(_increment_surface_count(skill_id))
 
     return f"# {row.name}\n\n{row.content}"
 
@@ -180,3 +187,20 @@ async def _check_extra_skill_access(bot, skill_id: str) -> bool:
         pass
 
     return False
+
+
+async def _increment_surface_count(skill_id: str) -> None:
+    """Increment surface_count and last_surfaced_at for a skill (fire-and-forget)."""
+    try:
+        async with async_session() as db:
+            await db.execute(
+                update(SkillRow)
+                .where(SkillRow.id == skill_id)
+                .values(
+                    last_surfaced_at=datetime.now(timezone.utc),
+                    surface_count=SkillRow.surface_count + 1,
+                )
+            )
+            await db.commit()
+    except Exception:
+        logger.debug("Failed to update skill surfacing for %s", skill_id, exc_info=True)

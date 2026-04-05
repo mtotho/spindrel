@@ -182,6 +182,11 @@ async def manage_carapace(
 
         from app.agent.carapaces import reload_carapaces
         await reload_carapaces()
+        try:
+            from app.agent.capability_rag import reindex_capability
+            await reindex_capability(cid)
+        except Exception:
+            pass
         return json.dumps({"ok": True, "id": cid, "message": f"Carapace '{cid}' created."})
 
     if action == "update":
@@ -231,6 +236,11 @@ async def manage_carapace(
 
         from app.agent.carapaces import reload_carapaces
         await reload_carapaces()
+        try:
+            from app.agent.capability_rag import reindex_capability
+            await reindex_capability(id)
+        except Exception:
+            pass
         return json.dumps({"ok": True, "id": id, "message": f"Carapace '{id}' updated."})
 
     return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, or get."})

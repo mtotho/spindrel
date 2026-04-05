@@ -885,6 +885,24 @@ class Carapace(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 
+class CapabilityEmbedding(Base):
+    __tablename__ = "capability_embeddings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    carapace_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    embed_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS))
+    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
+    indexed_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        server_default=text("now()"),
+    )
+
+
 class SharedWorkspace(Base):
     __tablename__ = "shared_workspaces"
 

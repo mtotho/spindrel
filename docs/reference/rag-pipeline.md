@@ -19,6 +19,7 @@ Three independent content sources feed the pipeline:
 | **Skills** | `documents` | `skills/*.md`, DB, carapaces | `retrieve_context()` in `rag.py` |
 | **Filesystem** | `filesystem_chunks` | Workspace dirs, indexed paths | `retrieve_filesystem_context()` in `fs_indexer.py` |
 | **Tools** | `tool_embeddings` | Local tools, MCP servers | `retrieve_tools()` in `tools.py` |
+| **Capabilities** | `capability_embeddings` | Carapace registry | `retrieve_capabilities()` in `capability_rag.py` |
 
 ---
 

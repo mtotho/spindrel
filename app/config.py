@@ -453,6 +453,8 @@ class Settings(BaseSettings):
 
     # Capability auto-discovery
     CAPABILITIES_DISABLED: str = ""  # comma-separated carapace IDs to hide globally
+    CAPABILITY_RETRIEVAL_TOP_K: int = 5
+    CAPABILITY_RETRIEVAL_THRESHOLD: float = 0.50
 
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
     TOOL_RETRIEVAL_THRESHOLD: float = 0.45

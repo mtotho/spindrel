@@ -317,11 +317,15 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                 npm_deps = setup.get("npm_dependencies", [])
                 if npm_deps:
                     import shutil
+                    _npm_bin = os.path.expanduser("~/.local/bin")
                     npm_status = []
                     all_npm_installed = True
                     for dep in npm_deps:
                         binary = dep.get("binary_name", dep["package"])
-                        installed = shutil.which(binary) is not None
+                        installed = (
+                            shutil.which(binary) is not None
+                            or os.path.isfile(os.path.join(_npm_bin, binary))
+                        )
                         npm_status.append({"package": dep["package"], "binary_name": binary, "installed": installed})
                         if not installed:
                             all_npm_installed = False

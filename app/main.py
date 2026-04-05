@@ -340,6 +340,10 @@ async def lifespan(application: FastAPI):
     from app.agent.carapaces import load_carapaces
     logger.info("Loading carapaces from DB...")
     await load_carapaces()
+    # Index capability embeddings for RAG-based discovery
+    from app.agent.capability_rag import index_capabilities
+    logger.info("Indexing capability embeddings...")
+    await index_capabilities()
     # Workflow YAML seeding is handled by sync_all_files() above; just load registry.
     from app.services.workflows import load_workflows
     logger.info("Loading workflows from DB...")

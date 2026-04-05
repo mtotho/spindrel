@@ -22,6 +22,15 @@ from app.routers._carapace_schemas import (
 router = APIRouter()
 
 
+async def _try_reindex(carapace_id: str) -> None:
+    """Best-effort reindex of a single capability embedding."""
+    try:
+        from app.agent.capability_rag import reindex_capability
+        await reindex_capability(carapace_id)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -86,6 +95,7 @@ async def admin_create_carapace(
 
     # Reload in-memory registry (best-effort — won't work in tests)
     await _try_reload()
+    await _try_reindex(cid)
 
     return CarapaceOut.model_validate(row)
 
@@ -128,6 +138,7 @@ async def admin_update_carapace(
     await db.refresh(row)
 
     await _try_reload()
+    await _try_reindex(carapace_id)
 
     return CarapaceOut.model_validate(row)
 
@@ -147,6 +158,7 @@ async def admin_delete_carapace(
     await db.commit()
 
     await _try_reload()
+    await _try_reindex(carapace_id)
 
     return {"ok": True}
 

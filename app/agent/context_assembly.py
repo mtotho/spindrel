@@ -283,7 +283,6 @@ async def assemble_context(
     ))
 
     _inject_chars: dict[str, int] = {}
-    _surfaced_skill_ids: set[str] = set()
 
     def _budget_consume(category: str, text: str) -> None:
         """Record consumption in the budget if one is active."""
@@ -506,30 +505,34 @@ async def assemble_context(
             _budget_consume("carapace_prompts", _carapace_prompt)
             yield {"type": "carapace_context", "count": len(_carapace_ids), "chars": len(_carapace_prompt)}
 
-    # --- capability auto-discovery index ---
-    # Build a compact index of available-but-not-active carapaces for the LLM.
-    # The LLM can call activate_capability(id) to load one for the session.
+    # --- capability auto-discovery index (RAG-based) ---
+    # Retrieve semantically relevant capabilities for the user's message,
+    # excluding already-active and disabled ones.
     _cap_index_ids: list[str] = []
     try:
-        from app.agent.carapaces import list_carapaces as _list_all_carapaces
-        _all_caps = _list_all_carapaces()
         _active_cap_ids = set(_carapace_ids) if _carapace_ids else set()
         _globally_disabled_raw = getattr(settings, "CAPABILITIES_DISABLED", "") or ""
         _globally_disabled = {s.strip() for s in _globally_disabled_raw.split(",") if s.strip()}
         _ch_caps_disabled_set = set(getattr(_ch_row, "carapaces_disabled", None) or []) if _ch_row else set()
         _cap_excluded = _active_cap_ids | _globally_disabled | _ch_caps_disabled_set
 
-        _cap_lines: list[str] = []
-        for _c in _all_caps:
-            _cid = _c["id"]
-            if _cid in _cap_excluded:
-                continue
-            _cname = _c.get("name", _cid)
-            _cdesc = _c.get("description") or ""
-            _cap_lines.append(f"- {_cid}: {_cname}" + (f" — {_cdesc}" if _cdesc else ""))
-            _cap_index_ids.append(_cid)
+        from app.agent.capability_rag import retrieve_capabilities as _retrieve_caps
+        _cap_query = (user_message or "").strip()
+        _cap_results: list[dict] = []
+        if _cap_query:
+            _cap_results, _cap_best_sim = await _retrieve_caps(
+                _cap_query, excluded_ids=_cap_excluded,
+            )
 
-        if _cap_lines:
+        if _cap_results:
+            _cap_lines: list[str] = []
+            for _cr in _cap_results:
+                _cid = _cr["id"]
+                _cname = _cr["name"]
+                _cdesc = _cr.get("description") or ""
+                _cap_lines.append(f"- {_cid}: {_cname}" + (f" — {_cdesc}" if _cdesc else ""))
+                _cap_index_ids.append(_cid)
+
             _cap_index_content = (
                 "Available capabilities (not yet active). "
                 "Call activate_capability(id=\"<id>\", reason=\"...\") to load one for this session:\n"
@@ -1036,7 +1039,6 @@ async def assemble_context(
                         count=len(_pinned_chunks),
                         data={"skill_ids": [s.id for s in _pinned_skills], "chars": _pinned_chars},
                     ))
-                _surfaced_skill_ids.update(s.id for s in _pinned_skills)
 
         # On-demand skills: inject index, agent uses get_skill()
         if _on_demand_skills:
@@ -1075,7 +1077,6 @@ async def assemble_context(
                         count=len(_rows),
                         data={"skill_ids": [r.id for r in _rows]},
                     ))
-                _surfaced_skill_ids.update(r.id for r in _rows)
 
     # --- workspace skills ---
     if channel_id is not None:
@@ -1226,15 +1227,15 @@ async def assemble_context(
                 if _cfg.get("response_style"):
                     _cfg_parts.append(f"style={_cfg['response_style']}")
                 _cfg_suffix = f" [{', '.join(_cfg_parts)}]" if _cfg_parts else ""
-                _participant_lines.append(f"  - {_bid} ({_role_label}): {_mb.name}{_cfg_suffix}{_you_marker}")
+                _participant_lines.append(f"  - @{_bid} ({_role_label}): {_mb.name}{_cfg_suffix}{_you_marker}")
             except Exception:
-                _participant_lines.append(f"  - {_bid} ({_role_label}){_you_marker}")
+                _participant_lines.append(f"  - @{_bid} ({_role_label}){_you_marker}")
 
         _awareness_msg = (
             f"You are {bot.name} (bot_id: {bot.id}).\n\n"
             "This channel has multiple bot participants:\n"
             + "\n".join(_participant_lines)
-            + "\nYou can @-mention other bots in your response to bring them into the conversation. They will see the full channel context and reply automatically."
+            + "\nTo mention another bot, use @bot_id or @Display_Name (e.g., @dev_bot or @Dev Bot). They will see the full channel context and reply automatically."
             + "\nDo not @-mention yourself."
         )
         messages.append({"role": "system", "content": _awareness_msg})
@@ -1659,10 +1660,6 @@ async def assemble_context(
     if budget is not None:
         result.budget_utilization = budget.utilization
 
-    # --- skill surfacing tracking ---
-    if _surfaced_skill_ids:
-        asyncio.create_task(_update_skill_surfacing(_surfaced_skill_ids))
-
     # --- injection summary trace ---
     if correlation_id is not None and _inject_chars:
         _summary_data: dict[str, Any] = {
@@ -1682,23 +1679,3 @@ async def assemble_context(
 
 
 
-async def _update_skill_surfacing(skill_ids: set[str]) -> None:
-    """Bulk-update last_surfaced_at and surface_count for surfaced skills (fire-and-forget)."""
-    try:
-        from sqlalchemy import update
-        from app.db.engine import async_session
-        from app.db.models import Skill as SkillRow
-
-        now = datetime.now(timezone.utc)
-        async with async_session() as db:
-            await db.execute(
-                update(SkillRow)
-                .where(SkillRow.id.in_(list(skill_ids)))
-                .values(
-                    last_surfaced_at=now,
-                    surface_count=SkillRow.surface_count + 1,
-                )
-            )
-            await db.commit()
-    except Exception:
-        logger.debug("Failed to update skill surfacing stats", exc_info=True)

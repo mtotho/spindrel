@@ -279,6 +279,23 @@ def _make_bot(carapaces=None):
     )
 
 
+async def _mock_retrieve_capabilities(query, excluded_ids=None, *, top_k=None, threshold=None):
+    """Mock retrieve_capabilities that returns all non-excluded registry entries."""
+    excluded = excluded_ids or set()
+    results = []
+    for c in _MOCK_REGISTRY.values():
+        if c["id"] in excluded:
+            continue
+        results.append({
+            "id": c["id"],
+            "name": c.get("name", c["id"]),
+            "description": c.get("description") or "",
+            "similarity": 0.8,
+        })
+    best_sim = 0.8 if results else 0.0
+    return results, best_sim
+
+
 def _assembly_patches(mock_settings_attrs=None):
     """Common patches for context assembly tests."""
     attrs = {
@@ -294,6 +311,7 @@ def _assembly_patches(mock_settings_attrs=None):
 
     return [
         patch("app.agent.carapaces.list_carapaces", return_value=list(_MOCK_REGISTRY.values())),
+        patch("app.agent.capability_rag.retrieve_capabilities", side_effect=_mock_retrieve_capabilities),
         patch("app.agent.context_assembly.settings", mock_settings),
         patch("app.agent.context_assembly._get_bot_authored_skill_ids", new_callable=AsyncMock, return_value=[]),
         patch("app.agent.context_assembly._get_core_skill_ids", new_callable=AsyncMock, return_value=[]),

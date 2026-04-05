@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Hold references to background asyncio tasks so they aren't GC'd before completion.
+_background_tasks: set[asyncio.Task] = set()  # type: ignore[type-arg]
+
 
 class Attachment(BaseModel):
     """Multimedia attachment (vision). Slack sends type=image with base64 content."""
@@ -575,6 +578,19 @@ async def _detect_member_mentions(
     if not member_map:
         return []
 
+    # Build case-insensitive reverse lookup: lowercase(bot_id) → bot_id,
+    # lowercase(display_name) → bot_id.  This allows @Rolland to resolve to "qa-bot".
+    from app.agent.bots import get_bot as _get_bot_lookup
+    name_to_id: dict[str, str] = {}
+    for bot_id in member_map:
+        name_to_id[bot_id.lower()] = bot_id
+        try:
+            _bot_cfg = _get_bot_lookup(bot_id)
+            if _bot_cfg and _bot_cfg.name:
+                name_to_id[_bot_cfg.name.lower()] = bot_id
+        except Exception:
+            pass
+
     # Deduplicate mentioned member bots (preserve order)
     mentioned: list[tuple[str, dict]] = []
     seen: set[str] = set()
@@ -582,9 +598,10 @@ async def _detect_member_mentions(
         forced_type = prefix.rstrip(":") if prefix else None
         if forced_type and forced_type != "bot":
             continue
-        if name in member_map and name != responding_bot_id and name not in seen:
-            mentioned.append((name, member_map[name]))
-            seen.add(name)
+        resolved_id = name_to_id.get(name.lower())
+        if resolved_id and resolved_id != responding_bot_id and resolved_id not in seen:
+            mentioned.append((resolved_id, member_map[resolved_id]))
+            seen.add(resolved_id)
 
     return mentioned
 
@@ -600,12 +617,14 @@ async def _trigger_member_bot_replies(
     """Parse a bot response for @-mentions of channel member bots and fire replies."""
     mentioned = await _detect_member_mentions(channel_id, responding_bot_id, response_text, _depth=_depth)
     for bot_id, member_config in mentioned:
-        asyncio.create_task(
+        task = asyncio.create_task(
             _run_member_bot_reply(
                 channel_id, session_id, bot_id, member_config,
                 responding_bot_id, _depth=_depth + 1,
             )
         )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
 
 async def _run_member_bot_reply(
@@ -687,13 +706,14 @@ async def _run_member_bot_reply(
         correlation_id = uuid.uuid4()
         from_index = len(messages)
 
-        # Trigger prompt — include identity + context so member bot knows who it is
-        prompt = (
+        # Identity/context as system_preamble (not user message) to avoid LLM echo
+        _system_preamble = (
             f"You are {member_bot.name} (bot_id: {member_bot_id}). "
-            f"{mentioning_bot.name} (@{mentioning_bot_id}) mentioned you in the channel conversation. "
-            f"Read the conversation above and respond naturally to what was discussed. "
-            f"Do not @-mention yourself."
+            f"{mentioning_bot.name} (@{mentioning_bot_id}) mentioned you. "
+            f"Read the conversation and respond naturally. Do not @-mention yourself."
         )
+        # Short user_message for RAG retrieval purposes only
+        prompt = "Respond to the conversation above."
         model_override = member_config.get("model_override")
 
         # Set agent context so run_stream internals have proper metadata
@@ -720,6 +740,7 @@ async def _run_member_bot_reply(
             correlation_id=correlation_id,
             channel_id=channel_id,
             model_override=model_override,
+            system_preamble=_system_preamble,
         ):
             if event.get("type") == "response":
                 response_text = event.get("text", "")
@@ -1003,9 +1024,11 @@ async def chat(
 
     # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply
     if result.response and channel_id:
-        asyncio.create_task(
+        task = asyncio.create_task(
             _trigger_member_bot_replies(channel_id, session_id, bot.id, result.response)
         )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
     return ChatResponse(
         session_id=session_id,
@@ -1453,12 +1476,14 @@ async def chat_stream(
 
                     # Launch background tasks for each mentioned member bot
                     for _mbid, _mbcfg in _mentioned:
-                        asyncio.create_task(
+                        _task = asyncio.create_task(
                             _run_member_bot_reply(
                                 channel_id, session_id, _mbid, _mbcfg,
                                 bot.id, _depth=1,
                             )
                         )
+                        _background_tasks.add(_task)
+                        _task.add_done_callback(_background_tasks.discard)
         except Exception as e:
             logger.exception("Streaming agent loop error")
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
