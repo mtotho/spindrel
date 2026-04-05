@@ -225,8 +225,7 @@ async def compute_context_breakdown(
 
     # Skills
     pinned_skills = [s for s in bot.skills if s.mode == "pinned"]
-    rag_skills = [s for s in bot.skills if s.mode == "rag"]
-    od_skills = [s for s in bot.skills if s.mode == "on_demand"]
+    od_skills = [s for s in bot.skills if s.mode != "pinned"]
 
     if pinned_skills:
         from app.db.models import Skill as SkillRow
@@ -239,14 +238,6 @@ async def compute_context_breakdown(
             key="skills_pinned", label="Pinned Skills", chars=wrap + total_len,
             tokens_approx=0, percentage=0, category="rag",
             description=f"{len(ids)} pinned skill(s) injected in full every turn",
-        ))
-
-    if rag_skills:
-        est = int(settings.RAG_TOP_K * 1200 * 0.45 * 0.7)
-        categories.append(ContextCategory(
-            key="skills_rag", label="RAG Skills", chars=est,
-            tokens_approx=0, percentage=0, category="rag",
-            description=f"{len(rag_skills)} RAG skill(s); varies by query",
         ))
 
     if od_skills:

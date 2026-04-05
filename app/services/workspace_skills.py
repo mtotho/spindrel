@@ -16,7 +16,7 @@ from app.services.shared_workspace import shared_workspace_service, SharedWorksp
 logger = logging.getLogger(__name__)
 
 # Subdirectory → mode mapping
-SKILL_SUBDIRS = {"pinned": "pinned", "rag": "rag", "on-demand": "on_demand"}
+SKILL_SUBDIRS = {"pinned": "pinned", "rag": "on_demand", "on-demand": "on_demand"}
 # Source prefix for documents table
 SOURCE_PREFIX = "workspace_skill"
 
@@ -248,12 +248,12 @@ async def get_workspace_skills_for_bot(
     workspace_id: str,
     bot_id: str,
 ) -> dict[str, list[WorkspaceSkill]]:
-    """Return workspace skills grouped by mode: {pinned: [...], rag: [...], on_demand: [...]}.
+    """Return workspace skills grouped by mode: {pinned: [...], on_demand: [...]}.
 
     Includes common skills + bot-specific skills.
     """
     skills = discover_workspace_skills(workspace_id, bot_id=bot_id)
-    result: dict[str, list[WorkspaceSkill]] = {"pinned": [], "rag": [], "on_demand": []}
+    result: dict[str, list[WorkspaceSkill]] = {"pinned": [], "on_demand": []}
     for s in skills:
         if s.mode in result:
             result[s.mode].append(s)

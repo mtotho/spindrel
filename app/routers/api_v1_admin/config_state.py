@@ -386,7 +386,6 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "client_tools_override": row.get("client_tools_override"),
                 "client_tools_disabled": row.get("client_tools_disabled"),
                 "pinned_tools_override": row.get("pinned_tools_override"),
-                "skills_override": row.get("skills_override"),
                 "skills_disabled": row.get("skills_disabled"),
                 "skills_extra": row.get("skills_extra"),
                 "workspace_skills_enabled": row.get("workspace_skills_enabled"),

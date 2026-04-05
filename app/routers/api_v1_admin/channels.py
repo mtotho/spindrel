@@ -369,7 +369,6 @@ class ChannelSettingsOut(BaseModel):
     client_tools_override: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
     pinned_tools_override: Optional[list[str]] = None
-    skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
@@ -442,7 +441,6 @@ class ChannelSettingsUpdate(BaseModel):
     client_tools_override: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
     pinned_tools_override: Optional[list[str]] = None
-    skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
@@ -813,7 +811,6 @@ async def admin_channel_effective_tools(
         pinned_tools=eff.pinned_tools,
         skills=[{
             "id": s.id, "mode": s.mode,
-            "similarity_threshold": s.similarity_threshold,
             "name": skill_names.get(s.id, s.id),
         } for s in eff.skills],
         mode={
@@ -821,7 +818,7 @@ async def admin_channel_effective_tools(
             "mcp_servers": _mode(channel.mcp_servers_override, channel.mcp_servers_disabled),
             "client_tools": _mode(channel.client_tools_override, channel.client_tools_disabled),
             "pinned_tools": "override" if channel.pinned_tools_override is not None else "inherit",
-            "skills": _mode(channel.skills_override, channel.skills_disabled),
+            "skills": "disabled" if channel.skills_disabled else "inherit",
         },
         disabled={
             "local_tools": channel.local_tools_disabled or [],

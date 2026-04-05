@@ -42,8 +42,12 @@ class KnowledgeConfig:
 @dataclass
 class SkillConfig:
     id: str
-    mode: str = "on_demand"          # "on_demand" | "pinned" | "rag"
-    similarity_threshold: float | None = None  # only used when mode="rag"
+    mode: str = "on_demand"          # "on_demand" | "pinned"
+
+    def __post_init__(self):
+        # Backward compat: silently convert legacy "rag" mode to "on_demand"
+        if self.mode == "rag":
+            object.__setattr__(self, "mode", "on_demand")
 
 
 @dataclass
@@ -251,7 +255,6 @@ def _parse_skill_entry(entry) -> SkillConfig:
         return SkillConfig(
             id=entry["id"],
             mode=entry.get("mode", "on_demand"),
-            similarity_threshold=entry.get("similarity_threshold"),
         )
     return SkillConfig(id=str(entry))
 
@@ -261,10 +264,10 @@ def _normalize_skill_entry(entry) -> dict:
     if isinstance(entry, str):
         return {"id": entry, "mode": "on_demand"}
     if isinstance(entry, dict):
-        result = {"id": entry["id"], "mode": entry.get("mode", "on_demand")}
-        if entry.get("similarity_threshold") is not None:
-            result["similarity_threshold"] = entry["similarity_threshold"]
-        return result
+        mode = entry.get("mode", "on_demand")
+        if mode == "rag":
+            mode = "on_demand"
+        return {"id": entry["id"], "mode": mode}
     return {"id": str(entry), "mode": "on_demand"}
 
 

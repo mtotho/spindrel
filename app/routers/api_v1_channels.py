@@ -214,7 +214,6 @@ class ChannelConfigOut(BaseModel):
     client_tools_override: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
     pinned_tools_override: Optional[list[str]] = None
-    skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     workspace_skills_enabled: Optional[bool] = None
@@ -282,7 +281,6 @@ class ChannelConfigUpdate(BaseModel):
     client_tools_override: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
     pinned_tools_override: Optional[list[str]] = None
-    skills_override: Optional[list[dict]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     workspace_skills_enabled: Optional[bool] = None
@@ -717,7 +715,6 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "client_tools_override": channel.client_tools_override,
         "client_tools_disabled": channel.client_tools_disabled,
         "pinned_tools_override": channel.pinned_tools_override,
-        "skills_override": channel.skills_override,
         "skills_disabled": channel.skills_disabled,
         "skills_extra": channel.skills_extra,
         "workspace_skills_enabled": channel.workspace_skills_enabled,

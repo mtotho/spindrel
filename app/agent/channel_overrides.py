@@ -38,35 +38,14 @@ def _resolve_list(bot_list: list[str], override: list | None, disabled: list | N
 
 def _resolve_skills(
     bot_skills: list[SkillConfig],
-    override: list | None,
     disabled: list | None,
     extras: list | None = None,
 ) -> list[SkillConfig]:
-    """Resolve skills with override/disabled/extras semantics.
+    """Resolve skills with disabled/extras semantics.
 
-    - override (legacy): whitelist — only matching bot skills kept
     - extras: add new skills from global pool
     - disabled: remove skills by id
     """
-    if override is not None:
-        # Legacy override path — whitelist only bot skills
-        bot_skill_map = {s.id: s for s in bot_skills}
-        result = []
-        for entry in override:
-            sid = entry if isinstance(entry, str) else entry.get("id", "")
-            base = bot_skill_map.get(sid)
-            if base is None:
-                continue
-            if isinstance(entry, dict):
-                result.append(SkillConfig(
-                    id=sid,
-                    mode=entry.get("mode", base.mode),
-                    similarity_threshold=entry.get("similarity_threshold", base.similarity_threshold),
-                ))
-            else:
-                result.append(base)
-        return result
-
     # Start with bot skills (already includes workspace DB skills)
     result_map = {s.id: s for s in bot_skills}
     # Merge channel extras (new skills from global pool)
@@ -78,7 +57,6 @@ def _resolve_skills(
                     result_map[sid] = SkillConfig(
                         id=sid,
                         mode=entry.get("mode", "on_demand"),
-                        similarity_threshold=entry.get("similarity_threshold"),
                     )
                 else:
                     result_map[sid] = SkillConfig(id=sid)
@@ -156,7 +134,6 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
         ),
         skills=_resolve_skills(
             bot.skills,
-            channel.skills_override,
             channel.skills_disabled,
             getattr(channel, "skills_extra", None),
         ),

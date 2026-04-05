@@ -39,9 +39,9 @@ class ContextEstimateResult:
     disclaimer: str
 
 
-def _parse_skill_entries(raw_skills: list) -> tuple[list[dict], list[dict], list[dict]]:
-    """Parse structured skill entries into (pinned, rag, on_demand) lists of dicts."""
-    pinned, rag, on_demand = [], [], []
+def _parse_skill_entries(raw_skills: list) -> tuple[list[dict], list[dict]]:
+    """Parse structured skill entries into (pinned, on_demand) lists of dicts."""
+    pinned, on_demand = [], []
     for e in raw_skills:
         if isinstance(e, str):
             on_demand.append({"id": e, "mode": "on_demand"})
@@ -49,13 +49,12 @@ def _parse_skill_entries(raw_skills: list) -> tuple[list[dict], list[dict], list
             mode = e.get("mode", "on_demand")
             if mode == "pinned":
                 pinned.append(e)
-            elif mode == "rag":
-                rag.append(e)
             else:
+                # "rag" and anything else → on_demand
                 on_demand.append(e)
         else:
             on_demand.append({"id": str(e), "mode": "on_demand"})
-    return pinned, rag, on_demand
+    return pinned, on_demand
 
 
 async def _skill_index_chars(db, skill_ids: list[str]) -> tuple[int, int]:
@@ -190,7 +189,7 @@ async def estimate_bot_context(
         lines.append(EstimateLine("sys:persona", len("[PERSONA]\n") + len(persona_content), "injected in session bootstrap"))
 
     async with async_session() as db:
-        _pinned_s, _rag_s, _on_demand_s = _parse_skill_entries(skills_raw)
+        _pinned_s, _on_demand_s = _parse_skill_entries(skills_raw)
 
         # Pinned skills: full content every turn
         if _pinned_s:
@@ -198,15 +197,6 @@ async def estimate_bot_context(
             _p_chars = await _pinned_skill_chars(db, _pinned_ids)
             if _p_chars:
                 lines.append(EstimateLine("sys:skill_pinned", _p_chars, f"{len(_pinned_ids)} pinned skill(s)"))
-
-        # RAG skills: heuristic
-        if _rag_s:
-            _rag_thresholds = [e.get("similarity_threshold") or settings.RAG_SIMILARITY_THRESHOLD for e in _rag_s]
-            _avg_th = sum(_rag_thresholds) / len(_rag_thresholds)
-            _rag_h = _memory_knowledge_hit_factor(_avg_th)
-            _est_rag = int(settings.RAG_TOP_K * 1200 * 0.45 * _rag_h)
-            _wrap = len("Relevant skill context:\n\n---\n\n")
-            lines.append(EstimateLine("sys:skill_rag", _wrap + _est_rag, f"{len(_rag_s)} RAG skill(s); varies by query"))
 
         # On-demand skills: index only
         _od_ids = [e["id"] for e in _on_demand_s]

@@ -26,7 +26,7 @@ from app.agent.message_utils import (
     _build_user_message_content,
     _merge_tool_schemas,
 )
-from app.agent.rag import retrieve_context, fetch_skill_chunks_by_id
+from app.agent.rag import fetch_skill_chunks_by_id
 from app.agent.recording import _record_trace_event
 from app.agent.tags import resolve_tags
 from app.agent.tools import retrieve_tools
@@ -219,12 +219,12 @@ async def _inject_workspace_skills(
     user_message: str,
     inject_chars: dict[str, int],
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Inject workspace skills (pinned/rag/on-demand) into messages.
+    """Inject workspace skills (pinned/on-demand) into messages.
 
     Extracted for testability — called from assemble_context when workspace
     skills are enabled.
     """
-    from app.services.workspace_skills import get_workspace_skills_for_bot, SOURCE_PREFIX
+    from app.services.workspace_skills import get_workspace_skills_for_bot
 
     ws_skills = await get_workspace_skills_for_bot(workspace_id, bot_id)
 
@@ -238,24 +238,6 @@ async def _inject_workspace_skills(
             "content": f"Workspace pinned skills:\n\n{content}",
         })
         yield {"type": "ws_skill_pinned_context", "count": len(ws_skills["pinned"]), "chars": chars}
-
-    # RAG workspace skills: query from documents table
-    if ws_skills["rag"]:
-        rag_sources = [
-            f"{SOURCE_PREFIX}:{workspace_id}:{s.source_path}"
-            for s in ws_skills["rag"]
-        ]
-        from app.agent.rag import retrieve_context as _ws_retrieve
-        _ws_rag_raw, _ = await _ws_retrieve(user_message, sources=rag_sources)
-        rag_chunks = [content for content, _src in _ws_rag_raw]
-        if rag_chunks:
-            chars = sum(len(c) for c in rag_chunks)
-            inject_chars["ws_skill_rag"] = chars
-            messages.append({
-                "role": "system",
-                "content": "Relevant workspace skills:\n\n" + "\n\n---\n\n".join(rag_chunks),
-            })
-            yield {"type": "ws_skill_rag_context", "count": len(rag_chunks), "chars": chars}
 
     # On-demand workspace skills: inject index
     if ws_skills["on_demand"]:
@@ -516,7 +498,7 @@ async def assemble_context(
             if _bot_skill_ids:
                 _existing_skill_ids = {s.id for s in bot.skills}
                 _bot_new_skills = [
-                    SkillConfig(id=sid, mode="rag")
+                    SkillConfig(id=sid, mode="on_demand")
                     for sid in _bot_skill_ids
                     if sid not in _existing_skill_ids
                 ]
@@ -941,8 +923,7 @@ async def assemble_context(
     # --- skills ---
     if bot.skills:
         _pinned_skills = [s for s in bot.skills if s.mode == "pinned"]
-        _rag_skills = [s for s in bot.skills if s.mode == "rag"]
-        _on_demand_skills = [s for s in bot.skills if s.mode == "on_demand"]
+        _on_demand_skills = [s for s in bot.skills if s.mode != "pinned"]
 
         # Pinned skills: inject full content every turn
         if _pinned_skills:
@@ -968,76 +949,6 @@ async def assemble_context(
                         data={"skill_ids": [s.id for s in _pinned_skills], "chars": _pinned_chars},
                     ))
                 _surfaced_skill_ids.update(s.id for s in _pinned_skills)
-
-        # RAG skills: semantic similarity retrieval
-        if _rag_skills:
-            _rag_ids = [s.id for s in _rag_skills]
-            _thresholds = [s.similarity_threshold for s in _rag_skills if s.similarity_threshold is not None]
-            _min_threshold = min(_thresholds) if _thresholds else None
-            chunks, skill_sim = await retrieve_context(
-                user_message, skill_ids=_rag_ids, similarity_threshold=_min_threshold,
-            )
-            if chunks:
-                _skill_chars = sum(len(c) for c, _ in chunks)
-                _inject_chars["skill_rag"] = _skill_chars
-                yield {"type": "skill_context", "count": len(chunks), "chars": _skill_chars}
-                if correlation_id is not None:
-                    asyncio.create_task(_record_trace_event(
-                        correlation_id=correlation_id,
-                        session_id=session_id,
-                        bot_id=bot.id,
-                        client_id=client_id,
-                        event_type="skill_context",
-                        count=len(chunks),
-                        data={"preview": chunks[0][0][:200], "best_similarity": round(skill_sim, 4), "chars": _skill_chars},
-                    ))
-                # Format chunks with skill source attribution
-                _chunk_texts = []
-                for content, source in chunks:
-                    _sid = source.removeprefix("skill:")
-                    _chunk_texts.append(f"[skill:{_sid}]\n{content}")
-                context = "\n\n---\n\n".join(_chunk_texts)
-                _skill_ids_in_chunks = list(dict.fromkeys(
-                    src.removeprefix("skill:") for _, src in chunks
-                ))
-                _get_skill_hint = ", ".join(
-                    f'get_skill(skill_id="{sid}")' for sid in _skill_ids_in_chunks
-                )
-                messages.append({
-                    "role": "system",
-                    "content": (
-                        f"Relevant skill context (partial — call {_get_skill_hint} "
-                        f"for full content if needed):\n\n{context}"
-                    ),
-                })
-                _surfaced_skill_ids.update(_skill_ids_in_chunks)
-
-            # Trigger keyword boost: surface RAG skills whose triggers match but cosine missed
-            _surfaced_rag_ids = set(
-                src.removeprefix("skill:") for _, src in chunks
-            ) if chunks else set()
-            _trigger_missed = await _trigger_boost_rag_skills(
-                user_message, _rag_skills, _surfaced_rag_ids,
-            )
-            if _trigger_missed:
-                _trigger_texts = []
-                for _tm_id, _tm_content in _trigger_missed:
-                    _trigger_texts.append(f"[skill:{_tm_id}]\n{_tm_content}")
-                    _surfaced_skill_ids.add(_tm_id)
-                _trigger_ctx = "\n\n---\n\n".join(_trigger_texts)
-                _trigger_chars = sum(len(c) for _, c in _trigger_missed)
-                _inject_chars["skill_trigger_boost"] = _trigger_chars
-                _trigger_hint = ", ".join(
-                    f'get_skill(skill_id="{sid}")' for sid, _ in _trigger_missed
-                )
-                messages.append({
-                    "role": "system",
-                    "content": (
-                        f"Trigger-matched skill context (partial — call {_trigger_hint} "
-                        f"for full content if needed):\n\n{_trigger_ctx}"
-                    ),
-                })
-                yield {"type": "skill_trigger_boost", "count": len(_trigger_missed), "chars": _trigger_chars}
 
         # On-demand skills: inject index, agent uses get_skill()
         if _on_demand_skills:
@@ -1202,25 +1113,41 @@ async def assemble_context(
     if _member_bot_ids:
         from app.agent.bots import get_bot as _get_bot_mb
         _participant_lines: list[str] = []
-        # Primary bot first
-        _participant_lines.append(f"  - {bot.id} (primary): {bot.name}")
-        for _mbid in _member_bot_ids:
+
+        # Determine the actual primary bot from the channel row
+        _primary_bot_id = getattr(_ch_row, "bot_id", None) if _ch_row else None
+        _primary_bot_id = _primary_bot_id or bot.id  # fallback if no channel row
+
+        # Build participant list with correct primary/member labels
+        _all_bot_ids = [_primary_bot_id] + [mid for mid in _member_bot_ids if mid != _primary_bot_id]
+        # If current bot is a member (not the primary), ensure it's in the list
+        if bot.id != _primary_bot_id and bot.id not in _all_bot_ids:
+            _all_bot_ids.append(bot.id)
+
+        for _bid in _all_bot_ids:
+            _is_primary = _bid == _primary_bot_id
+            _is_self = _bid == bot.id
+            _role_label = "primary" if _is_primary else "member"
+            _you_marker = " ← you" if _is_self else ""
             try:
-                _mb = _get_bot_mb(_mbid)
-                _cfg = _member_configs.get(_mbid, {})
+                _mb = _get_bot_mb(_bid)
+                _cfg = _member_configs.get(_bid, {})
                 _cfg_parts: list[str] = []
                 if _cfg.get("auto_respond"):
                     _cfg_parts.append("auto-respond")
                 if _cfg.get("response_style"):
                     _cfg_parts.append(f"style={_cfg['response_style']}")
                 _cfg_suffix = f" [{', '.join(_cfg_parts)}]" if _cfg_parts else ""
-                _participant_lines.append(f"  - {_mbid} (member): {_mb.name}{_cfg_suffix}")
+                _participant_lines.append(f"  - {_bid} ({_role_label}): {_mb.name}{_cfg_suffix}{_you_marker}")
             except Exception:
-                _participant_lines.append(f"  - {_mbid} (member)")
+                _participant_lines.append(f"  - {_bid} ({_role_label}){_you_marker}")
+
         _awareness_msg = (
+            f"You are {bot.name} (bot_id: {bot.id}).\n\n"
             "This channel has multiple bot participants:\n"
             + "\n".join(_participant_lines)
             + "\nYou can @-mention other bots in your response to bring them into the conversation. They will see the full channel context and reply automatically."
+            + "\nDo not @-mention yourself."
         )
         messages.append({"role": "system", "content": _awareness_msg})
         yield {"type": "multi_bot_awareness", "member_count": len(_member_bot_ids)}
@@ -1652,64 +1579,6 @@ async def assemble_context(
             data=_summary_data,
         ))
 
-
-async def _trigger_boost_rag_skills(
-    user_message: str,
-    rag_skills: list,
-    surfaced_ids: set[str],
-) -> list[tuple[str, str]]:
-    """Find RAG skills with trigger keyword matches that cosine missed.
-
-    Returns list of (skill_id, top_chunk_content) for trigger-matched but unsurfaced skills.
-    """
-    from sqlalchemy import select as _sel
-    from app.db.engine import async_session as _asess
-    from app.db.models import Skill as _SkRow
-
-    _rag_ids = [s.id for s in rag_skills]
-    _missed_ids = [sid for sid in _rag_ids if sid not in surfaced_ids]
-    if not _missed_ids:
-        return []
-
-    # Fetch triggers for unsurfaced RAG skills
-    try:
-        async with _asess() as _db:
-            _rows = (await _db.execute(
-                _sel(_SkRow.id, _SkRow.triggers).where(_SkRow.id.in_(_missed_ids))
-            )).all()
-    except Exception:
-        logger.debug("Failed to fetch skill triggers for boost", exc_info=True)
-        return []
-
-    # Match trigger keywords against user message (case-insensitive word match)
-    _user_lower = user_message.lower()
-    _user_words = set(_user_lower.split())
-    _trigger_matched: list[str] = []
-    for _row in _rows:
-        if not _row.triggers:
-            continue
-        for _t in _row.triggers:
-            _t_lower = _t.lower()
-            # Match either as a word or as a substring (for multi-word triggers)
-            if _t_lower in _user_words or _t_lower in _user_lower:
-                _trigger_matched.append(_row.id)
-                break
-
-    if not _trigger_matched:
-        return []
-
-    # Fetch top chunk for each trigger-matched skill
-    from app.agent.rag import fetch_skill_chunks_by_id
-
-    result: list[tuple[str, str]] = []
-    for _sid in _trigger_matched:
-        try:
-            _chunks = await fetch_skill_chunks_by_id(_sid)
-            if _chunks:
-                result.append((_sid, _chunks[0]))
-        except Exception:
-            logger.debug("Failed to fetch trigger-boosted chunk for %r", _sid, exc_info=True)
-    return result
 
 
 async def _update_skill_surfacing(skill_ids: set[str]) -> None:

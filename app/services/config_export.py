@@ -256,7 +256,6 @@ async def assemble_config_state(db) -> dict:
             "client_tools_override": ch.client_tools_override,
             "client_tools_disabled": ch.client_tools_disabled,
             "pinned_tools_override": ch.pinned_tools_override,
-            "skills_override": ch.skills_override,
             "skills_disabled": ch.skills_disabled,
             "skills_extra": ch.skills_extra,
             "workspace_skills_enabled": ch.workspace_skills_enabled,
