@@ -101,6 +101,7 @@ class IngestionPipeline:
                 risk_level=result.risk_level,
                 flags=flags,
                 reason=result.reason,
+                metadata=msg.metadata or None,
             )
             self.store.audit(msg.source, msg.source_id, "quarantined", result.risk_level)
             self.store.mark_processed(msg.source, msg.source_id)

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Shield, ShieldAlert, Loader2, Check } from "lucide-react";
 import { fetchQuarantine, reprocess } from "../lib/api";
 import type { QuarantineItem } from "../lib/api";
+import ItemDetailDrawer from "./ItemDetailDrawer";
 
 interface Props {
   storeName: string;
@@ -32,6 +33,7 @@ export default function QuarantineTable({
 }: Props) {
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [detailItemId, setDetailItemId] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["quarantine", storeName],
@@ -174,7 +176,7 @@ export default function QuarantineTable({
                     className="rounded border-surface-4"
                   />
                 </th>
-                <th className="px-3 py-2 text-left">Source ID</th>
+                <th className="px-3 py-2 text-left">Item</th>
                 <th className="px-3 py-2 text-left">Reason</th>
                 <th className="px-3 py-2 text-left">Risk</th>
                 <th className="px-3 py-2 text-right">When</th>
@@ -183,10 +185,13 @@ export default function QuarantineTable({
             <tbody>
               {items.map((item: QuarantineItem) => {
                 const isError = isClassifierError(item);
+                const meta = item.metadata as Record<string, unknown> | null;
+                const title = (meta?.subject ?? meta?.title) as string | undefined;
+                const sender = (meta?.from ?? meta?.author) as string | undefined;
                 return (
                   <tr
                     key={item.id}
-                    className={`border-t border-surface-3 transition-colors
+                    className={`border-t border-surface-3 transition-colors cursor-pointer
                       ${
                         isError
                           ? "bg-amber-500/5 hover:bg-amber-500/10"
@@ -194,8 +199,12 @@ export default function QuarantineTable({
                             ? "bg-red-500/5 hover:bg-red-500/10"
                             : "hover:bg-surface-2"
                       }`}
+                    onClick={() => setDetailItemId(item.id)}
                   >
-                    <td className="px-3 py-2">
+                    <td
+                      className="px-3 py-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <input
                         type="checkbox"
                         checked={selected.has(item.id)}
@@ -203,8 +212,15 @@ export default function QuarantineTable({
                         className="rounded border-surface-4"
                       />
                     </td>
-                    <td className="px-3 py-2 font-mono text-content-muted truncate max-w-[160px]">
-                      {item.source_id}
+                    <td className="px-3 py-2 max-w-[220px]">
+                      <div className="truncate font-medium text-content">
+                        {title || item.source_id}
+                      </div>
+                      {sender && (
+                        <div className="truncate text-[10px] text-content-dim mt-0.5">
+                          {sender}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2 truncate max-w-[300px]">
                       <span
@@ -212,7 +228,7 @@ export default function QuarantineTable({
                           isError ? "text-amber-400" : "text-content-muted"
                         }
                       >
-                        {item.reason || "—"}
+                        {item.reason || "\u2014"}
                       </span>
                     </td>
                     <td className="px-3 py-2">
@@ -238,6 +254,16 @@ export default function QuarantineTable({
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Detail drawer */}
+      {detailItemId !== null && (
+        <ItemDetailDrawer
+          storeName={storeName}
+          itemId={detailItemId}
+          onClose={() => setDetailItemId(null)}
+          onRelease={onRelease}
+        />
       )}
     </div>
   );

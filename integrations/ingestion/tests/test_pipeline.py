@@ -215,6 +215,47 @@ async def test_last_classifier_error_false_on_genuine_unsafe():
 
 
 @pytest.mark.asyncio
+async def test_quarantine_stores_metadata():
+    """When a message is quarantined, msg.metadata should be preserved in the quarantine record."""
+    pipeline = _make_pipeline()
+    classifier_result = ClassifierResult(safe=False, reason="injection detected", risk_level="high")
+    raw = RawMessage(
+        source="gmail",
+        source_id="meta-msg",
+        raw_content="bad content",
+        metadata={"from": "attacker@evil.com", "subject": "Click here!", "date": "2026-04-01"},
+    )
+
+    with patch("integrations.ingestion.pipeline.classify", new_callable=AsyncMock, return_value=classifier_result):
+        result = await pipeline.process(raw)
+
+    assert result is None
+    # Verify metadata stored in quarantine
+    import json
+    cur = pipeline.store._conn.execute("SELECT metadata FROM quarantine WHERE source_id = ?", ("meta-msg",))
+    row = cur.fetchone()
+    assert row is not None
+    meta = json.loads(row["metadata"])
+    assert meta["from"] == "attacker@evil.com"
+    assert meta["subject"] == "Click here!"
+
+
+@pytest.mark.asyncio
+async def test_quarantine_empty_metadata_stored_as_null():
+    """When metadata is an empty dict, it should be stored as None (not '{}')."""
+    pipeline = _make_pipeline()
+    classifier_result = ClassifierResult(safe=False, reason="bad", risk_level="high")
+    raw = RawMessage(source="test", source_id="empty-meta", raw_content="content", metadata={})
+
+    with patch("integrations.ingestion.pipeline.classify", new_callable=AsyncMock, return_value=classifier_result):
+        await pipeline.process(raw)
+
+    cur = pipeline.store._conn.execute("SELECT metadata FROM quarantine WHERE source_id = ?", ("empty-meta",))
+    row = cur.fetchone()
+    assert row["metadata"] is None
+
+
+@pytest.mark.asyncio
 async def test_last_classifier_error_false_on_pass():
     """Passed messages should clear classifier_error."""
     pipeline = _make_pipeline()

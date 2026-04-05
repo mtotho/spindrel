@@ -192,6 +192,29 @@ async def get_quarantine(
     return {"items": items, "store": name}
 
 
+@router.get("/stores/{name}/quarantine/{item_id}")
+async def get_quarantine_item(
+    name: str,
+    item_id: int,
+    _auth=Depends(verify_auth_or_user),
+) -> dict[str, Any]:
+    """Return a single quarantine item with full details including raw_content."""
+    stores = _discover_stores()
+    if name not in stores:
+        return {"error": f"Store '{name}' not found", "item": None}
+
+    db = _open_readonly(stores[name])
+    try:
+        item = db.get_quarantine_item(item_id)
+    finally:
+        db.close()
+
+    if not item:
+        return {"error": f"Item {item_id} not found", "item": None}
+
+    return {"item": item, "store": name}
+
+
 @router.post("/stores/{name}/reprocess")
 async def reprocess(
     name: str,

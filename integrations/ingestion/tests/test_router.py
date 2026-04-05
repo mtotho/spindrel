@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from app.dependencies import verify_auth
+from app.dependencies import verify_auth_or_user
 from integrations.ingestion.router import router
 from integrations.ingestion.store import IngestionStore
 
@@ -18,7 +18,7 @@ async def _noop_auth():
 def _make_app() -> FastAPI:
     """Create a minimal app with the ingestion router mounted and auth disabled."""
     app = FastAPI()
-    app.dependency_overrides[verify_auth] = _noop_auth
+    app.dependency_overrides[verify_auth_or_user] = _noop_auth
     app.include_router(router, prefix="/integrations/ingestion")
     return app
 
@@ -163,6 +163,71 @@ class TestQuarantine:
         for item in data["items"]:
             assert "id" in item
             assert isinstance(item["id"], int)
+
+
+class TestQuarantineDetail:
+    @pytest.mark.asyncio
+    async def test_returns_full_item(self, client):
+        # Get an item ID first
+        resp = await client.get("/integrations/ingestion/stores/gmail/quarantine")
+        items = resp.json()["items"]
+        item_id = items[0]["id"]
+
+        resp = await client.get(f"/integrations/ingestion/stores/gmail/quarantine/{item_id}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["store"] == "gmail"
+        item = data["item"]
+        assert item is not None
+        assert "raw_content" in item
+        assert item["raw_content"] is not None
+        assert len(item["raw_content"]) > 0
+        assert "id" in item
+        assert "reason" in item
+
+    @pytest.mark.asyncio
+    async def test_nonexistent_item(self, client):
+        resp = await client.get("/integrations/ingestion/stores/gmail/quarantine/99999")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["item"] is None
+        assert "error" in data
+
+    @pytest.mark.asyncio
+    async def test_unknown_store(self, client):
+        resp = await client.get("/integrations/ingestion/stores/nonexistent/quarantine/1")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["item"] is None
+        assert "error" in data
+
+    @pytest.mark.asyncio
+    async def test_includes_metadata(self, mock_dir):
+        """Item with metadata should return it in detail view."""
+        # Seed a quarantine item with metadata
+        store = IngestionStore(mock_dir / "gmail.db")
+        store.quarantine(
+            "gmail", "meta-test", "body with metadata", "high",
+            flags=["test_flag"], reason="test reason",
+            metadata={"from": "sender@example.com", "subject": "Test Subject"},
+        )
+        store.close()
+
+        app = _make_app()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            # Get the ID of the item we just added
+            resp = await c.get("/integrations/ingestion/stores/gmail/quarantine?limit=100")
+            items = resp.json()["items"]
+            meta_item = next(it for it in items if it["source_id"] == "meta-test")
+
+            resp = await c.get(f"/integrations/ingestion/stores/gmail/quarantine/{meta_item['id']}")
+            data = resp.json()
+            item = data["item"]
+            assert item["metadata"] is not None
+            assert item["metadata"]["from"] == "sender@example.com"
+            assert item["metadata"]["subject"] == "Test Subject"
+            assert item["raw_content"] == "body with metadata"
 
 
 class TestReprocess:

@@ -32,7 +32,12 @@ export interface QuarantineItem {
   risk_level: string;
   flags: string[];
   reason: string | null;
+  metadata: Record<string, unknown> | null;
   quarantined_at: string;
+}
+
+export interface QuarantineItemDetail extends QuarantineItem {
+  raw_content: string;
 }
 
 export interface StoreOverview {
@@ -49,6 +54,12 @@ export interface OverviewResponse {
 
 export interface QuarantineResponse {
   items: QuarantineItem[];
+  store: string;
+  error?: string;
+}
+
+export interface QuarantineItemDetailResponse {
+  item: QuarantineItemDetail | null;
   store: string;
   error?: string;
 }
@@ -103,6 +114,13 @@ export async function fetchQuarantine(
   const params = new URLSearchParams({ limit: String(limit) });
   if (source) params.set("source", source);
   return get(`${BASE}/stores/${storeName}/quarantine?${params}`);
+}
+
+export async function fetchQuarantineItem(
+  storeName: string,
+  itemId: number,
+): Promise<QuarantineItemDetailResponse> {
+  return get(`${BASE}/stores/${storeName}/quarantine/${itemId}`);
 }
 
 export async function reprocess(

@@ -144,6 +144,8 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
           if (meta.passive && !meta.delegated_by) return false;
           // Hide heartbeat trigger prompts (injected user messages), but keep bot responses
           if (m.role === "user" && meta.is_heartbeat) return false;
+          // Hide member-mention trigger prompts (bot-to-bot @-mention system messages)
+          if (meta.hidden) return false;
           // Hide assistant messages with no displayable content (tool-call-only messages)
           // BUT keep messages that have attachments so download links are visible
           if (m.role === "assistant" && !extractDisplayText(m.content)

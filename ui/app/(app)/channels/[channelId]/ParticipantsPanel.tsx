@@ -3,6 +3,7 @@ import { ChevronRight, X, Plus, Bot, Users } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannelBotMembers, useAddBotMember, useRemoveBotMember } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
+import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import type { ChannelBotMember } from "@/src/types/api";
 
 interface ParticipantsPanelProps {
@@ -15,6 +16,7 @@ interface ParticipantsPanelProps {
 export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onClose }: ParticipantsPanelProps) {
   const t = useThemeTokens();
   const [showPicker, setShowPicker] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<ChannelBotMember | null>(null);
   const { data: members = [] } = useChannelBotMembers(channelId);
   const addMember = useAddBotMember(channelId);
   const removeMember = useRemoveBotMember(channelId);
@@ -99,7 +101,7 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
           <MemberRow
             key={m.id}
             member={m}
-            onRemove={() => removeMember.mutate(m.bot_id)}
+            onRemove={() => setConfirmRemove(m)}
             isRemoving={removeMember.isPending}
           />
         ))}
@@ -194,6 +196,20 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
           </div>
         )}
       </div>
+
+      {/* Confirm remove dialog */}
+      <ConfirmDialog
+        open={confirmRemove !== null}
+        title="Remove member bot"
+        message={`Remove ${confirmRemove?.bot_name || confirmRemove?.bot_id || ""} from this channel?`}
+        confirmLabel="Remove"
+        variant="danger"
+        onConfirm={() => {
+          if (confirmRemove) removeMember.mutate(confirmRemove.bot_id);
+          setConfirmRemove(null);
+        }}
+        onCancel={() => setConfirmRemove(null)}
+      />
     </div>
   );
 }
@@ -214,10 +230,12 @@ function MemberRow({
   const [hovered, setHovered] = useState(false);
   const cfg = member.config || {};
 
-  // Build config summary
+  // Build config summary (matches ParticipantsTab badges)
   const hints: string[] = [];
   if (cfg.auto_respond) hints.push("auto-respond");
   if (cfg.response_style) hints.push(cfg.response_style);
+  if (cfg.priority && cfg.priority !== 0) hints.push(`pri ${cfg.priority}`);
+  if (cfg.max_rounds) hints.push(`${cfg.max_rounds}r`);
 
   return (
     <div

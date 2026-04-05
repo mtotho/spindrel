@@ -88,6 +88,149 @@ class TestQuarantine:
         store.close()
 
 
+    def test_quarantine_with_metadata(self):
+        store = make_store()
+        meta = {"from": "attacker@evil.com", "subject": "Win a prize!", "date": "2026-04-01"}
+        store.quarantine(
+            source="gmail",
+            source_id="msg-meta",
+            raw_content="phishing body",
+            risk_level="high",
+            flags=["suspicious_url"],
+            reason="phishing attempt",
+            metadata=meta,
+        )
+        cur = store._conn.execute("SELECT metadata FROM quarantine WHERE source_id = ?", ("msg-meta",))
+        row = cur.fetchone()
+        assert row is not None
+        parsed = json.loads(row["metadata"])
+        assert parsed["from"] == "attacker@evil.com"
+        assert parsed["subject"] == "Win a prize!"
+        store.close()
+
+    def test_quarantine_without_metadata(self):
+        store = make_store()
+        store.quarantine(
+            source="gmail",
+            source_id="msg-nometa",
+            raw_content="bad content",
+            risk_level="medium",
+        )
+        cur = store._conn.execute("SELECT metadata FROM quarantine WHERE source_id = ?", ("msg-nometa",))
+        row = cur.fetchone()
+        assert row["metadata"] is None
+        store.close()
+
+
+class TestQuarantineItemDetail:
+    def test_get_existing_item(self):
+        store = make_store()
+        meta = {"from": "user@example.com", "subject": "Test Email"}
+        store.quarantine("gmail", "detail-1", "full body text", "high", ["injection"], "prompt injection", metadata=meta)
+        items = store.get_quarantine_items()
+        item_id = items[0]["id"]
+        detail = store.get_quarantine_item(item_id)
+        assert detail is not None
+        assert detail["raw_content"] == "full body text"
+        assert detail["metadata"]["from"] == "user@example.com"
+        assert detail["metadata"]["subject"] == "Test Email"
+        assert detail["flags"] == ["injection"]
+        assert detail["reason"] == "prompt injection"
+        store.close()
+
+    def test_get_nonexistent_item(self):
+        store = make_store()
+        assert store.get_quarantine_item(999) is None
+        store.close()
+
+    def test_get_item_without_metadata(self):
+        store = make_store()
+        store.quarantine("gmail", "no-meta", "body text", "low")
+        items = store.get_quarantine_items()
+        detail = store.get_quarantine_item(items[0]["id"])
+        assert detail is not None
+        assert detail["metadata"] is None
+        assert detail["raw_content"] == "body text"
+        store.close()
+
+
+class TestSchemaMigration:
+    def test_migration_adds_metadata_column_to_old_schema(self):
+        """Simulate an old DB without metadata column, verify migration adds it."""
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(":memory:")
+        conn.row_factory = _sqlite3.Row
+        # Create old schema without metadata column
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS processed_ids (
+                source TEXT NOT NULL, source_id TEXT NOT NULL, processed_at TEXT NOT NULL,
+                PRIMARY KEY (source, source_id)
+            );
+            CREATE TABLE IF NOT EXISTS quarantine (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL, source_id TEXT NOT NULL,
+                raw_content TEXT NOT NULL, risk_level TEXT NOT NULL,
+                flags TEXT, reason TEXT, quarantined_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL, source_id TEXT NOT NULL,
+                action TEXT NOT NULL, risk_level TEXT, ts TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cursors (
+                key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+            );
+        """)
+        conn.close()
+        # Now open via IngestionStore — _migrate_schema should add metadata column
+        # We can't test with :memory: since the conn is closed, so use a temp file
+        import tempfile, os
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        try:
+            # Create old schema
+            conn = _sqlite3.connect(path)
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS processed_ids (
+                    source TEXT NOT NULL, source_id TEXT NOT NULL, processed_at TEXT NOT NULL,
+                    PRIMARY KEY (source, source_id)
+                );
+                CREATE TABLE IF NOT EXISTS quarantine (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL, source_id TEXT NOT NULL,
+                    raw_content TEXT NOT NULL, risk_level TEXT NOT NULL,
+                    flags TEXT, reason TEXT, quarantined_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL, source_id TEXT NOT NULL,
+                    action TEXT NOT NULL, risk_level TEXT, ts TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS cursors (
+                    key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+                );
+            """)
+            conn.commit()
+            conn.close()
+            # Open with IngestionStore — migration should add metadata
+            store = IngestionStore(path)
+            meta = {"subject": "Test"}
+            store.quarantine("gmail", "m1", "body", "low", metadata=meta)
+            detail = store.get_quarantine_item(1)
+            assert detail is not None
+            assert detail["metadata"]["subject"] == "Test"
+            store.close()
+        finally:
+            os.unlink(path)
+
+    def test_migration_idempotent(self):
+        """Running migration twice should not raise."""
+        store = make_store()
+        store._migrate_schema()  # Second call
+        store._migrate_schema()  # Third call — should be fine
+        store.close()
+
+
 class TestAudit:
     def test_audit_log_entry(self):
         store = make_store()
@@ -264,6 +407,23 @@ class TestQuarantineItems:
         # Every item must include its row id for reprocessing
         assert all("id" in it for it in items)
         assert all(isinstance(it["id"], int) for it in items)
+        store.close()
+
+    def test_includes_metadata_field(self):
+        store = make_store()
+        store.quarantine("gmail", "m1", "body1", "high", metadata={"subject": "Hello"})
+        store.quarantine("gmail", "m2", "body2", "low")
+        items = store.get_quarantine_items()
+        assert len(items) == 2
+        # All items should have metadata key
+        assert all("metadata" in it for it in items)
+        # The one with metadata should have it parsed
+        with_meta = [it for it in items if it["metadata"] is not None]
+        assert len(with_meta) == 1
+        assert with_meta[0]["metadata"]["subject"] == "Hello"
+        # The one without should be None
+        without_meta = [it for it in items if it["metadata"] is None]
+        assert len(without_meta) == 1
         store.close()
 
     def test_filtered_by_source(self):

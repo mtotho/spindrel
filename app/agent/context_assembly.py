@@ -1069,7 +1069,7 @@ async def assemble_context(
         _awareness_msg = (
             "This channel has multiple bot participants:\n"
             + "\n".join(_participant_lines)
-            + "\nYou can @-mention other bots to direct questions to them."
+            + "\nYou can @-mention other bots in your response to bring them into the conversation. They will see the full channel context and reply automatically."
         )
         messages.append({"role": "system", "content": _awareness_msg})
         yield {"type": "multi_bot_awareness", "member_count": len(_member_bot_ids)}

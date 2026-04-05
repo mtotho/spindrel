@@ -385,6 +385,222 @@ async def _maybe_route_to_member_bot(db: AsyncSession, channel, bot, message: st
     return bot, {}
 
 
+def _inject_member_config(messages: list[dict], config: dict) -> None:
+    """Inject member-level config overrides as system messages."""
+    parts: list[str] = []
+    if config.get("system_prompt_addon"):
+        parts.append(config["system_prompt_addon"])
+    style = config.get("response_style")
+    if style:
+        style_map = {
+            "brief": "Keep your responses brief and concise.",
+            "normal": "Respond with a normal level of detail.",
+            "detailed": "Provide detailed, thorough responses.",
+        }
+        parts.append(style_map.get(style, f"Response style: {style}."))
+    if parts:
+        messages.append({
+            "role": "system",
+            "content": f"[Member bot instructions for this channel]\n" + "\n".join(parts),
+        })
+
+
+# ---------------------------------------------------------------------------
+# Bot-to-bot @-mention: when a bot's response mentions a member bot,
+# trigger a follow-up run so that member bot responds in the same channel.
+# ---------------------------------------------------------------------------
+_MEMBER_MENTION_MAX_DEPTH = 3
+
+
+async def _trigger_member_bot_replies(
+    channel_id: uuid.UUID,
+    session_id: uuid.UUID,
+    responding_bot_id: str,
+    response_text: str,
+    *,
+    _depth: int = 0,
+) -> None:
+    """Parse a bot response for @-mentions of channel member bots and fire replies."""
+    if _depth >= _MEMBER_MENTION_MAX_DEPTH:
+        logger.info("Member mention chain depth limit (%d) reached", _MEMBER_MENTION_MAX_DEPTH)
+        return
+    if not response_text:
+        return
+
+    from app.agent.tags import _TAG_RE
+    from app.db.engine import async_session as _async_session
+    from app.db.models import ChannelBotMember
+    from sqlalchemy import select
+
+    tag_matches = _TAG_RE.findall(response_text)
+    if not tag_matches:
+        return
+
+    # Load member bots for this channel
+    async with _async_session() as db:
+        rows = (await db.execute(
+            select(ChannelBotMember).where(ChannelBotMember.channel_id == channel_id)
+        )).scalars().all()
+    member_map = {r.bot_id: r.config or {} for r in rows}
+    if not member_map:
+        return
+
+    # Deduplicate mentioned member bots (preserve order)
+    mentioned: list[tuple[str, dict]] = []
+    seen: set[str] = set()
+    for prefix, name in tag_matches:
+        forced_type = prefix.rstrip(":") if prefix else None
+        if forced_type and forced_type != "bot":
+            continue
+        if name in member_map and name != responding_bot_id and name not in seen:
+            mentioned.append((name, member_map[name]))
+            seen.add(name)
+
+    for bot_id, member_config in mentioned:
+        asyncio.create_task(
+            _run_member_bot_reply(
+                channel_id, session_id, bot_id, member_config,
+                responding_bot_id, _depth=_depth + 1,
+            )
+        )
+
+
+async def _run_member_bot_reply(
+    channel_id: uuid.UUID,
+    session_id: uuid.UUID,
+    member_bot_id: str,
+    member_config: dict,
+    mentioning_bot_id: str,
+    *,
+    _depth: int = 1,
+) -> None:
+    """Execute a member bot's reply after being @-mentioned by another bot."""
+    from app.agent.bots import get_bot
+    from app.agent.loop import run
+    from app.db.engine import async_session as _async_session
+    from app.db.models import Channel, Session
+    from app.services.sessions import load_or_create, persist_turn
+    from app.services.channel_events import publish as _publish_event
+    from sqlalchemy import update as _sql_update
+
+    # Anti-loop: channel throttle (uses module-level imports)
+    if _channel_throttled(str(channel_id)):
+        logger.info("Member bot %s reply skipped: channel %s throttled", member_bot_id, channel_id)
+        return
+
+    # Wait for session lock (primary bot's stream may still be finishing)
+    acquired = False
+    for _ in range(30):
+        if session_locks.acquire(session_id):
+            acquired = True
+            break
+        await asyncio.sleep(1)
+
+    if not acquired:
+        logger.warning("Member bot %s timed out waiting for session lock in channel %s", member_bot_id, channel_id)
+        return
+
+    result = None
+    try:
+        _record_channel_run(str(channel_id))
+
+        member_bot = get_bot(member_bot_id)
+        mentioning_bot = get_bot(mentioning_bot_id)
+
+        # Load session with member bot's system prompt
+        async with _async_session() as db:
+            _, messages = await load_or_create(
+                db, session_id, "member-mention", member_bot_id,
+                channel_id=channel_id,
+            )
+
+        # Apply member config overrides (response_style, system_prompt_addon)
+        _inject_member_config(messages, member_config)
+
+        correlation_id = uuid.uuid4()
+        from_index = len(messages)
+
+        # Trigger prompt — stored as user message with bot metadata
+        prompt = f"[Channel: {mentioning_bot.name} mentioned you]"
+        model_override = member_config.get("model_override")
+
+        # Set agent context so run_stream internals have proper metadata
+        from app.agent.context import set_agent_context
+        set_agent_context(
+            session_id=session_id,
+            client_id="member-mention",
+            bot_id=member_bot_id,
+            correlation_id=correlation_id,
+            channel_id=channel_id,
+        )
+
+        result = await run(
+            messages, member_bot, prompt,
+            session_id=session_id,
+            client_id="member-mention",
+            correlation_id=correlation_id,
+            channel_id=channel_id,
+            model_override=model_override,
+        )
+
+        # Persist with metadata so UI knows this is a bot-triggered turn
+        msg_metadata = {
+            "trigger": "member_mention",
+            "sender_type": "bot",
+            "sender_display_name": mentioning_bot.name,
+            "mentioning_bot_id": mentioning_bot_id,
+            "hidden": True,
+        }
+        async with _async_session() as db:
+            await persist_turn(
+                db, session_id, member_bot, messages, from_index,
+                correlation_id=correlation_id,
+                channel_id=channel_id,
+                msg_metadata=msg_metadata,
+            )
+
+        # Notify UI
+        _publish_event(channel_id, "new_message")
+
+        # Mirror to integration
+        if result.response:
+            async with _async_session() as db:
+                channel = await db.get(Channel, channel_id)
+            if channel:
+                await _mirror_to_integration(
+                    channel, result.response, bot_id=member_bot_id,
+                )
+
+        # Restore session bot_id to the channel's primary bot
+        async with _async_session() as db:
+            channel = await db.get(Channel, channel_id)
+            if channel and channel.bot_id:
+                await db.execute(
+                    _sql_update(Session)
+                    .where(Session.id == session_id)
+                    .values(bot_id=channel.bot_id)
+                )
+                await db.commit()
+
+        logger.info(
+            "Member bot %s replied in channel %s (mentioned by %s, depth=%d)",
+            member_bot_id, channel_id, mentioning_bot_id, _depth,
+        )
+
+    except Exception:
+        logger.exception("Member bot %s reply failed in channel %s", member_bot_id, channel_id)
+    finally:
+        session_locks.release(session_id)
+
+    # Chain: check if member bot's response mentions another member bot
+    # (done AFTER releasing the lock so the next bot can acquire it)
+    if result and result.response:
+        await _trigger_member_bot_replies(
+            channel_id, session_id, member_bot_id, result.response,
+            _depth=_depth,
+        )
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     req: ChatRequest,
@@ -530,11 +746,7 @@ async def chat(
     try:
         # Apply member-level config overrides
         _effective_model_override = req.model_override or _member_config.get("model_override")
-        _member_addon = _member_config.get("system_prompt_addon")
-        if _member_addon:
-            # Inject as system message into conversation history so it appears in context
-            # without triggering the task-prompt framing that system_preamble uses
-            messages.append({"role": "system", "content": f"[Member bot instructions for this channel]\n{_member_addon}"})
+        _inject_member_config(messages, _member_config)
 
         result = await run(
             messages, bot, message,
@@ -579,6 +791,12 @@ async def chat(
         await _mirror_to_integration(
             channel, _mirror_text,
             bot_id=req.bot_id, client_actions=result.client_actions,
+        )
+
+    # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply
+    if result.response and channel_id:
+        asyncio.create_task(
+            _trigger_member_bot_replies(channel_id, session_id, bot.id, result.response)
         )
 
     return ChatResponse(
@@ -870,9 +1088,7 @@ async def chat_stream(
 
             # Apply member-level config overrides
             _effective_model_override_s = req.model_override or _member_config.get("model_override")
-            _member_addon_s = _member_config.get("system_prompt_addon")
-            if _member_addon_s:
-                messages.append({"role": "system", "content": f"[Member bot instructions for this channel]\n{_member_addon_s}"})
+            _inject_member_config(messages, _member_config)
 
             # Notify observers that streaming is starting
             from app.services.channel_events import publish as _publish_stream
@@ -971,6 +1187,12 @@ async def chat_stream(
                 dispatch_config=req.dispatch_config,
                 budget_utilization=_budget_utilization,
             )
+
+            # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply
+            if not was_cancelled and response_text and channel_id:
+                asyncio.create_task(
+                    _trigger_member_bot_replies(channel_id, session_id, bot.id, response_text)
+                )
         except Exception as e:
             logger.exception("Streaming agent loop error")
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"

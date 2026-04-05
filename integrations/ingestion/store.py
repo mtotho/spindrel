@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS quarantine (
     risk_level   TEXT NOT NULL,
     flags        TEXT,
     reason       TEXT,
+    metadata     TEXT,
     quarantined_at TEXT NOT NULL
 );
 
@@ -55,6 +56,15 @@ class IngestionStore:
 
     def _init_schema(self) -> None:
         self._conn.executescript(_SCHEMA)
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Add columns introduced after initial schema (idempotent)."""
+        try:
+            self._conn.execute("ALTER TABLE quarantine ADD COLUMN metadata TEXT")
+            self._conn.commit()
+        except Exception:
+            pass  # Column already exists
 
     # -- idempotency --------------------------------------------------------
 
@@ -83,12 +93,13 @@ class IngestionStore:
         risk_level: str,
         flags: list[str] | None = None,
         reason: str | None = None,
+        metadata: dict | None = None,
     ) -> None:
         now = datetime.now(timezone.utc).isoformat()
         self._conn.execute(
-            "INSERT INTO quarantine (source, source_id, raw_content, risk_level, flags, reason, quarantined_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (source, source_id, raw_content, risk_level, json.dumps(flags or []), reason, now),
+            "INSERT INTO quarantine (source, source_id, raw_content, risk_level, flags, reason, metadata, quarantined_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (source, source_id, raw_content, risk_level, json.dumps(flags or []), reason, json.dumps(metadata) if metadata else None, now),
         )
         self._conn.commit()
 
@@ -255,16 +266,16 @@ class IngestionStore:
         return [dict(r) for r in rows]
 
     def get_quarantine_items(self, source: str | None = None, limit: int = 20) -> list[dict]:
-        """Return quarantined items with id, risk/flags/reason."""
+        """Return quarantined items with id, risk/flags/reason/metadata (no raw_content)."""
         if source:
             rows = self._conn.execute(
-                "SELECT id, source, source_id, risk_level, flags, reason, quarantined_at "
+                "SELECT id, source, source_id, risk_level, flags, reason, metadata, quarantined_at "
                 "FROM quarantine WHERE source = ? ORDER BY quarantined_at DESC LIMIT ?",
                 (source, limit),
             ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT id, source, source_id, risk_level, flags, reason, quarantined_at "
+                "SELECT id, source, source_id, risk_level, flags, reason, metadata, quarantined_at "
                 "FROM quarantine ORDER BY quarantined_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -272,8 +283,23 @@ class IngestionStore:
         for r in rows:
             d = dict(r)
             d["flags"] = json.loads(d["flags"]) if d["flags"] else []
+            d["metadata"] = json.loads(d["metadata"]) if d["metadata"] else None
             result.append(d)
         return result
+
+    def get_quarantine_item(self, item_id: int) -> dict | None:
+        """Return a single quarantine item with full details including raw_content."""
+        row = self._conn.execute(
+            "SELECT id, source, source_id, raw_content, risk_level, flags, reason, metadata, quarantined_at "
+            "FROM quarantine WHERE id = ?",
+            (item_id,),
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        d["flags"] = json.loads(d["flags"]) if d["flags"] else []
+        d["metadata"] = json.loads(d["metadata"]) if d["metadata"] else None
+        return d
 
     def count_by_reason_prefix(self, source: str | None, prefix: str) -> int:
         """Count quarantine items where reason starts with prefix."""

@@ -2,6 +2,7 @@
 
 Covers:
 - Member bot routing (_maybe_route_to_member_bot)
+- Bot-to-bot @-mention trigger (_trigger_member_bot_replies)
 - Anti-loop protection (ContextVar tracking)
 - Context injection (membership awareness + delegate index merge)
 - Member bot memory flush on compaction
@@ -553,3 +554,211 @@ class TestMemberBotFlush:
             await _flush_member_bots(channel, uuid.uuid4(), [])
 
         assert call_count == 2  # both were attempted
+
+
+# ---------------------------------------------------------------------------
+# Bot-to-bot @-mention trigger
+# ---------------------------------------------------------------------------
+
+class TestBotToBotMention:
+    """Tests for _trigger_member_bot_replies — fires background runs when
+    a bot's response @-mentions a channel member bot."""
+
+    @pytest.mark.asyncio
+    async def test_no_tags_in_response_does_nothing(self):
+        """Response without @-mentions creates no tasks."""
+        from app.routers.chat import _trigger_member_bot_replies
+
+        # No @-mentions → should return immediately
+        await _trigger_member_bot_replies(
+            uuid.uuid4(), uuid.uuid4(), "primary-bot", "Hello, no mentions here."
+        )
+        # No error = success (nothing to assert, just verifying no crash)
+
+    @pytest.mark.asyncio
+    async def test_empty_response_does_nothing(self):
+        from app.routers.chat import _trigger_member_bot_replies
+
+        await _trigger_member_bot_replies(
+            uuid.uuid4(), uuid.uuid4(), "primary-bot", ""
+        )
+
+    @pytest.mark.asyncio
+    async def test_mention_non_member_bot_ignored(self):
+        """@-mentioning a bot that isn't a channel member creates no tasks."""
+        from app.routers.chat import _trigger_member_bot_replies
+
+        channel_id = uuid.uuid4()
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []  # no members
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("asyncio.create_task") as mock_create_task:
+            await _trigger_member_bot_replies(
+                channel_id, uuid.uuid4(), "primary-bot",
+                "Hey @unknown_bot, what do you think?"
+            )
+
+        mock_create_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_mention_member_bot_triggers_task(self):
+        """@-mentioning a channel member bot creates a background task."""
+        from app.routers.chat import _trigger_member_bot_replies
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+
+        member_row = _make_member_row("helper-bot", config={"auto_respond": True})
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("asyncio.create_task") as mock_create_task:
+            await _trigger_member_bot_replies(
+                channel_id, session_id, "primary-bot",
+                "Hey @helper-bot, can you help with this?"
+            )
+
+        mock_create_task.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_self_mention_ignored(self):
+        """A bot mentioning itself does not trigger a task."""
+        from app.routers.chat import _trigger_member_bot_replies
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("helper-bot")
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        # helper-bot mentions itself
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("asyncio.create_task") as mock_create_task:
+            await _trigger_member_bot_replies(
+                channel_id, uuid.uuid4(), "helper-bot",
+                "I am @helper-bot and I'm here."
+            )
+
+        mock_create_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_depth_limit_prevents_infinite_chain(self):
+        """Exceeding max depth returns immediately without processing."""
+        from app.routers.chat import _trigger_member_bot_replies, _MEMBER_MENTION_MAX_DEPTH
+
+        # At max depth, should not even attempt DB queries
+        with patch("app.db.engine.async_session") as mock_session:
+            await _trigger_member_bot_replies(
+                uuid.uuid4(), uuid.uuid4(), "bot",
+                "@helper-bot hello",
+                _depth=_MEMBER_MENTION_MAX_DEPTH,
+            )
+
+        mock_session.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_multiple_mentions_deduplicated(self):
+        """Same bot mentioned twice creates only one task."""
+        from app.routers.chat import _trigger_member_bot_replies
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("helper-bot")
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("asyncio.create_task") as mock_create_task:
+            await _trigger_member_bot_replies(
+                channel_id, uuid.uuid4(), "primary-bot",
+                "@helper-bot what do you think? Also @helper-bot please check this."
+            )
+
+        # Only one task despite two mentions
+        mock_create_task.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skill_tag_not_treated_as_bot_mention(self):
+        """@skill:name and @tool:name are not treated as bot mentions."""
+        from app.routers.chat import _trigger_member_bot_replies
+
+        channel_id = uuid.uuid4()
+        # Even if a member bot exists with these names, the prefix filter should exclude them
+        member_row = _make_member_row("myskill")
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("asyncio.create_task") as mock_create_task:
+            await _trigger_member_bot_replies(
+                channel_id, uuid.uuid4(), "primary-bot",
+                "Let me check @skill:myskill for help."
+            )
+
+        mock_create_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_run_member_bot_reply_throttled(self):
+        """Channel throttle prevents member bot reply."""
+        from app.routers.chat import _run_member_bot_reply
+
+        with patch("app.routers.chat._channel_throttled", return_value=True):
+            # Should return without doing anything
+            await _run_member_bot_reply(
+                uuid.uuid4(), uuid.uuid4(), "helper-bot", {},
+                "primary-bot",
+            )
+            # No error = throttle check worked
+
+    @pytest.mark.asyncio
+    async def test_run_member_bot_reply_lock_timeout(self):
+        """If session lock can't be acquired, reply is skipped."""
+        from app.routers.chat import _run_member_bot_reply
+
+        with patch("app.routers.chat._channel_throttled", return_value=False), \
+             patch("app.routers.chat.session_locks") as mock_locks, \
+             patch("asyncio.sleep", new_callable=AsyncMock):
+            # Lock always busy
+            mock_locks.acquire.return_value = False
+
+            await _run_member_bot_reply(
+                uuid.uuid4(), uuid.uuid4(), "helper-bot", {},
+                "primary-bot",
+            )
+            # Should have tried multiple times then given up
+            assert mock_locks.acquire.call_count == 30

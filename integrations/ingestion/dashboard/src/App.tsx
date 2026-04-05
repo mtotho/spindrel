@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Rss, RefreshCw, AlertTriangle } from "lucide-react";
 import { fetchOverview } from "./lib/api";
@@ -20,16 +20,14 @@ export default function App() {
   const activeStore = stores.find((s) => s.name === selectedStore) ?? null;
 
   // Auto-select first store with quarantine items
-  if (!selectedStore && stores.length > 0) {
-    const withQuarantine = stores.find(
-      (s) => s.stats && s.stats.total_quarantined > 0,
-    );
-    if (withQuarantine) {
-      setSelectedStore(withQuarantine.name);
-    } else {
-      setSelectedStore(stores[0].name);
+  useEffect(() => {
+    if (!selectedStore && stores.length > 0) {
+      const withQuarantine = stores.find(
+        (s) => s.stats && s.stats.total_quarantined > 0,
+      );
+      setSelectedStore(withQuarantine?.name ?? stores[0].name);
     }
-  }
+  }, [selectedStore, stores]);
 
   const totalQuarantined = stores.reduce(
     (sum, s) => sum + (s.stats?.total_quarantined ?? 0),
