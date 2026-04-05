@@ -147,7 +147,7 @@ export function SkillsSection({
   const setMode = (id: string, mode: string) => {
     update({
       skills: skills.map((s) =>
-        s.id === id ? { ...s, mode, similarity_threshold: mode === "rag" ? s.similarity_threshold : null } : s
+        s.id === id ? { ...s, mode } : s
       ),
     });
   };
@@ -166,9 +166,8 @@ export function SkillsSection({
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {draft.id && <SelfAuthoredSkillsBanner botId={draft.id} onNavigateToLearning={onNavigateToLearning} />}
       <div style={{ fontSize: 11, color: t.textDim }}>
-        <strong style={{ color: t.textMuted }}>on_demand</strong>: index injected, agent calls get_skill.{" "}
-        <strong style={{ color: t.textMuted }}>pinned</strong>: full content every turn.{" "}
-        <strong style={{ color: t.textMuted }}>rag</strong>: semantic similarity per turn.
+        <strong style={{ color: t.textMuted }}>on_demand</strong> (default): index injected, agent calls get_skill.{" "}
+        <strong style={{ color: t.textMuted }}>pinned</strong>: full content every turn.
       </div>
       {editorData.all_skills.length > 6 && (
         <div style={{
@@ -220,7 +219,7 @@ export function SkillsSection({
                       </div>
                     )}
                     <div style={{ fontSize: 10, color: t.textDim, marginTop: 3 }}>
-                      Auto-injected via RAG. Managed by the bot.
+                      Auto-injected. Managed by the bot.
                     </div>
                   </div>
                   <button
@@ -268,12 +267,12 @@ export function SkillsSection({
               )}
               {sel && entry && !isBotAuthored && (
                 <div style={{ marginTop: 6, marginLeft: 22 }}>
-                  <select value={entry.mode || "on_demand"} onChange={(e) => setMode(skill.id, e.target.value)}
-                    style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}>
-                    <option value="on_demand">on_demand</option>
-                    <option value="pinned">pinned</option>
-                    <option value="rag">rag</option>
-                  </select>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted, cursor: "pointer" }}>
+                    <input type="checkbox" checked={entry.mode === "pinned"}
+                      onChange={(e) => setMode(skill.id, e.target.checked ? "pinned" : "on_demand")}
+                      style={{ accentColor: t.accent }} />
+                    pin (full content every turn)
+                  </label>
                 </div>
               )}
             </div>

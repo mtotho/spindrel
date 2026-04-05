@@ -24,7 +24,6 @@ export interface KnowledgeConfig {
 export interface SkillConfig {
   id: string;
   mode?: string;
-  similarity_threshold?: number | null;
 }
 
 export interface BotConfig {
@@ -427,9 +426,8 @@ export interface ChannelSettings {
   client_tools_override?: string[] | null;
   client_tools_disabled?: string[] | null;
   pinned_tools_override?: string[] | null;
-  skills_override?: { id: string; mode?: string; similarity_threshold?: number }[] | null;
   skills_disabled?: string[] | null;
-  skills_extra?: { id: string; mode?: string; similarity_threshold?: number }[] | null;
+  skills_extra?: { id: string; mode?: string }[] | null;
   // Workspace overrides
   workspace_skills_enabled?: boolean | null;
   workspace_base_prompt_enabled?: boolean | null;
@@ -458,10 +456,10 @@ export interface EffectiveTools {
   mcp_servers: string[];
   client_tools: string[];
   pinned_tools: string[];
-  skills: { id: string; mode: string; similarity_threshold?: number; name?: string }[];
+  skills: { id: string; mode: string; name?: string }[];
   mode: Record<string, "inherit" | "override" | "disabled">;
   disabled: Record<string, string[]>;
-  skills_extra: { id: string; mode?: string; similarity_threshold?: number }[];
+  skills_extra: { id: string; mode?: string }[];
   carapaces: string[];
   carapace_sources: Record<string, string>;
 }
@@ -671,7 +669,7 @@ export interface SharedWorkspace {
   editor_enabled: boolean;
   editor_port?: number | null;
   write_protected_paths?: string[];
-  skills?: { id: string; mode?: string; similarity_threshold?: number }[];
+  skills?: { id: string; mode?: string }[];
   container_id?: string | null;
   container_name?: string | null;
   status: string;
@@ -699,7 +697,7 @@ export interface WorkspaceCreate {
   workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
   write_protected_paths?: string[];
-  skills?: { id: string; mode?: string; similarity_threshold?: number }[];
+  skills?: { id: string; mode?: string }[];
   created_by_user_id?: string;
 }
 
@@ -719,7 +717,7 @@ export interface WorkspaceUpdate {
   workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
   write_protected_paths?: string[];
-  skills?: { id: string; mode?: string; similarity_threshold?: number }[];
+  skills?: { id: string; mode?: string }[];
 }
 
 export interface WorkspaceFileEntry {

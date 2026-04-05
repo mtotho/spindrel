@@ -130,7 +130,7 @@ export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWi
 
   const setExtraMode = useCallback((id: string, mode: string) => {
     const next = extras.map((s) =>
-      s.id === id ? { ...s, mode, similarity_threshold: mode === "rag" ? s.similarity_threshold : undefined } : s,
+      s.id === id ? { ...s, mode } : s,
     );
     onSave({ skills_extra: next } as any);
   }, [extras, onSave]);
@@ -210,12 +210,12 @@ export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWi
               )}
               {sel && entry && (
                 <div style={{ marginLeft: 28 }}>
-                  <select value={entry.mode || "on_demand"} onChange={(e: any) => setExtraMode(skill.id, e.target.value)}
-                    style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}>
-                    <option value="on_demand">on_demand</option>
-                    <option value="pinned">pinned</option>
-                    <option value="rag">rag</option>
-                  </select>
+                  <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted, cursor: "pointer" }}>
+                    <input type="checkbox" checked={entry.mode === "pinned"}
+                      onChange={(e) => setExtraMode(skill.id, e.target.checked ? "pinned" : "on_demand")}
+                      style={{ accentColor: t.accent }} />
+                    pin (full content every turn)
+                  </label>
                 </div>
               )}
             </div>
@@ -258,16 +258,15 @@ export function EffectiveSkillsList({ editorData, settings, filter, onSave, isWi
               </span>
             ) : <span />}
             {sel && entry ? (
-              <select
-                value={entry.mode || "on_demand"}
-                onChange={(e: any) => setExtraMode(skill.id, e.target.value)}
+              <label
+                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted, cursor: "pointer" }}
                 onClick={(e) => e.stopPropagation()}
-                style={{ background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "2px 8px", fontSize: 11, color: t.text }}
               >
-                <option value="on_demand">on_demand</option>
-                <option value="pinned">pinned</option>
-                <option value="rag">rag</option>
-              </select>
+                <input type="checkbox" checked={entry.mode === "pinned"}
+                  onChange={(e) => setExtraMode(skill.id, e.target.checked ? "pinned" : "on_demand")}
+                  style={{ accentColor: t.accent }} />
+                pin
+              </label>
             ) : <span />}
           </label>
         );

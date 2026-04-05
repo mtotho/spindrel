@@ -61,7 +61,6 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
       client_tools_override: null,
       client_tools_disabled: null,
       pinned_tools_override: null,
-      skills_override: null,
       skills_disabled: null,
       skills_extra: null,
       carapaces_extra: null,
@@ -155,7 +154,6 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
     settings.client_tools_override != null ||
     settings.client_tools_disabled != null ||
     settings.pinned_tools_override != null ||
-    settings.skills_override != null ||
     settings.skills_disabled != null ||
     settings.skills_extra != null ||
     settings.carapaces_extra != null ||
