@@ -1087,6 +1087,15 @@ async def chat(
         _effective_model_override = req.model_override or _member_config.get("model_override")
         _inject_member_config(messages, _member_config)
 
+        # Identity reinforcement for routed non-primary bot (see streaming path comment)
+        _routed_preamble_nc: str | None = None
+        if not _is_primary_nc:
+            _routed_preamble_nc = (
+                f"You are {bot.name} (bot_id: {bot.id}). "
+                f"The user addressed you directly. "
+                f"Respond as yourself — do not adopt the identity of any other bot in this channel."
+            )
+
         result = await run(
             messages, bot, message,
             session_id=session_id, client_id=req.client_id,
@@ -1098,6 +1107,7 @@ async def chat(
             channel_id=channel_id,
             model_override=_effective_model_override,
             provider_id_override=req.model_provider_id_override,
+            system_preamble=_routed_preamble_nc,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
@@ -1578,6 +1588,19 @@ async def chat_stream(
                         ),
                     })
 
+            # If the primary stream was routed to a non-primary bot, inject a
+            # system_preamble to reinforce identity right before the user message.
+            # Without this, the bot's system prompt at messages[0] can be drowned
+            # out by channel workspace files and conversation history from the
+            # channel primary, causing the model to adopt the wrong identity.
+            _routed_preamble: str | None = None
+            if not _is_primary_s:
+                _routed_preamble = (
+                    f"You are {bot.name} (bot_id: {bot.id}). "
+                    f"The user addressed you directly. "
+                    f"Respond as yourself — do not adopt the identity of any other bot in this channel."
+                )
+
             stream = run_stream(
                 messages, bot, message,
                 session_id=session_id, client_id=req.client_id,
@@ -1589,6 +1612,7 @@ async def chat_stream(
                 channel_id=channel_id,
                 model_override=_effective_model_override_s,
                 provider_id_override=req.model_provider_id_override,
+                system_preamble=_routed_preamble,
             )
             _budget_utilization = None
             async for event in _with_keepalive(stream):

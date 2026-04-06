@@ -115,7 +115,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         const toolsUsed = ch.toolCalls.length > 0
           ? ch.toolCalls.map((tc) => tc.name)
           : undefined;
-        const metadata = toolsUsed ? { tools_used: toolsUsed } : undefined;
+        const startMeta: Record<string, any> = {
+          ...(toolsUsed ? { tools_used: toolsUsed } : {}),
+          ...(ch.respondingBotName ? { sender_display_name: ch.respondingBotName } : {}),
+          ...(ch.respondingBotId ? { sender_id: `bot:${ch.respondingBotId}` } : {}),
+        };
+        const hasStartMeta = Object.keys(startMeta).length > 0;
         messages = [
           ...messages,
           {
@@ -125,7 +130,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             content: ch.streamingContent,
             created_at: new Date().toISOString(),
             correlation_id: ch.correlationId ?? undefined,
-            metadata,
+            ...(hasStartMeta ? { metadata: startMeta } : {}),
           },
         ];
       }
@@ -423,8 +428,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       const toolsUsed = ch.toolCalls.length > 0
         ? ch.toolCalls.map((tc) => tc.name)
         : undefined;
-      const metadata = toolsUsed ? { tools_used: toolsUsed } : undefined;
+      // Include bot identity so the synthetic message renders with the correct
+      // bot name/avatar in multi-bot channels (before DB refetch replaces it).
+      const metadata: Record<string, any> = {
+        ...(toolsUsed ? { tools_used: toolsUsed } : {}),
+        ...(ch.respondingBotName ? { sender_display_name: ch.respondingBotName } : {}),
+        ...(ch.respondingBotId ? { sender_id: `bot:${ch.respondingBotId}` } : {}),
+      };
       // Convert streaming content to a real message
+      const hasMetadata = Object.keys(metadata).length > 0;
       const newMessages = ch.streamingContent
         ? [
             ...ch.messages,
@@ -435,7 +447,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               content: ch.streamingContent,
               created_at: new Date().toISOString(),
               correlation_id: ch.correlationId ?? undefined,
-              metadata,
+              ...(hasMetadata ? { metadata } : {}),
             },
           ]
         : ch.messages;
