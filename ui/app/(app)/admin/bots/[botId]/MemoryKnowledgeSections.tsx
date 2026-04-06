@@ -10,6 +10,7 @@ import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
 import { useMemoryHygieneStatus, useMemoryHygieneRuns, useTriggerMemoryHygiene } from "@/src/api/hooks/useMemoryHygiene";
 import { HygieneHistoryList } from "./HygieneHistoryList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   TextInput, Toggle, FormRow, Row, Col,
 } from "@/src/components/shared/FormControls";
@@ -38,7 +39,8 @@ const ARCHITECTURE_DIAGRAM = `
 │  ├── logs/                                                       │
 │  │   ├── 2026-03-28.md   ← auto-loaded (today)                 │
 │  │   ├── 2026-03-27.md   ← auto-loaded (yesterday)             │
-│  │   └── *.md            ← searchable only                      │
+│  │   ├── *.md            ← searchable only                      │
+│  │   └── archive/        ← old logs moved here by hygiene       │
 │  └── reference/                                                  │
 │      └── *.md            ← searchable only                      │
 │                                                                  │
@@ -104,7 +106,8 @@ const DIR_STRUCTURE = `memory/
 ├── MEMORY.md              # Always in context. Curated stable facts.
 ├── logs/
 │   ├── YYYY-MM-DD.md      # Today + yesterday auto-loaded
-│   └── *.md               # Older logs searchable via search_memory
+│   ├── *.md               # Older logs searchable via search_memory
+│   └── archive/           # Old logs moved here by hygiene
 └── reference/
     └── *.md               # Longer docs, searchable + readable via tools`;
 
@@ -313,7 +316,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
           Memory Hygiene
         </span>
         <span style={{ fontSize: 10, color: t.textDim }}>
-          Periodic cross-channel memory curation
+          Scheduled background review — curates MEMORY.md, promotes facts from daily logs, detects contradictions, generates reflections, and consolidates skills across all channels.
         </span>
       </div>
 
@@ -399,16 +402,25 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
       {/* Model override */}
       <Row>
         <Col>
-          <FormRow label="Model" description={status?.model ? `Resolved: ${status.model}` : "Uses bot default"}>
-            <TextInput
+          <FormRow label="Model" description={
+            status?.model
+              ? `Global: ${status.model}${draft.memory_hygiene_model ? " (overridden)" : ""}`
+              : "No global default — uses bot's model"
+          }>
+            <LlmModelDropdown
               value={draft.memory_hygiene_model ?? ""}
-              onChangeText={(v) => update({ memory_hygiene_model: v || null })}
+              onChange={(modelId) => update({ memory_hygiene_model: modelId || null })}
               placeholder={status?.model || "bot default"}
+              allowClear
             />
           </FormRow>
         </Col>
         <Col>
-          <FormRow label="Provider" description={status?.model_provider_id ? `Resolved: ${status.model_provider_id}` : "Uses bot default"}>
+          <FormRow label="Provider" description={
+            status?.model_provider_id
+              ? `Global: ${status.model_provider_id}${draft.memory_hygiene_model_provider_id ? " (overridden)" : ""}`
+              : "No global default — uses bot's provider"
+          }>
             <TextInput
               value={draft.memory_hygiene_model_provider_id ?? ""}
               onChangeText={(v) => update({ memory_hygiene_model_provider_id: v || null })}

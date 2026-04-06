@@ -1238,7 +1238,6 @@ async def assemble_context(
 
         # Auto-inject invoke_member_bot tool for multi-bot channels
         from app.agent.context import current_injected_tools
-        from app.tools.registry import get_local_tool_schemas
         _member_tool_schemas = get_local_tool_schemas(["invoke_member_bot"])
         if _member_tool_schemas:
             _existing_injected = current_injected_tools.get() or []

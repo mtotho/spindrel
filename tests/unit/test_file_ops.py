@@ -17,6 +17,7 @@ from app.tools.local.file_ops import (
     _op_list,
     _op_delete,
     _op_mkdir,
+    _op_move,
     _whitespace_flex_pattern,
     _find_closest_hint,
     file as file_tool,
@@ -721,6 +722,80 @@ class TestOpMkdir:
 
 
 # ---------------------------------------------------------------------------
+# Move
+# ---------------------------------------------------------------------------
+
+
+class TestOpMove:
+    @pytest.mark.asyncio
+    async def test_move_file(self, ws):
+        src = str(ws / "hello.txt")
+        dest = str(ws / "moved.txt")
+        bot = _mock_bot(str(ws))
+        result = json.loads(await _op_move(src, "moved.txt", str(ws), bot))
+        assert result["ok"] is True
+        assert not os.path.exists(src)
+        assert os.path.isfile(dest)
+        assert Path(dest).read_text() == "Hello world\n"
+
+    @pytest.mark.asyncio
+    async def test_move_into_directory(self, ws):
+        """Moving a file into an existing directory (like mv)."""
+        (ws / "target_dir").mkdir()
+        src = str(ws / "hello.txt")
+        bot = _mock_bot(str(ws))
+        result = json.loads(await _op_move(src, "target_dir", str(ws), bot))
+        assert result["ok"] is True
+        assert os.path.isfile(str(ws / "target_dir" / "hello.txt"))
+        assert not os.path.exists(src)
+
+    @pytest.mark.asyncio
+    async def test_move_creates_parent_dirs(self, ws):
+        src = str(ws / "hello.txt")
+        bot = _mock_bot(str(ws))
+        result = json.loads(await _op_move(src, "a/b/moved.txt", str(ws), bot))
+        assert result["ok"] is True
+        assert os.path.isfile(str(ws / "a" / "b" / "moved.txt"))
+
+    @pytest.mark.asyncio
+    async def test_move_no_destination(self, ws):
+        src = str(ws / "hello.txt")
+        bot = _mock_bot(str(ws))
+        result = json.loads(await _op_move(src, None, str(ws), bot))
+        assert "error" in result
+        assert "destination" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_move_source_not_found(self, ws):
+        bot = _mock_bot(str(ws))
+        result = json.loads(await _op_move(str(ws / "nope.txt"), "dest.txt", str(ws), bot))
+        assert "error" in result
+        assert "not found" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_move_dest_already_exists(self, ws):
+        (ws / "existing.txt").write_text("taken")
+        src = str(ws / "hello.txt")
+        bot = _mock_bot(str(ws))
+        result = json.loads(await _op_move(src, "existing.txt", str(ws), bot))
+        assert "error" in result
+        assert "already exists" in result["error"].lower()
+        # Source should still exist
+        assert os.path.exists(src)
+
+    @pytest.mark.asyncio
+    async def test_move_directory(self, ws):
+        """Can move entire directories."""
+        src = str(ws / "subdir")
+        bot = _mock_bot(str(ws))
+        result = json.loads(await _op_move(src, "renamed_dir", str(ws), bot))
+        assert result["ok"] is True
+        assert os.path.isdir(str(ws / "renamed_dir"))
+        assert os.path.isfile(str(ws / "renamed_dir" / "nested.md"))
+        assert not os.path.exists(src)
+
+
+# ---------------------------------------------------------------------------
 # Integration: file() dispatch with mocked bot context
 # ---------------------------------------------------------------------------
 
@@ -792,6 +867,17 @@ class TestFileTool:
         parsed = json.loads(result)
         assert parsed["ok"] is True
         assert (ws / "newdir").is_dir()
+
+    @pytest.mark.asyncio
+    async def test_move(self, mock_ctx):
+        ws, _ = mock_ctx
+        result = await file_tool(
+            operation="move", path="hello.txt", destination="moved.txt",
+        )
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        assert not (ws / "hello.txt").exists()
+        assert (ws / "moved.txt").read_text() == "Hello world\n"
 
     @pytest.mark.asyncio
     async def test_no_bot_context(self):

@@ -1,4 +1,6 @@
 """Unit tests for the feature validation service."""
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from app.agent.bots import BotConfig
@@ -7,6 +9,7 @@ from app.services.feature_validation import (
     FeatureWarning,
     _check_static_features,
     _check_carapace_requires,
+    validate_features,
 )
 
 
@@ -165,6 +168,55 @@ class TestCarapaceRequires:
         bot = _make_bot(carapaces=["nonexistent"])
         warnings = _check_carapace_requires(bot, set())
         assert warnings == []
+
+
+class TestToolDiscoverySuppressesWarnings:
+    """Tool discovery makes all registered local tools available, suppressing false positives."""
+
+    @pytest.mark.asyncio
+    async def test_discovery_on_no_false_positives(self):
+        """When tool_discovery=True, registered tools count as available."""
+        bot = _make_bot(
+            local_tools=[],  # declares nothing
+            memory_scheme="workspace-files",
+            history_mode="file",
+        )
+        bot.tool_discovery = True
+
+        # Registry has all required tools
+        fake_registry = {
+            "file": {}, "search_memory": {}, "get_memory_file": {},
+            "read_conversation_history": {},
+        }
+
+        with (
+            patch("app.agent.bots.list_bots", return_value=[bot]),
+            patch("app.tools.registry._tools", fake_registry),
+        ):
+            warnings = await validate_features()
+            assert warnings == [], f"Expected no warnings but got: {[w.to_dict() for w in warnings]}"
+
+    @pytest.mark.asyncio
+    async def test_discovery_off_warns_for_missing(self):
+        """When tool_discovery=False, only declared tools count."""
+        bot = _make_bot(
+            local_tools=[],
+            memory_scheme="workspace-files",
+            history_mode="file",
+        )
+        bot.tool_discovery = False
+
+        fake_registry = {
+            "file": {}, "search_memory": {}, "get_memory_file": {},
+            "read_conversation_history": {},
+        }
+
+        with (
+            patch("app.agent.bots.list_bots", return_value=[bot]),
+            patch("app.tools.registry._tools", fake_registry),
+        ):
+            warnings = await validate_features()
+            assert len(warnings) == 2  # memory + history
 
 
 class TestFeatureWarningSerialization:

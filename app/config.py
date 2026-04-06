@@ -200,7 +200,13 @@ After reviewing all channels, generate 3-5 meta-observations. Look for:
 - **Workflow insights**: Better ways you could serve the user based on observed patterns
 - **Knowledge gaps**: Topics you've been asked about but lack good information on
 
-Write these as `[reflection]` entries in the appropriate section of MEMORY.md. Reflections should be actionable — "User frequently asks about X, consider creating a skill" rather than "User is interested in X."
+Write reflections to a dedicated `## Reflections` section at the bottom of MEMORY.md (create it if missing).
+- Format: `- [reflection YYYY-MM-DD] Actionable observation...`
+- Before adding, check existing reflections — skip if a similar one already exists.
+- Prune reflections older than 30 days that haven't led to action.
+- Remove "resolved" reflections that led to concrete changes (skills created, facts promoted, etc.).
+- Cap at ~5-8 active reflections to prevent bloat. Drop the least actionable if over the cap.
+- Reflections should be actionable — "User frequently asks about X, consider creating a skill" rather than "User is interested in X."
 
 ## Step 6 — Skill hygiene
 Use `manage_bot_skill(action="list")` to review all your skills. For each skill, check:
@@ -215,8 +221,11 @@ Take action:
 - **Missing coverage**: if recent daily logs show recurring topics with no matching skill, create new skills now
 
 ## Step 7 — Archive maintenance
-- Archive daily logs older than 14 days that have already been processed (promoted/reviewed).
-- Clean up orphaned reference files that are no longer linked from MEMORY.md.
+- Create the archive directory if needed: `file(operation="mkdir", path="memory/logs/archive")`
+- Move processed logs older than 14 days: `file(operation="move", path="memory/logs/YYYY-MM-DD.md", destination="memory/logs/archive/YYYY-MM-DD.md")`
+- Archived logs remain searchable via `search_memory` but won't be auto-injected into context.
+- Only archive logs you've already reviewed and promoted from in this or previous hygiene runs.
+- Clean up orphaned reference files that are no longer linked from MEMORY.md — use `file(operation="delete", path="memory/reference/outdated-file.md")`.
 - Update any `<!-- superseded -->` references that are older than 30 days — delete them entirely.
 
 ## Step 8 — Summarize

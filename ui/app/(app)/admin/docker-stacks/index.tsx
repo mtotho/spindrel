@@ -211,7 +211,7 @@ export default function DockerStacksPage() {
   };
 
   return (
-    <>
+    <View className="flex-1 bg-surface">
       <MobileHeader title="Docker Stacks" />
       <RefreshableScrollView
         refreshing={refreshing}
@@ -305,7 +305,7 @@ export default function DockerStacksPage() {
         )}
       </RefreshableScrollView>
       <ConfirmDialogSlot />
-    </>
+    </View>
   );
 }
 

@@ -308,7 +308,7 @@ export default function DockerStackDetailPage() {
 
   if (isLoading) {
     return (
-      <View className="flex-1 items-center justify-center">
+      <View className="flex-1 bg-surface items-center justify-center">
         <ActivityIndicator size="large" color={t.accent} />
       </View>
     );
@@ -316,7 +316,7 @@ export default function DockerStackDetailPage() {
 
   if (!stack) {
     return (
-      <View className="flex-1 items-center justify-center gap-2">
+      <View className="flex-1 bg-surface items-center justify-center gap-2">
         <Text className="text-base" style={{ color: t.textMuted }}>
           Stack not found
         </Text>
@@ -330,7 +330,7 @@ export default function DockerStackDetailPage() {
   }
 
   return (
-    <>
+    <View className="flex-1 bg-surface">
       <MobileHeader title={stack.name} />
       <RefreshableScrollView
         refreshing={refreshing}
@@ -479,7 +479,7 @@ export default function DockerStackDetailPage() {
         )}
       </RefreshableScrollView>
       <ConfirmDialogSlot />
-    </>
+    </View>
   );
 }
 

@@ -1,7 +1,7 @@
 """file — direct file operations inside the bot's workspace.
 
 Bypasses shell entirely, avoiding quoting/escaping issues with exec_command.
-Operations: read, write, append, edit, list, delete, mkdir.
+Operations: read, write, append, edit, list, delete, mkdir, move.
 """
 from __future__ import annotations
 
@@ -139,14 +139,14 @@ def _error(msg: str) -> str:
         "description": (
             "Direct file operations inside your workspace. Bypasses shell — "
             "no quoting issues with apostrophes, backticks, or special characters. "
-            "Operations: read, write, append, edit, list, delete, mkdir."
+            "Operations: read, write, append, edit, list, delete, mkdir, move."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["read", "write", "append", "edit", "list", "delete", "mkdir"],
+                    "enum": ["read", "write", "append", "edit", "list", "delete", "mkdir", "move"],
                     "description": "The file operation to perform.",
                 },
                 "path": {
@@ -155,6 +155,10 @@ def _error(msg: str) -> str:
                         "File or directory path. Relative paths resolve from workspace root. "
                         "Container paths (/workspace/...) are translated automatically."
                     ),
+                },
+                "destination": {
+                    "type": "string",
+                    "description": "Destination path for move operation. Creates parent directories automatically.",
                 },
                 "content": {
                     "type": "string",
@@ -194,6 +198,7 @@ async def file(
     replace_all: bool = False,
     offset: int | None = None,
     limit: int | None = None,
+    destination: str | None = None,
 ) -> str:
     """Dispatch file operations."""
     bot, bot_id, ws_root = _get_bot_and_workspace_root()
@@ -229,6 +234,8 @@ async def file(
             return _op_delete(resolved)
         elif operation == "mkdir":
             return _op_mkdir(resolved)
+        elif operation == "move":
+            return await _op_move(resolved, destination, effective_ws_root, effective_bot)
         else:
             return _error(f"Unknown operation: {operation}")
     except Exception as exc:
@@ -439,7 +446,7 @@ def _op_list(path: str, ws_root: str) -> str:
 
 def _op_delete(path: str) -> str:
     if os.path.isdir(path):
-        return _error("Cannot delete directories. Use exec_command with 'rm -r' for that.")
+        return _error("Cannot delete directories — only individual files.")
     if not os.path.exists(path):
         return _error("File not found.")
 
@@ -450,3 +457,28 @@ def _op_delete(path: str) -> str:
 def _op_mkdir(path: str) -> str:
     os.makedirs(path, exist_ok=True)
     return json.dumps({"ok": True, "created": True})
+
+
+async def _op_move(src: str, destination: str | None, ws_root: str, bot) -> str:
+    """Move/rename a file or directory within the workspace."""
+    if destination is None:
+        return _error("destination is required for move.")
+    if not os.path.exists(src):
+        return _error("Source not found.")
+
+    try:
+        dest = _resolve_path(destination, ws_root, bot)
+    except ValueError as e:
+        return _error(f"Invalid destination: {e}")
+
+    # If dest is an existing directory, move source into it (like `mv`)
+    if os.path.isdir(dest):
+        dest = os.path.join(dest, os.path.basename(src))
+
+    if os.path.exists(dest):
+        return _error(f"Destination already exists: {destination}")
+
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    import shutil
+    shutil.move(src, dest)
+    return json.dumps({"ok": True, "moved": destination})

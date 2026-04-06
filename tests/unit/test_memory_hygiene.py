@@ -504,7 +504,7 @@ class TestHygienePromptContent:
     def test_has_cross_channel_reflection(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
         assert "Cross-channel reflection" in DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert "[reflection]" in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "[reflection YYYY-MM-DD]" in DEFAULT_MEMORY_HYGIENE_PROMPT
 
     def test_has_archive_maintenance(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
@@ -515,6 +515,23 @@ class TestHygienePromptContent:
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
         assert "Contradictions resolved" in DEFAULT_MEMORY_HYGIENE_PROMPT
         assert "Reflections generated" in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+    def test_has_reflections_section_guidance(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "## Reflections" in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+    def test_has_reflection_date_format(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "[reflection YYYY-MM-DD]" in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+    def test_has_archive_path_guidance(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "memory/logs/archive" in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+    def test_has_archive_tool_guidance(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert 'operation="mkdir"' in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert 'operation="move"' in DEFAULT_MEMORY_HYGIENE_PROMPT
 
 
 # ---------------------------------------------------------------------------

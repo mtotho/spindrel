@@ -35,6 +35,7 @@ import { ChatHistoryExtras } from "@/src/components/settings/ChatHistoryExtras";
 import { BotOverridesList } from "@/src/components/settings/BotOverridesList";
 import { FlushPromptOverrideWarning } from "@/src/components/settings/FlushPromptOverrideWarning";
 import { FileModeOnlyBanner } from "@/src/components/settings/FileModeOnlyBanner";
+import { MemoryHygieneGroupBanner } from "@/src/components/settings/MemoryHygieneGroupBanner";
 import { BackupSection } from "@/src/components/settings/BackupSection";
 
 // ---------------------------------------------------------------------------
@@ -756,6 +757,7 @@ export default function SettingsScreen() {
               <View key={item.key} style={dimmed ? { opacity: 0.4 } : undefined}>
                 {idx > 0 && <View className="h-px bg-surface-border" />}
                 {item.key === "MEMORY_FLUSH_DEFAULT_PROMPT" && <FlushPromptOverrideWarning />}
+                {item.key === "MEMORY_HYGIENE_ENABLED" && <MemoryHygieneGroupBanner />}
                 {item.key === "SECTION_INDEX_COUNT" && (
                   <FileModeOnlyBanner historyMode={historyMode} />
                 )}

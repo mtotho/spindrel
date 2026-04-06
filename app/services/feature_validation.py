@@ -199,7 +199,12 @@ async def validate_features() -> list[FeatureWarning]:
 
     for bot in list_bots():
         # Build the bot's effective tool set: local + client + MCP
+        # When tool_discovery is enabled (default), any registered local tool
+        # can be found at runtime via tool RAG, so include them all.
         available: set[str] = set(bot.local_tools) | set(bot.client_tools)
+        if getattr(bot, "tool_discovery", True):
+            from app.tools.registry import _tools as _all_local_tools
+            available |= set(_all_local_tools.keys())
 
         # Add MCP tool names
         if bot.mcp_servers:

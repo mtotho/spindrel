@@ -11,6 +11,13 @@ import logging
 import signal
 import sys
 import time
+from pathlib import Path
+
+# Ensure project root is on sys.path so `from integrations.gmail import ...` works
+# when this file is run as a subprocess (sys.path[0] would be integrations/gmail/).
+_PROJECT_ROOT = str(Path(__file__).resolve().parent.parent.parent)
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 logging.basicConfig(
     level=logging.INFO,

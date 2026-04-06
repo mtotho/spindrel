@@ -128,6 +128,9 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "MEMORY_HYGIENE_INTERVAL_HOURS": {"group": "Memory Hygiene", "label": "Interval (hours)", "description": "Hours between hygiene runs (per-bot override available)", "type": "int", "min": 1, "max": 720},
     "MEMORY_HYGIENE_PROMPT": {"group": "Memory Hygiene", "label": "Hygiene Prompt", "description": "Custom prompt for hygiene runs. Leave empty to use the built-in default shown below.", "type": "string", "widget": "textarea", "nullable": True, "builtin_default_key": "DEFAULT_MEMORY_HYGIENE_PROMPT"},
     "MEMORY_HYGIENE_ONLY_IF_ACTIVE": {"group": "Memory Hygiene", "label": "Only If Active", "description": "Skip hygiene if the bot has had no user messages since the last run", "type": "bool"},
+    "MEMORY_HYGIENE_MODEL": {"group": "Memory Hygiene", "label": "Model", "description": "Default model for hygiene runs (empty = use each bot's default model). Per-bot override available.", "type": "string", "widget": "model", "nullable": True},
+    "MEMORY_HYGIENE_MODEL_PROVIDER_ID": {"group": "Memory Hygiene", "label": "Model Provider", "description": "Default provider for hygiene runs (empty = use each bot's default provider). Per-bot override available.", "type": "string", "nullable": True},
+    "MEMORY_MD_NUDGE_THRESHOLD": {"group": "Memory Hygiene", "label": "Memory Size Nudge (lines)", "description": "When MEMORY.md exceeds this many lines, the bot gets a system message each turn reminding it to prune and consolidate. Set to 0 to disable.", "type": "int", "min": 0, "max": 500},
     # --- Heartbeat ---
     "HEARTBEAT_QUIET_HOURS": {"group": "Heartbeat", "label": "Quiet Hours", "description": "Time window where heartbeats slow (e.g. 23:00-07:00)", "type": "string"},
     "HEARTBEAT_QUIET_INTERVAL_MINUTES": {"group": "Heartbeat", "label": "Quiet Interval (min)", "description": "Interval during quiet hours (0 = disabled)", "type": "int", "min": 0, "max": 1440},
