@@ -78,8 +78,9 @@ def _resolve_memory_path(name: str, memory_root: str) -> str | None:
         "name": "search_memory",
         "description": (
             "Search your memory files using hybrid semantic + keyword search. "
-            "Searches across MEMORY.md, all daily logs, and reference documents. "
-            "Returns matching chunks with file path and relevance score."
+            "Searches across MEMORY.md, daily logs, and reference documents. "
+            "For full file contents, use get_memory_file. "
+            "For workspace code/docs, use search_workspace."
         ),
         "parameters": {
             "type": "object",
@@ -156,7 +157,8 @@ async def search_memory(query: str) -> str:
             "Read a specific memory file by name. "
             "Supports shorthand: 'MEMORY' → MEMORY.md, '2026-03-25' → logs/2026-03-25.md, "
             "'deployment-guide' → reference/deployment-guide.md. "
-            "Or use explicit path: 'logs/2026-03-20', 'reference/runbook'."
+            "Or use explicit path: 'logs/2026-03-20', 'reference/runbook'. "
+            "For searching across files, use search_memory instead."
         ),
         "parameters": {
             "type": "object",

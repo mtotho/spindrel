@@ -48,6 +48,8 @@ export function useUpdateWorkspace(workspaceId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workspaces"] });
       qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-indexing", workspaceId] });
+      qc.invalidateQueries({ queryKey: ["workspace-index-status", workspaceId] });
     },
   });
 }

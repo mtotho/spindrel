@@ -748,6 +748,10 @@ async def _run_member_bot_reply(
                     preserve_metadata=True,
                 )
 
+        # Save raw messages for chain snapshots BEFORE rewriting
+        import copy as _copy_chain
+        _raw_for_chain = _copy_chain.deepcopy(messages)
+
         # Rewrite history so the bot sees other bots' messages with attribution
         # (prevents it from thinking another bot's words are its own)
         _is_primary = member_bot_id == _primary_bot_id
@@ -877,7 +881,13 @@ async def _run_member_bot_reply(
     # may still hold the session lock if we were invoked with a snapshot).
     if response_text:
         import copy as _copy_mod
-        _chain_snapshot = _copy_mod.deepcopy(messages) if messages else None
+        _chain_snapshot = _copy_mod.deepcopy(_raw_for_chain) if _raw_for_chain else None
+        if _chain_snapshot is not None:
+            _chain_snapshot.append({
+                "role": "assistant",
+                "content": response_text,
+                "_metadata": {"sender_id": f"bot:{member_bot_id}", "sender_display_name": member_bot.name},
+            })
         await _trigger_member_bot_replies(
             channel_id, session_id, member_bot_id, response_text,
             _depth=_depth,
@@ -958,6 +968,15 @@ async def chat(
     # Multi-bot channel: if user @-tagged a member bot, route to that bot
     _primary_bot_id_nc = bot.id
     bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
+
+    # Save raw messages for member bot snapshots (metadata intact, unprocessed)
+    import copy as _copy_raw_nc
+    _raw_messages_for_members_nc = _copy_raw_nc.deepcopy(messages)
+    _raw_messages_for_members_nc.append({
+        "role": "user",
+        "content": message,
+        "_metadata": req.msg_metadata or {},
+    })
 
     # If routing changed the bot, rebuild the system prompt so the routed bot
     # runs with its OWN identity (not the channel primary's prompt).
@@ -1121,8 +1140,7 @@ async def chat(
         _already_invoked_nc = _cimb_nc.get() or set()
         _um_nc = await _detect_member_mentions(channel_id, bot.id, message, _depth=0)
         if _um_nc:
-            import copy as _copy_um
-            _um_snap = _copy_um.deepcopy(messages)
+            _um_snap = _raw_messages_for_members_nc  # Already deep-copied, metadata intact
             for _bid, _cfg in _um_nc:
                 if _bid in _already_invoked_nc:
                     continue  # Already fired by invoke_member_bot during the run
@@ -1142,7 +1160,12 @@ async def chat(
     # Pass a snapshot so member bots run lock-free.
     if result.response and channel_id:
         import copy as _copy_chat
-        _snap = _copy_chat.deepcopy(messages)
+        _snap = _copy_chat.deepcopy(_raw_messages_for_members_nc)
+        _snap.append({
+            "role": "assistant",
+            "content": result.response,
+            "_metadata": {"sender_id": f"bot:{bot.id}", "sender_display_name": bot.name},
+        })
         task = asyncio.create_task(
             _trigger_member_bot_replies(
                 channel_id, session_id, bot.id, result.response,
@@ -1253,6 +1276,18 @@ async def chat_stream(
     # Multi-bot channel: if user @-tagged a member bot, route to that bot
     _primary_bot_id = bot.id
     bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
+
+    # Save raw messages for member bot snapshots BEFORE rewriting/stripping.
+    # Member bots need unprocessed history with _metadata intact so their own
+    # rewrite pass works correctly.  Also include the current user message
+    # (assemble_context appends it later, but snapshots are taken now).
+    import copy as _copy_raw
+    _raw_messages_for_members = _copy_raw.deepcopy(messages)
+    _raw_messages_for_members.append({
+        "role": "user",
+        "content": message,
+        "_metadata": req.msg_metadata or {},
+    })
 
     # If routing changed the bot, rebuild the system prompt so the routed bot
     # runs with its OWN identity (not the channel primary's prompt).
@@ -1505,8 +1540,7 @@ async def chat_stream(
                     channel_id, bot.id, message, _depth=0,
                 )
                 if _user_mentioned:
-                    import copy as _copy_user
-                    _user_snap = _copy_user.deepcopy(messages)
+                    _user_snap = _raw_messages_for_members  # Already deep-copied, metadata intact
                     _auto_invoked_ids: set[str] = set()
                     for _um_bot_id, _um_config in _user_mentioned:
                         _um_sid = str(uuid.uuid4())
@@ -1650,7 +1684,12 @@ async def chat_stream(
                     _already_invoked.update(bid for bid, _ in _user_mentioned)
 
                 import copy
-                _messages_snapshot = copy.deepcopy(messages)
+                _messages_snapshot = copy.deepcopy(_raw_messages_for_members)
+                _messages_snapshot.append({
+                    "role": "assistant",
+                    "content": response_text,
+                    "_metadata": {"sender_id": f"bot:{bot.id}", "sender_display_name": bot.name},
+                })
                 await _trigger_member_bot_replies(
                     channel_id, session_id, bot.id, response_text,
                     _depth=1,

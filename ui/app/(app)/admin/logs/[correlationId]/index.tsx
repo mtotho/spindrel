@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { View, Text, Pressable, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
+import { View, Text, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
+import { ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import { useTrace, type TraceEvent } from "@/src/api/hooks/useLogs";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { writeToClipboard } from "@/src/utils/clipboard";
@@ -119,7 +119,6 @@ function formatTraceForCopy(data: import("@/src/api/hooks/useLogs").TraceDetailR
 export default function TraceScreen() {
   const t = useThemeTokens();
   const { correlationId } = useLocalSearchParams<{ correlationId: string }>();
-  const goBack = useGoBack("/admin/logs");
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
   const { data, isLoading } = useTrace(correlationId);
@@ -152,33 +151,26 @@ export default function TraceScreen() {
   return (
     <View className="flex-1 bg-surface">
       {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: 12,
-        padding: isMobile ? "10px 12px" : "12px 20px",
-        borderBottom: `1px solid ${t.surfaceOverlay}`,
-      }}>
-        <Pressable onPress={goBack} style={{ padding: 4 }}>
-          <ArrowLeft size={18} color={t.textMuted} />
-        </Pressable>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Request Trace</div>
-          <div style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>
-            {correlationId}
-          </div>
-        </div>
-        <button
-          onClick={handleCopy}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer",
-            background: copied ? t.successSubtle : t.surfaceRaised,
-            color: copied ? t.success : t.textMuted, fontSize: 12,
-          }}
-        >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
+      <DetailHeader
+        parentLabel="Logs"
+        parentHref="/admin/logs"
+        title="Request Trace"
+        subtitle={correlationId}
+        right={
+          <button
+            onClick={handleCopy}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer",
+              background: copied ? t.successSubtle : t.surfaceRaised,
+              color: copied ? t.success : t.textMuted, fontSize: 12,
+            }}
+          >
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        }
+      />
 
       {/* Metadata bar */}
       <div style={{

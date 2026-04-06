@@ -87,8 +87,8 @@ def _serialize_messages(messages):
         "name": "search_history",
         "description": (
             "Search historical messages in this channel by keyword and/or date range. "
-            "Returns matching messages with timestamp, role, and a content preview. "
-            "Useful for recalling past conversations, finding decisions, or reviewing context."
+            "Uses keyword matching (not semantic search). "
+            "For workspace files use search_workspace; for memory use search_memory."
         ),
         "parameters": {
             "type": "object",

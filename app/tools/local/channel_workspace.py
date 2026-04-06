@@ -82,7 +82,7 @@ async def _resolve_channel_owner_bot(channel_id: str, caller_bot_id: str):
         "description": (
             "Search the current channel's archived workspace files. "
             "Searches only the archive/ subdirectory of the channel workspace. "
-            "Returns matching chunks with file paths and relevance scores."
+            "For all channel files (active + archived), use search_channel_workspace."
         ),
         "parameters": {
             "type": "object",
@@ -152,7 +152,7 @@ async def search_channel_archive(query: str) -> str:
         "description": (
             "Search a channel's workspace files (both active and archived). "
             "If no channel_id is provided, searches the current channel. "
-            "Useful for finding information across active workspace files and archives."
+            "For bot workspace search, use search_workspace instead."
         ),
         "parameters": {
             "type": "object",

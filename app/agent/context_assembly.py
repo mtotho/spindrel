@@ -361,6 +361,10 @@ async def assemble_context(
         _prune_stats = prune_tool_results(messages, keep_full_turns=_pruning_keep, min_content_length=_pruning_min_len)
         if _prune_stats["pruned_count"] > 0:
             _inject_chars["context_pruning_saved"] = -_prune_stats["chars_saved"]
+            # Reduce budget to reflect actual post-pruning content
+            # (inlined estimate_tokens formula to avoid allocating huge temp string)
+            if budget is not None:
+                budget.consume("context_pruning_savings", -max(1, int(_prune_stats["chars_saved"] / 3.5)))
             yield {
                 "type": "context_pruning",
                 "pruned_count": _prune_stats["pruned_count"],

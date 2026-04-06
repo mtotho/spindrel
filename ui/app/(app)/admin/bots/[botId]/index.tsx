@@ -1,9 +1,9 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { AlertTriangle, ArrowLeft, Save, Search, Trash2, X } from "lucide-react";
+import { AlertTriangle, Save, Search, Trash2, X } from "lucide-react";
 import { useBotEditorData, useUpdateBot, useCreateBot, useDeleteBot } from "@/src/api/hooks/useBots";
-import { useGoBack } from "@/src/hooks/useGoBack";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { CarapacesSection } from "./CarapacesSection";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
@@ -37,7 +37,6 @@ export default function BotEditorScreen() {
   const { botId } = useLocalSearchParams<{ botId: string }>();
   const isNew = botId === "new";
   const router = useRouter();
-  const goBack = useGoBack("/admin/bots");
   const { data: editorData, isLoading } = useBotEditorData(botId);
   const updateMutation = useUpdateBot(isNew ? undefined : botId);
   const createMutation = useCreateBot();
@@ -135,71 +134,65 @@ export default function BotEditorScreen() {
   return (
     <View className="flex-1 bg-surface">
       {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center", gap: isMobile ? 8 : 12,
-        padding: isMobile ? "10px 12px" : "10px 16px", borderBottom: `1px solid ${t.surfaceRaised}`,
-        flexWrap: isMobile && searchOpen ? "wrap" : "nowrap",
-      }}>
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <ArrowLeft size={18} color={t.textMuted} />
-        </button>
-        {(!isMobile || !searchOpen) && (
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isNew ? "New Bot" : draft.name}</div>
-            {!isNew && <div style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>{draft.id}</div>}
-          </div>
-        )}
-        {isMobile ? (
-          searchOpen ? (
-            <div style={{
-              display: "flex", alignItems: "center", gap: 6, flex: 1,
-              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 10px", minHeight: 36,
-            }}>
-              <Search size={14} color={t.textDim} />
-              <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
-                autoFocus
-                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 16 }} />
-              <button onClick={() => { setFilter(""); setSearchOpen(false); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, minWidth: 24, minHeight: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <X size={14} color={t.textDim} />
+      <DetailHeader
+        parentLabel="Bots"
+        parentHref="/admin/bots"
+        title={isNew ? "New Bot" : draft.name}
+        subtitle={isNew ? undefined : draft.id}
+        hideTitle={isMobile && searchOpen}
+        right={<>
+          {isMobile ? (
+            searchOpen ? (
+              <div style={{
+                display: "flex", alignItems: "center", gap: 6, flex: 1,
+                background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 10px", minHeight: 36,
+              }}>
+                <Search size={14} color={t.textDim} />
+                <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
+                  autoFocus
+                  style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 16 }} />
+                <button onClick={() => { setFilter(""); setSearchOpen(false); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, minWidth: 24, minHeight: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <X size={14} color={t.textDim} />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setSearchOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Search size={16} color={t.textMuted} />
               </button>
-            </div>
+            )
           ) : (
-            <button onClick={() => setSearchOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Search size={16} color={t.textMuted} />
-            </button>
-          )
-        ) : (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 6,
-            background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 10px", width: 180,
-          }}>
-            <Search size={12} color={t.textDim} />
-            <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
-              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 14 }} />
-            {filter && (
-              <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                <X size={10} color={t.textDim} />
-              </button>
-            )}
-          </div>
-        )}
-        <button
-          onClick={handleSave}
-          disabled={!dirty || saveMutation.isPending}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: isMobile ? "6px 12px" : "6px 16px", borderRadius: 6, border: "none",
-            background: dirty ? t.accent : t.surfaceRaised,
-            color: dirty ? "#fff" : t.textDim,
-            fontSize: 12, fontWeight: 600, cursor: dirty ? "pointer" : "default",
-            opacity: saveMutation.isPending ? 0.6 : 1,
-            minHeight: 36,
-          }}
-        >
-          <Save size={13} />
-          {saveMutation.isPending ? "..." : saved ? "Saved!" : isNew ? "Create" : "Save"}
-        </button>
-      </div>
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 10px", width: 180,
+            }}>
+              <Search size={12} color={t.textDim} />
+              <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
+                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 14 }} />
+              {filter && (
+                <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                  <X size={10} color={t.textDim} />
+                </button>
+              )}
+            </div>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={!dirty || saveMutation.isPending}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: isMobile ? "6px 12px" : "6px 16px", borderRadius: 6, border: "none",
+              background: dirty ? t.accent : t.surfaceRaised,
+              color: dirty ? "#fff" : t.textDim,
+              fontSize: 12, fontWeight: 600, cursor: dirty ? "pointer" : "default",
+              opacity: saveMutation.isPending ? 0.6 : 1,
+              minHeight: 36,
+            }}
+          >
+            <Save size={13} />
+            {saveMutation.isPending ? "..." : saved ? "Saved!" : isNew ? "Create" : "Save"}
+          </button>
+        </>}
+      />
 
       {saveMutation.isError && (
         <div style={{ padding: "8px 16px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>

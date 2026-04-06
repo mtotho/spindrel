@@ -9,13 +9,14 @@
 import { useState, useMemo } from "react";
 import { View, Text, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
-import { ChevronDown, ChevronRight, Database, ExternalLink, EyeOff, FileText, Folder, Plus, RefreshCw, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Database, ExternalLink, EyeOff, FileText, Folder, HelpCircle, Plus, RefreshCw, X } from "lucide-react";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   useWorkspaceIndexing, useWorkspaceIndexStatus, useUpdateBotIndexing, useReindexWorkspace,
   type BotIndexingInfo, type FileIndexEntry,
 } from "@/src/api/hooks/useWorkspaces";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { WorkspaceDefaultsEditor } from "./WorkspaceDefaultsEditor";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -143,13 +144,17 @@ function DirGroup({ dir }: {
 function SegmentEditor({
   bot,
   workspaceId,
+  workspaceSegments,
 }: {
   bot: BotIndexingInfo;
   workspaceId: string;
+  workspaceSegments?: any[];
 }) {
   const t = useThemeTokens();
   const updateIndexing = useUpdateBotIndexing(workspaceId);
   const segments: any[] = bot.resolved.segments || [];
+  const isInherited = bot.resolved.segments_source === "workspace" && !bot.explicit_overrides.segments;
+  const isBotOverride = !!bot.explicit_overrides.segments;
   const explicitSegments: any[] = bot.explicit_overrides.segments || segments;
   const [newPrefix, setNewPrefix] = useState("");
   const [newModel, setNewModel] = useState("");
@@ -164,18 +169,49 @@ function SegmentEditor({
     if (!prefix) return;
     const seg: any = { path_prefix: prefix };
     if (newModel.trim()) seg.embedding_model = newModel.trim();
+    // When adding to inherited segments, create a bot override with raw workspace segments + new
+    const base = isBotOverride ? explicitSegments : (workspaceSegments ?? []);
     updateIndexing.mutate({
       bot_id: bot.bot_id,
-      indexing: { segments: [...explicitSegments, seg] },
+      indexing: { segments: [...base, seg] },
     });
     setNewPrefix("");
     setNewModel("");
   };
 
+  const resetToWorkspace = () => {
+    // Clear bot-level segments override so it inherits from workspace
+    updateIndexing.mutate({ bot_id: bot.bot_id, indexing: { segments: null } });
+  };
+
   return (
     <div>
-      <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
-        Indexed Directories
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase" }}>
+          Indexed Directories
+        </div>
+        {isInherited && (
+          <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: t.accentSubtle, color: t.accentMuted }}>
+            inherited from workspace
+          </span>
+        )}
+        {isBotOverride && (
+          <>
+            <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: t.warningSubtle, color: t.warning }}>
+              bot override
+            </span>
+            <button
+              onClick={resetToWorkspace}
+              disabled={updateIndexing.isPending}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: 9, color: t.textDim, textDecoration: "underline", padding: 0,
+              }}
+            >
+              reset to workspace default
+            </button>
+          </>
+        )}
       </div>
       <div style={{ fontSize: 10, color: t.textDim, marginBottom: 6 }}>
         Only these directories are indexed for RAG retrieval. Memory files are always indexed separately.
@@ -184,6 +220,7 @@ function SegmentEditor({
         <div key={i} style={{
           display: "flex", alignItems: "center", gap: 6,
           padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4,
+          opacity: isInherited ? 0.75 : 1,
         }}>
           <span style={{ fontFamily: "monospace", color: "#60a5fa", flex: 1 }}>{seg.path_prefix}</span>
           {seg.embedding_model && (
@@ -192,13 +229,15 @@ function SegmentEditor({
           {seg.patterns && <span style={{ color: t.textDim, fontSize: 10 }}>patterns: {seg.patterns.length}</span>}
           {seg.similarity_threshold != null && <span style={{ color: t.textDim, fontSize: 10 }}>thresh: {seg.similarity_threshold}</span>}
           {seg.top_k != null && <span style={{ color: t.textDim, fontSize: 10 }}>k: {seg.top_k}</span>}
-          <button
-            onClick={() => removeSegment(i)}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", color: t.dangerMuted, fontSize: 12, lineHeight: 1 }}
-            title="Remove directory"
-          >
-            <X size={12} />
-          </button>
+          {!isInherited && (
+            <button
+              onClick={() => removeSegment(i)}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", color: t.dangerMuted, fontSize: 12, lineHeight: 1 }}
+              title="Remove directory"
+            >
+              <X size={12} />
+            </button>
+          )}
         </div>
       ))}
       {segments.length === 0 && (
@@ -209,7 +248,7 @@ function SegmentEditor({
       <div style={{ display: "flex", gap: 4, marginTop: 4, alignItems: "center" }}>
         <input
           type="text" value={newPrefix} onChange={(e) => setNewPrefix(e.target.value)}
-          placeholder="directory (e.g. common/)"
+          placeholder={isInherited ? "add override (e.g. extra/)" : "directory (e.g. common/)"}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addSegment(); } }}
           style={{
             background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
@@ -255,10 +294,12 @@ function BotIndexCard({
   bot,
   indexedFiles,
   workspaceId,
+  workspaceSegments,
 }: {
   bot: BotIndexingInfo;
   indexedFiles: Record<string, FileIndexEntry>;
   workspaceId: string;
+  workspaceSegments?: any[];
 }) {
   const t = useThemeTokens();
   const router = useRouter();
@@ -398,7 +439,7 @@ function BotIndexCard({
 
           {/* Shared workspace bots: inline segment editor */}
           {isSharedWs && bot.indexing_enabled && (
-            <SegmentEditor bot={bot} workspaceId={workspaceId} />
+            <SegmentEditor bot={bot} workspaceId={workspaceId} workspaceSegments={workspaceSegments} />
           )}
 
           {/* Standalone bots: show patterns (read-only summary) */}
@@ -432,8 +473,20 @@ function BotIndexCard({
           {/* Segments for standalone bots (read-only) */}
           {!isSharedWs && r.segments && r.segments.length > 0 && (
             <div>
-              <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
-                Segments <span style={{ fontWeight: 400, textTransform: "none" }}>per-path-prefix overrides</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase" }}>
+                  Segments
+                </span>
+                {r.segments_source === "workspace" && !bot.explicit_overrides.segments && (
+                  <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: t.accentSubtle, color: t.accentMuted }}>
+                    inherited from workspace
+                  </span>
+                )}
+                {bot.explicit_overrides.segments && (
+                  <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600, background: t.warningSubtle, color: t.warning }}>
+                    bot override
+                  </span>
+                )}
               </div>
               {r.segments.map((seg: any, i: number) => (
                 <div key={i} style={{
@@ -506,6 +559,86 @@ function ConfigChip({ label, value, overridden }: { label: string; value: any; o
       <span style={{ color: t.textDim, fontSize: 10 }}>{label}</span>
       <span style={{ fontFamily: "monospace", color: overridden ? t.warning : t.text }}>{String(value)}</span>
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Contextual help panel
+// ---------------------------------------------------------------------------
+
+function IndexingHelpPanel() {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={{
+      background: t.surface, border: `1px solid ${t.surfaceBorder}`,
+      borderRadius: 8, overflow: "hidden",
+    }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          width: "100%", padding: "8px 14px",
+          background: "none", border: "none", cursor: "pointer", textAlign: "left",
+        }}
+      >
+        <HelpCircle size={13} color={t.textDim} />
+        <span style={{ fontSize: 12, fontWeight: 500, color: t.textMuted, flex: 1 }}>
+          How agents use this
+        </span>
+        {open
+          ? <ChevronDown size={12} color={t.textDim} />
+          : <ChevronRight size={12} color={t.textDim} />}
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 12px", fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
+          <div style={{ marginBottom: 8 }}>
+            Indexed segments are searched <strong>automatically</strong> (RAG injection) on every message
+            AND via the <code style={{ fontSize: 10, background: t.inputBg, padding: "1px 4px", borderRadius: 2 }}>search_workspace</code> tool.
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            Memory files are indexed separately and searched via{" "}
+            <code style={{ fontSize: 10, background: t.inputBg, padding: "1px 4px", borderRadius: 2 }}>search_memory</code>.
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <strong>Similarity threshold</strong>: higher = fewer but more relevant results.
+          </div>
+          {/* Reference table */}
+          <table style={{ width: "100%", fontSize: 10, borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}>
+                <th style={{ textAlign: "left", padding: "3px 6px", color: t.textDim, fontWeight: 600 }}>Index Source</th>
+                <th style={{ textAlign: "left", padding: "3px 6px", color: t.textDim, fontWeight: 600 }}>Tool</th>
+                <th style={{ textAlign: "left", padding: "3px 6px", color: t.textDim, fontWeight: 600 }}>Auto-injected?</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}>
+                <td style={{ padding: "3px 6px" }}>Workspace segments</td>
+                <td style={{ padding: "3px 6px", fontFamily: "monospace" }}>search_workspace</td>
+                <td style={{ padding: "3px 6px" }}>Yes (RAG)</td>
+              </tr>
+              <tr style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}>
+                <td style={{ padding: "3px 6px" }}>Memory files</td>
+                <td style={{ padding: "3px 6px", fontFamily: "monospace" }}>search_memory</td>
+                <td style={{ padding: "3px 6px" }}>No</td>
+              </tr>
+              <tr style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}>
+                <td style={{ padding: "3px 6px" }}>Channel workspace</td>
+                <td style={{ padding: "3px 6px", fontFamily: "monospace" }}>search_channel_workspace</td>
+                <td style={{ padding: "3px 6px" }}>Yes (budget-gated)</td>
+              </tr>
+              <tr>
+                <td style={{ padding: "3px 6px" }}>Chat history</td>
+                <td style={{ padding: "3px 6px", fontFamily: "monospace" }}>search_history</td>
+                <td style={{ padding: "3px 6px" }}>No (keyword only)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -587,9 +720,15 @@ export function IndexingOverview({ workspaceId }: { workspaceId: string }) {
         )}
       </div>
 
+      {/* Workspace defaults editor */}
+      <WorkspaceDefaultsEditor workspaceId={workspaceId} />
+
+      {/* Contextual help */}
+      <IndexingHelpPanel />
+
       {/* Bot cards */}
       {data.bots.map((bot) => (
-        <BotIndexCard key={bot.bot_id} bot={bot} indexedFiles={indexedFiles} workspaceId={workspaceId} />
+        <BotIndexCard key={bot.bot_id} bot={bot} indexedFiles={indexedFiles} workspaceId={workspaceId} workspaceSegments={data.workspace_defaults?.segments} />
       ))}
     </div>
   );

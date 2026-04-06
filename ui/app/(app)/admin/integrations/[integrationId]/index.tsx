@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { View, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
-  ChevronLeft, Check, X, Copy, ChevronDown, ChevronRight,
+  Check, X, Copy, ChevronDown, ChevronRight,
   RotateCcw, Play, Square, RefreshCw, Download, Key, Trash2, Power,
   Link, Unlink,
 } from "lucide-react";
-import { useGoBack } from "@/src/hooks/useGoBack";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -909,7 +909,7 @@ function DisableToggle({ item }: { item: IntegrationItem }) {
 export default function IntegrationDetailScreen() {
   const t = useThemeTokens();
   const { integrationId } = useLocalSearchParams<{ integrationId: string }>();
-  const goBack = useGoBack("/admin/integrations");
+  const router = useRouter();
   const { data, isLoading } = useIntegrations();
   const { refreshing, onRefresh } = usePageRefresh();
   const { width } = useWindowDimensions();
@@ -931,7 +931,7 @@ export default function IntegrationDetailScreen() {
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
           <div style={{ color: t.textDim, fontSize: 13 }}>Integration not found.</div>
           <button
-            onClick={goBack}
+            onClick={() => router.push("/admin/integrations" as any)}
             style={{
               padding: "6px 16px", borderRadius: 6, border: "none",
               background: t.accent, color: "#fff", fontSize: 12,
@@ -956,19 +956,13 @@ export default function IntegrationDetailScreen() {
         contentContainerStyle={{ padding: isWide ? 20 : 12, gap: 14, maxWidth: 720 }}
       >
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button
-            onClick={goBack}
-            style={{
-              background: "none", border: "none", cursor: "pointer",
-              padding: 4, display: "flex", alignItems: "center",
-            }}
-          >
-            <ChevronLeft size={20} color={t.textMuted} />
-          </button>
-          <span style={{ fontSize: 18, fontWeight: 700, color: t.text }}>{item.name}</span>
-          <StatusBadge status={item.disabled ? "disabled" : item.status} />
-        </div>
+        <DetailHeader
+          parentLabel="Integrations"
+          parentHref="/admin/integrations"
+          title={item.name}
+          right={<StatusBadge status={item.disabled ? "disabled" : item.status} />}
+          inline
+        />
 
         {/* Disable/Enable toggle */}
         <DisableToggle item={item} />

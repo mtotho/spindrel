@@ -1,12 +1,12 @@
 import { useCallback, useState, useEffect } from "react";
-import { useLocalSearchParams } from "expo-router";
-import { useGoBack } from "@/src/hooks/useGoBack";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import { useTask, useUpdateTask, useDeleteTask } from "@/src/api/hooks/useTasks";
 import { useWorkflowRun, useWorkflows } from "@/src/api/hooks/useWorkflows";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
-import { ChevronLeft, Trash2, Zap } from "lucide-react";
+import { Trash2, Zap } from "lucide-react";
 import { Link } from "expo-router";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
@@ -70,7 +70,7 @@ function WorkflowRunLink({ runId, stepIndex, t }: { runId: string; stepIndex?: n
 export default function TaskDetailScreen() {
   const t = useThemeTokens();
   const { taskId } = useLocalSearchParams<{ taskId: string }>();
-  const goBackNav = useGoBack("/admin/tasks");
+  const router = useRouter();
   const qc = useQueryClient();
   const { data: task, isLoading } = useTask(taskId);
   const updateMut = useUpdateTask(taskId);
@@ -169,10 +169,8 @@ export default function TaskDetailScreen() {
     if (!taskId || !confirm("Delete this task?")) return;
     await deleteMut.mutateAsync(taskId);
     qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
-    goBackNav();
-  }, [taskId, deleteMut, qc, goBackNav]);
-
-  const goBack = goBackNav;
+    router.push("/admin/tasks" as any);
+  }, [taskId, deleteMut, qc, router]);
 
   const botOptions = (bots || []).map((b) => ({ label: b.name || b.id, value: b.id }));
 
@@ -187,58 +185,50 @@ export default function TaskDetailScreen() {
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, background: t.surface, overflow: "hidden" }}>
       {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px", borderBottom: `1px solid ${t.surfaceBorder}`, flexShrink: 0,
-        gap: 8,
-      }}>
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, flexShrink: 0 }}>
-          <ChevronLeft size={22} color={t.textMuted} />
-        </button>
-        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>Edit Task</span>
-        {isWide && (
-          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>
-            {taskId?.slice(0, 8)}
-          </span>
-        )}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={handleDelete}
-          disabled={deleteMut.isPending}
-          title="Delete"
-          style={{
-            display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-            padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-            border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-            background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
-          }}
-        >
-          <Trash2 size={14} />
-          {isWide && "Delete"}
-        </button>
-        <EnableToggle
-          enabled={status !== "cancelled"}
-          onChange={(on) => {
-            const isSchedule = !!recurrence;
-            setStatus(on ? (isSchedule ? "active" : "pending") : "cancelled");
-          }}
-          compact={!isWide}
-        />
-        <button
-          onClick={handleSave}
-          disabled={updateMut.isPending || !hasPromptOrWorkflow || !botId || !isDirty}
-          style={{
-            padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
-            border: "none", borderRadius: 6, flexShrink: 0,
-            background: savedFlash ? t.success : (!hasPromptOrWorkflow || !botId || !isDirty) ? t.surfaceBorder : t.accent,
-            color: savedFlash ? "#fff" : (!hasPromptOrWorkflow || !botId || !isDirty) ? t.textDim : "#fff",
-            cursor: (!hasPromptOrWorkflow || !botId || !isDirty) ? "default" : "pointer",
-            transition: "background 0.2s",
-          }}
-        >
-          {updateMut.isPending ? "..." : savedFlash ? "Saved!" : isDirty ? "Save" : "Saved"}
-        </button>
-      </div>
+      <DetailHeader
+        parentLabel="Tasks"
+        parentHref="/admin/tasks"
+        title="Edit Task"
+        subtitle={taskId?.slice(0, 8)}
+        right={<>
+          <button
+            onClick={handleDelete}
+            disabled={deleteMut.isPending}
+            title="Delete"
+            style={{
+              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
+              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
+            }}
+          >
+            <Trash2 size={14} />
+            {isWide && "Delete"}
+          </button>
+          <EnableToggle
+            enabled={status !== "cancelled"}
+            onChange={(on) => {
+              const isSchedule = !!recurrence;
+              setStatus(on ? (isSchedule ? "active" : "pending") : "cancelled");
+            }}
+            compact={!isWide}
+          />
+          <button
+            onClick={handleSave}
+            disabled={updateMut.isPending || !hasPromptOrWorkflow || !botId || !isDirty}
+            style={{
+              padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
+              border: "none", borderRadius: 6, flexShrink: 0,
+              background: savedFlash ? t.success : (!hasPromptOrWorkflow || !botId || !isDirty) ? t.surfaceBorder : t.accent,
+              color: savedFlash ? "#fff" : (!hasPromptOrWorkflow || !botId || !isDirty) ? t.textDim : "#fff",
+              cursor: (!hasPromptOrWorkflow || !botId || !isDirty) ? "default" : "pointer",
+              transition: "background 0.2s",
+            }}
+          >
+            {updateMut.isPending ? "..." : savedFlash ? "Saved!" : isDirty ? "Save" : "Saved"}
+          </button>
+        </>}
+      />
 
       {/* Error display */}
       {(updateMut.error || deleteMut.error) && (

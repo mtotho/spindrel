@@ -12,10 +12,10 @@ from app.tools.registry import register
     "function": {
         "name": "search_workspace",
         "description": (
-            "Semantically search files in the bot's workspace. "
-            "Returns the most relevant chunks for the query with file paths, "
-            "symbols, and line numbers. Use this to find functions, classes, "
-            "config values, documentation, or any text in the workspace."
+            "Search indexed workspace files using hybrid semantic + keyword search. "
+            "Covers files matching the bot's indexing segments (configured workspace directories). "
+            "Does NOT search memory files (use search_memory) or channel workspace files "
+            "(use search_channel_workspace)."
         ),
         "parameters": {
             "type": "object",

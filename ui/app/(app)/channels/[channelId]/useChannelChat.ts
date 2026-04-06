@@ -100,7 +100,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   const [isQueued, setIsQueued] = useState(false);
   // Ref for checking active state inside async callbacks (avoids stale closures)
   const isActiveRef = useRef(false);
-  isActiveRef.current = chatState.isStreaming || chatState.isProcessing;
+  isActiveRef.current = chatState.isStreaming || chatState.isProcessing || Object.keys(chatState.memberStreams ?? {}).length > 0;
 
   // ---- Message fetching ----
   const {
@@ -257,6 +257,11 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         }
         // Finish streaming first so any partial content is preserved in messages
         finishStreaming(channelId);
+        // Also kill any active member streams (SSE died, they won't get stream_end)
+        const remaining = useChatStore.getState().getChannel(channelId).memberStreams;
+        for (const sid of Object.keys(remaining)) {
+          useChatStore.getState().finishMemberStream(channelId, sid);
+        }
         setError(channelId, error.message);
       }
       // Clear queue on error — don't auto-send into an errored state.
@@ -326,6 +331,11 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     }
     // Materialize partial streaming content as a message, then clear streaming state
     finishStreaming(channelId);
+    // Also kill any active member streams (user explicitly cancelled)
+    const remaining = useChatStore.getState().getChannel(channelId).memberStreams;
+    for (const sid of Object.keys(remaining)) {
+      useChatStore.getState().finishMemberStream(channelId, sid);
+    }
     // Also clear any background processing state
     clearProcessing(channelId);
     // Refetch messages to replace synthetic messages with clean DB data

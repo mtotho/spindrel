@@ -174,7 +174,7 @@ function WebChatList({
     scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  const streamingBotName = chatState.respondingBotName || bot?.name;
+  const streamingBotName = chatState.respondingBotName ?? undefined;
   const primaryIndicator = chatState.isStreaming ? (
     <StreamingIndicator
       content={chatState.streamingContent}
@@ -339,7 +339,7 @@ function NativeChatList({
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
         ListHeaderComponent={(() => {
-          const nativeBotName = chatState.respondingBotName || bot?.name;
+          const nativeBotName = chatState.respondingBotName ?? undefined;
           const nativePrimary = chatState.isStreaming ? (
             <StreamingIndicator
               content={chatState.streamingContent}

@@ -720,6 +720,7 @@ export interface WorkspaceUpdate {
   workspace_base_prompt_enabled?: boolean;
   write_protected_paths?: string[];
   skills?: { id: string; mode?: string }[];
+  indexing_config?: Record<string, any>;
 }
 
 export interface WorkspaceFileEntry {

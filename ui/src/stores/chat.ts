@@ -440,31 +440,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           ]
         : ch.messages;
 
-      // Also materialize any lingering member streams (e.g. cancel while
-      // member bots are still streaming — stream_end may never arrive).
-      let memberMessages = newMessages;
-      for (const [sid, stream] of Object.entries(ch.memberStreams)) {
-        if (stream.streamingContent) {
-          memberMessages = [
-            ...memberMessages,
-            {
-              id: `member-${sid}`,
-              session_id: "",
-              role: "assistant" as const,
-              content: stream.streamingContent,
-              created_at: new Date().toISOString(),
-              metadata: { trigger: "member_mention", sender_type: "bot" },
-            },
-          ];
-        }
-      }
+      // NOTE: Do NOT clear memberStreams here. Member bots stream independently
+      // and finishMemberStream handles each one when its stream_end arrives.
+      // Clearing here would kill in-progress member streams when the primary
+      // bot finishes first.
 
       return {
         channels: {
           ...s.channels,
           [channelId]: {
             ...ch,
-            messages: memberMessages,
+            messages: newMessages,
             isStreaming: false,
             isLocalStream: false,
             // Preserve isProcessing/queuedTaskId — if a "queued" event set these,
@@ -477,7 +463,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             correlationId: null,
             respondingBotId: null,
             respondingBotName: null,
-            memberStreams: {},
           },
         },
       };
@@ -505,7 +490,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           isStreaming: false,
           respondingBotId: null,
           respondingBotName: null,
-          memberStreams: {},
         },
       },
     })),

@@ -183,6 +183,7 @@ class TestResolveIndexing:
         """Segments default to empty list."""
         result = resolve_indexing(self._defaults(), {}, None)
         assert result["segments"] == []
+        assert result["segments_source"] == "default"
 
     def test_segments_inherit_base_values(self):
         """Segment with all None fields inherits everything from base."""
@@ -190,8 +191,10 @@ class TestResolveIndexing:
             embedding_model="base-model",
             segments=[IndexSegment(path_prefix="src/")],
         )
-        result = resolve_indexing(bot_indexing, {}, None)
+        bot_raw = {"indexing": {"segments": [{"path_prefix": "src/"}]}}
+        result = resolve_indexing(bot_indexing, bot_raw, None)
         assert len(result["segments"]) == 1
+        assert result["segments_source"] == "bot"
         seg = result["segments"][0]
         assert seg["path_prefix"] == "src/"
         assert seg["embedding_model"] == "base-model"
@@ -212,13 +215,60 @@ class TestResolveIndexing:
                 ),
             ],
         )
-        result = resolve_indexing(bot_indexing, {}, None)
+        bot_raw = {"indexing": {"segments": [{"path_prefix": "docs/", "embedding_model": "docs-model", "similarity_threshold": 0.5, "top_k": 3}]}}
+        result = resolve_indexing(bot_indexing, bot_raw, None)
+        assert result["segments_source"] == "bot"
         seg = result["segments"][0]
         assert seg["embedding_model"] == "docs-model"
         assert seg["similarity_threshold"] == 0.5
         assert seg["top_k"] == 3
         # patterns not overridden → inherits base
         assert seg["patterns"] == result["patterns"]
+
+    # ---- Workspace-level segment cascade ----
+
+    def test_workspace_segments_inherited_when_no_bot_segments(self):
+        """Workspace segments are inherited when bot has no explicit segments."""
+        ws_cfg = {
+            "segments": [
+                {"path_prefix": "repos/vault/", "patterns": ["**/*.md"]},
+                {"path_prefix": "repos/config/"},
+            ],
+        }
+        result = resolve_indexing(self._defaults(), {}, ws_cfg)
+        assert result["segments_source"] == "workspace"
+        assert len(result["segments"]) == 2
+        assert result["segments"][0]["path_prefix"] == "repos/vault/"
+        assert result["segments"][0]["patterns"] == ["**/*.md"]
+        # Second segment inherits base patterns
+        assert result["segments"][1]["path_prefix"] == "repos/config/"
+        assert result["segments"][1]["patterns"] == result["patterns"]
+
+    def test_bot_segments_override_workspace_segments(self):
+        """Bot explicit segments take precedence over workspace segments."""
+        bot_indexing = WorkspaceIndexingConfig(
+            segments=[IndexSegment(path_prefix="custom/")],
+        )
+        bot_raw = {"indexing": {"segments": [{"path_prefix": "custom/"}]}}
+        ws_cfg = {
+            "segments": [{"path_prefix": "repos/vault/"}],
+        }
+        result = resolve_indexing(bot_indexing, bot_raw, ws_cfg)
+        assert result["segments_source"] == "bot"
+        assert len(result["segments"]) == 1
+        assert result["segments"][0]["path_prefix"] == "custom/"
+
+    def test_workspace_segments_inherit_resolved_base(self):
+        """Workspace segments inherit fields from the resolved base (workspace overrides)."""
+        ws_cfg = {
+            "embedding_model": "ws-embed",
+            "similarity_threshold": 0.15,
+            "segments": [{"path_prefix": "docs/"}],
+        }
+        result = resolve_indexing(self._defaults(), {}, ws_cfg)
+        seg = result["segments"][0]
+        assert seg["embedding_model"] == "ws-embed"
+        assert seg["similarity_threshold"] == 0.15
 
 
 class TestResolveSegments:
@@ -261,6 +311,44 @@ class TestResolveSegments:
         assert result[0]["top_k"] == 20
         assert result[0]["patterns"] == ["**/*.py"]  # inherited
         assert result[0]["similarity_threshold"] == 0.3  # inherited
+
+    def test_dict_segments_full_inheritance(self):
+        """Raw dict segments (from workspace JSONB) inherit base values."""
+        base = {
+            "embedding_model": "m1",
+            "patterns": ["**/*.py"],
+            "similarity_threshold": 0.3,
+            "top_k": 8,
+            "watch": True,
+        }
+        segs = [{"path_prefix": "lib/"}]
+        result = _resolve_segments(segs, base)
+        assert result == [{
+            "path_prefix": "lib/",
+            "embedding_model": "m1",
+            "patterns": ["**/*.py"],
+            "similarity_threshold": 0.3,
+            "top_k": 8,
+            "watch": True,
+            "channel_id": None,
+        }]
+
+    def test_dict_segments_partial_override(self):
+        """Raw dict segments with some explicit fields override base."""
+        base = {
+            "embedding_model": "m1",
+            "patterns": ["**/*.py"],
+            "similarity_threshold": 0.3,
+            "top_k": 8,
+            "watch": True,
+        }
+        segs = [{"path_prefix": "docs/", "embedding_model": "m2", "patterns": ["**/*.md"]}]
+        result = _resolve_segments(segs, base)
+        assert result[0]["path_prefix"] == "docs/"
+        assert result[0]["embedding_model"] == "m2"
+        assert result[0]["patterns"] == ["**/*.md"]
+        assert result[0]["similarity_threshold"] == 0.3  # inherited
+        assert result[0]["top_k"] == 8  # inherited
 
 
 class TestGetAllRoots:

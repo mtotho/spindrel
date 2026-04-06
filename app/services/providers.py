@@ -176,16 +176,24 @@ async def load_providers() -> None:
             _plan_billed_models = set(plan_models)
 
         # Build reverse index: model_id → provider_id
+        # Also seed _model_info_cache with max_tokens from ProviderModel DB rows
+        # so get_model_context_window() works for ANY provider, not just litellm.
         all_pm = (
             await db.execute(
-                select(ProviderModel.model_id, ProviderModel.provider_id)
+                select(ProviderModel.model_id, ProviderModel.provider_id, ProviderModel.max_tokens)
             )
         ).all()
-        for model_id, provider_id in all_pm:
+        for model_id, provider_id, max_tokens in all_pm:
             # First provider wins; if a model appears on multiple providers,
             # user should pass provider_id explicitly (or use channel/bot config).
             if model_id not in _model_to_provider:
                 _model_to_provider[model_id] = provider_id
+            if max_tokens:
+                if provider_id not in _model_info_cache:
+                    _model_info_cache[provider_id] = {}
+                _model_info_cache[provider_id].setdefault(
+                    model_id, {},
+                ).setdefault("max_tokens", max_tokens)
 
     from app.services.encryption import decrypt
 

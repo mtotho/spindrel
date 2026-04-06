@@ -11,22 +11,34 @@ if TYPE_CHECKING:
 _DEFAULT_PATTERNS = ["**/*.py", "**/*.md", "**/*.yaml"]
 
 
-def _resolve_segments(segments: list[IndexSegment], base: dict) -> list[dict]:
+def _resolve_segments(segments: list[IndexSegment] | list[dict], base: dict) -> list[dict]:
     """Resolve each segment by inheriting unset fields from the base resolved config.
 
+    Accepts both IndexSegment dataclass instances and raw dicts (from workspace JSONB).
     Returns a list of dicts with fully-resolved values per segment.
     """
     result = []
     for seg in segments:
-        result.append({
-            "path_prefix": seg.path_prefix,
-            "embedding_model": seg.embedding_model if seg.embedding_model is not None else base["embedding_model"],
-            "patterns": seg.patterns if seg.patterns is not None else base["patterns"],
-            "similarity_threshold": seg.similarity_threshold if seg.similarity_threshold is not None else base["similarity_threshold"],
-            "top_k": seg.top_k if seg.top_k is not None else base["top_k"],
-            "watch": seg.watch if seg.watch is not None else base["watch"],
-            "channel_id": seg.channel_id,
-        })
+        if isinstance(seg, dict):
+            result.append({
+                "path_prefix": seg["path_prefix"],
+                "embedding_model": seg.get("embedding_model") if seg.get("embedding_model") is not None else base["embedding_model"],
+                "patterns": seg.get("patterns") if seg.get("patterns") is not None else base["patterns"],
+                "similarity_threshold": seg.get("similarity_threshold") if seg.get("similarity_threshold") is not None else base["similarity_threshold"],
+                "top_k": seg.get("top_k") if seg.get("top_k") is not None else base["top_k"],
+                "watch": seg.get("watch") if seg.get("watch") is not None else base["watch"],
+                "channel_id": seg.get("channel_id"),
+            })
+        else:
+            result.append({
+                "path_prefix": seg.path_prefix,
+                "embedding_model": seg.embedding_model if seg.embedding_model is not None else base["embedding_model"],
+                "patterns": seg.patterns if seg.patterns is not None else base["patterns"],
+                "similarity_threshold": seg.similarity_threshold if seg.similarity_threshold is not None else base["similarity_threshold"],
+                "top_k": seg.top_k if seg.top_k is not None else base["top_k"],
+                "watch": seg.watch if seg.watch is not None else base["watch"],
+                "channel_id": seg.channel_id,
+            })
     return result
 
 
@@ -96,14 +108,23 @@ def resolve_indexing(
     else:
         embedding_model = settings.EMBEDDING_MODEL
 
-    # segments: bot-level only (not cascaded from workspace)
-    segments = _resolve_segments(bot_indexing.segments, {
+    # segments: bot explicit → workspace → empty
+    base_for_segments = {
         "embedding_model": embedding_model,
         "patterns": patterns,
         "similarity_threshold": similarity_threshold,
         "top_k": top_k,
         "watch": watch,
-    })
+    }
+    if "segments" in raw_idx:
+        segments = _resolve_segments(bot_indexing.segments, base_for_segments)
+        segments_source = "bot"
+    elif "segments" in ws_cfg:
+        segments = _resolve_segments(ws_cfg["segments"], base_for_segments)
+        segments_source = "workspace"
+    else:
+        segments = []
+        segments_source = "default"
 
     return {
         "patterns": patterns,
@@ -114,6 +135,7 @@ def resolve_indexing(
         "include_bots": bot_indexing.include_bots or [],
         "embedding_model": embedding_model,
         "segments": segments,
+        "segments_source": segments_source,
     }
 
 

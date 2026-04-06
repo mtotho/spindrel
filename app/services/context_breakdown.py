@@ -82,10 +82,11 @@ class ContextBreakdownResult:
 
 
 def _chars_to_tokens(chars: int) -> int:
+    # Use chars / 3.5 to match estimate_tokens() in context_budget.py
     if chars > 0:
-        return max(1, int(math.ceil(chars / 4)))
+        return max(1, int(math.ceil(chars / 3.5)))
     elif chars < 0:
-        return min(-1, -int(math.ceil(abs(chars) / 4)))
+        return min(-1, -int(math.ceil(abs(chars) / 3.5)))
     return 0
 
 
