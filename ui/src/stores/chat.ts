@@ -1,7 +1,14 @@
 import { create } from "zustand";
 import type { Message, SSEEvent } from "../types/api";
 
-type ToolCall = { name: string; args?: string; status: "running" | "done" | "awaiting_approval" | "denied"; approvalId?: string; approvalReason?: string };
+type ToolCall = {
+  name: string;
+  args?: string;
+  status: "running" | "done" | "awaiting_approval" | "denied";
+  approvalId?: string;
+  approvalReason?: string;
+  capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
+};
 
 /** State for a single concurrent member bot stream (keyed by stream_id). */
 export interface MemberStreamState {
@@ -290,11 +297,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           };
         }
         case "approval_request": {
-          const data = event.data as { approval_id?: string; tool?: string; reason?: string };
+          const data = event.data as {
+            approval_id?: string;
+            tool?: string;
+            reason?: string;
+            capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
+          };
           const updated = [...ch.toolCalls];
           const last = updated.findLastIndex((t) => t.status === "running" && t.name === data.tool);
           if (last >= 0) {
-            updated[last] = { ...updated[last], status: "awaiting_approval", approvalId: data.approval_id, approvalReason: data.reason ?? undefined };
+            updated[last] = {
+              ...updated[last],
+              status: "awaiting_approval",
+              approvalId: data.approval_id,
+              approvalReason: data.reason ?? undefined,
+              capability: data.capability ?? undefined,
+            };
           }
           return {
             channels: {

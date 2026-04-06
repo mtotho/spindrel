@@ -10,11 +10,12 @@ try:
     from app.tools.registry import register, get_settings  # noqa: F401
 except ImportError:
 
-    def register(schema, *, source_dir=None):
+    def register(schema, *, source_dir=None, safety_tier="readonly"):
         """Stub register — attaches schema for later discovery."""
 
         def decorator(func):
             func._tool_schema = schema
+            func._safety_tier = safety_tier
             return func
 
         return decorator

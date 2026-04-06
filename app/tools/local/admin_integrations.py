@@ -442,7 +442,7 @@ async def _reload_integrations_inner(app=None) -> dict:
             "required": ["action"],
         },
     },
-})
+}, safety_tier="control_plane")
 async def manage_integration(
     action: str,
     integration_id: str | None = None,

@@ -67,15 +67,22 @@ class _WebhookDispatcher:
         if not url:
             logger.warning("WebhookDispatcher: missing url for task %s", task.id)
             return
-        # SSRF protection: block requests to private/reserved IPs
+        # SSRF protection with DNS pinning: resolve once, connect to pinned IP
         try:
-            from app.utils.url_validation import validate_url
-            validate_url(url)
+            from app.utils.url_validation import resolve_and_pin, pin_url
+            _orig, pinned_ip = resolve_and_pin(url)
         except ValueError as exc:
             logger.warning("WebhookDispatcher: SSRF blocked for task %s: %s", task.id, exc)
             return
+        from app.security.audit import log_outbound_request
+        log_outbound_request(url=url, method="POST", tool_name="webhook_dispatch",
+                             bot_id=task.bot_id)
         try:
-            r = await _http.post(url, json={"task_id": str(task.id), "result": result})
+            pinned, extra_headers = pin_url(url, pinned_ip)
+            r = await _http.post(
+                pinned, json={"task_id": str(task.id), "result": result},
+                headers=extra_headers,
+            )
             r.raise_for_status()
         except Exception:
             logger.exception("WebhookDispatcher.deliver failed for task %s", task.id)

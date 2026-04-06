@@ -52,8 +52,15 @@ def get_settings():
     return _get
 
 
-def register(schema: dict, *, source_dir: str | None = None):
-    """Decorator that registers a local tool function with its OpenAI function schema."""
+def register(schema: dict, *, source_dir: str | None = None, safety_tier: str = "readonly"):
+    """Decorator that registers a local tool function with its OpenAI function schema.
+
+    Args:
+        schema: OpenAI function-call schema dict.
+        source_dir: Override auto-detected source directory.
+        safety_tier: One of 'readonly', 'mutating', 'exec_capable', 'control_plane'.
+            Defaults to 'readonly' (safe by default).
+    """
 
     def decorator(func: Callable):
         name = schema["function"]["name"]
@@ -65,11 +72,23 @@ def register(schema: dict, *, source_dir: str | None = None):
             "source_dir": effective_source_dir,
             "source_integration": _current_source_integration,
             "source_file": source_file,
+            "safety_tier": safety_tier,
         }
-        logger.info("Registered local tool: %s", name)
+        logger.info("Registered local tool: %s (tier=%s)", name, safety_tier)
         return func
 
     return decorator
+
+
+def get_tool_safety_tier(name: str) -> str:
+    """Return the safety tier of a registered tool, or 'unknown' if not found."""
+    entry = _tools.get(name)
+    return entry["safety_tier"] if entry else "unknown"
+
+
+def get_all_tool_tiers() -> dict[str, str]:
+    """Return a dict mapping tool name → safety tier for all registered tools."""
+    return {name: entry.get("safety_tier", "readonly") for name, entry in _tools.items()}
 
 
 def iter_registered_tools() -> list[tuple[str, dict[str, Any], str | None, str | None, str | None]]:
@@ -165,4 +184,5 @@ async def call_local_tool(name: str, arguments: str) -> str:
         return result if isinstance(result, str) else json.dumps(result)
     except Exception as e:
         logger.exception("Error executing local tool %s", name)
-        return json.dumps({"error": str(e)})
+        from app.security.prompt_sanitize import sanitize_exception
+        return json.dumps({"error": sanitize_exception(e)})

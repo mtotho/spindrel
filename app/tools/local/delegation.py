@@ -82,7 +82,7 @@ logger = logging.getLogger(__name__)
             "required": ["bot_id", "prompt"],
         },
     },
-})
+}, safety_tier="control_plane")
 async def delegate_to_agent(
     bot_id: str,
     prompt: str,

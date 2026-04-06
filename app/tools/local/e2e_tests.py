@@ -58,7 +58,7 @@ E2E_DIR = Path(__file__).parent.parent.parent.parent / "tests" / "e2e"
             "required": ["action"],
         },
     },
-})
+}, safety_tier="exec_capable")
 async def run_e2e_tests(
     action: str,
     scenarios: str = "",

@@ -134,6 +134,10 @@ async def inject_message(
     if session is None:
         raise ValueError(f"Session {session_id} not found")
 
+    # Sanitize inbound content from external integrations
+    from app.security.prompt_sanitize import sanitize_unicode
+    content = sanitize_unicode(content)
+
     metadata = {"source": source}
     if extra_metadata:
         metadata.update(extra_metadata)

@@ -9,6 +9,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from app.security.prompt_sanitize import sanitize_unicode
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +34,10 @@ def parse_event(event_type: str, payload: dict[str, Any]) -> ParsedEvent | None:
     if handler is None:
         logger.debug("No handler for GitHub event type: %s", event_type)
         return None
-    return handler(payload)
+    result = handler(payload)
+    if result is not None:
+        result.message = sanitize_unicode(result.message)
+    return result
 
 
 def _repo_info(payload: dict) -> tuple[str, str]:

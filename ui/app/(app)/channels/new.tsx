@@ -1,10 +1,9 @@
-import { useState, useMemo, useEffect } from "react";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useState, useMemo } from "react";
+import { useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ArrowLeft, ArrowRight, Check, Search } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useBots } from "@/src/api/hooks/useBots";
-import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import {
   useCreateChannel,
   useGlobalActivatableIntegrations,
@@ -12,18 +11,15 @@ import {
 } from "@/src/api/hooks/useChannels";
 import { Section, SelectInput, TextInput, Toggle } from "@/src/components/shared/FormControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
-import { TemplateCardGrid } from "@/src/components/channels/TemplateCardGrid";
 import { IntegrationActivationList } from "@/src/components/channels/IntegrationActivationList";
 
-type WizardStep = "basics" | "template" | "integrations";
+type WizardStep = "basics" | "integrations";
 
 export default function NewChannelScreen() {
   const router = useRouter();
   const goBack = useGoBack("/");
   const theme = useThemeTokens();
-  const params = useLocalSearchParams<{ templateId?: string }>();
   const { data: bots } = useBots();
-  const { data: templates } = usePromptTemplates(undefined, "workspace_schema");
   const { data: activatableIntegrations } = useGlobalActivatableIntegrations();
   const { data: existingCategories } = useChannelCategories();
   const createChannel = useCreateChannel();
@@ -36,19 +32,8 @@ export default function NewChannelScreen() {
   const [botId, setBotId] = useState("default");
   const [category, setCategory] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
-  const [templateId, setTemplateId] = useState<string | null>(null);
   const [enabledIntegrations, setEnabledIntegrations] = useState<string[]>([]);
-  const [templateFilter, setTemplateFilter] = useState("");
   const [memberBotIds, setMemberBotIds] = useState<string[]>([]);
-
-  // Pre-select template from query param (e.g., from home page onboarding)
-  useEffect(() => {
-    if (params.templateId && templates?.some((tpl) => tpl.id === params.templateId)) {
-      setTemplateId(params.templateId);
-    }
-  }, [params.templateId, templates]);
-
-  const workspaceEnabled = templateId !== null;
 
   const botOptions = useMemo(
     () => (bots ?? []).map((b) => ({ label: b.name, value: b.id })),
@@ -63,17 +48,6 @@ export default function NewChannelScreen() {
     );
   }, [existingCategories, category]);
 
-  const filteredTemplates = useMemo(() => {
-    if (!templates) return [];
-    if (!templateFilter.trim()) return templates;
-    const q = templateFilter.toLowerCase();
-    return templates.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        (t.description ?? "").toLowerCase().includes(q),
-    );
-  }, [templates, templateFilter]);
-
   const hasActivatable = (activatableIntegrations?.length ?? 0) > 0;
 
   const handleToggleIntegration = (intType: string) => {
@@ -82,15 +56,6 @@ export default function NewChannelScreen() {
         ? prev.filter((x) => x !== intType)
         : [...prev, intType],
     );
-  };
-
-  /** Advance from template step to next step or create */
-  const handleTemplateNext = () => {
-    if (hasActivatable) {
-      setStep("integrations");
-    } else {
-      handleSubmit();
-    }
   };
 
   /** Build shared request body from common fields */
@@ -126,9 +91,12 @@ export default function NewChannelScreen() {
     if (!name.trim() || createChannel.isPending) return;
     try {
       const body = buildBody();
-      if (templateId) {
+      // Auto-enable workspace if any activated integration requires it
+      const needsWorkspace = enabledIntegrations.some((intType) =>
+        activatableIntegrations?.find((i) => i.integration_type === intType)?.requires_workspace,
+      );
+      if (needsWorkspace) {
         body.channel_workspace_enabled = true;
-        body.workspace_schema_template_id = templateId;
       }
       if (enabledIntegrations.length > 0) {
         body.activate_integrations = enabledIntegrations;
@@ -167,7 +135,7 @@ export default function NewChannelScreen() {
         <span style={{ flex: 1, color: theme.text, fontWeight: 600, fontSize: 14 }}>New Channel</span>
         {/* Step indicator */}
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-          {(["basics", "template", "integrations"] as WizardStep[])
+          {(["basics", "integrations"] as WizardStep[])
             .filter((s) => s !== "integrations" || hasActivatable)
             .map((s) => (
               <div
@@ -329,175 +297,82 @@ export default function NewChannelScreen() {
           >
             {errorBanner}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <button
-                type="button"
-                onClick={() => canProceed && setStep("template")}
-                disabled={!canProceed}
-                style={{
-                  backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
-                  padding: "12px 20px",
-                  borderRadius: 8,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  opacity: canProceed ? 1 : 0.5,
-                  border: "none",
-                  cursor: canProceed ? "pointer" : "default",
-                  font: "inherit",
-                }}
-              >
-                <span style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: 600 }}>
-                  Continue
-                </span>
-                <ArrowRight size={16} color={canProceed ? "#fff" : theme.textDim} />
-              </button>
-
-              <button
-                type="button"
-                onClick={handleQuickCreate}
-                disabled={!canProceed || createChannel.isPending}
-                style={{
-                  border: `1px solid ${theme.surfaceBorder}`,
-                  padding: "10px 20px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                  cursor: canProceed && !createChannel.isPending ? "pointer" : "default",
-                  background: "none",
-                  font: "inherit",
-                  color: theme.textMuted,
-                  fontSize: 14,
-                }}
-              >
-                {createChannel.isPending ? "Creating..." : "Quick Create (skip wizard)"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2: Template — pinned header + scrollable cards + sticky footer */}
-      {step === "template" && (
-        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-          {/* Fixed header + search */}
-          <div style={{ padding: "20px 20px 12px", maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
-            <span style={{ color: theme.text, fontWeight: 600, fontSize: 14, display: "block" }}>
-              Choose a Template
-            </span>
-            <span style={{ color: theme.textMuted, fontSize: 12, marginTop: 4, display: "block" }}>
-              Templates organize your workspace with structured files and schemas.
-            </span>
-            {(templates?.length ?? 0) > 4 && (
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  backgroundColor: theme.surfaceOverlay,
-                  border: `1px solid ${theme.surfaceBorder}`,
-                  borderRadius: 6,
-                  padding: "6px 8px",
-                  marginTop: 12,
-                }}
-              >
-                <Search size={13} color={theme.textDim} />
-                <input
-                  value={templateFilter}
-                  onChange={(e) => setTemplateFilter(e.target.value)}
-                  placeholder="Search templates..."
+              {hasActivatable ? (
+                <button
+                  type="button"
+                  onClick={() => canProceed && setStep("integrations")}
+                  disabled={!canProceed}
                   style={{
-                    flex: 1,
-                    color: theme.text,
-                    fontSize: 12,
-                    background: "none",
+                    backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
+                    padding: "12px 20px",
+                    borderRadius: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    opacity: canProceed ? 1 : 0.5,
                     border: "none",
-                    outline: "none",
+                    cursor: canProceed ? "pointer" : "default",
                     font: "inherit",
                   }}
-                />
-              </div>
-            )}
-          </div>
+                >
+                  <span style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: 600 }}>
+                    Continue
+                  </span>
+                  <ArrowRight size={16} color={canProceed ? "#fff" : theme.textDim} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleQuickCreate}
+                  disabled={!canProceed || createChannel.isPending}
+                  style={{
+                    backgroundColor: canProceed ? theme.accent : theme.surfaceBorder,
+                    padding: "12px 20px",
+                    borderRadius: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8,
+                    opacity: canProceed && !createChannel.isPending ? 1 : 0.5,
+                    border: "none",
+                    cursor: canProceed && !createChannel.isPending ? "pointer" : "default",
+                    font: "inherit",
+                  }}
+                >
+                  <Check size={16} color={canProceed ? "#fff" : theme.textDim} />
+                  <span style={{ color: canProceed ? "#fff" : theme.textDim, fontSize: 14, fontWeight: 600 }}>
+                    {createChannel.isPending ? "Creating..." : "Create Channel"}
+                  </span>
+                </button>
+              )}
 
-          {/* Scrollable template cards */}
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-            <div style={{ padding: "0 20px 12px", maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
-              <TemplateCardGrid
-                templates={filteredTemplates}
-                selectedId={templateId}
-                onSelect={(id) => setTemplateId(id === templateId ? null : id)}
-                highlightIntegrations={enabledIntegrations}
-                hideSkip
-              />
-            </div>
-          </div>
-
-          {/* Sticky footer */}
-          <div
-            style={{
-              borderTop: `1px solid ${theme.surfaceBorder}`,
-              padding: "14px 20px",
-              maxWidth: 560,
-              width: "100%",
-              boxSizing: "border-box",
-            }}
-          >
-            {errorBanner}
-            <div style={{ display: "flex", flexDirection: "row", gap: 10 }}>
-              <button
-                type="button"
-                onClick={() => setStep("basics")}
-                style={{
-                  border: `1px solid ${theme.surfaceBorder}`,
-                  padding: "10px 20px",
-                  borderRadius: 8,
-                  textAlign: "center",
-                  flex: 1,
-                  cursor: "pointer",
-                  background: "none",
-                  font: "inherit",
-                  color: theme.textMuted,
-                  fontSize: 14,
-                }}
-              >
-                Back
-              </button>
-
-              <button
-                type="button"
-                onClick={handleTemplateNext}
-                disabled={createChannel.isPending}
-                style={{
-                  backgroundColor: theme.accent,
-                  padding: "12px 20px",
-                  borderRadius: 8,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  flex: 1,
-                  border: "none",
-                  cursor: createChannel.isPending ? "default" : "pointer",
-                  font: "inherit",
-                }}
-              >
-                {!hasActivatable && <Check size={16} color="#fff" />}
-                <span style={{ color: "#fff", fontSize: 14, fontWeight: 600 }}>
-                  {createChannel.isPending
-                    ? "Creating..."
-                    : hasActivatable
-                      ? templateId ? "Continue" : "Skip — no workspace"
-                      : templateId ? "Create Channel" : "Create without workspace"}
-                </span>
-                {hasActivatable && <ArrowRight size={16} color="#fff" />}
-              </button>
+              {hasActivatable && (
+                <button
+                  type="button"
+                  onClick={handleQuickCreate}
+                  disabled={!canProceed || createChannel.isPending}
+                  style={{
+                    border: `1px solid ${theme.surfaceBorder}`,
+                    padding: "10px 20px",
+                    borderRadius: 8,
+                    textAlign: "center",
+                    cursor: canProceed && !createChannel.isPending ? "pointer" : "default",
+                    background: "none",
+                    font: "inherit",
+                    color: theme.textMuted,
+                    fontSize: 14,
+                  }}
+                >
+                  {createChannel.isPending ? "Creating..." : "Quick Create (skip setup)"}
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Step 3: Integrations — scrollable content + sticky footer */}
+      {/* Step 2: Integrations — scrollable content + sticky footer */}
       {step === "integrations" && (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
@@ -516,7 +391,7 @@ export default function NewChannelScreen() {
                   integrations={activatableIntegrations ?? []}
                   enabled={enabledIntegrations}
                   onToggle={handleToggleIntegration}
-                  workspaceEnabled={workspaceEnabled}
+                  workspaceEnabled
                 />
               </div>
             </div>
@@ -536,7 +411,7 @@ export default function NewChannelScreen() {
             <div style={{ display: "flex", flexDirection: "row", gap: 10 }}>
               <button
                 type="button"
-                onClick={() => setStep("template")}
+                onClick={() => setStep("basics")}
                 style={{
                   border: `1px solid ${theme.surfaceBorder}`,
                   padding: "10px 20px",

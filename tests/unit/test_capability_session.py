@@ -5,13 +5,16 @@ from unittest.mock import patch
 import pytest
 
 from app.agent.capability_session import (
+    _approved,
     _sessions,
     activate,
     active_count,
+    approve,
     cleanup_stale,
     clear_session,
     get_activated,
     is_activated,
+    is_approved,
     total_activations,
 )
 
@@ -19,8 +22,10 @@ from app.agent.capability_session import (
 @pytest.fixture(autouse=True)
 def clear_store():
     _sessions.clear()
+    _approved.clear()
     yield
     _sessions.clear()
+    _approved.clear()
 
 
 class TestActivateAndQuery:
@@ -116,3 +121,42 @@ class TestCleanupStale:
         }
         removed = cleanup_stale()
         assert removed == 0  # session kept because fresh-cap is recent
+
+    def test_cleanup_stale_clears_old_approvals(self):
+        """Stale approval-only entries are cleaned up too."""
+        _approved["old-sess"] = {"code-review": time.monotonic() - 5 * 3600}
+        removed = cleanup_stale()
+        assert removed == 1
+        assert "old-sess" not in _approved
+
+
+class TestApproval:
+    def test_approve_and_is_approved(self):
+        approve("sess-1", "code-review")
+        assert is_approved("sess-1", "code-review")
+
+    def test_approve_different_capabilities(self):
+        approve("sess-1", "code-review")
+        approve("sess-1", "data-analyst")
+        assert is_approved("sess-1", "code-review")
+        assert is_approved("sess-1", "data-analyst")
+        assert not is_approved("sess-1", "qa")
+
+    def test_is_approved_none_session(self):
+        assert not is_approved(None, "code-review")
+
+    def test_is_approved_unknown_session(self):
+        assert not is_approved("nonexistent", "code-review")
+
+    def test_clear_session_clears_approvals(self):
+        activate("sess-1", "code-review")
+        approve("sess-1", "code-review")
+        clear_session("sess-1")
+        assert not is_approved("sess-1", "code-review")
+        assert not is_activated("sess-1", "code-review")
+
+    def test_approval_independent_of_activation(self):
+        """Approval and activation are tracked separately."""
+        approve("sess-1", "code-review")
+        assert is_approved("sess-1", "code-review")
+        assert not is_activated("sess-1", "code-review")

@@ -85,7 +85,7 @@ EDIT_KNOWLEDGE_DESCRIPTION = (
             "required": ["name", "content"],
         },
     },
-})
+}, safety_tier="mutating")
 async def upsert_knowledge_tool(name: str, content: str) -> str:
     raise NotImplementedError("upsert_knowledge must be called via call_knowledge_tool")
 
@@ -110,7 +110,7 @@ async def upsert_knowledge_tool(name: str, content: str) -> str:
             "required": ["name", "content"],
         },
     },
-})
+}, safety_tier="mutating")
 async def append_to_knowledge_tool(name: str, content: str) -> str:
     raise NotImplementedError("upsert_knowledge must be called via call_knowledge_tool")
 
@@ -139,7 +139,7 @@ async def append_to_knowledge_tool(name: str, content: str) -> str:
             "required": ["name", "old_text", "new_text"],
         },
     },
-})
+}, safety_tier="mutating")
 async def edit_knowledge_tool(name: str, old_text: str, new_text: str) -> str:
     raise NotImplementedError("edit_knowledge must be called via call_knowledge_tool")
 
@@ -160,7 +160,7 @@ async def edit_knowledge_tool(name: str, old_text: str, new_text: str) -> str:
             "required": ["name"],
         },
     },
-})
+}, safety_tier="mutating")
 async def delete_knowledge_tool(name: str) -> str:
     raise NotImplementedError("delete_knowledge must be called via call_knowledge_tool")
 
@@ -250,7 +250,7 @@ async def search_knowledge_tool(query: str) -> str:
             "required": ["name"],
         },
     },
-})
+}, safety_tier="mutating")
 async def pin_knowledge_tool(name: str, scope: str = "channel") -> str:
     raise NotImplementedError("pin_knowledge must be called via call_knowledge_tool")
 
@@ -276,7 +276,7 @@ async def pin_knowledge_tool(name: str, scope: str = "channel") -> str:
             "required": ["name", "scope"],
         },
     },
-})
+}, safety_tier="mutating")
 async def unpin_knowledge_tool(name: str, scope: str) -> str:
     raise NotImplementedError("unpin_knowledge must be called via call_knowledge_tool")
 
@@ -304,7 +304,7 @@ async def unpin_knowledge_tool(name: str, scope: str) -> str:
             "required": ["name", "threshold"],
         },
     },
-})
+}, safety_tier="mutating")
 async def set_knowledge_similarity_threshold_tool(name: str, threshold: float) -> str:
     raise NotImplementedError("use call_knowledge_tool")
 

@@ -104,7 +104,7 @@ async def call_persona_tool(name: str, arguments_json: str, bot_id: str) -> str:
             "required": ["content"],
         },
     },
-})
+}, safety_tier="mutating")
 async def append_to_persona_tool(content: str) -> str:
     raise NotImplementedError("append_to_persona must be called via call_persona_tool with bot_id injected")
 
@@ -129,6 +129,6 @@ async def append_to_persona_tool(content: str) -> str:
             "required": ["old_text", "new_text"],
         },
     },
-})
+}, safety_tier="mutating")
 async def edit_persona_tool(old_text: str, new_text: str) -> str:
     raise NotImplementedError("edit_persona must be called via call_persona_tool with bot_id injected")

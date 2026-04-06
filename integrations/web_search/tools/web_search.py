@@ -6,7 +6,7 @@ import httpx
 
 from integrations.web_search.config import settings
 from integrations._register import register
-from app.utils.url_validation import validate_url as _validate_url
+from app.utils.url_validation import resolve_and_pin, pin_url, validate_url as _validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -131,14 +131,16 @@ def _sanitize_fetched_content(text: str, url: str, max_length: int = 4000) -> st
 })
 async def fetch_url(url: str) -> str:
     try:
-        _validate_url(url)
+        _orig_url, pinned_ip = resolve_and_pin(url)
     except ValueError as exc:
         return f"Error: {exc}"
+    from app.security.audit import log_outbound_request
+    log_outbound_request(url=url, method="GET", tool_name="fetch_url")
     try:
         return await _fetch_with_playwright(url)
     except Exception as e:
         logger.warning("Playwright fetch failed (%s), falling back to httpx: %s", type(e).__name__, e)
-        return await _fetch_with_httpx(url)
+        return await _fetch_with_httpx(url, pinned_ip=pinned_ip)
 
 
 async def _fetch_with_playwright(url: str) -> str:
@@ -156,10 +158,48 @@ async def _fetch_with_playwright(url: str) -> str:
     return _sanitize_fetched_content(text, url)
 
 
-async def _fetch_with_httpx(url: str) -> str:
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url, timeout=15.0, follow_redirects=True)
-        resp.raise_for_status()
+_MAX_REDIRECTS = 5
+
+
+async def _fetch_with_httpx(url: str, *, pinned_ip: str | None = None) -> str:
+    if pinned_ip:
+        # DNS-pinned request: follow redirects manually, re-validating each hop
+        current_url = url
+        current_ip = pinned_ip
+        async with httpx.AsyncClient() as client:
+            for _ in range(_MAX_REDIRECTS):
+                pinned, extra_headers = pin_url(current_url, current_ip)
+                resp = await client.get(
+                    pinned, timeout=15.0, follow_redirects=False,
+                    headers=extra_headers,
+                )
+                if resp.is_redirect:
+                    location = resp.headers.get("location", "")
+                    if not location:
+                        break
+                    # Resolve relative redirects against the current URL
+                    from urllib.parse import urljoin
+                    redirect_url = urljoin(current_url, location)
+                    # Re-validate the redirect target (SSRF check)
+                    try:
+                        redirect_url, current_ip = resolve_and_pin(redirect_url)
+                    except ValueError as exc:
+                        raise httpx.HTTPStatusError(
+                            f"Redirect blocked (SSRF): {exc}",
+                            request=resp.request, response=resp,
+                        ) from exc
+                    current_url = redirect_url
+                    continue
+                resp.raise_for_status()
+                break
+            else:
+                raise httpx.TooManyRedirects(
+                    "Too many redirects", request=resp.request,
+                )
+    else:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=15.0, follow_redirects=True)
+            resp.raise_for_status()
 
     text = _TAG_RE.sub("", resp.text)
     return _sanitize_fetched_content(text, url)

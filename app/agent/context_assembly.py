@@ -1661,7 +1661,8 @@ async def assemble_context(
         messages.append(user_msg)
         result.user_msg_index = len(messages) - 1
     elif user_message:
-        user_content = _build_user_message_content(user_message, attachments)
+        from app.security.prompt_sanitize import sanitize_unicode
+        user_content = _build_user_message_content(sanitize_unicode(user_message), attachments)
         messages.append({"role": "user", "content": user_content})
         result.user_msg_index = len(messages) - 1
     # When user_message is empty (e.g. member bot replies), no user message is

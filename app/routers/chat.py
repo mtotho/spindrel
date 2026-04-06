@@ -1070,6 +1070,26 @@ async def chat(
             bot_id=req.bot_id, client_actions=result.client_actions,
         )
 
+    # Multi-bot: trigger member bots @-mentioned in the user's message
+    _user_mentioned_nc: set[str] = set()
+    if channel_id:
+        _um_nc = await _detect_member_mentions(channel_id, bot.id, message, _depth=0)
+        if _um_nc:
+            import copy as _copy_um
+            _um_snap = _copy_um.deepcopy(messages)
+            for _bid, _cfg in _um_nc:
+                _user_mentioned_nc.add(_bid)
+                _um_task = asyncio.create_task(
+                    _run_member_bot_reply(
+                        channel_id, session_id, _bid, _cfg,
+                        bot.id, _depth=1,
+                        messages_snapshot=_um_snap,
+                        stream_id=str(uuid.uuid4()),
+                    )
+                )
+                _background_tasks.add(_um_task)
+                _um_task.add_done_callback(_background_tasks.discard)
+
     # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply.
     # Pass a snapshot so member bots run lock-free.
     if result.response and channel_id:
@@ -1079,6 +1099,7 @@ async def chat(
             _trigger_member_bot_replies(
                 channel_id, session_id, bot.id, result.response,
                 messages_snapshot=_snap,
+                already_invoked=_user_mentioned_nc,
             )
         )
         _background_tasks.add(task)
@@ -1342,6 +1363,12 @@ async def chat_stream(
                 dispatch_config=req.dispatch_config,
             )
 
+            # Tell the initiating tab which bot is responding FIRST (before any
+            # other processing) so the typing indicator shows the correct name
+            # immediately — not the channel's primary bot as a fallback.
+            _stream_meta = {"type": "stream_meta", "responding_bot_id": bot.id, "responding_bot_name": bot.name}
+            yield f"data: {json.dumps(_stream_meta)}\n\n"
+
             # Mirror user message to integration (skip if caller already handles delivery)
             if not req.dispatch_config:
                 await _mirror_to_integration(channel, message, is_user_message=True, user=user)
@@ -1397,10 +1424,6 @@ async def chat_stream(
             _effective_model_override_s = req.model_override or _member_config.get("model_override")
             _inject_member_config(messages, _member_config)
 
-            # Tell the initiating tab which bot is responding (for typing indicator)
-            _stream_meta = {"type": "stream_meta", "responding_bot_id": bot.id, "responding_bot_name": bot.name}
-            yield f"data: {json.dumps(_stream_meta)}\n\n"
-
             # Notify observers that streaming is starting
             from app.services.channel_events import publish as _publish_stream
             _primary_stream_id = str(uuid.uuid4())
@@ -1409,6 +1432,30 @@ async def chat_stream(
                 "responding_bot_id": bot.id,
                 "responding_bot_name": bot.name,
             })
+
+            # Multi-bot: fire parallel member streams for OTHER bots @-mentioned
+            # in the user's message (the routed bot is already handling the
+            # primary stream).  This makes "@bot:a @bot:b" trigger both bots.
+            _user_mentioned: list[tuple[str, dict]] = []
+            if channel_id:
+                _user_mentioned = await _detect_member_mentions(
+                    channel_id, bot.id, message, _depth=0,
+                )
+                if _user_mentioned:
+                    import copy as _copy_user
+                    _user_snap = _copy_user.deepcopy(messages)
+                    for _um_bot_id, _um_config in _user_mentioned:
+                        _um_sid = str(uuid.uuid4())
+                        _um_task = asyncio.create_task(
+                            _run_member_bot_reply(
+                                channel_id, session_id, _um_bot_id, _um_config,
+                                bot.id, _depth=1,
+                                messages_snapshot=_user_snap,
+                                stream_id=_um_sid,
+                            )
+                        )
+                        _background_tasks.add(_um_task)
+                        _um_task.add_done_callback(_background_tasks.discard)
 
             stream = run_stream(
                 messages, bot, message,
@@ -1508,9 +1555,12 @@ async def chat_stream(
             # With stream_id-based demuxing, multiple member bots can stream in parallel.
             # Pass a snapshot of the current messages so member bots don't need the session lock.
             if not was_cancelled and response_text and channel_id:
-                # Collect bots already invoked via invoke_member_bot tool during this turn
+                # Collect bots already invoked: via invoke_member_bot tool + user's message @-mentions
                 from app.agent.context import current_invoked_member_bots
-                _already_invoked = current_invoked_member_bots.get() or set()
+                _already_invoked = set(current_invoked_member_bots.get() or ())
+                # Also exclude bots triggered from user's @-mentions at start of stream
+                if _user_mentioned:
+                    _already_invoked.update(bid for bid, _ in _user_mentioned)
 
                 import copy
                 _messages_snapshot = copy.deepcopy(messages)

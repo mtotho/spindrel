@@ -1172,6 +1172,7 @@ async def task_worker() -> None:
 
     last_recovery_at = datetime.now(timezone.utc)
     last_workflow_sweep_at = datetime.now(timezone.utc)
+    last_hygiene_check_at = datetime.now(timezone.utc)
 
     while True:
         try:
@@ -1202,6 +1203,15 @@ async def task_worker() -> None:
                     await recover_stalled_workflow_runs()
                 except Exception:
                     logger.exception("recover_stalled_workflow_runs failed")
+
+            # Periodic memory hygiene check (every 60s)
+            if (now - last_hygiene_check_at).total_seconds() >= 60:
+                last_hygiene_check_at = now
+                try:
+                    from app.services.memory_hygiene import check_memory_hygiene
+                    await check_memory_hygiene()
+                except Exception:
+                    logger.exception("check_memory_hygiene failed")
 
         except Exception:
             logger.exception("task_worker poll error")

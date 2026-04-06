@@ -53,7 +53,7 @@ from app.tools.registry import register
             "required": [],
         },
     },
-})
+}, safety_tier="mutating")
 async def send_file(
     path: str = "",
     attachment_id: str = "",

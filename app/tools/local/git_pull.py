@@ -16,7 +16,7 @@ from app.tools.registry import register
         ),
         "parameters": {"type": "object", "properties": {}},
     },
-})
+}, safety_tier="control_plane")
 async def git_pull() -> str:
     repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     proc = await asyncio.create_subprocess_exec(

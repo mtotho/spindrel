@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, Platform } from "react-native";
-import { Loader2, Wrench, Check, XCircle, ShieldAlert } from "lucide-react";
+import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { formatToolArgs } from "./toolCallUtils";
@@ -124,6 +124,7 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
         const isAwaiting = tc.status === "awaiting_approval";
         const isDenied = tc.status === "denied";
         const isDeciding = tc.approvalId ? decidingIds.has(tc.approvalId) : false;
+        const isCap = !!tc.capability;
 
         const iconColor = isDenied ? t.danger : isAwaiting ? t.warning : tc.status === "running" ? t.purple : t.success;
         const borderColor = isAwaiting ? t.warningBorder : isDenied ? t.dangerBorder : t.overlayBorder;
@@ -142,18 +143,20 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
           >
             {/* Header row */}
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px" }}>
-              {isAwaiting ? (
+              {isCap && isAwaiting ? (
+                <Sparkles size={12} color={iconColor} />
+              ) : isAwaiting ? (
                 <ShieldAlert size={12} color={iconColor} />
               ) : (
                 <Wrench size={12} color={iconColor} />
               )}
-              <span style={{ fontSize: 12, color: t.textMuted, fontFamily: "'Menlo', monospace" }}>
-                {tc.name}
+              <span style={{ fontSize: 12, color: isCap ? t.text : t.textMuted, fontWeight: isCap ? 600 : 400, fontFamily: isCap ? "inherit" : "'Menlo', monospace" }}>
+                {isCap ? tc.capability!.name : tc.name}
               </span>
               {tc.status === "running" && <Loader2 size={10} color={t.purple} />}
               {tc.status === "done" && <Check size={10} color={t.success} />}
               {isDenied && <XCircle size={10} color={t.danger} />}
-              {isAwaiting && (
+              {isAwaiting && !isCap && (
                 <span style={{ fontSize: 11, color: t.warning, fontWeight: 500 }}>
                   Waiting for approval…
                 </span>
@@ -162,6 +165,19 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
                 <span style={{ fontSize: 11, color: t.danger, fontWeight: 500 }}>Denied</span>
               )}
             </div>
+            {/* Capability details (description + provides) */}
+            {isCap && (
+              <div style={{ padding: "0 10px 6px", display: "flex", flexDirection: "column", gap: 3 }}>
+                {tc.capability!.description && (
+                  <span style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.3" }}>
+                    {tc.capability!.description}
+                  </span>
+                )}
+                <span style={{ fontSize: 10, color: t.textDim }}>
+                  Provides: {tc.capability!.tools_count} tool{tc.capability!.tools_count !== 1 ? "s" : ""}, {tc.capability!.skills_count} skill{tc.capability!.skills_count !== 1 ? "s" : ""}
+                </span>
+              </div>
+            )}
             {/* Approval reason + buttons */}
             {isAwaiting && tc.approvalId && (
               <div
@@ -192,7 +208,7 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
                     opacity: isDeciding ? 0.6 : 1,
                   }}
                 >
-                  Approve
+                  {isCap ? "Allow" : "Approve"}
                 </button>
                 <button
                   disabled={isDeciding}
@@ -213,8 +229,8 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
                 </button>
               </div>
             )}
-            {/* Args body */}
-            {formatted && (
+            {/* Args body (hidden for capability approvals) */}
+            {formatted && !isCap && (
               <div
                 style={{
                   borderTop: `1px solid ${t.overlayBorder}`,
@@ -247,7 +263,14 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
 
 interface Props {
   content: string;
-  toolCalls: { name: string; args?: string; status: "running" | "done" | "awaiting_approval" | "denied"; approvalId?: string; approvalReason?: string }[];
+  toolCalls: {
+    name: string;
+    args?: string;
+    status: "running" | "done" | "awaiting_approval" | "denied";
+    approvalId?: string;
+    approvalReason?: string;
+    capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
+  }[];
   botName?: string;
   thinkingContent?: string;
 }

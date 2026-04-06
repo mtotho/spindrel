@@ -173,7 +173,7 @@ async def search_memories(query: str) -> str:
             "required": ["content"],
         },
     },
-})
+}, safety_tier="mutating")
 async def save_memory(content: str) -> str:
     """Save a memory; uses session_id and client_id from agent context."""
     session_id = current_session_id.get()
@@ -218,7 +218,7 @@ async def save_memory(content: str) -> str:
             "required": ["memory_id"],
         },
     },
-})
+}, safety_tier="mutating")
 async def purge_memory(memory_id: str) -> str:
     session_id = current_session_id.get()
     client_id = current_client_id.get()
@@ -251,7 +251,7 @@ async def purge_memory(memory_id: str) -> str:
             "required": ["memory_ids"],
         },
     },
-})
+}, safety_tier="mutating")
 async def merge_memories(memory_ids: list, merged_content: str | None = None) -> str:
     session_id = current_session_id.get()
     client_id = current_client_id.get()
@@ -291,7 +291,7 @@ async def merge_memories(memory_ids: list, merged_content: str | None = None) ->
             "required": ["memory_ids", "knowledge_name"],
         },
     },
-})
+}, safety_tier="mutating")
 async def promote_memories_to_knowledge_tool(memory_ids: list, knowledge_name: str, content: str | None = None) -> str:
     raise NotImplementedError("promote_memories_to_knowledge must be called via call_memory_tool")
 

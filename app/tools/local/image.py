@@ -162,7 +162,7 @@ async def _resolve_attachments(attachment_ids: list[str]) -> tuple[list, str | N
             "required": ["prompt"],
         },
     },
-})
+}, safety_tier="mutating")
 async def generate_image_tool(
     prompt: str,
     model: str | None = None,

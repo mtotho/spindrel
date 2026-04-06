@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Link, useRouter } from "expo-router";
 import { useChannels, useEnsureOrchestrator } from "@/src/api/hooks/useChannels";
 import { useBots } from "@/src/api/hooks/useBots";
-import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
 import { useProviders } from "@/src/api/hooks/useProviders";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
@@ -14,17 +13,15 @@ import { useAuthStore } from "@/src/stores/auth";
 import {
   Hash,
   Bot,
-  Activity,
   Plus,
   Home,
   ChevronRight,
   ChevronDown,
-  FileText,
   Sparkles,
   AlertTriangle,
   Lock,
 } from "lucide-react";
-import type { Channel, BotConfig, PromptTemplate } from "@/src/types/api";
+import type { Channel, BotConfig } from "@/src/types/api";
 
 function isOrchestratorChannel(channel: Channel): boolean {
   return channel.client_id === "orchestrator:home";
@@ -107,18 +104,8 @@ function ChannelCard({ channel, bot, t, isOrchestrator }: {
   );
 }
 
-/** Shown when the user has no channels — surfaces templates as quick-start cards. */
-function OnboardingCards({ templates, t }: { templates: PromptTemplate[]; t: ReturnType<typeof useThemeTokens> }) {
-  // Show up to 6 templates, sorted with those having integration tags first
-  const sorted = [...templates].sort((a, b) => {
-    const aInt = (a.tags ?? []).some((tag) => tag.startsWith("integration:"));
-    const bInt = (b.tags ?? []).some((tag) => tag.startsWith("integration:"));
-    if (aInt && !bInt) return -1;
-    if (!aInt && bInt) return 1;
-    return 0;
-  });
-  const shown = sorted.slice(0, 6);
-
+/** Shown when the user has no channels — simple CTA to create first channel. */
+function OnboardingCards({ t }: { t: ReturnType<typeof useThemeTokens> }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -129,101 +116,30 @@ function OnboardingCards({ templates, t }: { templates: PromptTemplate[]; t: Ret
           </span>
         </div>
         <span style={{ fontSize: 13, color: t.textMuted, lineHeight: "19px" }}>
-          Pick a template to start with structured files and the right tools, or create a blank channel.
+          Channels are conversations with your bot. Activate integrations to add specialized tools and skills.
         </span>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {shown.length === 0 && (
-          <div style={{ padding: "8px 0" }}>
-            <Activity size={16} color={t.textDim} />
-          </div>
-        )}
-        {shown.map((tpl) => {
-          const integrationTags = (tpl.tags ?? []).filter((tag) => tag.startsWith("integration:"));
-          return (
-            <Link key={tpl.id} href={`/channels/new?templateId=${tpl.id}` as any} style={{ textDecoration: "none", color: "inherit" } as any}>
-              <div
-                style={{
-                  padding: 14,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  borderRadius: 8,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                  cursor: "pointer",
-                  transition: "border-color 0.15s",
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.accent + "40"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceBorder; }}
-              >
-                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <FileText size={16} color={t.accent} />
-                  <span style={{
-                    fontSize: 14, fontWeight: 600, color: t.text, flex: 1,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
-                    {tpl.name}
-                  </span>
-                  {integrationTags.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "row", gap: 4 }}>
-                      {integrationTags.slice(0, 2).map((tag) => (
-                        <span
-                          key={tag}
-                          style={{
-                            backgroundColor: t.success + "15",
-                            padding: "1px 6px",
-                            borderRadius: 3,
-                            fontSize: 10,
-                            color: t.success,
-                            fontWeight: 500,
-                          }}
-                        >
-                          {prettyIntegrationName(tag.replace("integration:", ""))}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <ChevronRight size={14} color={t.textDim} />
-                </div>
-                {tpl.description && (
-                  <span style={{
-                    fontSize: 12, color: t.textMuted, marginLeft: 24,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
-                    {tpl.description}
-                  </span>
-                )}
-              </div>
-            </Link>
-          );
-        })}
-
-        {/* Blank channel option */}
-        <Link href={"/channels/new" as any} style={{ textDecoration: "none", color: "inherit" } as any}>
-          <div
-            style={{
-              padding: 14,
-              border: `1px dashed ${t.surfaceBorder}`,
-              borderRadius: 8,
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              cursor: "pointer",
-              transition: "border-color 0.15s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.accent + "40"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceBorder; }}
-          >
-            <Plus size={16} color={t.textDim} />
-            <span style={{ fontSize: 14, color: t.textMuted, flex: 1 }}>
-              Start from scratch
-            </span>
-            <ChevronRight size={14} color={t.textDim} />
-          </div>
-        </Link>
-      </div>
+      <Link href={"/channels/new" as any} style={{ textDecoration: "none", color: "inherit" } as any}>
+        <div
+          style={{
+            padding: 16,
+            backgroundColor: t.accent,
+            borderRadius: 8,
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            cursor: "pointer",
+          }}
+        >
+          <Plus size={16} color="#fff" />
+          <span style={{ fontSize: 14, fontWeight: 600, color: "#fff" }}>
+            New Channel
+          </span>
+        </div>
+      </Link>
     </div>
   );
 }
@@ -288,7 +204,6 @@ export default function HomeScreen() {
   const ensureOrchestrator = useEnsureOrchestrator();
   const botMap = useMemo(() => new Map(bots?.map((b) => [b.id, b]) ?? []), [bots]);
 
-  const { data: templates } = usePromptTemplates(undefined, "workspace_schema");
   const { data: providersData, isLoading: providersLoading } = useProviders(isAdmin);
   // Assume providers exist while loading to prevent "no provider" banner flash
   const hasProviders = providersLoading || (providersData?.providers?.length ?? 0) > 0;
@@ -486,7 +401,7 @@ export default function HomeScreen() {
             <div className="chat-spinner" />
           </div>
         ) : !hasChannels || otherChannels.length === 0 ? (
-          <OnboardingCards templates={templates ?? []} t={t} />
+          <OnboardingCards t={t} />
         ) : hasCategories ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {categoryGroups.map((group) => (

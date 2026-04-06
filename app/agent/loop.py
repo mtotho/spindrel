@@ -803,13 +803,17 @@ async def run_agent_tool_loop(
 
                     # --- Approval gate (sequential — requires user interaction) ---
                     if tc_result.needs_approval:
-                        yield _event_with_compaction_tag({
+                        _approval_event = {
                             "type": "approval_request",
                             "approval_id": tc_result.approval_id,
                             "tool": name,
                             "arguments": args,
                             "reason": tc_result.approval_reason,
-                        }, compaction)
+                        }
+                        _cap_meta = tc_result.tool_event.get("_capability") if tc_result.tool_event else None
+                        if _cap_meta:
+                            _approval_event["capability"] = _cap_meta
+                        yield _event_with_compaction_tag(_approval_event, compaction)
                         from app.agent.approval_pending import create_approval_pending
                         future = create_approval_pending(tc_result.approval_id)
                         try:
@@ -933,13 +937,17 @@ async def run_agent_tool_loop(
 
                     # --- Approval gate ---
                     if tc_result.needs_approval:
-                        yield _event_with_compaction_tag({
+                        _approval_event_seq = {
                             "type": "approval_request",
                             "approval_id": tc_result.approval_id,
                             "tool": name,
                             "arguments": args,
                             "reason": tc_result.approval_reason,
-                        }, compaction)
+                        }
+                        _cap_meta_seq = tc_result.tool_event.get("_capability") if tc_result.tool_event else None
+                        if _cap_meta_seq:
+                            _approval_event_seq["capability"] = _cap_meta_seq
+                        yield _event_with_compaction_tag(_approval_event_seq, compaction)
                         from app.agent.approval_pending import create_approval_pending
                         future = create_approval_pending(tc_result.approval_id)
                         try:

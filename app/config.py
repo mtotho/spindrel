@@ -151,6 +151,52 @@ All paths are relative to your workspace root — use the memory/ prefix:
 Use the `file` tool (append, write, edit) to write to the appropriate files under memory/."""
 
 
+DEFAULT_MEMORY_HYGIENE_PROMPT = """\
+[MEMORY HYGIENE — Periodic Review]
+
+You are running a scheduled memory hygiene pass across all your channels.
+Your goal: keep memory lean, promote stable facts, prune stale entries, and consolidate skills.
+
+## Step 1 — Survey channels
+Use `list_workspace_channels()` to see all your channels. For each active channel:
+- Use `read_conversation_history(section="index", channel_id=<id>)` to review recent activity.
+- Note channels with no recent activity (candidates for archiving stale daily logs).
+
+## Step 2 — Curate MEMORY.md
+Read your current memory/MEMORY.md. For each entry:
+- Is it still accurate? Remove or update stale facts.
+- Is there a duplicate? Merge entries.
+- Are there facts confirmed across multiple recent sessions that aren't captured yet? Add them.
+- Keep MEMORY.md under ~100 lines. Move detailed context to memory/reference/ files.
+
+## Step 3 — Curate reference files
+List memory/reference/ files. For each:
+- Is it still relevant? Delete outdated files.
+- Are there overlapping files? Merge them.
+- Are any files growing too large? Split into focused topics.
+
+## Step 4 — Promote from daily logs
+Scan recent daily logs (last 3-7 days). Look for:
+- Stable facts or decisions → promote to memory/MEMORY.md (edit in place, don't append)
+- Reusable procedures or patterns → create skills with `manage_bot_skill(action="create", ...)`
+- Detailed reference info → move to memory/reference/ files
+
+## Step 5 — Skill hygiene
+Use `manage_bot_skill(action="list")` to review all your skills. For each skill, check:
+- **Surfacing**: check `surface_count` and `last_surfaced_at`. Skills that haven't surfaced in 14+ days may have weak triggers or cover irrelevant topics.
+- **Relevance**: is the content still accurate? Has your understanding improved since you wrote it?
+- **Overlap**: are multiple skills covering the same topic? If so, merge them with `manage_bot_skill(action="merge", names=["skill-a", "skill-b"], name="combined", title="...", content="...")`.
+
+Take action:
+- **Low surface_count + stale**: rewrite with better trigger phrases, or delete if no longer relevant
+- **Overlapping**: merge into one comprehensive skill
+- **Outdated content**: use `action="patch"` for small fixes, `action="update"` for full rewrites
+- **Missing coverage**: if recent daily logs show recurring topics with no matching skill, create new skills now
+
+## Step 6 — Summarize
+Write a brief summary of changes made to today's daily log."""
+
+
 # ---------------------------------------------------------------------------
 # Skill learning nudge — injected mid-conversation after N tool iterations
 # ---------------------------------------------------------------------------
@@ -455,6 +501,7 @@ class Settings(BaseSettings):
     CAPABILITIES_DISABLED: str = ""  # comma-separated carapace IDs to hide globally
     CAPABILITY_RETRIEVAL_TOP_K: int = 5
     CAPABILITY_RETRIEVAL_THRESHOLD: float = 0.50
+    CAPABILITY_APPROVAL: str = "required"  # "required" = ask user, "none" = silent
 
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
     TOOL_RETRIEVAL_THRESHOLD: float = 0.45
@@ -569,6 +616,12 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # Empty = use DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT.
     MEMORY_SCHEME_FLUSH_PROMPT: str = ""
 
+    # Memory hygiene (periodic cross-channel memory curation)
+    MEMORY_HYGIENE_ENABLED: bool = False
+    MEMORY_HYGIENE_INTERVAL_HOURS: int = 24
+    MEMORY_HYGIENE_PROMPT: str = ""  # empty = use DEFAULT_MEMORY_HYGIENE_PROMPT
+    MEMORY_HYGIENE_ONLY_IF_ACTIVE: bool = True
+
     # Channel workspace injection prompt.
     # Placeholders: {workspace_path}, {channel_id}, {data_listing}
     # Empty = use DEFAULT_CHANNEL_WORKSPACE_PROMPT.
@@ -639,6 +692,10 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
 
     # Secret redaction (redact known secrets from tool results and LLM output)
     SECRET_REDACTION_ENABLED: bool = True
+
+    # Security audit logging — structured logs for outbound HTTP requests and
+    # high-privilege (exec_capable / control_plane) tool executions.
+    SECURITY_AUDIT_ENABLED: bool = True
 
     # API rate limiting — limits requests to the Spindrel server itself (NOT LLM provider calls).
     # Protects against runaway clients hammering your server. In-memory token bucket per API key/IP.

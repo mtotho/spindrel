@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
             "required": ["id"],
         },
     },
-})
+}, safety_tier="mutating")
 async def activate_capability(id: str, reason: str = "") -> str:
     """Activate a capability for this conversation session.
 
@@ -99,9 +99,11 @@ async def activate_capability(id: str, reason: str = "") -> str:
             "fragment": fragment or "",
         })
 
-    # Activate in session store
+    # Activate in session store and record approval for this session
     if session_id:
         activate(session_id, carapace_id)
+        from app.agent.capability_session import approve
+        approve(session_id, carapace_id)
     else:
         logger.warning("No session_id for capability activation of %s — activation is ephemeral", carapace_id)
 

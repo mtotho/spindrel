@@ -10,11 +10,15 @@ import pytest
 from app.agent.capability_session import _sessions
 
 
+from app.agent.capability_session import _approved
+
 @pytest.fixture(autouse=True)
 def clear_sessions():
     _sessions.clear()
+    _approved.clear()
     yield
     _sessions.clear()
+    _approved.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -444,3 +448,170 @@ class TestCapabilityContextAssembly:
 
         cap_events = [e for e in events if e.get("type") == "capability_index"]
         assert len(cap_events) == 1
+
+
+# ---------------------------------------------------------------------------
+# Approval gate in tool_dispatch
+# ---------------------------------------------------------------------------
+
+def _dispatch_kwargs(
+    *,
+    name="activate_capability",
+    args='{"id": "code-review", "reason": "review"}',
+    correlation_id=None,
+    bot_id="test-bot",
+    skip_policy=False,
+):
+    """Build kwargs for dispatch_tool_call with sensible defaults."""
+    return dict(
+        name=name,
+        args=args,
+        tool_call_id="tc-1",
+        bot_id=bot_id,
+        bot_memory=None,
+        session_id=uuid.uuid4(),
+        client_id="client-1",
+        correlation_id=correlation_id or uuid.uuid4(),
+        channel_id=uuid.uuid4(),
+        iteration=0,
+        provider_id=None,
+        summarize_enabled=False,
+        summarize_threshold=10000,
+        summarize_model="test",
+        summarize_max_tokens=1000,
+        summarize_exclude=set(),
+        compaction=False,
+        skip_policy=skip_policy,
+    )
+
+
+def _gate_patches(
+    *,
+    capability_approval="required",
+    bot_carapaces=None,
+    session_approved=False,
+    policy_enabled=False,
+):
+    """Patches for testing the capability approval gate in dispatch."""
+    mock_settings = MagicMock()
+    mock_settings.CAPABILITY_APPROVAL = capability_approval
+    mock_settings.TOOL_POLICY_ENABLED = policy_enabled
+
+    bot_cfg = SimpleNamespace(carapaces=bot_carapaces or [])
+    cap_data = _MOCK_REGISTRY.get("code-review")
+
+    patches = [
+        patch("app.agent.tool_dispatch.settings", mock_settings),
+        patch("app.agent.tool_dispatch.is_local_tool", return_value=True),
+        patch("app.agent.tool_dispatch.is_client_tool", return_value=False),
+        patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False),
+        patch("app.agent.bots.get_bot", return_value=bot_cfg),
+        patch("app.agent.carapaces.get_carapace", return_value=cap_data),
+        patch("app.agent.capability_session.is_approved", return_value=session_approved),
+        patch(
+            "app.agent.tool_dispatch._create_approval_record",
+            new_callable=AsyncMock,
+            return_value="approval-123",
+        ),
+    ]
+    return patches
+
+
+class TestCapabilityApprovalGate:
+    @pytest.mark.asyncio
+    async def test_approval_required_creates_record(self):
+        """When CAPABILITY_APPROVAL=required, unpinned & unapproved cap triggers approval."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+        kwargs = _dispatch_kwargs()
+        with _apply_patches(_gate_patches()):
+            result = await dispatch_tool_call(**kwargs)
+
+        assert result.needs_approval is True
+        assert result.approval_id == "approval-123"
+        assert result.approval_timeout == 300
+        assert "Code Review" in (result.approval_reason or "")
+        assert result.tool_event.get("_capability", {}).get("id") == "code-review"
+
+    @pytest.mark.asyncio
+    async def test_approval_skipped_when_pinned(self):
+        """Capability in bot.carapaces is pre-approved — no approval gate."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+        kwargs = _dispatch_kwargs()
+        with _apply_patches(_gate_patches(bot_carapaces=["code-review"])):
+            # Will proceed to actual tool dispatch — mock the local tool call
+            with patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"status": "activated"}'):
+                result = await dispatch_tool_call(**kwargs)
+
+        assert result.needs_approval is False
+
+    @pytest.mark.asyncio
+    async def test_approval_skipped_when_session_approved(self):
+        """After approve(), same cap in same session skips the gate."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+        kwargs = _dispatch_kwargs()
+        with _apply_patches(_gate_patches(session_approved=True)):
+            with patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"status": "activated"}'):
+                result = await dispatch_tool_call(**kwargs)
+
+        assert result.needs_approval is False
+
+    @pytest.mark.asyncio
+    async def test_approval_skipped_when_mode_none(self):
+        """CAPABILITY_APPROVAL=none disables the gate entirely."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+        kwargs = _dispatch_kwargs()
+        with _apply_patches(_gate_patches(capability_approval="none")):
+            with patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"status": "activated"}'):
+                result = await dispatch_tool_call(**kwargs)
+
+        assert result.needs_approval is False
+
+    @pytest.mark.asyncio
+    async def test_approval_skipped_when_no_correlation_id(self):
+        """No correlation_id → gate doesn't fire (can't track sessions)."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+        kwargs = _dispatch_kwargs(correlation_id=None)
+        kwargs["correlation_id"] = None
+        with _apply_patches(_gate_patches()):
+            with patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"status": "activated"}'):
+                result = await dispatch_tool_call(**kwargs)
+
+        assert result.needs_approval is False
+
+    @pytest.mark.asyncio
+    async def test_approval_includes_capability_metadata(self):
+        """tool_event should include _capability dict with id, name, description, counts."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+        kwargs = _dispatch_kwargs()
+        with _apply_patches(_gate_patches()):
+            result = await dispatch_tool_call(**kwargs)
+
+        cap = result.tool_event.get("_capability")
+        assert cap is not None
+        assert cap["id"] == "code-review"
+        assert cap["name"] == "Code Review"
+        assert cap["description"] == "PR analysis, best practices, security checks"
+        assert cap["tools_count"] == 1  # ["exec_command"]
+        assert cap["skills_count"] == 1  # [{"id": "code-review-checklist", ...}]
+
+    @pytest.mark.asyncio
+    async def test_approval_skipped_on_skip_policy(self):
+        """When skip_policy=True (re-dispatch after approval), gate doesn't fire."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+        kwargs = _dispatch_kwargs(skip_policy=True)
+        with _apply_patches(_gate_patches()):
+            with patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"status": "activated"}'):
+                result = await dispatch_tool_call(**kwargs)
+
+        assert result.needs_approval is False
+
+    @pytest.mark.asyncio
+    async def test_non_capability_tool_not_gated(self):
+        """Regular tools (not activate_capability) bypass the capability gate."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+        kwargs = _dispatch_kwargs(name="exec_command", args='{"command": "ls"}')
+        with _apply_patches(_gate_patches()):
+            with patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='"ok"'):
+                result = await dispatch_tool_call(**kwargs)
+
+        assert result.needs_approval is False

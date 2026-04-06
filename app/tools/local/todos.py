@@ -42,7 +42,7 @@ def _get_scope():
             "required": ["content"]
         }
     }
-})
+}, safety_tier="mutating")
 async def create_todo(content: str, priority: int = 0) -> str:
     priority = int(priority)
     bot_id, channel_id, err = _get_scope()
@@ -128,7 +128,7 @@ async def list_todos(status: str = "pending") -> str:
             "required": ["todo_id"]
         }
     }
-})
+}, safety_tier="mutating")
 async def complete_todo(todo_id: str) -> str:
     try:
         tid = uuid.UUID(todo_id)
@@ -179,7 +179,7 @@ async def complete_todo(todo_id: str) -> str:
             "required": ["todo_id"]
         }
     }
-})
+}, safety_tier="mutating")
 async def update_todo(todo_id: str, content: str | None = None,
                       priority: int | None = None, status: str | None = None) -> str:
     try:
@@ -224,7 +224,7 @@ async def update_todo(todo_id: str, content: str | None = None,
             "required": ["todo_id"]
         }
     }
-})
+}, safety_tier="mutating")
 async def delete_todo(todo_id: str) -> str:
     try:
         tid = uuid.UUID(todo_id)

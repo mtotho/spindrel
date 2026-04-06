@@ -82,6 +82,10 @@ class BotOut(BaseModel):
     api_permissions: Optional[list[str]] = None
     api_docs_mode: Optional[str] = None
     memory_scheme: Optional[str] = None
+    memory_hygiene_enabled: Optional[bool] = None
+    memory_hygiene_interval_hours: Optional[int] = None
+    memory_hygiene_prompt: Optional[str] = None
+    memory_hygiene_only_if_active: Optional[bool] = None
     workspace_only: bool = False
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False

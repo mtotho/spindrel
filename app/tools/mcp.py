@@ -185,6 +185,8 @@ async def call_mcp_tool(tool_name: str, arguments: str) -> str:
 
     try:
         args = json.loads(arguments) if arguments else {}
+        from app.security.audit import log_outbound_request
+        log_outbound_request(url=server.url, method="POST", tool_name=f"mcp:{tool_name}")
         async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
             resp = await client.post(
                 server.url,
@@ -207,7 +209,8 @@ async def call_mcp_tool(tool_name: str, arguments: str) -> str:
             return "\n".join(texts) if texts else json.dumps(data.get("result", {}))
     except Exception as e:
         logger.exception("MCP tool call failed: %s", tool_name)
-        return json.dumps({"error": f"MCP tool call failed: {e}"})
+        from app.security.prompt_sanitize import sanitize_exception
+        return json.dumps({"error": f"MCP tool call failed: {sanitize_exception(e)}"})
 
 
 def _parse_sse_json(text: str) -> dict:

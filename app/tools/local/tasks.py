@@ -173,7 +173,7 @@ async def _resolve_bot_channel(bot_id: str, db) -> tuple[uuid.UUID | None, str |
     return channel.id, channel.client_id, channel.active_session_id, dispatch_type, dispatch_config
 
 
-@register(_SCHEDULE_TASK_SCHEMA)
+@register(_SCHEDULE_TASK_SCHEMA, safety_tier="control_plane")
 async def schedule_task(
     prompt: str,
     title: str | None = None,
@@ -483,7 +483,7 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
             "required": ["task_id"],
         },
     },
-})
+}, safety_tier="control_plane")
 async def cancel_task(task_id: str) -> str:
     try:
         tid = uuid.UUID(task_id)
@@ -561,7 +561,7 @@ async def cancel_task(task_id: str) -> str:
             "required": ["task_id"],
         },
     },
-})
+}, safety_tier="control_plane")
 async def update_task(
     task_id: str,
     title: str | None | object = _UNSET,

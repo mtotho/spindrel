@@ -88,7 +88,8 @@ def parse_event(payload: dict) -> ParsedEvent | None:
 
     # Format the message (same logic as mqtt_listener.format_event_message)
     from integrations.frigate.mqtt_listener import format_event_message
-    message = format_event_message(payload)
+    from app.security.prompt_sanitize import sanitize_unicode
+    message = sanitize_unicode(format_event_message(payload))
 
     return ParsedEvent(camera=camera, label=label, score=score, message=message)
 

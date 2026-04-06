@@ -108,7 +108,7 @@ POST_HEARTBEAT_TO_CHANNEL_SCHEMA = {
 }
 
 
-@register(POST_HEARTBEAT_TO_CHANNEL_SCHEMA)
+@register(POST_HEARTBEAT_TO_CHANNEL_SCHEMA, safety_tier="control_plane")
 async def post_heartbeat_to_channel(message: str) -> str:
     from app.agent.context import current_bot_id
     dispatch_config = current_dispatch_config.get()

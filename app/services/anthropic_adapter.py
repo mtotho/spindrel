@@ -97,6 +97,7 @@ class _ChoiceDelta:
     role: str | None = None
     content: str | None = None
     tool_calls: list[_ToolCall] | None = None
+    reasoning_content: str | None = None
 
 
 @dataclass
@@ -359,11 +360,14 @@ def _build_usage(anthropic_usage: Any) -> _Usage:
 def _message_to_completion(msg: anthropic.types.Message) -> _ChatCompletion:
     """Wrap an Anthropic Message in an OpenAI-shaped ChatCompletion."""
     text_parts: list[str] = []
+    thinking_parts: list[str] = []
     tool_calls: list[_ToolCall] = []
     idx = 0
     for block in msg.content:
         if block.type == "text":
             text_parts.append(block.text)
+        elif block.type == "thinking":
+            thinking_parts.append(getattr(block, "thinking", ""))
         elif block.type == "tool_use":
             tool_calls.append(_ToolCall(
                 id=block.id,
@@ -374,6 +378,10 @@ def _message_to_completion(msg: anthropic.types.Message) -> _ChatCompletion:
             idx += 1
 
     content_str = "\n".join(text_parts) if text_parts else None
+    # Wrap thinking in <think> tags so ThinkTagParser / strip_think_tags can handle it
+    if thinking_parts:
+        thinking_str = "\n".join(thinking_parts)
+        content_str = f"<think>{thinking_str}</think>{content_str or ''}" or None
     message = _Message(
         role="assistant",
         content=content_str,
@@ -519,10 +527,13 @@ class _StreamAdapter:
                     )]),
                 ))
             elif delta_block.type == "thinking_delta":
-                # Pass through thinking content — StreamAccumulator picks it up
-                # via reasoning_content attribute check, so we use content delta
-                # with a special wrapper
-                pass  # No standard OpenAI mapping; skip for now
+                # Map to reasoning_content on the delta — StreamAccumulator
+                # picks this up via getattr(delta, "reasoning_content", None).
+                thinking_text = getattr(delta_block, "thinking", None) or ""
+                if thinking_text:
+                    chunks.append(self._make_chunk(
+                        delta=_ChoiceDelta(reasoning_content=thinking_text),
+                    ))
 
         elif event_type == "content_block_stop":
             pass  # No direct mapping needed

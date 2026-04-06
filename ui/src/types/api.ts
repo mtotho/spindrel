@@ -74,6 +74,10 @@ export interface BotConfig {
   api_permissions?: string[] | null;
   api_docs_mode?: string | null;  // "pinned"|"rag"|"on_demand"|null
   memory_scheme?: string | null;  // "workspace-files"|null
+  memory_hygiene_enabled?: boolean | null;
+  memory_hygiene_interval_hours?: number | null;
+  memory_hygiene_prompt?: string | null;
+  memory_hygiene_only_if_active?: boolean | null;
   carapaces?: string[];
   workspace_only?: boolean;
   system_prompt_workspace_file?: boolean;

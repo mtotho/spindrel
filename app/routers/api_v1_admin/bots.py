@@ -389,6 +389,10 @@ class BotUpdateIn(BaseModel):
     api_permissions: Optional[list[str]] = None
     api_docs_mode: Optional[str] = None  # "pinned"|"rag"|"on_demand"|null
     memory_scheme: Optional[str] = None  # "workspace-files"|null
+    memory_hygiene_enabled: Optional[bool] = None
+    memory_hygiene_interval_hours: Optional[int] = None
+    memory_hygiene_prompt: Optional[str] = None
+    memory_hygiene_only_if_active: Optional[bool] = None
     workspace_only: Optional[bool] = None
     system_prompt_workspace_file: Optional[bool] = None
     system_prompt_write_protected: Optional[bool] = None
@@ -475,6 +479,14 @@ async def admin_bot_update(
         except Exception:
             pass  # non-fatal
 
+    # Bootstrap next_hygiene_run_at when hygiene is enabled for the first time
+    if updates.get("memory_hygiene_enabled") is True and row.next_hygiene_run_at is None:
+        from app.services.memory_hygiene import bootstrap_hygiene_schedule
+        try:
+            await bootstrap_hygiene_schedule(row, db)
+        except Exception:
+            logger.warning("Failed to bootstrap hygiene schedule for bot %s", bot_id, exc_info=True)
+
     pc = await get_persona(bot_id)
     return _bot_to_out(bot, persona_content=pc, api_permissions=await _get_bot_api_permissions(db, row))
 
@@ -526,6 +538,10 @@ class BotCreateIn(BaseModel):
     attachment_vision_concurrency: Optional[int] = None
     user_id: Optional[str] = None
     memory_scheme: Optional[str] = None  # "workspace-files"|null
+    memory_hygiene_enabled: Optional[bool] = None
+    memory_hygiene_interval_hours: Optional[int] = None
+    memory_hygiene_prompt: Optional[str] = None
+    memory_hygiene_only_if_active: Optional[bool] = None
 
 
 @router.post("/bots", response_model=BotOut, status_code=201)
@@ -784,6 +800,83 @@ async def _get_bot_api_permissions(db: AsyncSession, bot_row: BotRow) -> list[st
     if not api_key:
         return None
     return api_key.scopes or []
+
+
+# ---------------------------------------------------------------------------
+# Memory hygiene
+# ---------------------------------------------------------------------------
+
+class MemoryHygieneStatusOut(BaseModel):
+    enabled: bool = False
+    interval_hours: int = 24
+    only_if_active: bool = True
+    has_custom_prompt: bool = False
+    last_run_at: Optional[str] = None
+    next_run_at: Optional[str] = None
+    last_task_status: Optional[str] = None
+    last_task_id: Optional[str] = None
+
+
+@router.get("/bots/{bot_id}/memory-hygiene", response_model=MemoryHygieneStatusOut)
+async def admin_bot_memory_hygiene_status(
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:read")),
+):
+    """Get resolved memory hygiene config + last/next run times."""
+    from app.db.models import Task as TaskRow
+    from app.services.memory_hygiene import resolve_enabled, resolve_interval, resolve_only_if_active, resolve_prompt
+
+    row = await db.get(BotRow, bot_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    enabled = resolve_enabled(row)
+    interval = resolve_interval(row)
+    only_active = resolve_only_if_active(row)
+    prompt = resolve_prompt(row)
+
+    from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+    has_custom = bool(prompt and prompt != DEFAULT_MEMORY_HYGIENE_PROMPT)
+
+    # Find last hygiene task
+    last_task = (await db.execute(
+        select(TaskRow.id, TaskRow.status, TaskRow.completed_at)
+        .where(TaskRow.bot_id == bot_id, TaskRow.task_type == "memory_hygiene")
+        .order_by(TaskRow.created_at.desc())
+        .limit(1)
+    )).first()
+
+    return MemoryHygieneStatusOut(
+        enabled=enabled,
+        interval_hours=interval,
+        only_if_active=only_active,
+        has_custom_prompt=has_custom,
+        last_run_at=row.last_hygiene_run_at.isoformat() if row.last_hygiene_run_at else None,
+        next_run_at=row.next_hygiene_run_at.isoformat() if row.next_hygiene_run_at else None,
+        last_task_status=last_task.status if last_task else None,
+        last_task_id=str(last_task.id) if last_task else None,
+    )
+
+
+@router.post("/bots/{bot_id}/memory-hygiene/trigger")
+async def admin_bot_memory_hygiene_trigger(
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:write")),
+):
+    """Manually trigger a memory hygiene run for this bot."""
+    from app.services.memory_hygiene import create_hygiene_task
+
+    row = await db.get(BotRow, bot_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    if row.memory_scheme != "workspace-files":
+        raise HTTPException(status_code=400, detail="Memory hygiene requires workspace-files memory scheme")
+
+    task_id = await create_hygiene_task(bot_id, db)
+    return {"status": "ok", "task_id": str(task_id)}
 
 
 # ---------------------------------------------------------------------------

@@ -851,6 +851,13 @@ class Bot(Base):
     )
     api_docs_mode: Mapped[str | None] = mapped_column(Text, nullable=True)  # "pinned"|"rag"|"on_demand"|null
     memory_scheme: Mapped[str | None] = mapped_column(Text, nullable=True)  # "workspace-files"|null
+    # Memory hygiene (periodic curation)
+    memory_hygiene_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    memory_hygiene_interval_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    memory_hygiene_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_hygiene_only_if_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_hygiene_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    next_hygiene_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     system_prompt_workspace_file: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     system_prompt_write_protected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'file'"))

@@ -125,7 +125,7 @@ def build_exec_script(
             "required": ["command"],
         },
     },
-})
+}, safety_tier="exec_capable")
 async def delegate_to_exec(
     command: str,
     args: list[str] | None = None,

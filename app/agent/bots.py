@@ -233,6 +233,11 @@ class BotConfig:
     api_docs_mode: str | None = None
     # Memory scheme: "workspace-files" = file-based memory (replaces DB memory/knowledge)
     memory_scheme: str | None = None
+    # Memory hygiene (periodic curation) — null = inherit global
+    memory_hygiene_enabled: bool | None = None
+    memory_hygiene_interval_hours: int | None = None
+    memory_hygiene_prompt: str | None = None
+    memory_hygiene_only_if_active: bool | None = None
     # System prompt from workspace file
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False
@@ -451,6 +456,10 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         history_mode=row.history_mode or "file",
         api_docs_mode=getattr(row, "api_docs_mode", None),
         memory_scheme=getattr(row, "memory_scheme", None),
+        memory_hygiene_enabled=getattr(row, "memory_hygiene_enabled", None),
+        memory_hygiene_interval_hours=getattr(row, "memory_hygiene_interval_hours", None),
+        memory_hygiene_prompt=getattr(row, "memory_hygiene_prompt", None),
+        memory_hygiene_only_if_active=getattr(row, "memory_hygiene_only_if_active", None),
         system_prompt_workspace_file=getattr(row, "system_prompt_workspace_file", False),
         system_prompt_write_protected=getattr(row, "system_prompt_write_protected", False),
         source_type=getattr(row, "source_type", "manual"),
@@ -530,6 +539,10 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "context_pruning_keep_turns": data.get("context_pruning_keep_turns"),
         "history_mode": data.get("history_mode", "file"),
         "memory_scheme": data.get("memory_scheme"),
+        "memory_hygiene_enabled": data.get("memory_hygiene_enabled"),
+        "memory_hygiene_interval_hours": data.get("memory_hygiene_interval_hours"),
+        "memory_hygiene_prompt": data.get("memory_hygiene_prompt"),
+        "memory_hygiene_only_if_active": data.get("memory_hygiene_only_if_active"),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }

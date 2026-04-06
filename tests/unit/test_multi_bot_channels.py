@@ -2156,6 +2156,76 @@ class TestParallelInvocation:
             assert call_kwargs.kwargs.get("messages_snapshot") is not None
 
 
+    @pytest.mark.asyncio
+    async def test_user_message_mentions_trigger_parallel_streams(self):
+        """User @-mentioning multiple bots in their message triggers all of them."""
+        from app.routers.chat import _detect_member_mentions
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("helper-bot", config={})
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.get = AsyncMock(return_value=mock_channel)
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            # Scan the USER's message — primary-bot is the responder, excluded
+            mentioned = await _detect_member_mentions(
+                channel_id, "primary-bot",
+                "Hey @bot:helper-bot and @bot:primary-bot check this out",
+                _depth=0,
+            )
+        bot_ids = [bid for bid, _ in mentioned]
+        assert "helper-bot" in bot_ids
+        # primary-bot excluded because it's the responding_bot_id
+        assert "primary-bot" not in bot_ids
+
+    @pytest.mark.asyncio
+    async def test_user_mention_dedup_prevents_response_retrigger(self):
+        """Bots triggered by user @-mentions aren't re-triggered by response @-mentions."""
+        from app.routers.chat import _detect_member_mentions
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("helper-bot", config={})
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.get = AsyncMock(return_value=mock_channel)
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            # Step 1: detect user mentions (helper-bot found)
+            user_mentioned = await _detect_member_mentions(
+                channel_id, "primary-bot",
+                "Hey @bot:helper-bot what do you think?",
+                _depth=0,
+            )
+        user_mentioned_ids = {bid for bid, _ in user_mentioned}
+        assert "helper-bot" in user_mentioned_ids
+
+        # Step 2: simulate post-completion scan with already_invoked filtering
+        with patch("app.db.engine.async_session", return_value=mock_cm):
+            response_mentioned = await _detect_member_mentions(
+                channel_id, "primary-bot",
+                "I agree with @helper-bot's take",
+                _depth=0,
+            )
+        # Filter with already_invoked (as the real code does in event_generator)
+        filtered = [(bid, cfg) for bid, cfg in response_mentioned if bid not in user_mentioned_ids]
+        assert len(filtered) == 0  # helper-bot already invoked, not re-triggered
+
+
 async def _fake_stream(*a, **kw):
     """Minimal fake for run_stream that yields a response event."""
     yield {"type": "response", "text": "ok", "client_actions": []}

@@ -85,7 +85,7 @@ logger = logging.getLogger(__name__)
             "required": ["action"],
         },
     },
-})
+}, safety_tier="control_plane")
 async def manage_workflow(
     action: str,
     id: str | None = None,

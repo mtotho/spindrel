@@ -932,7 +932,8 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         except (ValueError, TypeError):
             pass  # Non-numeric dateCreated — skip check
 
-    text = (data.get("text") or "").strip()
+    from app.security.prompt_sanitize import sanitize_unicode
+    text = sanitize_unicode((data.get("text") or "").strip())
     if not text:
         logger.info("BB webhook: ignoring new-message with empty text")
         return {"status": "ignored", "reason": "empty_text"}

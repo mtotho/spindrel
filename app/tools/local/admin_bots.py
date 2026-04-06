@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
             "required": ["action"],
         },
     },
-})
+}, safety_tier="control_plane")
 async def manage_bot(
     action: str,
     bot_id: str | None = None,

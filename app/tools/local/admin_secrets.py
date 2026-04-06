@@ -53,7 +53,7 @@ _NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
             "required": ["action"],
         },
     },
-})
+}, safety_tier="control_plane")
 async def manage_secret(
     action: str,
     name: str | None = None,

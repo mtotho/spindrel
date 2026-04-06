@@ -408,6 +408,26 @@ class TestMessageToCompletion:
         assert tcs[0].function.name == "web_search"
         assert json.loads(tcs[0].function.arguments) == {"query": "cats"}
 
+    def test_thinking_blocks_wrapped_in_think_tags(self):
+        """Thinking content blocks should be wrapped in <think> tags in content."""
+        msg = MagicMock()
+        msg.id = "msg_think"
+        msg.model = "test"
+        msg.stop_reason = "end_turn"
+        thinking_block = MagicMock()
+        thinking_block.type = "thinking"
+        thinking_block.thinking = "Let me reason carefully..."
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "The answer is 42."
+        msg.content = [thinking_block, text_block]
+        msg.usage = MagicMock(input_tokens=10, output_tokens=5, cache_read_input_tokens=0, cache_creation_input_tokens=0)
+
+        completion = _message_to_completion(msg)
+        content = completion.choices[0].message.content
+        assert "<think>Let me reason carefully...</think>" in content
+        assert "The answer is 42." in content
+
     def test_mixed_text_and_tool_use(self):
         msg = MagicMock()
         msg.id = "msg_789"
@@ -590,6 +610,38 @@ class TestStreamAdapter:
         assert final_usage.completion_tokens == 200
         assert final_usage.total_tokens == 700
         assert final_usage.prompt_tokens_details.cached_tokens == 100
+
+    def test_translate_thinking_delta(self):
+        """thinking_delta events should produce chunks with reasoning_content."""
+        adapter = _StreamAdapter.__new__(_StreamAdapter)
+        adapter._message_id = "msg_001"
+        adapter._model = "test"
+        adapter._tool_index = -1
+
+        delta = MagicMock()
+        delta.type = "thinking_delta"
+        delta.thinking = "Let me reason about this..."
+        event = self._make_event("content_block_delta", delta=delta)
+
+        chunks = adapter._translate_event(event)
+        assert len(chunks) == 1
+        assert chunks[0].choices[0].delta.reasoning_content == "Let me reason about this..."
+        assert chunks[0].choices[0].delta.content is None  # not in regular content
+
+    def test_translate_thinking_delta_empty(self):
+        """Empty thinking_delta should not produce chunks."""
+        adapter = _StreamAdapter.__new__(_StreamAdapter)
+        adapter._message_id = "msg_001"
+        adapter._model = "test"
+        adapter._tool_index = -1
+
+        delta = MagicMock()
+        delta.type = "thinking_delta"
+        delta.thinking = ""
+        event = self._make_event("content_block_delta", delta=delta)
+
+        chunks = adapter._translate_event(event)
+        assert chunks == []
 
     def test_content_block_stop_noop(self):
         adapter = _StreamAdapter.__new__(_StreamAdapter)
@@ -992,6 +1044,39 @@ class TestStreamAccumulatorCompat:
         assert msg.tool_calls[0]["function"]["name"] == "search"
         assert msg.tool_calls[0]["function"]["arguments"] == '{"q":"cats"}'
         assert msg.tool_calls[0]["id"] == "toolu_abc"
+
+    def test_thinking_chunk_produces_thinking_event(self):
+        """reasoning_content from adapter chunks should produce 'thinking' events in StreamAccumulator."""
+        from app.agent.llm import StreamAccumulator
+        from app.services.anthropic_adapter import _ChatCompletionChunk, _Choice, _ChoiceDelta
+
+        acc = StreamAccumulator()
+
+        # role chunk
+        acc.feed(_make_text_chunk("msg_1", role="assistant"))
+
+        # thinking chunk (via reasoning_content)
+        think_chunk = _ChatCompletionChunk(
+            id="msg_1", model="test", choices=[_Choice(
+                delta=_ChoiceDelta(reasoning_content="Let me think step by step..."),
+            )],
+        )
+        events, done = acc.feed(think_chunk)
+        assert any(e["type"] == "thinking" and "step by step" in e["delta"] for e in events)
+        assert not done
+
+        # text chunk
+        text_chunk = _make_text_chunk("msg_1", content="The answer is 42.")
+        events, done = acc.feed(text_chunk)
+        assert any(e["type"] == "text_delta" for e in events)
+
+        # finish
+        finish = _make_text_chunk("msg_1", finish_reason="stop")
+        acc.feed(finish)
+
+        msg = acc.build()
+        assert msg.content == "The answer is 42."
+        assert msg.thinking_content == "Let me think step by step..."
 
     def test_usage_chunk_picked_up(self):
         """Usage from the adapter should be picked up by StreamAccumulator."""

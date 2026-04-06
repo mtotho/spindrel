@@ -3,10 +3,11 @@
  * Extracted to keep the main editor file manageable.
  */
 import { useState } from "react";
-import { Check, ChevronDown, HelpCircle, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Clock, HelpCircle, Play, Trash2, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useMemorySchemeDefaults } from "@/src/api/hooks/useMemorySchemeDefaults";
 import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
+import { useMemoryHygieneStatus, useTriggerMemoryHygiene } from "@/src/api/hooks/useMemoryHygiene";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
   TextInput, Toggle, FormRow, Row, Col,
@@ -228,6 +229,217 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
+// Memory hygiene subsection (workspace-files only)
+// ---------------------------------------------------------------------------
+function MemoryHygieneSubsection({ draft, update, botId }: {
+  draft: BotConfig;
+  update: (p: Partial<BotConfig>) => void;
+  botId: string | undefined;
+}) {
+  const t = useThemeTokens();
+  const { data: status } = useMemoryHygieneStatus(botId);
+  const triggerMut = useTriggerMemoryHygiene();
+  const [showPrompt, setShowPrompt] = useState(false);
+
+  // Three-state: null = inherit global, true = enabled, false = disabled
+  const enabledValue = draft.memory_hygiene_enabled;
+  const resolvedEnabled = status?.enabled ?? false;
+
+  const onlyActiveValue = draft.memory_hygiene_only_if_active;
+  const resolvedOnlyActive = status?.only_if_active ?? true;
+
+  const fmtTime = (iso: string | null | undefined) => {
+    if (!iso) return "Never";
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  };
+
+  return (
+    <div style={{
+      background: t.surface, border: `1px solid ${t.surfaceRaised}`,
+      borderRadius: 8, padding: "14px 16px",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <Clock size={14} color={t.purple} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
+          Memory Hygiene
+        </span>
+        <span style={{ fontSize: 10, color: t.textDim }}>
+          Periodic cross-channel memory curation
+        </span>
+      </div>
+
+      {/* Enable selector */}
+      <FormRow label="Enable">
+        <div style={{ display: "flex", gap: 6 }}>
+          {([undefined, true, false] as const).map((val) => {
+            const isSelected =
+              val === undefined
+                ? enabledValue === null || enabledValue === undefined
+                : enabledValue === val;
+            const label =
+              val === undefined
+                ? `Inherit (${resolvedEnabled ? "On" : "Off"})`
+                : val
+                  ? "Enabled"
+                  : "Disabled";
+            return (
+              <button
+                key={String(val)}
+                onClick={() => update({ memory_hygiene_enabled: val === undefined ? null : val })}
+                style={{
+                  padding: "4px 10px", borderRadius: 4, fontSize: 11,
+                  border: isSelected ? `1px solid ${t.accent}` : `1px solid ${t.surfaceOverlay}`,
+                  background: isSelected ? t.accentSubtle : "transparent",
+                  color: isSelected ? t.accent : t.textMuted,
+                  cursor: "pointer", fontWeight: isSelected ? 600 : 400,
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </FormRow>
+
+      <Row>
+        <Col>
+          <FormRow label="Interval (hours)" description={`Global default: ${status?.interval_hours ?? 24}h`}>
+            <TextInput
+              value={String(draft.memory_hygiene_interval_hours ?? "")}
+              onChangeText={(v) => update({ memory_hygiene_interval_hours: v ? parseInt(v) : null })}
+              placeholder={String(status?.interval_hours ?? 24)}
+              type="number"
+            />
+          </FormRow>
+        </Col>
+        <Col>
+          <FormRow label="Only if active">
+            <div style={{ display: "flex", gap: 6 }}>
+              {([undefined, true, false] as const).map((val) => {
+                const isSelected =
+                  val === undefined
+                    ? onlyActiveValue === null || onlyActiveValue === undefined
+                    : onlyActiveValue === val;
+                const label =
+                  val === undefined
+                    ? `Inherit (${resolvedOnlyActive ? "Yes" : "No"})`
+                    : val
+                      ? "Yes"
+                      : "No";
+                return (
+                  <button
+                    key={String(val)}
+                    onClick={() => update({ memory_hygiene_only_if_active: val === undefined ? null : val })}
+                    style={{
+                      padding: "4px 10px", borderRadius: 4, fontSize: 11,
+                      border: isSelected ? `1px solid ${t.accent}` : `1px solid ${t.surfaceOverlay}`,
+                      background: isSelected ? t.accentSubtle : "transparent",
+                      color: isSelected ? t.accent : t.textMuted,
+                      cursor: "pointer", fontWeight: isSelected ? 600 : 400,
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </FormRow>
+        </Col>
+      </Row>
+
+      {/* Custom prompt (collapsible) */}
+      <div style={{ marginTop: 8 }}>
+        <button
+          onClick={() => setShowPrompt(!showPrompt)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, width: "100%",
+            padding: "6px 0", background: "none", border: "none",
+            cursor: "pointer", color: t.textMuted, fontSize: 11, fontWeight: 600,
+          }}
+        >
+          <ChevronDown
+            size={12}
+            style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+          />
+          Custom Prompt
+          {draft.memory_hygiene_prompt && (
+            <span style={{
+              fontSize: 9, padding: "1px 5px", borderRadius: 3,
+              background: t.purpleSubtle, color: t.purple,
+            }}>custom</span>
+          )}
+        </button>
+        {showPrompt && (
+          <div style={{ marginTop: 6 }}>
+            <LlmPrompt
+              value={draft.memory_hygiene_prompt || ""}
+              onChange={(v) => update({ memory_hygiene_prompt: v || null })}
+              rows={6}
+              placeholder="Leave empty to use global default prompt..."
+              fieldType="memory_hygiene_prompt"
+              botId={botId}
+            />
+            {draft.memory_hygiene_prompt && (
+              <button
+                onClick={() => update({ memory_hygiene_prompt: null })}
+                style={{
+                  marginTop: 4, padding: "3px 8px", borderRadius: 4,
+                  background: "none", border: `1px solid ${t.surfaceOverlay}`,
+                  color: t.textDim, fontSize: 10, cursor: "pointer",
+                }}
+              >
+                Reset to default
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Status line + Run Now */}
+      {botId && status && (
+        <div style={{
+          marginTop: 12, paddingTop: 10,
+          borderTop: `1px solid ${t.surfaceOverlay}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+        }}>
+          <div style={{ fontSize: 10, color: t.textDim, lineHeight: 1.6 }}>
+            Last run: {fmtTime(status.last_run_at)}
+            {status.last_task_status && (
+              <span style={{
+                marginLeft: 6, padding: "1px 5px", borderRadius: 3, fontSize: 9,
+                background: status.last_task_status === "complete" ? t.successSubtle : t.surfaceOverlay,
+                color: status.last_task_status === "complete" ? t.success : t.textDim,
+              }}>
+                {status.last_task_status}
+              </span>
+            )}
+            <br />
+            Next run: {fmtTime(status.next_run_at)}
+          </div>
+          <button
+            onClick={() => botId && triggerMut.mutate(botId)}
+            disabled={triggerMut.isPending}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "5px 10px", borderRadius: 5, fontSize: 11,
+              background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`,
+              color: t.purple, cursor: "pointer", fontWeight: 500,
+              opacity: triggerMut.isPending ? 0.6 : 1,
+            }}
+          >
+            <Play size={10} />
+            {triggerMut.isPending ? "Running..." : "Run Now"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Memory section — mode selector + settings
 // ---------------------------------------------------------------------------
 export function MemorySection({ draft, update, botId }: {
@@ -416,6 +628,9 @@ export function MemorySection({ draft, update, botId }: {
               </div>
             )}
           </div>
+
+          {/* Memory Hygiene */}
+          <MemoryHygieneSubsection draft={draft} update={update} botId={botId} />
         </>
       )}
 

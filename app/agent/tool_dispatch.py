@@ -141,6 +141,62 @@ async def dispatch_tool_call(
             result_obj.tool_event = {"type": "tool_result", "tool": name, "error": _policy_err}
             return result_obj
 
+        # --- Capability activation approval ---
+        if (
+            name == "activate_capability"
+            and settings.CAPABILITY_APPROVAL == "required"
+            and correlation_id is not None
+        ):
+            try:
+                _cap_args = json.loads(args or "{}") if isinstance(args, str) else args
+                _cap_id = (_cap_args.get("id") or "").strip()
+            except Exception:
+                _cap_id = ""
+
+            if _cap_id:
+                from app.agent.capability_session import is_approved as _cap_is_approved
+                from app.agent.carapaces import get_carapace
+                from app.agent.bots import get_bot
+
+                _bot_cfg = get_bot(bot_id)
+                _pinned = set(_bot_cfg.carapaces) if _bot_cfg and _bot_cfg.carapaces else set()
+
+                if _cap_id not in _pinned and not _cap_is_approved(str(correlation_id), _cap_id):
+                    _cap_data = get_carapace(_cap_id)
+                    _cap_name = _cap_data.get("name", _cap_id) if _cap_data else _cap_id
+                    _cap_desc = (_cap_data.get("description") or "") if _cap_data else ""
+                    _cap_reason = f"Bot wants to activate '{_cap_name}' capability"
+                    approval_id = await _create_approval_record(
+                        session_id=session_id,
+                        channel_id=channel_id,
+                        bot_id=bot_id,
+                        client_id=client_id,
+                        correlation_id=correlation_id,
+                        tool_name=name,
+                        tool_type="local",
+                        arguments=_tc_args_for_policy,
+                        policy_rule_id=None,
+                        reason=_cap_reason,
+                        timeout=300,
+                    )
+                    result_obj.needs_approval = True
+                    result_obj.approval_id = approval_id
+                    result_obj.approval_timeout = 300
+                    result_obj.approval_reason = _cap_reason
+                    result_obj.tool_event = {
+                        "type": "tool_result", "tool": name, "pending_approval": True,
+                        "_capability": {
+                            "id": _cap_id,
+                            "name": _cap_name,
+                            "description": _cap_desc,
+                            "tools_count": len(_cap_data.get("local_tools") or []) if _cap_data else 0,
+                            "skills_count": len(_cap_data.get("skills") or []) if _cap_data else 0,
+                        },
+                    }
+                    result_obj.result_for_llm = json.dumps({"status": "pending_approval", "reason": _cap_reason})
+                    _trace("⏳ %s requires capability approval (%s)", name, _cap_id)
+                    return result_obj
+
     # Determine tool type for hook data
     if is_client_tool(name):
         _pre_hook_type = "client"
@@ -281,6 +337,27 @@ async def dispatch_tool_call(
 
     # Redact known secrets before summarization or LLM consumption
     result_for_llm = _redact_secrets(result_for_llm)
+
+    # Wrap MCP results in untrusted-data tags (injection boundary)
+    if _tc_type == "mcp":
+        from app.security.prompt_sanitize import wrap_untrusted_content
+        result_for_llm = wrap_untrusted_content(
+            result_for_llm, f"mcp:{_tc_server or name}"
+        )
+
+    # Audit log for exec_capable / control_plane tools
+    from app.tools.registry import get_tool_safety_tier
+    _safety_tier = get_tool_safety_tier(name)
+    if _safety_tier in ("exec_capable", "control_plane"):
+        from app.security.audit import log_tool_execution
+        _args_summary = (args or "")[:200]
+        log_tool_execution(
+            tool_name=name,
+            safety_tier=_safety_tier,
+            bot_id=bot_id,
+            channel_id=str(channel_id) if channel_id else None,
+            arguments_summary=_args_summary,
+        )
 
     # Summarize if needed
     _orig_len = len(result_for_llm)

@@ -122,6 +122,11 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- Tool Policies ---
     "TOOL_POLICY_ENABLED": {"group": "Tool Policies", "label": "Enabled", "description": "Master switch for the tool policy engine", "type": "bool"},
     "TOOL_POLICY_DEFAULT_ACTION": {"group": "Tool Policies", "label": "Default Action", "description": "Action when no rule matches: allow, deny, or require_approval", "type": "string", "options": ["allow", "deny", "require_approval"]},
+    # --- Memory Hygiene ---
+    "MEMORY_HYGIENE_ENABLED": {"group": "Memory Hygiene", "label": "Enabled", "description": "Enable periodic memory hygiene jobs for workspace-files bots. Bots review cross-channel memory, promote stable facts, prune stale entries, and consolidate skills.", "type": "bool"},
+    "MEMORY_HYGIENE_INTERVAL_HOURS": {"group": "Memory Hygiene", "label": "Interval (hours)", "description": "Hours between hygiene runs (per-bot override available)", "type": "int", "min": 1, "max": 720},
+    "MEMORY_HYGIENE_PROMPT": {"group": "Memory Hygiene", "label": "Hygiene Prompt", "description": "Custom prompt for hygiene runs. Empty = use built-in default.", "type": "string", "widget": "textarea", "nullable": True},
+    "MEMORY_HYGIENE_ONLY_IF_ACTIVE": {"group": "Memory Hygiene", "label": "Only If Active", "description": "Skip hygiene if the bot has had no user messages since the last run", "type": "bool"},
     # --- Heartbeat ---
     "HEARTBEAT_QUIET_HOURS": {"group": "Heartbeat", "label": "Quiet Hours", "description": "Time window where heartbeats slow (e.g. 23:00-07:00)", "type": "string"},
     "HEARTBEAT_QUIET_INTERVAL_MINUTES": {"group": "Heartbeat", "label": "Quiet Interval (min)", "description": "Interval during quiet hours (0 = disabled)", "type": "int", "min": 0, "max": 1440},
@@ -160,7 +165,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
 GROUP_ORDER = [
     "System", "Paths", "General", "Security", "API Rate Limiting", "Agent", "Chat History",
     "Embeddings & RAG", "RAG Re-ranking", "Tool Summarization",
-    "Tool Policies", "Speech-to-Text", "Heartbeat", "Docker Stacks", "Attachments", "Data Retention", "Image Generation", "Prompt Generation",
+    "Tool Policies", "Speech-to-Text", "Memory Hygiene", "Heartbeat", "Docker Stacks", "Attachments", "Data Retention", "Image Generation", "Prompt Generation",
 ]
 
 

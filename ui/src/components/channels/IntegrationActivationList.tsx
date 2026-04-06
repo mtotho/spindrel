@@ -139,7 +139,7 @@ export function IntegrationActivationList({
               <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 28 }}>
                 <AlertTriangle size={12} color={t.warning} />
                 <span style={{ fontSize: 11, color: t.warning }}>
-                  Requires workspace — select a template first
+                  Requires workspace — enable workspace on this channel first
                 </span>
               </div>
             )}

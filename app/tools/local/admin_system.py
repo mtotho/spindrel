@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
             "required": [],
         },
     },
-})
+}, safety_tier="control_plane")
 async def get_system_status() -> str:
     from app.agent.bots import list_bots
     from app.services.providers import list_providers

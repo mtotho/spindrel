@@ -184,7 +184,7 @@ def _error(msg: str) -> str:
             "required": ["operation", "path"],
         },
     },
-})
+}, safety_tier="mutating")
 async def file(
     operation: str,
     path: str,
