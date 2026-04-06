@@ -203,8 +203,17 @@ async def check_memory_hygiene() -> None:
                 if not resolve_enabled(bot_row):
                     continue
 
+                # First-time bootstrap: stagger instead of running immediately
+                if bot_row.next_hygiene_run_at is None:
+                    interval = resolve_interval(bot_row)
+                    offset = _stagger_offset_minutes(bot_row.id, interval)
+                    bot_row.next_hygiene_run_at = now + timedelta(minutes=offset)
+                    await db.commit()
+                    logger.info("Bootstrapped hygiene for bot %s: first run at %s (offset %dm)", bot_row.id, bot_row.next_hygiene_run_at, offset)
+                    continue
+
                 # Skip if not yet due
-                if bot_row.next_hygiene_run_at and bot_row.next_hygiene_run_at > now:
+                if bot_row.next_hygiene_run_at > now:
                     continue
 
                 interval = resolve_interval(bot_row)

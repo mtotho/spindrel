@@ -265,6 +265,7 @@ async def run_agent_tool_loop(
     channel_id: uuid.UUID | None = None,
     max_iterations: int | None = None,
     fallback_models: list[dict] | None = None,
+    skip_tool_policy: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
@@ -767,6 +768,7 @@ async def run_agent_tool_loop(
                                 summarize_max_tokens=_eff_summarize_max_tokens,
                                 summarize_exclude=_eff_summarize_exclude,
                                 compaction=compaction,
+                                skip_policy=skip_tool_policy,
                                 allowed_tool_names=_effective_allowed,
                             ), False)
                         except Exception:
@@ -932,6 +934,7 @@ async def run_agent_tool_loop(
                         summarize_max_tokens=_eff_summarize_max_tokens,
                         summarize_exclude=_eff_summarize_exclude,
                         compaction=compaction,
+                        skip_policy=skip_tool_policy,
                         allowed_tool_names=_effective_allowed,
                     )
 
@@ -1211,6 +1214,7 @@ async def run_stream(
     fallback_models: list[dict] | None = None,
     injected_tools: list[dict] | None = None,
     system_preamble: str | None = None,
+    skip_tool_policy: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -1401,6 +1405,7 @@ async def run_stream(
             channel_id=channel_id,
             max_iterations=max_iterations_override,
             fallback_models=_fallback_models,
+            skip_tool_policy=skip_tool_policy,
         ):
             if event.get("type") == "response":
                 _last_response = event
@@ -1440,6 +1445,7 @@ async def run_stream(
             channel_id=channel_id,
             max_iterations=max_iterations_override,
             fallback_models=_fallback_models,
+            skip_tool_policy=skip_tool_policy,
         ):
             yield event
 
@@ -1462,6 +1468,7 @@ async def run(
     fallback_models: list[dict] | None = None,
     injected_tools: list[dict] | None = None,
     system_preamble: str | None = None,
+    skip_tool_policy: bool = False,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -1480,6 +1487,7 @@ async def run(
         fallback_models=fallback_models,
         injected_tools=injected_tools,
         system_preamble=system_preamble,
+        skip_tool_policy=skip_tool_policy,
     ):
         if event["type"] == "assistant_text":
             _intermediate_texts.append(event["text"])

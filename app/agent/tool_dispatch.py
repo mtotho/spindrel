@@ -17,7 +17,6 @@ from app.agent.pending import CLIENT_TOOL_TIMEOUT, create_pending
 from app.config import settings
 from app.tools.client_tools import is_client_tool
 from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool
-from app.tools.local.memory import call_memory_tool
 from app.tools.registry import call_local_tool, is_local_tool
 from app.tools.local.persona import call_persona_tool
 from app.tools.local.knowledge import call_knowledge_tool
@@ -252,31 +251,7 @@ async def dispatch_tool_call(
             result = json.dumps({"error": "Client did not respond in time"})
     elif is_local_tool(name):
         _tc_type = "local"
-        if name in (
-            "search_memories",
-            "save_memory",
-            "purge_memory",
-            "merge_memories",
-            "promote_memories_to_knowledge",
-        ) and session_id and client_id:
-            # Get user_id for user-scoped cross-bot memory
-            try:
-                from app.agent.bots import get_bot as _get_bot
-                _user_id = _get_bot(bot_id).user_id
-            except Exception:
-                _user_id = None
-            result = await call_memory_tool(
-                name,
-                args or "{}",
-                session_id,
-                client_id,
-                bot_id,
-                bot_memory,
-                correlation_id=correlation_id,
-                channel_id=channel_id,
-                user_id=_user_id,
-            )
-        elif name in ("update_persona", "append_to_persona", "edit_persona"):
+        if name in ("update_persona", "append_to_persona", "edit_persona"):
             result = await call_persona_tool(name, args or "{}", bot_id)
         elif name in (
             "upsert_knowledge",
@@ -451,17 +426,6 @@ async def dispatch_tool_call(
             _trace("← %s (%d chars)", name, len(result_for_llm))
     except (json.JSONDecodeError, TypeError):
         _trace("← %s (%d chars)", name, len(result_for_llm))
-    if name == "search_memories":
-        if _redacted_result == "No relevant memories found." or _redacted_result == "No search query provided.":
-            tool_event["memory_count"] = 0
-        elif _redacted_result.startswith("Relevant memories:\n\n"):
-            body = _redacted_result[len("Relevant memories:\n\n"):]
-            tool_event["memory_count"] = 1 + body.count("\n\n---\n\n")
-            if tool_event["memory_count"] > 0:
-                first = body.split("\n\n---\n\n")[0].strip()
-                tool_event["memory_preview"] = (first[:120] + "…") if len(first) > 120 else first
-    elif name == "save_memory" and _redacted_result == "Memory saved.":
-        tool_event["saved"] = True
     result_obj.tool_event = tool_event
 
     return result_obj

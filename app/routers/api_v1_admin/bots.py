@@ -17,7 +17,6 @@ from app.agent.bots import get_bot, list_bots
 from app.db.models import (
     Bot as BotRow,
     Document,
-    Memory,
     SandboxProfile,
     SharedWorkspace,
     SharedWorkspaceBot,
@@ -27,7 +26,7 @@ from app.db.models import (
 from app.dependencies import get_db, require_scopes
 
 from ._helpers import _bot_to_out
-from ._schemas import BotListOut, BotOut, MemoryListOut, MemoryOut
+from ._schemas import BotListOut, BotOut
 
 router = APIRouter()
 
@@ -437,6 +436,10 @@ async def admin_bot_update(
     for key, val in updates.items():
         if hasattr(row, key):
             setattr(row, key, val)
+
+    # Clear schedule when hygiene is explicitly disabled (so re-enable re-staggers)
+    if updates.get("memory_hygiene_enabled") is False:
+        row.next_hygiene_run_at = None
 
     row.updated_at = datetime.now(timezone.utc)
 
@@ -1109,35 +1112,3 @@ async def admin_bot_sandbox_recreate(
     return {"status": "ok", "message": f"Sandbox for '{bot_id}' destroyed. Will be recreated on next use."}
 
 
-# ---------------------------------------------------------------------------
-# Bot memories
-# ---------------------------------------------------------------------------
-
-@router.get("/bots/{bot_id}/memories", response_model=MemoryListOut)
-async def admin_bot_memories(
-    bot_id: str,
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("bots:read")),
-):
-    """List memories for a specific bot."""
-    memories = (await db.execute(
-        select(Memory)
-        .where(Memory.bot_id == bot_id)
-        .order_by(Memory.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-    )).scalars().all()
-
-    return MemoryListOut(
-        memories=[
-            MemoryOut(
-                id=m.id, session_id=m.session_id, client_id=m.client_id,
-                bot_id=m.bot_id, content=m.content,
-                message_count=m.message_count, correlation_id=m.correlation_id,
-                created_at=m.created_at,
-            )
-            for m in memories
-        ],
-    )

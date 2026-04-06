@@ -237,6 +237,7 @@ class ChannelConfigOut(BaseModel):
     heartbeat_quiet_end: Optional[str] = None
     heartbeat_timezone: Optional[str] = None
     heartbeat_max_run_seconds: Optional[int] = None
+    heartbeat_skip_tool_approval: bool = False
     heartbeat_last_run_at: Optional[datetime] = None
     heartbeat_next_run_at: Optional[datetime] = None
     # Timestamps
@@ -300,6 +301,7 @@ class ChannelConfigUpdate(BaseModel):
     heartbeat_quiet_end: Optional[str] = None
     heartbeat_timezone: Optional[str] = None
     heartbeat_max_run_seconds: Optional[int] = None
+    heartbeat_skip_tool_approval: Optional[bool] = None
 
 
 def _enrich_bot_members(channel: Channel) -> list[ChannelBotMemberOut]:
@@ -735,6 +737,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
             "heartbeat_quiet_end": heartbeat.quiet_end.strftime("%H:%M") if heartbeat.quiet_end else None,
             "heartbeat_timezone": heartbeat.timezone,
             "heartbeat_max_run_seconds": heartbeat.max_run_seconds,
+            "heartbeat_skip_tool_approval": heartbeat.skip_tool_approval,
             "heartbeat_last_run_at": heartbeat.last_run_at,
             "heartbeat_next_run_at": heartbeat.next_run_at,
         })

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "expo-router";
 import {
   Bot,
@@ -30,11 +30,13 @@ import {
 } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
 import { useThemeTokens } from "../../../theme/tokens";
+import { usePendingApprovalCount } from "../../../api/hooks/useApprovals";
 
 interface NavItem {
   label: string;
   href: string;
   icon: React.ComponentType<{ size: number; color: string }>;
+  badge?: React.ReactNode;
 }
 
 interface SectionDef {
@@ -117,6 +119,7 @@ export function NavLink({ item, active, mobile }: { item: NavItem; active: boole
       >
         <Icon size={mobile ? 20 : 16} color={active ? t.accent : t.textDim} />
         <span style={{
+          flex: 1,
           fontSize: mobile ? 15 : 14,
           color: active ? t.accent : t.textMuted,
           fontWeight: active ? 500 : 400,
@@ -124,6 +127,7 @@ export function NavLink({ item, active, mobile }: { item: NavItem; active: boole
         }}>
           {item.label}
         </span>
+        {item.badge}
       </div>
     </Link>
   );
@@ -139,6 +143,7 @@ export function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
         className="sidebar-icon-btn"
         title={item.label}
         style={{
+          position: "relative",
           width: 44, height: 44, borderRadius: 8,
           display: "flex", alignItems: "center", justifyContent: "center",
           cursor: "pointer",
@@ -146,6 +151,11 @@ export function RailIcon({ item, active }: { item: NavItem; active: boolean }) {
         }}
       >
         <Icon size={18} color={active ? t.accent : t.textDim} />
+        {item.badge && (
+          <span style={{ position: "absolute", top: 4, right: 4 }}>
+            {item.badge}
+          </span>
+        )}
       </div>
     </Link>
   );
@@ -175,8 +185,47 @@ function saveCollapsed(state: Record<string, boolean>) {
   }
 }
 
+function PendingBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: 18,
+        height: 18,
+        borderRadius: 9,
+        backgroundColor: "#ef4444",
+        color: "#fff",
+        fontSize: 11,
+        fontWeight: 600,
+        padding: "0 5px",
+        lineHeight: 1,
+      }}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 export function AdminSections({ pathname, mobile }: { pathname: string; mobile?: boolean }) {
   const t = useThemeTokens();
+  const { data: pendingCount = 0 } = usePendingApprovalCount();
+
+  // Inject badge into the Approvals nav item
+  const sections = useMemo(() => {
+    if (pendingCount <= 0) return ADMIN_SECTIONS;
+    return ADMIN_SECTIONS.map((section) => ({
+      ...section,
+      items: section.items.map((item) =>
+        item.href === "/admin/approvals"
+          ? { ...item, badge: <PendingBadge count={pendingCount} /> }
+          : item,
+      ),
+    }));
+  }, [pendingCount]);
+
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     const saved = loadCollapsed();
     const initial: Record<string, boolean> = {};
@@ -215,7 +264,7 @@ export function AdminSections({ pathname, mobile }: { pathname: string; mobile?:
 
   return (
     <nav>
-      {ADMIN_SECTIONS.map((section) => {
+      {sections.map((section) => {
         const isCollapsed = collapsed[section.title] ?? false;
         const hasActive = sectionHasActive(section, pathname);
         return (

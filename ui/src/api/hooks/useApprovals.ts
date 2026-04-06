@@ -104,3 +104,13 @@ export function useApprovalSuggestions(approvalId: string | undefined) {
     enabled: !!approvalId,
   });
 }
+
+export function usePendingApprovalCount() {
+  return useQuery({
+    queryKey: ["approvals", undefined, "pending"],
+    queryFn: () =>
+      apiFetch<ToolApproval[]>("/api/v1/approvals?status=pending&limit=50"),
+    refetchInterval: 10_000,
+    select: (data) => data.length,
+  });
+}

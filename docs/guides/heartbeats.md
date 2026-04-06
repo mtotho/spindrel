@@ -318,3 +318,27 @@ quiet_end: 09:00
 timezone: America/Chicago
 prompt: Monitor the support queue and flag urgent items.
 ```
+
+---
+
+## Auto-Approve Tool Calls
+
+Heartbeats run autonomously — nobody is watching the chat. If a heartbeat triggers a tool that requires approval via a tool policy, the run blocks for up to 5 minutes waiting for manual approval, then fails silently.
+
+To prevent this, enable **Auto-approve tool calls** in the heartbeat's Advanced settings:
+
+1. Open a channel → **Settings** → **Heartbeat** tab
+2. Expand **Advanced**
+3. Toggle **Auto-approve tool calls** on
+4. Save
+
+When enabled, the heartbeat run skips all tool policy checks. Tools execute immediately without waiting for manual approval.
+
+**For scheduled tasks**, set `"skip_tool_approval": true` in the task's `execution_config` JSONB to achieve the same behavior.
+
+### Visibility
+
+Even with auto-approve disabled, pending approvals are now visible across the app:
+
+- **Sidebar badge** — the Approvals nav item shows a red count badge when pending approvals exist
+- **Toast notification** — a toast appears in the bottom-right when new approvals arrive, linking to the approvals page

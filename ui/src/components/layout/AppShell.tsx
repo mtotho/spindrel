@@ -4,6 +4,7 @@ import { Sidebar } from "./Sidebar";
 import { DetailPanel } from "./DetailPanel";
 import { SystemPauseBanner } from "./SystemPauseBanner";
 import { StreamingToast } from "./StreamingToast";
+import { ApprovalToast } from "./ApprovalToast";
 import { ActiveWorkflowsHud } from "./ActiveWorkflowsHud";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
@@ -74,6 +75,9 @@ export function AppShell() {
 
         {/* Streaming toast — shows when a background channel is processing */}
         <StreamingToast />
+
+        {/* Approval toast — shows when new pending approvals arrive */}
+        <ApprovalToast />
 
         {/* Global workflow HUD — shows when any workflow is actively running */}
         <ActiveWorkflowsHud />

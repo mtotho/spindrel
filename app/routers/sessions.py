@@ -13,7 +13,7 @@ from app.agent.bots import get_bot
 from app.config import settings
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Channel, Memory, Message, Plan, PlanItem, Session, TraceEvent
+from app.db.models import Attachment, Channel, Message, Plan, PlanItem, Session, TraceEvent
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.compaction import run_compaction_forced
 
@@ -239,10 +239,6 @@ async def delete_session(
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    # DB memory wipe on session delete — deprecated but kept for safety
-    wipe = settings.WIPE_MEMORY_ON_SESSION_DELETE
-    if wipe:
-        await db.execute(delete(Memory).where(Memory.session_id == session_id))
     await db.execute(delete(Session).where(Session.id == session_id))
     await db.commit()
 

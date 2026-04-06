@@ -627,8 +627,6 @@ async def assemble_context(
     _memory_scheme_injected_paths: set[str] = set()  # track injected files for fs RAG dedup
     if bot.memory_scheme == "workspace-files":
         _MEMORY_SCHEME_HIDDEN_TOOLS = {
-            "save_memory", "search_memories", "purge_memory",
-            "merge_memories", "promote_memories_to_knowledge",
             "upsert_knowledge", "append_to_knowledge", "edit_knowledge",
             "delete_knowledge", "get_knowledge", "list_knowledge_bases",
             "search_knowledge", "pin_knowledge", "unpin_knowledge",

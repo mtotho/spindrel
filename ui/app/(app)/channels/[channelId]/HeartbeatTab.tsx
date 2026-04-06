@@ -84,6 +84,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         timezone: data.config.timezone ?? "",
         workflow_id: data.config.workflow_id ?? null,
         workflow_session_mode: data.config.workflow_session_mode ?? null,
+        skip_tool_approval: data.config.skip_tool_approval ?? false,
       });
     } else if (data && !data.config) {
       setHbForm({
@@ -106,6 +107,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         timezone: "",
         workflow_id: null,
         workflow_session_mode: null,
+        skip_tool_approval: false,
       });
     }
   }, [data]);
@@ -431,6 +433,14 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 }}
                 label="Repetition detection"
                 description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
+              />
+            </Section>
+            <Section title="Tool Policies">
+              <Toggle
+                value={hbForm.skip_tool_approval ?? false}
+                onChange={(v) => setHbForm((f: any) => ({ ...f, skip_tool_approval: v }))}
+                label="Auto-approve tool calls"
+                description="Skip tool approval policies for heartbeat runs. Tools execute without waiting for manual approval."
               />
             </Section>
             <Section title="Model">

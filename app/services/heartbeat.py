@@ -588,6 +588,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 fallback_models=_hb_fallback_models,
                 injected_tools=injected_tools,
                 system_preamble=heartbeat_preamble,
+                skip_tool_policy=hb.skip_tool_approval,
             ),
             timeout=_hb_timeout,
         )

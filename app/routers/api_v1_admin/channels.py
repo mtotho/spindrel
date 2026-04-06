@@ -24,7 +24,6 @@ from app.db.models import (
     CompactionLog,
     HeartbeatRun,
     KnowledgeAccess,
-    Memory,
     Message,
     Plan,
     Session,
@@ -38,7 +37,6 @@ from app.dependencies import get_db, verify_auth_or_user
 from app.services.channels import apply_channel_visibility
 
 from ._helpers import _heartbeat_correlation_ids, build_tool_call_previews
-from ._schemas import MemoryListOut, MemoryOut
 from .turns import TurnToolCall
 
 logger = logging.getLogger(__name__)
@@ -190,6 +188,7 @@ class HeartbeatConfigOut(BaseModel):
     repetition_detection: Optional[bool] = None
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
+    skip_tool_approval: bool = False
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
@@ -205,7 +204,7 @@ class HeartbeatConfigOut(BaseModel):
             "workspace_file_path", "workspace_id",
             "dispatch_results", "dispatch_mode", "trigger_response",
             "timezone", "max_run_seconds", "previous_result_max_chars", "repetition_detection",
-            "workflow_id", "workflow_session_mode",
+            "workflow_id", "workflow_session_mode", "skip_tool_approval",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -264,6 +263,7 @@ class HeartbeatUpdate(BaseModel):
     repetition_detection: Optional[bool] = None
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
+    skip_tool_approval: bool = False
 
 
 class TaskOut(BaseModel):
@@ -1081,6 +1081,8 @@ async def admin_channel_heartbeat_update(
     if "workflow_session_mode" in updates:
         val = updates["workflow_session_mode"]
         heartbeat.workflow_session_mode = val if val in ("shared", "isolated") else None
+    if "skip_tool_approval" in updates:
+        heartbeat.skip_tool_approval = updates["skip_tool_approval"]
     heartbeat.updated_at = now
 
     if heartbeat.enabled:
@@ -1241,45 +1243,6 @@ async def admin_channel_reindex_segments(
         str(channel_id), bot, force=True, channel_segments=segments,
     )
     return {"status": "ok", "stats": stats}
-
-
-# ---------------------------------------------------------------------------
-# Memories
-# ---------------------------------------------------------------------------
-
-@router.get("/channels/{channel_id}/memories", response_model=MemoryListOut)
-async def admin_channel_memories(
-    channel_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
-):
-    """List recent memories for a channel (15, ordered by created_at desc)."""
-    channel = await db.get(Channel, channel_id)
-    if not channel:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    memories = (await db.execute(
-        select(Memory)
-        .where(Memory.channel_id == channel_id)
-        .order_by(Memory.created_at.desc())
-        .limit(15)
-    )).scalars().all()
-
-    return MemoryListOut(
-        memories=[
-            MemoryOut(
-                id=m.id,
-                session_id=m.session_id,
-                client_id=m.client_id,
-                bot_id=m.bot_id,
-                content=m.content,
-                message_count=m.message_count,
-                correlation_id=m.correlation_id,
-                created_at=m.created_at,
-            )
-            for m in memories
-        ],
-    )
 
 
 # ---------------------------------------------------------------------------

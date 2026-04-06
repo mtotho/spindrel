@@ -681,6 +681,7 @@ async def run_task(task: Task) -> None:
         _model_override = _ecfg_pre.get("model_override") or None
         _provider_id_override = _ecfg_pre.get("model_provider_id_override") or None
         _fallback_models = _ecfg_pre.get("fallback_models") or None
+        _skip_tool_policy = bool(_ecfg_pre.get("skip_tool_approval", False))
 
         # Scoped secrets from workflow steps
         _allowed_secrets = _ecfg_pre.get("allowed_secrets")
@@ -741,6 +742,7 @@ async def run_task(task: Task) -> None:
                 fallback_models=_fallback_models,
                 system_preamble=_system_preamble,
                 injected_tools=_ecfg_injected_tools,
+                skip_tool_policy=_skip_tool_policy,
             ),
             timeout=_task_timeout,
         )

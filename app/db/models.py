@@ -1056,6 +1056,7 @@ class ChannelHeartbeat(Base):
     repetition_detection: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     workflow_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     workflow_session_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
+    skip_tool_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
     channel: Mapped["Channel"] = relationship("Channel")
 

@@ -103,18 +103,3 @@ class BotListOut(BaseModel):
     total: int
 
 
-class MemoryOut(BaseModel):
-    id: uuid.UUID
-    session_id: Optional[uuid.UUID] = None
-    client_id: str
-    bot_id: str
-    content: str
-    message_count: Optional[int] = None
-    correlation_id: Optional[uuid.UUID] = None
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class MemoryListOut(BaseModel):
-    memories: list[MemoryOut]

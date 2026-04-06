@@ -167,29 +167,6 @@ class TestSSRFGuard:
 # C6 — Cross-channel memory leakage
 # ---------------------------------------------------------------------------
 
-class TestMemoryScopingFailSecure:
-    """Verify that missing user_id blocks all memories instead of leaking them."""
-
-    def test_cross_everything_no_user_id_returns_false_filter(self):
-        """When cross_channel + cross_client + cross_bot and no user_id,
-        the filter should block everything (not return None/no filter)."""
-        from app.agent.memory import memory_scope_where
-        import uuid
-
-        result = memory_scope_where(
-            session_id=uuid.uuid4(),
-            channel_id=uuid.uuid4(),
-            client_id="test-client",
-            bot_id="test-bot",
-            cross_channel=True,
-            cross_client=True,
-            cross_bot=True,
-            user_id=None,
-        )
-        # Must NOT be None (which would mean "no filter = see everything")
-        assert result is not None, "Memory scope must not return None when user_id is missing"
-
-
 # ---------------------------------------------------------------------------
 # H5 — Path traversal in stream_to validation
 # ---------------------------------------------------------------------------

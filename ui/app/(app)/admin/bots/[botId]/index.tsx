@@ -488,7 +488,7 @@ export default function BotEditorScreen() {
           )}
 
           {activeSection === "knowledge" && (
-            <KnowledgeSection draft={draft} update={update} />
+            <KnowledgeSection />
           )}
 
           {activeSection === "attachments" && (
