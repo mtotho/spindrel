@@ -1,4 +1,4 @@
-"""Local tool: manage_carapace — create, update, list, and inspect carapaces."""
+"""Local tool: manage_capability — create, update, list, and inspect capabilities."""
 
 import json
 import logging
@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 @register({
     "type": "function",
     "function": {
-        "name": "manage_carapace",
+        "name": "manage_capability",
         "description": (
-            "Create, update, list, or inspect carapaces (composable skill+tool bundles). "
-            "A carapace bundles skills, tools, pinned tools, and behavioral instructions "
+            "Create, update, list, or inspect capabilities (composable skill+tool bundles). "
+            "A capability bundles skills, tools, pinned tools, and behavioral instructions "
             "into a reusable configuration that can be applied to any bot or sub-agent."
         ),
         "parameters": {
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
                 },
                 "id": {
                     "type": "string",
-                    "description": "Carapace ID (required for create, update, get).",
+                    "description": "Capability ID (required for create, update, get).",
                 },
                 "name": {
                     "type": "string",
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
                 },
                 "description": {
                     "type": "string",
-                    "description": "Short description of the carapace.",
+                    "description": "Short description of the capability.",
                 },
                 "skills": {
                     "type": "string",
@@ -56,11 +56,11 @@ logger = logging.getLogger(__name__)
                 },
                 "includes": {
                     "type": "string",
-                    "description": "Comma-separated carapace IDs to compose with.",
+                    "description": "Comma-separated capability IDs to compose with.",
                 },
                 "system_prompt_fragment": {
                     "type": "string",
-                    "description": "Behavioral instructions injected when this carapace is active.",
+                    "description": "Behavioral instructions injected when this capability is active.",
                 },
                 "delegates": {
                     "type": "string",
@@ -79,7 +79,7 @@ logger = logging.getLogger(__name__)
         },
     },
 }, safety_tier="control_plane")
-async def manage_carapace(
+async def manage_capability(
     action: str,
     id: str = "",
     name: str = "",

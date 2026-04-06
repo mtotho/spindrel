@@ -208,7 +208,6 @@ async def assemble_config_state(db) -> dict:
             "fallback_models": b.fallback_models,
             "user_id": _str(b.user_id),
             "api_key_id": _str(b.api_key_id),
-            "api_docs_mode": b.api_docs_mode,
             "memory_scheme": b.memory_scheme,
             "history_mode": b.history_mode,
             "context_pruning": b.context_pruning,

@@ -272,7 +272,6 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "fallback_models": row.get("fallback_models", []),
                 "user_id": row.get("user_id"),
                 "api_key_id": row.get("api_key_id"),
-                "api_docs_mode": row.get("api_docs_mode"),
                 "memory_scheme": row.get("memory_scheme"),
                 "history_mode": row.get("history_mode"),
                 "context_pruning": row.get("context_pruning"),

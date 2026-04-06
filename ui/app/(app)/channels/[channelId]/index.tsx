@@ -14,7 +14,7 @@ import { useUIStore } from "@/src/stores/ui";
 import { useChannelReadStore } from "@/src/stores/channelRead";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useChannel } from "@/src/api/hooks/useChannels";
+import { useChannel, useChannelContextBudget } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
@@ -117,6 +117,7 @@ export default function ChatScreen() {
   const { data: channel } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
   const { data: systemStatus } = useSystemStatus();
+  const { data: savedBudget } = useChannelContextBudget(channelId);
   const isPaused = systemStatus?.paused ?? false;
   const columns = useResponsiveColumns();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
@@ -358,7 +359,13 @@ export default function ChatScreen() {
         memberBotCount={memberBotCount}
         participantsPanelOpen={participantsPanelOpen}
         toggleParticipantsPanel={() => setParticipantsPanelOpen((p) => !p)}
-        contextBudget={chatState.contextBudget}
+        contextBudget={chatState.contextBudget ?? (
+          savedBudget?.utilization != null ? {
+            utilization: savedBudget.utilization,
+            consumed: savedBudget.consumed_tokens ?? 0,
+            total: savedBudget.total_tokens ?? 0,
+          } : null
+        )}
       />
 
       {/* What's active badge bar */}

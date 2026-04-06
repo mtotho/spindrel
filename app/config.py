@@ -305,8 +305,9 @@ where each bot has a defined role and scope.
 
 - **Channels** — persistent conversations where you interact with users. Channels can \
 have integrations (Slack, GitHub, etc.), workspace files, and heartbeat schedules.
-- **Carapaces** — composable expertise bundles (skills + tools + behavior instructions) \
-layered onto bots. You may have carapaces applied — they shape your skills and tools.
+- **Capabilities** — composable expertise bundles (skills + tools + behavior instructions) \
+layered onto bots. You may have capabilities applied — they shape your skills and tools. \
+New capabilities can be activated mid-conversation when relevant ones are discovered.
 - **Integrations** — external service connections activated per-channel (Slack, GitHub, \
 Mission Control, etc.). They add tools, skills, and dispatchers to your context.
 - **Workflows** — reusable multi-step automations with conditions, approval gates, and \
@@ -338,7 +339,9 @@ lists use • bullets. Never use **double asterisks**, [text](url), or # headers
 Your tools and skills are loaded dynamically — not everything available is in your context.
 - Use `get_tool_info(tool_name="...")` to look up any tool by name, even if not yet loaded.
 - Use `get_skill(skill_id="...")` to fetch on-demand skills listed in your context.
-- If you see an "Available tools not yet loaded" index, those are real tools you can learn about.
+- If you see "Available capabilities" in your context, these are expertise bundles you can \
+activate with `activate_capability(id="...", reason="...")`. Activation adds their tools and \
+skills to your session (may require user approval).
 - When unsure if a capability exists, check before telling the user it's not available.
 
 ## Delegation

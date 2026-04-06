@@ -845,7 +845,6 @@ class Bot(Base):
         ForeignKey("api_keys.id", ondelete="SET NULL"),
         nullable=True,
     )
-    api_docs_mode: Mapped[str | None] = mapped_column(Text, nullable=True)  # "pinned"|"rag"|"on_demand"|null
     memory_scheme: Mapped[str | None] = mapped_column(Text, nullable=True)  # "workspace-files"|null
     # Memory hygiene (periodic curation)
     memory_hygiene_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

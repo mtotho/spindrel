@@ -1870,6 +1870,37 @@ async def admin_channel_context_breakdown(
     }
 
 
+@router.get("/channels/{channel_id}/context-budget")
+async def admin_channel_context_budget(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(verify_auth_or_user),
+):
+    """Return the latest context budget for this channel (from trace events)."""
+    from app.db.models import TraceEvent
+
+    # Find latest context_injection_summary trace for any session in this channel
+    result = await db.execute(
+        select(TraceEvent.data)
+        .join(Session, TraceEvent.session_id == Session.id)
+        .where(
+            Session.channel_id == channel_id,
+            TraceEvent.event_type == "context_injection_summary",
+        )
+        .order_by(TraceEvent.created_at.desc())
+        .limit(1)
+    )
+    data = result.scalar_one_or_none()
+    budget = data.get("context_budget") if data else None
+    if not budget:
+        return {"utilization": None, "consumed_tokens": None, "total_tokens": None}
+    return {
+        "utilization": budget.get("utilization"),
+        "consumed_tokens": budget.get("consumed_tokens"),
+        "total_tokens": budget.get("total_tokens"),
+    }
+
+
 @router.get("/channels/{channel_id}/context-preview")
 async def admin_channel_context_preview(
     channel_id: uuid.UUID,

@@ -18,7 +18,7 @@ _TOOL_DISPLAY_NAMES = {
     "search_channel_workspace": "Searching workspace",
     "search_channel_archive": "Searching archive",
     "get_skill": "Loading skill",
-    "manage_carapace": "Managing carapace",
+    "manage_capability": "Managing capability",
     "manage_workflow": "Managing workflow",
     "schedule_task": "Scheduling task",
     "client_action": None,

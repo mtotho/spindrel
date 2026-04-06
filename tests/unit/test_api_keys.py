@@ -1,4 +1,6 @@
 """Unit tests for API key generation and scope checking."""
+import json
+
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 
@@ -147,74 +149,28 @@ class TestGenerateApiDocs:
         assert "/api/v1/tasks" in docs
 
 
-class TestVirtualApiReferenceSkill:
-    """Test that get_skill('api_reference') returns generated API docs."""
+class TestApiAccessToolsIntegration:
+    """Test that list_api_endpoints and call_api work with the scope system."""
 
     @pytest.mark.asyncio
-    async def test_api_reference_returns_docs_for_bot_with_permissions(self):
-        """get_skill('api_reference') generates docs when bot has api_permissions."""
-        from app.tools.local.skills import get_skill
+    async def test_list_api_endpoints_uses_scope_filtering(self):
+        """list_api_endpoints filters ENDPOINT_CATALOG by bot's api_permissions."""
+        from app.tools.local.api_access import list_api_endpoints
         from app.agent.context import current_bot_id
 
         mock_bot = MagicMock()
-        mock_bot.api_permissions = ["chat", "channels:read"]
+        mock_bot.id = "test_bot"
+        mock_bot.api_permissions = ["channels:read"]
 
         token = current_bot_id.set("test_bot")
         try:
             with patch("app.agent.bots.get_bot", return_value=mock_bot):
-                result = await get_skill("api_reference")
-            assert "# Agent Server API Reference" in result
-            assert "chat" in result
-            assert "/api/v1/channels" in result
-        finally:
-            current_bot_id.reset(token)
-
-    @pytest.mark.asyncio
-    async def test_api_reference_no_permissions_returns_message(self):
-        """get_skill('api_reference') returns helpful message when bot has no permissions."""
-        from app.tools.local.skills import get_skill
-        from app.agent.context import current_bot_id
-
-        mock_bot = MagicMock()
-        mock_bot.api_permissions = []
-
-        token = current_bot_id.set("test_bot")
-        try:
-            with patch("app.agent.bots.get_bot", return_value=mock_bot):
-                result = await get_skill("api_reference")
-            assert "No API permissions" in result
-        finally:
-            current_bot_id.reset(token)
-
-    @pytest.mark.asyncio
-    async def test_api_reference_no_bot_returns_message(self):
-        """get_skill('api_reference') returns message when no bot context."""
-        from app.tools.local.skills import get_skill
-        from app.agent.context import current_bot_id
-
-        token = current_bot_id.set(None)
-        try:
-            result = await get_skill("api_reference")
-            assert "No API permissions" in result
-        finally:
-            current_bot_id.reset(token)
-
-    @pytest.mark.asyncio
-    async def test_api_reference_admin_scopes_returns_all(self):
-        """get_skill('api_reference') with admin scope returns full docs."""
-        from app.tools.local.skills import get_skill
-        from app.agent.context import current_bot_id
-
-        mock_bot = MagicMock()
-        mock_bot.api_permissions = ["admin"]
-
-        token = current_bot_id.set("test_bot")
-        try:
-            with patch("app.agent.bots.get_bot", return_value=mock_bot):
-                result = await get_skill("api_reference")
-            assert "# Agent Server API Reference" in result
-            assert "/chat" in result
-            assert "/api/v1/channels" in result
-            assert "/api/v1/tasks" in result
+                result = json.loads(await list_api_endpoints())
+            assert result["count"] > 0
+            # Should include channel endpoints
+            paths = [ep["path"] for ep in result["endpoints"]]
+            assert any("/channels" in p for p in paths)
+            # Should NOT include task endpoints (no tasks scope)
+            assert not any("/tasks" in p for p in paths)
         finally:
             current_bot_id.reset(token)

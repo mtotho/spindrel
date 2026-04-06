@@ -172,6 +172,60 @@ class TestCreate:
             db.add.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_create_populates_description_triggers_category(self):
+        """Bug fix: create must set description, triggers, category DB columns."""
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
+            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+        ):
+            ctx.get.return_value = "testbot"
+            body = "# Docker Networking\n\nHow to configure bridge networks. " + "x" * 50
+            result = _parse(await manage_bot_skill(
+                action="create", name="docker-net", title="Docker Networking",
+                content=body,
+                triggers="docker, networking, bridge", category="infrastructure",
+            ))
+            assert result["ok"] is True
+            row = db.add.call_args[0][0]
+            assert row.description is not None
+            assert len(row.description) > 0
+            assert row.triggers == ["docker", "networking", "bridge"]
+            assert row.category == "infrastructure"
+
+    @pytest.mark.asyncio
+    async def test_create_without_triggers_sets_empty_list(self):
+        """Create without triggers should set empty list, not None."""
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=None)
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
+            patch("app.tools.local.bot_skills._check_count_warning", new_callable=AsyncMock, return_value=None),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="create", name="plain", title="Plain Skill",
+                content="x" * CONTENT_MIN_LENGTH,
+            ))
+            assert result["ok"] is True
+            row = db.add.call_args[0][0]
+            assert row.triggers == []
+            assert row.category is None
+
+    @pytest.mark.asyncio
     async def test_duplicate_rejected(self):
         existing = _make_skill_row("bots/testbot/my-skill")
         db = AsyncMock()
@@ -408,6 +462,41 @@ class TestUpdate:
             assert "Original body" in row.content
 
     @pytest.mark.asyncio
+    async def test_update_syncs_db_columns(self):
+        """Bug fix: update must sync description, triggers, category DB columns."""
+        existing = "---\nname: My Skill\ntriggers: old\ncategory: debug\n---\n\nOriginal body"
+        row = _make_skill_row("bots/testbot/my-skill", content=existing, source_type="tool")
+        # MagicMock allows setting any attribute
+        row.triggers = []
+        row.category = None
+        row.description = None
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=row)
+        db.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+            patch("asyncio.create_task"),
+        ):
+            ctx.get.return_value = "testbot"
+            new_body = "Updated content about docker networking. " + "x" * 50
+            result = _parse(await manage_bot_skill(
+                action="update", name="my-skill",
+                content=new_body,
+                triggers="docker, networking",
+                category="infrastructure",
+            ))
+            assert result["ok"] is True
+            # DB columns should be synced
+            assert row.triggers == ["docker", "networking"]
+            assert row.category == "infrastructure"
+            assert row.description is not None
+            assert len(row.description) > 0
+
+    @pytest.mark.asyncio
     async def test_update_no_changes_rejected(self):
         row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
         db = AsyncMock()
@@ -523,6 +612,62 @@ class TestPatch:
             ))
             assert result["ok"] is True
             assert "updated content" in row.content
+
+    @pytest.mark.asyncio
+    async def test_patch_syncs_db_columns(self):
+        """Patching content should update description, triggers, category DB columns."""
+        body = "original content that is long enough to pass validation " + "x" * 50
+        full_content = "---\ntitle: Old Title\ntriggers: alpha, beta\ncategory: general\n---\n\n" + body
+        row = _make_skill_row("bots/testbot/my-skill", name="Old Title", content=full_content, source_type="tool")
+        row.triggers = ["alpha", "beta"]
+        row.category = "general"
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=row)
+        db.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+            patch("asyncio.create_task"),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="patch", name="my-skill",
+                old_text="triggers: alpha, beta", new_text="triggers: alpha, beta, gamma",
+            ))
+            assert result["ok"] is True
+            # DB columns should be synced from patched frontmatter
+            assert row.triggers == ["alpha", "beta", "gamma"]
+
+    @pytest.mark.asyncio
+    async def test_patch_syncs_description_from_body(self):
+        """Patching body content should update the description DB column."""
+        body = "original content that is long enough to pass validation " + "x" * 50
+        full_content = "---\ntitle: My Skill\ntriggers: a\ncategory: dev\n---\n\n" + body
+        row = _make_skill_row("bots/testbot/my-skill", name="My Skill", content=full_content, source_type="tool")
+        row.triggers = ["a"]
+        row.category = "dev"
+        row.description = body[:200].strip()
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=row)
+        db.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+            patch("asyncio.create_task"),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="patch", name="my-skill",
+                old_text="original content", new_text="patched content",
+            ))
+            assert result["ok"] is True
+            assert "patched content" in row.description
 
 
 class TestUnknownAction:
@@ -1417,6 +1562,49 @@ class TestMergeAction:
         assert db.delete.call_count == 2
         # Should have added the merged skill
         db.add.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_merge_populates_db_columns(self):
+        """Bug fix: merge must set description, triggers, category on the merged row."""
+        skill_a = _make_skill_row("bots/testbot/skill-a", name="Skill A", source_type="tool")
+        skill_b = _make_skill_row("bots/testbot/skill-b", name="Skill B", source_type="tool")
+
+        skill_map = {
+            "bots/testbot/skill-a": skill_a,
+            "bots/testbot/skill-b": skill_b,
+            "bots/testbot/merged": None,
+        }
+
+        db = AsyncMock()
+        db.get = AsyncMock(side_effect=lambda model, key: skill_map.get(key))
+        db.delete = AsyncMock()
+        db.execute = AsyncMock()
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+            patch("app.tools.local.bot_skills._embed_skill_safe", new_callable=AsyncMock, return_value=True),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(
+                action="merge",
+                names=["skill-a", "skill-b"],
+                name="merged",
+                title="Merged Skill",
+                content="Combined knowledge about networking. " + "x" * 50,
+                triggers="network, bridge",
+                category="infrastructure",
+            ))
+
+        assert result["ok"] is True
+        merged_row = db.add.call_args[0][0]
+        assert merged_row.triggers == ["network", "bridge"]
+        assert merged_row.category == "infrastructure"
+        assert merged_row.description is not None
+        assert "networking" in merged_row.description.lower()
 
     @pytest.mark.asyncio
     async def test_merge_rejects_file_managed_source(self):

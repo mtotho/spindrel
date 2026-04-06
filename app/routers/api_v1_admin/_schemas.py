@@ -80,7 +80,6 @@ class BotOut(BaseModel):
     shared_workspace_id: Optional[str] = None
     shared_workspace_role: Optional[str] = None
     api_permissions: Optional[list[str]] = None
-    api_docs_mode: Optional[str] = None
     memory_scheme: Optional[str] = None
     memory_hygiene_enabled: Optional[bool] = None
     memory_hygiene_interval_hours: Optional[int] = None

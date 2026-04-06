@@ -165,9 +165,9 @@ Common local tools and their parameters (for conversion):
     id: "{{sub_workflow_id}}"
     params: '{"key": "{{value}}"}'
 
-# manage_carapace — CRUD carapaces
+# manage_capability — CRUD capabilities
 - type: tool
-  tool_name: manage_carapace
+  tool_name: manage_capability
   tool_args:
     action: list
 ```

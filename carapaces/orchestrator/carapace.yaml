@@ -86,7 +86,7 @@ local_tools:
   - manage_bot
   - manage_channel
   - manage_integration
-  - manage_carapace
+  - manage_capability
   - delegate_to_agent
   - delegate_to_exec
   - run_claude_code

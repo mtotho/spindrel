@@ -561,10 +561,13 @@ async def assemble_context(
             _bot_skill_ids = await _get_bot_authored_skill_ids(bot.id)
             if _bot_skill_ids:
                 _existing_skill_ids = {s.id for s in bot.skills}
+                _bot_disabled = set()
+                if _ch_row is not None:
+                    _bot_disabled = set(getattr(_ch_row, "skills_disabled", None) or [])
                 _bot_new_skills = [
                     SkillConfig(id=sid, mode="on_demand")
                     for sid in _bot_skill_ids
-                    if sid not in _existing_skill_ids
+                    if sid not in _existing_skill_ids and sid not in _bot_disabled
                 ]
                 if _bot_new_skills:
                     bot = _dc_replace(bot, skills=list(bot.skills) + _bot_new_skills)
@@ -1098,81 +1101,25 @@ async def assemble_context(
             ):
                 yield evt
 
-    # --- dynamic API access docs (for bots with scoped API keys) ---
-    if bot.api_permissions and bot.api_docs_mode:
-        try:
-            _mode = bot.api_docs_mode
-
-            # Always add api_reference to skill index so bot knows it exists
-            _api_skill_line = "- api_reference: Agent Server API Reference (auto-generated from your API key scopes)"
-            messages.append({
-                "role": "system",
-                "content": (
-                    f"Available skills — call get_skill(skill_id=\"<id>\") to retrieve full content:\n{_api_skill_line}"
-                ),
-            })
-
-            if _mode == "pinned":
-                # Always inject full docs
-                from app.services.api_keys import generate_api_docs
-                _api_docs = generate_api_docs(bot.api_permissions)
-                _api_docs_chars = len(_api_docs)
-                _inject_chars["api_docs"] = _api_docs_chars
-                messages.append({
-                    "role": "system",
-                    "content": (
-                        "You have a scoped API key for the agent server.\n"
-                        "IMPORTANT: `agent-api` is a CLI command — run it via exec_command, "
-                        "e.g. exec_command(command=\"agent-api GET /api/v1/channels\"). "
-                        "Do NOT try to call `agent_api` as a tool — it does not exist.\n\n"
-                        + _api_docs
-                    ),
-                })
-                yield {"type": "api_docs_context", "mode": "pinned", "scopes": bot.api_permissions, "chars": _api_docs_chars}
-
-            elif _mode == "rag":
-                # Only inject when the user message is related to API usage
-                _api_keywords = {
-                    "api", "endpoint", "agent-api", "agent api", "curl", "http",
-                    "channel", "channels", "session", "task", "discover",
-                    "inject", "message", "server", "request", "post", "get",
-                    "delete", "put", "agent docs", "agent discover",
-                }
-                _user_lower = user_message.lower()
-                if any(kw in _user_lower for kw in _api_keywords):
-                    from app.services.api_keys import generate_api_docs
-                    _api_docs = generate_api_docs(bot.api_permissions)
-                    _api_docs_chars = len(_api_docs)
-                    _inject_chars["api_docs"] = _api_docs_chars
-                    messages.append({
-                        "role": "system",
-                        "content": (
-                            "You have a scoped API key for the agent server.\n"
-                            "IMPORTANT: `agent-api` is a CLI command — run it via exec_command, "
-                            "e.g. exec_command(command=\"agent-api GET /api/v1/channels\"). "
-                            "Do NOT try to call `agent_api` as a tool — it does not exist.\n\n"
-                            + _api_docs
-                        ),
-                    })
-                    yield {"type": "api_docs_context", "mode": "rag", "scopes": bot.api_permissions, "chars": _api_docs_chars}
-                else:
-                    yield {"type": "api_docs_context", "mode": "rag_skipped", "scopes": bot.api_permissions, "chars": 0}
-
-            elif _mode == "on_demand":
-                # Just inject a short hint — bot uses get_skill("api_reference") when needed
-                _hint = (
-                    "You have a scoped API key for the agent server "
-                    f"(scopes: {', '.join(bot.api_permissions)}). "
-                    "Use `get_skill(\"api_reference\")` to see full API documentation for your permissions. "
-                    "IMPORTANT: `agent-api` is a CLI command — run it via exec_command, "
-                    "e.g. exec_command(command=\"agent-api GET /path\"). Do NOT call `agent_api` as a tool."
-                )
-                _inject_chars["api_docs"] = len(_hint)
-                messages.append({"role": "system", "content": _hint})
-                yield {"type": "api_docs_context", "mode": "on_demand", "scopes": bot.api_permissions, "chars": len(_hint)}
-
-        except Exception:
-            logger.warning("Failed to inject API docs for bot %s", bot.id, exc_info=True)
+    # --- API access tools (for bots with scoped API keys) ---
+    if bot.api_permissions:
+        _api_tools = ["list_api_endpoints", "call_api"]
+        _new_local = list(bot.local_tools or [])
+        _new_pinned = list(dict.fromkeys(bot.pinned_tools or []))
+        for _t in _api_tools:
+            if _t not in _new_local:
+                _new_local.append(_t)
+            if _t not in _new_pinned:
+                _new_pinned.append(_t)
+        bot = _dc_replace(bot, local_tools=_new_local, pinned_tools=_new_pinned)
+        messages.append({
+            "role": "system",
+            "content": (
+                f"You have API access to the agent server (scopes: {', '.join(bot.api_permissions)}). "
+                "Use list_api_endpoints() to see available endpoints and call_api(method, path, body) to execute them."
+            ),
+        })
+        yield {"type": "api_access_tools", "scopes": bot.api_permissions}
 
     # --- multi-bot channel awareness + member bot injection ---
     _member_bot_ids: list[str] = []

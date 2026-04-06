@@ -443,6 +443,19 @@ export function useChannelContextBreakdown(channelId: string | undefined) {
 }
 
 // ---------------------------------------------------------------------------
+// Context budget (lightweight — for header indicator)
+// ---------------------------------------------------------------------------
+
+export function useChannelContextBudget(channelId: string | undefined) {
+  return useQuery<{ utilization: number | null; consumed_tokens: number | null; total_tokens: number | null }>({
+    queryKey: ["channel-context-budget", channelId],
+    queryFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/context-budget`),
+    enabled: !!channelId,
+    staleTime: 60_000, // don't refetch aggressively — SSE updates will override
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Bot members (multi-bot channels)
 // ---------------------------------------------------------------------------
 

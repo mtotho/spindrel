@@ -3,23 +3,12 @@ import { Check } from "lucide-react";
 import { useApiKeyScopes } from "@/src/api/hooks/useApiKeys";
 import { useThemeTokens } from "@/src/theme/tokens";
 
-const API_DOCS_MODES = [
-  { value: "", label: "Disabled", description: "No API docs injected into context" },
-  { value: "on_demand", label: "On Demand", description: "Short hint + skill index entry; bot calls get_skill(\"api_reference\") when needed" },
-  { value: "rag", label: "RAG", description: "Full docs injected only when the message mentions API-related keywords" },
-  { value: "pinned", label: "Pinned", description: "Full docs injected every turn (~1K tokens)" },
-];
-
 export function BotPermissionsSection({
   permissions,
   onChange,
-  docsMode,
-  onDocsModeChange,
 }: {
   permissions: string[];
   onChange: (scopes: string[]) => void;
-  docsMode: string | null | undefined;
-  onDocsModeChange: (mode: string | null) => void;
 }) {
   const t = useThemeTokens();
   const { data: scopeGroups } = useApiKeyScopes();
@@ -38,8 +27,9 @@ export function BotPermissionsSection({
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Permissions</div>
       <div style={{ fontSize: 11, color: t.textDim }}>
-        Control which API endpoints this bot can access when running inside a workspace or sandbox.
-        A scoped API key is automatically created and injected into the bot's container environment.
+        Control which API endpoints this bot can access. A scoped API key is automatically
+        created. When permissions are set, the bot gets <code style={{ color: t.textMuted }}>list_api_endpoints</code> and{" "}
+        <code style={{ color: t.textMuted }}>call_api</code> tools pinned to its context.
       </div>
 
       {hasAdmin && (
@@ -108,73 +98,24 @@ export function BotPermissionsSection({
       )}
 
       {permissions.length > 0 && (
-        <>
-          <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>
-            {permissions.length} scope{permissions.length !== 1 ? "s" : ""} selected.
-            The bot's scoped key will be updated on save.
+        <div style={{
+          marginTop: 12, padding: "10px 12px", borderRadius: 6,
+          background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: t.accent, marginBottom: 4 }}>
+            API Access Tools
           </div>
-
-          <div style={{ marginTop: 16 }}>
-            <div style={{
-              fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6,
-              textTransform: "uppercase", letterSpacing: 0.5,
-            }}>
-              API Docs Injection
-            </div>
-            <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8 }}>
-              How API documentation for the bot's available endpoints is included in context.
-            </div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {API_DOCS_MODES.map((m) => {
-                const active = (docsMode || "") === m.value;
-                return (
-                  <button
-                    key={m.value}
-                    onClick={() => onDocsModeChange(m.value || null)}
-                    title={m.description}
-                    style={{
-                      padding: "5px 12px", borderRadius: 5, fontSize: 12, cursor: "pointer",
-                      border: active ? `1px solid ${t.accentBorder}` : `1px solid ${t.surfaceBorder}`,
-                      background: active ? t.accentSubtle : "transparent",
-                      color: active ? t.accent : t.textDim,
-                      fontWeight: active ? 600 : 400,
-                    }}
-                  >
-                    {m.label}
-                  </button>
-                );
-              })}
-            </div>
-            {docsMode && (
-              <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>
-                {API_DOCS_MODES.find((m) => m.value === docsMode)?.description}
-              </div>
-            )}
+          <div style={{ fontSize: 11, color: t.textDim, lineHeight: 1.5 }}>
+            The bot will automatically get <code style={{ color: t.textMuted }}>list_api_endpoints</code> and{" "}
+            <code style={{ color: t.textMuted }}>call_api</code> tools pinned to its context.
+            These tools let it discover and call server API endpoints filtered to the {permissions.length} scope{permissions.length !== 1 ? "s" : ""} selected above.
+            Requests run in-process with full auth — no sandbox or CLI needed.
           </div>
-
-          {docsMode && (
-            <div style={{
-              marginTop: 12, padding: "10px 12px", borderRadius: 6,
-              background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.accent, marginBottom: 4 }}>
-                Virtual Skill: api_reference
-              </div>
-              <div style={{ fontSize: 11, color: t.textDim, lineHeight: 1.5 }}>
-                The bot automatically gets an <code style={{ color: t.textMuted }}>api_reference</code> entry
-                in its skill index. It can call <code style={{ color: t.textMuted }}>get_skill("api_reference")</code> to
-                retrieve full API documentation filtered to only the endpoints its scopes allow.
-                {docsMode === "pinned" && " In pinned mode, the full docs are also always included in context."}
-                {docsMode === "rag" && " In RAG mode, full docs are injected when the message mentions API-related keywords."}
-                {docsMode === "on_demand" && " In on-demand mode, only a short hint is injected — the bot fetches full docs via the skill when needed."}
-              </div>
-            </div>
-          )}
-        </>
+        </div>
       )}
       {permissions.length === 0 && (
         <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>
-          No scopes selected. The bot will use the server's default API key in containers.
+          No scopes selected. The bot will not have API access tools.
         </div>
       )}
     </div>

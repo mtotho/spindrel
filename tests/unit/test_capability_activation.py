@@ -273,7 +273,6 @@ def _make_bot(carapaces=None):
         context_pruning=None,
         context_pruning_keep_turns=None,
         api_permissions=None,
-        api_docs_mode=None,
         knowledge_max_inject_chars=None,
         persona=False,
         audio_input=None,

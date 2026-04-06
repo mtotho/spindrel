@@ -229,8 +229,6 @@ class BotConfig:
     history_mode: str = "file"
     # Scoped API key permissions (populated from linked ApiKey)
     api_permissions: list[str] = field(default_factory=list)
-    # How to inject API docs into context: "pinned"|"rag"|"on_demand"|None (disabled)
-    api_docs_mode: str | None = None
     # Memory scheme: "workspace-files" = file-based memory (replaces DB memory/knowledge)
     memory_scheme: str | None = None
     # Memory hygiene (periodic curation) — null = inherit global
@@ -456,7 +454,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         context_pruning=getattr(row, "context_pruning", None),
         context_pruning_keep_turns=getattr(row, "context_pruning_keep_turns", None),
         history_mode=row.history_mode or "file",
-        api_docs_mode=getattr(row, "api_docs_mode", None),
         memory_scheme=getattr(row, "memory_scheme", None),
         memory_hygiene_enabled=getattr(row, "memory_hygiene_enabled", None),
         memory_hygiene_interval_hours=getattr(row, "memory_hygiene_interval_hours", None),

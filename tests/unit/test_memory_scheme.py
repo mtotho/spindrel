@@ -437,7 +437,7 @@ class TestBasePromptContent:
         """Verify key platform concepts are mentioned in the base prompt."""
         from app.config import DEFAULT_GLOBAL_BASE_PROMPT
 
-        for concept in ["carapace", "integration", "workflow", "orchestrator"]:
+        for concept in ["capabilit", "integration", "workflow", "orchestrator"]:
             assert concept.lower() in DEFAULT_GLOBAL_BASE_PROMPT.lower(), (
                 f"Base prompt missing platform concept: {concept}"
             )

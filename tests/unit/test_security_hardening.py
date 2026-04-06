@@ -113,8 +113,8 @@ class TestSQLIdentifierValidation:
 class TestCarapaceToolRestriction:
     @pytest.mark.asyncio
     async def test_create_with_tools_rejected(self):
-        from app.tools.local.carapaces import manage_carapace
-        result = json.loads(await manage_carapace(
+        from app.tools.local.carapaces import manage_capability
+        result = json.loads(await manage_capability(
             action="create",
             id="test-carapace",
             name="Test",
@@ -125,8 +125,8 @@ class TestCarapaceToolRestriction:
 
     @pytest.mark.asyncio
     async def test_create_with_pinned_tools_rejected(self):
-        from app.tools.local.carapaces import manage_carapace
-        result = json.loads(await manage_carapace(
+        from app.tools.local.carapaces import manage_capability
+        result = json.loads(await manage_capability(
             action="create",
             id="test-carapace",
             name="Test",
@@ -137,8 +137,8 @@ class TestCarapaceToolRestriction:
 
     @pytest.mark.asyncio
     async def test_create_with_mcp_tools_rejected(self):
-        from app.tools.local.carapaces import manage_carapace
-        result = json.loads(await manage_carapace(
+        from app.tools.local.carapaces import manage_capability
+        result = json.loads(await manage_capability(
             action="create",
             id="test-carapace",
             name="Test",
@@ -149,8 +149,8 @@ class TestCarapaceToolRestriction:
 
     @pytest.mark.asyncio
     async def test_create_with_delegates_rejected(self):
-        from app.tools.local.carapaces import manage_carapace
-        result = json.loads(await manage_carapace(
+        from app.tools.local.carapaces import manage_capability
+        result = json.loads(await manage_capability(
             action="create",
             id="test-carapace",
             name="Test",

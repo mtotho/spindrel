@@ -328,9 +328,14 @@ async def manage_bot_skill(
                 return json.dumps({"error": f"Skill '{skill_id}' already exists. Use update or patch."})
 
             now = datetime.now(timezone.utc)
+            # Parse triggers into list for the DB column
+            _triggers_list = [t.strip() for t in triggers.split(",") if t.strip()] if triggers else []
             row = SkillRow(
                 id=skill_id,
                 name=title.strip(),
+                description=content[:200].strip() if content else None,
+                category=category.strip() if category else None,
+                triggers=_triggers_list,
                 content=full_content,
                 content_hash=content_hash,
                 source_type="tool",
@@ -390,6 +395,14 @@ async def manage_bot_skill(
             full_content = _build_content(new_title, body, new_triggers, new_category)
             row.content = full_content
             row.content_hash = hashlib.sha256(full_content.encode()).hexdigest()
+
+            # Keep DB columns in sync with frontmatter
+            _triggers_list = [t.strip() for t in new_triggers.split(",") if t.strip()] if new_triggers else []
+            row.triggers = _triggers_list
+            if new_category:
+                row.category = new_category.strip()
+            if content:
+                row.description = content[:200].strip()
 
             row.updated_at = datetime.now(timezone.utc)
             await db.commit()
@@ -456,6 +469,18 @@ async def manage_bot_skill(
 
             row.content = patched
             row.content_hash = hashlib.sha256(row.content.encode()).hexdigest()
+
+            # Keep DB columns in sync with patched content
+            patched_fm = _extract_frontmatter(patched)
+            patched_body = _extract_body(patched)
+            row.name = patched_fm.get("title", row.name)
+            row.description = patched_body[:200].strip() if patched_body else row.description
+            _patched_triggers = patched_fm.get("triggers", "")
+            row.triggers = [t.strip() for t in _patched_triggers.split(",") if t.strip()] if _patched_triggers else (row.triggers or [])
+            _patched_category = patched_fm.get("category", "")
+            if _patched_category:
+                row.category = _patched_category.strip()
+
             row.updated_at = datetime.now(timezone.utc)
             await db.commit()
 
@@ -526,9 +551,13 @@ async def manage_bot_skill(
             full_content = _build_content(title, content, triggers, category)
             content_hash = hashlib.sha256(full_content.encode()).hexdigest()
             now = datetime.now(timezone.utc)
+            _triggers_list = [t.strip() for t in triggers.split(",") if t.strip()] if triggers else []
             merged_row = SkillRow(
                 id=merged_id,
                 name=title.strip(),
+                description=content[:200].strip() if content else None,
+                category=category.strip() if category else None,
+                triggers=_triggers_list,
                 content=full_content,
                 content_hash=content_hash,
                 source_type="tool",

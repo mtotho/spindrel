@@ -173,10 +173,10 @@ The included carapace's `system_prompt_fragment` is concatenated after yours. It
 
 ## Creating a Carapace
 
-Use the `manage_carapace` tool:
+Use the `manage_capability` tool:
 
 ```
-manage_carapace(
+manage_capability(
   action="create",
   id="bug-triage",
   name="Bug Triage Expert",

@@ -1,4 +1,4 @@
-"""Unit tests for manage_carapace tool — update preserves unset fields."""
+"""Unit tests for manage_capability tool — update preserves unset fields."""
 import json
 import uuid
 from datetime import datetime, timezone
@@ -43,7 +43,7 @@ class TestUpdatePreservesUnsetFields:
     @pytest.mark.asyncio
     async def test_update_name_only_preserves_other_fields(self):
         """Updating only the name should NOT clear skills, tools, etc."""
-        from app.tools.local.carapaces import manage_carapace
+        from app.tools.local.carapaces import manage_capability
 
         row = _make_row()
         original_skills = list(row.skills)
@@ -65,7 +65,7 @@ class TestUpdatePreservesUnsetFields:
 
         with patch("app.db.engine.async_session", return_value=mock_session):
             with patch("app.agent.carapaces.reload_carapaces", new_callable=AsyncMock):
-                result = await manage_carapace(action="update", id="test-carapace", name="New Name")
+                result = await manage_capability(action="update", id="test-carapace", name="New Name")
 
         parsed = json.loads(result)
         assert parsed["ok"] is True
@@ -85,7 +85,7 @@ class TestUpdatePreservesUnsetFields:
     @pytest.mark.asyncio
     async def test_update_description_only(self):
         """Updating description should not touch tools or skills."""
-        from app.tools.local.carapaces import manage_carapace
+        from app.tools.local.carapaces import manage_capability
 
         row = _make_row()
         original_skills = list(row.skills)
@@ -101,7 +101,7 @@ class TestUpdatePreservesUnsetFields:
 
         with patch("app.db.engine.async_session", return_value=mock_session):
             with patch("app.agent.carapaces.reload_carapaces", new_callable=AsyncMock):
-                result = await manage_carapace(
+                result = await manage_capability(
                     action="update", id="test-carapace",
                     description="New desc",
                 )
@@ -115,7 +115,7 @@ class TestUpdatePreservesUnsetFields:
     @pytest.mark.asyncio
     async def test_update_skills_explicitly_clears(self):
         """Passing skills="" explicitly should clear skills to []."""
-        from app.tools.local.carapaces import manage_carapace
+        from app.tools.local.carapaces import manage_capability
 
         row = _make_row()
         assert row.skills != []  # pre-condition
@@ -130,7 +130,7 @@ class TestUpdatePreservesUnsetFields:
 
         with patch("app.db.engine.async_session", return_value=mock_session):
             with patch("app.agent.carapaces.reload_carapaces", new_callable=AsyncMock):
-                result = await manage_carapace(
+                result = await manage_capability(
                     action="update", id="test-carapace",
                     skills="",  # explicitly clear
                 )
@@ -142,7 +142,7 @@ class TestUpdatePreservesUnsetFields:
     @pytest.mark.asyncio
     async def test_update_rejects_file_managed(self):
         """File-managed carapaces should not be editable."""
-        from app.tools.local.carapaces import manage_carapace
+        from app.tools.local.carapaces import manage_capability
 
         row = _make_row(source_type="file")
 
@@ -154,7 +154,7 @@ class TestUpdatePreservesUnsetFields:
         mock_session.__aexit__ = AsyncMock(return_value=False)
 
         with patch("app.db.engine.async_session", return_value=mock_session):
-            result = await manage_carapace(action="update", id="test-carapace", name="Hacked")
+            result = await manage_capability(action="update", id="test-carapace", name="Hacked")
 
         parsed = json.loads(result)
         assert "error" in parsed

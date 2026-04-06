@@ -445,10 +445,10 @@ export default function BotEditorScreen() {
                   </div>
                 </div>
               )}
-              {draft.api_permissions && draft.api_permissions.length > 0 && draft.api_docs_mode && (
+              {draft.api_permissions && draft.api_permissions.length > 0 && (
                 <div style={{ marginTop: 20 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: t.accent }}>Virtual Skills</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: t.accent }}>API Access Tools</span>
                     <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
                       from permissions
                     </span>
@@ -459,15 +459,15 @@ export default function BotEditorScreen() {
                     border: `1px solid ${t.accentBorder}`,
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 500, color: t.accent }}>api_reference</span>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: t.accent }}>list_api_endpoints + call_api</span>
                       <span style={{
                         fontSize: 9, padding: "1px 6px", borderRadius: 3,
                         background: t.accentSubtle, color: t.accent,
-                      }}>on-demand</span>
+                      }}>pinned</span>
                     </div>
                     <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
-                      Auto-generated API docs filtered to this bot's {draft.api_permissions.length} scope{draft.api_permissions.length !== 1 ? "s" : ""}.
-                      Available via <code style={{ color: t.textMuted, fontSize: 10 }}>get_skill("api_reference")</code>.
+                      Direct API access filtered to this bot's {draft.api_permissions.length} scope{draft.api_permissions.length !== 1 ? "s" : ""}.
+                      No sandbox or CLI needed.
                     </div>
                   </div>
                 </div>
@@ -622,8 +622,6 @@ export default function BotEditorScreen() {
             <BotPermissionsSection
               permissions={draft.api_permissions || []}
               onChange={(p) => update({ api_permissions: p })}
-              docsMode={draft.api_docs_mode}
-              onDocsModeChange={(m) => update({ api_docs_mode: m })}
             />
           )}
 
