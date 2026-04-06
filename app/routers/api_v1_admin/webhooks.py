@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import WebhookDelivery, WebhookEndpoint
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from app.services.encryption import decrypt, encrypt
 from app.services.webhooks import (
     EVENT_REGISTRY,
@@ -143,7 +143,7 @@ async def _get_endpoint(db: AsyncSession, endpoint_id: str) -> WebhookEndpoint:
 
 @router.get("/webhooks/events", response_model=list[WebhookEventOut])
 async def admin_webhook_events(
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("webhooks:read")),
 ):
     """List available webhook event types."""
     return [WebhookEventOut(event=k, description=v) for k, v in EVENT_REGISTRY.items()]
@@ -152,7 +152,7 @@ async def admin_webhook_events(
 @router.get("/webhooks", response_model=list[WebhookEndpointOut])
 async def admin_list_webhooks(
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("webhooks:read")),
 ):
     """List all webhook endpoints."""
     rows = (await db.execute(
@@ -165,7 +165,7 @@ async def admin_list_webhooks(
 async def admin_create_webhook(
     body: WebhookEndpointCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("webhooks:write")),
 ):
     """Create a new webhook endpoint. Returns the signing secret ONCE."""
     if not body.name or not body.name.strip():
@@ -208,7 +208,7 @@ async def admin_create_webhook(
 async def admin_get_webhook(
     endpoint_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("webhooks:read")),
 ):
     """Get webhook endpoint details (secret is never returned)."""
     row = await _get_endpoint(db, endpoint_id)
@@ -220,7 +220,7 @@ async def admin_update_webhook(
     endpoint_id: str,
     body: WebhookEndpointUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("webhooks:write")),
 ):
     """Update a webhook endpoint."""
     row = await _get_endpoint(db, endpoint_id)
@@ -263,7 +263,7 @@ async def admin_update_webhook(
 async def admin_delete_webhook(
     endpoint_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("webhooks:write")),
 ):
     """Delete a webhook endpoint and all its deliveries."""
     row = await _get_endpoint(db, endpoint_id)
@@ -277,7 +277,7 @@ async def admin_delete_webhook(
 async def admin_rotate_webhook_secret(
     endpoint_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("webhooks:write")),
 ):
     """Generate a new signing secret for an endpoint. Returns the new secret ONCE."""
     row = await _get_endpoint(db, endpoint_id)
@@ -293,7 +293,7 @@ async def admin_rotate_webhook_secret(
 async def admin_test_webhook(
     endpoint_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("webhooks:write")),
 ):
     """Send a test event to a webhook endpoint."""
     try:
@@ -316,7 +316,7 @@ async def admin_webhook_deliveries(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("webhooks:read")),
 ):
     """Get delivery log for a webhook endpoint."""
     # Verify endpoint exists

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bot as BotRow, ProviderConfig as ProviderConfigRow, ProviderModel
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from app.services.provider_drivers import PROVIDER_TYPES, get_driver
 
 router = APIRouter()
@@ -133,7 +133,7 @@ def _provider_to_out(row: ProviderConfigRow) -> ProviderOut:
 @router.get("/providers", response_model=ProviderListOut)
 async def admin_list_providers(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     from app.config import settings as _settings
     rows = (await db.execute(
@@ -154,7 +154,7 @@ async def admin_list_providers(
 async def admin_list_provider_models(
     provider_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     provider = await db.get(ProviderConfigRow, provider_id)
     if not provider:
@@ -172,7 +172,7 @@ async def admin_add_provider_model(
     provider_id: str,
     body: ProviderModelCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     provider = await db.get(ProviderConfigRow, provider_id)
     if not provider:
@@ -209,7 +209,7 @@ async def admin_delete_provider_model(
     provider_id: str,
     model_pk: int,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     row = await db.get(ProviderModel, model_pk)
     if not row or row.provider_id != provider_id:
@@ -229,7 +229,7 @@ async def admin_delete_provider_model(
 async def admin_get_provider(
     provider_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     row = await db.get(ProviderConfigRow, provider_id)
     if not row:
@@ -241,7 +241,7 @@ async def admin_get_provider(
 async def admin_create_provider(
     body: ProviderCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     pid = body.id.strip()
     if not pid or not body.display_name.strip():
@@ -296,7 +296,7 @@ async def admin_update_provider(
     provider_id: str,
     body: ProviderUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     row = await db.get(ProviderConfigRow, provider_id)
     if not row:
@@ -359,7 +359,7 @@ async def admin_update_provider(
 async def admin_delete_provider(
     provider_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     bots_using = (await db.execute(
         select(BotRow.id).where(BotRow.model_provider_id == provider_id)
@@ -402,7 +402,7 @@ async def _test_provider_connection(
 @router.post("/providers/test-inline", response_model=ProviderTestResult)
 async def admin_test_provider_inline(
     body: ProviderTestInlineIn,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     """Test provider connection without saving — works for new/unsaved providers."""
     return await _test_provider_connection(
@@ -413,7 +413,7 @@ async def admin_test_provider_inline(
 @router.post("/providers/{provider_id}/test", response_model=ProviderTestResult)
 async def admin_test_provider(
     provider_id: str,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     from app.services.providers import get_provider, load_providers as _reload
 
@@ -437,7 +437,7 @@ async def admin_test_provider(
 @router.get("/provider-types/{provider_type}/capabilities")
 async def admin_provider_type_capabilities(
     provider_type: str,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     """Return capabilities for a provider type (works for unsaved/new providers)."""
     from dataclasses import asdict
@@ -453,7 +453,7 @@ async def admin_provider_type_capabilities(
 async def admin_provider_capabilities(
     provider_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     """Return capabilities for a saved provider."""
     from dataclasses import asdict
@@ -480,7 +480,7 @@ class SyncModelsResult(BaseModel):
 async def admin_sync_provider_models(
     provider_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     """Sync models from provider API into provider_models table."""
     from app.services.providers import get_provider, load_providers as _reload
@@ -549,7 +549,7 @@ class PullModelIn(BaseModel):
 async def admin_pull_model(
     provider_id: str,
     body: PullModelIn,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     """Pull/download a model from the provider. Streams progress as SSE."""
     from starlette.responses import StreamingResponse
@@ -584,7 +584,7 @@ async def admin_pull_model(
 async def admin_delete_remote_model(
     provider_id: str,
     model_name: str,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     """Delete a model from the provider (e.g. remove from Ollama)."""
     from app.services.providers import get_provider, load_providers as _reload
@@ -612,7 +612,7 @@ async def admin_delete_remote_model(
 async def admin_remote_model_info(
     provider_id: str,
     model_name: str,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     """Get detailed info/manifest for a model from the provider."""
     from app.services.providers import get_provider, load_providers as _reload
@@ -637,7 +637,7 @@ async def admin_remote_model_info(
 @router.get("/providers/{provider_id}/running-models")
 async def admin_running_models(
     provider_id: str,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     """Get currently loaded/running models from the provider."""
     from app.services.providers import get_provider, load_providers as _reload

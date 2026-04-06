@@ -5,7 +5,9 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.dependencies import require_scopes
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,7 @@ _cache: dict[str, tuple[float, str]] = {}
 
 
 @router.get("/docs")
-async def get_docs_page(path: str = Query(..., description="Doc path without .md extension, e.g. 'integrations/index'")):
+async def get_docs_page(path: str = Query(..., description="Doc path without .md extension, e.g. 'integrations/index'"), _auth=Depends(require_scopes("admin"))):
     """Serve a markdown documentation page from the docs/ directory."""
     # Prevent traversal attacks
     if ".." in path or path.startswith("/"):

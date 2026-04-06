@@ -20,7 +20,7 @@ from sqlalchemy.orm import attributes as sa_attributes
 
 from app.agent.bots import get_bot
 from app.db.models import Channel, Session, Task
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from ._helpers import _heartbeat_correlation_ids
 
 router = APIRouter()
@@ -175,7 +175,7 @@ async def admin_list_tasks(
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("tasks:read")),
 ):
     """List tasks with optional filters. `after`/`before` are ISO datetime strings filtering on scheduled_at or created_at.
 
@@ -293,7 +293,7 @@ async def admin_list_tasks(
 async def admin_get_task(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("tasks:read")),
 ):
     """Get a single task with all fields."""
     task = await db.get(Task, task_id)
@@ -318,7 +318,7 @@ async def admin_get_task(
 async def admin_list_task_children(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("tasks:read")),
 ):
     """List child tasks (callbacks, concrete schedule runs) of a parent task."""
     parent = await db.get(Task, task_id)
@@ -337,7 +337,7 @@ async def admin_list_task_children(
 async def admin_create_task(
     body: TaskCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("tasks:write")),
 ):
     """Create a new task. If channel_id is provided, resolve dispatch info from the channel."""
     from app.tools.local.tasks import _parse_scheduled_at
@@ -420,7 +420,7 @@ async def admin_update_task(
     task_id: uuid.UUID,
     body: TaskUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("tasks:write")),
 ):
     """Update task fields. Only provided fields are changed."""
     from app.tools.local.tasks import _parse_scheduled_at
@@ -470,7 +470,7 @@ async def admin_update_task(
 @router.get("/cron-jobs")
 async def admin_list_cron_jobs(
     workspace_id: Optional[str] = None,
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("tasks:read")),
 ):
     """Discover cron jobs across workspace containers and host OS."""
     from app.services.cron_discovery import discover_crons
@@ -487,7 +487,7 @@ async def admin_list_cron_jobs(
 async def admin_delete_task(
     task_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("tasks:write")),
 ):
     """Delete a task."""
     task = await db.get(Task, task_id)

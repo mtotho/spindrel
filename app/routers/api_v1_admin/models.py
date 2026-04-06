@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bot, Skill as SkillRow, ToolEmbedding
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -48,7 +48,7 @@ class CompletionItem(BaseModel):
 
 @router.get("/models", response_model=list[ModelGroupOut])
 async def admin_models(
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     """List all available LLM models grouped by provider."""
     from app.services.providers import get_available_models_grouped
@@ -70,7 +70,7 @@ async def admin_models(
 
 @router.get("/embedding-models", response_model=list[ModelGroupOut])
 async def admin_embedding_models(
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     """List all available embedding models grouped by provider.
 
@@ -130,7 +130,7 @@ async def admin_embedding_models(
 @router.post("/embedding-models/download", response_model=DownloadResponse)
 async def download_embedding_model(
     body: DownloadRequest,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:write")),
 ):
     """Trigger download of a local fastembed embedding model."""
     from app.agent.local_embeddings import (
@@ -175,7 +175,7 @@ async def download_embedding_model(
 @router.get("/completions", response_model=list[CompletionItem])
 async def admin_completions(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("providers:read")),
 ):
     """Get @-tag completions for skills, tools, tool-packs, and bots."""
     from app.tools.packs import get_tool_packs

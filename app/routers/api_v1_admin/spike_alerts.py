@@ -11,7 +11,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import UsageSpikeConfig, UsageSpikeAlert, Channel, ChannelIntegration
-from app.dependencies import get_db
+from app.dependencies import get_db, require_scopes
 from app.services.usage_spike import (
     load_spike_config, get_cached_config, check_for_spike, get_spike_status,
 )
@@ -48,7 +48,7 @@ class SpikeConfigUpdate(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/config")
-async def get_config(db: AsyncSession = Depends(get_db)):
+async def get_config(db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("alerts:read"))):
     """Get spike alert config (auto-creates default if missing)."""
     row = (await db.execute(select(UsageSpikeConfig).limit(1))).scalars().first()
     if not row:
@@ -75,7 +75,7 @@ async def get_config(db: AsyncSession = Depends(get_db)):
 
 
 @router.put("/config")
-async def update_config(body: SpikeConfigUpdate, db: AsyncSession = Depends(get_db)):
+async def update_config(body: SpikeConfigUpdate, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("alerts:write"))):
     """Update spike alert config."""
     row = (await db.execute(select(UsageSpikeConfig).limit(1))).scalars().first()
     if not row:
@@ -130,7 +130,7 @@ async def update_config(body: SpikeConfigUpdate, db: AsyncSession = Depends(get_
 
 
 @router.post("/test")
-async def test_alert(db: AsyncSession = Depends(get_db)):
+async def test_alert(db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("alerts:write"))):
     """Fire a test alert (bypasses cooldown + threshold checks)."""
     row = (await db.execute(select(UsageSpikeConfig).limit(1))).scalars().first()
     if not row:
@@ -156,6 +156,7 @@ async def alert_history(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("alerts:read")),
 ):
     """Paginated alert history (newest first)."""
     total = (await db.execute(
@@ -195,13 +196,13 @@ async def alert_history(
 
 
 @router.get("/status")
-async def spike_status():
+async def spike_status(_auth=Depends(require_scopes("alerts:read"))):
     """Current spike status (for HUD badge)."""
     return await get_spike_status()
 
 
 @router.get("/targets/available")
-async def available_targets(db: AsyncSession = Depends(get_db)):
+async def available_targets(db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("alerts:read"))):
     """List channels + integration bindings + available integration types as target options."""
     from app.agent.hooks import get_integration_meta, _meta_registry
     from app.agent import dispatchers as dispatcher_registry

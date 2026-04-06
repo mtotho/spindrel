@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bot as BotRow, MCPServer as MCPServerRow
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
 
@@ -86,7 +86,7 @@ def _server_to_out(row: MCPServerRow) -> MCPServerOut:
 @router.get("/mcp-servers", response_model=list[MCPServerOut])
 async def admin_list_mcp_servers(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("mcp_servers:read")),
 ):
     rows = (
         await db.execute(select(MCPServerRow).order_by(MCPServerRow.created_at))
@@ -98,7 +98,7 @@ async def admin_list_mcp_servers(
 async def admin_get_mcp_server(
     server_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("mcp_servers:read")),
 ):
     row = await db.get(MCPServerRow, server_id)
     if not row:
@@ -110,7 +110,7 @@ async def admin_get_mcp_server(
 async def admin_create_mcp_server(
     body: MCPServerCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("mcp_servers:write")),
 ):
     sid = body.id.strip()
     if not sid or not body.display_name.strip() or not body.url.strip():
@@ -155,7 +155,7 @@ async def admin_update_mcp_server(
     server_id: str,
     body: MCPServerUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("mcp_servers:write")),
 ):
     row = await db.get(MCPServerRow, server_id)
     if not row:
@@ -186,7 +186,7 @@ async def admin_update_mcp_server(
 async def admin_delete_mcp_server(
     server_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("mcp_servers:write")),
 ):
     # Check if any bots reference this server
     bot_rows = (await db.execute(select(BotRow))).scalars().all()
@@ -212,7 +212,7 @@ async def admin_delete_mcp_server(
 async def admin_test_mcp_server(
     server_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("mcp_servers:write")),
 ):
     row = await db.get(MCPServerRow, server_id)
     if not row:
@@ -227,7 +227,7 @@ async def admin_test_mcp_server(
 @router.post("/mcp-servers/test-inline", response_model=MCPServerTestResult)
 async def admin_test_mcp_server_inline(
     body: MCPServerTestInlineIn,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("mcp_servers:write")),
 ):
     return await _test_mcp_connection(body.url.strip(), (body.api_key or "").strip())
 

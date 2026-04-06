@@ -393,6 +393,7 @@ class BotUpdateIn(BaseModel):
     memory_hygiene_only_if_active: Optional[bool] = None
     memory_hygiene_model: Optional[str] = None
     memory_hygiene_model_provider_id: Optional[str] = None
+    memory_hygiene_target_hour: Optional[int] = None
     workspace_only: Optional[bool] = None
     system_prompt_workspace_file: Optional[bool] = None
     system_prompt_write_protected: Optional[bool] = None
@@ -491,6 +492,15 @@ async def admin_bot_update(
         except Exception:
             logger.warning("Failed to bootstrap hygiene schedule for bot %s", bot_id, exc_info=True)
 
+    # Recalculate schedule when target_hour changes on an already-enabled bot
+    if "memory_hygiene_target_hour" in updates and row.next_hygiene_run_at is not None:
+        from app.services.memory_hygiene import _compute_next_run
+        try:
+            row.next_hygiene_run_at = _compute_next_run(row, datetime.now(timezone.utc), after_run=False)
+            await db.commit()
+        except Exception:
+            logger.warning("Failed to recalculate hygiene schedule for bot %s", bot_id, exc_info=True)
+
     pc = await get_persona(bot_id)
     return _bot_to_out(bot, persona_content=pc, api_permissions=await _get_bot_api_permissions(db, row))
 
@@ -548,6 +558,7 @@ class BotCreateIn(BaseModel):
     memory_hygiene_only_if_active: Optional[bool] = None
     memory_hygiene_model: Optional[str] = None
     memory_hygiene_model_provider_id: Optional[str] = None
+    memory_hygiene_target_hour: Optional[int] = None
 
 
 @router.post("/bots", response_model=BotOut, status_code=201)
@@ -824,6 +835,7 @@ class MemoryHygieneStatusOut(BaseModel):
     last_task_id: Optional[str] = None
     model: Optional[str] = None
     model_provider_id: Optional[str] = None
+    target_hour: int = -1
 
 
 @router.get("/bots/{bot_id}/memory-hygiene", response_model=MemoryHygieneStatusOut)
@@ -837,6 +849,7 @@ async def admin_bot_memory_hygiene_status(
     from app.services.memory_hygiene import (
         resolve_enabled, resolve_interval, resolve_model,
         resolve_model_provider_id, resolve_only_if_active, resolve_prompt,
+        resolve_target_hour,
     )
 
     row = await db.get(BotRow, bot_id)
@@ -849,6 +862,7 @@ async def admin_bot_memory_hygiene_status(
     prompt = resolve_prompt(row)
     model = resolve_model(row)
     model_provider = resolve_model_provider_id(row)
+    target_hour = resolve_target_hour(row)
 
     from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
     has_custom = bool(prompt and prompt != DEFAULT_MEMORY_HYGIENE_PROMPT)
@@ -873,6 +887,7 @@ async def admin_bot_memory_hygiene_status(
         last_task_id=str(last_task.id) if last_task else None,
         model=model,
         model_provider_id=model_provider,
+        target_hour=target_hour,
     )
 
 

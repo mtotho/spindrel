@@ -667,6 +667,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     MEMORY_HYGIENE_ONLY_IF_ACTIVE: bool = True
     MEMORY_HYGIENE_MODEL: str = ""  # empty = use bot's default model
     MEMORY_HYGIENE_MODEL_PROVIDER_ID: str = ""  # empty = use bot's default provider
+    MEMORY_HYGIENE_TARGET_HOUR: int = -1  # 0-23 = target hour (local tz), -1 = disabled (current behavior)
 
     # Channel workspace injection prompt.
     # Placeholders: {workspace_path}, {channel_id}, {data_listing}

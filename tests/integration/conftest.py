@@ -49,7 +49,7 @@ def _compile_timestamp_sqlite(type_, compiler, **kw):
 
 from app.agent.bots import BotConfig, MemoryConfig, KnowledgeConfig  # noqa: E402
 from app.db.models import Base  # noqa: E402
-from app.dependencies import get_db, verify_auth  # noqa: E402
+from app.dependencies import ApiKeyAuth, get_db, verify_auth, verify_admin_auth, verify_auth_or_user  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Test bot configuration
@@ -162,8 +162,18 @@ def _build_test_app():
 
 
 @pytest_asyncio.fixture
-async def client(db_session):
+async def client(engine, db_session):
     app = _build_test_app()
+
+    _admin_auth = ApiKeyAuth(
+        key_id=uuid.UUID("00000000-0000-0000-0000-000000000000"),
+        scopes=["admin"],
+        name="test",
+    )
+
+    # Build a session factory from the test engine so services that create their
+    # own sessions (via async_session()) use the test DB instead of the real one.
+    _test_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async def _override_get_db():
         yield db_session
@@ -171,14 +181,25 @@ async def client(db_session):
     async def _override_verify_auth():
         return "test-key"
 
+    async def _override_admin_auth():
+        return _admin_auth
+
+    async def _override_auth_or_user():
+        return _admin_auth
+
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[verify_auth] = _override_verify_auth
+    app.dependency_overrides[verify_admin_auth] = _override_admin_auth
+    app.dependency_overrides[verify_auth_or_user] = _override_auth_or_user
 
-    # Patch bot registry + get_bot to use test bots, and get_persona to return None
+    # Patch bot registry + get_bot to use test bots, and get_persona to return None.
+    # Also patch async_session in services that create their own sessions.
     with (
         patch("app.agent.bots._registry", _TEST_REGISTRY),
         patch("app.agent.bots.get_bot", side_effect=_get_test_bot),
         patch("app.agent.persona.get_persona", return_value=None),
+        patch("app.services.workflows.async_session", _test_session_factory),
+        patch("app.services.workflow_executor.async_session", _test_session_factory),
     ):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:

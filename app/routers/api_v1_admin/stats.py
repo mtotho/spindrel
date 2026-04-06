@@ -15,7 +15,7 @@ from app.db.models import (
     ToolCall,
     ToolEmbedding,
 )
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
 
@@ -33,7 +33,7 @@ class DashboardStats(BaseModel):
 @router.get("/stats", response_model=DashboardStats)
 async def admin_stats(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Dashboard overview stats — mirrors the /admin index page."""
     session_count = (await db.execute(

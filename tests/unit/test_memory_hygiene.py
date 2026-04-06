@@ -2,6 +2,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -182,6 +183,7 @@ class TestCheckMemoryHygiene:
         bot.memory_hygiene_interval_hours = interval
         bot.memory_hygiene_only_if_active = only_if_active
         bot.memory_hygiene_prompt = None
+        bot.memory_hygiene_target_hour = None
         bot.next_hygiene_run_at = next_run
         bot.last_hygiene_run_at = last_run
         return bot
@@ -340,6 +342,7 @@ class TestCheckMemoryHygiene:
             mock_settings.MEMORY_HYGIENE_INTERVAL_HOURS = 24
             mock_settings.MEMORY_HYGIENE_ONLY_IF_ACTIVE = True
             mock_settings.MEMORY_HYGIENE_PROMPT = ""
+            mock_settings.MEMORY_HYGIENE_TARGET_HOUR = -1
             await check_memory_hygiene()
 
         # No task created, but schedule advanced
@@ -415,6 +418,7 @@ class TestBootstrapHygieneSchedule:
         bot_row = MagicMock()
         bot_row.id = "test-bot"
         bot_row.memory_hygiene_interval_hours = 12
+        bot_row.memory_hygiene_target_hour = None
         bot_row.next_hygiene_run_at = None
 
         db = AsyncMock()
@@ -439,6 +443,7 @@ class TestBootstrapHygieneSchedule:
             bot_row = MagicMock()
             bot_row.id = bot_id
             bot_row.memory_hygiene_interval_hours = 24
+            bot_row.memory_hygiene_target_hour = None
             bot_row.next_hygiene_run_at = None
 
             db = AsyncMock()
@@ -733,3 +738,276 @@ class TestCreateHygieneTaskExecutionConfig:
         task = db.add.call_args[0][0]
         assert task.execution_config is not None
         assert task.execution_config["model_override"] == "global-model"
+
+
+# ---------------------------------------------------------------------------
+# Target hour resolution
+# ---------------------------------------------------------------------------
+
+class TestResolveTargetHour:
+    def _make_bot(self, target_hour=None):
+        bot = MagicMock()
+        bot.memory_hygiene_target_hour = target_hour
+        return bot
+
+    def test_bot_override(self):
+        from app.services.memory_hygiene import resolve_target_hour
+        bot = self._make_bot(target_hour=3)
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_TARGET_HOUR = 5
+            assert resolve_target_hour(bot) == 3
+
+    def test_global_fallback(self):
+        from app.services.memory_hygiene import resolve_target_hour
+        bot = self._make_bot(target_hour=None)
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_TARGET_HOUR = 5
+            assert resolve_target_hour(bot) == 5
+
+    def test_disabled_default(self):
+        from app.services.memory_hygiene import resolve_target_hour
+        bot = self._make_bot(target_hour=None)
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_TARGET_HOUR = -1
+            assert resolve_target_hour(bot) == -1
+
+    def test_bot_override_disabled(self):
+        """Bot can explicitly set -1 to disable even when global is set."""
+        from app.services.memory_hygiene import resolve_target_hour
+        bot = self._make_bot(target_hour=-1)
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_TARGET_HOUR = 3
+            assert resolve_target_hour(bot) == -1
+
+
+# ---------------------------------------------------------------------------
+# Stagger offset target mode
+# ---------------------------------------------------------------------------
+
+class TestStaggerOffsetTargetMode:
+    def test_target_mode_within_60_minutes(self):
+        from app.services.memory_hygiene import _stagger_offset_minutes
+        for bot_id in ["bot-a", "bot-b", "bot-c", "bot-d", "bot-e"]:
+            offset = _stagger_offset_minutes(bot_id, 24, target_mode=True)
+            assert 0 <= offset < 60, f"Target mode offset {offset} out of 60-min window for {bot_id}"
+
+    def test_target_mode_deterministic(self):
+        from app.services.memory_hygiene import _stagger_offset_minutes
+        a = _stagger_offset_minutes("my-bot", 24, target_mode=True)
+        b = _stagger_offset_minutes("my-bot", 24, target_mode=True)
+        assert a == b
+
+    def test_non_target_mode_uses_full_window(self):
+        from app.services.memory_hygiene import _stagger_offset_minutes
+        # With 24h interval, non-target window is 1440 minutes
+        offset = _stagger_offset_minutes("bot-a", 24, target_mode=False)
+        assert 0 <= offset < 1440
+
+
+# ---------------------------------------------------------------------------
+# _next_target_run
+# ---------------------------------------------------------------------------
+
+class TestNextTargetRun:
+    """Test the _next_target_run helper that computes target-hour-anchored schedule."""
+
+    def test_bootstrap_same_day_future(self):
+        """If target hour is later today, schedule for today."""
+        from app.services.memory_hygiene import _next_target_run
+
+        tz = ZoneInfo("America/New_York")
+        # Simulate "now" as 1:00 AM local -> target 3 AM should be today
+        now_local = datetime(2026, 4, 6, 1, 0, 0, tzinfo=tz)
+        now_utc = now_local.astimezone(timezone.utc)
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.TIMEZONE = "America/New_York"
+            result = _next_target_run("test-bot", 3, 24, now_utc, after_run=False)
+
+        # Result should be today at 3:00 AM + stagger (0-59 min), in UTC
+        result_local = result.astimezone(tz)
+        assert result_local.day == 6
+        assert result_local.hour == 3
+        assert 0 <= result_local.minute < 60
+
+    def test_bootstrap_next_day_wrap(self):
+        """If target hour already passed today, schedule for tomorrow."""
+        from app.services.memory_hygiene import _next_target_run
+
+        tz = ZoneInfo("America/New_York")
+        # Simulate "now" as 5:00 AM local -> target 3 AM already passed
+        now_local = datetime(2026, 4, 6, 5, 0, 0, tzinfo=tz)
+        now_utc = now_local.astimezone(timezone.utc)
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.TIMEZONE = "America/New_York"
+            result = _next_target_run("test-bot", 3, 24, now_utc, after_run=False)
+
+        result_local = result.astimezone(tz)
+        assert result_local.day == 7  # tomorrow
+        assert result_local.hour == 3
+
+    def test_after_run_respects_interval(self):
+        """After a run, next target occurrence must be >= now + interval."""
+        from app.services.memory_hygiene import _next_target_run
+
+        tz = ZoneInfo("America/New_York")
+        # Now is 3:30 AM, target is 3 AM, interval is 24h
+        # Next run should be tomorrow at 3 AM + stagger (>= 3:30 AM + 24h)
+        now_local = datetime(2026, 4, 6, 3, 30, 0, tzinfo=tz)
+        now_utc = now_local.astimezone(timezone.utc)
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.TIMEZONE = "America/New_York"
+            result = _next_target_run("test-bot", 3, 24, now_utc, after_run=True)
+
+        result_local = result.astimezone(tz)
+        # Must be >= now + 24h, which is Apr 7 3:30 AM
+        # The target hour is 3 AM, so candidate is Apr 7 3:00 AM -> that's < earliest
+        # Next candidate is Apr 8 3:00 AM
+        assert result_local.day == 8
+        assert result_local.hour == 3
+
+    def test_after_run_multi_day_interval(self):
+        """With 48h interval, should skip to the right day."""
+        from app.services.memory_hygiene import _next_target_run
+
+        tz = ZoneInfo("America/New_York")
+        now_local = datetime(2026, 4, 6, 4, 0, 0, tzinfo=tz)
+        now_utc = now_local.astimezone(timezone.utc)
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.TIMEZONE = "America/New_York"
+            result = _next_target_run("test-bot", 3, 48, now_utc, after_run=True)
+
+        result_local = result.astimezone(tz)
+        # Earliest is Apr 8 4:00 AM. Target 3 AM on Apr 8 is before that.
+        # So it should be Apr 9 3:00 AM
+        assert result_local.day == 9
+        assert result_local.hour == 3
+
+    def test_stagger_within_window(self):
+        """Two different bots get different stagger offsets within the 60-min window."""
+        from app.services.memory_hygiene import _next_target_run
+
+        tz = ZoneInfo("America/New_York")
+        now_local = datetime(2026, 4, 6, 1, 0, 0, tzinfo=tz)
+        now_utc = now_local.astimezone(timezone.utc)
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.TIMEZONE = "America/New_York"
+            r1 = _next_target_run("alpha-bot", 3, 24, now_utc)
+            r2 = _next_target_run("beta-bot", 3, 24, now_utc)
+
+        # Both should be on the same day, same hour, but different minutes
+        r1_local = r1.astimezone(tz)
+        r2_local = r2.astimezone(tz)
+        assert r1_local.day == r2_local.day
+        assert r1_local.hour == r2_local.hour == 3
+        # Very unlikely to have the same minute with 60-min window
+        assert r1_local.minute != r2_local.minute
+
+
+# ---------------------------------------------------------------------------
+# Bootstrap with target hour
+# ---------------------------------------------------------------------------
+
+class TestBootstrapWithTargetHour:
+    @pytest.mark.asyncio
+    async def test_bootstrap_anchors_to_target_hour(self):
+        """When target_hour is set, bootstrap should anchor to that hour."""
+        from app.services.memory_hygiene import bootstrap_hygiene_schedule
+
+        tz = ZoneInfo("America/New_York")
+        bot_row = MagicMock()
+        bot_row.id = "test-bot"
+        bot_row.memory_hygiene_interval_hours = 24
+        bot_row.memory_hygiene_target_hour = 3
+        bot_row.next_hygiene_run_at = None
+
+        db = AsyncMock()
+        db.commit = AsyncMock()
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_INTERVAL_HOURS = 24
+            mock_settings.MEMORY_HYGIENE_TARGET_HOUR = -1  # global disabled
+            mock_settings.TIMEZONE = "America/New_York"
+            await bootstrap_hygiene_schedule(bot_row, db)
+
+        assert bot_row.next_hygiene_run_at is not None
+        result_local = bot_row.next_hygiene_run_at.astimezone(tz)
+        assert result_local.hour == 3
+        assert 0 <= result_local.minute < 60
+
+    @pytest.mark.asyncio
+    async def test_bootstrap_disabled_target_uses_stagger(self):
+        """When target_hour is -1, should use the old stagger behaviour."""
+        from app.services.memory_hygiene import bootstrap_hygiene_schedule
+
+        bot_row = MagicMock()
+        bot_row.id = "test-bot"
+        bot_row.memory_hygiene_interval_hours = 12
+        bot_row.memory_hygiene_target_hour = None  # inherit global
+        bot_row.next_hygiene_run_at = None
+
+        db = AsyncMock()
+        db.commit = AsyncMock()
+
+        now = datetime.now(timezone.utc)
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_INTERVAL_HOURS = 12
+            mock_settings.MEMORY_HYGIENE_TARGET_HOUR = -1
+            mock_settings.TIMEZONE = "America/New_York"
+            await bootstrap_hygiene_schedule(bot_row, db)
+
+        assert bot_row.next_hygiene_run_at is not None
+        delta = bot_row.next_hygiene_run_at - now
+        # Old behaviour: stagger within [0, 12h)
+        assert timedelta(0) <= delta < timedelta(hours=12)
+
+
+# ---------------------------------------------------------------------------
+# _compute_next_run
+# ---------------------------------------------------------------------------
+
+class TestComputeNextRun:
+    def test_uses_target_when_set(self):
+        from app.services.memory_hygiene import _compute_next_run
+
+        tz = ZoneInfo("America/New_York")
+        now_local = datetime(2026, 4, 6, 1, 0, 0, tzinfo=tz)
+        now_utc = now_local.astimezone(timezone.utc)
+
+        bot_row = MagicMock()
+        bot_row.id = "test-bot"
+        bot_row.memory_hygiene_interval_hours = 24
+        bot_row.memory_hygiene_target_hour = 3
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_INTERVAL_HOURS = 24
+            mock_settings.MEMORY_HYGIENE_TARGET_HOUR = -1
+            mock_settings.TIMEZONE = "America/New_York"
+            result = _compute_next_run(bot_row, now_utc, after_run=True)
+
+        result_local = result.astimezone(tz)
+        assert result_local.hour == 3
+
+    def test_falls_back_to_interval_when_disabled(self):
+        from app.services.memory_hygiene import _compute_next_run
+
+        now_utc = datetime(2026, 4, 6, 5, 0, 0, tzinfo=timezone.utc)
+
+        bot_row = MagicMock()
+        bot_row.id = "test-bot"
+        bot_row.memory_hygiene_interval_hours = 24
+        bot_row.memory_hygiene_target_hour = None
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_INTERVAL_HOURS = 24
+            mock_settings.MEMORY_HYGIENE_TARGET_HOUR = -1
+            mock_settings.TIMEZONE = "America/New_York"
+            result = _compute_next_run(bot_row, now_utc)
+
+        # Should be now + 24h
+        expected = now_utc + timedelta(hours=24)
+        assert result == expected

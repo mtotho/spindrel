@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/channels/{channel_id}/workspace", tags=["Channel Workspace"])
@@ -59,7 +59,7 @@ async def list_workspace_files(
     include_data: bool = Query(False, description="Include data/ files"),
     data_prefix: str | None = Query(None, description="Subfolder within data/ to list (e.g. 'spindrel')"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """List files in the channel workspace."""
     channel, bot = await _require_channel_workspace(channel_id, db)
@@ -73,7 +73,7 @@ async def read_workspace_file(
     channel_id: uuid.UUID,
     path: str = Query(..., description="File path within workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Read a file from the channel workspace."""
     channel, bot = await _require_channel_workspace(channel_id, db)
@@ -96,7 +96,7 @@ async def read_workspace_file_raw(
     channel_id: uuid.UUID,
     path: str = Query(..., description="File path within workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Serve a workspace file as raw bytes (for images, PDFs, etc.)."""
     channel, bot = await _require_channel_workspace(channel_id, db)
@@ -121,7 +121,7 @@ async def write_workspace_file(
     body: FileWriteBody,
     path: str = Query(..., description="File path within workspace"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Write a file to the channel workspace."""
     channel, bot = await _require_channel_workspace(channel_id, db)
@@ -143,7 +143,7 @@ async def delete_workspace_file(
     channel_id: uuid.UUID,
     path: str = Query(..., description="File path to delete"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Delete a file from the channel workspace."""
     channel, bot = await _require_channel_workspace(channel_id, db)
@@ -163,7 +163,7 @@ async def move_workspace_file(
     channel_id: uuid.UUID,
     body: FileMoveBody,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Move/rename a file within the channel workspace."""
     channel, bot = await _require_channel_workspace(channel_id, db)
@@ -200,7 +200,7 @@ async def upload_workspace_file(
     file: UploadFile = File(...),
     path: str = Query("", description="Optional subdirectory path"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Upload a file to the channel workspace. Text files are stored as UTF-8; binary files are stored as-is."""
     channel, bot = await _require_channel_workspace(channel_id, db)

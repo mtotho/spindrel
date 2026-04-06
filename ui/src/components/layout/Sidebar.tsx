@@ -510,17 +510,14 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
                   </div>
                 </Link>
               </div>
-              <div style={{
-                display: "flex", alignItems: "center",
-                borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
-                overflow: "hidden", margin: "0 4px",
-              }}>
+              <div style={{ margin: "0 4px" }}>
                 <Link href={`/admin/workspaces/${ws.id}/files` as any} onPress={closeMobile}>
                   <div
                     className="sidebar-nav-item"
                     style={{
-                      flex: 1, display: "flex", alignItems: "center", gap: 10,
+                      display: "flex", alignItems: "center", gap: 10,
                       padding: "8px 12px", cursor: "pointer",
+                      borderRadius: 8, border: `1px solid ${t.surfaceBorder}`,
                     }}
                   >
                     <span style={{

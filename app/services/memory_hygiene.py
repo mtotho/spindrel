@@ -10,6 +10,7 @@ import hashlib
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -74,6 +75,14 @@ def resolve_model_provider_id(bot_row: BotRow) -> str | None:
     if settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID:
         return settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID
     return None
+
+
+def resolve_target_hour(bot_row: BotRow) -> int:
+    """Resolve target hour: bot override > global > -1 (disabled)."""
+    val = getattr(bot_row, "memory_hygiene_target_hour", None)
+    if val is not None:
+        return val
+    return settings.MEMORY_HYGIENE_TARGET_HOUR
 
 
 # ---------------------------------------------------------------------------
@@ -158,11 +167,66 @@ async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: boo
 # Stagger offset (spread bots across interval to avoid thundering herd)
 # ---------------------------------------------------------------------------
 
-def _stagger_offset_minutes(bot_id: str, interval_hours: int) -> int:
-    """Deterministic offset from bot_id hash, spread across interval window."""
-    window = max(interval_hours * 60, 1)  # guard against zero
+def _stagger_offset_minutes(bot_id: str, interval_hours: int, *, target_mode: bool = False) -> int:
+    """Deterministic offset from bot_id hash.
+
+    When target_mode is True, the window is clamped to 60 minutes (bots
+    stagger within a 1-hour window around the target hour).
+    Otherwise, the window spans the full interval.
+    """
+    if target_mode:
+        window = 60
+    else:
+        window = max(interval_hours * 60, 1)  # guard against zero
     h = int(hashlib.md5(bot_id.encode()).hexdigest(), 16)
     return h % window
+
+
+# ---------------------------------------------------------------------------
+# Target-hour scheduling
+# ---------------------------------------------------------------------------
+
+def _next_target_run(
+    bot_id: str,
+    target_hour: int,
+    interval_hours: int,
+    now_utc: datetime,
+    *,
+    after_run: bool = False,
+) -> datetime:
+    """Compute the next run time anchored to ``target_hour`` in local time.
+
+    ``target_hour`` is 0-23 in the server's configured TIMEZONE.
+
+    On bootstrap (after_run=False):
+        Find the next occurrence of target_hour that is in the future,
+        then add a deterministic stagger offset (0-59 min).
+
+    After a completed run (after_run=True):
+        Find the next occurrence of target_hour that is >= now + interval_hours,
+        then add the stagger offset.  This ensures we never schedule sooner
+        than the configured interval while staying anchored to the target hour.
+    """
+    tz = ZoneInfo(settings.TIMEZONE)
+    now_local = now_utc.astimezone(tz)
+
+    # Build candidate: today at target_hour in local time
+    candidate = now_local.replace(hour=target_hour, minute=0, second=0, microsecond=0)
+
+    if after_run:
+        # Must be >= now + interval
+        earliest = now_local + timedelta(hours=interval_hours)
+        while candidate < earliest:
+            candidate += timedelta(days=1)
+    else:
+        # Bootstrap: must be in the future
+        while candidate <= now_local:
+            candidate += timedelta(days=1)
+
+    # Convert to UTC, add deterministic stagger
+    candidate_utc = candidate.astimezone(timezone.utc)
+    stagger = _stagger_offset_minutes(bot_id, interval_hours, target_mode=True)
+    return candidate_utc + timedelta(minutes=stagger)
 
 
 # ---------------------------------------------------------------------------
@@ -176,10 +240,38 @@ async def bootstrap_hygiene_schedule(bot_row: BotRow, db: AsyncSession) -> None:
     don't all fire at the same time.
     """
     interval = resolve_interval(bot_row)
-    offset = _stagger_offset_minutes(bot_row.id, interval)
-    bot_row.next_hygiene_run_at = datetime.now(timezone.utc) + timedelta(minutes=offset)
+    target_hour = resolve_target_hour(bot_row)
+
+    if target_hour >= 0:
+        now_utc = datetime.now(timezone.utc)
+        bot_row.next_hygiene_run_at = _next_target_run(
+            bot_row.id, target_hour, interval, now_utc, after_run=False,
+        )
+    else:
+        offset = _stagger_offset_minutes(bot_row.id, interval)
+        bot_row.next_hygiene_run_at = datetime.now(timezone.utc) + timedelta(minutes=offset)
+
     await db.commit()
-    logger.info("Bootstrapped hygiene schedule for bot %s: next run at %s (offset %dm)", bot_row.id, bot_row.next_hygiene_run_at, offset)
+    logger.info("Bootstrapped hygiene schedule for bot %s: next run at %s", bot_row.id, bot_row.next_hygiene_run_at)
+
+
+# ---------------------------------------------------------------------------
+# Compute next run (used by scheduler and recalc-on-change)
+# ---------------------------------------------------------------------------
+
+def _compute_next_run(bot_row: BotRow, now_utc: datetime, *, after_run: bool = False) -> datetime:
+    """Compute the next hygiene run time for a bot.
+
+    Centralises the target_hour vs plain-interval logic.
+    """
+    interval = resolve_interval(bot_row)
+    target_hour = resolve_target_hour(bot_row)
+
+    if target_hour >= 0:
+        return _next_target_run(
+            bot_row.id, target_hour, interval, now_utc, after_run=after_run,
+        )
+    return now_utc + timedelta(hours=interval)
 
 
 # ---------------------------------------------------------------------------
@@ -205,11 +297,17 @@ async def check_memory_hygiene() -> None:
 
                 # First-time bootstrap: stagger instead of running immediately
                 if bot_row.next_hygiene_run_at is None:
+                    target_hour = resolve_target_hour(bot_row)
                     interval = resolve_interval(bot_row)
-                    offset = _stagger_offset_minutes(bot_row.id, interval)
-                    bot_row.next_hygiene_run_at = now + timedelta(minutes=offset)
+                    if target_hour >= 0:
+                        bot_row.next_hygiene_run_at = _next_target_run(
+                            bot_row.id, target_hour, interval, now, after_run=False,
+                        )
+                    else:
+                        offset = _stagger_offset_minutes(bot_row.id, interval)
+                        bot_row.next_hygiene_run_at = now + timedelta(minutes=offset)
                     await db.commit()
-                    logger.info("Bootstrapped hygiene for bot %s: first run at %s (offset %dm)", bot_row.id, bot_row.next_hygiene_run_at, offset)
+                    logger.info("Bootstrapped hygiene for bot %s: first run at %s", bot_row.id, bot_row.next_hygiene_run_at)
                     continue
 
                 # Skip if not yet due
@@ -223,7 +321,7 @@ async def check_memory_hygiene() -> None:
                     since = bot_row.last_hygiene_run_at or (now - timedelta(hours=interval))
                     if not await _has_activity_since(bot_row.id, since, db):
                         # No activity — advance schedule without running
-                        bot_row.next_hygiene_run_at = now + timedelta(hours=interval)
+                        bot_row.next_hygiene_run_at = _compute_next_run(bot_row, now, after_run=True)
                         await db.commit()
                         logger.debug("Skipped hygiene for bot %s: no activity since %s", bot_row.id, since)
                         continue
@@ -245,7 +343,7 @@ async def check_memory_hygiene() -> None:
                 # Create the task + advance schedule atomically
                 await create_hygiene_task(bot_row.id, db, auto_commit=False)
                 bot_row.last_hygiene_run_at = now
-                bot_row.next_hygiene_run_at = now + timedelta(hours=interval)
+                bot_row.next_hygiene_run_at = _compute_next_run(bot_row, now, after_run=True)
                 await db.commit()
 
                 logger.info("Scheduled hygiene for bot %s, next at %s", bot_row.id, bot_row.next_hygiene_run_at)

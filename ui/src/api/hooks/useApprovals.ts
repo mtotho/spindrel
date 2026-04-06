@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "../client";
+import { apiFetch, ApiError } from "../client";
 
 export interface ToolApproval {
   id: string;
@@ -74,23 +74,34 @@ export function useApproval(approvalId: string | undefined) {
 
 export function useDecideApproval() {
   const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["approvals"] });
+    qc.invalidateQueries({ queryKey: ["tool-policies"] });
+    qc.invalidateQueries({ queryKey: ["bots"] });
+  };
   return useMutation({
-    mutationFn: ({
+    mutationFn: async ({
       approvalId,
       data,
     }: {
       approvalId: string;
       data: DecideRequest;
-    }) =>
-      apiFetch<DecideResponse>(`/api/v1/approvals/${approvalId}/decide`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["approvals"] });
-      qc.invalidateQueries({ queryKey: ["tool-policies"] });
-      qc.invalidateQueries({ queryKey: ["bots"] });
+    }) => {
+      try {
+        return await apiFetch<DecideResponse>(
+          `/api/v1/approvals/${approvalId}/decide`,
+          { method: "POST", body: JSON.stringify(data) },
+        );
+      } catch (err) {
+        // 409 = approval already decided — treat as success
+        if (err instanceof ApiError && err.status === 409) {
+          return { id: approvalId, status: "resolved" } as unknown as DecideResponse;
+        }
+        throw err;
+      }
     },
+    retry: false,
+    onSuccess: invalidate,
   });
 }
 

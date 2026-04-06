@@ -11,7 +11,7 @@ from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Document, SharedWorkspace, Skill as SkillRow
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
 
@@ -64,7 +64,7 @@ async def admin_list_skills(
     bot_id: str | None = None,
     sort: str = "name",
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("skills:read")),
 ):
     """List all skills with chunk counts.
 
@@ -179,7 +179,7 @@ async def admin_list_skills(
 async def admin_get_skill(
     skill_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("skills:read")),
 ):
     row = await db.get(SkillRow, skill_id)
     if not row:
@@ -204,7 +204,7 @@ async def admin_get_skill(
 async def admin_create_skill(
     body: SkillCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("skills:write")),
 ):
     skill_id = body.id.strip().lower().replace(" ", "_")
     if not skill_id or not body.name.strip():
@@ -239,7 +239,7 @@ async def admin_update_skill(
     skill_id: str,
     body: SkillUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("skills:write")),
 ):
     row = await db.get(SkillRow, skill_id)
     if not row:
@@ -274,7 +274,7 @@ async def admin_update_skill(
 async def admin_delete_skill(
     skill_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("skills:write")),
 ):
     row = await db.get(SkillRow, skill_id)
     if not row:
@@ -289,7 +289,7 @@ async def admin_delete_skill(
 
 @router.post("/file-sync")
 async def admin_file_sync(
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("skills:write")),
     db: AsyncSession = Depends(get_db),
 ):
     """Trigger a full file sync for skills, knowledge, and workspace skills."""

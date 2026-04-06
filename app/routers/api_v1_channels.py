@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration, KnowledgeAccess, Message, Session, Task
-from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user
+from app.dependencies import ApiKeyAuth, get_db, require_scopes
 from app.services.channels import (
     apply_channel_visibility, get_or_create_channel, ensure_active_session,
     reset_channel_session, switch_channel_session,
@@ -580,7 +580,7 @@ async def update_channel_config(
     channel_id: uuid.UUID,
     body: ChannelConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:write")),
 ):
     """Update any subset of channel settings + heartbeat config in one call.
 
@@ -1059,7 +1059,7 @@ class SessionStatusOut(BaseModel):
 async def get_session_status(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Check if the channel is currently processing.
 
@@ -1096,7 +1096,7 @@ async def get_session_status(
 async def channel_events(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """SSE stream of channel events (new messages from any source).
 

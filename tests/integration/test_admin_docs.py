@@ -1,6 +1,6 @@
 """Tests for the /api/v1/admin/docs endpoint."""
 import os
-from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 import pytest_asyncio
@@ -10,13 +10,12 @@ from httpx import ASGITransport, AsyncClient
 os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
-from app.dependencies import verify_admin_auth  # noqa: E402
+from app.dependencies import ApiKeyAuth, verify_auth_or_user  # noqa: E402
 
 
 def _build_app():
     from fastapi import FastAPI
     from app.routers.api_v1_admin.docs import router
-    from fastapi import Depends
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1/admin")
@@ -28,9 +27,13 @@ async def client():
     app = _build_app()
 
     async def _mock_auth():
-        return "test-key"
+        return ApiKeyAuth(
+            key_id=UUID("00000000-0000-0000-0000-000000000000"),
+            scopes=["admin"],
+            name="test",
+        )
 
-    app.dependency_overrides[verify_admin_auth] = _mock_auth
+    app.dependency_overrides[verify_auth_or_user] = _mock_auth
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac

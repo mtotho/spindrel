@@ -377,6 +377,7 @@ async def usage_summary(
     model: Optional[str] = Query(None),
     provider_id: Optional[str] = Query(None),
     channel_id: Optional[str] = Query(None),
+    _auth=Depends(require_scopes("usage:read")),
     db: AsyncSession = Depends(get_db),
 ):
     after_dt = _parse_time(after) if after else None
@@ -486,6 +487,7 @@ async def usage_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("usage:read")),
 ):
     after_dt = _parse_time(after) if after else None
     before_dt = _parse_time(before) if before else None
@@ -630,6 +632,7 @@ async def usage_breakdown(
     provider_id: Optional[str] = Query(None),
     channel_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("usage:read")),
 ):
     after_dt = _parse_time(after) if after else None
     before_dt = _parse_time(before) if before else None
@@ -716,6 +719,7 @@ async def usage_timeseries(
     channel_id: Optional[str] = Query(None),
     bucket: str = Query("auto", pattern="^(1h|6h|1d|auto)$"),
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("usage:read")),
 ):
     after_dt = _parse_time(after) if after else None
     before_dt = _parse_time(before) if before else None
@@ -783,6 +787,7 @@ async def usage_timeseries(
 @router.get("/debug-pricing")
 async def debug_pricing(
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("usage:read")),
 ):
     """Debug endpoint: show what pricing data is available."""
     from app.services.providers import _model_info_cache

@@ -314,6 +314,26 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
         </Col>
       </Row>
 
+      {/* Target hour */}
+      <FormRow
+        label="Target Start Hour (local time)"
+        description={`Bots stagger within ~60 min of this hour. ${status?.target_hour != null && status.target_hour >= 0 ? `Global: ${status.target_hour}:00` : "Global: disabled"}`}
+      >
+        <TextInput
+          value={draft.memory_hygiene_target_hour != null ? String(draft.memory_hygiene_target_hour) : ""}
+          onChangeText={(v) => {
+            if (v === "" || v === "-1") {
+              update({ memory_hygiene_target_hour: v === "-1" ? -1 : null });
+            } else {
+              const n = parseInt(v);
+              if (!isNaN(n) && n >= -1 && n <= 23) update({ memory_hygiene_target_hour: n });
+            }
+          }}
+          placeholder={status?.target_hour != null && status.target_hour >= 0 ? `${status.target_hour} (inherited)` : "Disabled (-1)"}
+          type="number"
+        />
+      </FormRow>
+
       {/* Model override */}
       <FormRow label="Model" description={
         status?.model

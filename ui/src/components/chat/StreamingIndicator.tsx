@@ -115,7 +115,12 @@ function ToolCallCards({ toolCalls, t, botId }: { toolCalls: Props["toolCalls"];
     if (pinCapabilityId) data.pin_capability = pinCapabilityId;
     decideApproval.mutate(
       { approvalId, data },
-      { onSettled: () => setDecidingIds((prev) => { const next = new Set(prev); next.delete(approvalId); return next; }) },
+      {
+        // On error, re-enable the button so user can retry
+        onError: () => setDecidingIds((prev) => { const next = new Set(prev); next.delete(approvalId); return next; }),
+        // On success (including 409-as-success), keep button disabled until
+        // the SSE approval_resolved event updates the tool call status.
+      },
     );
   };
 

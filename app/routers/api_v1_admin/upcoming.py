@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from app.agent.bots import get_bot
 from app.db.models import Bot as BotRow, Channel, ChannelHeartbeat, Task
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from app.services.heartbeat import _is_heartbeat_in_quiet_hours
 
 router = APIRouter()
@@ -21,7 +21,7 @@ async def upcoming_activity(
     limit: int = Query(50, ge=1, le=200),
     type: str | None = Query(None, description="Filter by type: heartbeat, task, memory_hygiene"),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("admin")),
 ):
     """Return a merged, chronologically sorted list of upcoming heartbeats, tasks, and memory hygiene runs."""
     now = datetime.now(timezone.utc)

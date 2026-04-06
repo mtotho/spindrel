@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ApiKey as ApiKeyRow
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from app.services.api_keys import (
     ALL_SCOPES,
     SCOPE_DESCRIPTIONS,
@@ -102,7 +102,7 @@ def _key_to_out(row: ApiKeyRow) -> ApiKeyOut:
 
 @router.get("/api-keys/scopes", response_model=ScopeGroupsOut)
 async def admin_api_key_scopes(
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("api_keys:read")),
 ):
     """Return available scopes grouped for the UI."""
     return ScopeGroupsOut(
@@ -130,7 +130,7 @@ async def admin_api_key_scopes(
 @router.get("/api-keys", response_model=list[ApiKeyOut])
 async def admin_list_api_keys(
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("api_keys:read")),
 ):
     """List all API keys (never returns full key)."""
     rows = (await db.execute(
@@ -143,7 +143,7 @@ async def admin_list_api_keys(
 async def admin_create_api_key(
     body: ApiKeyCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("api_keys:write")),
 ):
     """Create a new API key. Returns the full key ONCE."""
     if not body.name or not body.name.strip():
@@ -173,7 +173,7 @@ async def admin_create_api_key(
 async def admin_get_api_key(
     key_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("api_keys:read")),
 ):
     """Get API key details (no full key)."""
     import uuid
@@ -192,7 +192,7 @@ async def admin_update_api_key(
     key_id: str,
     body: ApiKeyUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("api_keys:write")),
 ):
     """Update an API key's name, scopes, active status, or expiration."""
     import uuid
@@ -226,7 +226,7 @@ async def admin_update_api_key(
 async def admin_delete_api_key(
     key_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("api_keys:write")),
 ):
     """Hard delete an API key."""
     import uuid

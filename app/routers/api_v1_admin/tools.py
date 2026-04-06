@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bot as BotRow, ToolEmbedding
-from app.dependencies import ApiKeyAuth, get_db, verify_auth_or_user
+from app.dependencies import ApiKeyAuth, get_db, require_scopes
 from app.services.api_keys import has_scope
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ class ToolExecuteResponse(BaseModel):
 @router.get("/tools", response_model=list[ToolOut])
 async def admin_list_tools(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """List all indexed tools."""
     rows = (await db.execute(
@@ -73,7 +73,7 @@ async def admin_list_tools(
 async def admin_get_tool(
     tool_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Get a single tool by ID (UUID) or tool_key."""
     # Try UUID first
@@ -106,7 +106,7 @@ async def admin_execute_tool(
     tool_name: str,
     body: ToolExecuteRequest,
     db: AsyncSession = Depends(get_db),
-    auth: Union[ApiKeyAuth, Any] = Depends(verify_auth_or_user),
+    auth: Union[ApiKeyAuth, Any] = Depends(require_scopes("tools:execute")),
 ):
     """Execute a local tool directly with the given arguments.
 

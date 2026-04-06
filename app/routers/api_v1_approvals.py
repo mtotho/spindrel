@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import ToolApproval
-from app.dependencies import get_db, verify_admin_auth
+from app.dependencies import get_db, require_scopes
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ async def list_approvals(
     status: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("approvals:read")),
     db: AsyncSession = Depends(get_db),
 ):
     from app.tools.registry import get_tool_safety_tier
@@ -105,7 +105,7 @@ async def list_approvals(
 @router.get("/{approval_id}/suggestions", response_model=list[SuggestionOut])
 async def get_approval_suggestions(
     approval_id: uuid.UUID,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("approvals:read")),
     db: AsyncSession = Depends(get_db),
 ):
     """Return smart allow-rule suggestions based on the approval's tool + arguments."""
@@ -134,7 +134,7 @@ async def get_approval_suggestions(
 @router.get("/{approval_id}", response_model=ApprovalOut)
 async def get_approval(
     approval_id: uuid.UUID,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("approvals:read")),
     db: AsyncSession = Depends(get_db),
 ):
     from app.tools.registry import get_tool_safety_tier
@@ -151,7 +151,7 @@ async def get_approval(
 async def decide_approval(
     approval_id: uuid.UUID,
     body: DecideRequest,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("approvals:write")),
     db: AsyncSession = Depends(get_db),
 ):
     row = await db.get(ToolApproval, approval_id)

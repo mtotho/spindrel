@@ -6,10 +6,11 @@ import os
 import re
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.config import settings
+from app.dependencies import require_scopes
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ Produce ONLY the replacement text. No explanations, no markdown fences, no pream
 # ---------------------------------------------------------------------------
 
 @router.post("/generate-prompt", response_model=GeneratePromptOut)
-async def generate_prompt(body: GeneratePromptIn):
+async def generate_prompt(body: GeneratePromptIn, _auth=Depends(require_scopes("admin"))):
     from app.services.providers import get_llm_client
 
     if body.mode == "inline":

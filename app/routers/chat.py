@@ -16,7 +16,7 @@ from app.agent.context import set_agent_context
 from app.agent.loop import run, run_stream
 from app.agent.pending import resolve_pending
 from app.db.models import Message as MessageModel, Task as TaskModel
-from app.dependencies import get_db, require_scopes, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from app.services import session_locks
 from app.services.channel_throttle import is_throttled as _channel_throttled, record_run as _record_channel_run
 from app.services.channels import get_or_create_channel, ensure_active_session, is_integration_client_id, resolve_integration_user
@@ -101,7 +101,7 @@ class SecretCheckResponse(BaseModel):
 
 
 @router.post("/chat/check-secrets", response_model=SecretCheckResponse)
-async def check_secrets(body: SecretCheckRequest, _auth=Depends(verify_auth_or_user)):
+async def check_secrets(body: SecretCheckRequest, _auth=Depends(require_scopes("chat"))):
     """Pre-flight check: detect known secrets or secret-like patterns in user input."""
     from app.services.secret_registry import check_user_input
     result = check_user_input(body.message)
@@ -384,22 +384,35 @@ async def _maybe_route_to_member_bot(db: AsyncSession, channel, bot, message: st
     if not member_rows:
         return bot, {}
 
+    # Build case-insensitive reverse lookup: lowercase(bot_id) → bot_id,
+    # lowercase(display_name) → bot_id.  Consistent with _detect_member_mentions.
+    name_to_id: dict[str, str] = {}
+    for bot_id in member_rows:
+        name_to_id[bot_id.lower()] = bot_id
+        try:
+            _bot_cfg = get_bot(bot_id)
+            if _bot_cfg and _bot_cfg.name:
+                name_to_id[_bot_cfg.name.lower()] = bot_id
+        except Exception:
+            pass
+
     # Check each tag for a member bot match
     for prefix, name in tag_matches:
         forced_type = prefix.rstrip(":") if prefix else None
         # Only consider bot-typed tags or untyped tags that match a member
         if forced_type and forced_type != "bot":
             continue
-        if name in member_rows:
+        resolved_id = name_to_id.get(name.lower())
+        if resolved_id:
             try:
-                member_bot = get_bot(name)
+                member_bot = get_bot(resolved_id)
                 logger.info(
                     "Routing to member bot %r in channel %s (was primary %r)",
-                    name, channel.id, bot.id,
+                    resolved_id, channel.id, bot.id,
                 )
-                return member_bot, member_rows[name].config or {}
+                return member_bot, member_rows[resolved_id].config or {}
             except Exception:
-                logger.warning("Member bot %r not found in registry", name)
+                logger.warning("Member bot %r not found in registry", resolved_id)
 
     return bot, {}
 
@@ -946,10 +959,24 @@ async def chat(
     _primary_bot_id_nc = bot.id
     bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
 
+    # If routing changed the bot, rebuild the system prompt so the routed bot
+    # runs with its OWN identity (not the channel primary's prompt).
+    _is_primary_nc = bot.id == _primary_bot_id_nc
+    if not _is_primary_nc:
+        from app.services.sessions import _effective_system_prompt, _resolve_workspace_base_prompt_enabled
+        _ws_base_nc = await _resolve_workspace_base_prompt_enabled(db, bot.id, channel_id)
+        _new_sys_nc = _effective_system_prompt(bot, workspace_base_prompt_enabled=_ws_base_nc)
+        messages[:] = [m for m in messages if m.get("role") != "system"]
+        messages.insert(0, {"role": "system", "content": _new_sys_nc})
+        if bot.persona:
+            from app.agent.persona import get_persona as _get_persona_nc
+            _persona_nc = await _get_persona_nc(bot.id, workspace_id=bot.shared_workspace_id)
+            if _persona_nc:
+                messages.insert(1, {"role": "system", "content": f"[PERSONA]\n{_persona_nc}"})
+
     # Rewrite history for multi-bot identity: convert other bots' assistant
     # messages to user messages with attribution, remove hidden trigger prompts.
     # Always run — it's a no-op for single-bot channels (no sender_id metadata).
-    _is_primary_nc = bot.id == _primary_bot_id_nc
     from app.agent.bots import get_bot as _get_bot_nc
     _pb_nc = _get_bot_nc(_primary_bot_id_nc) if not _is_primary_nc else None
     _rewrite_history_for_member_bot(
@@ -1086,14 +1113,19 @@ async def chat(
             bot_id=req.bot_id, client_actions=result.client_actions,
         )
 
-    # Multi-bot: trigger member bots @-mentioned in the user's message
+    # Multi-bot: trigger member bots @-mentioned in the user's message.
+    # Skip any bots already invoked mid-turn by the invoke_member_bot tool.
     _user_mentioned_nc: set[str] = set()
     if channel_id:
+        from app.agent.context import current_invoked_member_bots as _cimb_nc
+        _already_invoked_nc = _cimb_nc.get() or set()
         _um_nc = await _detect_member_mentions(channel_id, bot.id, message, _depth=0)
         if _um_nc:
             import copy as _copy_um
             _um_snap = _copy_um.deepcopy(messages)
             for _bid, _cfg in _um_nc:
+                if _bid in _already_invoked_nc:
+                    continue  # Already fired by invoke_member_bot during the run
                 _user_mentioned_nc.add(_bid)
                 _um_task = asyncio.create_task(
                     _run_member_bot_reply(
@@ -1222,10 +1254,25 @@ async def chat_stream(
     _primary_bot_id = bot.id
     bot, _member_config = await _maybe_route_to_member_bot(db, channel, bot, message)
 
+    # If routing changed the bot, rebuild the system prompt so the routed bot
+    # runs with its OWN identity (not the channel primary's prompt).
+    _is_primary_s = bot.id == _primary_bot_id
+    if not _is_primary_s:
+        from app.services.sessions import _effective_system_prompt, _resolve_workspace_base_prompt_enabled
+        _ws_base_s = await _resolve_workspace_base_prompt_enabled(db, bot.id, channel_id)
+        _new_sys = _effective_system_prompt(bot, workspace_base_prompt_enabled=_ws_base_s)
+        # Replace old system prompt(s) and inject the routed bot's prompt + persona
+        messages[:] = [m for m in messages if m.get("role") != "system"]
+        messages.insert(0, {"role": "system", "content": _new_sys})
+        if bot.persona:
+            from app.agent.persona import get_persona as _get_persona_s
+            _persona_s = await _get_persona_s(bot.id, workspace_id=bot.shared_workspace_id)
+            if _persona_s:
+                messages.insert(1, {"role": "system", "content": f"[PERSONA]\n{_persona_s}"})
+
     # Rewrite history for multi-bot identity: convert other bots' assistant
     # messages to user messages with attribution, remove hidden trigger prompts.
     # Always run — it's a no-op for single-bot channels (no sender_id metadata).
-    _is_primary_s = bot.id == _primary_bot_id
     from app.agent.bots import get_bot as _get_bot_s
     _pb_s = _get_bot_s(_primary_bot_id) if not _is_primary_s else None
     _rewrite_history_for_member_bot(
@@ -1460,6 +1507,7 @@ async def chat_stream(
                 if _user_mentioned:
                     import copy as _copy_user
                     _user_snap = _copy_user.deepcopy(messages)
+                    _auto_invoked_ids: set[str] = set()
                     for _um_bot_id, _um_config in _user_mentioned:
                         _um_sid = str(uuid.uuid4())
                         _um_task = asyncio.create_task(
@@ -1472,6 +1520,29 @@ async def chat_stream(
                         )
                         _background_tasks.add(_um_task)
                         _um_task.add_done_callback(_background_tasks.discard)
+                        _auto_invoked_ids.add(_um_bot_id)
+
+                    # Seed context var so invoke_member_bot tool won't double-fire
+                    from app.agent.context import current_invoked_member_bots
+                    current_invoked_member_bots.set(_auto_invoked_ids)
+
+                    # Tell the primary bot these bots are already responding so
+                    # it doesn't try to invoke them itself.
+                    _auto_names = []
+                    for _ai_id, _ in _user_mentioned:
+                        try:
+                            _ai_bot = get_bot(_ai_id)
+                            _auto_names.append(f"{_ai_bot.name} (@{_ai_id})")
+                        except Exception:
+                            _auto_names.append(f"@{_ai_id}")
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            f"The following bots were auto-invoked by the user's @-mentions and are "
+                            f"already responding in parallel: {', '.join(_auto_names)}. "
+                            f"Do NOT use invoke_member_bot to invoke them again."
+                        ),
+                    })
 
             stream = run_stream(
                 messages, bot, message,

@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { View, ActivityIndicator, useWindowDimensions } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Play } from "lucide-react";
+import { MobileHeader } from "@/src/components/layout/MobileHeader";
 import { useWorkspace, useStartWorkspace, useWorkspaceIndexStatus } from "@/src/api/hooks/useWorkspaces";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -14,6 +15,7 @@ const MOBILE_BREAKPOINT = 768;
 
 export default function WorkspaceFileBrowser() {
   const t = useThemeTokens();
+  const router = useRouter();
   const { workspaceId } = useLocalSearchParams<{ workspaceId: string }>();
   const { data: workspace, isLoading } = useWorkspace(workspaceId);
   const startMutation = useStartWorkspace(workspaceId!);
@@ -70,6 +72,7 @@ export default function WorkspaceFileBrowser() {
   if (!isRunning) {
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", background: t.surface, height: "100%" }}>
+        {isMobile && <MobileHeader title="Workspace" onBack={() => router.back()} />}
         <BrowserToolbar workspace={workspace} onUpload={() => setShowUpload(true)} isMobile={isMobile} />
         <div
           style={{
@@ -128,6 +131,7 @@ export default function WorkspaceFileBrowser() {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", background: t.surface, height: "100%" }}>
+      {isMobile && <MobileHeader title="Workspace" onBack={() => router.back()} />}
       <BrowserToolbar workspace={workspace} onUpload={() => setShowUpload(true)} isMobile={isMobile} />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative" }}>

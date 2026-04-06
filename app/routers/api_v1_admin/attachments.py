@@ -11,7 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Attachment, Channel
-from app.dependencies import get_db
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
 
@@ -72,6 +72,7 @@ async def list_attachments(
     limit: int = Query(50, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("attachments:read")),
 ):
     """List attachments with pagination and filters."""
     base = select(Attachment)
@@ -124,6 +125,7 @@ async def list_attachments(
 @router.get("/attachments/stats", response_model=AttachmentGlobalStats)
 async def attachment_global_stats(
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("attachments:read")),
 ):
     """Global attachment storage stats."""
     row = (await db.execute(
@@ -179,6 +181,7 @@ async def attachment_global_stats(
 async def delete_attachment(
     attachment_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("attachments:write")),
 ):
     """Hard delete an attachment."""
     att = await db.get(Attachment, attachment_id)
@@ -192,6 +195,7 @@ async def delete_attachment(
 async def purge_attachments(
     body: PurgeRequest,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("attachments:write")),
 ):
     """Bulk purge attachments by date and optional filters."""
     if body.purge_file_data_only:

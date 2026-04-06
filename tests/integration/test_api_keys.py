@@ -32,11 +32,17 @@ async def api_client(db_session):
     from fastapi import FastAPI
     from app.routers.api_v1 import router as api_v1_router
     from app.routers.chat import router as chat_router
-    from app.dependencies import get_db, verify_auth, verify_admin_auth, verify_auth_or_user
+    from app.dependencies import ApiKeyAuth, get_db, verify_auth, verify_admin_auth, verify_auth_or_user
 
     app = FastAPI()
     app.include_router(api_v1_router)
     app.include_router(chat_router)
+
+    _admin_auth = ApiKeyAuth(
+        key_id=uuid.UUID("00000000-0000-0000-0000-000000000000"),
+        scopes=["admin"],
+        name="test",
+    )
 
     async def _override_get_db():
         yield db_session
@@ -45,19 +51,25 @@ async def api_client(db_session):
         return "test-key"
 
     async def _override_admin():
-        return "test-key"
+        return _admin_auth
 
     async def _override_auth_or_user():
-        return "test-key"
+        return _admin_auth
 
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[verify_auth] = _override_verify_auth
     app.dependency_overrides[verify_admin_auth] = _override_admin
+    app.dependency_overrides[verify_auth_or_user] = _override_auth_or_user
+
+    # Populate endpoint catalog for discover tests
+    from app.services.endpoint_catalog import build_endpoint_catalog
+    catalog = build_endpoint_catalog(app)
 
     with (
         patch("app.agent.bots._registry", _TEST_REGISTRY),
         patch("app.agent.bots.get_bot", side_effect=_get_test_bot),
         patch("app.agent.persona.get_persona", return_value=None),
+        patch("app.routers.api_v1_discover.ENDPOINT_CATALOG", catalog),
     ):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:

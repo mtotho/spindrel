@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Carapace as CarapaceRow
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from app.routers._carapace_schemas import (
     CarapaceCreateIn,
     CarapaceOut,
@@ -38,7 +38,7 @@ async def _try_reindex(carapace_id: str) -> None:
 @router.get("/carapaces", response_model=list[CarapaceOut])
 async def admin_list_carapaces(
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("carapaces:read")),
 ):
     rows = (await db.execute(
         select(CarapaceRow).order_by(CarapaceRow.name)
@@ -50,7 +50,7 @@ async def admin_list_carapaces(
 async def admin_get_carapace(
     carapace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("carapaces:read")),
 ):
     row = await db.get(CarapaceRow, carapace_id)
     if not row:
@@ -62,7 +62,7 @@ async def admin_get_carapace(
 async def admin_create_carapace(
     body: CarapaceCreateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("carapaces:write")),
 ):
     cid = body.id.strip().lower().replace(" ", "-")
     if not cid or not body.name.strip():
@@ -105,7 +105,7 @@ async def admin_update_carapace(
     carapace_id: str,
     body: CarapaceUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("carapaces:write")),
 ):
     row = await db.get(CarapaceRow, carapace_id)
     if not row:
@@ -147,7 +147,7 @@ async def admin_update_carapace(
 async def admin_delete_carapace(
     carapace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("carapaces:write")),
 ):
     row = await db.get(CarapaceRow, carapace_id)
     if not row:
@@ -178,7 +178,7 @@ class ResolvedCarapaceOut(BaseModel):
 async def admin_resolve_carapace(
     carapace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("carapaces:read")),
 ):
     """Resolve a carapace and its includes into a flat preview."""
     row = await db.get(CarapaceRow, carapace_id)
@@ -227,7 +227,7 @@ class CarapaceUsageItem(BaseModel):
 async def admin_carapace_usage(
     carapace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("carapaces:read")),
 ):
     """Return bots and channels that reference this carapace."""
     from app.db.models import Bot as BotModel, Channel as ChannelModel
@@ -280,7 +280,7 @@ async def admin_carapace_usage(
 async def admin_export_carapace(
     carapace_id: str,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("carapaces:read")),
 ):
     """Export a carapace as YAML."""
     row = await db.get(CarapaceRow, carapace_id)

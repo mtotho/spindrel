@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class GlobalModelTiersIn(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/status")
-async def system_status(_auth=Depends(verify_auth_or_user)):
+async def system_status(_auth=Depends(require_scopes("settings:read"))):
     """Lightweight status endpoint for UI polling (pause banner)."""
     from app.config import settings
     return {
@@ -46,7 +46,7 @@ async def system_status(_auth=Depends(verify_auth_or_user)):
 
 @router.get("/settings")
 async def admin_get_settings(
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("settings:read")),
 ):
     from app.services.server_settings import get_all_settings
     groups = await get_all_settings()
@@ -57,7 +57,7 @@ async def admin_get_settings(
 async def admin_update_settings(
     body: SettingsUpdateIn,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("settings:write")),
 ):
     from app.services.server_settings import update_settings
     try:
@@ -75,7 +75,7 @@ async def admin_update_settings(
 async def admin_reset_setting(
     key: str,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("settings:write")),
 ):
     from app.services.server_settings import reset_setting
     try:
@@ -91,7 +91,7 @@ async def admin_reset_setting(
 @router.get("/settings/chat-history-deviations")
 async def chat_history_deviations(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("settings:read")),
 ):
     """Return channels whose chat-history settings deviate from global defaults."""
     from sqlalchemy import select
@@ -132,7 +132,7 @@ async def chat_history_deviations(
 
 
 @router.get("/settings/memory-scheme-defaults")
-async def memory_scheme_defaults(_auth: str = Depends(verify_auth_or_user)):
+async def memory_scheme_defaults(_auth: str = Depends(require_scopes("settings:read"))):
     """Return built-in default prompts for the workspace-files memory scheme."""
     from app.config import DEFAULT_MEMORY_SCHEME_PROMPT, DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
     return {
@@ -142,7 +142,7 @@ async def memory_scheme_defaults(_auth: str = Depends(verify_auth_or_user)):
 
 
 @router.get("/version/check-update")
-async def check_update(_auth=Depends(verify_auth_or_user)):
+async def check_update(_auth=Depends(require_scopes("settings:read"))):
     """Check GitHub for the latest release and compare to current version."""
     from app.config import VERSION, settings
 
@@ -205,7 +205,7 @@ async def check_update(_auth=Depends(verify_auth_or_user)):
 
 
 @router.get("/global-fallback-models")
-async def get_global_fallback_models(_auth: str = Depends(verify_auth_or_user)):
+async def get_global_fallback_models(_auth: str = Depends(require_scopes("settings:read"))):
     from app.services.server_config import get_global_fallback_models
     return {"models": get_global_fallback_models()}
 
@@ -213,7 +213,7 @@ async def get_global_fallback_models(_auth: str = Depends(verify_auth_or_user)):
 @router.put("/global-fallback-models")
 async def update_global_fallback_models(
     body: GlobalFallbackModelsIn,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("settings:write")),
 ):
     from app.services.server_config import update_global_fallback_models
     await update_global_fallback_models(body.models)
@@ -221,7 +221,7 @@ async def update_global_fallback_models(
 
 
 @router.get("/global-model-tiers")
-async def get_global_model_tiers(_auth: str = Depends(verify_auth_or_user)):
+async def get_global_model_tiers(_auth: str = Depends(require_scopes("settings:read"))):
     from app.services.server_config import get_model_tiers
     return {"tiers": get_model_tiers()}
 
@@ -229,7 +229,7 @@ async def get_global_model_tiers(_auth: str = Depends(verify_auth_or_user)):
 @router.put("/global-model-tiers")
 async def update_global_model_tiers(
     body: GlobalModelTiersIn,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("settings:write")),
 ):
     from app.services.server_config import VALID_TIER_NAMES, update_model_tiers
     invalid = set(body.tiers.keys()) - VALID_TIER_NAMES

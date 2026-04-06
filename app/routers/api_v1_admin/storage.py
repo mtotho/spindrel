@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -16,6 +16,7 @@ from app.services.data_retention import (
     run_data_retention_sweep,
 )
 from app.config import settings
+from app.dependencies import require_scopes
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ def _fmt_bytes(b: int) -> str:
 
 
 @router.get("/breakdown", response_model=StorageBreakdown)
-async def storage_breakdown():
+async def storage_breakdown(_auth=Depends(require_scopes("storage:read"))):
     """Row counts, sizes, oldest row, and purgeable counts per operational table."""
     purgeable = await get_purgeable_counts()
     tables: list[TableStats] = []
@@ -105,7 +106,7 @@ async def storage_breakdown():
 
 
 @router.post("/purge", response_model=PurgeResult)
-async def purge_storage():
+async def purge_storage(_auth=Depends(require_scopes("storage:write"))):
     """Manual trigger: purge old rows now using current DATA_RETENTION_DAYS setting."""
     if settings.DATA_RETENTION_DAYS is None:
         return PurgeResult(deleted={}, total=0)

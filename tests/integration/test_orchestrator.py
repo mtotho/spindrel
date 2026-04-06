@@ -96,14 +96,16 @@ class TestEnsureOrchestratorChannel:
         ch = result.scalar_one_or_none()
         assert ch is not None
         assert ch.bot_id == "orchestrator"
-        assert ch.name == "Home"
+        assert ch.name == "Orchestrator"
         assert ch.active_session_id is not None
 
     async def test_skips_when_no_orchestrator_bot(self, db_session):
         """When orchestrator bot doesn't exist, ensure_orchestrator_channel is a no-op."""
         registry = {}
         with patch("app.agent.bots._registry", registry), \
-             patch("app.agent.bots.get_bot", side_effect=Exception("not found")):
+             patch("app.agent.bots.get_bot", side_effect=Exception("not found")), \
+             patch("app.services.channels._ensure_orchestrator_bot_exists", return_value=False), \
+             patch("app.agent.bots.load_bots", new_callable=AsyncMock):
             from app.services.channels import ensure_orchestrator_channel
             await ensure_orchestrator_channel()
 

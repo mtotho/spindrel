@@ -11,7 +11,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Task
-from app.dependencies import get_db
+from app.dependencies import get_db, require_scopes
 from app.services.integration_processes import process_manager
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ def _get_setup_vars(integration_id: str) -> list[dict]:
 
 
 @router.get("/integrations")
-async def list_integrations():
+async def list_integrations(_auth=Depends(require_scopes("integrations:read"))):
     from integrations import discover_setup_status
 
     base_url = ""
@@ -69,7 +69,7 @@ async def list_integrations():
 
 
 @router.get("/integrations/icons")
-async def list_integration_icons():
+async def list_integration_icons(_auth=Depends(require_scopes("integrations:read"))):
     """Return a lightweight mapping of integration_id -> lucide icon name."""
     from integrations import discover_setup_status
 
@@ -79,7 +79,7 @@ async def list_integration_icons():
 
 
 @router.get("/integrations/sidebar-sections")
-async def list_sidebar_sections():
+async def list_sidebar_sections(_auth=Depends(require_scopes("integrations:read"))):
     """Return sidebar sections declared by integrations via their SETUP manifests.
 
     Filters out sections whose integration has ``SIDEBAR_ENABLED`` set to ``"false"``.
@@ -109,7 +109,7 @@ class DisabledBody(BaseModel):
 
 
 @router.put("/integrations/{integration_id}/disabled")
-async def set_integration_disabled(integration_id: str, body: DisabledBody):
+async def set_integration_disabled(integration_id: str, body: DisabledBody, _auth=Depends(require_scopes("integrations:write"))):
     """Globally disable or enable an integration.
 
     Disabling: stops process, unregisters tools, removes embeddings.
@@ -162,7 +162,7 @@ async def set_integration_disabled(integration_id: str, body: DisabledBody):
 
 
 @router.get("/integrations/{integration_id}/settings")
-async def get_integration_settings(integration_id: str):
+async def get_integration_settings(integration_id: str, _auth=Depends(require_scopes("integrations:read"))):
     from app.services.integration_settings import get_all_for_integration
 
     setup_vars = _get_setup_vars(integration_id)
@@ -179,6 +179,7 @@ async def update_integration_settings(
     integration_id: str,
     body: UpdateSettingsBody,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:write")),
 ):
     from app.services.integration_settings import update_settings
 
@@ -211,6 +212,7 @@ async def delete_integration_setting(
     integration_id: str,
     key: str,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:write")),
 ):
     from app.services.integration_settings import delete_setting
 
@@ -224,12 +226,12 @@ async def delete_integration_setting(
 
 
 @router.get("/integrations/{integration_id}/process")
-async def get_process_status(integration_id: str):
+async def get_process_status(integration_id: str, _auth=Depends(require_scopes("integrations:read"))):
     return process_manager.status(integration_id)
 
 
 @router.post("/integrations/{integration_id}/process/start")
-async def start_process(integration_id: str):
+async def start_process(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
     from app.services.integration_settings import is_disabled
     if is_disabled(integration_id):
         raise HTTPException(status_code=400, detail="Integration is globally disabled")
@@ -243,7 +245,7 @@ async def start_process(integration_id: str):
 
 
 @router.post("/integrations/{integration_id}/process/stop")
-async def stop_process(integration_id: str):
+async def stop_process(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
     ok = await process_manager.stop(integration_id)
     if not ok:
         raise HTTPException(status_code=400, detail="Process is not running")
@@ -251,7 +253,7 @@ async def stop_process(integration_id: str):
 
 
 @router.post("/integrations/{integration_id}/process/restart")
-async def restart_process(integration_id: str):
+async def restart_process(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
     ok = await process_manager.restart(integration_id)
     if not ok:
         raise HTTPException(status_code=400, detail="Failed to restart process")
@@ -263,13 +265,13 @@ class AutoStartBody(BaseModel):
 
 
 @router.put("/integrations/{integration_id}/process/auto-start")
-async def set_auto_start(integration_id: str, body: AutoStartBody):
+async def set_auto_start(integration_id: str, body: AutoStartBody, _auth=Depends(require_scopes("integrations:write"))):
     await process_manager.set_auto_start(integration_id, body.enabled)
     return {"integration_id": integration_id, "auto_start": body.enabled}
 
 
 @router.get("/integrations/{integration_id}/process/auto-start")
-async def get_auto_start(integration_id: str):
+async def get_auto_start(integration_id: str, _auth=Depends(require_scopes("integrations:read"))):
     enabled = await process_manager.get_auto_start(integration_id)
     return {"integration_id": integration_id, "auto_start": enabled}
 
@@ -280,7 +282,7 @@ async def get_auto_start(integration_id: str):
 
 
 @router.post("/integrations/{integration_id}/install-deps")
-async def install_deps(integration_id: str):
+async def install_deps(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
     """Install Python dependencies from the integration's requirements.txt."""
     from integrations import _iter_integration_candidates
 
@@ -326,7 +328,7 @@ async def install_deps(integration_id: str):
 
 
 @router.post("/integrations/{integration_id}/install-npm-deps")
-async def install_npm_deps(integration_id: str):
+async def install_npm_deps(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
     """Install npm dependencies declared in the integration's setup.py."""
     from integrations import _iter_integration_candidates, _import_module
 
@@ -403,6 +405,7 @@ def _get_api_permissions(integration_id: str) -> str | list[str] | None:
 async def get_integration_api_key(
     integration_id: str,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:read")),
 ):
     """Get API key metadata for an integration."""
     from app.services.api_keys import get_integration_api_key as _get_key
@@ -423,6 +426,7 @@ async def get_integration_api_key(
 async def provision_or_regenerate_integration_api_key(
     integration_id: str,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:write")),
 ):
     """Provision a new API key or regenerate an existing one for an integration."""
     from app.services.api_keys import (
@@ -463,6 +467,7 @@ async def list_integration_tasks(
     status: str | None = Query(None, description="Filter by task status"),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:read")),
 ):
     """List recent tasks for an integration, filtered by dispatch_type."""
     q = select(Task).where(Task.dispatch_type == integration_id).order_by(Task.created_at.desc()).limit(limit)
@@ -502,6 +507,7 @@ async def list_integration_tasks(
 async def cancel_integration_pending_tasks(
     integration_id: str,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:write")),
 ):
     """Cancel all pending tasks for an integration. Use after spam incidents."""
     result = await db.execute(
@@ -522,7 +528,7 @@ async def cancel_integration_pending_tasks(
 
 
 @router.post("/integrations/reload")
-async def reload_integrations():
+async def reload_integrations(_auth=Depends(require_scopes("integrations:write"))):
     """Discover and load new integrations without restarting the server.
 
     Scans INTEGRATION_DIRS for new integration directories, registers routers,
@@ -550,6 +556,7 @@ async def reload_integrations():
 async def revoke_integration_api_key_endpoint(
     integration_id: str,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:write")),
 ):
     """Revoke an integration's API key."""
     from app.services.api_keys import revoke_integration_api_key

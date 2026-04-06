@@ -20,7 +20,7 @@ from app.db.models import (
     SharedWorkspaceBot,
     Skill as SkillRow,
 )
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
 
@@ -28,7 +28,7 @@ router = APIRouter()
 @router.get("/diagnostics/indexing")
 async def diagnostics_indexing(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Comprehensive indexing health check across all systems."""
     result: dict = {"cwd": str(Path.cwd()), "systems": {}}
@@ -238,7 +238,7 @@ async def diagnostics_indexing(
 
 @router.get("/diagnostics/operations")
 async def diagnostics_operations(
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Return in-progress background operations (lightweight, no DB)."""
     from app.services import progress
@@ -248,7 +248,7 @@ async def diagnostics_operations(
 @router.post("/diagnostics/reindex")
 async def diagnostics_reindex(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Force re-index ALL filesystem directories and workspace skills."""
     from app.agent.bots import list_bots
@@ -372,7 +372,7 @@ async def diagnostics_memory_search(
     bot_id: str,
     query: str = "test",
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Test memory search for a specific bot — returns raw diagnostic data.
 
@@ -471,7 +471,7 @@ async def diagnostics_memory_search(
 @router.get("/diagnostics/disk-usage")
 async def diagnostics_disk_usage(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Workspace disk usage report."""
     from app.services.disk_usage import get_full_disk_report
@@ -506,7 +506,7 @@ async def diagnostics_disk_usage(
 
 @router.get("/diagnostics/feature-validation")
 async def diagnostics_feature_validation(
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Validate that all bots have tools required by their configured features."""
     from app.services.feature_validation import validate_features

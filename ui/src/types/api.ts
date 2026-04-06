@@ -79,6 +79,7 @@ export interface BotConfig {
   memory_hygiene_only_if_active?: boolean | null;
   memory_hygiene_model?: string | null;
   memory_hygiene_model_provider_id?: string | null;
+  memory_hygiene_target_hour?: number | null;
   carapaces?: string[];
   workspace_only?: boolean;
   system_prompt_workspace_file?: boolean;

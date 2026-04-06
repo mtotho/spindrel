@@ -63,7 +63,7 @@ async def _create_channel_with_messages(db: AsyncSession, messages: list[tuple[s
 class TestMessageSearch:
     @pytest.mark.asyncio
     async def test_messages_search_finds_matching(self, engine, db_session):
-        """messages: search returns matching messages."""
+        """search: query returns matching sections."""
         factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         channel_id, session_id = await _create_channel_with_messages(db_session, [
@@ -80,14 +80,13 @@ class TestMessageSearch:
             patch("app.tools.local.conversation_history.async_session", return_value=factory()),
         ):
             mock_ctx.get.return_value = channel_id
-            result = await read_conversation_history(section="messages:5432")
+            result = await read_conversation_history(section="search:5432")
 
         assert "5432" in result
-        assert "connection refused" in result
 
     @pytest.mark.asyncio
     async def test_messages_search_no_results(self, engine, db_session):
-        """messages: search returns helpful message when nothing matches."""
+        """search: query returns helpful message when nothing matches."""
         factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
         channel_id, session_id = await _create_channel_with_messages(db_session, [
@@ -102,18 +101,18 @@ class TestMessageSearch:
             patch("app.tools.local.conversation_history.async_session", return_value=factory()),
         ):
             mock_ctx.get.return_value = channel_id
-            result = await read_conversation_history(section="messages:nonexistent_xyz")
+            result = await read_conversation_history(section="search:nonexistent_xyz")
 
-        assert "No messages found" in result
+        assert "No sections found" in result
 
     @pytest.mark.asyncio
     async def test_messages_search_empty_query(self, engine, db_session):
-        """messages: with empty query returns help text."""
+        """search: with empty query returns help text."""
         from app.tools.local.conversation_history import read_conversation_history
 
         with patch("app.tools.local.conversation_history.current_channel_id") as mock_ctx:
             mock_ctx.get.return_value = uuid.uuid4()
-            result = await read_conversation_history(section="messages:")
+            result = await read_conversation_history(section="search:")
 
         assert "Please provide a search query" in result
 

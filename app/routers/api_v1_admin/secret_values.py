@@ -7,7 +7,7 @@ from pydantic import BaseModel, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import SecretValue
-from app.dependencies import get_db
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter(prefix="/secret-values", tags=["Secret Values"])
 
@@ -42,13 +42,13 @@ class SecretValueUpdate(BaseModel):
 
 
 @router.get("/")
-async def list_secret_values(db: AsyncSession = Depends(get_db)):
+async def list_secret_values(db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("secrets:read"))):
     from app.services.secret_values import list_secrets
     return await list_secrets(db)
 
 
 @router.post("/", status_code=201)
-async def create_secret_value(body: SecretValueCreate, db: AsyncSession = Depends(get_db)):
+async def create_secret_value(body: SecretValueCreate, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("secrets:write"))):
     from app.services.secret_values import create_secret
     try:
         return await create_secret(db, name=body.name, value=body.value, description=body.description)
@@ -59,7 +59,7 @@ async def create_secret_value(body: SecretValueCreate, db: AsyncSession = Depend
 
 
 @router.get("/{secret_id}")
-async def get_secret_value(secret_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_secret_value(secret_id: uuid.UUID, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("secrets:read"))):
     row = await db.get(SecretValue, secret_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Secret not found")
@@ -75,7 +75,7 @@ async def get_secret_value(secret_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 
 @router.put("/{secret_id}")
-async def update_secret_value(secret_id: uuid.UUID, body: SecretValueUpdate, db: AsyncSession = Depends(get_db)):
+async def update_secret_value(secret_id: uuid.UUID, body: SecretValueUpdate, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("secrets:write"))):
     from app.services.secret_values import update_secret
     try:
         result = await update_secret(db, secret_id, name=body.name, value=body.value, description=body.description)
@@ -89,7 +89,7 @@ async def update_secret_value(secret_id: uuid.UUID, body: SecretValueUpdate, db:
 
 
 @router.delete("/{secret_id}")
-async def delete_secret_value(secret_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def delete_secret_value(secret_id: uuid.UUID, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("secrets:write"))):
     from app.services.secret_values import delete_secret
     deleted = await delete_secret(db, secret_id)
     if not deleted:

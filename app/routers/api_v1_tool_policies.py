@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models import ToolPolicyRule
-from app.dependencies import get_db, verify_admin_auth
+from app.dependencies import get_db, require_scopes
 from app.services.tool_policies import PolicyDecision, evaluate_tool_policy, invalidate_cache
 
 logger = logging.getLogger(__name__)
@@ -108,7 +108,7 @@ def _validate_action(action: str) -> None:
 
 @router.get("/settings", response_model=PolicySettingsOut)
 async def get_policy_settings(
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("tool_policies:read")),
 ):
     """Get current tool policy settings (default action, enabled state)."""
     return PolicySettingsOut(
@@ -121,7 +121,7 @@ async def get_policy_settings(
 @router.put("/settings", response_model=PolicySettingsOut)
 async def update_policy_settings(
     body: PolicySettingsUpdate,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("tool_policies:write")),
     db: AsyncSession = Depends(get_db),
 ):
     """Update tool policy settings (persisted to DB, survives restart)."""
@@ -149,7 +149,7 @@ async def update_policy_settings(
 @router.post("/test", response_model=PolicyTestResponse)
 async def test_policy(
     body: PolicyTestRequest,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("tool_policies:write")),
     db: AsyncSession = Depends(get_db),
 ):
     """Dry-run: evaluate policies for given inputs and return the decision."""
@@ -165,7 +165,7 @@ async def test_policy(
 
 @router.get("/tiers")
 async def list_tool_tiers(
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("tool_policies:read")),
 ):
     """List all registered tools with their safety tiers."""
     from app.tools.registry import get_all_tool_tiers
@@ -177,7 +177,7 @@ async def list_tool_tiers(
 async def list_policy_rules(
     bot_id: Optional[str] = None,
     tool_name: Optional[str] = None,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("tool_policies:read")),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = select(ToolPolicyRule).order_by(ToolPolicyRule.priority.asc(), ToolPolicyRule.created_at.asc())
@@ -192,7 +192,7 @@ async def list_policy_rules(
 @router.post("", response_model=PolicyRuleOut, status_code=201)
 async def create_policy_rule(
     body: PolicyRuleCreate,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("tool_policies:write")),
     db: AsyncSession = Depends(get_db),
 ):
     _validate_action(body.action)
@@ -217,7 +217,7 @@ async def create_policy_rule(
 async def update_policy_rule(
     rule_id: uuid.UUID,
     body: PolicyRuleUpdate,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("tool_policies:write")),
     db: AsyncSession = Depends(get_db),
 ):
     rule = await db.get(ToolPolicyRule, rule_id)
@@ -238,7 +238,7 @@ async def update_policy_rule(
 @router.delete("/{rule_id}", status_code=204)
 async def delete_policy_rule(
     rule_id: uuid.UUID,
-    _auth=Depends(verify_admin_auth),
+    _auth=Depends(require_scopes("tool_policies:write")),
     db: AsyncSession = Depends(get_db),
 ):
     rule = await db.get(ToolPolicyRule, rule_id)

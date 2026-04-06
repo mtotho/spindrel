@@ -13,6 +13,7 @@ export interface MemoryHygieneStatus {
   last_task_id: string | null;
   model: string | null;
   model_provider_id: string | null;
+  target_hour: number;
 }
 
 export interface MemoryHygieneRun {

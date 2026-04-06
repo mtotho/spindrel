@@ -413,6 +413,11 @@ async def lifespan(application: FastAPI):
         except Exception:
             logger.exception("Failed to register integration router: %s", _integration_id)
 
+    # Build endpoint catalog from route introspection (after all routers registered)
+    from app.services.endpoint_catalog import build_endpoint_catalog
+    from app.services import api_keys as _api_keys_mod
+    _api_keys_mod.ENDPOINT_CATALOG = build_endpoint_catalog(application)
+
     # Discover integration web UIs and populate the module-level registry.
     # The actual route handler is registered at module level (after app = FastAPI(...))
     # because the lifespan `app` parameter can collide with the `app` package name.

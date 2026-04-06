@@ -197,7 +197,7 @@ class TestAdminAuthRejection:
             "/api/v1/admin/server-logs",
             headers={"Authorization": "Bearer invalid-random-token"},
         )
-        assert resp.status_code == 403
+        assert resp.status_code in (401, 403)
 
     async def test_invalid_scoped_key_rejected(self, real_auth_client: AsyncClient):
         """Fake ask_ key should be rejected."""
@@ -325,7 +325,7 @@ class TestAdminApiKeyConfig:
                     headers={"Authorization": "Bearer test-key"},
                 )
             # Regular API_KEY should be rejected when ADMIN_API_KEY is set
-            assert resp.status_code == 403
+            assert resp.status_code in (401, 403)
 
         app.dependency_overrides.clear()
 

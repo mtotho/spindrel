@@ -30,7 +30,7 @@ from app.db.models import (
     ToolPolicyRule,
     User,
 )
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,7 +43,7 @@ router = APIRouter()
 @router.get("/config-state")
 async def get_config_state(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     from app.services.config_export import assemble_config_state
     return await assemble_config_state(db)
@@ -534,7 +534,7 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
 async def restore_config_state(
     payload: dict,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Restore config from a backup JSON snapshot."""
     summary = await do_restore(payload, db)

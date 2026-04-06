@@ -853,6 +853,7 @@ class Bot(Base):
     memory_hygiene_only_if_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     memory_hygiene_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     memory_hygiene_model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_hygiene_target_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_hygiene_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     next_hygiene_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     system_prompt_workspace_file: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)

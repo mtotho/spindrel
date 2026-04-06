@@ -57,7 +57,7 @@ ALL_SCOPES = [
     # Operations
     "operations:read", "operations:write",
     # Usage
-    "usage:read",
+    "usage:read", "usage:write",
     # Mission Control
     "mission_control:read", "mission_control:write",
     # Carapaces
@@ -66,6 +66,28 @@ ALL_SCOPES = [
     "workflows:read", "workflows:write",
     # LLM
     "llm:completions",
+    # API Keys
+    "api_keys:read", "api_keys:write",
+    # Integrations
+    "integrations:read", "integrations:write",
+    # MCP Servers
+    "mcp_servers:read", "mcp_servers:write",
+    # Skills
+    "skills:read", "skills:write",
+    # Secrets
+    "secrets:read", "secrets:write",
+    # Webhooks
+    "webhooks:read", "webhooks:write",
+    # Docker Stacks
+    "docker_stacks:read", "docker_stacks:write",
+    # Alerts
+    "alerts:read", "alerts:write",
+    # Approvals
+    "approvals:read", "approvals:write",
+    # Tool Policies
+    "tool_policies:read", "tool_policies:write",
+    # Storage
+    "storage:read", "storage:write",
 ]
 
 # Scope descriptions (shown in admin UI)
@@ -114,6 +136,7 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "operations:read": "View backup config, backup history, and active operations",
     "operations:write": "Trigger backups, git pull, server restart, and update backup config",
     "usage:read": "View usage summary, logs, breakdown, timeseries, forecast, and limit status",
+    "usage:write": "Create, update, and delete usage limits",
     "mission_control:read": "Read Mission Control dashboard data (overview, kanban, journal, memory, context)",
     "mission_control:write": "Write Mission Control data (create/move kanban cards, update preferences)",
     "carapaces:read": "List and get carapace details (skill+tool bundles)",
@@ -121,6 +144,28 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "workflows:read": "List workflows, view workflow runs and step details",
     "workflows:write": "Create, update, delete workflows; trigger, cancel, approve, skip, retry runs",
     "llm:completions": "Make LLM chat completion calls through the server's provider system",
+    "api_keys:read": "List and view API key metadata",
+    "api_keys:write": "Create, update, and delete API keys",
+    "integrations:read": "List integrations and view settings, process status, and API keys",
+    "integrations:write": "Update integration settings, control processes, install dependencies, and manage API keys",
+    "mcp_servers:read": "List and view MCP server configurations",
+    "mcp_servers:write": "Create, update, and delete MCP server configurations",
+    "skills:read": "List and view skill definitions and metadata",
+    "skills:write": "Create, update, and delete skills",
+    "secrets:read": "List secret value metadata (names, not values)",
+    "secrets:write": "Create, update, and delete secret values",
+    "webhooks:read": "List webhooks and view delivery history",
+    "webhooks:write": "Create, update, delete, and test webhooks",
+    "docker_stacks:read": "List Docker stack configurations",
+    "docker_stacks:write": "Create, update, delete, and control Docker stacks",
+    "alerts:read": "List and view spike alert configurations",
+    "alerts:write": "Create, update, and delete spike alerts",
+    "approvals:read": "List pending and historical tool approvals",
+    "approvals:write": "Approve or deny tool call requests",
+    "tool_policies:read": "List and view tool policy configurations",
+    "tool_policies:write": "Create, update, and delete tool policies",
+    "storage:read": "View storage usage statistics",
+    "storage:write": "Manage storage (cleanup, purge)",
 }
 
 # Grouped scopes for the UI — each group has a description and ordered scope list.
@@ -205,7 +250,7 @@ SCOPE_GROUPS: dict[str, dict] = {
     },
     "Usage": {
         "description": "Cost analytics, forecasting, and usage limits",
-        "scopes": ["usage:read"],
+        "scopes": ["usage:read", "usage:write"],
     },
     "Mission Control": {
         "description": "Aggregated dashboard: overview, kanban, journal, memory, debug context",
@@ -222,6 +267,50 @@ SCOPE_GROUPS: dict[str, dict] = {
     "LLM": {
         "description": "Direct LLM calls through the server's multi-provider infrastructure",
         "scopes": ["llm:completions"],
+    },
+    "API Keys": {
+        "description": "Manage scoped API keys",
+        "scopes": ["api_keys:read", "api_keys:write"],
+    },
+    "Integrations": {
+        "description": "Integration setup, settings, process control, and dependencies",
+        "scopes": ["integrations:read", "integrations:write"],
+    },
+    "MCP Servers": {
+        "description": "Model Context Protocol server configurations",
+        "scopes": ["mcp_servers:read", "mcp_servers:write"],
+    },
+    "Skills": {
+        "description": "Skill definitions and metadata",
+        "scopes": ["skills:read", "skills:write"],
+    },
+    "Secrets": {
+        "description": "Secret value management (encrypted storage)",
+        "scopes": ["secrets:read", "secrets:write"],
+    },
+    "Webhooks": {
+        "description": "Webhook endpoints and delivery management",
+        "scopes": ["webhooks:read", "webhooks:write"],
+    },
+    "Docker Stacks": {
+        "description": "Docker stack configurations and control",
+        "scopes": ["docker_stacks:read", "docker_stacks:write"],
+    },
+    "Alerts": {
+        "description": "Spike alert configurations and notifications",
+        "scopes": ["alerts:read", "alerts:write"],
+    },
+    "Approvals": {
+        "description": "Tool call approval queue",
+        "scopes": ["approvals:read", "approvals:write"],
+    },
+    "Tool Policies": {
+        "description": "Tool-level permission policies (allow/deny/approval-required)",
+        "scopes": ["tool_policies:read", "tool_policies:write"],
+    },
+    "Storage": {
+        "description": "Storage usage and management",
+        "scopes": ["storage:read", "storage:write"],
     },
 }
 
@@ -320,6 +409,7 @@ SCOPE_PRESETS: dict[str, dict] = {
             "attachments:read", "attachments:write",
             "todos:read", "todos:write",
             "mission_control:read", "mission_control:write",
+            "approvals:read",
         ],
         "instructions": "Auto-provisioned for non-admin users.",
     },
@@ -327,845 +417,10 @@ SCOPE_PRESETS: dict[str, dict] = {
 
 # ---------------------------------------------------------------------------
 # Endpoint catalog (used by /discover)
+# Built at startup by endpoint_catalog.build_endpoint_catalog()
 # ---------------------------------------------------------------------------
 
-ENDPOINT_CATALOG: list[dict] = [
-    # Channels — core CRUD
-    {
-        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels",
-        "description": "List channels",
-        "params": "?integration=&bot_id=&user_id=",
-        "response": "[{id, name, bot_id, integration, active_session_id, ...}]",
-    },
-    {
-        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}",
-        "description": "Get channel details",
-        "response": "{id, name, bot_id, active_session_id, integrations: [...], ...}",
-    },
-    {
-        "scope": "channels:write", "method": "POST", "path": "/api/v1/channels",
-        "description": "Create or retrieve a channel",
-        "body": '{"bot_id": "str", "client_id": "str", "name?": "str"}',
-        "response": "{id, name, bot_id, active_session_id, ...}",
-    },
-    {
-        "scope": "channels:write", "method": "PUT", "path": "/api/v1/channels/{id}",
-        "description": "Update basic channel settings",
-    },
-    {
-        "scope": "channels:write", "method": "DELETE", "path": "/api/v1/channels/{id}",
-        "description": "Delete a channel and all associated data",
-    },
-    # Channels — messages
-    {
-        "scope": "channels.messages:read", "method": "GET", "path": "/api/v1/channels/{id}/messages/search",
-        "description": "Search messages across all sessions in a channel",
-        "params": "?q=&role=&limit=50",
-        "response": "[{id, role, content, created_at, ...}]",
-    },
-    {
-        "scope": "channels.messages:write", "method": "POST", "path": "/api/v1/channels/{id}/messages",
-        "description": "Inject message into a channel's active session",
-        "body": '{"content": "str", "role?": "user", "source?": "str", "run_agent?": false}',
-        "notes": "If run_agent=true, returns {task_id} for async processing.",
-    },
-    {
-        "scope": "channels.messages:write", "method": "POST", "path": "/api/v1/channels/{id}/reset",
-        "description": "Reset channel session (creates new session, preserves config)",
-    },
-    {
-        "scope": "channels.messages:write", "method": "POST", "path": "/api/v1/channels/{id}/switch-session",
-        "description": "Switch channel to a specific session",
-        "body": '{"session_id": "uuid"}',
-    },
-    # Channels — config
-    {
-        "scope": "channels.config:read", "method": "GET", "path": "/api/v1/channels/{id}/config",
-        "description": "Get full channel config (settings, heartbeat, effective tools)",
-        "notes": "Also requires channels.heartbeat:read for heartbeat fields (covered by channels.config:read via parent scope).",
-    },
-    {
-        "scope": "channels.config:write", "method": "PUT", "path": "/api/v1/channels/{id}/config",
-        "description": "Update channel settings (model overrides, compaction, tools, skills)",
-        "notes": "Heartbeat fields require channels.heartbeat:write. channels.config:write covers both.",
-    },
-    # Channels — heartbeat (via config endpoint)
-    {
-        "scope": "channels.heartbeat:write", "method": "PUT", "path": "/api/v1/channels/{id}/config",
-        "description": "Update heartbeat schedule, prompt, and quiet hours (subset of config endpoint)",
-        "notes": "Send only heartbeat_* fields. channels.config:write also covers this.",
-    },
-    # Channels — knowledge & attachments (read via channel scope)
-    {
-        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}/knowledge",
-        "description": "List knowledge docs accessible to a channel",
-    },
-    {
-        "scope": "channels:read", "method": "GET", "path": "/api/v1/channels/{id}/attachment-stats",
-        "description": "Get attachment storage stats for a channel",
-    },
-    # Channels — integrations
-    {
-        "scope": "channels.integrations:read", "method": "GET", "path": "/api/v1/channels/{id}/integrations",
-        "description": "List integration bindings for a channel",
-    },
-    {
-        "scope": "channels.integrations:write", "method": "POST", "path": "/api/v1/channels/{id}/integrations",
-        "description": "Bind an integration to a channel",
-        "body": '{"integration_type": "str", "client_id": "str"}',
-    },
-    {
-        "scope": "channels.integrations:write", "method": "DELETE",
-        "path": "/api/v1/channels/{id}/integrations/{binding_id}",
-        "description": "Unbind integration from channel",
-    },
-    {
-        "scope": "channels.integrations:write", "method": "POST",
-        "path": "/api/v1/channels/{id}/integrations/{binding_id}/adopt",
-        "description": "Adopt integration binding from another channel",
-    },
-    # Chat
-    {
-        "scope": "chat", "method": "POST", "path": "/chat",
-        "description": "Send chat message (non-streaming, returns full response)",
-        "body": '{"message": "str", "bot_id": "str", "client_id": "str", "channel_id?": "uuid", "model_override?": "str"}',
-        "response": '{"response": "str", "session_id": "uuid"}',
-    },
-    {
-        "scope": "chat", "method": "POST", "path": "/chat/stream",
-        "description": "Send chat message (SSE streaming)",
-        "body": '{"message": "str", "bot_id": "str", "client_id": "str", "channel_id?": "uuid"}',
-        "notes": "Returns Server-Sent Events. Events: skill_context, memory_context, tool_start, tool_result, response, error.",
-    },
-    {
-        "scope": "chat", "method": "POST", "path": "/chat/cancel",
-        "description": "Cancel in-progress chat",
-        "body": '{"session_id": "uuid"}',
-    },
-    # Bots
-    {
-        "scope": "bots:read", "method": "GET", "path": "/bots",
-        "description": "List available bots with id, name, and model",
-        "response": "[{id, name, model, audio_input?}]",
-    },
-    {
-        "scope": "bots:read", "method": "GET", "path": "/api/v1/admin/bots",
-        "description": "List all bots with full configuration",
-        "response": "{bots: [{id, name, model, system_prompt, ...}], total: int}",
-    },
-    {
-        "scope": "bots:read", "method": "GET", "path": "/api/v1/admin/bots/{id}",
-        "description": "Get a single bot's full configuration",
-        "response": "{id, name, model, system_prompt, source_type, ...}",
-    },
-    {
-        "scope": "bots:read", "method": "GET", "path": "/api/v1/admin/bots/{id}/editor-data",
-        "description": "Get bot config plus all available options for the editor UI",
-        "response": "{bot, tool_groups, mcp_servers, client_tools, all_skills, ...}",
-    },
-    {
-        "scope": "bots:write", "method": "POST", "path": "/api/v1/admin/bots",
-        "description": "Create a new bot",
-        "body": '{"id": "str", "name": "str", "model": "str", "system_prompt?": "str", ...}',
-        "response": "{id, name, model, ...}",
-    },
-    {
-        "scope": "bots:write", "method": "PUT", "path": "/api/v1/admin/bots/{id}",
-        "description": "Update a bot's configuration",
-        "body": '{"name?": "str", "model?": "str", "system_prompt?": "str", ...}',
-        "response": "{id, name, model, ...}",
-    },
-    {
-        "scope": "bots:delete", "method": "DELETE", "path": "/api/v1/admin/bots/{id}",
-        "description": "Delete a bot (rejects system bots; use ?force=true to cascade-delete channels)",
-        "params": "?force=false",
-        "notes": "Returns 204 on success. 403 if system bot. 409 if bot has active channels without force.",
-    },
-    # Sessions
-    {
-        "scope": "sessions:write", "method": "POST", "path": "/api/v1/sessions",
-        "description": "Create or retrieve a session for an integration client",
-        "body": '{"bot_id": "str", "client_id": "str", "dispatch_config?": {}}',
-        "response": "{session_id, created}",
-    },
-    {
-        "scope": "sessions:write", "method": "POST", "path": "/api/v1/sessions/{id}/messages",
-        "description": "Inject message into session (optionally trigger agent or fan out to dispatch targets)",
-        "body": '{"content": "str", "role?": "user", "source?": "str", "run_agent?": false, "notify?": true}',
-        "response": "{message_id, session_id, task_id?}",
-    },
-    {
-        "scope": "sessions:read", "method": "GET", "path": "/api/v1/sessions/{id}/messages",
-        "description": "Get session message history",
-        "params": "?limit=50",
-        "response": "[{id, role, content, tool_calls, created_at, ...}]",
-    },
-    # Tasks
-    {
-        "scope": "tasks:read", "method": "GET", "path": "/api/v1/tasks/{id}",
-        "description": "Get task details and result",
-        "response": "{id, status, type, result, error, created_at, completed_at}",
-        "notes": "Status: pending → running → complete | failed. Poll at 5s+ intervals.",
-    },
-    {
-        "scope": "tasks:write", "method": "POST", "path": "/api/v1/tasks",
-        "description": "Create a task",
-        "body": '{"type": "str", "bot_id": "str", "payload": {}}',
-    },
-    {
-        "scope": "tasks:write", "method": "DELETE", "path": "/api/v1/tasks/{id}",
-        "description": "Delete a task",
-    },
-    # Documents
-    {
-        "scope": "documents:write", "method": "POST", "path": "/api/v1/documents",
-        "description": "Ingest and embed a document for semantic search",
-        "body": '{"title": "str", "content": "str", "integration_id?": "str", "metadata?": {}}',
-    },
-    {
-        "scope": "documents:read", "method": "GET", "path": "/api/v1/documents/search",
-        "description": "Semantic search over ingested documents",
-        "params": "?q=&integration_id=&limit=10",
-    },
-    {
-        "scope": "documents:read", "method": "GET", "path": "/api/v1/documents/{id}",
-        "description": "Get document by ID",
-    },
-    {
-        "scope": "documents:write", "method": "DELETE", "path": "/api/v1/documents/{id}",
-        "description": "Delete a document",
-    },
-    # Todos
-    {
-        "scope": "todos:read", "method": "GET", "path": "/api/v1/todos",
-        "description": "List todos",
-        "params": "?bot_id=&channel_id=&status=pending",
-    },
-    {
-        "scope": "todos:write", "method": "POST", "path": "/api/v1/todos",
-        "description": "Create a todo",
-        "body": '{"bot_id": "str", "channel_id": "str", "content": "str", "priority?": int}',
-    },
-    {
-        "scope": "todos:write", "method": "PATCH", "path": "/api/v1/todos/{id}",
-        "description": "Update a todo",
-        "body": '{"content?": "str", "status?": "str", "priority?": int}',
-    },
-    {
-        "scope": "todos:write", "method": "DELETE", "path": "/api/v1/todos/{id}",
-        "description": "Delete a todo",
-    },
-    # Attachments
-    {
-        "scope": "attachments:read", "method": "GET", "path": "/api/v1/attachments",
-        "description": "List attachments",
-        "params": "?channel_id=&message_id=&type=image&limit=50",
-    },
-    {
-        "scope": "attachments:read", "method": "GET", "path": "/api/v1/attachments/{id}",
-        "description": "Get attachment metadata",
-    },
-    {
-        "scope": "attachments:read", "method": "GET", "path": "/api/v1/attachments/{id}/file",
-        "description": "Download raw attachment file",
-    },
-    {
-        "scope": "attachments:write", "method": "POST", "path": "/api/v1/attachments/upload",
-        "description": "Upload a file as a standalone attachment",
-        "body": "multipart/form-data: file (UploadFile), channel_id (UUID)",
-        "response": "{id, channel_id, type, filename, mime_type, size_bytes, created_at, ...}",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/attachments",
-        "description": "List all attachments with pagination and filters",
-        "params": "?channel_id=&type=&limit=50&offset=0",
-        "response": "{attachments: [{id, filename, type, size_bytes, channel_name, ...}], total}",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/attachments/stats",
-        "description": "Global attachment storage stats",
-        "response": "{total_count, with_file_data_count, total_size_bytes, by_type, by_channel}",
-    },
-    {
-        "scope": "admin", "method": "DELETE", "path": "/api/v1/admin/attachments/{id}",
-        "description": "Delete an attachment",
-    },
-    {
-        "scope": "admin", "method": "POST", "path": "/api/v1/admin/attachments/purge",
-        "description": "Bulk purge attachments by date/channel/type",
-        "body": '{"before_date": "ISO", "channel_id?": "uuid", "type?": "str", "purge_file_data_only?": false}',
-        "response": "{purged_count}",
-    },
-    # Workspaces
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces",
-        "description": "List workspaces",
-    },
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces",
-        "description": "Create a workspace",
-        "body": '{"name": "str", "docker_image": "str", "mounts?": [...], "env?": {...}}',
-    },
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}",
-        "description": "Get workspace details",
-    },
-    {
-        "scope": "workspaces:write", "method": "PUT", "path": "/api/v1/workspaces/{id}",
-        "description": "Update workspace configuration",
-    },
-    {
-        "scope": "workspaces:write", "method": "DELETE", "path": "/api/v1/workspaces/{id}",
-        "description": "Delete a workspace",
-    },
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/start",
-        "description": "Start workspace container",
-    },
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/stop",
-        "description": "Stop workspace container",
-    },
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/recreate",
-        "description": "Recreate workspace container from scratch",
-    },
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/status",
-        "description": "Get workspace container status",
-    },
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/logs",
-        "description": "Get workspace container logs",
-        "params": "?tail=300",
-    },
-    # Workspace files
-    {
-        "scope": "workspaces.files:read", "method": "GET", "path": "/api/v1/workspaces/{id}/files",
-        "description": "Browse workspace file tree",
-        "params": "?path=/",
-    },
-    {
-        "scope": "workspaces.files:read", "method": "GET", "path": "/api/v1/workspaces/{id}/files/content",
-        "description": "Read a file from workspace",
-        "params": "?path=/path/to/file",
-    },
-    {
-        "scope": "workspaces.files:write", "method": "PUT", "path": "/api/v1/workspaces/{id}/files/content",
-        "description": "Write content to a file in workspace",
-        "params": "?path=/path/to/file",
-        "body": '{"content": "str"}',
-    },
-    {
-        "scope": "workspaces.files:write", "method": "POST", "path": "/api/v1/workspaces/{id}/files/upload",
-        "description": "Upload a file to workspace",
-    },
-    {
-        "scope": "workspaces.files:write", "method": "DELETE", "path": "/api/v1/workspaces/{id}/files",
-        "description": "Delete a file or directory from workspace",
-        "params": "?path=/path/to/delete",
-    },
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/disk-usage",
-        "description": "Get disk usage report for all workspaces",
-        "response": "{filesystem: {total_bytes, used_bytes, free_bytes, usage_percent}, workspace_base_dir, workspace_total_bytes, workspaces: [{type, id, name, path, total_bytes, file_count, subdirs?}]}",
-    },
-    # Workspace — bot membership
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/bots",
-        "description": "Add bot to workspace",
-        "body": '{"bot_id": "str", "workspace_dir?": "str", "indexing?": {"enabled": true, "extensions": [".py",".md"]}}',
-        "response": "WorkspaceOut (full workspace object with updated bots list)",
-        "notes": "Returns 201 on success. The bot must exist in the bot registry.",
-    },
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/bots/{bot_id}",
-        "description": "Get bot's workspace config (dir, indexing overrides)",
-        "response": "{bot_id, workspace_dir, indexing, ...}",
-    },
-    {
-        "scope": "workspaces:write", "method": "PUT", "path": "/api/v1/workspaces/{id}/bots/{bot_id}",
-        "description": "Update bot workspace membership/config",
-        "body": '{"workspace_dir?": "str", "indexing?": {"enabled": bool, "extensions": [...]}}',
-        "notes": "Also accepts PATCH method.",
-    },
-    {
-        "scope": "workspaces:write", "method": "DELETE", "path": "/api/v1/workspaces/{id}/bots/{bot_id}",
-        "description": "Remove bot from workspace",
-        "notes": "Returns 204 No Content.",
-    },
-    # Workspace — channels
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/channels",
-        "description": "List channels belonging to bots in this workspace",
-        "response": "[{id, name, bot_id, active_session_id, ...}]",
-    },
-    # Workspace — file operations (additional)
-    {
-        "scope": "workspaces.files:write", "method": "POST", "path": "/api/v1/workspaces/{id}/files/mkdir",
-        "description": "Create directory in workspace",
-        "params": "?path=/path/to/new/dir",
-    },
-    {
-        "scope": "workspaces.files:write", "method": "POST", "path": "/api/v1/workspaces/{id}/files/move",
-        "description": "Move/rename file or directory",
-        "body": '{"src": "/old/path", "dst": "/new/path"}',
-    },
-    {
-        "scope": "workspaces.files:read", "method": "GET", "path": "/api/v1/workspaces/{id}/files/index-status",
-        "description": "RAG indexing status for workspace files",
-        "response": "{indexed_count, pending_count, last_indexed_at, ...}",
-    },
-    # Workspace — indexing & skills
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/reindex",
-        "description": "Trigger full workspace reindex (file content + embeddings)",
-    },
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/reindex-skills",
-        "description": "Re-discover and re-embed workspace skill files",
-    },
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/skills",
-        "description": "List discovered workspace skill files",
-        "response": "[{path, mode, bot_id?, size_bytes, ...}]",
-    },
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/indexing",
-        "description": "Get full indexing config (global, workspace-level, per-bot overrides)",
-    },
-    {
-        "scope": "workspaces:write", "method": "PUT", "path": "/api/v1/workspaces/{id}/bots/{bot_id}/indexing",
-        "description": "Update per-bot indexing overrides",
-        "body": '{"enabled?": bool, "extensions?": [...], "exclude_patterns?": [...]}',
-        "notes": "Also accepts PATCH method.",
-    },
-    # Workspace — container operations
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/pull",
-        "description": "Pull/update workspace Docker image",
-    },
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/cron-jobs",
-        "description": "List cron jobs discovered inside workspace container",
-    },
-    # Workspace — code editor
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/editor/enable",
-        "description": "Enable code-server for workspace",
-    },
-    {
-        "scope": "workspaces:write", "method": "POST", "path": "/api/v1/workspaces/{id}/editor/disable",
-        "description": "Disable code-server for workspace",
-    },
-    {
-        "scope": "workspaces:read", "method": "GET", "path": "/api/v1/workspaces/{id}/editor/status",
-        "description": "Get code-server status (enabled, port, URL)",
-    },
-    {
-        "scope": "workspaces:read", "method": "POST", "path": "/api/v1/workspaces/{id}/editor/session",
-        "description": "Create editor session cookie for authenticated access",
-    },
-    # Logs — agent turns (high-level view of each agent invocation)
-    {
-        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/turns",
-        "description": "List recent agent turns (one per user message). Each turn includes tool calls, token usage, errors, timing, model, and bot/channel info.",
-        "params": "?count=20&bot_id=&channel_id=&after=30m|2h|1d|ISO&before=ISO&has_error=true&has_tool_calls=true&search=text",
-        "response": "{turns: [{correlation_id, created_at, bot_id, model, channel_name, user_message, response_preview, total_tokens, duration_ms, has_error, tool_calls: [{tool_name, duration_ms, error}], errors: [{event_name, message}]}], total, count}",
-        "notes": "Examples: `?has_error=true&after=1d` = errors in the last day. `?bot_id=mybot&count=50` = last 50 turns for a bot. `after` accepts relative durations (30m, 2h, 1d) or ISO timestamps. Turns are newest-first.",
-    },
-    # Logs — merged log entries (tool calls + trace events)
-    {
-        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/logs",
-        "description": "List log entries (tool calls + trace events merged), paginated and sorted newest-first",
-        "params": "?event_type=tool_call|error|token_usage&bot_id=&session_id=&channel_id=&page=1&page_size=50",
-        "response": "{rows: [{kind, id, created_at, correlation_id, bot_id, tool_name, error, ...}], total, page, page_size, bot_ids}",
-    },
-    # Logs — trace detail
-    {
-        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/traces/{correlation_id}",
-        "description": "Full trace timeline for a single agent turn (tool calls, trace events, and messages in chronological order)",
-        "response": "{events: [{kind, created_at, tool_name, error, role, content, ...}], correlation_id, session_id, bot_id}",
-    },
-    # Logs — tool call audit
-    {
-        "scope": "logs:read", "method": "GET", "path": "/api/v1/tool-calls",
-        "description": "List tool calls with detailed filtering. Use for auditing specific tools or investigating errors.",
-        "params": "?bot_id=&tool_name=&tool_type=local|mcp|client&session_id=&error_only=true&since=ISO&until=ISO&limit=50&offset=0",
-        "response": "[{id, tool_name, tool_type, arguments, result, error, duration_ms, bot_id, correlation_id, created_at}]",
-    },
-    {
-        "scope": "logs:read", "method": "GET", "path": "/api/v1/tool-calls/stats",
-        "description": "Aggregated tool call statistics (count, avg duration, error rate) grouped by tool_name, bot_id, or tool_type",
-        "params": "?group_by=tool_name|bot_id|tool_type&since=ISO&until=ISO&bot_id=",
-        "response": "{group_by, stats: [{key, count, total_duration_ms, avg_duration_ms, error_count}]}",
-    },
-    {
-        "scope": "logs:read", "method": "GET", "path": "/api/v1/tool-calls/{tool_call_id}",
-        "description": "Get full detail for a single tool call (untruncated result)",
-    },
-    # Logs — server application logs
-    {
-        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/server-logs",
-        "description": "Application server logs from in-memory ring buffer. To find errors, use `?level=ERROR`. To search for keywords, use `?search=text`.",
-        "params": "?tail=200&level=ERROR&logger=app.agent&search=text&since_minutes=60",
-        "response": "{entries: [{timestamp, level, logger, message, formatted}], total, levels}",
-        "notes": "level is minimum severity filter — `level=ERROR` returns only ERROR + CRITICAL. `level=WARNING` returns WARNING + ERROR + CRITICAL. logger is prefix-matched (e.g. `app.agent` matches `app.agent.loop`). Example: `?level=ERROR&since_minutes=60` = errors in the last hour.",
-    },
-    # Logs — log level management
-    {
-        "scope": "logs:read", "method": "GET", "path": "/api/v1/admin/log-level",
-        "description": "Get current root logger level",
-        "response": "{level: 'INFO'}",
-    },
-    {
-        "scope": "logs:write", "method": "PUT", "path": "/api/v1/admin/log-level",
-        "description": "Set root logger level dynamically",
-        "body": '{"level": "DEBUG|INFO|WARNING|ERROR|CRITICAL"}',
-    },
-    # Operations
-    {
-        "scope": "operations:read", "method": "GET", "path": "/api/v1/admin/operations",
-        "description": "List active background operations",
-        "response": "{operations: [{id, type, label, current, total, status, elapsed, message}]}",
-    },
-    {
-        "scope": "operations:write", "method": "POST", "path": "/api/v1/admin/operations/backup",
-        "description": "Trigger backup (runs scripts/backup.sh as background task)",
-        "response": "{operation_id, status}",
-    },
-    {
-        "scope": "operations:write", "method": "POST", "path": "/api/v1/admin/operations/pull",
-        "description": "Run git pull origin master (synchronous)",
-        "response": "{exit_code, stdout, stderr}",
-    },
-    {
-        "scope": "operations:write", "method": "POST", "path": "/api/v1/admin/operations/restart",
-        "description": "Pull + restart server via systemd (requires confirm: true)",
-        "body": '{"confirm": true}',
-        "response": "{pull: {exit_code, stdout, stderr}, restart: {exit_code, stdout, stderr}}",
-    },
-    {
-        "scope": "operations:read", "method": "GET", "path": "/api/v1/admin/operations/backup/config",
-        "description": "Get backup configuration (DB overrides > .env > defaults)",
-        "response": "{rclone_remote, local_keep, aws_region, backup_dir}",
-    },
-    {
-        "scope": "operations:write", "method": "PUT", "path": "/api/v1/admin/operations/backup/config",
-        "description": "Update backup settings in server_settings table",
-        "body": '{"rclone_remote?": "str", "local_keep?": int, "aws_region?": "str", "backup_dir?": "str"}',
-    },
-    {
-        "scope": "operations:read", "method": "GET", "path": "/api/v1/admin/operations/backup/history",
-        "description": "List local backup archives with sizes and dates",
-        "response": "{backup_dir, files: [{name, size_bytes, modified_at}]}",
-    },
-    # Usage & Cost
-    {
-        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/summary",
-        "description": "Aggregated cost summary (by model, bot, provider)",
-        "params": "?after=&before=&bot_id=&model=&provider_id=&channel_id=",
-        "response": "{total_calls, total_tokens, total_cost, cost_by_model, cost_by_bot, cost_by_provider}",
-    },
-    {
-        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/logs",
-        "description": "Paginated usage log entries with cost per call",
-        "params": "?after=&before=&bot_id=&model=&provider_id=&channel_id=&page=1&page_size=50",
-        "response": "{entries: [{model, cost, prompt_tokens, completion_tokens, ...}], total, page}",
-    },
-    {
-        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/forecast",
-        "description": "Cost forecast: projected daily/monthly spend from heartbeats, recurring tasks, and current pace",
-        "response": "{daily_spend, monthly_spend, projected_daily, projected_monthly, components: [{source, label, daily_cost, monthly_cost}], limits: [{scope_type, period, limit_usd, current_spend, projected_spend, projected_percentage}]}",
-    },
-    {
-        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/limits/status",
-        "description": "Current spend vs. limit for all enabled usage limits",
-        "response": "[{scope_type, scope_value, period, limit_usd, current_spend, percentage}]",
-    },
-    # Carapaces
-    {
-        "scope": "carapaces:read", "method": "GET", "path": "/api/v1/carapaces",
-        "description": "List available carapaces (skill+tool bundles)",
-        "response": "[{id, name, description, skills, local_tools, pinned_tools, includes, tags}]",
-    },
-    {
-        "scope": "carapaces:read", "method": "GET", "path": "/api/v1/carapaces/{id}",
-        "description": "Get carapace detail",
-    },
-    {
-        "scope": "carapaces:write", "method": "POST", "path": "/api/v1/carapaces",
-        "description": "Create a carapace",
-        "body": '{"id": "str", "name": "str", "skills?": [], "local_tools?": [], "pinned_tools?": [], "includes?": [], "system_prompt_fragment?": "str"}',
-    },
-    {
-        "scope": "carapaces:write", "method": "PUT", "path": "/api/v1/carapaces/{id}",
-        "description": "Update a carapace",
-    },
-    # Channels — integration activation
-    {
-        "scope": "channels.integrations:write", "method": "POST",
-        "path": "/api/v1/channels/{id}/integrations/{integration_type}/activate",
-        "description": "Activate an integration on a channel",
-    },
-    {
-        "scope": "channels.integrations:write", "method": "POST",
-        "path": "/api/v1/channels/{id}/integrations/{integration_type}/deactivate",
-        "description": "Deactivate an integration on a channel",
-    },
-    {
-        "scope": "channels.integrations:read", "method": "GET",
-        "path": "/api/v1/channels/{id}/integrations/available",
-        "description": "List integrations with activation status for a channel",
-    },
-    # Channels — session status
-    {
-        "scope": "channels:read", "method": "GET",
-        "path": "/api/v1/channels/{id}/session-status",
-        "description": "Check if the channel is currently processing",
-        "response": "{processing: bool}",
-    },
-    # Channels — channel workspace files
-    {
-        "scope": "channels:read", "method": "GET",
-        "path": "/api/v1/channels/{id}/workspace/files",
-        "description": "List files in the channel workspace",
-        "params": "?path=/",
-    },
-    {
-        "scope": "channels:read", "method": "GET",
-        "path": "/api/v1/channels/{id}/workspace/files/content",
-        "description": "Read a file from the channel workspace",
-        "params": "?path=/file.md",
-    },
-    {
-        "scope": "channels:write", "method": "PUT",
-        "path": "/api/v1/channels/{id}/workspace/files/content",
-        "description": "Write a file to the channel workspace",
-        "params": "?path=/file.md",
-        "body": '{"content": "str"}',
-    },
-    {
-        "scope": "channels:write", "method": "POST",
-        "path": "/api/v1/channels/{id}/workspace/files/upload",
-        "description": "Upload a file to the channel workspace",
-    },
-    {
-        "scope": "channels:write", "method": "DELETE",
-        "path": "/api/v1/channels/{id}/workspace/files",
-        "description": "Delete a file from the channel workspace",
-        "params": "?path=/file.md",
-    },
-    {
-        "scope": "channels:write", "method": "POST",
-        "path": "/api/v1/channels/{id}/workspace/files/move",
-        "description": "Move/rename a file in the channel workspace",
-        "body": '{"src": "/old.md", "dst": "/new.md"}',
-    },
-    # Admin — channels (extended)
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/categories",
-        "description": "List distinct channel categories (for autocomplete)",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels-enriched",
-        "description": "List channels with integration-resolved display names",
-        "params": "?bot_id=&category=&integration=",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/effective-tools",
-        "description": "Resolved tool/skill lists after applying channel overrides",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/sessions",
-        "description": "List conversations for a channel (last 20, with message counts)",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/sections",
-        "description": "List conversation sections for a channel",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/sections/search",
-        "description": "Search conversation sections by topic or content",
-        "params": "?q=&limit=20",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/context-breakdown",
-        "description": "Detailed context token breakdown for the channel",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/context-preview",
-        "description": "Preview all system messages that would be injected",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/{id}/compaction-logs",
-        "description": "Recent compaction log entries for a channel",
-    },
-    {
-        "scope": "admin", "method": "POST", "path": "/api/v1/admin/channels/{id}/backfill-sections",
-        "description": "Backfill conversation sections (async task)",
-        "response": "{task_id}",
-    },
-    {
-        "scope": "admin", "method": "POST", "path": "/api/v1/admin/channels/{id}/backfill-transcripts",
-        "description": "Populate transcript DB column from existing section files",
-    },
-    # Admin — workflows
-    {
-        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflows",
-        "description": "List all workflows",
-    },
-    {
-        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflows/{id}",
-        "description": "Get workflow details",
-    },
-    {
-        "scope": "workflows:write", "method": "POST", "path": "/api/v1/admin/workflows",
-        "description": "Create a workflow",
-    },
-    {
-        "scope": "workflows:write", "method": "PUT", "path": "/api/v1/admin/workflows/{id}",
-        "description": "Update a workflow",
-    },
-    {
-        "scope": "workflows:write", "method": "DELETE", "path": "/api/v1/admin/workflows/{id}",
-        "description": "Delete a workflow",
-    },
-    {
-        "scope": "workflows:read", "method": "POST", "path": "/api/v1/admin/workflows/{id}/export",
-        "description": "Export a workflow as YAML",
-    },
-    {
-        "scope": "workflows:write", "method": "POST", "path": "/api/v1/admin/workflows/{id}/run",
-        "description": "Trigger a workflow run",
-        "body": '{"channel_id?": "uuid", "params?": {}}',
-    },
-    {
-        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflows/{id}/runs",
-        "description": "List runs for a workflow",
-    },
-    {
-        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflow-runs/recent",
-        "description": "Recent workflow runs across all workflows",
-    },
-    {
-        "scope": "workflows:read", "method": "GET", "path": "/api/v1/admin/workflow-runs/{id}",
-        "description": "Get a workflow run",
-    },
-    {
-        "scope": "workflows:write", "method": "POST", "path": "/api/v1/admin/workflow-runs/{id}/cancel",
-        "description": "Cancel a workflow run",
-    },
-    {
-        "scope": "workflows:write", "method": "POST",
-        "path": "/api/v1/admin/workflow-runs/{id}/steps/{step_index}/approve",
-        "description": "Approve a pending workflow step",
-    },
-    {
-        "scope": "workflows:write", "method": "POST",
-        "path": "/api/v1/admin/workflow-runs/{id}/steps/{step_index}/skip",
-        "description": "Skip a workflow step",
-    },
-    {
-        "scope": "workflows:write", "method": "POST",
-        "path": "/api/v1/admin/workflow-runs/{id}/steps/{step_index}/retry",
-        "description": "Retry a failed workflow step",
-    },
-    # Admin — tasks (extended)
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/tasks/{id}/children",
-        "description": "List child tasks of a parent task",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/cron-jobs",
-        "description": "Discover cron jobs across workspace containers and host",
-    },
-    # Admin — providers (extended)
-    {
-        "scope": "admin", "method": "POST", "path": "/api/v1/admin/providers/{id}/test",
-        "description": "Test a provider's connection",
-    },
-    {
-        "scope": "admin", "method": "POST", "path": "/api/v1/admin/providers/test-inline",
-        "description": "Test provider connection without saving",
-        "body": '{"provider_type": "str", "base_url?": "str", "api_key?": "str"}',
-    },
-    {
-        "scope": "admin", "method": "GET",
-        "path": "/api/v1/admin/provider-types/{provider_type}/capabilities",
-        "description": "Get capabilities for a provider type",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/providers/{id}/capabilities",
-        "description": "Get capabilities for a saved provider",
-    },
-    {
-        "scope": "admin", "method": "POST", "path": "/api/v1/admin/providers/{id}/sync-models",
-        "description": "Sync remote models from provider API",
-    },
-    # Admin — bots (extended)
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/bots/{bot_id}/editor-data",
-        "description": "Bot config + all available options for the editor UI",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/bots/{bot_id}/sandbox",
-        "description": "Get bot sandbox container status",
-    },
-    # Admin — diagnostics
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/diagnostics/indexing",
-        "description": "Comprehensive indexing health check across all systems",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/diagnostics/operations",
-        "description": "List in-progress background operations",
-    },
-    {
-        "scope": "admin", "method": "POST", "path": "/api/v1/admin/diagnostics/reindex",
-        "description": "Force re-index all filesystem directories and workspace skills",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/diagnostics/disk-usage",
-        "description": "Workspace disk usage report",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/diagnostics/feature-validation",
-        "description": "Validate bots have tools required by their configured features",
-    },
-    # Admin — usage (extended)
-    {
-        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/breakdown",
-        "description": "Usage breakdown grouped by model, bot, channel, or provider",
-        "params": "?group_by=model|bot|channel|provider&after=&before=",
-    },
-    {
-        "scope": "usage:read", "method": "GET", "path": "/api/v1/admin/usage/timeseries",
-        "description": "Usage timeseries data (cost/tokens over time)",
-        "params": "?interval=day|hour&after=&before=&bot_id=",
-    },
-    # Admin — integrations (extended)
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/integrations/activatable",
-        "description": "List all integrations with activation manifests",
-    },
-    {
-        "scope": "admin", "method": "GET", "path": "/api/v1/admin/channels/integrations/available",
-        "description": "List registered integration types with binding metadata",
-    },
-    # Search
-    {
-        "scope": "admin", "method": "POST", "path": "/api/v1/search/memory",
-        "description": "Semantic search over bot memory files (hybrid vector + BM25)",
-        "body": '{"query": "str", "bot_id": "str", "limit?": 10}',
-    },
-    # Discovery
-    {
-        "scope": None, "method": "GET", "path": "/api/v1/discover",
-        "description": "Discover available endpoints (filtered by your key's scopes)",
-        "params": "?detail=true for full API docs",
-    },
-]
+ENDPOINT_CATALOG: list[dict] = []
 
 # ---------------------------------------------------------------------------
 # Key generation

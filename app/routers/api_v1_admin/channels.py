@@ -33,7 +33,7 @@ from app.db.models import (
     WorkflowRun,
 )
 from app.config import settings
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 from app.services.channels import apply_channel_visibility
 
 from ._helpers import _heartbeat_correlation_ids, build_tool_call_previews
@@ -460,7 +460,7 @@ class ChannelSettingsUpdate(BaseModel):
 @router.post("/channels/ensure-orchestrator")
 async def ensure_orchestrator(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:write")),
 ):
     """Create orchestrator bot + channel if they don't exist.
 
@@ -493,7 +493,7 @@ async def admin_channels_list(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(25, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
-    auth_result=Depends(verify_auth_or_user),
+    auth_result=Depends(require_scopes("channels:read")),
 ):
     """List channels with pagination and optional filters."""
     stmt = select(Channel).order_by(Channel.name.asc())
@@ -523,7 +523,7 @@ async def admin_channels_list(
 @router.get("/channels/categories")
 async def list_channel_categories(
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """List distinct channel categories (for autocomplete)."""
     from sqlalchemy import func, text
@@ -539,7 +539,7 @@ async def list_channel_categories(
 async def admin_channel_detail(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Channel detail with linked entity counts."""
     channel = await db.get(Channel, channel_id)
@@ -594,7 +594,7 @@ async def admin_channel_detail(
 async def admin_channel_settings(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels.config:read")),
 ):
     """Get full channel settings."""
     channel = await db.get(Channel, channel_id)
@@ -614,7 +614,7 @@ async def admin_channel_settings_update(
     channel_id: uuid.UUID,
     body: ChannelSettingsUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels.config:write")),
 ):
     """Update channel settings."""
     channel = await db.get(Channel, channel_id)
@@ -717,7 +717,7 @@ class EffectiveToolsOut(BaseModel):
 async def admin_channel_effective_tools(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Return the resolved tool/skill lists after applying channel overrides."""
     from app.agent.channel_overrides import resolve_effective_tools
@@ -830,7 +830,7 @@ async def admin_channel_effective_tools(
 async def admin_channel_sessions(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """List conversations for a channel (last 20, ordered by last_active desc, with message counts)."""
     channel = await db.get(Channel, channel_id)
@@ -881,7 +881,7 @@ async def admin_channel_sessions(
 async def admin_channel_heartbeat_get(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels.heartbeat:read")),
 ):
     """Get heartbeat config and recent history for a channel."""
     channel = await db.get(Channel, channel_id)
@@ -1016,7 +1016,7 @@ async def admin_channel_heartbeat_update(
     channel_id: uuid.UUID,
     body: HeartbeatUpdate,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels.heartbeat:write")),
 ):
     """Update heartbeat settings."""
     channel = await db.get(Channel, channel_id)
@@ -1099,7 +1099,7 @@ async def admin_channel_heartbeat_update(
 async def admin_channel_heartbeat_toggle(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels.heartbeat:write")),
 ):
     """Toggle heartbeat enabled state."""
     channel = await db.get(Channel, channel_id)
@@ -1138,7 +1138,7 @@ async def admin_channel_heartbeat_toggle(
 async def admin_channel_heartbeat_fire(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels.heartbeat:write")),
 ):
     """Fire heartbeat immediately (non-blocking — spawns in background)."""
     import asyncio
@@ -1166,7 +1166,7 @@ class InferHeartbeatOut(BaseModel):
 async def admin_channel_heartbeat_infer(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels.heartbeat:write")),
 ):
     """Infer a tailored heartbeat prompt from channel context and write it to a workspace file."""
     import traceback
@@ -1223,7 +1223,7 @@ async def admin_channel_heartbeat_infer(
 async def admin_channel_reindex_segments(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:write")),
 ):
     """Trigger re-indexing of channel workspace index segments."""
     channel = await db.get(Channel, channel_id)
@@ -1253,7 +1253,7 @@ async def admin_channel_reindex_segments(
 async def admin_channel_tasks(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """List recent tasks for a channel (10, ordered by created_at desc)."""
     channel = await db.get(Channel, channel_id)
@@ -1299,7 +1299,7 @@ async def admin_channel_tasks(
 async def admin_channel_workflow_runs(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
     all: bool = False,
 ):
     """List workflow runs for a channel. By default only active runs."""
@@ -1321,7 +1321,7 @@ async def admin_channel_workflow_runs(
 async def admin_channel_workflow_connections(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """List workflow connections for a channel: heartbeats and scheduled tasks that trigger workflows."""
     channel = await db.get(Channel, channel_id)
@@ -1380,7 +1380,7 @@ async def admin_channel_workflow_connections(
 async def admin_channel_plans(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """List plans with items for a channel."""
     channel = await db.get(Channel, channel_id)
@@ -1429,7 +1429,7 @@ async def admin_channel_plans(
 async def get_channel_knowledge(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Return knowledge entries scoped to this channel."""
     channel = await db.get(Channel, channel_id)
@@ -1476,7 +1476,7 @@ class BackfillRequest(BaseModel):
 async def admin_channel_backfill_sections(
     channel_id: uuid.UUID,
     body: BackfillRequest = BackfillRequest(),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:write")),
 ):
     """Fire-and-forget backfill — returns a task_id for polling progress."""
     import asyncio
@@ -1499,7 +1499,7 @@ async def admin_channel_backfill_sections(
 async def admin_channel_backfill_status(
     channel_id: uuid.UUID,
     task_id: str,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Poll backfill progress by task_id."""
     from app.services.compaction import _BACKFILL_JOBS
@@ -1513,7 +1513,7 @@ async def admin_channel_backfill_status(
 @router.post("/channels/{channel_id}/repair-section-periods")
 async def admin_repair_section_periods(
     channel_id: uuid.UUID,
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:write")),
 ):
     """Backfill missing period_start/period_end on sections from message timestamps."""
     from app.services.compaction import repair_section_periods
@@ -1525,7 +1525,7 @@ async def admin_repair_section_periods(
 async def admin_backfill_section_transcripts(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:write")),
 ):
     """Populate transcript DB column from existing files for sections that have files but no DB transcript."""
     import os
@@ -1587,7 +1587,7 @@ async def admin_backfill_section_transcripts(
 async def admin_channel_sections(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """List all conversation sections for a channel, ordered by sequence."""
     import math
@@ -1687,7 +1687,7 @@ async def admin_channel_section_search(
     channel_id: uuid.UUID,
     q: str = Query(..., min_length=1),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Search conversation sections by topic, content, or semantic similarity."""
     from app.tools.local.conversation_history import search_sections
@@ -1719,7 +1719,7 @@ async def admin_section_index_preview(
     count: int = Query(10, ge=0, le=100),
     verbosity: str = Query("standard"),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Preview the section index that would be injected into context."""
     from app.db.models import ConversationSection
@@ -1753,7 +1753,7 @@ async def admin_channel_compaction_logs(
     channel_id: uuid.UUID,
     limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels:read")),
 ):
     """Return recent compaction log entries for a channel."""
     total_result = await db.execute(
@@ -1841,7 +1841,7 @@ async def admin_channel_compaction_logs(
 async def admin_channel_context_breakdown(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Compute a detailed context breakdown for the channel's active conversation."""
     from app.services.context_breakdown import compute_context_breakdown
@@ -1874,7 +1874,7 @@ async def admin_channel_context_breakdown(
 async def admin_channel_context_budget(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Return the latest context budget for this channel (from trace events)."""
     from app.db.models import TraceEvent
@@ -1906,7 +1906,7 @@ async def admin_channel_context_preview(
     channel_id: uuid.UUID,
     include_history: bool = Query(False, description="Include conversation messages from the active conversation"),
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Render a preview of all system messages that would be injected before a user message."""
     from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
@@ -2086,7 +2086,7 @@ async def admin_channels_enriched(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    auth_result=Depends(verify_auth_or_user),
+    auth_result=Depends(require_scopes("channels:read")),
 ):
     """List channels with integration-resolved display names."""
     stmt_base = select(Channel).order_by(Channel.name.asc())
@@ -2160,7 +2160,7 @@ async def admin_channels_enriched(
 
 @router.get("/integrations/activatable")
 async def list_activatable_integrations_global(
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List all integrations with activation manifests (no channel context).
 
@@ -2208,7 +2208,7 @@ async def list_activatable_integrations_global(
 
 @router.get("/channels/integrations/available")
 async def available_integrations(
-    _auth=Depends(verify_auth_or_user),
+    _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List registered integration types with binding metadata."""
     from app.agent import dispatchers as disp_mod

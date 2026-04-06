@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import DockerStack
-from app.dependencies import get_db
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
 
@@ -51,6 +51,7 @@ async def list_docker_stacks(
     bot_id: str | None = Query(None),
     channel_id: uuid.UUID | None = Query(None),
     status: str | None = Query(None),
+    _auth=Depends(require_scopes("docker_stacks:read")),
 ):
     stmt = select(DockerStack).order_by(DockerStack.created_at.desc())
     if bot_id:
@@ -67,6 +68,7 @@ async def list_docker_stacks(
 async def get_docker_stack(
     stack_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("docker_stacks:read")),
 ):
     row = await db.get(DockerStack, stack_id)
     if not row:
@@ -75,7 +77,7 @@ async def get_docker_stack(
 
 
 @router.get("/docker-stacks/{stack_id}/status", response_model=list[ServiceStatusOut])
-async def get_docker_stack_status(stack_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def get_docker_stack_status(stack_id: uuid.UUID, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("docker_stacks:read"))):
     row = await db.get(DockerStack, stack_id)
     if not row:
         raise HTTPException(status_code=404, detail="Stack not found")
@@ -91,6 +93,7 @@ async def get_docker_stack_logs(
     service: str | None = Query(None),
     tail: int = Query(100),
     db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("docker_stacks:read")),
 ):
     row = await db.get(DockerStack, stack_id)
     if not row:
@@ -102,7 +105,7 @@ async def get_docker_stack_logs(
 
 
 @router.post("/docker-stacks/{stack_id}/start", response_model=DockerStackOut)
-async def start_docker_stack(stack_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def start_docker_stack(stack_id: uuid.UUID, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("docker_stacks:write"))):
     row = await db.get(DockerStack, stack_id)
     if not row:
         raise HTTPException(status_code=404, detail="Stack not found")
@@ -113,7 +116,7 @@ async def start_docker_stack(stack_id: uuid.UUID, db: AsyncSession = Depends(get
 
 
 @router.post("/docker-stacks/{stack_id}/stop", response_model=DockerStackOut)
-async def stop_docker_stack(stack_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def stop_docker_stack(stack_id: uuid.UUID, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("docker_stacks:write"))):
     row = await db.get(DockerStack, stack_id)
     if not row:
         raise HTTPException(status_code=404, detail="Stack not found")
@@ -124,7 +127,7 @@ async def stop_docker_stack(stack_id: uuid.UUID, db: AsyncSession = Depends(get_
 
 
 @router.delete("/docker-stacks/{stack_id}", status_code=204)
-async def destroy_docker_stack(stack_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+async def destroy_docker_stack(stack_id: uuid.UUID, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("docker_stacks:write"))):
     row = await db.get(DockerStack, stack_id)
     if not row:
         raise HTTPException(status_code=404, detail="Stack not found")

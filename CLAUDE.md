@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## Project Knowledge
+
+Detailed project knowledge lives in an Obsidian vault at `../vault/Projects/agent-server/`. Start with `Roadmap.md` for current state and priorities.
+
+**Keep the vault updated as you work** — mark items done, add loose ends, record decisions, note anything a future session would benefit from knowing. Don't wait until session end. See global CLAUDE.md for full vault update guidelines.
+
 ## Commands
 
 ```bash

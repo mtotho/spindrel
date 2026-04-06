@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_db, verify_auth_or_user
+from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
 
@@ -17,7 +17,7 @@ _start_time = time.monotonic()
 @router.get("/health")
 async def health_check(
     db: AsyncSession = Depends(get_db),
-    _auth: str = Depends(verify_auth_or_user),
+    _auth: str = Depends(require_scopes("admin")),
 ):
     """Lightweight server health: DB connectivity, uptime, active bots, version."""
     issues: list[str] = []

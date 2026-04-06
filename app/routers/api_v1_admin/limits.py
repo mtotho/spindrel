@@ -11,7 +11,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import UsageLimit
-from app.dependencies import get_db
+from app.dependencies import get_db, require_scopes
 from app.services.usage_limits import load_limits, get_limits_status
 
 logger = logging.getLogger(__name__)
@@ -63,7 +63,7 @@ class UsageLimitStatusOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/", response_model=list[UsageLimitOut])
-async def list_limits(db: AsyncSession = Depends(get_db)):
+async def list_limits(db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("usage:read"))):
     rows = (await db.execute(
         select(UsageLimit).order_by(UsageLimit.created_at.desc())
     )).scalars().all()
@@ -83,7 +83,7 @@ async def list_limits(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/", response_model=UsageLimitOut, status_code=201)
-async def create_limit(body: UsageLimitCreate, db: AsyncSession = Depends(get_db)):
+async def create_limit(body: UsageLimitCreate, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("usage:write"))):
     if body.scope_type not in ("model", "bot"):
         raise HTTPException(400, "scope_type must be 'model' or 'bot'")
     if body.period not in ("daily", "monthly"):
@@ -128,7 +128,7 @@ async def create_limit(body: UsageLimitCreate, db: AsyncSession = Depends(get_db
 
 
 @router.put("/{limit_id}", response_model=UsageLimitOut)
-async def update_limit(limit_id: str, body: UsageLimitUpdate, db: AsyncSession = Depends(get_db)):
+async def update_limit(limit_id: str, body: UsageLimitUpdate, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("usage:write"))):
     try:
         uid = _uuid.UUID(limit_id)
     except ValueError:
@@ -164,7 +164,7 @@ async def update_limit(limit_id: str, body: UsageLimitUpdate, db: AsyncSession =
 
 
 @router.delete("/{limit_id}", status_code=204)
-async def delete_limit(limit_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_limit(limit_id: str, db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("usage:write"))):
     try:
         uid = _uuid.UUID(limit_id)
     except ValueError:
@@ -180,5 +180,5 @@ async def delete_limit(limit_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/status", response_model=list[UsageLimitStatusOut])
-async def limits_status():
+async def limits_status(_auth=Depends(require_scopes("usage:read"))):
     return await get_limits_status()

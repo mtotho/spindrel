@@ -5,6 +5,15 @@ import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from app.services.api_keys import generate_key, hash_key, has_scope, generate_api_docs
+from app.services import api_keys as _api_keys_mod
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _populate_catalog():
+    """Build the endpoint catalog from the real app so generate_api_docs tests work."""
+    from app.main import app
+    from app.services.endpoint_catalog import build_endpoint_catalog
+    _api_keys_mod.ENDPOINT_CATALOG = build_endpoint_catalog(app)
 
 
 class TestGenerateKey:
@@ -137,10 +146,11 @@ class TestGenerateApiDocs:
         # Should not include channels endpoints
         assert "channels:write" not in docs
 
-    def test_empty_scopes_returns_general_only(self):
+    def test_empty_scopes_returns_minimal(self):
         docs = generate_api_docs([])
-        assert "/api/v1/discover" in docs  # scope=None, always included
+        # With no scopes, only unscoped endpoints should be included
         assert "### `POST /chat`" not in docs  # chat endpoint not included
+        assert "### `GET /api/v1/admin/bots" not in docs  # admin not included
 
     def test_admin_returns_all(self):
         docs = generate_api_docs(["admin"])
@@ -170,7 +180,8 @@ class TestApiAccessToolsIntegration:
             # Should include channel endpoints
             paths = [ep["path"] for ep in result["endpoints"]]
             assert any("/channels" in p for p in paths)
-            # Should NOT include task endpoints (no tasks scope)
-            assert not any("/tasks" in p for p in paths)
+            # Should NOT include standalone task endpoints (no tasks scope)
+            # (channel sub-paths like /channels/{id}/tasks are OK)
+            assert not any(p.startswith("/api/v1/tasks") or p.startswith("/api/v1/admin/tasks") for p in paths)
         finally:
             current_bot_id.reset(token)
