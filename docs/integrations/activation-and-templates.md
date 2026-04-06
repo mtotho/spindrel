@@ -1,93 +1,46 @@
-# Activation & Template Compatibility
+# Activation & Workspace Templates
 
-This guide explains how integrations interact with channel workspace templates — the layering model, compatibility declarations, and how to create compatible templates for existing or new integrations.
+This guide explains how integrations interact with channel workspaces — capability injection and optional templates.
 
 ---
 
 ## The Layering Model
 
-When an integration is **activated** on a channel, two independent layers engage:
+When an integration is **activated** on a channel:
 
-1. **Capability injection** (automatic): Tools, skills, and a system prompt fragment are injected into every agent call. The bot gains new capabilities without any manual configuration.
+1. **Capability injection** (automatic): Tools, skills, and a system prompt fragment are injected into every agent call. The bot gains new capabilities without any manual configuration. The capability's `system_prompt_fragment` also teaches the bot how to organize workspace files for this integration.
 
-2. **Workspace template** (user-selected): Defines the `.md` file structure for the channel workspace. This is NOT auto-selected — the user picks a template (or writes a custom schema).
+2. **Workspace templates** (optional, power-user): Pre-defined file organization schemas available in advanced channel settings. Not required — integration capabilities teach file organization directly.
 
-**Key principle:** Templates do NOT repeat integration behavioral instructions. The capability provides "how to behave" (tools, skills, prompts); the template provides "what files to work with" (file layout, column formats, section headings).
-
-What happens without a compatible template: the integration's tools still work, but the bot lacks structural guidance and may create files in unexpected formats.
+**Key principle:** Integration capabilities are self-contained. They provide tools, skills, behavioral instructions, AND workspace file organization guidance in their `system_prompt_fragment`. Templates exist as an optional override mechanism for power users who want a specific structure.
 
 ---
 
-## What "Compatible" Means
+## Templates
 
-A template is **compatible** with an integration when its file structure supports the integration's tools.
+Templates are workspace schema definitions that define file structures for different project types. They are optional — most users don't need to select one.
 
-**Example — Mission Control:**
-- `create_task_card` writes to `tasks.md` expecting kanban columns (Backlog, In Progress, Done)
-- A compatible template defines `tasks.md` with those exact headings
-- An incompatible template might not have `tasks.md` at all, or use a different format
+### File-managed templates
 
-Compatibility is not strictly binary — a general template may partially work but miss some file structures the integration expects.
-
----
-
-## Declaring Compatibility — Template Side
-
-### File-managed templates (prompts/*.md, integrations/*/prompts/*.md)
-
-Add `compatible_integrations` to the YAML frontmatter:
+Templates are synced from `prompts/*.md` and `integrations/*/prompts/*.md`:
 
 ```yaml
 ---
 name: "My Custom Schema"
 description: "A workspace schema for game development projects"
 category: workspace_schema
-compatible_integrations:
-  - mission_control
 tags:
   - gamedev
   - software
-  - mission-control
 ---
 
 ## Workspace File Organization
 ...
 ```
 
-During file sync, `compatible_integrations: [mission_control]` is automatically expanded into `integration:mission_control` tags. The existing `mission-control` tag is preserved for backward compatibility.
+### Manual templates
 
-### Manual templates (created via UI)
-
-In the template detail page, use the **Integration Compatibility** section to add compatibility. This adds `integration:<id>` tags to the template.
-
-### Tag convention
-
-- **Canonical:** `integration:<integration_id>` (e.g., `integration:mission_control`)
-- **Legacy:** `mission-control` (still recognized by MC's activation manifest)
-- Both work through the same UI highlighting path
-
----
-
-## Declaring Compatibility — Integration Side
-
-In `setup.py`, integrations declare which template tags they consider compatible:
-
-```python
-SETUP = {
-    "version": "1.0",
-    # ... other fields ...
-    "activation": {
-        "carapaces": ["mission-control"],
-        "requires_workspace": True,
-        "description": "Project management with task boards, plans, and timelines",
-        "compatible_templates": ["mission-control"],  # tag(s) to match
-    },
-}
-```
-
-The `compatible_templates` list contains tag values. The UI uses `compatible_templates[0]` as the highlight tag to identify and recommend matching templates.
-
-The `version` field is a human-readable string declared at the SETUP top level, automatically embedded into the activation manifest for API consumers.
+Created via the admin UI template editor.
 
 ---
 
@@ -101,114 +54,42 @@ SETUP = {
     "activation": {
         "carapaces": ["mission-control"],
         "requires_workspace": True,
-        "compatible_templates": ["mission-control"],
     },
 }
 ```
 
-### 2. Capability (`integrations/mission_control/carapaces/mission-control/carapace.yaml`)
+### 2. Capability
 
-Declares 6 tools (`create_task_card`, `move_task_card`, etc.), 5 skills, and a system prompt fragment that teaches the bot the MC protocol.
+`integrations/mission_control/carapaces/mission-control.yaml` declares tools (`create_task_card`, `move_task_card`, etc.), skills, and a system prompt fragment that teaches the bot both the MC protocol AND workspace file organization (which files to create, their format, which are tool-managed vs manually edited).
 
-### 3. Templates (`integrations/mission_control/prompts/*.md`)
-
-Nine workspace schemas, each defining file structures like `tasks.md` (kanban format), `timeline.md`, `status.md`, `plans.md`. All tagged with `mission-control` and `compatible_integrations: [mission_control]`.
-
-### 4. User flow
+### 3. User flow
 
 1. User activates Mission Control on a channel
-2. UI detects active integration with `compatible_template_tag: "mission-control"`
-3. Workspace Schema section shows recommended templates with green compatibility badges
-4. User picks "Software Development" template
-5. Bot now has MC tools (from capability) AND structured file layout (from template)
-
-### 5. Wrong template selected
-
-If the user picks an incompatible template:
-- UI shows an orange warning: "Not marked as compatible with Mission Control"
-- Tools still work but may create files in unexpected formats
-- User can switch to a compatible template at any time
+2. Capability injection adds MC tools, skills, AND file organization guidance automatically
+3. Bot knows how to create task boards, manage plans, and organize workspace files — no template selection needed
+4. Power users can optionally link a template in advanced settings to override the default file organization
 
 ---
 
-## Creating a Custom MC-Compatible Template
+## Creating a Custom Template
 
-1. Create `prompts/my-game-dev.md` (or in any scanned prompts directory)
+1. Create `prompts/my-template.md` (or in any scanned prompts directory)
 
 2. Add frontmatter:
    ```yaml
    ---
    name: "Game Development"
-   description: "Workspace schema for game projects with MC task tracking"
+   description: "Workspace schema for game projects with task tracking"
    category: workspace_schema
-   compatible_integrations:
-     - mission_control
    tags:
      - gamedev
      - software
    ---
    ```
 
-3. Define required MC file structures:
-   - `tasks.md` — Kanban board (Backlog / In Progress / Done columns)
-   - `timeline.md` — Reverse-chronological activity log
-   - `status.md` — Phase/health/owner header block
-   - `plans.md` — Structured plans with milestones
+3. Define file structures relevant to your project type
 
-4. Add domain-specific files:
-   - `DESIGN.md` — Game design document
-   - `BUILDS.md` — Build status and release notes
-
-5. Restart server — template is auto-synced and shows as MC-compatible in UI
-
----
-
-## Creating a New Integration with Template Compatibility
-
-For a hypothetical "QA Testing" integration:
-
-### 1. Declare in `setup.py`
-
-```python
-SETUP = {
-    "version": "1.0",
-    "activation": {
-        "carapaces": ["qa-testing"],
-        "requires_workspace": True,
-        "description": "Test planning and execution tracking",
-        "compatible_templates": ["qa-testing"],
-    },
-}
-```
-
-### 2. Create a capability
-
-`integrations/qa_testing/carapaces/qa-testing/carapace.yaml` with tools for test case management, skills for test planning, and a system prompt fragment.
-
-### 3. Create workspace schema templates
-
-`integrations/qa_testing/prompts/qa-workspace.md`:
-```yaml
----
-name: "QA Test Tracking"
-category: workspace_schema
-compatible_integrations:
-  - qa_testing
-tags:
-  - testing
-  - qa-testing
----
-```
-
-### 4. UI behavior
-
-The UI automatically:
-- Detects that QA Testing has `compatible_template_tag: "qa-testing"`
-- Highlights templates with the `qa-testing` tag
-- Shows compatibility badges and section headers
-- Warns if an incompatible template is linked
-
-No UI code changes needed — the system is fully generic.
+4. Restart server — template is auto-synced and appears in the advanced template picker
 
 ---
 
@@ -218,4 +99,14 @@ No UI code changes needed — the system is fully generic.
 - **Declared in:** `SETUP["version"]` in `setup.py`
 - **Exposed via:** Available integrations API (`version` field) and admin UI
 - **Convention:** `"MAJOR.MINOR"` — no semver enforcement, no runtime compatibility checks
-- **Used for:** UI display, template compatibility documentation, debugging
+- **Used for:** UI display, documentation, debugging
+
+---
+
+## For Integration Developers
+
+When building an integration that needs workspace file organization:
+
+1. **Put file org guidance in your carapace's `system_prompt_fragment`** — describe which files the bot should create, their format, which are tool-managed (read-only) vs manually edited
+2. **Don't create a separate template** unless the file structure is complex enough to warrant a full schema document
+3. The `system_prompt_fragment` is injected into every conversation where your integration is activated — it's the right place for "how to organize files" instructions

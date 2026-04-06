@@ -43,7 +43,7 @@ SETUP = {
         "carapaces": ["mission-control"],
         "requires_workspace": True,
         "description": "Project management with task boards, plans, and timelines",
-        "compatible_templates": ["mission-control"],
+
     },
     "webhook": None,
     "instructions_url": None,

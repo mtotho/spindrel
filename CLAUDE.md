@@ -265,7 +265,7 @@ Pluggable integration architecture for connecting to external services.
 - **Workflows**: Auto-synced from `integrations/*/workflows/*.yaml`
 - **Sidebar sections**: Declared via `sidebar_section` in `setup.py` SETUP dict
 - **Dashboard modules**: Declared via `dashboard_modules` in `setup.py` SETUP dict
-- **Activation + template compatibility**: `activation` block in SETUP declares carapace injection and `compatible_templates` tags; templates declare `compatible_integrations` frontmatter. See `docs/integrations/activation-and-templates.md`
+- **Activation**: `activation` block in SETUP declares carapace injection. See `docs/integrations/activation-and-templates.md`
 
 #### setup.py SETUP Manifest Fields
 ```python

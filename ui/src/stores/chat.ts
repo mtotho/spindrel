@@ -1,6 +1,18 @@
 import { create } from "zustand";
 import type { Message, SSEEvent } from "../types/api";
 
+type ToolCall = { name: string; args?: string; status: "running" | "done" | "awaiting_approval" | "denied"; approvalId?: string; approvalReason?: string };
+
+/** State for a single concurrent member bot stream (keyed by stream_id). */
+export interface MemberStreamState {
+  botId: string;
+  botName: string;
+  streamingContent: string;
+  thinkingContent: string;
+  toolCalls: ToolCall[];
+  error?: string;
+}
+
 interface ChatChannelState {
   messages: Message[];
   streamingContent: string;
@@ -10,15 +22,15 @@ interface ChatChannelState {
   isLocalStream: boolean;
   isProcessing: boolean;
   queuedTaskId: string | null;
-  toolCalls: { name: string; args?: string; status: "running" | "done" | "awaiting_approval" | "denied"; approvalId?: string; approvalReason?: string }[];
+  toolCalls: ToolCall[];
   correlationId: string | null;
   error: string | null;
   secretWarning: { patterns: { type: string }[] } | null;
   /** Bot currently responding (for multi-bot channels). */
   respondingBotId: string | null;
   respondingBotName: string | null;
-  /** True when a member bot stream is about to start (set by pending_member_stream event). */
-  pendingMemberStream: boolean;
+  /** Concurrent member bot streams, keyed by stream_id. */
+  memberStreams: Record<string, MemberStreamState>;
 }
 
 interface ChatState {
@@ -33,6 +45,12 @@ interface ChatState {
   setError: (channelId: string, error: string) => void;
   /** Remove all cached state for a channel (call on channel deletion). */
   deleteChannel: (channelId: string) => void;
+  /** Start tracking a concurrent member bot stream. */
+  startMemberStream: (channelId: string, streamId: string, botId: string, botName: string) => void;
+  /** Route a stream event to the correct member stream. */
+  handleMemberStreamEvent: (channelId: string, streamId: string, event: SSEEvent) => void;
+  /** Finalize a member stream — materialize as message and remove entry. */
+  finishMemberStream: (channelId: string, streamId: string) => void;
 }
 
 const emptyChannel: ChatChannelState = {
@@ -49,7 +67,7 @@ const emptyChannel: ChatChannelState = {
   secretWarning: null,
   respondingBotId: null,
   respondingBotName: null,
-  pendingMemberStream: false,
+  memberStreams: {},
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -120,7 +138,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             secretWarning: null,
             respondingBotId: null,
             respondingBotName: null,
-            pendingMemberStream: false,
+            memberStreams: {},
           },
         },
       };
@@ -343,15 +361,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           };
         }
         case "pending_member_stream": {
-          // Server tells us a member bot stream is about to start.
-          // Set flag so useChannelEvents allows the imminent stream_start through
-          // even if isLocalStream hasn't been cleared yet by onComplete.
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: { ...ch, pendingMemberStream: true },
-            },
-          };
+          // Legacy event — no longer needed with stream_id-based demuxing.
+          // Kept for backward compat but ignored.
+          return s;
         }
         case "secret_warning": {
           const data = event.data as { patterns?: { type: string }[] };
@@ -391,12 +403,31 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           ]
         : ch.messages;
 
+      // Also materialize any lingering member streams (e.g. cancel while
+      // member bots are still streaming — stream_end may never arrive).
+      let memberMessages = newMessages;
+      for (const [sid, stream] of Object.entries(ch.memberStreams)) {
+        if (stream.streamingContent) {
+          memberMessages = [
+            ...memberMessages,
+            {
+              id: `member-${sid}`,
+              session_id: "",
+              role: "assistant" as const,
+              content: stream.streamingContent,
+              created_at: new Date().toISOString(),
+              metadata: { trigger: "member_mention", sender_type: "bot" },
+            },
+          ];
+        }
+      }
+
       return {
         channels: {
           ...s.channels,
           [channelId]: {
             ...ch,
-            messages: newMessages,
+            messages: memberMessages,
             isStreaming: false,
             isLocalStream: false,
             // Preserve isProcessing/queuedTaskId — if a "queued" event set these,
@@ -409,6 +440,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             correlationId: null,
             respondingBotId: null,
             respondingBotName: null,
+            memberStreams: {},
           },
         },
       };
@@ -436,6 +468,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           isStreaming: false,
           respondingBotId: null,
           respondingBotName: null,
+          memberStreams: {},
         },
       },
     })),
@@ -444,5 +477,145 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set((s) => {
       const { [channelId]: _, ...rest } = s.channels;
       return { channels: rest };
+    }),
+
+  // ---- Member stream actions (for parallel multi-bot) ----
+
+  startMemberStream: (channelId, streamId, botId, botName) =>
+    set((s) => {
+      const ch = s.channels[channelId] ?? emptyChannel;
+      return {
+        channels: {
+          ...s.channels,
+          [channelId]: {
+            ...ch,
+            memberStreams: {
+              ...ch.memberStreams,
+              [streamId]: {
+                botId,
+                botName,
+                streamingContent: "",
+                thinkingContent: "",
+                toolCalls: [],
+              },
+            },
+          },
+        },
+      };
+    }),
+
+  handleMemberStreamEvent: (channelId, streamId, event) =>
+    set((s) => {
+      const ch = s.channels[channelId] ?? emptyChannel;
+      const stream = ch.memberStreams[streamId];
+      if (!stream) return s;
+
+      let updated: MemberStreamState;
+      switch (event.event) {
+        case "text_delta": {
+          const data = event.data as { delta?: string };
+          updated = { ...stream, streamingContent: stream.streamingContent + (data.delta ?? "") };
+          break;
+        }
+        case "thinking": {
+          const data = event.data as { delta?: string };
+          updated = { ...stream, thinkingContent: stream.thinkingContent + (data.delta ?? "") };
+          break;
+        }
+        case "thinking_content": {
+          const data = event.data as { text?: string };
+          updated = { ...stream, thinkingContent: data.text ?? stream.thinkingContent };
+          break;
+        }
+        case "assistant_text": {
+          const data = event.data as { text?: string };
+          updated = { ...stream, streamingContent: data.text ?? stream.streamingContent };
+          break;
+        }
+        case "response": {
+          const data = event.data as { text?: string };
+          updated = { ...stream, streamingContent: data.text ?? stream.streamingContent };
+          break;
+        }
+        case "tool_start": {
+          const data = event.data as { tool?: string; args?: string };
+          updated = {
+            ...stream,
+            toolCalls: [
+              ...stream.toolCalls,
+              { name: data.tool ?? "unknown", args: data.args, status: "running" },
+            ],
+          };
+          break;
+        }
+        case "tool_result": {
+          const tcs = [...stream.toolCalls];
+          const last = tcs.findLastIndex((t) => t.status === "running");
+          if (last >= 0) tcs[last] = { ...tcs[last], status: "done" };
+          updated = { ...stream, toolCalls: tcs };
+          break;
+        }
+        case "error": {
+          const data = event.data as { message?: string; detail?: string };
+          updated = { ...stream, error: data.message ?? data.detail ?? "Error" };
+          break;
+        }
+        default:
+          return s; // Ignore unknown events for member streams
+      }
+
+      return {
+        channels: {
+          ...s.channels,
+          [channelId]: {
+            ...ch,
+            memberStreams: { ...ch.memberStreams, [streamId]: updated },
+          },
+        },
+      };
+    }),
+
+  finishMemberStream: (channelId, streamId) =>
+    set((s) => {
+      const ch = s.channels[channelId] ?? emptyChannel;
+      const stream = ch.memberStreams[streamId];
+      if (!stream) return s;
+
+      // Materialize the member stream's content as a message
+      let messages = ch.messages;
+      if (stream.streamingContent) {
+        const toolsUsed = stream.toolCalls.length > 0
+          ? stream.toolCalls.map((tc) => tc.name)
+          : undefined;
+        const metadata: Record<string, any> = {
+          ...(toolsUsed ? { tools_used: toolsUsed } : {}),
+          trigger: "member_mention",
+          sender_type: "bot",
+        };
+        messages = [
+          ...messages,
+          {
+            id: `member-${streamId}`,
+            session_id: "",
+            role: "assistant" as const,
+            content: stream.streamingContent,
+            created_at: new Date().toISOString(),
+            metadata,
+          },
+        ];
+      }
+
+      // Remove this stream from memberStreams
+      const { [streamId]: _, ...remaining } = ch.memberStreams;
+      return {
+        channels: {
+          ...s.channels,
+          [channelId]: {
+            ...ch,
+            messages,
+            memberStreams: remaining,
+          },
+        },
+      };
     }),
 }));

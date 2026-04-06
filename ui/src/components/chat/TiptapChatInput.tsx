@@ -38,6 +38,8 @@ export interface TiptapChatInputProps {
   autoFocus?: boolean;
   isMobile?: boolean;
   currentBotId?: string;
+  /** When true (multi-bot channel), primary bot is NOT excluded from @-mentions */
+  isMultiBot?: boolean;
 }
 
 export interface TiptapChatInputHandle {
@@ -47,7 +49,7 @@ export interface TiptapChatInputHandle {
 }
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
-  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, disabled, autoFocus, isMobile, currentBotId }, ref) {
+  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, disabled, autoFocus, isMobile, currentBotId, isMultiBot }, ref) {
     const t = useThemeTokens();
     const { data: completions } = useCompletions();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -57,6 +59,8 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
     completionsRef.current = completions;
     const currentBotIdRef = useRef(currentBotId);
     currentBotIdRef.current = currentBotId;
+    const isMultiBotRef = useRef(isMultiBot);
+    isMultiBotRef.current = isMultiBot;
     const onSubmitRef = useRef(onSubmit);
     onSubmitRef.current = onSubmit;
     const onTextChangeRef = useRef(onTextChange);
@@ -135,9 +139,10 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       items: ({ query }: { query: string }) => {
         const comps = completionsRef.current;
         if (!comps) return [];
-        const excludeValue = currentBotIdRef.current ? `bot:${currentBotIdRef.current}` : "";
+        // In multi-bot channels, allow @-mentioning the primary bot too
+        const excludeValue = (!isMultiBotRef.current && currentBotIdRef.current) ? `bot:${currentBotIdRef.current}` : "";
         return comps
-          .filter((c: CompletionItem) => c.value !== excludeValue)
+          .filter((c: CompletionItem) => !excludeValue || c.value !== excludeValue)
           .map((c: CompletionItem) => ({ c, s: scoreMatch(c.value, c.label, query) }))
           .filter((x: { s: number }) => x.s > 0)
           .sort((a: { s: number }, b: { s: number }) => b.s - a.s)

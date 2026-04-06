@@ -2201,7 +2201,6 @@ async def list_activatable_integrations_global(
             skill_count = len(resolved.skills)
             has_system_prompt = len(resolved.system_prompt_fragments) > 0
 
-        compat_tags = manifest.get("compatible_templates", [])
         result.append({
             "integration_type": itype,
             "description": manifest.get("description", ""),
@@ -2212,7 +2211,6 @@ async def list_activatable_integrations_global(
             "skill_count": skill_count,
             "has_system_prompt": has_system_prompt,
             "version": manifest.get("version"),
-            "compatible_template_tag": compat_tags[0] if compat_tags else None,
             "includes": manifest.get("includes", []),
             "chat_hud": huds.get(itype, []),
             "chat_hud_presets": hud_presets.get(itype, {}),

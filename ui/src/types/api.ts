@@ -313,7 +313,6 @@ export interface ActivatableIntegration {
   skill_count: number;
   has_system_prompt: boolean;
   version?: string | null;
-  compatible_template_tag?: string | null;
   includes: string[];
   chat_hud?: ChatHudWidget[];
   chat_hud_presets?: Record<string, ChatHudPreset>;

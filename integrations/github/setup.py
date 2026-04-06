@@ -16,7 +16,7 @@ SETUP = {
         "carapaces": ["github"],
         "requires_workspace": False,
         "description": "GitHub repository management — PR reviews, issue tracking, code push events, and release monitoring",
-        "compatible_templates": ["devops"],
+
     },
     "instructions_url": None,
     "binding": {

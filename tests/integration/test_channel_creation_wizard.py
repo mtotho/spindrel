@@ -204,7 +204,6 @@ class TestGlobalActivatableIntegrations:
                 "description": "Mock integration",
                 "requires_workspace": False,
                 "carapaces": [],
-                "compatible_templates": ["integration:mock"],
             }
         }
 
@@ -219,7 +218,6 @@ class TestGlobalActivatableIntegrations:
         assert len(data) == 1
         assert data[0]["integration_type"] == "mock_int"
         assert data[0]["activated"] is False
-        assert data[0]["compatible_template_tag"] == "integration:mock"
 
 
 class TestChannelCategories:

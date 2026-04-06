@@ -59,6 +59,23 @@ system_prompt_fragment: |
   | `update_plan_step` | Mark plan steps in_progress/done/skipped |
   | `update_plan_status` | Change overall plan status |
 
+  ### Workspace File Organization
+
+  When this channel has a workspace, organize files as follows:
+
+  | File | Purpose | Managed by |
+  |------|---------|------------|
+  | `tasks.md` | Kanban board (Backlog / In Progress / Review / Done) | `create_task_card`, `move_task_card` — **read-only, never edit directly** |
+  | `plans.md` | Structured execution plans | `draft_plan`, `update_plan_step` — **read-only, never edit directly** |
+  | `timeline.md` | Chronological event log | `append_timeline_event` — **read-only, never edit directly** |
+  | `status.md` | Project health snapshot (phase, health, blockers) | You — update manually via `file` tool |
+  | `decisions.md` | Key decisions and rationale | You — update manually via `file` tool |
+  | `notes.md` | Freeform working notes | You — update manually via `file` tool |
+
+  Only create files as needed — don't pre-create empty files. For `status.md`,
+  use this format: Phase, Health (green/yellow/red), Updated date, Owner, and
+  a blockers section.
+
   ### Deep Knowledge Index
 
   | When you need... | Fetch this skill |

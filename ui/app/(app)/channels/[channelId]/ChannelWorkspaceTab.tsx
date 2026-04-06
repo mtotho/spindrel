@@ -14,10 +14,7 @@ import { WorkspaceSchemaEditor } from "@/src/components/shared/WorkspaceSchemaEd
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   useChannelWorkspaceFileContent,
-  useActivatableIntegrations,
 } from "@/src/api/hooks/useChannels";
-import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
-import { InfoBanner } from "@/src/components/shared/SettingsControls";
 import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
@@ -67,7 +64,6 @@ function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; chann
   const expandDir = useFileBrowserStore((s) => s.expandDir);
 
   const handleBrowse = () => {
-    // Expand the tree to the channel workspace folder before navigating
     const segments = ["channels", `channels/${channelId}`, `channels/${channelId}/workspace`];
     for (const seg of segments) {
       expandDir(seg);
@@ -174,6 +170,8 @@ function IndexedDirectoriesSection({
 
   const reindexMutation = useMutation({
     mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/reindex-segments`, { method: "POST" }),
+    onSuccess: () => { setTimeout(() => reindexMutation.reset(), 3000); },
+    onError: () => { setTimeout(() => reindexMutation.reset(), 5000); },
   });
 
   const defaultPatterns = defaults?.patterns?.join(", ") ?? "**/*.py, **/*.md, **/*.yaml";
@@ -215,7 +213,7 @@ function IndexedDirectoriesSection({
   return (
     <Section
       title="Indexed Directories"
-      description="Additional folders to index for semantic search. Contents are automatically retrieved and injected into context when relevant to the conversation. The bot can also use the search_workspace tool for more targeted lookups. Paths relative to channel workspace."
+      description="Additional folders to index for semantic search. Contents are automatically retrieved and injected into context when relevant to the conversation."
       action={
         <View style={{ flexDirection: "row", gap: 6 }}>
           <Pressable
@@ -418,29 +416,6 @@ export function ChannelWorkspaceTab({
   const enabled = !!form.channel_workspace_enabled;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
-  // Detect any active integration that declares template compatibility
-  const { data: activatable } = useActivatableIntegrations(channelId);
-  const activeWithTemplates = (activatable ?? []).filter(
-    (ig) => ig.activated && ig.compatible_template_tag,
-  );
-  const highlightTag = activeWithTemplates[0]?.compatible_template_tag ?? undefined;
-  const activeIntName = activeWithTemplates[0]
-    ? activeWithTemplates[0].integration_type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-    : "";
-  const hasNoSchema = !form.workspace_schema_template_id && !form.workspace_schema_content;
-
-  // Version compatibility check: extract mc_min_version tag from selected template
-  const { data: allTemplates } = usePromptTemplates(undefined, "workspace_schema");
-  const selectedTemplate = allTemplates?.find((t) => t.id === form.workspace_schema_template_id);
-  const mcMinVersionTag = selectedTemplate?.tags?.find((t: string) => t.startsWith("mc_min_version:"));
-  const templateMinVersion = mcMinVersionTag?.split(":")[1] ?? null;
-  const mcIntegration = (activatable ?? []).find((ig) => ig.integration_type === "mission_control");
-  const mcInstalledVersion = mcIntegration?.version ?? null;
-  const versionMismatch =
-    templateMinVersion && mcInstalledVersion
-      ? parseFloat(templateMinVersion) > parseFloat(mcInstalledVersion)
-      : false;
-
   return (
     <>
       {/* Channel workspace — persistent working documents */}
@@ -454,34 +429,6 @@ export function ChannelWorkspaceTab({
 
       {enabled && (
         <>
-          <Section
-            title="Template"
-            description="Choose an organization template that defines how workspace files should be structured for this type of project."
-          >
-            {activeWithTemplates.length > 0 && hasNoSchema && (
-              <InfoBanner variant="info">
-                {activeIntName} is active on this channel. Pick a compatible template for best results.
-              </InfoBanner>
-            )}
-            <WorkspaceSchemaEditor
-              templateId={form.workspace_schema_template_id ?? null}
-              schemaContent={form.workspace_schema_content ?? null}
-              onTemplateChange={(id) => {
-                patch("workspace_schema_template_id", id);
-              }}
-              onContentChange={(content) => {
-                patch("workspace_schema_content", content);
-              }}
-              highlightTag={highlightTag}
-              activeIntegrationName={activeIntName || undefined}
-            />
-            {versionMismatch && (
-              <InfoBanner variant="warning">
-                This template requires Mission Control v{templateMinVersion}+ but v{mcInstalledVersion} is installed. Some features may not work correctly.
-              </InfoBanner>
-            )}
-          </Section>
-
           {workspaceId && (
             <Section title="Workspace Access" description="Open the channel workspace folder in the file browser or VS Code editor.">
               <WorkspaceLinks workspaceId={workspaceId} channelId={channelId} />
@@ -500,7 +447,23 @@ export function ChannelWorkspaceTab({
             </Section>
           )}
 
-          <AdvancedSection>
+          <AdvancedSection title="Advanced Workspace Settings">
+            <Section
+              title="Organization Template"
+              description="Optional template defining how workspace files should be structured. Integrations with capabilities (e.g. Mission Control) teach file organization automatically."
+            >
+              <WorkspaceSchemaEditor
+                templateId={form.workspace_schema_template_id ?? null}
+                schemaContent={form.workspace_schema_content ?? null}
+                onTemplateChange={(id) => {
+                  patch("workspace_schema_template_id", id);
+                }}
+                onContentChange={(content) => {
+                  patch("workspace_schema_content", content);
+                }}
+              />
+            </Section>
+
             <IndexedDirectoriesSection
               segments={form.index_segments ?? []}
               onChange={(segs) => patch("index_segments", segs)}

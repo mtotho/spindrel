@@ -17,13 +17,9 @@ interface Props {
   onUnlink: () => void;
   /** When set, only show templates matching this category */
   category?: string;
-  /** When set, templates with this tag get a "Recommended" badge */
-  highlightTag?: string;
-  /** Human-readable name for the highlighting integration */
-  highlightLabel?: string;
 }
 
-export function PromptTemplateLink({ templateId, onLink, onUnlink, category, highlightTag, highlightLabel }: Props) {
+export function PromptTemplateLink({ templateId, onLink, onUnlink, category }: Props) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -47,19 +43,7 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
     : [];
 
   // Only show manual templates (not workspace_file sourced)
-  const allManual = filtered.filter((tpl) => tpl.source_type !== "workspace_file");
-
-  // Sort compatible templates first when highlightTag is set
-  const manual = highlightTag
-    ? [
-        ...allManual.filter((tpl) => tpl.tags?.includes(highlightTag)),
-        ...allManual.filter((tpl) => !tpl.tags?.includes(highlightTag)),
-      ]
-    : allManual;
-
-  const compatCount = highlightTag
-    ? manual.filter((tpl) => tpl.tags?.includes(highlightTag)).length
-    : 0;
+  const manual = filtered.filter((tpl) => tpl.source_type !== "workspace_file");
 
   const close = () => { setOpen(false); setSearch(""); };
 
@@ -77,40 +61,10 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
         </div>
       )}
       {manual.map((tpl, idx) => {
-        const isHighlighted = highlightTag && tpl.tags?.includes(highlightTag);
-        const badgeLabel = isHighlighted ? (highlightLabel || "Recommended") : undefined;
-        const showCompatHeader = highlightTag && compatCount > 0 && idx === 0 && isHighlighted;
-        const showOtherHeader = highlightTag && compatCount > 0 && idx === compatCount;
         const prevTpl = idx > 0 ? manual[idx - 1] : null;
-        const showGroupHeader = !showCompatHeader && tpl.group && tpl.group !== prevTpl?.group;
+        const showGroupHeader = tpl.group && tpl.group !== prevTpl?.group;
         return (
           <div key={tpl.id}>
-            {showCompatHeader && (
-              <div style={{
-                padding: "6px 12px 2px",
-                fontSize: 9,
-                fontWeight: 700,
-                color: "#22c55e",
-                textTransform: "uppercase",
-                letterSpacing: 1,
-              }}>
-                Compatible with {highlightLabel || "integration"}
-              </div>
-            )}
-            {showOtherHeader && (
-              <div style={{
-                padding: "8px 12px 2px",
-                fontSize: 9,
-                fontWeight: 700,
-                color: t.textDim,
-                textTransform: "uppercase",
-                letterSpacing: 1,
-                borderTop: `1px solid ${t.surfaceBorder}`,
-                marginTop: 4,
-              }}>
-                Other templates
-              </div>
-            )}
             {showGroupHeader && (
               <div style={{
                 padding: `${idx > 0 ? 8 : 4}px 12px 2px`,
@@ -139,7 +93,6 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
                 border: "none",
                 cursor: "pointer",
                 textAlign: "left",
-                opacity: highlightTag && !isHighlighted ? 0.7 : 1,
               }}
               onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
               onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
@@ -149,23 +102,6 @@ export function PromptTemplateLink({ templateId, onLink, onUnlink, category, hig
                 <span style={{ fontSize: isMobile ? 14 : 12, fontWeight: 600, color: t.text }}>
                   {tpl.name}
                 </span>
-                {badgeLabel && (
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                      letterSpacing: 0.5,
-                      padding: "1px 5px",
-                      borderRadius: 3,
-                      background: "rgba(34,197,94,0.12)",
-                      color: "#22c55e",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {badgeLabel}
-                  </span>
-                )}
                 {(tpl.source_type === "integration" || tpl.source_type === "file") && (
                   <span
                     style={{

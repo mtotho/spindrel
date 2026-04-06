@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { Message } from "@/src/types/api";
+import type { MemberStreamState } from "@/src/stores/chat";
 
 export function DateSeparator({ label }: { label: string }) {
   const t = useThemeTokens();
@@ -39,7 +40,7 @@ export interface ChatMessageAreaProps {
   flatListRef: React.RefObject<FlatList | null>;
   invertedData: Message[];
   renderMessage: (info: { item: Message; index: number }) => React.JSX.Element;
-  chatState: { isStreaming: boolean; streamingContent: string; toolCalls: any[]; thinkingContent: string; respondingBotName?: string | null };
+  chatState: { isStreaming: boolean; streamingContent: string; toolCalls: any[]; thinkingContent: string; respondingBotName?: string | null; memberStreams?: Record<string, MemberStreamState> };
   bot: { name?: string } | undefined;
   isLoading: boolean;
   isFetchingNextPage: boolean;
@@ -172,7 +173,7 @@ function WebChatList({
   }, []);
 
   const streamingBotName = chatState.respondingBotName || bot?.name;
-  const indicator = chatState.isStreaming ? (
+  const primaryIndicator = chatState.isStreaming ? (
     <StreamingIndicator
       content={chatState.streamingContent}
       toolCalls={chatState.toolCalls}
@@ -181,6 +182,28 @@ function WebChatList({
     />
   ) : isProcessing ? (
     <ProcessingIndicator botName={streamingBotName} />
+  ) : null;
+
+  // Concurrent member bot streams
+  const memberEntries = Object.entries(chatState.memberStreams ?? {});
+  const memberIndicators = memberEntries.map(([streamId, stream]) => (
+    <StreamingIndicator
+      key={streamId}
+      content={stream.streamingContent}
+      toolCalls={stream.toolCalls}
+      botName={stream.botName}
+      thinkingContent={stream.thinkingContent}
+    />
+  ));
+
+  const hasIndicators = primaryIndicator || memberIndicators.length > 0;
+  // In column-reverse, first child = visual bottom (closest to input).
+  // Primary bot goes first (bottom), member bots stack above it.
+  const indicators = hasIndicators ? (
+    <>
+      {primaryIndicator}
+      {memberIndicators}
+    </>
   ) : null;
 
   return (
@@ -198,7 +221,7 @@ function WebChatList({
         }}
       >
         {/* First in DOM = visual bottom in column-reverse */}
-        {indicator}
+        {indicators}
 
         {invertedData.map((item, index) => (
           <div key={item.id} style={{ userSelect: "text" }}>
@@ -314,7 +337,7 @@ function NativeChatList({
         contentInsetAdjustmentBehavior="never"
         ListHeaderComponent={(() => {
           const nativeBotName = chatState.respondingBotName || bot?.name;
-          return chatState.isStreaming ? (
+          const nativePrimary = chatState.isStreaming ? (
             <StreamingIndicator
               content={chatState.streamingContent}
               toolCalls={chatState.toolCalls}
@@ -324,6 +347,24 @@ function NativeChatList({
           ) : isProcessing ? (
             <ProcessingIndicator botName={nativeBotName} />
           ) : null;
+          const nativeMemberEntries = Object.entries(chatState.memberStreams ?? {});
+          const nativeMemberIndicators = nativeMemberEntries.map(([sid, ms]) => (
+            <StreamingIndicator
+              key={sid}
+              content={ms.streamingContent}
+              toolCalls={ms.toolCalls}
+              botName={ms.botName}
+              thinkingContent={ms.thinkingContent}
+            />
+          ));
+          if (!nativePrimary && nativeMemberIndicators.length === 0) return null;
+          // Primary bot first (at bottom in inverted list), member bots above
+          return (
+            <>
+              {nativePrimary}
+              {nativeMemberIndicators}
+            </>
+          );
         })()
         }
         ListFooterComponent={

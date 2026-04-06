@@ -1,22 +1,250 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useWindowDimensions } from "react-native";
-import { Search, X, Info, AlertTriangle } from "lucide-react";
+import { Search, X, Info, AlertTriangle, Plus, Pin } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   TextInput, SelectInput, Toggle, FormRow, Row, Col,
 } from "@/src/components/shared/FormControls";
+import { AdvancedSection } from "@/src/components/shared/SettingsControls";
 import type { BotConfig, BotEditorData, ToolGroup } from "@/src/types/api";
 import { MOBILE_NAV_BREAKPOINT } from "./constants";
 import { ToolSchemaModal } from "./ToolSchemaModal";
 
-export function ToolsSection({
-  editorData,
-  draft,
-  update,
+// ---------------------------------------------------------------------------
+// Pinned Tools picker (default view)
+// ---------------------------------------------------------------------------
+function PinnedToolsPicker({
+  editorData, draft, update,
 }: {
-  editorData: BotEditorData;
-  draft: BotConfig;
+  editorData: BotEditorData; draft: BotConfig;
+  update: (patch: Partial<BotConfig>) => void;
+}) {
+  const t = useThemeTokens();
+  const pinnedTools = draft.pinned_tools || [];
+  const localTools = draft.local_tools || [];
+  const [adding, setAdding] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const allToolNames = useMemo(() => {
+    return editorData.tool_groups.flatMap((g) =>
+      g.packs.flatMap((p) => p.tools.map((tool) => tool.name))
+    );
+  }, [editorData.tool_groups]);
+
+  const allToolsByName = useMemo(() => {
+    const map = new Map<string, { name: string; description?: string | null }>();
+    for (const g of editorData.tool_groups) {
+      for (const p of g.packs) {
+        for (const tool of p.tools) {
+          map.set(tool.name, tool);
+        }
+      }
+    }
+    return map;
+  }, [editorData.tool_groups]);
+
+  const unpinnedTools = allToolNames.filter((n) => !pinnedTools.includes(n));
+  const filtered = search
+    ? unpinnedTools.filter((n) => n.toLowerCase().includes(search.toLowerCase()))
+    : unpinnedTools;
+
+  const addPin = (name: string) => {
+    const nextPinned = [...pinnedTools, name];
+    const nextLocal = localTools.includes(name) ? localTools : [...localTools, name];
+    update({ pinned_tools: nextPinned, local_tools: nextLocal });
+  };
+
+  const removePin = (name: string) => {
+    update({ pinned_tools: pinnedTools.filter((n) => n !== name) });
+  };
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        Pinned Tools
+      </div>
+      {pinnedTools.length === 0 && !adding && (
+        <div style={{ fontSize: 11, color: t.textDim, padding: "4px 0 8px" }}>
+          No pinned tools. Tools are discovered automatically per conversation.
+        </div>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+        {pinnedTools.map((name) => {
+          const tool = allToolsByName.get(name);
+          return (
+            <div key={name} style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "3px 8px", borderRadius: 4, fontSize: 11,
+              background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
+            }}>
+              <Pin size={9} color={t.accent} />
+              <span style={{ fontFamily: "monospace", color: t.accent }}
+                title={tool?.description || name}>{name}</span>
+              <button
+                onClick={() => removePin(name)}
+                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
+                title="Unpin"
+              >
+                <X size={10} color={t.textDim} />
+              </button>
+            </div>
+          );
+        })}
+        {!adding && (
+          <button
+            onClick={() => setAdding(true)}
+            style={{
+              display: "flex", alignItems: "center", gap: 4,
+              padding: "3px 8px", borderRadius: 4, fontSize: 11,
+              background: "transparent", border: `1px dashed ${t.surfaceBorder}`,
+              color: t.textDim, cursor: "pointer",
+            }}
+          >
+            <Plus size={10} /> Pin a tool
+          </button>
+        )}
+      </div>
+      {adding && (
+        <div style={{
+          padding: 8, borderRadius: 6,
+          border: `1px solid ${t.surfaceBorder}`, background: t.inputBg,
+          marginBottom: 8,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+            <Search size={12} color={t.textDim} />
+            <input
+              type="text" value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search tools to pin..."
+              autoFocus
+              style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 12 }}
+            />
+            <button onClick={() => { setAdding(false); setSearch(""); }}
+              style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+              <X size={12} color={t.textDim} />
+            </button>
+          </div>
+          <div style={{ maxHeight: 200, overflow: "auto" }}>
+            {filtered.slice(0, 30).map((name) => (
+              <button key={name} onClick={() => { addPin(name); setSearch(""); }}
+                style={{
+                  display: "block", width: "100%", textAlign: "left",
+                  padding: "4px 6px", fontSize: 11, fontFamily: "monospace",
+                  color: t.text, background: "transparent", border: "none",
+                  cursor: "pointer", borderRadius: 3,
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = t.surfaceOverlay; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+              >
+                {name}
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <span style={{ fontSize: 11, color: t.textDim, padding: 4 }}>No matching tools</span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MCP Servers section (compact toggles)
+// ---------------------------------------------------------------------------
+function McpServersSection({
+  editorData, draft, update, filter,
+}: {
+  editorData: BotEditorData; draft: BotConfig;
+  update: (patch: Partial<BotConfig>) => void;
+  filter: string;
+}) {
+  const t = useThemeTokens();
+  const { width } = useWindowDimensions();
+  const mobile = width < MOBILE_NAV_BREAKPOINT;
+
+  const toggleMcp = (name: string) => {
+    const cur = draft.mcp_servers || [];
+    update({ mcp_servers: cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name] });
+  };
+
+  if (editorData.mcp_servers.length === 0) return null;
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>MCP Servers</div>
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 2 }}>
+        {editorData.mcp_servers.filter((s) => !filter || s.toLowerCase().includes(filter)).map((srv) => {
+          const on = (draft.mcp_servers || []).includes(srv);
+          return (
+            <label key={srv} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+              borderRadius: 4, cursor: "pointer", fontSize: 11,
+              background: on ? t.accentSubtle : "transparent",
+              border: `1px solid ${on ? t.accentBorder : "transparent"}`,
+            }}>
+              <input type="checkbox" checked={on} onChange={() => toggleMcp(srv)} style={{ accentColor: t.accent }} />
+              <span style={{ fontFamily: "monospace", color: on ? t.accent : t.textDim }}>{srv}</span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Client Tools section (compact toggles)
+// ---------------------------------------------------------------------------
+function ClientToolsSection({
+  editorData, draft, update, filter,
+}: {
+  editorData: BotEditorData; draft: BotConfig;
+  update: (patch: Partial<BotConfig>) => void;
+  filter: string;
+}) {
+  const t = useThemeTokens();
+  const { width } = useWindowDimensions();
+  const mobile = width < MOBILE_NAV_BREAKPOINT;
+
+  const toggleClient = (name: string) => {
+    const cur = draft.client_tools || [];
+    update({ client_tools: cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name] });
+  };
+
+  if (editorData.client_tools.length === 0) return null;
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Client Tools</div>
+      <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 2 }}>
+        {editorData.client_tools.filter((ct) => !filter || ct.toLowerCase().includes(filter)).map((tool) => {
+          const on = (draft.client_tools || []).includes(tool);
+          return (
+            <label key={tool} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
+              borderRadius: 4, cursor: "pointer", fontSize: 11,
+              background: on ? t.accentSubtle : "transparent",
+              border: `1px solid ${on ? t.accentBorder : "transparent"}`,
+            }}>
+              <input type="checkbox" checked={on} onChange={() => toggleClient(tool)} style={{ accentColor: t.accent }} />
+              <span style={{ fontFamily: "monospace", color: on ? t.accent : t.textDim }}>{tool}</span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Full tool list (advanced view)
+// ---------------------------------------------------------------------------
+function FullToolList({
+  editorData, draft, update,
+}: {
+  editorData: BotEditorData; draft: BotConfig;
   update: (patch: Partial<BotConfig>) => void;
 }) {
   const [toolFilter, setToolFilter] = useState("");
@@ -27,7 +255,6 @@ export function ToolsSection({
   const pinnedTools = draft.pinned_tools || [];
   const excludeTools: string[] = (draft.tool_result_config as any)?.exclude_tools || [];
 
-  // Tools auto-injected at runtime (not in local_tools but still active)
   const autoInjectedTools = new Set<string>();
   if (draft.memory_scheme === "workspace-files") {
     autoInjectedTools.add("search_memory");
@@ -40,88 +267,63 @@ export function ToolsSection({
 
   const toggleTool = (name: string) => {
     if (localTools.includes(name)) {
-      // Disabling: remove from both local_tools and pinned_tools
       update({
-        local_tools: localTools.filter((t) => t !== name),
-        pinned_tools: pinnedTools.filter((t) => t !== name),
+        local_tools: localTools.filter((n) => n !== name),
+        pinned_tools: pinnedTools.filter((n) => n !== name),
       });
     } else {
-      // Enabling: add to both local_tools and pinned_tools (pinned by default)
-      update({
-        local_tools: [...localTools, name],
-        pinned_tools: pinnedTools.includes(name) ? pinnedTools : [...pinnedTools, name],
-      });
+      update({ local_tools: [...localTools, name] });
     }
   };
 
   const togglePin = (name: string) => {
     const next = pinnedTools.includes(name)
-      ? pinnedTools.filter((t) => t !== name)
+      ? pinnedTools.filter((n) => n !== name)
       : [...pinnedTools, name];
     update({ pinned_tools: next });
   };
 
   const toggleNoSum = (name: string) => {
     const next = excludeTools.includes(name)
-      ? excludeTools.filter((t) => t !== name)
+      ? excludeTools.filter((n) => n !== name)
       : [...excludeTools, name];
     update({ tool_result_config: { ...draft.tool_result_config, exclude_tools: next } });
   };
 
-  const toggleMcp = (name: string) => {
-    const cur = draft.mcp_servers || [];
-    update({ mcp_servers: cur.includes(name) ? cur.filter((t) => t !== name) : [...cur, name] });
-  };
-
-  const toggleClient = (name: string) => {
-    const cur = draft.client_tools || [];
-    update({ client_tools: cur.includes(name) ? cur.filter((t) => t !== name) : [...cur, name] });
-  };
-
-  // Toggle all tools in a pack
   const togglePack = (toolNames: string[]) => {
     const allEnabled = toolNames.every((n) => localTools.includes(n));
     if (allEnabled) {
       update({
-        local_tools: localTools.filter((t) => !toolNames.includes(t)),
-        pinned_tools: pinnedTools.filter((t) => !toolNames.includes(t)),
+        local_tools: localTools.filter((n) => !toolNames.includes(n)),
+        pinned_tools: pinnedTools.filter((n) => !toolNames.includes(n)),
       });
     } else {
       const toAdd = toolNames.filter((n) => !localTools.includes(n));
-      const toPin = toolNames.filter((n) => !pinnedTools.includes(n));
-      update({
-        local_tools: [...localTools, ...toAdd],
-        pinned_tools: [...pinnedTools, ...toPin],
-      });
+      update({ local_tools: [...localTools, ...toAdd] });
     }
   };
 
-  // Toggle all tools in an entire integration group
   const toggleGroup = (group: ToolGroup) => {
-    const allNames = group.packs.flatMap((p) => p.tools.map((t) => t.name));
+    const allNames = group.packs.flatMap((p) => p.tools.map((tool) => tool.name));
     const allEnabled = allNames.every((n) => localTools.includes(n));
     if (allEnabled) {
       update({
-        local_tools: localTools.filter((t) => !allNames.includes(t)),
-        pinned_tools: pinnedTools.filter((t) => !allNames.includes(t)),
+        local_tools: localTools.filter((n) => !allNames.includes(n)),
+        pinned_tools: pinnedTools.filter((n) => !allNames.includes(n)),
       });
     } else {
       const toAdd = allNames.filter((n) => !localTools.includes(n));
-      const toPin = allNames.filter((n) => !pinnedTools.includes(n));
-      update({
-        local_tools: [...localTools, ...toAdd],
-        pinned_tools: [...pinnedTools, ...toPin],
-      });
+      update({ local_tools: [...localTools, ...toAdd] });
     }
   };
 
   const t = useThemeTokens();
-  const { width: toolsWinWidth } = useWindowDimensions();
-  const toolsMobile = toolsWinWidth < MOBILE_NAV_BREAKPOINT;
+  const { width } = useWindowDimensions();
+  const toolsMobile = width < MOBILE_NAV_BREAKPOINT;
   const q = toolFilter.toLowerCase();
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       {/* Search bar + counts */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{
@@ -150,10 +352,10 @@ export function ToolsSection({
 
       {/* Legend */}
       <div style={{ display: "flex", gap: 16, fontSize: 10, color: t.textDim, flexWrap: "wrap" }}>
-        <span>✓ = enabled</span>
+        <span>&#10003; = enabled</span>
         {autoInjectedTools.size > 0 && <span style={{ color: t.purple }}>auto = injected by memory scheme</span>}
-        {draft.tool_retrieval && <span style={{ color: "#eab308" }}>📌 = pinned (always available · click to demote to RAG-only)</span>}
-        <span style={{ color: "#f97316" }}>🔇 = skip summarization</span>
+        {draft.tool_retrieval && <span style={{ color: "#eab308" }}>pinned = always available</span>}
+        <span style={{ color: "#f97316" }}>skip sum = skip summarization</span>
       </div>
 
       {/* Local tool groups */}
@@ -177,7 +379,7 @@ export function ToolsSection({
                 </span>
               )}
               {(() => {
-                const allNames = group.packs.flatMap((p) => p.tools.map((t) => t.name));
+                const allNames = group.packs.flatMap((p) => p.tools.map((tool) => tool.name));
                 const selectedCount = allNames.filter((n) => localTools.includes(n)).length;
                 const allEnabled = selectedCount === allNames.length && allNames.length > 0;
                 return (
@@ -204,17 +406,16 @@ export function ToolsSection({
             {/* Packs */}
             {group.packs.map((pack) => {
               const packKey = `${groupKey}::${pack.pack}`;
-              const filtered = q ? pack.tools.filter((t) => t.name.toLowerCase().includes(q)) : pack.tools;
+              const filtered = q ? pack.tools.filter((tool) => tool.name.toLowerCase().includes(q)) : pack.tools;
               if (filtered.length === 0) return null;
 
-              const packNames = pack.tools.map((t) => t.name);
+              const packNames = pack.tools.map((tool) => tool.name);
               const allEnabled = packNames.every((n) => localTools.includes(n));
               const someEnabled = packNames.some((n) => localTools.includes(n));
               const isCollapsed = !q && collapsed[packKey];
 
               return (
                 <div key={pack.pack}>
-                  {/* Pack header with toggle-all */}
                   {group.packs.length > 1 && (
                     <div
                       style={{
@@ -227,7 +428,7 @@ export function ToolsSection({
                       <span style={{
                         fontSize: 8, color: t.textDim, transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
                         transition: "transform 0.15s", display: "inline-block",
-                      }}>▶</span>
+                      }}>&#9654;</span>
                       <span style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", flex: 1 }}>
                         {pack.label ?? pack.pack}
                       </span>
@@ -246,7 +447,6 @@ export function ToolsSection({
                     </div>
                   )}
 
-                  {/* Pack warning */}
                   {pack.warning && (
                     <div style={{
                       display: "flex", alignItems: "center", gap: 6,
@@ -259,7 +459,6 @@ export function ToolsSection({
                     </div>
                   )}
 
-                  {/* Tool rows */}
                   {!isCollapsed && (
                     <div style={{ display: "grid", gridTemplateColumns: toolsMobile ? "1fr" : "1fr 1fr", gap: 1, padding: 4 }}>
                       {filtered.map((tool) => {
@@ -321,7 +520,9 @@ export function ToolsSection({
                                   background: "none", border: "none", cursor: "pointer",
                                   fontSize: 10, padding: 0, opacity: pinned ? 1 : 0.25,
                                 }}
-                              >📌</button>
+                              >
+                                <Pin size={10} />
+                              </button>
                             )}
                             {enabled && (
                               <button
@@ -329,9 +530,11 @@ export function ToolsSection({
                                 title={noSum ? "Allow summarization" : "Skip summarization"}
                                 style={{
                                   background: "none", border: "none", cursor: "pointer",
-                                  fontSize: 10, padding: 0, opacity: noSum ? 1 : 0.25,
+                                  fontSize: 10, padding: 0, opacity: noSum ? 1 : 0.25, color: "#f97316",
                                 }}
-                              >🔇</button>
+                              >
+                                &#128263;
+                              </button>
                             )}
                           </div>
                         );
@@ -345,143 +548,138 @@ export function ToolsSection({
         );
       })}
 
-      {/* MCP Servers */}
-      {editorData.mcp_servers.length > 0 && (
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>MCP Servers</div>
-          <div style={{ display: "grid", gridTemplateColumns: toolsMobile ? "1fr" : "1fr 1fr", gap: 2 }}>
-            {editorData.mcp_servers.filter((s) => !q || s.toLowerCase().includes(q)).map((srv) => {
-              const on = (draft.mcp_servers || []).includes(srv);
-              return (
-                <label key={srv} style={{
-                  display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
-                  borderRadius: 4, cursor: "pointer", fontSize: 11,
-                  background: on ? t.accentSubtle : "transparent",
-                  border: `1px solid ${on ? t.accentBorder : "transparent"}`,
-                }}>
-                  <input type="checkbox" checked={on} onChange={() => toggleMcp(srv)} style={{ accentColor: t.accent }} />
-                  <span style={{ fontFamily: "monospace", color: on ? t.accent : t.textDim }}>{srv}</span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Client Tools */}
-      {editorData.client_tools.length > 0 && (
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Client Tools</div>
-          <div style={{ display: "grid", gridTemplateColumns: toolsMobile ? "1fr" : "1fr 1fr", gap: 2 }}>
-            {editorData.client_tools.filter((ct) => !q || ct.toLowerCase().includes(q)).map((tool) => {
-              const on = (draft.client_tools || []).includes(tool);
-              return (
-                <label key={tool} style={{
-                  display: "flex", alignItems: "center", gap: 6, padding: "4px 8px",
-                  borderRadius: 4, cursor: "pointer", fontSize: 11,
-                  background: on ? t.accentSubtle : "transparent",
-                  border: `1px solid ${on ? t.accentBorder : "transparent"}`,
-                }}>
-                  <input type="checkbox" checked={on} onChange={() => toggleClient(tool)} style={{ accentColor: t.accent }} />
-                  <span style={{ fontFamily: "monospace", color: on ? t.accent : t.textDim }}>{tool}</span>
-                </label>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Tool Retrieval */}
-      <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
-        <Toggle
-          value={draft.tool_retrieval ?? true}
-          onChange={(v) => update({ tool_retrieval: v })}
-          label="Tool Retrieval (RAG)"
-          description="Only pass top-K relevant tools per turn. Pinned tools bypass filtering."
-        />
-        {draft.tool_retrieval && (
-          <div style={{ marginTop: 8, maxWidth: 300 }}>
-            <FormRow label="Similarity Threshold">
-              <TextInput
-                value={String(draft.tool_similarity_threshold ?? "")}
-                onChangeText={(v) => update({ tool_similarity_threshold: v ? parseFloat(v) : null })}
-                placeholder="0.35" type="number"
-              />
-            </FormRow>
-          </div>
-        )}
-      </div>
-
-      {/* Tool Discovery */}
-      {(draft.tool_retrieval ?? true) && (
-        <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
-          <Toggle
-            value={draft.tool_discovery ?? true}
-            onChange={(v) => update({ tool_discovery: v })}
-            label="Tool Discovery"
-            description="Discover undeclared tools from the full tool pool via RAG. Disable to restrict to manually configured tools only. Tool policies still apply at execution time."
-          />
-        </div>
-      )}
-
-      {/* Tool Result Summarization */}
-      <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 500, color: t.text, marginBottom: 4 }}>Tool Result Summarization</div>
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8 }}>Summarizes large tool outputs. Use 🔇 above to exclude tools.</div>
-        <Row gap={12}>
-          <Col>
-            <SelectInput
-              value={draft.tool_result_config?.enabled === true ? "true" : draft.tool_result_config?.enabled === false ? "false" : ""}
-              onChange={(v) => {
-                const trc = { ...draft.tool_result_config };
-                if (v === "true") trc.enabled = true;
-                else if (v === "false") trc.enabled = false;
-                else delete trc.enabled;
-                update({ tool_result_config: trc });
-              }}
-              options={[
-                { label: "Inherit global", value: "" },
-                { label: "Force on", value: "true" },
-                { label: "Force off", value: "false" },
-              ]}
-            />
-          </Col>
-          <Col>
-            <FormRow label="Trigger size (chars)">
-              <TextInput
-                value={String((draft.tool_result_config as any)?.threshold ?? "")}
-                onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, threshold: v ? parseInt(v) : undefined } })}
-                placeholder="global (3000)" type="number"
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <FormRow label="Summarizer model">
-              <LlmModelDropdown
-                value={(draft.tool_result_config as any)?.model ?? ""}
-                onChange={(v) => update({ tool_result_config: { ...draft.tool_result_config, model: v || undefined } })}
-                placeholder="global model"
-              />
-            </FormRow>
-          </Col>
-          <Col>
-            <FormRow label="Max summary tokens">
-              <TextInput
-                value={String((draft.tool_result_config as any)?.max_tokens ?? "")}
-                onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, max_tokens: v ? parseInt(v) : undefined } })}
-                placeholder="global (300)" type="number"
-              />
-            </FormRow>
-          </Col>
-        </Row>
-      </div>
-
       {schemaModalTool && (
         <ToolSchemaModal
           toolName={schemaModalTool}
           onClose={() => setSchemaModalTool(null)}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main export
+// ---------------------------------------------------------------------------
+export function ToolsSection({
+  editorData,
+  draft,
+  update,
+}: {
+  editorData: BotEditorData;
+  draft: BotConfig;
+  update: (patch: Partial<BotConfig>) => void;
+}) {
+  const t = useThemeTokens();
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Info text */}
+      <div style={{ fontSize: 11, color: t.textDim }}>
+        Tools are automatically discovered based on conversation context. Pin specific tools to always include them.
+      </div>
+
+      {/* Pinned Tools */}
+      <PinnedToolsPicker editorData={editorData} draft={draft} update={update} />
+
+      {/* MCP Servers */}
+      <McpServersSection editorData={editorData} draft={draft} update={update} filter="" />
+
+      {/* Client Tools */}
+      <ClientToolsSection editorData={editorData} draft={draft} update={update} filter="" />
+
+      {/* Advanced: full tool list + settings */}
+      <AdvancedSection title="Advanced Tool Settings">
+        <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 8 }}>
+          {/* Full tool list */}
+          <FullToolList editorData={editorData} draft={draft} update={update} />
+
+          {/* Tool Retrieval */}
+          <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
+            <Toggle
+              value={draft.tool_retrieval ?? true}
+              onChange={(v) => update({ tool_retrieval: v })}
+              label="Tool Retrieval (RAG)"
+              description="Only pass top-K relevant tools per turn. Pinned tools bypass filtering."
+            />
+            {(draft.tool_retrieval ?? true) && (
+              <div style={{ marginTop: 8, maxWidth: 300 }}>
+                <FormRow label="Similarity Threshold">
+                  <TextInput
+                    value={String(draft.tool_similarity_threshold ?? "")}
+                    onChangeText={(v) => update({ tool_similarity_threshold: v ? parseFloat(v) : null })}
+                    placeholder="0.35" type="number"
+                  />
+                </FormRow>
+              </div>
+            )}
+          </div>
+
+          {/* Tool Discovery */}
+          {(draft.tool_retrieval ?? true) && (
+            <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
+              <Toggle
+                value={draft.tool_discovery ?? true}
+                onChange={(v) => update({ tool_discovery: v })}
+                label="Tool Discovery"
+                description="Discover undeclared tools from the full tool pool via RAG. Disable to restrict to manually configured tools only."
+              />
+            </div>
+          )}
+
+          {/* Tool Result Summarization */}
+          <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 500, color: t.text, marginBottom: 4 }}>Tool Result Summarization</div>
+            <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8 }}>Summarizes large tool outputs.</div>
+            <Row gap={12}>
+              <Col>
+                <SelectInput
+                  value={draft.tool_result_config?.enabled === true ? "true" : draft.tool_result_config?.enabled === false ? "false" : ""}
+                  onChange={(v) => {
+                    const trc = { ...draft.tool_result_config };
+                    if (v === "true") trc.enabled = true;
+                    else if (v === "false") trc.enabled = false;
+                    else delete trc.enabled;
+                    update({ tool_result_config: trc });
+                  }}
+                  options={[
+                    { label: "Inherit global", value: "" },
+                    { label: "Force on", value: "true" },
+                    { label: "Force off", value: "false" },
+                  ]}
+                />
+              </Col>
+              <Col>
+                <FormRow label="Trigger size (chars)">
+                  <TextInput
+                    value={String((draft.tool_result_config as any)?.threshold ?? "")}
+                    onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, threshold: v ? parseInt(v) : undefined } })}
+                    placeholder="global (3000)" type="number"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="Summarizer model">
+                  <LlmModelDropdown
+                    value={(draft.tool_result_config as any)?.model ?? ""}
+                    onChange={(v) => update({ tool_result_config: { ...draft.tool_result_config, model: v || undefined } })}
+                    placeholder="global model"
+                  />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="Max summary tokens">
+                  <TextInput
+                    value={String((draft.tool_result_config as any)?.max_tokens ?? "")}
+                    onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, max_tokens: v ? parseInt(v) : undefined } })}
+                    placeholder="global (300)" type="number"
+                  />
+                </FormRow>
+              </Col>
+            </Row>
+          </div>
+        </div>
+      </AdvancedSection>
     </div>
   );
 }

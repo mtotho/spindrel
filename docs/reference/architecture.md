@@ -73,13 +73,12 @@ Integrations can declare an **activation manifest** in their `setup.py` that spe
 "activation": {
     "carapaces": ["mission-control"],
     "requires_workspace": True,
-    "compatible_templates": ["mission-control"],
 }
 ```
 
 During context assembly, the system checks each channel's active integrations and auto-injects their declared capabilities. This gives the bot integration-specific tools and skills without any manual bot configuration.
 
-**Template compatibility:** Integrations declare which workspace template tags they work with. The UI highlights compatible templates when an integration is active, guiding users to pick file structures that match the integration's tools.
+**Workspace file organization:** Integration capabilities teach file organization directly via their `system_prompt_fragment`. Templates are optional — available in advanced settings for power users who want a specific structure.
 
 ## Channel Workspaces
 

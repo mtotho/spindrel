@@ -822,11 +822,6 @@ async def assemble_context(
 
             if _schema_content:
                 _cw_helper = _schema_content + "\n\n" + _cw_helper
-            else:
-                _cw_helper = (
-                    "Organize workspace files by purpose: use descriptive .md filenames, "
-                    "keep active documents at the root, and archive completed work to archive/.\n\n"
-                ) + _cw_helper
 
             _cw_body = ""
             if _cw_files:
@@ -1235,10 +1230,24 @@ async def assemble_context(
             f"You are {bot.name} (bot_id: {bot.id}).\n\n"
             "This channel has multiple bot participants:\n"
             + "\n".join(_participant_lines)
-            + "\nTo mention another bot, use @bot_id or @Display_Name (e.g., @dev_bot or @Dev Bot). They will see the full channel context and reply automatically."
+            + "\nTo bring another bot into the conversation mid-turn, use the `invoke_member_bot` tool."
+            + "\nYou can also @-mention bots by bot_id or display name (e.g., @dev_bot or @Dev Bot)."
             + "\nDo not @-mention yourself."
         )
         messages.append({"role": "system", "content": _awareness_msg})
+
+        # Auto-inject invoke_member_bot tool for multi-bot channels
+        from app.agent.context import current_injected_tools
+        from app.tools.registry import get_local_tool_schemas
+        _member_tool_schemas = get_local_tool_schemas(["invoke_member_bot"])
+        if _member_tool_schemas:
+            _existing_injected = current_injected_tools.get() or []
+            _existing_names = {t["function"]["name"] for t in _existing_injected}
+            for _mt in _member_tool_schemas:
+                if _mt["function"]["name"] not in _existing_names:
+                    _existing_injected.append(_mt)
+            current_injected_tools.set(_existing_injected)
+
         yield {"type": "multi_bot_awareness", "member_count": len(_member_bot_ids)}
 
     # --- delegate bot index ---

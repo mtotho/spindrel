@@ -25,7 +25,7 @@ SETUP = {
         "carapaces": ["frigate"],
         "requires_workspace": False,
         "description": "Security camera monitoring with Frigate NVR — live events, clip management, detection alerts, and camera status",
-        "compatible_templates": ["home-automation"],
+
     },
     "instructions_url": None,
     "binding": {

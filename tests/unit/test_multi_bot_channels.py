@@ -1755,3 +1755,407 @@ class TestPrimaryBotMentionBack:
                 _depth=3,
             )
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Parallel invocation & dedup
+# ---------------------------------------------------------------------------
+
+class TestParallelInvocation:
+    """Tests for parallel member bot invocation features."""
+
+    @pytest.mark.asyncio
+    async def test_trigger_passes_snapshot_to_run(self):
+        """_trigger_member_bot_replies passes messages_snapshot to each task."""
+        from app.routers.chat import _trigger_member_bot_replies
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+
+        member_row = _make_member_row("helper-bot", config={})
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        snapshot = [{"role": "user", "content": "hi"}]
+        captured_kwargs = {}
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("asyncio.create_task") as mock_create_task:
+            mock_create_task.return_value = MagicMock()
+            mock_create_task.return_value.add_done_callback = MagicMock()
+            result = await _trigger_member_bot_replies(
+                channel_id, session_id, "primary-bot",
+                "Hey @helper-bot help",
+                messages_snapshot=snapshot,
+            )
+
+        assert len(result) == 1
+        # Verify create_task was called with a coroutine containing snapshot
+        mock_create_task.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_trigger_skips_already_invoked(self):
+        """Bots in already_invoked set are skipped."""
+        from app.routers.chat import _trigger_member_bot_replies
+
+        channel_id = uuid.uuid4()
+        member_row = _make_member_row("helper-bot", config={})
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_row]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("asyncio.create_task") as mock_create_task:
+            result = await _trigger_member_bot_replies(
+                channel_id, uuid.uuid4(), "primary-bot",
+                "Hey @helper-bot help",
+                already_invoked={"helper-bot"},
+            )
+
+        # helper-bot was already invoked, so no task created
+        assert len(result) == 0
+        mock_create_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_trigger_returns_mentioned_list(self):
+        """_trigger_member_bot_replies returns the list of triggered bots."""
+        from app.routers.chat import _trigger_member_bot_replies
+
+        channel_id = uuid.uuid4()
+        member_a = _make_member_row("bot-a", config={})
+        member_b = _make_member_row("bot-b", config={})
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [member_a, member_b]
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("asyncio.create_task") as mock_create_task:
+            mock_create_task.return_value = MagicMock()
+            mock_create_task.return_value.add_done_callback = MagicMock()
+            result = await _trigger_member_bot_replies(
+                channel_id, uuid.uuid4(), "primary-bot",
+                "@bot-a and @bot-b both help",
+            )
+
+        assert len(result) == 2
+        bot_ids = [r[0] for r in result]
+        assert "bot-a" in bot_ids
+        assert "bot-b" in bot_ids
+
+    @pytest.mark.asyncio
+    async def test_snapshot_path_skips_lock(self):
+        """With messages_snapshot, _run_member_bot_reply doesn't acquire lock."""
+        from app.routers.chat import _run_member_bot_reply
+
+        snapshot = [
+            {"role": "system", "content": "You are helper."},
+            {"role": "user", "content": "hello"},
+        ]
+
+        with patch("app.routers.chat._channel_throttled", return_value=False), \
+             patch("app.routers.chat.session_locks") as mock_locks, \
+             patch("app.routers.chat.get_bot", return_value=_make_bot(id="helper-bot", name="Helper")), \
+             patch("app.routers.chat._record_channel_run"), \
+             patch("app.routers.chat.set_agent_context"), \
+             patch("app.routers.chat.run_stream", side_effect=_fake_stream), \
+             patch("app.services.channel_events.publish"), \
+             patch("app.db.engine.async_session") as mock_session:
+
+            mock_db = AsyncMock()
+            mock_channel = MagicMock()
+            mock_channel.bot_id = "primary-bot"
+            mock_db.get = AsyncMock(return_value=mock_channel)
+            mock_db.execute = AsyncMock()
+            mock_db.commit = AsyncMock()
+            mock_cm = AsyncMock()
+            mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_cm.__aexit__ = AsyncMock(return_value=False)
+            mock_session.return_value = mock_cm
+
+            with patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+                 patch("app.services.sessions.strip_metadata_keys", side_effect=lambda x: x):
+                await _run_member_bot_reply(
+                    uuid.uuid4(), uuid.uuid4(), "helper-bot", {},
+                    "primary-bot",
+                    messages_snapshot=snapshot,
+                    stream_id="test-stream-123",
+                )
+
+            # Lock should NOT have been acquired when using snapshot
+            mock_locks.acquire.assert_not_called()
+            mock_locks.release.assert_not_called()
+
+    def test_invoked_member_bots_contextvar(self):
+        """current_invoked_member_bots tracks invoked bots."""
+        from app.agent.context import current_invoked_member_bots
+
+        # Default is None
+        current_invoked_member_bots.set(None)
+        assert current_invoked_member_bots.get() is None
+
+        # Set and track
+        invoked = set()
+        current_invoked_member_bots.set(invoked)
+        invoked.add("bot-a")
+        invoked.add("bot-b")
+
+        result = current_invoked_member_bots.get()
+        assert result is not None
+        assert "bot-a" in result
+        assert "bot-b" in result
+
+    @pytest.mark.asyncio
+    async def test_invoke_member_bot_tool_validates_channel(self):
+        """invoke_member_bot returns error when no channel context."""
+        from app.tools.local.channel_bots import invoke_member_bot
+        from app.agent.context import current_channel_id, current_session_id, current_bot_id
+        import json
+
+        current_channel_id.set(None)
+        current_session_id.set(None)
+        current_bot_id.set("primary-bot")
+
+        result = await invoke_member_bot(bot_id="helper-bot")
+        data = json.loads(result)
+        assert "error" in data
+        assert "channel" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_invoke_member_bot_tool_rejects_self(self):
+        """invoke_member_bot returns error when trying to invoke self."""
+        from app.tools.local.channel_bots import invoke_member_bot
+        from app.agent.context import current_channel_id, current_session_id, current_bot_id
+        import json
+
+        current_channel_id.set(uuid.uuid4())
+        current_session_id.set(uuid.uuid4())
+        current_bot_id.set("primary-bot")
+
+        result = await invoke_member_bot(bot_id="primary-bot")
+        data = json.loads(result)
+        assert "error" in data
+        assert "yourself" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_invoke_member_bot_tool_validates_membership(self):
+        """invoke_member_bot returns error if target bot is not a channel member."""
+        from app.tools.local.channel_bots import invoke_member_bot
+        from app.agent.context import current_channel_id, current_session_id, current_bot_id
+        import json
+
+        channel_id = uuid.uuid4()
+        current_channel_id.set(channel_id)
+        current_session_id.set(uuid.uuid4())
+        current_bot_id.set("primary-bot")
+
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=mock_channel)
+        # No member row found
+        mock_db.execute = AsyncMock(return_value=MagicMock(
+            scalar_one_or_none=MagicMock(return_value=None)
+        ))
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("app.agent.bots.get_bot", return_value=_make_bot(id="unknown-bot")):
+            result = await invoke_member_bot(bot_id="unknown-bot")
+
+        data = json.loads(result)
+        assert "error" in data
+        assert "not a member" in data["error"].lower()
+
+
+    @pytest.mark.asyncio
+    async def test_invoke_member_bot_tool_double_invocation_guard(self):
+        """Calling invoke_member_bot twice for the same bot returns already_invoked."""
+        from app.tools.local.channel_bots import invoke_member_bot
+        from app.agent.context import (
+            current_channel_id, current_session_id, current_bot_id,
+            current_invoked_member_bots,
+        )
+        import json
+
+        current_channel_id.set(uuid.uuid4())
+        current_session_id.set(uuid.uuid4())
+        current_bot_id.set("primary-bot")
+        # Pre-populate: helper-bot was already invoked this turn
+        current_invoked_member_bots.set({"helper-bot"})
+
+        # No DB mocks needed — guard fires before any DB access
+        result = await invoke_member_bot(bot_id="helper-bot")
+        data = json.loads(result)
+        assert data["status"] == "already_invoked"
+
+    @pytest.mark.asyncio
+    async def test_invoke_member_bot_tool_happy_path(self):
+        """invoke_member_bot success path creates a background task."""
+        from app.tools.local.channel_bots import invoke_member_bot
+        from app.agent.context import (
+            current_channel_id, current_session_id, current_bot_id,
+            current_invoked_member_bots,
+        )
+        import json
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        current_channel_id.set(channel_id)
+        current_session_id.set(session_id)
+        current_bot_id.set("primary-bot")
+        current_invoked_member_bots.set(None)
+
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_member = MagicMock()
+        mock_member.config = {"response_style": "concise"}
+
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=mock_channel)
+        mock_db.execute = AsyncMock(return_value=MagicMock(
+            scalar_one_or_none=MagicMock(return_value=mock_member)
+        ))
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        mock_messages = [{"role": "system", "content": "sys"}, {"role": "user", "content": "hi"}]
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("app.agent.bots.get_bot", return_value=_make_bot(id="helper-bot", name="Helper")), \
+             patch("app.services.sessions.load_or_create", new_callable=AsyncMock,
+                   return_value=(session_id, mock_messages)), \
+             patch("app.routers.chat._run_member_bot_reply", new_callable=AsyncMock) as mock_run, \
+             patch("app.routers.chat._background_tasks", set()):
+            result = await invoke_member_bot(bot_id="helper-bot", message="focus on errors")
+
+        data = json.loads(result)
+        assert data["status"] == "ok"
+        assert "Helper" in data["message"]
+
+        # Verify dedup tracking
+        invoked = current_invoked_member_bots.get()
+        assert "helper-bot" in invoked
+
+    @pytest.mark.asyncio
+    async def test_invoke_member_bot_contextvar_creates_new_set(self):
+        """ContextVar mutation uses a new set (not in-place mutation)."""
+        from app.tools.local.channel_bots import invoke_member_bot
+        from app.agent.context import (
+            current_channel_id, current_session_id, current_bot_id,
+            current_invoked_member_bots,
+        )
+        import json
+
+        channel_id = uuid.uuid4()
+        current_channel_id.set(channel_id)
+        current_session_id.set(uuid.uuid4())
+        current_bot_id.set("primary-bot")
+        original_set = {"other-bot"}
+        current_invoked_member_bots.set(original_set)
+
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary-bot"
+        mock_member = MagicMock()
+        mock_member.config = {}
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=mock_channel)
+        mock_db.execute = AsyncMock(return_value=MagicMock(
+            scalar_one_or_none=MagicMock(return_value=mock_member)
+        ))
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("app.agent.bots.get_bot", return_value=_make_bot(id="helper-bot")), \
+             patch("app.services.sessions.load_or_create", new_callable=AsyncMock,
+                   return_value=(uuid.uuid4(), [{"role": "system", "content": "s"}])), \
+             patch("app.routers.chat._run_member_bot_reply", new_callable=AsyncMock), \
+             patch("app.routers.chat._background_tasks", set()):
+            await invoke_member_bot(bot_id="helper-bot")
+
+        # The original set should NOT have been mutated in-place
+        assert "helper-bot" not in original_set
+        # But the ContextVar should have the new value
+        new_set = current_invoked_member_bots.get()
+        assert "helper-bot" in new_set
+        assert "other-bot" in new_set
+
+    @pytest.mark.asyncio
+    async def test_chained_trigger_passes_snapshot(self):
+        """When a member bot's response triggers another bot, it passes a snapshot."""
+        from app.routers.chat import _run_member_bot_reply
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        messages_snapshot = [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "hello"},
+        ]
+
+        with patch("app.agent.bots.get_bot") as mock_get_bot, \
+             patch("app.services.channel_events.publish") as mock_publish, \
+             patch("app.agent.loop.run_stream") as mock_run_stream, \
+             patch("app.db.engine.async_session") as mock_session_factory, \
+             patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+             patch("app.routers.chat._mirror_to_integration", new_callable=AsyncMock), \
+             patch("app.routers.chat._trigger_member_bot_replies", new_callable=AsyncMock) as mock_trigger:
+
+            mock_get_bot.side_effect = lambda bid: _make_bot(id=bid, name=bid)
+            mock_run_stream.return_value = _fake_stream()
+
+            mock_db = AsyncMock()
+            mock_db.get = AsyncMock(return_value=MagicMock(bot_id="primary-bot"))
+            mock_cm = AsyncMock()
+            mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_cm.__aexit__ = AsyncMock(return_value=False)
+            mock_session_factory.return_value = mock_cm
+
+            await _run_member_bot_reply(
+                channel_id, session_id, "helper-bot", {},
+                "primary-bot", _depth=1,
+                messages_snapshot=messages_snapshot,
+                stream_id="test-stream-id",
+            )
+
+            # The chained trigger should have been called with a snapshot
+            mock_trigger.assert_called_once()
+            call_kwargs = mock_trigger.call_args
+            assert call_kwargs.kwargs.get("messages_snapshot") is not None
+
+
+async def _fake_stream(*a, **kw):
+    """Minimal fake for run_stream that yields a response event."""
+    yield {"type": "response", "text": "ok", "client_actions": []}

@@ -43,36 +43,39 @@ Click **Deactivate** in the Integrations tab. The capability is removed and the 
 
 Templates define the file structure for a channel's workspace. When a bot has `workspace.enabled: true`, the channel workspace is a directory of `.md` files that the bot reads and writes during conversations.
 
-### Picking a Template
+### Do I need a template?
+
+**Usually no.** If you've activated an integration (like Mission Control), it already teaches the bot how to organize workspace files through its capability. The bot will create the right files with the right format automatically.
+
+Templates are useful when:
+- You want a **specific file structure** for a non-integration workflow (e.g., a research project)
+- You want to **override** the integration's built-in file organization
+- You want **consistency** across multiple channels doing similar work
+
+### Picking a Template (optional)
 
 1. Open a channel and go to the **Workspace** tab
-2. The **Schema** section shows available templates
-3. If an integration is activated, **compatible templates** are highlighted with a green badge and shown first under "Suggested templates"
-4. Click a template to apply it — the bot will use this structure when creating workspace files
+2. Expand **Advanced Workspace Settings**
+3. In the **Organization Template** section, link a template
+4. The bot will use this structure when creating workspace files
 
 ### Built-in Templates
 
 Spindrel ships templates for common workflows:
 
-| Template | Best for | Compatible with | Key files |
-|----------|----------|----------------|-----------|
-| Software Development | Code projects with task tracking | Mission Control | tasks.md, architecture.md, decisions.md |
-| Research / Analysis | Investigation and analysis | — | findings.md, sources.md, questions.md |
-| Creative Project | Writing, design, content | — | brief.md, concepts.md, feedback.md |
-| General Project | Lightweight catch-all | — | overview.md, notes.md, tasks.md |
-| Project Management Hub | Project coordination | Mission Control | status.md, projects.md, reports.md |
-| Mission Control | Structured task tracking | Mission Control | tasks.md, status.md, decisions.md |
-| Software Testing / QA | Test planning and execution | — | test-plan.md, bugs.md, coverage.md |
-| Media Management | Media library and requests | Arr | requests.md, library.md, issues.md |
-| Email Digest | Email ingestion and action tracking | Gmail | feeds.md, digest.md, actions.md |
-| Home Automation | Device inventory and events | Frigate | devices.md, automations.md, events.md |
-| DevOps | Repository and deployment tracking | GitHub | repos.md, prs.md, deployments.md |
-
-### Template Compatibility
-
-Templates can declare compatibility with specific integrations. A "Software Development" template tagged as Mission Control-compatible means its file structure matches what MC tools expect (e.g., `tasks.md` has the kanban column format that `create_task_card` writes to).
-
-**What happens with an incompatible template:** The integration's tools still work, but the bot may create files in unexpected formats or locations. The UI shows an orange warning if your linked template isn't compatible with an active integration.
+| Template | Best for | Key files |
+|----------|----------|-----------|
+| Software Development | Code projects with task tracking | tasks.md, architecture.md, decisions.md |
+| Research / Analysis | Investigation and analysis | findings.md, sources.md, questions.md |
+| Creative Project | Writing, design, content | brief.md, concepts.md, feedback.md |
+| General Project | Lightweight catch-all | overview.md, notes.md, tasks.md |
+| Project Management Hub | Project coordination | status.md, projects.md, reports.md |
+| Mission Control | Structured task tracking | tasks.md, status.md, decisions.md |
+| Software Testing / QA | Test planning and execution | test-plan.md, bugs.md, coverage.md |
+| Media Management | Media library and requests | requests.md, library.md, issues.md |
+| Email Digest | Email ingestion and action tracking | feeds.md, digest.md, actions.md |
+| Home Automation | Device inventory and events | devices.md, automations.md, events.md |
+| DevOps | Repository and deployment tracking | repos.md, prs.md, deployments.md |
 
 ### Custom Templates
 
@@ -85,8 +88,6 @@ Create templates in two ways:
 name: "My Custom Schema"
 description: "Workspace schema for game development"
 category: workspace_schema
-compatible_integrations:
-  - mission_control
 tags:
   - gamedev
 ---
@@ -100,7 +101,7 @@ Kanban board with columns: Backlog, In Progress, Testing, Done
 
 Restart the server — the template is auto-synced.
 
-**From the UI** — In Admin > Templates, create a new template and set compatibility tags.
+**From the UI** — In Admin > Templates, create a new template with a name, description, and tags.
 
 ---
 
@@ -111,16 +112,17 @@ Restart the server — the template is auto-synced.
 1. **Create a channel** — Give it a name and assign a bot
 2. **Enable the workspace** — In the Workspace tab, toggle workspace on (if not enabled by default)
 3. **Activate integrations** — In the Integrations tab, activate Mission Control (or other integrations relevant to your work)
-4. **Pick a compatible template** — In the Workspace tab, select a suggested template. The green badge means it's designed for your active integration.
-5. **Start chatting** — The bot now has the right tools and knows how to organize files. Ask it to create a task board, write a status report, or plan a feature — it knows the formats.
+4. **Start chatting** — The bot now has the right tools and knows how to organize files. Ask it to create a task board, write a status report, or plan a feature — it knows the formats from the integration's capability.
+
+That's it. No template selection needed. The integration's capability teaches the bot both the tools AND the file organization.
 
 ### What You Get
 
-After activation + template selection:
+After activation:
 
 - **Tools** — The bot can create task cards, move items between columns, update status, manage plans (whatever the integration provides)
 - **Skills** — The bot has domain knowledge about the integration's workflows (e.g., how to run a standup, how to triage bugs)
-- **File structure** — The workspace has a defined schema so files are consistently organized
+- **File organization** — The capability teaches the bot how to structure workspace files for this integration
 - **Context injection** — Active `.md` files in the workspace root are automatically injected into every conversation, keeping the bot aware of project state
 
 ### Checking What's Active
@@ -134,9 +136,8 @@ In the **Integrations** tab, you can see:
 
 ## For Integration Developers
 
-If you're building an integration and want it to support activation and template compatibility, see [Activation & Template Compatibility](../integrations/activation-and-templates.md) for the developer guide covering:
+If you're building an integration and want it to support activation, see [Activation & Workspace Templates](../integrations/activation-and-templates.md) for the developer guide covering:
 
 - The `activation` block in `setup.py`
 - Capability injection mechanics
-- Declaring `compatible_templates` tags
-- Creating compatible workspace schema templates
+- Creating workspace schema templates

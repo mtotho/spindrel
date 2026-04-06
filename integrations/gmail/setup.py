@@ -76,7 +76,7 @@ SETUP = {
         "carapaces": ["gmail-feeds"],
         "requires_workspace": True,
         "description": "Email ingestion and digest management via Gmail IMAP",
-        "compatible_templates": ["email-digest"],
+
     },
     "binding": {
         "client_id_prefix": "gmail:",

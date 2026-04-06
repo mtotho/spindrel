@@ -308,6 +308,7 @@ export default function ChatScreen() {
     onModelOverrideChange: handleModelOverrideChange,
     defaultModel: channel?.model_override || bot?.model,
     currentBotId: channel?.bot_id,
+    isMultiBot: (channel?.member_bots?.length ?? 0) > 0,
     channelId,
     onSlashCommand: handleSlashCommand,
     isQueued,

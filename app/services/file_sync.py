@@ -463,14 +463,6 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
         tags = meta.get("tags", [])
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
-        # Expand compatible_integrations frontmatter into integration:* tags
-        compat = meta.get("compatible_integrations", [])
-        if isinstance(compat, str):
-            compat = [c.strip() for c in compat.split(",") if c.strip()]
-        for ci in compat:
-            tag = f"integration:{ci}"
-            if tag not in tags:
-                tags.append(tag)
         # Expand mc_min_version frontmatter into mc_min_version:* tag
         mc_ver = meta.get("mc_min_version")
         if mc_ver:
@@ -906,14 +898,6 @@ async def sync_changed_file(path: Path) -> None:
         tags = meta.get("tags", [])
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
-        # Expand compatible_integrations frontmatter into integration:* tags
-        compat = meta.get("compatible_integrations", [])
-        if isinstance(compat, str):
-            compat = [c.strip() for c in compat.split(",") if c.strip()]
-        for ci in compat:
-            tag = f"integration:{ci}"
-            if tag not in tags:
-                tags.append(tag)
         # Expand mc_min_version frontmatter into mc_min_version:* tag
         mc_ver = meta.get("mc_min_version")
         if mc_ver:

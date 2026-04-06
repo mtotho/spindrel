@@ -613,18 +613,35 @@ async def _trigger_member_bot_replies(
     response_text: str,
     *,
     _depth: int = 0,
-) -> None:
-    """Parse a bot response for @-mentions of channel member bots and fire replies."""
-    mentioned = await _detect_member_mentions(channel_id, responding_bot_id, response_text, _depth=_depth)
+    messages_snapshot: list[dict] | None = None,
+    already_invoked: set[str] | None = None,
+) -> list[tuple[str, dict]]:
+    """Parse a bot response for @-mentions of channel member bots and fire replies.
+
+    Returns the list of (bot_id, config) tuples that were triggered (for dedup).
+    Skips any bot_id in *already_invoked* (e.g. invoked via tool mid-turn).
+    """
+    try:
+        mentioned = await _detect_member_mentions(channel_id, responding_bot_id, response_text, _depth=_depth)
+    except Exception:
+        logger.exception("Failed to detect member mentions in channel %s", channel_id)
+        return []
+    # Filter out bots already invoked (e.g. via invoke_member_bot tool)
+    if already_invoked:
+        mentioned = [(bid, cfg) for bid, cfg in mentioned if bid not in already_invoked]
     for bot_id, member_config in mentioned:
+        stream_id = str(uuid.uuid4())
         task = asyncio.create_task(
             _run_member_bot_reply(
                 channel_id, session_id, bot_id, member_config,
                 responding_bot_id, _depth=_depth + 1,
+                messages_snapshot=messages_snapshot,
+                stream_id=stream_id,
             )
         )
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
+    return mentioned
 
 
 async def _run_member_bot_reply(
@@ -635,8 +652,15 @@ async def _run_member_bot_reply(
     mentioning_bot_id: str,
     *,
     _depth: int = 1,
+    messages_snapshot: list[dict] | None = None,
+    stream_id: str | None = None,
+    invocation_message: str = "",
 ) -> None:
-    """Execute a member bot's reply after being @-mentioned by another bot."""
+    """Execute a member bot's reply after being @-mentioned or invoked.
+
+    When *messages_snapshot* is provided the bot runs against that snapshot
+    without acquiring the session lock — enabling parallel execution.
+    """
     from app.agent.bots import get_bot
     from app.db.engine import async_session as _async_session
     from app.db.models import Channel, Session
@@ -649,17 +673,20 @@ async def _run_member_bot_reply(
         logger.info("Member bot %s reply skipped: channel %s throttled", member_bot_id, channel_id)
         return
 
-    # Wait for session lock (primary bot's stream may still be finishing)
-    acquired = False
-    for _ in range(30):
-        if session_locks.acquire(session_id):
-            acquired = True
-            break
-        await asyncio.sleep(1)
+    _sid = stream_id or str(uuid.uuid4())
+    _use_snapshot = messages_snapshot is not None
 
-    if not acquired:
-        logger.warning("Member bot %s timed out waiting for session lock in channel %s", member_bot_id, channel_id)
-        return
+    if not _use_snapshot:
+        # Legacy path: wait for session lock
+        acquired = False
+        for _ in range(30):
+            if session_locks.acquire(session_id):
+                acquired = True
+                break
+            await asyncio.sleep(1)
+        if not acquired:
+            logger.warning("Member bot %s timed out waiting for session lock in channel %s", member_bot_id, channel_id)
+            return
 
     response_text = ""
     try:
@@ -668,14 +695,19 @@ async def _run_member_bot_reply(
         member_bot = get_bot(member_bot_id)
         mentioning_bot = get_bot(mentioning_bot_id)
 
-        # Load session with member bot's system prompt (preserve _metadata for
-        # history rewriting — we need sender_id to distinguish message authors)
-        async with _async_session() as db:
-            _, messages = await load_or_create(
-                db, session_id, "member-mention", member_bot_id,
-                channel_id=channel_id,
-                preserve_metadata=True,
-            )
+        if _use_snapshot:
+            # Use the provided snapshot — no DB load, no lock needed
+            import copy
+            messages = copy.deepcopy(messages_snapshot)
+        else:
+            # Load session with member bot's system prompt (preserve _metadata for
+            # history rewriting — we need sender_id to distinguish message authors)
+            async with _async_session() as db:
+                _, messages = await load_or_create(
+                    db, session_id, "member-mention", member_bot_id,
+                    channel_id=channel_id,
+                    preserve_metadata=True,
+                )
 
         # Look up primary bot name for fallback attribution on old messages
         _primary_bot_name: str | None = None
@@ -707,14 +739,18 @@ async def _run_member_bot_reply(
         from_index = len(messages)
 
         # Identity/context as system_preamble (not user message) to avoid LLM echo.
-        # user_message is empty — the conversation history + preamble are sufficient.
-        # An empty user_message also means no RAG retrieval runs (skills, tools, etc.),
-        # which is correct since the member bot just needs to respond to the conversation.
-        _system_preamble = (
-            f"You are {member_bot.name} (bot_id: {member_bot_id}). "
-            f"{mentioning_bot.name} (@{mentioning_bot_id}) mentioned you. "
-            f"Read the conversation and respond naturally. Do not @-mention yourself."
-        )
+        if invocation_message:
+            _system_preamble = (
+                f"You are {member_bot.name} (bot_id: {member_bot_id}). "
+                f"{mentioning_bot.name} (@{mentioning_bot_id}) invoked you with this context: {invocation_message} "
+                f"Read the conversation and respond naturally. Do not @-mention yourself."
+            )
+        else:
+            _system_preamble = (
+                f"You are {member_bot.name} (bot_id: {member_bot_id}). "
+                f"{mentioning_bot.name} (@{mentioning_bot_id}) mentioned you. "
+                f"Read the conversation and respond naturally. Do not @-mention yourself."
+            )
         prompt = ""
         model_override = member_config.get("model_override")
 
@@ -731,6 +767,7 @@ async def _run_member_bot_reply(
         # Stream the reply so the UI shows typing indicators for the member bot.
         from app.agent.loop import run_stream
         _publish_event(channel_id, "stream_start", {
+            "stream_id": _sid,
             "responding_bot_id": member_bot_id,
             "responding_bot_name": member_bot.name,
         })
@@ -747,7 +784,10 @@ async def _run_member_bot_reply(
             if event.get("type") == "response":
                 response_text = event.get("text", "")
             event_with_session = {**event, "session_id": str(session_id)}
-            _publish_event(channel_id, "stream_event", {"event": event_with_session})
+            _publish_event(channel_id, "stream_event", {
+                "stream_id": _sid,
+                "event": event_with_session,
+            })
 
         # Persist with metadata so UI knows this is a bot-triggered turn
         msg_metadata = {
@@ -766,7 +806,7 @@ async def _run_member_bot_reply(
             )
 
         # Notify UI that streaming ended (after persist so data is committed)
-        _publish_event(channel_id, "stream_end")
+        _publish_event(channel_id, "stream_end", {"stream_id": _sid})
         _publish_event(channel_id, "new_message")
 
         # Mirror to integration
@@ -779,34 +819,40 @@ async def _run_member_bot_reply(
                 )
 
         # Restore session bot_id to the channel's primary bot
-        async with _async_session() as db:
-            channel = await db.get(Channel, channel_id)
-            if channel and channel.bot_id:
-                await db.execute(
-                    _sql_update(Session)
-                    .where(Session.id == session_id)
-                    .values(bot_id=channel.bot_id)
-                )
-                await db.commit()
+        if not _use_snapshot:
+            async with _async_session() as db:
+                channel = await db.get(Channel, channel_id)
+                if channel and channel.bot_id:
+                    await db.execute(
+                        _sql_update(Session)
+                        .where(Session.id == session_id)
+                        .values(bot_id=channel.bot_id)
+                    )
+                    await db.commit()
 
         logger.info(
-            "Member bot %s replied in channel %s (mentioned by %s, depth=%d)",
-            member_bot_id, channel_id, mentioning_bot_id, _depth,
+            "Member bot %s replied in channel %s (mentioned by %s, depth=%d, stream=%s)",
+            member_bot_id, channel_id, mentioning_bot_id, _depth, _sid,
         )
 
     except Exception:
         logger.exception("Member bot %s reply failed in channel %s", member_bot_id, channel_id)
         # Ensure streaming ends even on error so UI doesn't stay in streaming state
-        _publish_event(channel_id, "stream_end")
+        _publish_event(channel_id, "stream_end", {"stream_id": _sid})
     finally:
-        session_locks.release(session_id)
+        if not _use_snapshot:
+            session_locks.release(session_id)
 
-    # Chain: check if member bot's response mentions another member bot
-    # (done AFTER releasing the lock so the next bot can acquire it)
+    # Chain: check if member bot's response mentions another member bot.
+    # Always pass a snapshot so chained bots run lock-free (the primary bot
+    # may still hold the session lock if we were invoked with a snapshot).
     if response_text:
+        import copy as _copy_mod
+        _chain_snapshot = _copy_mod.deepcopy(messages) if messages else None
         await _trigger_member_bot_replies(
             channel_id, session_id, member_bot_id, response_text,
             _depth=_depth,
+            messages_snapshot=_chain_snapshot,
         )
 
 
@@ -1024,10 +1070,16 @@ async def chat(
             bot_id=req.bot_id, client_actions=result.client_actions,
         )
 
-    # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply
+    # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply.
+    # Pass a snapshot so member bots run lock-free.
     if result.response and channel_id:
+        import copy as _copy_chat
+        _snap = _copy_chat.deepcopy(messages)
         task = asyncio.create_task(
-            _trigger_member_bot_replies(channel_id, session_id, bot.id, result.response)
+            _trigger_member_bot_replies(
+                channel_id, session_id, bot.id, result.response,
+                messages_snapshot=_snap,
+            )
         )
         _background_tasks.add(task)
         task.add_done_callback(_background_tasks.discard)
@@ -1351,7 +1403,9 @@ async def chat_stream(
 
             # Notify observers that streaming is starting
             from app.services.channel_events import publish as _publish_stream
+            _primary_stream_id = str(uuid.uuid4())
             _publish_stream(channel_id, "stream_start", {
+                "stream_id": _primary_stream_id,
                 "responding_bot_id": bot.id,
                 "responding_bot_name": bot.name,
             })
@@ -1382,7 +1436,7 @@ async def chat_stream(
                     messages.append({"role": "assistant", "content": "[Cancelled by user]"})
                     event_with_session = {**event, "session_id": str(session_id)}
                     yield f"data: {json.dumps(event_with_session)}\n\n"
-                    _publish_stream(channel_id, "stream_event", {"event": event_with_session})
+                    _publish_stream(channel_id, "stream_event", {"stream_id": _primary_stream_id, "event": event_with_session})
                     break
                 # Capture budget utilization for compaction trigger
                 if event.get("type") == "context_budget":
@@ -1394,7 +1448,7 @@ async def chat_stream(
                 event_with_session = {**event, "session_id": str(session_id)}
                 yield f"data: {json.dumps(event_with_session)}\n\n"
                 # Relay to observers (other tabs/devices on the same channel)
-                _publish_stream(channel_id, "stream_event", {"event": event_with_session})
+                _publish_stream(channel_id, "stream_event", {"stream_id": _primary_stream_id, "event": event_with_session})
 
             # Use a fresh DB session — the dependency-injected `db` may be
             # closed by FastAPI before this streaming generator finishes.
@@ -1412,7 +1466,7 @@ async def chat_stream(
                 logger.exception("CRITICAL: persist_turn failed for session %s — messages will be lost", session_id)
 
             # Notify observers that streaming ended (after persist so data is committed)
-            _publish_stream(channel_id, "stream_end")
+            _publish_stream(channel_id, "stream_end", {"stream_id": _primary_stream_id})
 
             # If SSE disconnected before the "response" event, extract from messages
             if not response_text and not was_cancelled:
@@ -1451,46 +1505,26 @@ async def chat_stream(
             )
 
             # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply.
-            # Detect mentions first so we can notify the primary tab BEFORE the SSE closes.
-            # This prevents a race where stream_start arrives before onComplete clears isLocalStream.
+            # With stream_id-based demuxing, multiple member bots can stream in parallel.
+            # Pass a snapshot of the current messages so member bots don't need the session lock.
             if not was_cancelled and response_text and channel_id:
-                _mentioned = await _detect_member_mentions(channel_id, bot.id, response_text)
-                if _mentioned:
-                    # Resolve bot names for the pending notification
-                    _pending_bots = []
-                    for _mbid, _mbcfg in _mentioned:
-                        try:
-                            _mb = get_bot(_mbid)
-                            _pending_bots.append({"id": _mbid, "name": _mb.name if _mb else _mbid})
-                        except Exception:
-                            _pending_bots.append({"id": _mbid, "name": _mbid})
+                # Collect bots already invoked via invoke_member_bot tool during this turn
+                from app.agent.context import current_invoked_member_bots
+                _already_invoked = current_invoked_member_bots.get() or set()
 
-                    # Notify via BOTH channels so the UI reliably receives the signal:
-                    # 1. Direct SSE — processed by handleSSEEvent (sets pendingMemberStream flag)
-                    # 2. Channel events bus — processed by useChannelEvents.  Because this
-                    #    is the SAME connection that will deliver stream_start, FIFO ordering
-                    #    guarantees pending_member_stream arrives first, eliminating the race
-                    #    where stream_start was dropped because the flag wasn't set yet.
-                    _pending_event = {"type": "pending_member_stream", "bots": _pending_bots}
-                    yield f"data: {json.dumps(_pending_event)}\n\n"
-                    from app.services.channel_events import publish as _publish_pending
-                    _publish_pending(channel_id, "pending_member_stream", {"bots": _pending_bots})
-
-                    # Launch background tasks for each mentioned member bot
-                    for _mbid, _mbcfg in _mentioned:
-                        _task = asyncio.create_task(
-                            _run_member_bot_reply(
-                                channel_id, session_id, _mbid, _mbcfg,
-                                bot.id, _depth=1,
-                            )
-                        )
-                        _background_tasks.add(_task)
-                        _task.add_done_callback(_background_tasks.discard)
+                import copy
+                _messages_snapshot = copy.deepcopy(messages)
+                await _trigger_member_bot_replies(
+                    channel_id, session_id, bot.id, response_text,
+                    _depth=1,
+                    messages_snapshot=_messages_snapshot,
+                    already_invoked=_already_invoked,
+                )
         except Exception as e:
             logger.exception("Streaming agent loop error")
             yield f"data: {json.dumps({'type': 'error', 'detail': str(e)})}\n\n"
             from app.services.channel_events import publish as _publish_err
-            _publish_err(channel_id, "stream_end")
+            _publish_err(channel_id, "stream_end", {"stream_id": _primary_stream_id})
         finally:
             session_locks.release(session_id)
 
@@ -1526,6 +1560,7 @@ async def _with_keepalive(
         current_allowed_secrets,
         task_creation_count,
         current_pending_delegation_posts,
+        current_invoked_member_bots,
     )
 
     # Context vars that are set *inside* the generator (by assemble_context /
@@ -1542,6 +1577,7 @@ async def _with_keepalive(
         current_allowed_secrets,
         task_creation_count,
         current_pending_delegation_posts,
+        current_invoked_member_bots,
     ]
 
     _bridge: dict = {}  # ContextVar -> value, shared with child Task

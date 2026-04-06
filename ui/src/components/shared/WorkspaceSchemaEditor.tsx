@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { FileText, File, Pencil, RotateCcw, Save, BookTemplate, X, Sparkles, Plug, Timer } from "lucide-react";
+import { FileText, File, Pencil, RotateCcw, Save, BookTemplate, X, Timer } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
-import { prettyIntegrationName } from "../../utils/format";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
 import { PromptTemplateLink } from "./PromptTemplateLink";
 import { SaveAsTemplateModal } from "./SaveAsTemplateModal";
@@ -15,21 +14,11 @@ function parseFiles(content: string): string[] {
     .filter((f) => f !== "notes.md");
 }
 
-function getIntegrationSlug(sourcePath?: string | null): string | null {
-  if (!sourcePath) return null;
-  const match = sourcePath.match(/integrations\/([^/]+)\//);
-  return match?.[1] ?? null;
-}
-
 interface Props {
   templateId: string | null | undefined;
   schemaContent: string | null | undefined;
   onTemplateChange: (id: string | null) => void;
   onContentChange: (content: string | null) => void;
-  /** When set, templates with this tag get a "Recommended" badge in the picker */
-  highlightTag?: string;
-  /** Human-readable name of the active integration (e.g. "Mission Control") */
-  activeIntegrationName?: string;
 }
 
 export function WorkspaceSchemaEditor({
@@ -37,8 +26,6 @@ export function WorkspaceSchemaEditor({
   schemaContent,
   onTemplateChange,
   onContentChange,
-  highlightTag,
-  activeIntegrationName,
 }: Props) {
   const t = useThemeTokens();
   const [editing, setEditing] = useState(false);
@@ -97,178 +84,15 @@ export function WorkspaceSchemaEditor({
     }
   };
 
-  // No template linked — show suggestions (if any) + fallback picker
+  // No template linked — show simple picker
   if (!hasTemplate && !hasOverride) {
-    const suggested = highlightTag
-      ? (templates ?? []).filter(
-          (tpl) => tpl.tags?.includes(highlightTag) && tpl.source_type !== "workspace_file"
-        )
-      : [];
-
     return (
       <div>
-        {suggested.length > 0 && (
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 }}>
-              <Sparkles size={12} color={t.success} />
-              <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim }}>
-                {activeIntegrationName
-                  ? `Compatible with ${activeIntegrationName}`
-                  : "Suggested templates"}
-              </span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {suggested.map((tpl) => {
-                const slug = getIntegrationSlug(tpl.source_path);
-                const files = parseFiles(tpl.content);
-                return (
-                  <button
-                    key={tpl.id}
-                    onClick={() => handleTemplateLink(tpl.id)}
-                    style={{
-                      border: `1px solid ${t.success}40`,
-                      borderLeft: `3px solid ${t.success}`,
-                      borderRadius: 6,
-                      padding: 10,
-                      background: `${t.success}06`,
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <FileText size={14} color={t.success} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: t.text, flex: 1 }}>
-                        {tpl.name}
-                      </span>
-                      {activeIntegrationName && (
-                        <span style={{
-                          background: `${t.success}18`,
-                          paddingLeft: 6,
-                          paddingRight: 6,
-                          paddingTop: 2,
-                          paddingBottom: 2,
-                          borderRadius: 3,
-                          fontSize: 9,
-                          fontWeight: 600,
-                          color: t.success,
-                        }}>
-                          Recommended
-                        </span>
-                      )}
-                    </div>
-                    {tpl.description && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          color: t.textMuted,
-                          marginTop: 3,
-                          lineHeight: "16px",
-                          display: "-webkit-box",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                        }}
-                      >
-                        {tpl.description}
-                      </span>
-                    )}
-                    {/* File preview chips + provenance + heartbeat hint */}
-                    {(files.length > 0 || slug) && (
-                      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                        {files.slice(0, 4).map((f) => (
-                          <span
-                            key={f}
-                            style={{
-                              display: "inline-flex",
-                              flexDirection: "row",
-                              alignItems: "center",
-                              gap: 3,
-                              background: t.surfaceOverlay,
-                              paddingLeft: 5,
-                              paddingRight: 5,
-                              paddingTop: 2,
-                              paddingBottom: 2,
-                              borderRadius: 3,
-                              fontSize: 9,
-                              color: t.textDim,
-                            }}
-                          >
-                            <File size={8} color={t.textDim} />
-                            {f.replace(".md", "")}
-                          </span>
-                        ))}
-                        {files.length > 4 && (
-                          <span style={{ fontSize: 9, color: t.textDim, alignSelf: "center" }}>
-                            +{files.length - 4}
-                          </span>
-                        )}
-                        {tpl.recommended_heartbeat && (
-                          <span style={{
-                            display: "inline-flex",
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 3,
-                            background: `${t.accent}12`,
-                            paddingLeft: 5,
-                            paddingRight: 5,
-                            paddingTop: 2,
-                            paddingBottom: 2,
-                            borderRadius: 3,
-                            fontSize: 9,
-                            color: t.accent,
-                            fontWeight: 500,
-                          }}>
-                            <Timer size={8} color={t.accent} />
-                            {tpl.recommended_heartbeat.interval.charAt(0).toUpperCase() + tpl.recommended_heartbeat.interval.slice(1)}
-                          </span>
-                        )}
-                        {slug && (
-                          <span style={{
-                            display: "inline-flex",
-                            flexDirection: "row",
-                            alignItems: "center",
-                            gap: 3,
-                            background: `${t.success}12`,
-                            paddingLeft: 5,
-                            paddingRight: 5,
-                            paddingTop: 2,
-                            paddingBottom: 2,
-                            borderRadius: 3,
-                            marginLeft: "auto",
-                            fontSize: 9,
-                            color: t.success,
-                            fontWeight: 500,
-                          }}>
-                            <Plug size={8} color={t.success} />
-                            {prettyIntegrationName(slug)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            {/* Divider before other templates */}
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 2 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, color: t.textDim }}>Other templates</span>
-              <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
-            </div>
-          </div>
-        )}
-        {suggested.length === 0 && activeIntegrationName && (
-          <span style={{ fontSize: 11, color: t.textDim, marginBottom: 6, fontStyle: "italic", display: "block" }}>
-            No templates found compatible with {activeIntegrationName}. You can link any template below.
-          </span>
-        )}
         <PromptTemplateLink
           templateId={null}
           onLink={handleTemplateLink}
           onUnlink={handleTemplateUnlink}
           category="workspace_schema"
-          highlightTag={highlightTag}
-          highlightLabel={activeIntegrationName}
         />
       </div>
     );
@@ -282,26 +106,7 @@ export function WorkspaceSchemaEditor({
         onLink={handleTemplateLink}
         onUnlink={handleTemplateUnlink}
         category="workspace_schema"
-        highlightTag={highlightTag}
-        highlightLabel={activeIntegrationName}
       />
-
-      {/* Compatibility badge */}
-      {hasTemplate && activeIntegrationName && highlightTag && (
-        linkedTemplate.tags?.includes(highlightTag) ? (
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
-            <span style={{ fontSize: 10, color: t.success, fontWeight: 600 }}>
-              {"✓"} Compatible with {activeIntegrationName}
-            </span>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 }}>
-            <span style={{ fontSize: 10, color: t.warning, fontWeight: 600 }}>
-              {"⚠"} Not marked as compatible with {activeIntegrationName}
-            </span>
-          </div>
-        )
-      )}
 
       {/* Template description */}
       {hasTemplate && linkedTemplate.description && !hasOverride && (

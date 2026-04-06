@@ -24,8 +24,10 @@ interface Props {
   modelProviderIdOverride?: string | null;
   onModelOverrideChange?: (m: string | undefined, providerId?: string | null) => void;
   defaultModel?: string;
-  /** Current channel's bot ID — excluded from @-mention completions */
+  /** Current channel's bot ID — excluded from @-mention completions (single-bot channels only) */
   currentBotId?: string;
+  /** When true (multi-bot channel), primary bot is NOT excluded from @-mentions */
+  isMultiBot?: boolean;
   /** Channel ID for persisting drafts across navigation */
   channelId?: string;
   /** Handler for slash commands typed in the input */
@@ -50,7 +52,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -438,6 +440,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 autoFocus={!isMobile}
                 isMobile={isMobile}
                 currentBotId={currentBotId}
+                isMultiBot={isMultiBot}
               />
             )}
           </div>
