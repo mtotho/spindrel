@@ -358,6 +358,7 @@ export default function ChatScreen() {
         memberBotCount={memberBotCount}
         participantsPanelOpen={participantsPanelOpen}
         toggleParticipantsPanel={() => setParticipantsPanelOpen((p) => !p)}
+        contextBudget={chatState.contextBudget}
       />
 
       {/* What's active badge bar */}

@@ -612,7 +612,8 @@ export type SSEEventType =
   | "delegation_post"
   | "pending_tasks"
   | "stream_meta"
-  | "pending_member_stream";
+  | "pending_member_stream"
+  | "context_budget";
 
 export interface SSEEvent {
   event: SSEEventType;

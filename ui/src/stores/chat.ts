@@ -38,6 +38,8 @@ interface ChatChannelState {
   respondingBotName: string | null;
   /** Concurrent member bot streams, keyed by stream_id. */
   memberStreams: Record<string, MemberStreamState>;
+  /** Latest context budget from SSE stream. */
+  contextBudget: { utilization: number; consumed: number; total: number } | null;
 }
 
 interface ChatState {
@@ -75,6 +77,7 @@ const emptyChannel: ChatChannelState = {
   respondingBotId: null,
   respondingBotName: null,
   memberStreams: {},
+  contextBudget: null,
 };
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -389,6 +392,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             channels: {
               ...s.channels,
               [channelId]: { ...ch, secretWarning: { patterns: data.patterns ?? [] } },
+            },
+          };
+        }
+        case "context_budget": {
+          const data = event.data as { utilization?: number; consumed_tokens?: number; total_tokens?: number };
+          return {
+            channels: {
+              ...s.channels,
+              [channelId]: {
+                ...ch,
+                contextBudget: {
+                  utilization: data.utilization ?? 0,
+                  consumed: data.consumed_tokens ?? 0,
+                  total: data.total_tokens ?? 0,
+                },
+              },
             },
           };
         }

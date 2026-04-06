@@ -98,6 +98,118 @@ class ThinkTagParser:
         return text, ""
 
 
+class ToolCallXmlFilter:
+    """Streaming filter that suppresses XML tool-call fragments from text.
+
+    Some providers (e.g. MiniMax via Anthropic-compatible API) emit tool calls
+    as XML text (``<invoke name="...">...</invoke>``, ``</minimax:tool_call>``)
+    alongside proper tool_use blocks.  This filter buffers potential XML tag
+    openings and suppresses them if they match known tool-call patterns.
+    """
+
+    # Tag names (after '<' or '</') that signal tool-call XML.
+    _TOOL_PREFIXES = ("invoke", "tool_call", "/invoke", "/tool_call")
+    # Namespace-prefixed patterns (e.g. <minimax:tool_call>, </minimax:tool_call>)
+    _NS_PREFIXES = ("/",)  # after '<', check for namespaced close tags too
+
+    def __init__(self):
+        self._buffer: str = ""
+        self._suppressing: bool = False
+
+    def feed(self, text: str) -> str:
+        """Process a chunk, returning text safe to emit."""
+        self._buffer += text
+        output: list[str] = []
+
+        while self._buffer:
+            if self._suppressing:
+                # Inside a tool-call XML block — consume until end of tag/block
+                gt = self._buffer.find(">")
+                if gt == -1:
+                    break  # need more data
+                # Check if this close '>' ends the suppression region.
+                # We suppress everything between the opening '<' and the final '>'.
+                # For multi-line blocks like <invoke ...>...</invoke>, we keep
+                # suppressing until we see '</invoke>' or '</...tool_call>'.
+                consumed = self._buffer[:gt + 1]
+                self._buffer = self._buffer[gt + 1:]
+                # If we just consumed a closing tag, stop suppressing
+                if consumed.lstrip().startswith("</"):
+                    self._suppressing = False
+                # If it's a self-closing tag (/>), stop suppressing
+                elif consumed.rstrip().endswith("/>"):
+                    self._suppressing = False
+                # Otherwise (opening tag like <invoke ...>), keep suppressing
+                # for the content + closing tag
+            else:
+                lt = self._buffer.find("<")
+                if lt == -1:
+                    output.append(self._buffer)
+                    self._buffer = ""
+                    break
+
+                # Emit everything before the '<'
+                if lt > 0:
+                    output.append(self._buffer[:lt])
+                    self._buffer = self._buffer[lt:]
+
+                # Now self._buffer starts with '<'
+                rest = self._buffer[1:]
+
+                # Need at least a few chars to identify the tag
+                if len(rest) < 2:
+                    break  # hold back, need more data
+
+                # Check if this looks like a tool-call tag
+                is_tool_xml = False
+                maybe_tool_xml = False  # partial match, need more data
+
+                # Direct tag match: <invoke, </invoke, <tool_call, etc.
+                for prefix in self._TOOL_PREFIXES:
+                    if rest.startswith(prefix):
+                        is_tool_xml = True
+                        break
+                    if prefix.startswith(rest[:len(prefix)]) and len(rest) < len(prefix):
+                        maybe_tool_xml = True
+
+                # Namespace match: <word:tool_call or </word:tool_call
+                if not is_tool_xml and not maybe_tool_xml:
+                    # Check for </ns:tool_call> or <ns:tool_call>
+                    check = rest.lstrip("/")
+                    colon = check.find(":")
+                    if colon > 0 and colon < 20:
+                        after_colon = check[colon + 1:]
+                        if after_colon.startswith("tool_call"):
+                            is_tool_xml = True
+                        elif "tool_call".startswith(after_colon) and len(after_colon) < len("tool_call"):
+                            maybe_tool_xml = True
+                    elif colon == -1 and check.isalpha() and len(check) < 20:
+                        # Could be start of "ns:" — need more data
+                        maybe_tool_xml = True
+
+                if is_tool_xml:
+                    self._suppressing = True
+                    # Don't emit the '<'; loop will handle suppression
+                    continue
+                elif maybe_tool_xml:
+                    break  # hold buffer, need more data
+                else:
+                    # Not a tool-call tag — emit the '<' and continue
+                    output.append("<")
+                    self._buffer = self._buffer[1:]
+
+        return "".join(output)
+
+    def flush(self) -> str:
+        """Emit remaining buffer at end of stream."""
+        if self._suppressing:
+            self._buffer = ""
+            return ""
+        remaining = self._buffer
+        self._buffer = ""
+        return remaining
+
+
 def strip_think_tags(text: str) -> str:
     """Remove <think>...</think> blocks from text (for non-streaming paths)."""
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
@@ -641,6 +753,7 @@ class StreamAccumulator:
         self._content_parts: list[str] = []
         self._thinking_parts: list[str] = []
         self._think_parser = ThinkTagParser()
+        self._xml_filter = ToolCallXmlFilter()
         # tool_calls indexed by delta.index
         self._tool_calls: dict[int, dict] = {}
         self._usage: Any = None
@@ -666,12 +779,16 @@ class StreamAccumulator:
         choice = chunk.choices[0]
         delta = choice.delta
 
-        # Text content — route <think> blocks to thinking events
+        # Text content — route <think> blocks to thinking events,
+        # then filter XML tool-call fragments from content.
         if delta.content:
             content_text, thinking_text = self._think_parser.feed(delta.content)
             if content_text:
-                self._content_parts.append(content_text)
-                events.append({"type": "text_delta", "delta": content_text})
+                # Filter out XML tool-call fragments (e.g. MiniMax <invoke> tags)
+                filtered = self._xml_filter.feed(content_text)
+                if filtered:
+                    self._content_parts.append(filtered)
+                    events.append({"type": "text_delta", "delta": filtered})
             if thinking_text:
                 self._thinking_parts.append(thinking_text)
                 events.append({"type": "thinking", "delta": thinking_text})
@@ -718,16 +835,28 @@ class StreamAccumulator:
             # Flush any remaining buffered text from the think-tag parser
             flush_content, flush_thinking = self._think_parser.flush()
             if flush_content:
-                self._content_parts.append(flush_content)
-                events.append({"type": "text_delta", "delta": flush_content})
+                # Route through XML filter before emitting
+                filtered = self._xml_filter.feed(flush_content)
+                if filtered:
+                    self._content_parts.append(filtered)
+                    events.append({"type": "text_delta", "delta": filtered})
             if flush_thinking:
                 self._thinking_parts.append(flush_thinking)
                 events.append({"type": "thinking", "delta": flush_thinking})
+            # Flush the XML filter too
+            xml_remaining = self._xml_filter.flush()
+            if xml_remaining:
+                self._content_parts.append(xml_remaining)
+                events.append({"type": "text_delta", "delta": xml_remaining})
         return events, is_done
 
     def build(self) -> AccumulatedMessage:
         """Build the final accumulated message."""
         content = "".join(self._content_parts) if self._content_parts else None
+        # Strip malformed tool-call fragments (XML/JSON) that some providers
+        # (e.g. MiniMax) emit as text content alongside proper tool_use blocks.
+        if content is not None:
+            content = strip_malformed_tool_calls(content)
         # Normalize whitespace-only content to None (e.g. "\n\n" after stripped think tags)
         if content is not None and not content.strip():
             content = None

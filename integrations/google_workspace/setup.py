@@ -7,13 +7,13 @@ SETUP = {
             "key": "GWS_CLIENT_ID",
             "required": True,
             "secret": False,
-            "description": "Google OAuth Client ID (from GCP Console > Credentials)",
+            "description": "Google OAuth Client ID — create at console.cloud.google.com/apis/credentials (Web application type)",
         },
         {
             "key": "GWS_CLIENT_SECRET",
             "required": True,
             "secret": True,
-            "description": "Google OAuth Client Secret",
+            "description": "Google OAuth Client Secret — from the same OAuth client ID",
         },
         {
             "key": "GWS_TIMEOUT",

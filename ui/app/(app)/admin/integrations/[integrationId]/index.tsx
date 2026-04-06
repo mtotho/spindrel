@@ -529,6 +529,11 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
   const oauth = item.oauth;
   if (!oauth) return null;
 
+  // Gate: required env vars must be configured before OAuth is available
+  const requiredVarsSet = item.env_vars
+    .filter((v) => v.required)
+    .every((v) => v.is_set);
+
   const { data: status, isLoading } = useOAuthStatus(item.id, oauth.status);
   const disconnectMut = useOAuthDisconnect(item.id, oauth.disconnect);
   const [selectedScopes, setSelectedScopes] = useState<string[]>(
@@ -546,6 +551,14 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
       prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]
     );
   };
+
+  if (!requiredVarsSet) {
+    return (
+      <div style={{ fontSize: 12, color: t.textDim }}>
+        Save the required credentials above first, then connect your Google account here.
+      </div>
+    );
+  }
 
   if (isLoading) {
     return <div style={{ fontSize: 12, color: t.textDim }}>Checking connection...</div>;
@@ -989,6 +1002,9 @@ export default function IntegrationDetailScreen() {
           </div>
         </SectionBox>
 
+        {/* README — show early so users see setup instructions before config */}
+        {item.readme && <ReadmeSection content={item.readme} />}
+
         {/* Environment variables */}
         {item.env_vars.length > 0 && (
           <SectionBox title={`Environment Variables (${envSetCount}/${item.env_vars.length} set)`}>
@@ -1053,9 +1069,6 @@ export default function IntegrationDetailScreen() {
           integrationId={item.id}
           debugActions={item.debug_actions}
         />
-
-        {/* README */}
-        {item.readme && <ReadmeSection content={item.readme} />}
 
         </div>{/* end disabled wrapper */}
       </RefreshableScrollView>

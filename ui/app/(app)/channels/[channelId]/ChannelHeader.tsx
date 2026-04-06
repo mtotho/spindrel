@@ -25,6 +25,8 @@ export interface ChannelHeaderProps {
   memberBotCount?: number;
   participantsPanelOpen?: boolean;
   toggleParticipantsPanel?: () => void;
+  /** Context budget from last SSE stream */
+  contextBudget?: { utilization: number; consumed: number; total: number } | null;
 }
 
 export function ChannelHeader({
@@ -46,9 +48,16 @@ export function ChannelHeader({
   memberBotCount = 0,
   participantsPanelOpen,
   toggleParticipantsPanel,
+  contextBudget,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const router = useRouter();
+
+  const fmtTokens = (n: number) => {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
+    if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
+    return String(n);
+  };
 
   // ── Web path ──
   if (Platform.OS === "web") {
@@ -96,6 +105,19 @@ export function ChannelHeader({
               {modelShort && (
                 <span style={{ fontSize: 11, color: t.textDim, flexShrink: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {modelShort}
+                </span>
+              )}
+              {contextBudget && contextBudget.total > 0 && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontFamily: "monospace",
+                    color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
+                    flexShrink: 0,
+                  }}
+                  title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} tokens (${Math.round(contextBudget.utilization * 100)}%)`}
+                >
+                  {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
                 </span>
               )}
             </div>
@@ -221,6 +243,15 @@ export function ChannelHeader({
             <Text style={{ fontSize: 11, color: t.textDim, flexShrink: 1 }} numberOfLines={1}>
               {(channelModelOverride || bot?.model || "").split("/").pop()}
             </Text>
+            {contextBudget && contextBudget.total > 0 && (
+              <Text style={{
+                fontSize: 10,
+                fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+                color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
+              }}>
+                {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
+              </Text>
+            )}
           </View>
         )}
       </View>
