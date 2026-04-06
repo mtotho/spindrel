@@ -5,6 +5,7 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import {
   Heart,
+  Brain,
   ClipboardList,
   Clock,
   Moon,
@@ -44,12 +45,13 @@ function botColor(botId: string) {
 
 const TYPE_BADGE: Record<string, { bg: string; fg: string; label: string }> = {
   heartbeat: { bg: "rgba(234,179,8,0.12)", fg: "#ca8a04", label: "Heartbeat" },
+  memory_hygiene: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea", label: "Hygiene" },
   scheduled: { bg: "rgba(59,130,246,0.12)", fg: "#3b82f6", label: "Scheduled" },
   delegation: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea", label: "Delegation" },
   agent: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af", label: "Task" },
 };
 
-type TypeFilter = "all" | "heartbeat" | "task";
+type TypeFilter = "all" | "heartbeat" | "task" | "memory_hygiene";
 
 // ---------------------------------------------------------------------------
 // Date grouping helpers
@@ -118,6 +120,7 @@ export default function UpcomingActivityPage() {
     { key: "all", label: "All" },
     { key: "heartbeat", label: "Heartbeats" },
     { key: "task", label: "Tasks" },
+    { key: "memory_hygiene", label: "Hygiene" },
   ];
 
   return (
@@ -207,12 +210,16 @@ export default function UpcomingActivityPage() {
                 const bc = botColor(item.bot_id);
                 const badge = item.type === "heartbeat"
                   ? TYPE_BADGE.heartbeat
-                  : TYPE_BADGE[item.task_type || "agent"] || TYPE_BADGE.agent;
+                  : item.type === "memory_hygiene"
+                    ? TYPE_BADGE.memory_hygiene
+                    : TYPE_BADGE[item.task_type || "agent"] || TYPE_BADGE.agent;
                 const href = item.type === "heartbeat" && item.channel_id
                   ? `/channels/${item.channel_id}/settings#heartbeat`
-                  : item.task_id
-                    ? `/admin/tasks/${item.task_id}`
-                    : "/admin/tasks";
+                  : item.type === "memory_hygiene"
+                    ? `/admin/bots/${item.bot_id}#memory`
+                    : item.task_id
+                      ? `/admin/tasks/${item.task_id}`
+                      : "/admin/tasks";
 
                 return (
                   <Link key={`${item.type}-${idx}`} href={href as any} asChild>
@@ -234,6 +241,8 @@ export default function UpcomingActivityPage() {
                           color={item.in_quiet_hours ? t.textDim : t.warning}
                           style={item.in_quiet_hours ? { opacity: 0.4 } : undefined}
                         />
+                      ) : item.type === "memory_hygiene" ? (
+                        <Brain size={16} color="#9333ea" />
                       ) : (
                         <ClipboardList size={16} color={t.accent} />
                       )}
@@ -257,6 +266,11 @@ export default function UpcomingActivityPage() {
                               every {item.interval_minutes}m
                             </Text>
                           )}
+                          {item.type === "memory_hygiene" && item.interval_hours && (
+                            <Text style={{ fontSize: 12, color: t.textDim }}>
+                              every {item.interval_hours}h
+                            </Text>
+                          )}
                           {item.type === "task" && item.channel_name && (
                             <Text style={{ fontSize: 12, color: t.textDim }} numberOfLines={1}>
                               #{item.channel_name}
@@ -273,7 +287,7 @@ export default function UpcomingActivityPage() {
 
                       {/* Recurring indicator + Type badge */}
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        {(item.recurrence || item.interval_minutes) && (
+                        {(item.recurrence || item.interval_minutes || item.interval_hours) && (
                           <RefreshCw size={12} color={t.textDim} />
                         )}
                         <View style={{

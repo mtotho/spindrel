@@ -31,6 +31,7 @@ export interface DecideRequest {
     scope?: "bot" | "global";
     priority?: number;
   };
+  pin_capability?: string;
 }
 
 export interface DecideResponse {
@@ -39,6 +40,7 @@ export interface DecideResponse {
   decided_by: string;
   decided_at: string;
   rule_created: string | null;
+  capability_pinned: string | null;
 }
 
 export interface RuleSuggestion {
@@ -87,6 +89,7 @@ export function useDecideApproval() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["approvals"] });
       qc.invalidateQueries({ queryKey: ["tool-policies"] });
+      qc.invalidateQueries({ queryKey: ["bots"] });
     },
   });
 }

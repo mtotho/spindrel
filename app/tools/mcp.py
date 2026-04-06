@@ -231,6 +231,11 @@ def get_mcp_server_for_tool(tool_name: str) -> str | None:
     return _find_server_for_tool(tool_name)
 
 
+def get_configured_server_count() -> int:
+    """Return the number of MCP servers loaded from mcp.yaml."""
+    return len(_servers)
+
+
 def _find_server_for_tool(tool_name: str) -> str | None:
     """Look up which server a tool belongs to from the cache."""
     for server_name, cached in _cache.items():

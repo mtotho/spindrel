@@ -55,13 +55,9 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
   const handleResetAll = useCallback(() => {
     if (!confirm("Reset all channel overrides? This will re-enable all disabled items and remove all extras.")) return;
     save({
-      local_tools_override: null,
       local_tools_disabled: null,
-      mcp_servers_override: null,
       mcp_servers_disabled: null,
-      client_tools_override: null,
       client_tools_disabled: null,
-      pinned_tools_override: null,
       skills_disabled: null,
       skills_extra: null,
       carapaces_extra: null,
@@ -148,13 +144,9 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
   }
 
   const hasOverrides =
-    settings.local_tools_override != null ||
     settings.local_tools_disabled != null ||
-    settings.mcp_servers_override != null ||
     settings.mcp_servers_disabled != null ||
-    settings.client_tools_override != null ||
     settings.client_tools_disabled != null ||
-    settings.pinned_tools_override != null ||
     settings.skills_disabled != null ||
     settings.skills_extra != null ||
     settings.carapaces_extra != null ||

@@ -454,7 +454,8 @@ async def list_traces(
             .limit(fetch_limit)
         )
         if bot_id:
-            hb_q = hb_q.where(Channel.bot_id == bot_id)
+            from app.services.channels import bot_channel_filter
+            hb_q = hb_q.where(bot_channel_filter(bot_id))
         if before:
             before_dt = _parse_time(before)
             if before_dt:

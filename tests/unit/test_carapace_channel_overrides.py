@@ -6,7 +6,7 @@ try to re-introduce disabled tools/skills.
 from types import SimpleNamespace
 
 from app.agent.bots import BotConfig, SkillConfig
-from app.agent.channel_overrides import EffectiveTools, resolve_effective_tools
+from app.agent.channel_overrides import EffectiveTools, _apply_disabled, resolve_effective_tools
 
 
 def _bot(**kwargs) -> BotConfig:
@@ -28,13 +28,9 @@ def _bot(**kwargs) -> BotConfig:
 
 def _channel(**kwargs) -> SimpleNamespace:
     defaults = dict(
-        local_tools_override=None,
         local_tools_disabled=None,
-        mcp_servers_override=None,
         mcp_servers_disabled=None,
-        client_tools_override=None,
         client_tools_disabled=None,
-        pinned_tools_override=None,
         skills_disabled=None,
         skills_extra=None,
         carapaces_extra=None,
@@ -107,3 +103,39 @@ class TestCarapaceChannelOverrides:
         eff = resolve_effective_tools(bot, None)
         assert eff.carapaces == ["qa", "code-review"]
         assert eff.local_tools == bot.local_tools
+
+    def test_pinned_tools_always_inherited(self):
+        """Pinned tools are never restricted by channel — always inherited from bot."""
+        bot = _bot(pinned_tools=["always_on"])
+        ch = _channel()
+        eff = resolve_effective_tools(bot, ch)
+        assert eff.pinned_tools == ["always_on"]
+
+
+class TestApplyDisabled:
+    """Direct tests for _apply_disabled edge cases."""
+
+    def test_none_disabled_returns_copy(self):
+        result = _apply_disabled(["a", "b"], None)
+        assert result == ["a", "b"]
+
+    def test_empty_disabled_returns_copy(self):
+        result = _apply_disabled(["a", "b"], [])
+        assert result == ["a", "b"]
+
+    def test_removes_matching_items(self):
+        result = _apply_disabled(["a", "b", "c"], ["b"])
+        assert result == ["a", "c"]
+
+    def test_disabled_items_not_in_list_are_ignored(self):
+        result = _apply_disabled(["a", "b"], ["x", "y"])
+        assert result == ["a", "b"]
+
+    def test_empty_bot_list(self):
+        result = _apply_disabled([], ["a"])
+        assert result == []
+
+    def test_returns_new_list(self):
+        original = ["a", "b"]
+        result = _apply_disabled(original, None)
+        assert result is not original

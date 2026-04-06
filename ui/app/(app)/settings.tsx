@@ -13,7 +13,7 @@ import {
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Save, RotateCcw, Check, Sun, Moon } from "lucide-react";
+import { Save, RotateCcw, Check, Sun, Moon, ChevronDown } from "lucide-react";
 import { MemorySchemeSection } from "@/src/components/settings/MemorySchemeSection";
 import { apiFetch } from "@/src/api/client";
 import { useThemeStore } from "@/src/stores/theme";
@@ -149,26 +149,71 @@ function TextareaField({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const [showBuiltin, setShowBuiltin] = useState(false);
+
   return (
-    <TextInput
-      className="bg-surface border border-surface-border rounded px-3 py-3 text-text text-sm"
-      value={value}
-      onChangeText={onChange}
-      editable={!item.read_only}
-      placeholder="(empty)"
-      placeholderTextColor="#737373"
-      multiline
-      numberOfLines={16}
-      style={{
-        minHeight: 300,
-        width: "100%",
-        textAlignVertical: "top",
-        fontFamily: "monospace",
-        lineHeight: 20,
-        // @ts-ignore — web-only resize property
-        resize: "vertical",
-      }}
-    />
+    <View style={{ width: "100%", gap: 8 }}>
+      <TextInput
+        className="bg-surface border border-surface-border rounded px-3 py-3 text-text text-sm"
+        value={value}
+        onChangeText={onChange}
+        editable={!item.read_only}
+        placeholder={item.builtin_default ? "(using built-in default)" : "(empty)"}
+        placeholderTextColor="#737373"
+        multiline
+        numberOfLines={16}
+        style={{
+          minHeight: 300,
+          width: "100%",
+          textAlignVertical: "top",
+          fontFamily: "monospace",
+          lineHeight: 20,
+          // @ts-ignore — web-only resize property
+          resize: "vertical",
+        }}
+      />
+      {item.builtin_default && !value && (
+        <View
+          className="bg-surface border border-surface-border rounded overflow-hidden"
+        >
+          <Pressable
+            onPress={() => setShowBuiltin(!showBuiltin)}
+            className="flex-row items-center gap-2 px-3 py-2"
+          >
+            <ChevronDown
+              size={12}
+              color="#9ca3af"
+              style={{ transform: showBuiltin ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+            />
+            <Text className="text-text-muted text-xs font-semibold">
+              Built-in Default
+            </Text>
+            <View className="bg-purple-500/20 px-1.5 py-0.5 rounded">
+              <Text className="text-purple-400 text-[9px] font-medium">
+                active
+              </Text>
+            </View>
+          </Pressable>
+          {showBuiltin && (
+            <View className="px-3 pb-3">
+              <View className="bg-surface-overlay rounded p-3">
+                <Text
+                  className="text-text-muted text-[11px]"
+                  style={{
+                    fontFamily: "monospace",
+                    lineHeight: 18,
+                    // @ts-ignore — web-only
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {item.builtin_default}
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
   );
 }
 

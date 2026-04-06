@@ -256,9 +256,10 @@ async def list_workspace_channels() -> str:
                 .order_by(BotRow.name, Channel.name)
             )
         else:
+            from app.services.channels import bot_channel_filter
             stmt = (
-                select(Channel.id, Channel.name, Channel.client_id)
-                .where(Channel.bot_id == bot_id)
+                select(Channel.id, Channel.name, Channel.client_id, Channel.bot_id)
+                .where(bot_channel_filter(bot_id))
                 .where(Channel.channel_workspace_enabled == true())
                 .order_by(Channel.name)
             )
@@ -277,6 +278,7 @@ async def list_workspace_channels() -> str:
             own = " (yours)" if str(row.bot_id) == bot_id else ""
             lines.append(f"- **{label}**{marker} [{bot_label}{own}]: `{ch_str}`")
         else:
-            lines.append(f"- **{label}**{marker}: `{ch_str}`")
+            role = " (member)" if str(row.bot_id) != bot_id else ""
+            lines.append(f"- **{label}**{marker}{role}: `{ch_str}`")
 
     return "Channels with workspace enabled:\n" + "\n".join(lines)

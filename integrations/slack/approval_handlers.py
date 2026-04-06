@@ -75,6 +75,32 @@ def register_approval_handlers(app) -> None:
         else:
             await _update_message(respond, body, ":x: Failed to process approval.")
 
+    @app.action("pin_capability")
+    async def handle_pin_capability(ack, body, respond):
+        """Allow + permanently pin the capability to the bot's carapace list."""
+        await ack()
+        raw = body["actions"][0]["value"]
+        data = json.loads(raw)
+        approval_id = data["approval_id"]
+        capability_id = data["capability_id"]
+        capability_name = data.get("capability_name", capability_id)
+        user_id = body.get("user", {}).get("id", "unknown")
+
+        ok = await _decide_with_pin(
+            approval_id,
+            decided_by=f"slack:{user_id}",
+            capability_id=capability_id,
+        )
+        if ok:
+            await _update_message(
+                respond, body,
+                f":white_check_mark: *Allowed & pinned* _{capability_name}_ by <@{user_id}>",
+            )
+        elif ok is None:
+            await _update_message(respond, body, ":warning: Approval already resolved.")
+        else:
+            await _update_message(respond, body, ":x: Failed to process approval.")
+
     # Dynamic rule suggestion buttons: allow_rule_0, allow_rule_1, ...
     @app.action(re.compile(r"^allow_rule_\d+$"))
     async def handle_allow_rule(ack, body, respond):
@@ -152,6 +178,37 @@ async def _decide(approval_id: str, *, approved: bool, decided_by: str) -> bool 
                 return False
     except Exception:
         logger.exception("Failed to decide approval %s", approval_id)
+        return False
+
+
+async def _decide_with_pin(
+    approval_id: str, *, decided_by: str, capability_id: str,
+) -> bool | None:
+    """Approve + pin the capability to the bot's carapace list."""
+    from slack_settings import AGENT_BASE_URL, API_KEY
+
+    url = f"{AGENT_BASE_URL}/api/v1/approvals/{approval_id}/decide"
+    payload = {
+        "approved": True,
+        "decided_by": decided_by,
+        "pin_capability": capability_id,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(
+                url, json=payload,
+                headers={"Authorization": f"Bearer {API_KEY}"},
+            )
+            if r.status_code == 200:
+                return True
+            elif r.status_code == 409:
+                return None
+            else:
+                logger.error("Approval decide+pin failed: %d %s", r.status_code, r.text)
+                return False
+    except Exception:
+        logger.exception("Failed to decide+pin approval %s", approval_id)
         return False
 
 

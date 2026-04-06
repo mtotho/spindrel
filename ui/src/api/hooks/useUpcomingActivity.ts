@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 
 export interface UpcomingItem {
-  type: "heartbeat" | "task";
+  type: "heartbeat" | "task" | "memory_hygiene";
   scheduled_at: string;
   bot_id: string;
   bot_name: string;
@@ -16,6 +16,8 @@ export interface UpcomingItem {
   task_id?: string;
   task_type?: string;
   recurrence?: string;
+  // memory_hygiene-specific
+  interval_hours?: number;
 }
 
 interface UpcomingResponse {

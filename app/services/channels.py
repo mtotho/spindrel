@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import async_session
-from app.db.models import Channel, ChannelIntegration, ChannelMember, Session
+from app.db.models import Channel, ChannelBotMember, ChannelIntegration, ChannelMember, Session
 
 if TYPE_CHECKING:
     from app.db.models import User
@@ -31,6 +31,16 @@ def derive_channel_id(client_id: str) -> uuid.UUID:
     derived from bare client_id.
     """
     return uuid.uuid5(uuid.NAMESPACE_DNS, f"channel:{client_id}")
+
+
+def bot_channel_filter(bot_id: str):
+    """WHERE clause matching channels where bot_id is primary OR member."""
+    return or_(
+        Channel.bot_id == bot_id,
+        Channel.id.in_(
+            select(ChannelBotMember.channel_id).where(ChannelBotMember.bot_id == bot_id)
+        ),
+    )
 
 
 def is_integration_client_id(client_id: str | None) -> bool:

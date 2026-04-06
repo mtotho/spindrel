@@ -323,6 +323,7 @@ export default function ChatScreen() {
     renderMessage,
     chatState,
     bot,
+    botId: channel?.bot_id,
     isLoading,
     isFetchingNextPage,
     showScrollBtn,
@@ -410,7 +411,7 @@ export default function ChatScreen() {
             onDirtyChange={handleDirtyChange}
           />
         ) : (
-          <>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", position: "relative", minHeight: 0 }}>
             <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
               <ChatMessageArea {...messageAreaProps} />
               {floatingActions.map((h) => (
@@ -433,7 +434,17 @@ export default function ChatScreen() {
               <HudInputBar key={h.key} hud={h} />
             ))}
             <MessageInput {...messageInputProps} />
-          </>
+            {/* Mobile participants overlay */}
+            {participantsPanelOpen && channelId && (
+              <ParticipantsPanel
+                channelId={channelId}
+                primaryBotId={channel?.bot_id ?? ""}
+                primaryBotName={bot?.name}
+                onClose={() => setParticipantsPanelOpen(false)}
+                mobile
+              />
+            )}
+          </div>
         )
       ) : (
         /* ---- Desktop/tablet: side-by-side layout ---- */

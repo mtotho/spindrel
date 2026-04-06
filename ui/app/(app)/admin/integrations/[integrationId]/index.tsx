@@ -32,6 +32,7 @@ import {
   useOAuthDisconnect,
   type IntegrationItem,
 } from "@/src/api/hooks/useIntegrations";
+import { useAuthStore } from "@/src/stores/auth";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { StatusBadge, CapBadge, EnvVarPill, formatUptime } from "../components";
 import { IntegrationDebugSection } from "./IntegrationDebugSection";
@@ -535,8 +536,9 @@ function OAuthSection({ item }: { item: IntegrationItem }) {
   );
 
   const handleConnect = () => {
+    const { serverUrl } = useAuthStore.getState();
     const scopeParam = selectedScopes.join(",");
-    window.open(`${oauth.auth_start}?scopes=${scopeParam}`, "_blank");
+    window.open(`${serverUrl}${oauth.auth_start}?scopes=${scopeParam}`, "_blank");
   };
 
   const toggleScope = (scope: string) => {

@@ -30,6 +30,14 @@ class PolicyDecision:
     rule_id: str | None = None
     reason: str | None = None
     timeout: int = 300
+    tier: str | None = None  # safety tier that triggered the decision
+
+
+# Tier-based default actions (when no explicit rule matches)
+_TIER_DEFAULTS: dict[str, str] = {
+    "exec_capable": "require_approval",
+    "control_plane": "require_approval",
+}
 
 
 async def _load_rules(db: AsyncSession) -> list[ToolPolicyRule]:
@@ -122,7 +130,8 @@ async def evaluate_tool_policy(
     3. Order by priority ASC (already sorted from DB)
     4. Bot-specific rules take precedence over global at same priority
     5. First matching rule wins
-    6. No match → default allow
+    6. No match → tier defaults (exec_capable/control_plane → require_approval)
+    7. No tier match → global default (TOOL_POLICY_DEFAULT_ACTION)
     """
     rules = await _load_rules(db)
 
@@ -149,7 +158,19 @@ async def evaluate_tool_policy(
                 timeout=rule.approval_timeout,
             )
 
-    # No rule matched — use configured default
+    # No rule matched — check tier defaults before global fallback
+    if settings.TOOL_POLICY_TIER_GATING:
+        from app.tools.registry import get_tool_safety_tier
+        tier = get_tool_safety_tier(tool_name)
+        tier_action = _TIER_DEFAULTS.get(tier)
+        if tier_action:
+            return PolicyDecision(
+                action=tier_action,
+                reason=f"Tool safety tier '{tier}' defaults to {tier_action}",
+                tier=tier,
+            )
+
+    # Global fallback
     default_action = settings.TOOL_POLICY_DEFAULT_ACTION
     return PolicyDecision(
         action=default_action,

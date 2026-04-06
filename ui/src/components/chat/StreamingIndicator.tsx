@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, Platform } from "react-native";
-import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles } from "lucide-react";
+import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles, Pin } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { formatToolArgs } from "./toolCallUtils";
-import { useDecideApproval } from "../../api/hooks/useApprovals";
+import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
 import { Avatar } from "./MessageActions";
 
 // Deterministic color from string hash (same as MessageBubble)
@@ -105,14 +105,16 @@ export function ProcessingIndicator({ botName }: { botName?: string }) {
 }
 
 /** Tool call cards with approval support (web only) */
-function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: ReturnType<typeof useThemeTokens> }) {
+function ToolCallCards({ toolCalls, t, botId }: { toolCalls: Props["toolCalls"]; t: ReturnType<typeof useThemeTokens>; botId?: string }) {
   const decideApproval = useDecideApproval();
   const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
 
-  const handleDecide = (approvalId: string, approved: boolean) => {
+  const handleDecide = (approvalId: string, approved: boolean, pinCapabilityId?: string) => {
     setDecidingIds((prev) => new Set(prev).add(approvalId));
+    const data: DecideRequest = { approved, decided_by: "web:admin" };
+    if (pinCapabilityId) data.pin_capability = pinCapabilityId;
     decideApproval.mutate(
-      { approvalId, data: { approved, decided_by: "web:admin" } },
+      { approvalId, data },
       { onSettled: () => setDecidingIds((prev) => { const next = new Set(prev); next.delete(approvalId); return next; }) },
     );
   };
@@ -210,6 +212,30 @@ function ToolCallCards({ toolCalls, t }: { toolCalls: Props["toolCalls"]; t: Ret
                 >
                   {isCap ? "Allow" : "Approve"}
                 </button>
+                {isCap && tc.capability && (
+                  <button
+                    disabled={isDeciding}
+                    onClick={() => handleDecide(tc.approvalId!, true, tc.capability!.id)}
+                    title="Allow and permanently add to this bot's capabilities"
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: "4px 12px",
+                      borderRadius: 4,
+                      border: "none",
+                      cursor: isDeciding ? "default" : "pointer",
+                      backgroundColor: t.purple,
+                      color: "#fff",
+                      opacity: isDeciding ? 0.6 : 1,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Pin size={11} />
+                    Allow & Pin
+                  </button>
+                )}
                 <button
                   disabled={isDeciding}
                   onClick={() => handleDecide(tc.approvalId!, false)}
@@ -272,10 +298,11 @@ interface Props {
     capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
   }[];
   botName?: string;
+  botId?: string;
   thinkingContent?: string;
 }
 
-export function StreamingIndicator({ content, toolCalls, botName, thinkingContent }: Props) {
+export function StreamingIndicator({ content, toolCalls, botName, botId, thinkingContent }: Props) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
   const t = useThemeTokens();
@@ -305,7 +332,7 @@ export function StreamingIndicator({ content, toolCalls, botName, thinkingConten
           ) : null}
 
           {/* Tool calls in progress */}
-          {toolCalls.length > 0 && <ToolCallCards toolCalls={toolCalls} t={t} />}
+          {toolCalls.length > 0 && <ToolCallCards toolCalls={toolCalls} t={t} botId={botId} />}
 
           {/* Streaming text */}
           {displayContent ? (

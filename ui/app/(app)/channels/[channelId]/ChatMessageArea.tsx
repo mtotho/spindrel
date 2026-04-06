@@ -42,6 +42,7 @@ export interface ChatMessageAreaProps {
   renderMessage: (info: { item: Message; index: number }) => React.JSX.Element;
   chatState: { isStreaming: boolean; streamingContent: string; toolCalls: any[]; thinkingContent: string; respondingBotName?: string | null; memberStreams?: Record<string, MemberStreamState> };
   bot: { name?: string } | undefined;
+  botId?: string;
   isLoading: boolean;
   isFetchingNextPage: boolean;
   showScrollBtn: boolean;
@@ -63,6 +64,7 @@ function WebChatList({
   renderMessage,
   chatState,
   bot,
+  botId,
   isLoading,
   isFetchingNextPage,
   handleLoadMore,
@@ -178,6 +180,7 @@ function WebChatList({
       content={chatState.streamingContent}
       toolCalls={chatState.toolCalls}
       botName={streamingBotName}
+      botId={botId}
       thinkingContent={chatState.thinkingContent}
     />
   ) : isProcessing ? (

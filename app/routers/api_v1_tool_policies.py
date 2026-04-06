@@ -64,11 +64,13 @@ class PolicyRuleOut(BaseModel):
 class PolicySettingsOut(BaseModel):
     default_action: str
     enabled: bool
+    tier_gating: bool = True
 
 
 class PolicySettingsUpdate(BaseModel):
     default_action: Optional[str] = None
     enabled: Optional[bool] = None
+    tier_gating: Optional[bool] = None
 
 
 class PolicyTestRequest(BaseModel):
@@ -82,6 +84,7 @@ class PolicyTestResponse(BaseModel):
     rule_id: Optional[str] = None
     reason: Optional[str] = None
     timeout: int = 300
+    tier: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +114,7 @@ async def get_policy_settings(
     return PolicySettingsOut(
         default_action=settings.TOOL_POLICY_DEFAULT_ACTION,
         enabled=settings.TOOL_POLICY_ENABLED,
+        tier_gating=settings.TOOL_POLICY_TIER_GATING,
     )
 
 
@@ -130,12 +134,15 @@ async def update_policy_settings(
         updates["TOOL_POLICY_DEFAULT_ACTION"] = body.default_action
     if body.enabled is not None:
         updates["TOOL_POLICY_ENABLED"] = body.enabled
+    if body.tier_gating is not None:
+        updates["TOOL_POLICY_TIER_GATING"] = body.tier_gating
     if updates:
         await update_settings(updates, db)
         invalidate_cache()
     return PolicySettingsOut(
         default_action=settings.TOOL_POLICY_DEFAULT_ACTION,
         enabled=settings.TOOL_POLICY_ENABLED,
+        tier_gating=settings.TOOL_POLICY_TIER_GATING,
     )
 
 
@@ -152,7 +159,18 @@ async def test_policy(
         rule_id=decision.rule_id,
         reason=decision.reason,
         timeout=decision.timeout,
+        tier=decision.tier,
     )
+
+
+@router.get("/tiers")
+async def list_tool_tiers(
+    _auth=Depends(verify_admin_auth),
+):
+    """List all registered tools with their safety tiers."""
+    from app.tools.registry import get_all_tool_tiers
+    tiers = get_all_tool_tiers()
+    return [{"tool_name": k, "safety_tier": v} for k, v in sorted(tiers.items())]
 
 
 @router.get("", response_model=list[PolicyRuleOut])

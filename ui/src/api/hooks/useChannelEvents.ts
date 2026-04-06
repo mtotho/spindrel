@@ -20,11 +20,15 @@ const OBSERVER_STREAM_TIMEOUT = 60_000;
  * The primary bot's direct SSE (useChannelChat) still uses the singular fields
  * for the local tab — member streams only go through this channel events path.
  */
-export function useChannelEvents(channelId: string | undefined) {
+export function useChannelEvents(channelId: string | undefined, primaryBotId?: string) {
   const queryClient = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
   const handleSSEEvent = useChatStore((s) => s.handleSSEEvent);
   const finishStreaming = useChatStore((s) => s.finishStreaming);
+
+  // Keep primaryBotId current without triggering SSE reconnect
+  const primaryBotIdRef = useRef(primaryBotId);
+  primaryBotIdRef.current = primaryBotId;
 
   // Per-stream delta batching (stream_id → { text, think })
   const pendingDeltasRef = useRef<Record<string, { text: string; think: string }>>({});
@@ -180,11 +184,12 @@ export function useChannelEvents(channelId: string | undefined) {
         // If this tab initiated the stream (isLocalStream), the primary bot's
         // stream_start should be ignored (already handled by useChannelChat).
         // But member bot streams always go through memberStreams.
-        // Heuristic: if isLocalStream and the responding bot matches our
-        // primary bot (or stream_meta hasn't arrived yet), skip.
+        // Match against both respondingBotId (set by stream_meta) and the
+        // channel's configured primary bot ID to avoid a race where stream_start
+        // arrives before stream_meta and member bot streams get dropped.
         if (ch.isLocalStream && (
           payload.responding_bot_id === ch.respondingBotId ||
-          !ch.respondingBotId  // stream_meta hasn't arrived yet — assume primary
+          payload.responding_bot_id === primaryBotIdRef.current
         )) {
           return;
         }

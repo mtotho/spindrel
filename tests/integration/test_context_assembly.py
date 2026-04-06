@@ -234,14 +234,14 @@ class TestWithChannel:
 
     @pytest.mark.asyncio
     async def test_channel_overrides_modify_bot_tools(self, engine, db_session):
-        """Channel tool overrides should restrict/expand the bot's tools."""
+        """Channel tool disabled list should restrict the bot's tools."""
         from app.db.models import Channel
         channel_id = uuid.uuid4()
         ch = Channel(
             id=channel_id,
             bot_id="test-bot",
             name="override-channel",
-            local_tools_override=["web_search"],  # whitelist: only web_search
+            local_tools_disabled=["file", "exec_command"],  # blacklist: remove file + exec_command
         )
         db_session.add(ch)
         await db_session.commit()

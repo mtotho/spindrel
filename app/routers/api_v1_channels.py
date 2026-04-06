@@ -206,14 +206,10 @@ class ChannelConfigOut(BaseModel):
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     history_mode: Optional[str] = None
-    # Tool overrides
-    local_tools_override: Optional[list[str]] = None
+    # Tool restrictions
     local_tools_disabled: Optional[list[str]] = None
-    mcp_servers_override: Optional[list[str]] = None
     mcp_servers_disabled: Optional[list[str]] = None
-    client_tools_override: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
-    pinned_tools_override: Optional[list[str]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     workspace_skills_enabled: Optional[bool] = None
@@ -273,14 +269,10 @@ class ChannelConfigUpdate(BaseModel):
     compaction_prompt_template_id: Optional[uuid.UUID] = None
     memory_knowledge_compaction_prompt: Optional[str] = None
     history_mode: Optional[str] = None
-    # Tool overrides
-    local_tools_override: Optional[list[str]] = None
+    # Tool restrictions
     local_tools_disabled: Optional[list[str]] = None
-    mcp_servers_override: Optional[list[str]] = None
     mcp_servers_disabled: Optional[list[str]] = None
-    client_tools_override: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
-    pinned_tools_override: Optional[list[str]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     workspace_skills_enabled: Optional[bool] = None
@@ -486,7 +478,8 @@ async def list_channels(
     if integration:
         stmt = stmt.where(Channel.integration == integration)
     if bot_id:
-        stmt = stmt.where(Channel.bot_id == bot_id)
+        from app.services.channels import bot_channel_filter
+        stmt = stmt.where(bot_channel_filter(bot_id))
     channels = (await db.execute(stmt)).scalars().all()
 
     def _enrich(ch: Channel) -> ChannelOut:
@@ -709,13 +702,9 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "compaction_prompt_template_id": channel.compaction_prompt_template_id,
         "memory_knowledge_compaction_prompt": channel.memory_knowledge_compaction_prompt,
         "history_mode": channel.history_mode,
-        "local_tools_override": channel.local_tools_override,
         "local_tools_disabled": channel.local_tools_disabled,
-        "mcp_servers_override": channel.mcp_servers_override,
         "mcp_servers_disabled": channel.mcp_servers_disabled,
-        "client_tools_override": channel.client_tools_override,
         "client_tools_disabled": channel.client_tools_disabled,
-        "pinned_tools_override": channel.pinned_tools_override,
         "skills_disabled": channel.skills_disabled,
         "skills_extra": channel.skills_extra,
         "workspace_skills_enabled": channel.workspace_skills_enabled,

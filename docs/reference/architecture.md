@@ -24,7 +24,7 @@ Builds the message array for each LLM call. The pipeline runs in order:
 
 1. **Current time injection** (timezone-aware)
 2. **Context pruning** (trim stale tool results from old turns)
-3. **Channel-level overrides** (tool/skill override/disabled lists, model overrides)
+3. **Channel-level overrides** (tool/skill disabled lists, model overrides)
 4. **Workspace DB skills merge** (if bot has `shared_workspace_id`)
 5. **Capability resolution** (merge skills + tools + system prompt fragments from capabilities)
 6. **Integration activation injection** (auto-inject capabilities from activated integrations)

@@ -27,6 +27,7 @@ def build_suggestions(
     arguments: dict,
     *,
     recent_approval_count: int = 0,
+    safety_tier: str | None = None,
 ) -> list[RuleSuggestion]:
     """Return a list of RuleSuggestions ordered broadest-first.
 
@@ -39,12 +40,15 @@ def build_suggestions(
     broad: list[RuleSuggestion] = []
     narrow: list[RuleSuggestion] = []
 
+    # --- Tier context in descriptions ---
+    _tier_note = f" (safety tier: {safety_tier})" if safety_tier else ""
+
     # --- Broadest: allow this tool for ALL bots ---
     broad.append(RuleSuggestion(
         label=f"Allow {tool_name} (all bots)",
         tool_name=tool_name,
         conditions={},
-        description=f"Allow all calls to {tool_name} for every bot",
+        description=f"Allow all calls to {tool_name} for every bot{_tier_note}",
         scope="global",
     ))
 
@@ -53,7 +57,7 @@ def build_suggestions(
         label=f"Allow {tool_name} always",
         tool_name=tool_name,
         conditions={},
-        description=f"Allow all calls to {tool_name} for this bot",
+        description=f"Allow all calls to {tool_name} for this bot{_tier_note}",
     ))
 
     # --- Tool-specific narrower options ---

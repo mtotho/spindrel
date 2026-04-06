@@ -14,6 +14,7 @@ import {
 import { OperationsPanel } from "./OperationsPanel";
 import { DiskUsageSection } from "./DiskUsageSection";
 import { StorageSection } from "./StorageSection";
+import { SecurityAuditSection } from "./SecurityAuditSection";
 
 function StatusDot({ ok }: { ok: boolean }) {
   const t = useThemeTokens();
@@ -239,8 +240,8 @@ export default function DiagnosticsScreen() {
   return (
     <View className="flex-1 bg-surface">
       <MobileHeader
-        title="Indexing Diagnostics"
-        subtitle={data ? (data.healthy ? "All systems healthy" : `${data.issues.length} issue(s)`) : undefined}
+        title="Diagnostics"
+        subtitle={data ? (data.healthy ? "All systems healthy" : `${data.issues.length} indexing issue(s)`) : undefined}
         right={
           <button
             onClick={handleReindex}
@@ -262,6 +263,9 @@ export default function DiagnosticsScreen() {
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }} contentContainerStyle={{
         padding: 16, gap: 16, maxWidth: 900,
       }}>
+        {/* Security Audit */}
+        <SecurityAuditSection />
+
         {/* Active operations (progress bars) */}
         <OperationsPanel />
 

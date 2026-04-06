@@ -19,21 +19,16 @@ class EffectiveTools:
     carapaces: list[str] = field(default_factory=list)
 
 
-def _resolve_list(bot_list: list[str], override: list | None, disabled: list | None) -> list[str]:
-    """Resolve a single tool list with override/disabled semantics.
+def _apply_disabled(bot_list: list[str], disabled: list | None) -> list[str]:
+    """Apply a blacklist to a bot tool list.
 
-    - override set  → whitelist: only items present in both override AND bot_list
-    - disabled set  → blacklist: remove disabled items from bot_list
-    - both None     → inherit bot_list as-is
-    - override takes precedence if both are set
+    - disabled set  → remove disabled items from bot_list
+    - None          → inherit bot_list as-is
     """
-    if override is not None:
-        bot_set = set(bot_list)
-        return [t for t in override if t in bot_set]
-    if disabled is not None:
-        disabled_set = set(disabled)
-        return [t for t in bot_list if t not in disabled_set]
-    return list(bot_list)
+    if not disabled:
+        return list(bot_list)
+    disabled_set = set(disabled)
+    return [t for t in bot_list if t not in disabled_set]
 
 
 def _resolve_skills(
@@ -70,7 +65,7 @@ def _resolve_skills(
 def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> EffectiveTools:
     """Resolve effective tool/skill configuration for a channel.
 
-    Tools: channel overrides restrict the bot's tool lists (override/disabled).
+    Tools: channel disabled lists restrict the bot's tool lists (blacklist only).
     Skills: channel extras can ADD skills from the global pool; disabled removes.
     Returns bot defaults when channel is None.
     """
@@ -93,45 +88,28 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
     _ch_disabled = set(getattr(channel, "carapaces_disabled", None) or [])
 
     # Inject carapaces from activated integrations (mirrors context_assembly.py)
-    if channel is not None:
-        try:
-            from integrations import get_activation_manifests
-            _manifests = get_activation_manifests()
-            for _ci in (getattr(channel, "integrations", None) or []):
-                if not _ci.activated:
-                    continue
-                _manifest = _manifests.get(_ci.integration_type)
-                if _manifest:
-                    for cap_id in _manifest.get("carapaces", []):
-                        if cap_id not in _carapaces and cap_id not in _ch_disabled:
-                            _carapaces.append(cap_id)
-        except Exception:
-            pass
+    try:
+        from integrations import get_activation_manifests
+        _manifests = get_activation_manifests()
+        for _ci in (getattr(channel, "integrations", None) or []):
+            if not _ci.activated:
+                continue
+            _manifest = _manifests.get(_ci.integration_type)
+            if _manifest:
+                for cap_id in _manifest.get("carapaces", []):
+                    if cap_id not in _carapaces and cap_id not in _ch_disabled:
+                        _carapaces.append(cap_id)
+    except Exception:
+        pass
 
     if _ch_disabled:
         _carapaces = [c for c in _carapaces if c not in _ch_disabled]
 
     return EffectiveTools(
-        local_tools=_resolve_list(
-            bot.local_tools,
-            channel.local_tools_override,
-            channel.local_tools_disabled,
-        ),
-        mcp_servers=_resolve_list(
-            bot.mcp_servers,
-            channel.mcp_servers_override,
-            channel.mcp_servers_disabled,
-        ),
-        client_tools=_resolve_list(
-            bot.client_tools,
-            channel.client_tools_override,
-            channel.client_tools_disabled,
-        ),
-        pinned_tools=_resolve_list(
-            bot.pinned_tools,
-            channel.pinned_tools_override,
-            None,  # no disabled for pinned — use override or inherit
-        ),
+        local_tools=_apply_disabled(bot.local_tools, channel.local_tools_disabled),
+        mcp_servers=_apply_disabled(bot.mcp_servers, channel.mcp_servers_disabled),
+        client_tools=_apply_disabled(bot.client_tools, channel.client_tools_disabled),
+        pinned_tools=list(bot.pinned_tools),
         skills=_resolve_skills(
             bot.skills,
             channel.skills_disabled,

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.agent.bots import get_bot
-from app.db.models import Channel, ChannelHeartbeat, Task
+from app.db.models import Bot as BotRow, Channel, ChannelHeartbeat, Task
 from app.dependencies import get_db, verify_auth_or_user
 from app.services.heartbeat import _is_heartbeat_in_quiet_hours
 
@@ -19,11 +19,11 @@ router = APIRouter()
 @router.get("/upcoming-activity")
 async def upcoming_activity(
     limit: int = Query(50, ge=1, le=200),
-    type: str | None = Query(None, description="Filter by type: heartbeat, task"),
+    type: str | None = Query(None, description="Filter by type: heartbeat, task, memory_hygiene"),
     db: AsyncSession = Depends(get_db),
     _auth=Depends(verify_auth_or_user),
 ):
-    """Return a merged, chronologically sorted list of upcoming heartbeats and tasks."""
+    """Return a merged, chronologically sorted list of upcoming heartbeats, tasks, and memory hygiene runs."""
     now = datetime.now(timezone.utc)
     items: list[dict] = []
 
@@ -105,6 +105,39 @@ async def upcoming_activity(
                 "task_id": str(t.id),
                 "task_type": t.task_type,
                 "recurrence": t.recurrence,
+            })
+
+    # --- Memory hygiene ---
+    if type is None or type == "memory_hygiene":
+        from app.services.memory_hygiene import resolve_enabled, resolve_interval
+
+        hygiene_bots = (await db.execute(
+            select(BotRow).where(
+                BotRow.memory_scheme == "workspace-files",
+                BotRow.next_hygiene_run_at.isnot(None),
+            )
+        )).scalars().all()
+
+        for bot_row in hygiene_bots:
+            if not resolve_enabled(bot_row):
+                continue
+            interval = resolve_interval(bot_row)
+            bot_name = bot_row.id
+            try:
+                bot = get_bot(bot_row.id)
+                bot_name = bot.name
+            except Exception:
+                pass
+
+            items.append({
+                "type": "memory_hygiene",
+                "scheduled_at": bot_row.next_hygiene_run_at.isoformat() if bot_row.next_hygiene_run_at else None,
+                "bot_id": bot_row.id,
+                "bot_name": bot_name,
+                "channel_id": None,
+                "channel_name": None,
+                "title": "Memory Hygiene",
+                "interval_hours": interval,
             })
 
     # Sort merged list by scheduled_at

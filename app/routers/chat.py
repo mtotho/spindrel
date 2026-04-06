@@ -695,10 +695,36 @@ async def _run_member_bot_reply(
         member_bot = get_bot(member_bot_id)
         mentioning_bot = get_bot(mentioning_bot_id)
 
+        # Look up primary bot + workspace settings (shared by both paths)
+        _primary_bot_name: str | None = None
+        _primary_bot_id: str | None = None
+        _ws_base_enabled = False
+        async with _async_session() as db:
+            _ch = await db.get(Channel, channel_id)
+            if _ch and _ch.bot_id:
+                _primary_bot_id = _ch.bot_id
+                _pb = get_bot(_ch.bot_id)
+                _primary_bot_name = _pb.name if _pb else _ch.bot_id
+            from app.services.sessions import _resolve_workspace_base_prompt_enabled
+            _ws_base_enabled = await _resolve_workspace_base_prompt_enabled(
+                db, member_bot_id, channel_id,
+            )
+
         if _use_snapshot:
-            # Use the provided snapshot — no DB load, no lock needed
+            # Use the provided snapshot — no DB load, no lock needed.
+            # System messages are per-bot context (rebuilt by assemble_context),
+            # not shared state.  Strip the primary bot's system messages and
+            # inject the member bot's own base messages (system prompt + persona).
             import copy
-            messages = copy.deepcopy(messages_snapshot)
+            messages = [m for m in copy.deepcopy(messages_snapshot) if m.get("role") != "system"]
+            from app.services.sessions import _effective_system_prompt
+            _sys = _effective_system_prompt(member_bot, workspace_base_prompt_enabled=_ws_base_enabled)
+            messages.insert(0, {"role": "system", "content": _sys})
+            if member_bot.persona:
+                from app.agent.persona import get_persona
+                _persona = await get_persona(member_bot.id, workspace_id=member_bot.shared_workspace_id)
+                if _persona:
+                    messages.insert(1, {"role": "system", "content": f"[PERSONA]\n{_persona}"})
         else:
             # Load session with member bot's system prompt (preserve _metadata for
             # history rewriting — we need sender_id to distinguish message authors)
@@ -708,16 +734,6 @@ async def _run_member_bot_reply(
                     channel_id=channel_id,
                     preserve_metadata=True,
                 )
-
-        # Look up primary bot name for fallback attribution on old messages
-        _primary_bot_name: str | None = None
-        _primary_bot_id: str | None = None
-        async with _async_session() as db:
-            _ch = await db.get(Channel, channel_id)
-            if _ch and _ch.bot_id:
-                _primary_bot_id = _ch.bot_id
-                _pb = get_bot(_ch.bot_id)
-                _primary_bot_name = _pb.name if _pb else _ch.bot_id
 
         # Rewrite history so the bot sees other bots' messages with attribution
         # (prevents it from thinking another bot's words are its own)

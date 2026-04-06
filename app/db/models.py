@@ -60,15 +60,10 @@ class Channel(Base):
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True,
     )
-    # Tool / skill overrides (null = inherit from bot)
-    local_tools_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Tool / skill channel restrictions (null = inherit from bot)
     local_tools_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    mcp_servers_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     mcp_servers_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    client_tools_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     client_tools_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    pinned_tools_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    skills_override: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     skills_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     skills_extra: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     carapaces_extra: Mapped[list | None] = mapped_column(JSONB, nullable=True)
@@ -177,6 +172,7 @@ class ChannelBotMember(Base):
     __table_args__ = (
         UniqueConstraint("channel_id", "bot_id", name="uq_channel_bot_members_channel_bot"),
         Index("ix_channel_bot_members_channel_id", "channel_id"),
+        Index("ix_channel_bot_members_bot_id", "bot_id"),
     )
 
 
@@ -856,6 +852,8 @@ class Bot(Base):
     memory_hygiene_interval_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
     memory_hygiene_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     memory_hygiene_only_if_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    memory_hygiene_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    memory_hygiene_model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_hygiene_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     next_hygiene_run_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     system_prompt_workspace_file: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)

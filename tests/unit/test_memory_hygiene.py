@@ -377,6 +377,31 @@ class TestHasActivitySince:
         since = datetime.now(timezone.utc) - timedelta(hours=24)
         assert await _has_activity_since("test-bot", since, db) is False
 
+    @pytest.mark.asyncio
+    async def test_query_includes_member_channels(self):
+        """Verify that _has_activity_since uses bot_channel_filter (OR with ChannelBotMember)."""
+        from app.services.memory_hygiene import _has_activity_since
+
+        db = AsyncMock()
+        result = MagicMock()
+        result.scalar.return_value = 1
+        db.execute = AsyncMock(return_value=result)
+
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
+        await _has_activity_since("test-bot", since, db)
+
+        # Inspect the compiled query — it should contain an OR with a subquery
+        # referencing channel_bot_members
+        call_args = db.execute.call_args
+        stmt = call_args[0][0]
+        compiled = str(stmt.compile(compile_kwargs={"literal_binds": True}))
+        assert "channel_bot_members" in compiled, (
+            "Query should include channel_bot_members subquery for member channel visibility"
+        )
+        assert "OR" in compiled.upper(), (
+            "Query should use OR to combine primary and member channel filters"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Bootstrap schedule
@@ -384,7 +409,7 @@ class TestHasActivitySince:
 
 class TestBootstrapHygieneSchedule:
     @pytest.mark.asyncio
-    async def test_sets_next_run(self):
+    async def test_sets_next_run_with_stagger(self):
         from app.services.memory_hygiene import bootstrap_hygiene_schedule
 
         bot_row = MagicMock()
@@ -399,7 +424,295 @@ class TestBootstrapHygieneSchedule:
         await bootstrap_hygiene_schedule(bot_row, db)
 
         assert bot_row.next_hygiene_run_at is not None
-        # Should be approximately 12 hours from now
+        # With stagger, next_run should be within [now, now + 12h)
         delta = bot_row.next_hygiene_run_at - now
-        assert timedelta(hours=11, minutes=59) < delta < timedelta(hours=12, minutes=1)
+        assert timedelta(0) <= delta < timedelta(hours=12)
         db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_different_bots_get_different_offsets(self):
+        """Two bots with different IDs should generally get different stagger offsets."""
+        from app.services.memory_hygiene import bootstrap_hygiene_schedule
+
+        times = []
+        for bot_id in ["alpha-bot", "beta-bot"]:
+            bot_row = MagicMock()
+            bot_row.id = bot_id
+            bot_row.memory_hygiene_interval_hours = 24
+            bot_row.next_hygiene_run_at = None
+
+            db = AsyncMock()
+            db.commit = AsyncMock()
+
+            await bootstrap_hygiene_schedule(bot_row, db)
+            times.append(bot_row.next_hygiene_run_at)
+
+        # Different bots should (very likely) get different stagger offsets
+        # This could theoretically fail if two bot IDs hash to the same offset,
+        # but with a 1440-minute window that's extremely unlikely
+        assert times[0] != times[1]
+
+
+# ---------------------------------------------------------------------------
+# Bot channel filter helper
+# ---------------------------------------------------------------------------
+
+class TestBotChannelFilter:
+    def test_produces_or_with_subquery(self):
+        """bot_channel_filter should produce an OR clause with ChannelBotMember subquery."""
+        from app.services.channels import bot_channel_filter
+
+        clause = bot_channel_filter("my-bot")
+        compiled = str(clause.compile(compile_kwargs={"literal_binds": True}))
+        assert "channel_bot_members" in compiled
+        assert "OR" in compiled.upper()
+        assert "my-bot" in compiled
+
+
+# ---------------------------------------------------------------------------
+# Enhanced hygiene prompt content
+# ---------------------------------------------------------------------------
+
+class TestHygienePromptContent:
+    """Verify that the enhanced hygiene prompt includes key intelligence features."""
+
+    def test_has_all_eight_steps(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        for step_num in range(1, 9):
+            assert f"## Step {step_num}" in DEFAULT_MEMORY_HYGIENE_PROMPT, (
+                f"Missing Step {step_num} in hygiene prompt"
+            )
+
+    def test_has_contradiction_detection(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "contradiction" in DEFAULT_MEMORY_HYGIENE_PROMPT.lower()
+        assert "superseded" in DEFAULT_MEMORY_HYGIENE_PROMPT.lower()
+
+    def test_has_lifecycle_annotations(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "[updated:" in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "[confidence:" in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "[source:" in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+    def test_has_importance_scoring(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        prompt_lower = DEFAULT_MEMORY_HYGIENE_PROMPT.lower()
+        assert "future utility" in prompt_lower
+        assert "factual confidence" in prompt_lower
+        assert "semantic novelty" in prompt_lower
+
+    def test_has_cross_channel_reflection(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "Cross-channel reflection" in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "[reflection]" in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+    def test_has_archive_maintenance(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "Archive maintenance" in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "14 days" in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+    def test_has_enhanced_summary(self):
+        from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "Contradictions resolved" in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert "Reflections generated" in DEFAULT_MEMORY_HYGIENE_PROMPT
+
+
+# ---------------------------------------------------------------------------
+# Model resolution helpers
+# ---------------------------------------------------------------------------
+
+class TestResolveModel:
+    def _make_bot(self, model=None):
+        bot = MagicMock()
+        bot.memory_hygiene_model = model
+        return bot
+
+    def test_bot_override_wins(self):
+        from app.services.memory_hygiene import resolve_model
+        bot = self._make_bot(model="gpt-4o")
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_MODEL = "gemini-flash"
+            assert resolve_model(bot) == "gpt-4o"
+
+    def test_global_fallback(self):
+        from app.services.memory_hygiene import resolve_model
+        bot = self._make_bot(model=None)
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_MODEL = "gemini-flash"
+            assert resolve_model(bot) == "gemini-flash"
+
+    def test_returns_none_when_both_empty(self):
+        from app.services.memory_hygiene import resolve_model
+        bot = self._make_bot(model=None)
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_MODEL = ""
+            assert resolve_model(bot) is None
+
+
+class TestResolveModelProviderId:
+    def _make_bot(self, provider=None):
+        bot = MagicMock()
+        bot.memory_hygiene_model_provider_id = provider
+        return bot
+
+    def test_bot_override_wins(self):
+        from app.services.memory_hygiene import resolve_model_provider_id
+        bot = self._make_bot(provider="openai-prod")
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID = "openai-dev"
+            assert resolve_model_provider_id(bot) == "openai-prod"
+
+    def test_global_fallback(self):
+        from app.services.memory_hygiene import resolve_model_provider_id
+        bot = self._make_bot(provider=None)
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID = "openai-dev"
+            assert resolve_model_provider_id(bot) == "openai-dev"
+
+    def test_returns_none_when_both_empty(self):
+        from app.services.memory_hygiene import resolve_model_provider_id
+        bot = self._make_bot(provider=None)
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID = ""
+            assert resolve_model_provider_id(bot) is None
+
+
+# ---------------------------------------------------------------------------
+# Stagger offset
+# ---------------------------------------------------------------------------
+
+class TestStaggerOffset:
+    def test_deterministic(self):
+        from app.services.memory_hygiene import _stagger_offset_minutes
+        a = _stagger_offset_minutes("my-bot", 24)
+        b = _stagger_offset_minutes("my-bot", 24)
+        assert a == b
+
+    def test_different_bots_different_offsets(self):
+        from app.services.memory_hygiene import _stagger_offset_minutes
+        a = _stagger_offset_minutes("alpha-bot", 24)
+        b = _stagger_offset_minutes("beta-bot", 24)
+        assert a != b  # extremely unlikely to collide with 1440-minute window
+
+    def test_within_range(self):
+        from app.services.memory_hygiene import _stagger_offset_minutes
+        for bot_id in ["bot-a", "bot-b", "bot-c", "bot-d", "bot-e"]:
+            offset = _stagger_offset_minutes(bot_id, 12)
+            assert 0 <= offset < 12 * 60, f"Offset {offset} out of range for bot {bot_id}"
+
+    def test_zero_interval_no_crash(self):
+        """Interval of 0 should not cause division by zero."""
+        from app.services.memory_hygiene import _stagger_offset_minutes
+        offset = _stagger_offset_minutes("bot-a", 0)
+        assert offset == 0  # window=max(0,1)=1, so offset is 0
+
+
+# ---------------------------------------------------------------------------
+# Create hygiene task with execution_config
+# ---------------------------------------------------------------------------
+
+class TestCreateHygieneTaskExecutionConfig:
+    @pytest.mark.asyncio
+    async def test_execution_config_populated_when_model_set(self):
+        from app.services.memory_hygiene import create_hygiene_task
+
+        bot_row = MagicMock()
+        bot_row.id = "test-bot"
+        bot_row.memory_hygiene_prompt = None
+        bot_row.memory_scheme = "workspace-files"
+        bot_row.memory_hygiene_model = "gpt-4o-mini"
+        bot_row.memory_hygiene_model_provider_id = "openai-prod"
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=bot_row)
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_PROMPT = ""
+            mock_settings.MEMORY_HYGIENE_MODEL = ""
+            mock_settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID = ""
+            await create_hygiene_task("test-bot", db)
+
+        task = db.add.call_args[0][0]
+        assert task.execution_config is not None
+        assert task.execution_config["model_override"] == "gpt-4o-mini"
+        assert task.execution_config["model_provider_id_override"] == "openai-prod"
+
+    @pytest.mark.asyncio
+    async def test_execution_config_none_when_no_override(self):
+        from app.services.memory_hygiene import create_hygiene_task
+
+        bot_row = MagicMock()
+        bot_row.id = "test-bot"
+        bot_row.memory_hygiene_prompt = None
+        bot_row.memory_scheme = "workspace-files"
+        bot_row.memory_hygiene_model = None
+        bot_row.memory_hygiene_model_provider_id = None
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=bot_row)
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_PROMPT = ""
+            mock_settings.MEMORY_HYGIENE_MODEL = ""
+            mock_settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID = ""
+            await create_hygiene_task("test-bot", db)
+
+        task = db.add.call_args[0][0]
+        assert task.execution_config is None
+
+    @pytest.mark.asyncio
+    async def test_execution_config_with_only_model(self):
+        from app.services.memory_hygiene import create_hygiene_task
+
+        bot_row = MagicMock()
+        bot_row.id = "test-bot"
+        bot_row.memory_hygiene_prompt = None
+        bot_row.memory_scheme = "workspace-files"
+        bot_row.memory_hygiene_model = "gpt-4o"
+        bot_row.memory_hygiene_model_provider_id = None
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=bot_row)
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_PROMPT = ""
+            mock_settings.MEMORY_HYGIENE_MODEL = ""
+            mock_settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID = ""
+            await create_hygiene_task("test-bot", db)
+
+        task = db.add.call_args[0][0]
+        assert task.execution_config is not None
+        assert task.execution_config["model_override"] == "gpt-4o"
+        assert "model_provider_id_override" not in task.execution_config
+
+    @pytest.mark.asyncio
+    async def test_execution_config_with_global_model_fallback(self):
+        from app.services.memory_hygiene import create_hygiene_task
+
+        bot_row = MagicMock()
+        bot_row.id = "test-bot"
+        bot_row.memory_hygiene_prompt = None
+        bot_row.memory_scheme = "workspace-files"
+        bot_row.memory_hygiene_model = None
+        bot_row.memory_hygiene_model_provider_id = None
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=bot_row)
+        db.add = MagicMock()
+        db.commit = AsyncMock()
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.MEMORY_HYGIENE_PROMPT = ""
+            mock_settings.MEMORY_HYGIENE_MODEL = "global-model"
+            mock_settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID = ""
+            await create_hygiene_task("test-bot", db)
+
+        task = db.add.call_args[0][0]
+        assert task.execution_config is not None
+        assert task.execution_config["model_override"] == "global-model"

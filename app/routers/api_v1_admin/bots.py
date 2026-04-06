@@ -393,6 +393,8 @@ class BotUpdateIn(BaseModel):
     memory_hygiene_interval_hours: Optional[int] = None
     memory_hygiene_prompt: Optional[str] = None
     memory_hygiene_only_if_active: Optional[bool] = None
+    memory_hygiene_model: Optional[str] = None
+    memory_hygiene_model_provider_id: Optional[str] = None
     workspace_only: Optional[bool] = None
     system_prompt_workspace_file: Optional[bool] = None
     system_prompt_write_protected: Optional[bool] = None
@@ -542,6 +544,8 @@ class BotCreateIn(BaseModel):
     memory_hygiene_interval_hours: Optional[int] = None
     memory_hygiene_prompt: Optional[str] = None
     memory_hygiene_only_if_active: Optional[bool] = None
+    memory_hygiene_model: Optional[str] = None
+    memory_hygiene_model_provider_id: Optional[str] = None
 
 
 @router.post("/bots", response_model=BotOut, status_code=201)
@@ -811,10 +815,13 @@ class MemoryHygieneStatusOut(BaseModel):
     interval_hours: int = 24
     only_if_active: bool = True
     has_custom_prompt: bool = False
+    resolved_prompt: str = ""
     last_run_at: Optional[str] = None
     next_run_at: Optional[str] = None
     last_task_status: Optional[str] = None
     last_task_id: Optional[str] = None
+    model: Optional[str] = None
+    model_provider_id: Optional[str] = None
 
 
 @router.get("/bots/{bot_id}/memory-hygiene", response_model=MemoryHygieneStatusOut)
@@ -825,7 +832,10 @@ async def admin_bot_memory_hygiene_status(
 ):
     """Get resolved memory hygiene config + last/next run times."""
     from app.db.models import Task as TaskRow
-    from app.services.memory_hygiene import resolve_enabled, resolve_interval, resolve_only_if_active, resolve_prompt
+    from app.services.memory_hygiene import (
+        resolve_enabled, resolve_interval, resolve_model,
+        resolve_model_provider_id, resolve_only_if_active, resolve_prompt,
+    )
 
     row = await db.get(BotRow, bot_id)
     if not row:
@@ -835,6 +845,8 @@ async def admin_bot_memory_hygiene_status(
     interval = resolve_interval(row)
     only_active = resolve_only_if_active(row)
     prompt = resolve_prompt(row)
+    model = resolve_model(row)
+    model_provider = resolve_model_provider_id(row)
 
     from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
     has_custom = bool(prompt and prompt != DEFAULT_MEMORY_HYGIENE_PROMPT)
@@ -852,10 +864,13 @@ async def admin_bot_memory_hygiene_status(
         interval_hours=interval,
         only_if_active=only_active,
         has_custom_prompt=has_custom,
+        resolved_prompt=prompt,
         last_run_at=row.last_hygiene_run_at.isoformat() if row.last_hygiene_run_at else None,
         next_run_at=row.next_hygiene_run_at.isoformat() if row.next_hygiene_run_at else None,
         last_task_status=last_task.status if last_task else None,
         last_task_id=str(last_task.id) if last_task else None,
+        model=model,
+        model_provider_id=model_provider,
     )
 
 
@@ -877,6 +892,114 @@ async def admin_bot_memory_hygiene_trigger(
 
     task_id = await create_hygiene_task(bot_id, db)
     return {"status": "ok", "task_id": str(task_id)}
+
+
+# ---------------------------------------------------------------------------
+# Memory hygiene run history
+# ---------------------------------------------------------------------------
+
+class HygieneRunOut(BaseModel):
+    id: str
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    result: Optional[str] = None
+    error: Optional[str] = None
+    correlation_id: Optional[str] = None
+    tool_calls: list[dict] = []
+    total_tokens: int = 0
+    iterations: int = 0
+    duration_ms: Optional[int] = None
+
+
+class HygieneRunsResponse(BaseModel):
+    runs: list[HygieneRunOut] = []
+    total: int = 0
+
+
+@router.get("/bots/{bot_id}/memory-hygiene/runs", response_model=HygieneRunsResponse)
+async def admin_bot_memory_hygiene_runs(
+    bot_id: str,
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:read")),
+):
+    """Get recent memory hygiene run history with enriched stats."""
+    from app.db.models import Task as TaskRow, ToolCall, TraceEvent
+    from app.routers.api_v1_admin._helpers import build_tool_call_previews
+
+    row = await db.get(BotRow, bot_id)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    # Count total runs
+    total = (await db.execute(
+        select(func.count())
+        .select_from(TaskRow)
+        .where(TaskRow.bot_id == bot_id, TaskRow.task_type == "memory_hygiene")
+    )).scalar() or 0
+
+    # Fetch recent runs
+    tasks = (await db.execute(
+        select(TaskRow)
+        .where(TaskRow.bot_id == bot_id, TaskRow.task_type == "memory_hygiene")
+        .order_by(TaskRow.created_at.desc())
+        .limit(limit)
+    )).scalars().all()
+
+    runs_out: list[HygieneRunOut] = []
+    for t in tasks:
+        runs_out.append(HygieneRunOut(
+            id=str(t.id),
+            status=t.status,
+            created_at=t.created_at,
+            completed_at=t.completed_at,
+            result=(t.result[:500] if t.result and len(t.result) > 500 else t.result),
+            error=t.error,
+            correlation_id=str(t.correlation_id) if t.correlation_id else None,
+        ))
+
+    # Enrich with tool calls and token stats via correlation_id
+    correlation_ids = [t.correlation_id for t in tasks if t.correlation_id]
+    if correlation_ids:
+        tc_rows = (await db.execute(
+            select(ToolCall)
+            .where(ToolCall.correlation_id.in_(correlation_ids))
+            .order_by(ToolCall.created_at)
+        )).scalars().all()
+        tc_by_corr: dict = {}
+        for tc in tc_rows:
+            tc_by_corr.setdefault(tc.correlation_id, []).append(tc)
+
+        te_rows = (await db.execute(
+            select(TraceEvent)
+            .where(
+                TraceEvent.correlation_id.in_(correlation_ids),
+                TraceEvent.event_type == "token_usage",
+            )
+        )).scalars().all()
+
+        stats_by_corr: dict = {}
+        for te in te_rows:
+            s = stats_by_corr.setdefault(te.correlation_id, {"tokens": 0, "iterations": 0})
+            if te.data:
+                s["tokens"] += te.data.get("total_tokens", 0)
+                s["iterations"] = max(s["iterations"], te.data.get("iteration", 0))
+
+        for run, task in zip(runs_out, tasks):
+            if not task.correlation_id:
+                continue
+            tcs = tc_by_corr.get(task.correlation_id, [])
+            if tcs:
+                run.tool_calls = build_tool_call_previews(tcs)
+            stats = stats_by_corr.get(task.correlation_id)
+            if stats:
+                run.total_tokens = stats["tokens"]
+                run.iterations = stats["iterations"]
+            if task.completed_at and task.created_at:
+                run.duration_ms = int((task.completed_at - task.created_at).total_seconds() * 1000)
+
+    return HygieneRunsResponse(runs=runs_out, total=total)
 
 
 # ---------------------------------------------------------------------------

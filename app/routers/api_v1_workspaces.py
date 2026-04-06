@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, Form
 from pydantic import BaseModel
-from sqlalchemy import select, delete, func
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -828,10 +828,16 @@ async def list_workspace_channels(
     if not sw_bots:
         return []
 
-    # 2. Channels with integrations eager-loaded
+    # 2. Channels with integrations eager-loaded (include member channels)
+    from app.db.models import ChannelBotMember
     channels = (await db.execute(
         select(Channel)
-        .where(Channel.bot_id.in_(sw_bots))
+        .where(or_(
+            Channel.bot_id.in_(sw_bots),
+            Channel.id.in_(
+                select(ChannelBotMember.channel_id).where(ChannelBotMember.bot_id.in_(sw_bots))
+            ),
+        ))
         .options(selectinload(Channel.integrations))
         .order_by(Channel.name)
     )).scalars().all()

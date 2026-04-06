@@ -11,9 +11,10 @@ interface ParticipantsPanelProps {
   primaryBotId: string;
   primaryBotName?: string;
   onClose?: () => void;
+  mobile?: boolean;
 }
 
-export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onClose }: ParticipantsPanelProps) {
+export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onClose, mobile }: ParticipantsPanelProps) {
   const t = useThemeTokens();
   const [showPicker, setShowPicker] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState<ChannelBotMember | null>(null);
@@ -29,14 +30,15 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
 
   const totalCount = 1 + members.length;
 
-  return (
+  const panel = (
     <div style={{
-      width: 260,
-      borderLeft: `1px solid ${t.surfaceBorder}`,
+      width: mobile ? "100%" : 260,
+      borderLeft: mobile ? "none" : `1px solid ${t.surfaceBorder}`,
       backgroundColor: t.surfaceRaised,
       display: "flex",
       flexDirection: "column",
       flexShrink: 0,
+      ...(mobile ? { flex: 1 } : {}),
     }}>
       {/* Header */}
       <div style={{
@@ -66,7 +68,7 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
               alignItems: "center",
             }}
           >
-            <ChevronRight size={14} color={t.textDim} />
+            {mobile ? <X size={14} color={t.textDim} /> : <ChevronRight size={14} color={t.textDim} />}
           </button>
         )}
       </div>
@@ -212,6 +214,23 @@ export function ParticipantsPanel({ channelId, primaryBotId, primaryBotName, onC
       />
     </div>
   );
+
+  if (mobile) {
+    return (
+      <div style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 20,
+        display: "flex",
+        flexDirection: "column",
+        backgroundColor: t.surfaceRaised,
+      }}>
+        {panel}
+      </div>
+    );
+  }
+
+  return panel;
 }
 
 // ---------------------------------------------------------------------------

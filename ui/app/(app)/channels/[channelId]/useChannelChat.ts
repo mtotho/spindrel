@@ -75,7 +75,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   const setError = useChatStore((s) => s.setError);
 
   // Subscribe to real-time channel events (messages from integrations, other tabs, etc.)
-  useChannelEvents(channelId);
+  useChannelEvents(channelId, channel?.bot_id);
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
   const [turnProviderIdOverride, setTurnProviderIdOverride] = useState<string | null | undefined>();

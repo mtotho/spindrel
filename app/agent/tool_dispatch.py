@@ -112,6 +112,10 @@ async def dispatch_tool_call(
                         _ap_type = "mcp"
                     else:
                         _ap_type = "local"
+                    # Include tier in reason for UI display
+                    _approval_reason = decision.reason
+                    if decision.tier:
+                        _approval_reason = f"[{decision.tier}] {decision.reason}"
                     approval_id = await _create_approval_record(
                         session_id=session_id,
                         channel_id=channel_id,
@@ -122,16 +126,17 @@ async def dispatch_tool_call(
                         tool_type=_ap_type,
                         arguments=_tc_args_for_policy,
                         policy_rule_id=decision.rule_id,
-                        reason=decision.reason,
+                        reason=_approval_reason,
                         timeout=decision.timeout,
                     )
                     result_obj.needs_approval = True
                     result_obj.approval_id = approval_id
                     result_obj.approval_timeout = decision.timeout
-                    result_obj.approval_reason = decision.reason
-                    result_obj.result_for_llm = json.dumps({"status": "pending_approval", "reason": decision.reason})
+                    result_obj.approval_reason = _approval_reason
+                    result_obj.result_for_llm = json.dumps({"status": "pending_approval", "reason": _approval_reason})
                     result_obj.tool_event = {"type": "tool_result", "tool": name, "pending_approval": True}
-                    _trace("⏳ %s requires approval (rule %s)", name, decision.rule_id)
+                    _trace("⏳ %s requires approval (%s)", name,
+                           f"tier={decision.tier}" if decision.tier else f"rule {decision.rule_id}")
                     return result_obj
         except Exception:
             logger.exception("Policy check failed for %s — denying by default", name)
@@ -166,6 +171,15 @@ async def dispatch_tool_call(
                     _cap_name = _cap_data.get("name", _cap_id) if _cap_data else _cap_id
                     _cap_desc = (_cap_data.get("description") or "") if _cap_data else ""
                     _cap_reason = f"Bot wants to activate '{_cap_name}' capability"
+                    _cap_meta = {
+                        "_capability": {
+                            "id": _cap_id,
+                            "name": _cap_name,
+                            "description": _cap_desc,
+                            "tools_count": len(_cap_data.get("local_tools") or []) if _cap_data else 0,
+                            "skills_count": len(_cap_data.get("skills") or []) if _cap_data else 0,
+                        },
+                    }
                     approval_id = await _create_approval_record(
                         session_id=session_id,
                         channel_id=channel_id,
@@ -178,6 +192,7 @@ async def dispatch_tool_call(
                         policy_rule_id=None,
                         reason=_cap_reason,
                         timeout=300,
+                        extra_metadata=_cap_meta,
                     )
                     result_obj.needs_approval = True
                     result_obj.approval_id = approval_id
@@ -185,13 +200,7 @@ async def dispatch_tool_call(
                     result_obj.approval_reason = _cap_reason
                     result_obj.tool_event = {
                         "type": "tool_result", "tool": name, "pending_approval": True,
-                        "_capability": {
-                            "id": _cap_id,
-                            "name": _cap_name,
-                            "description": _cap_desc,
-                            "tools_count": len(_cap_data.get("local_tools") or []) if _cap_data else 0,
-                            "skills_count": len(_cap_data.get("skills") or []) if _cap_data else 0,
-                        },
+                        "_capability": _cap_meta["_capability"],
                     }
                     result_obj.result_for_llm = json.dumps({"status": "pending_approval", "reason": _cap_reason})
                     _trace("⏳ %s requires capability approval (%s)", name, _cap_id)
@@ -501,6 +510,7 @@ async def _create_approval_record(
     policy_rule_id: str | None,
     reason: str | None,
     timeout: int,
+    extra_metadata: dict | None = None,
 ) -> str:
     """Create a ToolApproval DB record and return its ID as string."""
     from app.db.engine import async_session
@@ -543,6 +553,7 @@ async def _create_approval_record(
             tool_name=tool_name,
             arguments=arguments,
             reason=reason,
+            extra_metadata=extra_metadata,
         ))
 
     return approval_id
@@ -557,6 +568,7 @@ async def _notify_approval_request(
     tool_name: str,
     arguments: dict,
     reason: str | None,
+    extra_metadata: dict | None = None,
 ) -> None:
     """Send approval notification via the appropriate dispatcher."""
     try:
@@ -570,18 +582,30 @@ async def _notify_approval_request(
                 tool_name=tool_name,
                 arguments=arguments,
                 reason=reason,
+                extra_metadata=extra_metadata,
             )
         else:
             # Fallback: post a text message
-            args_preview = json.dumps(arguments, indent=2)[:300]
-            text = (
-                f"🔒 *Tool approval required*\n"
-                f"Bot: `{bot_id}` | Tool: `{tool_name}`\n"
-                f"Reason: {reason or 'Policy requires approval'}\n"
-                f"```\n{args_preview}\n```\n"
-                f"Approval ID: `{approval_id}`\n"
-                f"Use `POST /api/v1/approvals/{approval_id}/decide` to approve or deny."
-            )
+            cap = (extra_metadata or {}).get("_capability")
+            if cap:
+                text = (
+                    f"✨ *Capability activation — {cap.get('name', tool_name)}*\n"
+                    f"{cap.get('description', '')}\n"
+                    f"Provides: {cap.get('tools_count', 0)} tool(s), {cap.get('skills_count', 0)} skill(s)\n"
+                    f"Bot: `{bot_id}`\n"
+                    f"Approval ID: `{approval_id}`\n"
+                    f"Use `POST /api/v1/approvals/{approval_id}/decide` to approve or deny."
+                )
+            else:
+                args_preview = json.dumps(arguments, indent=2)[:300]
+                text = (
+                    f"🔒 *Tool approval required*\n"
+                    f"Bot: `{bot_id}` | Tool: `{tool_name}`\n"
+                    f"Reason: {reason or 'Policy requires approval'}\n"
+                    f"```\n{args_preview}\n```\n"
+                    f"Approval ID: `{approval_id}`\n"
+                    f"Use `POST /api/v1/approvals/{approval_id}/decide` to approve or deny."
+                )
             await dispatcher.post_message(dispatch_config, text, bot_id=bot_id)
     except Exception:
         logger.exception("Failed to send approval notification for %s", approval_id)

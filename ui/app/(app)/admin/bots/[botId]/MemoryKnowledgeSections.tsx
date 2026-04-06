@@ -7,7 +7,8 @@ import { Check, ChevronDown, Clock, HelpCircle, Play, Trash2, X } from "lucide-r
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useMemorySchemeDefaults } from "@/src/api/hooks/useMemorySchemeDefaults";
 import { useBotMemories, useDeleteMemory } from "@/src/api/hooks/useMemories";
-import { useMemoryHygieneStatus, useTriggerMemoryHygiene } from "@/src/api/hooks/useMemoryHygiene";
+import { useMemoryHygieneStatus, useMemoryHygieneRuns, useTriggerMemoryHygiene } from "@/src/api/hooks/useMemoryHygiene";
+import { HygieneHistoryList } from "./HygieneHistoryList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import {
   TextInput, Toggle, FormRow, Row, Col,
@@ -229,6 +230,50 @@ function ArchitectureOverlay({ onClose }: { onClose: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
+// Reusable collapsible for showing built-in prompt text
+// ---------------------------------------------------------------------------
+function BuiltinPromptCollapsible({ label, content }: { label: string; content: string }) {
+  const t = useThemeTokens();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div style={{
+      marginTop: 8, background: t.surface,
+      border: `1px solid ${t.surfaceRaised}`, borderRadius: 8, overflow: "hidden",
+    }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          display: "flex", alignItems: "center", gap: 8, width: "100%",
+          padding: "8px 12px", background: "none", border: "none",
+          cursor: "pointer", color: t.textMuted,
+        }}
+      >
+        <ChevronDown
+          size={12}
+          style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
+        />
+        <span style={{ fontSize: 11, fontWeight: 600 }}>{label}</span>
+        <span style={{
+          fontSize: 9, padding: "2px 6px", borderRadius: 3,
+          background: t.purpleSubtle, color: t.purpleMuted,
+          marginLeft: 4,
+        }}>auto-injected</span>
+      </button>
+      {open && (
+        <div style={{ padding: "0 12px 10px 12px" }}>
+          <pre style={{
+            margin: 0, fontSize: 11, lineHeight: 1.7, color: t.textMuted,
+            fontFamily: "monospace", whiteSpace: "pre-wrap",
+            background: t.inputBg, borderRadius: 6, padding: 12,
+          }}>{content}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Memory hygiene subsection (workspace-files only)
 // ---------------------------------------------------------------------------
 function MemoryHygieneSubsection({ draft, update, botId }: {
@@ -238,6 +283,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
 }) {
   const t = useThemeTokens();
   const { data: status } = useMemoryHygieneStatus(botId);
+  const { data: runsData } = useMemoryHygieneRuns(botId);
   const triggerMut = useTriggerMemoryHygiene();
   const [showPrompt, setShowPrompt] = useState(false);
 
@@ -350,7 +396,29 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
         </Col>
       </Row>
 
-      {/* Custom prompt (collapsible) */}
+      {/* Model override */}
+      <Row>
+        <Col>
+          <FormRow label="Model" description={status?.model ? `Resolved: ${status.model}` : "Uses bot default"}>
+            <TextInput
+              value={draft.memory_hygiene_model ?? ""}
+              onChangeText={(v) => update({ memory_hygiene_model: v || null })}
+              placeholder={status?.model || "bot default"}
+            />
+          </FormRow>
+        </Col>
+        <Col>
+          <FormRow label="Provider" description={status?.model_provider_id ? `Resolved: ${status.model_provider_id}` : "Uses bot default"}>
+            <TextInput
+              value={draft.memory_hygiene_model_provider_id ?? ""}
+              onChangeText={(v) => update({ memory_hygiene_model_provider_id: v || null })}
+              placeholder={status?.model_provider_id || "bot default"}
+            />
+          </FormRow>
+        </Col>
+      </Row>
+
+      {/* Custom prompt override (collapsible) */}
       <div style={{ marginTop: 8 }}>
         <button
           onClick={() => setShowPrompt(!showPrompt)}
@@ -364,7 +432,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
             size={12}
             style={{ transform: showPrompt ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" } as any}
           />
-          Custom Prompt
+          Custom Prompt Override
           {draft.memory_hygiene_prompt && (
             <span style={{
               fontSize: 9, padding: "1px 5px", borderRadius: 3,
@@ -378,7 +446,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
               value={draft.memory_hygiene_prompt || ""}
               onChange={(v) => update({ memory_hygiene_prompt: v || null })}
               rows={6}
-              placeholder="Leave empty to use global default prompt..."
+              placeholder="Leave empty to use the built-in default prompt..."
               fieldType="memory_hygiene_prompt"
               botId={botId}
             />
@@ -397,6 +465,11 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
           </div>
         )}
       </div>
+
+      {/* Built-in hygiene prompt (collapsible, shown when no custom override) */}
+      {!draft.memory_hygiene_prompt && status?.resolved_prompt && (
+        <BuiltinPromptCollapsible label="Built-in Hygiene Prompt" content={status.resolved_prompt} />
+      )}
 
       {/* Status line + Run Now */}
       {botId && status && (
@@ -433,6 +506,13 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
             <Play size={10} />
             {triggerMut.isPending ? "Running..." : "Run Now"}
           </button>
+        </div>
+      )}
+
+      {/* Run history */}
+      {botId && runsData && runsData.runs.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <HygieneHistoryList runs={runsData.runs} />
         </div>
       )}
     </div>

@@ -41,7 +41,7 @@ export function IntegrationActivationList({
           >
             <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
               <Plug size={16} color={isEnabled ? t.accent : t.textDim} />
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <span style={{
                   display: "block",
                   fontSize: 14,

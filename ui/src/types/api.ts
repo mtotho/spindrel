@@ -78,6 +78,8 @@ export interface BotConfig {
   memory_hygiene_interval_hours?: number | null;
   memory_hygiene_prompt?: string | null;
   memory_hygiene_only_if_active?: boolean | null;
+  memory_hygiene_model?: string | null;
+  memory_hygiene_model_provider_id?: string | null;
   carapaces?: string[];
   workspace_only?: boolean;
   system_prompt_workspace_file?: boolean;
@@ -421,14 +423,10 @@ export interface ChannelSettings {
   model_override?: string | null;
   model_provider_id_override?: string | null;
   fallback_models?: Array<{ model: string; provider_id?: string | null }>;
-  // Tool / skill overrides
-  local_tools_override?: string[] | null;
+  // Tool / skill restrictions
   local_tools_disabled?: string[] | null;
-  mcp_servers_override?: string[] | null;
   mcp_servers_disabled?: string[] | null;
-  client_tools_override?: string[] | null;
   client_tools_disabled?: string[] | null;
-  pinned_tools_override?: string[] | null;
   skills_disabled?: string[] | null;
   skills_extra?: { id: string; mode?: string }[] | null;
   // Workspace overrides
@@ -460,7 +458,7 @@ export interface EffectiveTools {
   client_tools: string[];
   pinned_tools: string[];
   skills: { id: string; mode: string; name?: string }[];
-  mode: Record<string, "inherit" | "override" | "disabled">;
+  mode: Record<string, "inherit" | "disabled">;
   disabled: Record<string, string[]>;
   skills_extra: { id: string; mode?: string }[];
   carapaces: string[];

@@ -545,6 +545,120 @@ class TestMultiBotIdentity:
         prompt = ""
         assert prompt == ""
 
+    @pytest.mark.asyncio
+    async def test_snapshot_strips_primary_system_messages(self):
+        """When using a snapshot, system messages from the primary bot should
+        be stripped and replaced with the member bot's own system prompt."""
+        from app.routers.chat import _run_member_bot_reply
+
+        primary = _make_bot(id="primary", name="Primary Bot", system_prompt="I am the primary bot.")
+        member = _make_bot(id="helper", name="Helper Bot", system_prompt="I am the helper bot.", persona=False)
+
+        # Simulate a snapshot containing the primary bot's system messages + conversation
+        snapshot = [
+            {"role": "system", "content": "You are Primary Bot. I am the primary bot."},
+            {"role": "system", "content": "[PERSONA]\nPrimary persona info"},
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi there from primary"},
+        ]
+
+        captured_messages = []
+
+        async def fake_run_stream(messages, bot, prompt, **kwargs):
+            captured_messages.extend(messages)
+            yield {"type": "response", "text": "Hello from helper"}
+
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary"
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.agent.bots.get_bot", side_effect=lambda bid: member if bid == "helper" else primary), \
+             patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("app.agent.loop.run_stream", fake_run_stream), \
+             patch("app.services.channel_events.publish"), \
+             patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+             patch("app.routers.chat._mirror_to_integration", new_callable=AsyncMock), \
+             patch("app.agent.context.set_agent_context"), \
+             patch("app.routers.chat._record_channel_run"), \
+             patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False):
+            await _run_member_bot_reply(
+                uuid.uuid4(), uuid.uuid4(), "helper", {}, "primary",
+                messages_snapshot=snapshot,
+            )
+
+        # The member bot should NOT see the primary's system prompt
+        system_msgs = [m for m in captured_messages if m.get("role") == "system"]
+        assert len(system_msgs) >= 1
+        first_sys = system_msgs[0]["content"]
+        # Must NOT contain the primary bot's prompt
+        assert "I am the primary bot" not in first_sys
+        assert "Primary persona" not in first_sys
+        # Must contain the member bot's own prompt content
+        assert "I am the helper bot" in first_sys
+
+        # Conversation messages should still be present
+        user_msgs = [m for m in captured_messages if m.get("role") == "user"]
+        assert len(user_msgs) >= 1
+        assert user_msgs[0]["content"] == "Hello"
+
+    @pytest.mark.asyncio
+    async def test_snapshot_injects_persona_when_enabled(self):
+        """When the member bot has persona enabled, its persona should be
+        injected into the snapshot messages."""
+        from app.routers.chat import _run_member_bot_reply
+
+        member = _make_bot(id="helper", name="Helper Bot", system_prompt="I am helper.", persona=True)
+        primary = _make_bot(id="primary", name="Primary Bot", system_prompt="I am primary.")
+
+        snapshot = [
+            {"role": "system", "content": "Primary system prompt"},
+            {"role": "user", "content": "Hi"},
+        ]
+
+        captured_messages = []
+
+        async def fake_run_stream(messages, bot, prompt, **kwargs):
+            captured_messages.extend(messages)
+            yield {"type": "response", "text": "Hello"}
+
+        mock_channel = MagicMock()
+        mock_channel.bot_id = "primary"
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=mock_channel)
+
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.agent.bots.get_bot", side_effect=lambda bid: member if bid == "helper" else primary), \
+             patch("app.db.engine.async_session", return_value=mock_cm), \
+             patch("app.agent.loop.run_stream", fake_run_stream), \
+             patch("app.services.channel_events.publish"), \
+             patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
+             patch("app.routers.chat._mirror_to_integration", new_callable=AsyncMock), \
+             patch("app.agent.context.set_agent_context"), \
+             patch("app.routers.chat._record_channel_run"), \
+             patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False), \
+             patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value="Helper persona text"):
+            await _run_member_bot_reply(
+                uuid.uuid4(), uuid.uuid4(), "helper", {}, "primary",
+                messages_snapshot=snapshot,
+            )
+
+        system_msgs = [m for m in captured_messages if m.get("role") == "system"]
+        # Should have the base system prompt + persona
+        persona_msgs = [m for m in system_msgs if "[PERSONA]" in m.get("content", "")]
+        assert len(persona_msgs) == 1
+        assert "Helper persona text" in persona_msgs[0]["content"]
+
+        # No primary system prompt content should remain
+        assert not any("Primary system prompt" in m.get("content", "") for m in captured_messages)
+
 
 # ---------------------------------------------------------------------------
 # Member bot memory flush
@@ -2131,7 +2245,8 @@ class TestParallelInvocation:
              patch("app.db.engine.async_session") as mock_session_factory, \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
              patch("app.routers.chat._mirror_to_integration", new_callable=AsyncMock), \
-             patch("app.routers.chat._trigger_member_bot_replies", new_callable=AsyncMock) as mock_trigger:
+             patch("app.routers.chat._trigger_member_bot_replies", new_callable=AsyncMock) as mock_trigger, \
+             patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False):
 
             mock_get_bot.side_effect = lambda bid: _make_bot(id=bid, name=bid)
             mock_run_stream.return_value = _fake_stream()

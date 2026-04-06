@@ -238,6 +238,8 @@ class BotConfig:
     memory_hygiene_interval_hours: int | None = None
     memory_hygiene_prompt: str | None = None
     memory_hygiene_only_if_active: bool | None = None
+    memory_hygiene_model: str | None = None
+    memory_hygiene_model_provider_id: str | None = None
     # System prompt from workspace file
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False
@@ -460,6 +462,8 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         memory_hygiene_interval_hours=getattr(row, "memory_hygiene_interval_hours", None),
         memory_hygiene_prompt=getattr(row, "memory_hygiene_prompt", None),
         memory_hygiene_only_if_active=getattr(row, "memory_hygiene_only_if_active", None),
+        memory_hygiene_model=getattr(row, "memory_hygiene_model", None),
+        memory_hygiene_model_provider_id=getattr(row, "memory_hygiene_model_provider_id", None),
         system_prompt_workspace_file=getattr(row, "system_prompt_workspace_file", False),
         system_prompt_write_protected=getattr(row, "system_prompt_write_protected", False),
         source_type=getattr(row, "source_type", "manual"),
@@ -543,6 +547,8 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "memory_hygiene_interval_hours": data.get("memory_hygiene_interval_hours"),
         "memory_hygiene_prompt": data.get("memory_hygiene_prompt"),
         "memory_hygiene_only_if_active": data.get("memory_hygiene_only_if_active"),
+        "memory_hygiene_model": data.get("memory_hygiene_model"),
+        "memory_hygiene_model_provider_id": data.get("memory_hygiene_model_provider_id"),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }

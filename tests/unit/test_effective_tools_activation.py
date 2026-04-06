@@ -30,13 +30,9 @@ def _bot(**kwargs) -> BotConfig:
 
 def _channel(**kwargs) -> SimpleNamespace:
     defaults = dict(
-        local_tools_override=None,
         local_tools_disabled=None,
-        mcp_servers_override=None,
         mcp_servers_disabled=None,
-        client_tools_override=None,
         client_tools_disabled=None,
-        pinned_tools_override=None,
         skills_disabled=None,
         skills_extra=None,
         carapaces_extra=None,

@@ -155,33 +155,54 @@ DEFAULT_MEMORY_HYGIENE_PROMPT = """\
 [MEMORY HYGIENE — Periodic Review]
 
 You are running a scheduled memory hygiene pass across all your channels.
-Your goal: keep memory lean, promote stable facts, prune stale entries, and consolidate skills.
+Your goal: keep memory lean, promote stable facts, prune stale entries, detect contradictions,
+generate cross-channel reflections, and consolidate skills.
 
 ## Step 1 — Survey channels
-Use `list_workspace_channels()` to see all your channels. For each active channel:
+Use `list_workspace_channels()` to see all your channels (including member channels). For each active channel:
 - Use `read_conversation_history(section="index", channel_id=<id>)` to review recent activity.
 - Note channels with no recent activity (candidates for archiving stale daily logs).
 
-## Step 2 — Curate MEMORY.md
+## Step 2 — Curate MEMORY.md (with contradiction detection + lifecycle metadata)
 Read your current memory/MEMORY.md. For each entry:
-- Is it still accurate? Remove or update stale facts.
-- Is there a duplicate? Merge entries.
-- Are there facts confirmed across multiple recent sessions that aren't captured yet? Add them.
+- **Accuracy**: Is it still true? Remove or update stale facts.
+- **Duplicates**: Merge overlapping entries.
+- **Contradictions**: Check for conflicting entries. When found, keep the newer/more reliable one and archive the old with `<!-- superseded YYYY-MM-DD: reason -->`. Contradictions between channels are common — resolve by checking which is more recent or authoritative.
+- **Missing facts**: Are there facts confirmed across multiple recent sessions that aren't captured yet? Add them.
+- **Lifecycle annotations**: When adding or updating entries, include `[updated: YYYY-MM-DD]` for significant changes. Add `[confidence: high|medium|low]` for uncertain facts. Add `[source: channel-name]` when a fact comes from a specific channel.
 - Keep MEMORY.md under ~100 lines. Move detailed context to memory/reference/ files.
 
-## Step 3 — Curate reference files
+## Step 3 — Curate reference files (with staleness detection)
 List memory/reference/ files. For each:
 - Is it still relevant? Delete outdated files.
 - Are there overlapping files? Merge them.
 - Are any files growing too large? Split into focused topics.
+- **Staleness check**: If a file has `[updated: ...]` annotations older than 30 days, flag it for review. If the content is still valid, update the date. If stale, archive or delete.
 
-## Step 4 — Promote from daily logs
-Scan recent daily logs (last 3-7 days). Look for:
+## Step 4 — Promote from daily logs (with importance scoring)
+Scan recent daily logs (last 3-7 days). For each candidate entry, mentally score on these 5 factors:
+1. **Future utility** — Will this be useful in future sessions? (high for decisions, procedures, preferences)
+2. **Factual confidence** — Is this confirmed or speculative? (high for user-stated facts, low for inferences)
+3. **Semantic novelty** — Is this genuinely new info or a repeat? (skip if already captured)
+4. **Temporal recency** — Is this from a recent interaction? (prefer last 3 days)
+5. **Content type** — Decisions and corrections ALWAYS promote. Observations only if recurring.
+
+Promote entries scoring well on 3+ factors:
 - Stable facts or decisions → promote to memory/MEMORY.md (edit in place, don't append)
 - Reusable procedures or patterns → create skills with `manage_bot_skill(action="create", ...)`
 - Detailed reference info → move to memory/reference/ files
 
-## Step 5 — Skill hygiene
+## Step 5 — Cross-channel reflection
+After reviewing all channels, generate 3-5 meta-observations. Look for:
+- **Recurring patterns**: Similar requests or problems appearing across channels
+- **Cross-project connections**: Information from one channel that's relevant to another
+- **Emerging themes**: New topics or interests the user is developing
+- **Workflow insights**: Better ways you could serve the user based on observed patterns
+- **Knowledge gaps**: Topics you've been asked about but lack good information on
+
+Write these as `[reflection]` entries in the appropriate section of MEMORY.md. Reflections should be actionable — "User frequently asks about X, consider creating a skill" rather than "User is interested in X."
+
+## Step 6 — Skill hygiene
 Use `manage_bot_skill(action="list")` to review all your skills. For each skill, check:
 - **Surfacing**: check `surface_count` and `last_surfaced_at`. Skills that haven't surfaced in 14+ days may have weak triggers or cover irrelevant topics.
 - **Relevance**: is the content still accurate? Has your understanding improved since you wrote it?
@@ -193,8 +214,18 @@ Take action:
 - **Outdated content**: use `action="patch"` for small fixes, `action="update"` for full rewrites
 - **Missing coverage**: if recent daily logs show recurring topics with no matching skill, create new skills now
 
-## Step 6 — Summarize
-Write a brief summary of changes made to today's daily log."""
+## Step 7 — Archive maintenance
+- Archive daily logs older than 14 days that have already been processed (promoted/reviewed).
+- Clean up orphaned reference files that are no longer linked from MEMORY.md.
+- Update any `<!-- superseded -->` references that are older than 30 days — delete them entirely.
+
+## Step 8 — Summarize
+Write a brief summary to today's daily log including:
+- Entries added / updated / removed
+- Contradictions resolved (if any)
+- Reflections generated
+- Skills created / merged / deleted
+- Files archived or cleaned up"""
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +546,7 @@ class Settings(BaseSettings):
     # Tool policies
     TOOL_POLICY_DEFAULT_ACTION: str = "deny"  # "allow", "deny", or "require_approval" — what happens when no rule matches
     TOOL_POLICY_ENABLED: bool = True  # master switch for the policy engine
+    TOOL_POLICY_TIER_GATING: bool = True  # use safety_tier to set default actions for dangerous tools
 
     # Host execution
     HOST_EXEC_ENABLED: bool = False
@@ -621,6 +653,8 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     MEMORY_HYGIENE_INTERVAL_HOURS: int = 24
     MEMORY_HYGIENE_PROMPT: str = ""  # empty = use DEFAULT_MEMORY_HYGIENE_PROMPT
     MEMORY_HYGIENE_ONLY_IF_ACTIVE: bool = True
+    MEMORY_HYGIENE_MODEL: str = ""  # empty = use bot's default model
+    MEMORY_HYGIENE_MODEL_PROVIDER_ID: str = ""  # empty = use bot's default provider
 
     # Channel workspace injection prompt.
     # Placeholders: {workspace_path}, {channel_id}, {data_listing}

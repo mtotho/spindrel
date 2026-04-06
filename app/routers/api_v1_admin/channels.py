@@ -361,14 +361,10 @@ class ChannelSettingsOut(BaseModel):
     section_index_verbosity: Optional[str] = None
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
-    # Tool / skill overrides
-    local_tools_override: Optional[list[str]] = None
+    # Tool / skill restrictions
     local_tools_disabled: Optional[list[str]] = None
-    mcp_servers_override: Optional[list[str]] = None
     mcp_servers_disabled: Optional[list[str]] = None
-    client_tools_override: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
-    pinned_tools_override: Optional[list[str]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
@@ -433,14 +429,10 @@ class ChannelSettingsUpdate(BaseModel):
     section_index_verbosity: Optional[str] = None
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
-    # Tool / skill overrides (set to null to clear → revert to inherit)
-    local_tools_override: Optional[list[str]] = None
+    # Tool / skill restrictions (set to null to clear → revert to inherit)
     local_tools_disabled: Optional[list[str]] = None
-    mcp_servers_override: Optional[list[str]] = None
     mcp_servers_disabled: Optional[list[str]] = None
-    client_tools_override: Optional[list[str]] = None
     client_tools_disabled: Optional[list[str]] = None
-    pinned_tools_override: Optional[list[str]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
@@ -714,7 +706,7 @@ class EffectiveToolsOut(BaseModel):
     client_tools: list[str]
     pinned_tools: list[str]
     skills: list[dict]
-    mode: dict  # per-category mode: "inherit" | "override" | "disabled"
+    mode: dict  # per-category mode: "inherit" | "disabled"
     disabled: dict = {}  # per-category disabled lists
     skills_extra: list[dict] = []  # channel-added skills
     carapaces: list[str] = []  # resolved carapace IDs
@@ -785,9 +777,7 @@ async def admin_channel_effective_tools(
     _eff_set = set(eff.carapaces)
     carapace_sources = {k: v for k, v in _carapace_sources.items() if k in _eff_set}
 
-    def _mode(override, disabled):
-        if override is not None:
-            return "override"
+    def _mode(disabled):
         if disabled is not None:
             return "disabled"
         return "inherit"
@@ -814,10 +804,10 @@ async def admin_channel_effective_tools(
             "name": skill_names.get(s.id, s.id),
         } for s in eff.skills],
         mode={
-            "local_tools": _mode(channel.local_tools_override, channel.local_tools_disabled),
-            "mcp_servers": _mode(channel.mcp_servers_override, channel.mcp_servers_disabled),
-            "client_tools": _mode(channel.client_tools_override, channel.client_tools_disabled),
-            "pinned_tools": "override" if channel.pinned_tools_override is not None else "inherit",
+            "local_tools": _mode(channel.local_tools_disabled),
+            "mcp_servers": _mode(channel.mcp_servers_disabled),
+            "client_tools": _mode(channel.client_tools_disabled),
+            "pinned_tools": "inherit",
             "skills": "disabled" if channel.skills_disabled else "inherit",
         },
         disabled={

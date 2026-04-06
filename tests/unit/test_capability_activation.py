@@ -615,3 +615,25 @@ class TestCapabilityApprovalGate:
                 result = await dispatch_tool_call(**kwargs)
 
         assert result.needs_approval is False
+
+    @pytest.mark.asyncio
+    async def test_approval_notification_includes_metadata(self):
+        """_create_approval_record should be called with extra_metadata containing _capability."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+
+        kwargs = _dispatch_kwargs()
+        mock_create = AsyncMock(return_value="approval-123")
+
+        with _apply_patches(_gate_patches()):
+            with patch("app.agent.tool_dispatch._create_approval_record", mock_create):
+                result = await dispatch_tool_call(**kwargs)
+
+        assert result.needs_approval is True
+        mock_create.assert_called_once()
+        call_kwargs = mock_create.call_args[1]
+        assert "extra_metadata" in call_kwargs
+        cap = call_kwargs["extra_metadata"]["_capability"]
+        assert cap["id"] == "code-review"
+        assert cap["name"] == "Code Review"
+        assert cap["tools_count"] == 1
+        assert cap["skills_count"] == 1

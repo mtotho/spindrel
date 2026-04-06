@@ -122,10 +122,11 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- Tool Policies ---
     "TOOL_POLICY_ENABLED": {"group": "Tool Policies", "label": "Enabled", "description": "Master switch for the tool policy engine", "type": "bool"},
     "TOOL_POLICY_DEFAULT_ACTION": {"group": "Tool Policies", "label": "Default Action", "description": "Action when no rule matches: allow, deny, or require_approval", "type": "string", "options": ["allow", "deny", "require_approval"]},
+    "TOOL_POLICY_TIER_GATING": {"group": "Tool Policies", "label": "Tier-Based Gating", "description": "Auto-require approval for exec_capable and control_plane tools when no explicit rule matches", "type": "bool"},
     # --- Memory Hygiene ---
     "MEMORY_HYGIENE_ENABLED": {"group": "Memory Hygiene", "label": "Enabled", "description": "Enable periodic memory hygiene jobs for workspace-files bots. Bots review cross-channel memory, promote stable facts, prune stale entries, and consolidate skills.", "type": "bool"},
     "MEMORY_HYGIENE_INTERVAL_HOURS": {"group": "Memory Hygiene", "label": "Interval (hours)", "description": "Hours between hygiene runs (per-bot override available)", "type": "int", "min": 1, "max": 720},
-    "MEMORY_HYGIENE_PROMPT": {"group": "Memory Hygiene", "label": "Hygiene Prompt", "description": "Custom prompt for hygiene runs. Empty = use built-in default.", "type": "string", "widget": "textarea", "nullable": True},
+    "MEMORY_HYGIENE_PROMPT": {"group": "Memory Hygiene", "label": "Hygiene Prompt", "description": "Custom prompt for hygiene runs. Leave empty to use the built-in default shown below.", "type": "string", "widget": "textarea", "nullable": True, "builtin_default_key": "DEFAULT_MEMORY_HYGIENE_PROMPT"},
     "MEMORY_HYGIENE_ONLY_IF_ACTIVE": {"group": "Memory Hygiene", "label": "Only If Active", "description": "Skip hygiene if the bot has had no user messages since the last run", "type": "bool"},
     # --- Heartbeat ---
     "HEARTBEAT_QUIET_HOURS": {"group": "Heartbeat", "label": "Quiet Hours", "description": "Time window where heartbeats slow (e.g. 23:00-07:00)", "type": "string"},
@@ -271,6 +272,9 @@ async def get_all_settings() -> list[dict[str, Any]]:
             entry["widget"] = schema["widget"]
         if schema.get("ui_hidden"):
             entry["ui_hidden"] = True
+        if schema.get("builtin_default_key"):
+            from app import config as _cfg
+            entry["builtin_default"] = getattr(_cfg, schema["builtin_default_key"], None)
 
         groups.setdefault(group, []).append(entry)
 

@@ -22,9 +22,11 @@ def reset_policy_settings():
     """Save and restore policy settings so tests don't leak."""
     orig_action = settings.TOOL_POLICY_DEFAULT_ACTION
     orig_enabled = settings.TOOL_POLICY_ENABLED
+    orig_tier_gating = settings.TOOL_POLICY_TIER_GATING
     yield
     settings.TOOL_POLICY_DEFAULT_ACTION = orig_action
     settings.TOOL_POLICY_ENABLED = orig_enabled
+    settings.TOOL_POLICY_TIER_GATING = orig_tier_gating
 
 
 @pytest.mark.asyncio
@@ -103,14 +105,16 @@ async def test_policy_test_endpoint(client):
     assert r.json()["action"] == "deny"
     assert r.json()["reason"] == "No rm allowed"
 
-    # Test: ls command should fall through to default action (deny by default)
+    # Test: ls command should be gated by tier (exec_capable → require_approval)
     r = await client.post("/api/v1/tool-policies/test", json={
         "bot_id": "test-bot",
         "tool_name": "exec_command",
         "arguments": {"command": "ls -la"},
     }, headers=AUTH_HEADERS)
     assert r.status_code == 200
-    assert r.json()["action"] == "deny"  # default is deny when no rule matches
+    # exec_command is exec_capable, tier gating returns require_approval before global default
+    assert r.json()["action"] == "require_approval"
+    assert r.json()["tier"] == "exec_capable"
 
 
 @pytest.mark.asyncio
@@ -192,6 +196,8 @@ async def test_get_policy_settings(client):
     assert "default_action" in data
     assert "enabled" in data
     assert isinstance(data["enabled"], bool)
+    assert "tier_gating" in data
+    assert isinstance(data["tier_gating"], bool)
 
 
 @pytest.mark.asyncio

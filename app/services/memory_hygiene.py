@@ -6,6 +6,7 @@ standard agent tasks (task_type="memory_hygiene") to perform the curation.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -55,23 +56,47 @@ def resolve_prompt(bot_row: BotRow) -> str:
     return DEFAULT_MEMORY_HYGIENE_PROMPT
 
 
+def resolve_model(bot_row: BotRow) -> str | None:
+    """Resolve the model for hygiene runs: bot > global > None (use bot default)."""
+    val = getattr(bot_row, "memory_hygiene_model", None)
+    if val:
+        return val
+    if settings.MEMORY_HYGIENE_MODEL:
+        return settings.MEMORY_HYGIENE_MODEL
+    return None
+
+
+def resolve_model_provider_id(bot_row: BotRow) -> str | None:
+    """Resolve the model provider for hygiene runs: bot > global > None (use bot default)."""
+    val = getattr(bot_row, "memory_hygiene_model_provider_id", None)
+    if val:
+        return val
+    if settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID:
+        return settings.MEMORY_HYGIENE_MODEL_PROVIDER_ID
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Activity check
 # ---------------------------------------------------------------------------
 
 async def _has_activity_since(bot_id: str, since: datetime, db: AsyncSession) -> bool:
-    """Check if any user messages exist across the bot's channels since timestamp."""
+    """Check if any user messages exist across the bot's channels since timestamp.
+
+    Includes channels where the bot is a member (via ChannelBotMember).
+    """
     from app.db.models import Channel, Session
+    from app.services.channels import bot_channel_filter
 
     # Join Message → Session → Channel to find user messages across all
-    # channels belonging to this bot.
+    # channels belonging to this bot (primary or member).
     count = (await db.execute(
         select(func.count())
         .select_from(Message)
         .join(Session, Message.session_id == Session.id)
         .join(Channel, Session.channel_id == Channel.id)
         .where(
-            Channel.bot_id == bot_id,
+            bot_channel_filter(bot_id),
             Message.role == "user",
             Message.created_at >= since,
         )
@@ -95,6 +120,17 @@ async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: boo
 
     prompt = resolve_prompt(bot_row)
 
+    # Build execution_config with model overrides if set
+    exec_cfg: dict | None = None
+    model = resolve_model(bot_row)
+    provider = resolve_model_provider_id(bot_row)
+    if model or provider:
+        exec_cfg = {}
+        if model:
+            exec_cfg["model_override"] = model
+        if provider:
+            exec_cfg["model_provider_id_override"] = provider
+
     task = Task(
         id=uuid.uuid4(),
         bot_id=bot_id,
@@ -104,6 +140,7 @@ async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: boo
         status="pending",
         run_at=datetime.now(timezone.utc),
         dispatch_type="none",
+        execution_config=exec_cfg,
         # No channel_id — cross-channel run
         channel_id=None,
         session_id=None,
@@ -118,15 +155,31 @@ async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: boo
 
 
 # ---------------------------------------------------------------------------
+# Stagger offset (spread bots across interval to avoid thundering herd)
+# ---------------------------------------------------------------------------
+
+def _stagger_offset_minutes(bot_id: str, interval_hours: int) -> int:
+    """Deterministic offset from bot_id hash, spread across interval window."""
+    window = max(interval_hours * 60, 1)  # guard against zero
+    h = int(hashlib.md5(bot_id.encode()).hexdigest(), 16)
+    return h % window
+
+
+# ---------------------------------------------------------------------------
 # Schedule bootstrap (called when hygiene is first enabled via admin API)
 # ---------------------------------------------------------------------------
 
 async def bootstrap_hygiene_schedule(bot_row: BotRow, db: AsyncSession) -> None:
-    """Set next_hygiene_run_at when hygiene is enabled for the first time."""
+    """Set next_hygiene_run_at when hygiene is enabled for the first time.
+
+    Uses a deterministic stagger offset so bots with the same interval
+    don't all fire at the same time.
+    """
     interval = resolve_interval(bot_row)
-    bot_row.next_hygiene_run_at = datetime.now(timezone.utc) + timedelta(hours=interval)
+    offset = _stagger_offset_minutes(bot_row.id, interval)
+    bot_row.next_hygiene_run_at = datetime.now(timezone.utc) + timedelta(minutes=offset)
     await db.commit()
-    logger.info("Bootstrapped hygiene schedule for bot %s: next run at %s", bot_row.id, bot_row.next_hygiene_run_at)
+    logger.info("Bootstrapped hygiene schedule for bot %s: next run at %s (offset %dm)", bot_row.id, bot_row.next_hygiene_run_at, offset)
 
 
 # ---------------------------------------------------------------------------

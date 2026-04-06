@@ -179,16 +179,18 @@ class SlackDispatcher:
         tool_name: str,
         arguments: dict,
         reason: str | None,
+        extra_metadata: dict | None = None,
     ) -> None:
         """Send a Block Kit message with Approve/Deny buttons for a tool approval.
 
-        Button layout (designed to minimize repeat approvals):
-        Row 1 (primary actions):
-          - "Allow always" (primary) — creates permanent bot-scoped rule
-          - "Approve this run" — session-scoped allow for this conversation
-          - "Deny" (danger)
-        Row 2 (rule suggestions):
-          - Up to 3 smart suggestions (global rule, narrower patterns, etc.)
+        For capability activations (extra_metadata contains _capability):
+          - Shows capability name/description instead of raw tool name
+          - "Allow & Pin" button to permanently add to bot's carapaces
+          - No args preview, no generic tool-policy suggestions
+
+        For regular tool approvals:
+          Row 1: Allow always | Approve this run | Deny
+          Row 2: Smart rule suggestions
         """
         import json as _json
         channel_id = dispatch_config.get("channel_id")
@@ -198,15 +200,110 @@ class SlackDispatcher:
             logger.warning("SlackDispatcher.request_approval: missing channel_id or token")
             return
 
-        args_preview = _json.dumps(arguments, indent=2)[:500]
         attrs = bot_attribution(bot_id)
+        cap = (extra_metadata or {}).get("_capability")
 
-        # Build smart suggestions (broadest-first)
+        if cap:
+            blocks = self._build_capability_approval_blocks(
+                _json, approval_id, bot_id, cap, reason,
+            )
+            fallback_text = f"Capability activation: {cap.get('name', 'unknown')} (approval {approval_id})"
+        else:
+            blocks = self._build_tool_approval_blocks(
+                _json, approval_id, bot_id, tool_name, arguments, reason,
+            )
+            fallback_text = f"Tool approval required: {tool_name} (approval {approval_id})"
+
+        import httpx
+        payload: dict = {
+            "channel": channel_id,
+            "text": fallback_text,
+            "blocks": blocks,
+        }
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+        if attrs.get("username"):
+            payload["username"] = attrs["username"]
+        if attrs.get("icon_emoji"):
+            payload["icon_emoji"] = attrs["icon_emoji"]
+        elif attrs.get("icon_url"):
+            payload["icon_url"] = attrs["icon_url"]
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(
+                    "https://slack.com/api/chat.postMessage",
+                    json=payload,
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                r.raise_for_status()
+                data = r.json()
+                if not data.get("ok"):
+                    logger.error("Slack approval message error: %s", data.get("error"))
+        except Exception:
+            logger.exception("Failed to send approval message for %s", approval_id)
+
+    @staticmethod
+    def _build_capability_approval_blocks(_json, approval_id, bot_id, cap, reason):
+        """Block Kit layout for capability activation approvals."""
+        cap_name = cap.get("name", "Unknown")
+        cap_desc = cap.get("description", "")
+        cap_id = cap.get("id", "")
+        tools_count = cap.get("tools_count", 0)
+        skills_count = cap.get("skills_count", 0)
+
+        header_lines = [f":sparkles: *Capability activation — {cap_name}*"]
+        if cap_desc:
+            header_lines.append(cap_desc)
+        header_lines.append(f"Provides: {tools_count} tool{'s' if tools_count != 1 else ''}, {skills_count} skill{'s' if skills_count != 1 else ''}")
+        header_lines.append(f"Bot: `{bot_id}`")
+
+        primary_actions = [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Allow"},
+                "action_id": "approve_tool_call",
+                "value": approval_id,
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Allow & Pin"},
+                "style": "primary",
+                "action_id": "pin_capability",
+                "value": _json.dumps({
+                    "approval_id": approval_id,
+                    "capability_id": cap_id,
+                    "capability_name": cap_name,
+                }),
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Deny"},
+                "style": "danger",
+                "action_id": "deny_tool_call",
+                "value": approval_id,
+            },
+        ]
+
+        return [
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": "\n".join(header_lines),
+                },
+            },
+            {"type": "actions", "elements": primary_actions},
+        ]
+
+    @staticmethod
+    def _build_tool_approval_blocks(_json, approval_id, bot_id, tool_name, arguments, reason):
+        """Block Kit layout for regular tool approvals."""
+        args_preview = _json.dumps(arguments, indent=2)[:500]
+
         from app.services.approval_suggestions import build_suggestions
         suggestions = build_suggestions(tool_name, arguments)
 
-        # --- Row 1: Primary actions (always shown) ---
-        # "Allow always" creates a permanent bot-scoped allow rule
         primary_actions = [
             {
                 "type": "button",
@@ -237,10 +334,7 @@ class SlackDispatcher:
             },
         ]
 
-        # --- Row 2: Smart suggestions (skip the first 2 which are the broad
-        # "all bots" and "always" options — those are covered by row 1) ---
         suggestion_actions = []
-        # The first suggestion is "all bots" global — always include it
         if suggestions and suggestions[0].scope == "global":
             sug = suggestions[0]
             suggestion_actions.append({
@@ -256,13 +350,12 @@ class SlackDispatcher:
                     "label": sug.label,
                 }),
             })
-        # Add narrower suggestions (skip the broad ones we already have)
         narrow_start = next(
             (i for i, s in enumerate(suggestions) if s.conditions),
             len(suggestions),
         )
         for i, sug in enumerate(suggestions[narrow_start:narrow_start + 4]):
-            if len(suggestion_actions) >= 5:  # Slack max per actions block
+            if len(suggestion_actions) >= 5:
                 break
             suggestion_actions.append({
                 "type": "button",
@@ -301,35 +394,7 @@ class SlackDispatcher:
         ]
         if suggestion_actions:
             blocks.append({"type": "actions", "elements": suggestion_actions})
-
-        import httpx
-        payload: dict = {
-            "channel": channel_id,
-            "text": f"Tool approval required: {tool_name} (approval {approval_id})",
-            "blocks": blocks,
-        }
-        if thread_ts:
-            payload["thread_ts"] = thread_ts
-        if attrs.get("username"):
-            payload["username"] = attrs["username"]
-        if attrs.get("icon_emoji"):
-            payload["icon_emoji"] = attrs["icon_emoji"]
-        elif attrs.get("icon_url"):
-            payload["icon_url"] = attrs["icon_url"]
-
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.post(
-                    "https://slack.com/api/chat.postMessage",
-                    json=payload,
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-                r.raise_for_status()
-                data = r.json()
-                if not data.get("ok"):
-                    logger.error("Slack approval message error: %s", data.get("error"))
-        except Exception:
-            logger.exception("Failed to send approval message for %s", approval_id)
+        return blocks
 
 
 register("slack", SlackDispatcher())
