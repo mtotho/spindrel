@@ -76,12 +76,14 @@ export function MessageActions({
 // Avatar
 // ---------------------------------------------------------------------------
 
-export function Avatar({ name, isUser }: { name: string; isUser: boolean }) {
+export function Avatar({ name, isUser, onClick }: { name: string; isUser: boolean; onClick?: () => void }) {
   const bg = isUser ? "#4b5563" : avatarColorLocal(name);
   const letter = isUser ? "U" : (name[0] || "B").toUpperCase();
+  const clickable = !isUser && !!onClick;
 
   return (
     <div
+      onClick={clickable ? onClick : undefined}
       style={{
         width: 36,
         height: 36,
@@ -92,6 +94,7 @@ export function Avatar({ name, isUser }: { name: string; isUser: boolean }) {
         justifyContent: "center",
         flexShrink: 0,
         userSelect: "none",
+        cursor: clickable ? "pointer" : undefined,
       }}
     >
       <span style={{ color: "#fff", fontSize: 14, fontWeight: 700 }}>

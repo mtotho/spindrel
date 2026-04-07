@@ -176,7 +176,7 @@ async def _trigger_member_bot_replies(
     except Exception:
         logger.exception("Failed to detect member mentions in channel %s", channel_id)
         return []
-    # Filter out bots already invoked (e.g. via invoke_member_bot tool)
+    # Filter out bots already invoked (e.g. via auto-mention detection)
     if already_invoked:
         mentioned = [(bid, cfg) for bid, cfg in mentioned if bid not in already_invoked]
     for bot_id, member_config in mentioned:

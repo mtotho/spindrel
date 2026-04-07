@@ -20,13 +20,15 @@ interface Props {
   botName?: string;
   /** Whether this message is "grouped" with the previous (same author, close in time) */
   isGrouped?: boolean;
+  /** Called when user clicks a bot's avatar/name (passes sender_bot_id if available, else null) */
+  onBotClick?: (senderBotId: string | null) => void;
 }
 
 // ---------------------------------------------------------------------------
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick }: Props) {
   const isWeb = Platform.OS === "web";
   const t = useThemeTokens();
   const meta = message.metadata || {};
@@ -143,12 +145,17 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     );
   }
 
+  // Click handler for bot avatar/name — passes sender_bot_id from metadata when available
+  const handleBotClick = !isUser && onBotClick
+    ? () => onBotClick((meta.sender_bot_id as string) || null)
+    : undefined;
+
   // Full message -- avatar + name header + content
   const webInner = isWeb ? (
     <>
       {/* Avatar */}
       <div style={{ paddingTop: 2 }}>
-        <Avatar name={displayName} isUser={isUser} />
+        <Avatar name={displayName} isUser={isUser} onClick={handleBotClick} />
       </div>
 
       {/* Content */}
@@ -156,11 +163,18 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         {/* Name + timestamp header */}
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2, userSelect: "none" }}>
           <span
+            onClick={handleBotClick}
+            className={handleBotClick ? "bot-name-link" : undefined}
             style={{
               fontSize: 15,
               fontWeight: 700,
               color: isUser ? t.text : avatarColor(displayName),
+              cursor: handleBotClick ? "pointer" : undefined,
+              borderBottom: handleBotClick ? "1px solid transparent" : undefined,
+              transition: handleBotClick ? "border-color 0.15s" : undefined,
             }}
+            onMouseEnter={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = avatarColor(displayName); } : undefined}
+            onMouseLeave={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
           >
             {displayName}
           </span>

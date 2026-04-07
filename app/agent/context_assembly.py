@@ -1183,12 +1183,11 @@ async def assemble_context(
             "This channel has multiple bot participants:\n"
             + "\n".join(_participant_lines)
         )
-        # Primary bots can invoke/mention other bots; member bots should just respond.
+        # Primary bots can @-mention other bots; member bots should just respond.
         # system_preamble is set for non-primary bots (routed, mentioned, invoked).
         if not system_preamble:
             _awareness_msg += (
-                "\nTo bring another bot into the conversation mid-turn, use the `invoke_member_bot` tool."
-                "\nYou can also @-mention bots by bot_id or display name (e.g., @dev_bot or @Dev Bot)."
+                "\nYou can @-mention bots by bot_id or display name (e.g., @dev_bot or @Dev Bot) to bring them into the conversation."
                 "\nDo not @-mention yourself."
             )
         else:
@@ -1197,18 +1196,6 @@ async def assemble_context(
                 "do not invoke or @-mention other bots."
             )
         messages.append({"role": "system", "content": _awareness_msg})
-
-        # Auto-inject invoke_member_bot tool for primary bots only.
-        # Member bots (system_preamble set) should just respond, not invoke others.
-        from app.agent.context import current_injected_tools
-        _member_tool_schemas = get_local_tool_schemas(["invoke_member_bot"]) if not system_preamble else []
-        if _member_tool_schemas:
-            _existing_injected = current_injected_tools.get() or []
-            _existing_names = {t["function"]["name"] for t in _existing_injected}
-            for _mt in _member_tool_schemas:
-                if _mt["function"]["name"] not in _existing_names:
-                    _existing_injected.append(_mt)
-            current_injected_tools.set(_existing_injected)
 
         yield {"type": "multi_bot_awareness", "member_count": len(_member_bot_ids)}
 

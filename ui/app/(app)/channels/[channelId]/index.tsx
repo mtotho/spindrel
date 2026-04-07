@@ -30,6 +30,7 @@ import { HudInputBar } from "./hud/HudInputBar";
 import { HudFloatingAction } from "./hud/HudFloatingAction";
 import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
 import { ParticipantsPanel } from "./ParticipantsPanel";
+import { BotInfoPanel } from "@/src/components/chat/BotInfoPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
 import { shouldGroup, formatDateSeparator, isDifferentDay } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
@@ -138,6 +139,7 @@ export default function ChatScreen() {
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [participantsPanelOpen, setParticipantsPanelOpen] = useState(false);
+  const [botInfoBotId, setBotInfoBotId] = useState<string | null>(null);
   const memberBotCount = channel?.member_bots?.length ?? 0;
 
   const {
@@ -183,6 +185,15 @@ export default function ChatScreen() {
   // - Web (column-reverse container): no per-cell flip, so DateSeparator must
   //   come BEFORE the message in DOM to appear above it. Using column-reverse
   //   on each wrapper would break text selection (same bug as scaleY transforms).
+  // When a bot avatar/name is clicked in a message, show the BotInfoPanel.
+  // senderBotId comes from message metadata; fall back to channel's primary bot.
+  const handleBotClick = useCallback(
+    (senderBotId: string | null) => {
+      setBotInfoBotId(senderBotId || channel?.bot_id || null);
+    },
+    [channel?.bot_id],
+  );
+
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
       const prevMsg = invertedData[index + 1];
@@ -194,10 +205,10 @@ export default function ChatScreen() {
         const card = <TriggerCard message={item} botName={bot?.name} />;
         return <>{dateSep}{card}</>;
       }
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={showDateSep ? false : grouped} />;
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={showDateSep ? false : grouped} onBotClick={handleBotClick} />;
       return <>{dateSep}{bubble}</>;
     },
-    [invertedData, bot?.name]
+    [invertedData, bot?.name, handleBotClick]
   );
 
   // ---- Workspace / file explorer state ----
@@ -599,6 +610,13 @@ export default function ChatScreen() {
             setSecretWarning(null);
             router.push("/admin/secret-values" as any);
           }}
+        />
+      )}
+      {botInfoBotId && channelId && (
+        <BotInfoPanel
+          botId={botInfoBotId}
+          channelId={channelId}
+          onClose={() => setBotInfoBotId(null)}
         />
       )}
     </>

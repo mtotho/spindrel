@@ -280,7 +280,6 @@ async def chat(
         )
 
     # Multi-bot: trigger member bots @-mentioned in the user's message.
-    # Skip any bots already invoked mid-turn by the invoke_member_bot tool.
     _user_mentioned: set[str] = set()
     if channel_id:
         from app.agent.context import current_invoked_member_bots as _cimb
@@ -290,7 +289,7 @@ async def chat(
             _um_snap = ctx.raw_snapshot  # Already deep-copied, metadata intact
             for _bid, _cfg in _um:
                 if _bid in _already_invoked:
-                    continue  # Already fired by invoke_member_bot during the run
+                    continue
                 _user_mentioned.add(_bid)
                 _um_task = asyncio.create_task(
                     _run_member_bot_reply(
@@ -654,7 +653,7 @@ async def chat_stream(
                         _um_task.add_done_callback(_background_tasks.discard)
                         _auto_invoked_ids.add(_um_bot_id)
 
-                    # Seed context var so invoke_member_bot tool won't double-fire
+                    # Seed context var so dedup logic skips these bots
                     from app.agent.context import current_invoked_member_bots
                     current_invoked_member_bots.set(_auto_invoked_ids)
 
@@ -671,7 +670,7 @@ async def chat_stream(
                         "content": (
                             f"The following bots were auto-invoked by the user's @-mentions and are "
                             f"already responding in parallel: {', '.join(_auto_names)}. "
-                            f"Do NOT use invoke_member_bot to invoke them again."
+                            f"Do NOT @-mention them again in your response."
                         ),
                     })
 

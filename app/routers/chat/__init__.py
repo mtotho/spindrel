@@ -1,7 +1,7 @@
 """Chat router package — re-exports for backward compatibility.
 
-All external code (app/tools/local/channel_bots.py, tests) can continue
-to ``from app.routers.chat import X`` without changes.
+All external code (tests, etc.) can continue to
+``from app.routers.chat import X`` without changes.
 """
 # --- Router ---
 from ._routes import router  # noqa: F401

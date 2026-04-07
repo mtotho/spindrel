@@ -1374,27 +1374,7 @@ async def run_stream(
     _authorized_tool_names = assembly_result.authorized_tool_names
     user_msg_index = assembly_result.user_msg_index
 
-    # TEMP DEBUG: dump final context for member bot identity diagnosis
-    import json as _dj, time as _dt
-    _dump = {
-        "bot_id": bot.id, "bot_name": bot.name, "client_id": client_id,
-        "system_preamble": system_preamble, "user_message": user_message,
-        "message_count": len(messages),
-        "user_msg_index": user_msg_index,
-        "messages": [
-            {
-                "i": _mi, "role": _m.get("role"),
-                "content": str(_m.get("content", ""))[:800],
-                "metadata": {k: v for k, v in _m.get("_metadata", {}).items()} if "_metadata" in _m else None,
-            }
-            for _mi, _m in enumerate(messages)
-        ],
-    }
-    with open(f"/tmp/context_dump_{bot.id}_{int(_dt.time())}.json", "w") as _df:
-        _dj.dump(_dump, _df, indent=2)
-    # END TEMP DEBUG
-
-    # Resolve fallback models: explicit override > channel list > bot list (global appended in _llm_call)
+# Resolve fallback models: explicit override > channel list > bot list (global appended in _llm_call)
     _fallback_models = fallback_models if fallback_models is not None else (assembly_result.channel_fallback_models or bot.fallback_models or [])
 
     # Check usage limits before entering the agent loop

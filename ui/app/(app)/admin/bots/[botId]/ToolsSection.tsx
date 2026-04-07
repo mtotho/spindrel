@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useWindowDimensions } from "react-native";
-import { Search, X, Info, AlertTriangle, Plus, Pin } from "lucide-react";
+import { Search, X, Info, AlertTriangle, Plus, Pin, Wrench, Shield, Puzzle, Server, ChevronDown, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
@@ -26,12 +26,6 @@ function PinnedToolsPicker({
   const [adding, setAdding] = useState(false);
   const [search, setSearch] = useState("");
 
-  const allToolNames = useMemo(() => {
-    return editorData.tool_groups.flatMap((g) =>
-      g.packs.flatMap((p) => p.tools.map((tool) => tool.name))
-    );
-  }, [editorData.tool_groups]);
-
   const allToolsByName = useMemo(() => {
     const map = new Map<string, { name: string; description?: string | null }>();
     for (const g of editorData.tool_groups) {
@@ -44,10 +38,24 @@ function PinnedToolsPicker({
     return map;
   }, [editorData.tool_groups]);
 
-  const unpinnedTools = allToolNames.filter((n) => !pinnedTools.includes(n));
-  const filtered = search
-    ? unpinnedTools.filter((n) => n.toLowerCase().includes(search.toLowerCase()))
-    : unpinnedTools;
+  // Build grouped, filtered results for the search dropdown
+  const groupedResults = useMemo(() => {
+    const pinSet = new Set(pinnedTools);
+    const q = search.toLowerCase();
+    return editorData.tool_groups
+      .map((group) => {
+        const tools = group.packs.flatMap((p) => p.tools).filter((tool) => {
+          if (pinSet.has(tool.name)) return false;
+          if (!q) return true;
+          return (
+            tool.name.toLowerCase().includes(q) ||
+            (tool.description && tool.description.toLowerCase().includes(q))
+          );
+        });
+        return { ...group, tools };
+      })
+      .filter((g) => g.tools.length > 0);
+  }, [editorData.tool_groups, pinnedTools, search]);
 
   const addPin = (name: string) => {
     const nextPinned = [...pinnedTools, name];
@@ -125,24 +133,40 @@ function PinnedToolsPicker({
               <X size={12} color={t.textDim} />
             </button>
           </div>
-          <div style={{ maxHeight: 200, overflow: "auto" }}>
-            {filtered.slice(0, 30).map((name) => (
-              <button key={name} onClick={() => { addPin(name); setSearch(""); }}
-                style={{
-                  display: "block", width: "100%", textAlign: "left",
-                  padding: "4px 6px", fontSize: 11, fontFamily: "monospace",
-                  color: t.text, background: "transparent", border: "none",
-                  cursor: "pointer", borderRadius: 3,
-                }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = t.surfaceOverlay; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
-              >
-                {name}
-              </button>
-            ))}
-            {filtered.length === 0 && (
-              <span style={{ fontSize: 11, color: t.textDim, padding: 4 }}>No matching tools</span>
+          <div style={{ maxHeight: 260, overflow: "auto" }}>
+            {groupedResults.length === 0 && (
+              <span style={{ fontSize: 11, color: t.textDim, padding: 4, display: "block" }}>No matching tools</span>
             )}
+            {groupedResults.map((group) => (
+              <div key={group.integration}>
+                <div style={{
+                  fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase",
+                  letterSpacing: "0.05em", padding: "6px 6px 2px",
+                  borderTop: `1px solid ${t.inputBg}`,
+                }}>
+                  {group.is_core ? "Core" : group.integration}
+                </div>
+                {group.tools.map((tool) => (
+                  <button key={tool.name} onClick={() => { addPin(tool.name); setSearch(""); }}
+                    style={{
+                      display: "block", width: "100%", textAlign: "left",
+                      padding: "4px 6px", fontSize: 11,
+                      color: t.text, background: "transparent", border: "none",
+                      cursor: "pointer", borderRadius: 3,
+                    }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = t.surfaceOverlay; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+                  >
+                    <span style={{ fontFamily: "monospace" }}>{tool.name}</span>
+                    {tool.description && (
+                      <span style={{ fontSize: 10, color: t.textDim, marginLeft: 6 }}>
+                        {tool.description.length > 60 ? tool.description.slice(0, 60) + "\u2026" : tool.description}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -559,6 +583,205 @@ function FullToolList({
 }
 
 // ---------------------------------------------------------------------------
+// Resolved capabilities summary (read-only, bot-level)
+// ---------------------------------------------------------------------------
+function ResolvedSummary({ editorData, draft }: { editorData: BotEditorData; draft: BotConfig }) {
+  const t = useThemeTokens();
+  const [expanded, setExpanded] = useState(false);
+
+  const localTools = draft.local_tools || [];
+  const pinnedTools = draft.pinned_tools || [];
+  const mcpServers = draft.mcp_servers || [];
+  const clientTools = draft.client_tools || [];
+  const skills = draft.skills || [];
+  const carapaces = draft.carapaces || [];
+
+  const toolCount = localTools.length;
+  const pinnedCount = pinnedTools.length;
+
+  // Group enabled tools by integration for display
+  const groupedTools = useMemo(() => {
+    const enabled = new Set(localTools);
+    return editorData.tool_groups
+      .map((group) => {
+        const tools = group.packs
+          .flatMap((p) => p.tools)
+          .filter((tool) => enabled.has(tool.name));
+        return { integration: group.integration, is_core: group.is_core, tools };
+      })
+      .filter((g) => g.tools.length > 0);
+  }, [editorData.tool_groups, localTools]);
+
+  return (
+    <div style={{
+      borderRadius: 8,
+      border: `1px solid ${t.surfaceRaised}`,
+      overflow: "hidden",
+    }}>
+      <div
+        onClick={() => setExpanded((e) => !e)}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 12px", cursor: "pointer",
+          background: t.surface,
+        }}
+      >
+        {expanded ? <ChevronDown size={12} color={t.textDim} /> : <ChevronRight size={12} color={t.textDim} />}
+        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>
+          Resolved Capabilities
+        </span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          {toolCount > 0 && (
+            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
+              <Wrench size={9} /> {toolCount}
+            </span>
+          )}
+          {carapaces.length > 0 && (
+            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
+              <Shield size={9} /> {carapaces.length}
+            </span>
+          )}
+          {skills.length > 0 && (
+            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
+              <Puzzle size={9} /> {skills.length}
+            </span>
+          )}
+          {mcpServers.length > 0 && (
+            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
+              <Server size={9} /> {mcpServers.length}
+            </span>
+          )}
+        </span>
+      </div>
+
+      {expanded && (
+        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10, borderTop: `1px solid ${t.inputBg}` }}>
+          {/* Caveat */}
+          <div style={{
+            fontSize: 10, color: t.warningMuted, padding: "4px 8px",
+            background: t.warningSubtle, borderRadius: 4,
+            border: `1px solid ${t.warningSubtle}`,
+            lineHeight: "15px",
+          }}>
+            Bot-level tools before channel overrides. Check a specific channel to see what applies there.
+          </div>
+
+          {/* Capabilities */}
+          {carapaces.length > 0 && (
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
+                Capabilities ({carapaces.length})
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                {carapaces.map((id) => (
+                  <span key={id} style={{
+                    fontSize: 10, padding: "1px 6px", borderRadius: 3,
+                    background: `${t.purple || "#8b5cf6"}10`, color: t.purple || "#8b5cf6",
+                    border: `1px solid ${t.purple || "#8b5cf6"}20`,
+                  }}>
+                    {id}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pinned tools */}
+          {pinnedCount > 0 && (
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: "#eab308", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
+                Pinned ({pinnedCount})
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                {pinnedTools.map((name) => (
+                  <span key={name} style={{
+                    fontSize: 10, fontFamily: "monospace", padding: "1px 6px", borderRadius: 3,
+                    background: t.surfaceOverlay, color: t.textMuted,
+                  }}>
+                    {name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tools grouped by integration */}
+          {groupedTools.map((group) => (
+            <div key={group.integration}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
+                {group.is_core ? "Core" : group.integration} ({group.tools.length})
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                {group.tools.map((tool) => (
+                  <span key={tool.name} style={{
+                    fontSize: 10, fontFamily: "monospace", padding: "1px 6px", borderRadius: 3,
+                    background: t.surfaceOverlay, color: t.textMuted,
+                  }}
+                    title={tool.description || tool.name}
+                  >
+                    {tool.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {/* Skills */}
+          {skills.length > 0 && (
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
+                Skills ({skills.length})
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                {skills.map((s) => (
+                  <span key={s.id} style={{
+                    fontSize: 10, padding: "1px 6px", borderRadius: 3,
+                    background: `${t.accent}12`, color: t.accent,
+                    border: `1px solid ${t.accent}25`,
+                  }}>
+                    {s.id}{s.mode === "pinned" ? " (pinned)" : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* MCP + Client tools */}
+          {mcpServers.length > 0 && (
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
+                MCP Servers ({mcpServers.length})
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                {mcpServers.map((s) => (
+                  <span key={s} style={{ fontSize: 10, fontFamily: "monospace", padding: "1px 6px", borderRadius: 3, background: t.surfaceOverlay, color: t.textMuted }}>
+                    {s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {clientTools.length > 0 && (
+            <div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
+                Client Tools ({clientTools.length})
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                {clientTools.map((ct) => (
+                  <span key={ct} style={{ fontSize: 10, fontFamily: "monospace", padding: "1px 6px", borderRadius: 3, background: t.surfaceOverlay, color: t.textMuted }}>
+                    {ct}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 export function ToolsSection({
@@ -578,6 +801,9 @@ export function ToolsSection({
       <div style={{ fontSize: 11, color: t.textDim }}>
         Tools are automatically discovered based on conversation context. Pin specific tools to always include them.
       </div>
+
+      {/* Resolved capabilities summary */}
+      <ResolvedSummary editorData={editorData} draft={draft} />
 
       {/* Pinned Tools */}
       <PinnedToolsPicker editorData={editorData} draft={draft} update={update} />

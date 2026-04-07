@@ -77,8 +77,8 @@ current_turn_responded_bots: ContextVar[set | None] = ContextVar(
     "current_turn_responded_bots", default=None
 )
 
-# Tracks member bots invoked via invoke_member_bot tool during the current turn,
-# so post-completion @-mention scan doesn't re-trigger them.
+# Tracks member bots already invoked during the current turn (via auto-mention
+# detection), so post-completion @-mention scan doesn't re-trigger them.
 current_invoked_member_bots: ContextVar[set | None] = ContextVar(
     "current_invoked_member_bots", default=None
 )
