@@ -94,8 +94,9 @@ async def send_file(
             and att.channel_id is not None
             and str(att.channel_id) == str(channel_id)
         )
+        new_att_id = str(att.id)  # default to original
         if channel_id and not already_orphaned_here:
-            await create_attachment(
+            new_att = await create_attachment(
                 message_id=None,
                 channel_id=channel_id,
                 filename=display_name,
@@ -107,6 +108,7 @@ async def send_file(
                 attachment_type=att.type or ("image" if mime.startswith("image/") else "file"),
                 bot_id=bot_id,
             )
+            new_att_id = str(new_att.id)
 
         size_kb = len(data) / 1024
         msg = f"Sent {display_name} ({size_kb:.0f} KB)" + (f": {caption}" if caption else "")
@@ -128,6 +130,7 @@ async def send_file(
                 "data": b64,
                 "filename": display_name,
                 "caption": caption,
+                "attachment_id": new_att_id,
             },
         })
 
@@ -181,7 +184,7 @@ async def send_file(
             msg = f"Sent {display_name} ({size_kb:.0f} KB)" + (f": {caption}" if caption else "")
             return json.dumps({"message": msg})
 
-    await create_attachment(
+    new_att = await create_attachment(
         message_id=None,
         channel_id=channel_id,
         filename=display_name,
@@ -203,5 +206,6 @@ async def send_file(
             "data": b64,
             "filename": display_name,
             "caption": caption,
+            "attachment_id": str(new_att.id),
         },
     })

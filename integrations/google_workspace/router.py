@@ -25,6 +25,7 @@ _STATE_TTL = 600  # 10 minutes
 _TOKEN_KEYS = {
     "GWS_REFRESH_TOKEN": True,   # secret
     "GWS_ACCESS_TOKEN": True,    # secret
+    "GWS_TOKEN_EXPIRES_AT": False,  # epoch seconds
     "GWS_GRANTED_SCOPES": False,
     "GWS_CONNECTED_EMAIL": False,
 }
@@ -149,6 +150,8 @@ async def auth_callback(
     refresh_token = token_data.get("refresh_token", "")
     access_token = token_data.get("access_token", "")
     granted_scopes = token_data.get("scope", "")
+    expires_in = token_data.get("expires_in")  # seconds until expiry
+    expires_at = str(int(time.time() + expires_in)) if expires_in else ""
 
     if not refresh_token:
         logger.warning("No refresh_token in OAuth response — user may need to re-consent")
@@ -180,6 +183,7 @@ async def auth_callback(
 
     updates = {
         "GWS_ACCESS_TOKEN": access_token,
+        "GWS_TOKEN_EXPIRES_AT": expires_at,
         "GWS_GRANTED_SCOPES": ",".join(granted_service_names) if granted_service_names else granted_scopes,
         "GWS_CONNECTED_EMAIL": email,
     }
@@ -203,13 +207,24 @@ async def auth_status():
     connected = bool(refresh_token)
     scopes_str = get_value("google_workspace", "GWS_GRANTED_SCOPES") if connected else ""
     email = get_value("google_workspace", "GWS_CONNECTED_EMAIL") if connected else ""
+    expires_at_str = get_value("google_workspace", "GWS_TOKEN_EXPIRES_AT") if connected else ""
 
     scopes = [s.strip() for s in scopes_str.split(",") if s.strip()] if scopes_str else []
+
+    # Token health
+    token_healthy = True
+    if connected and expires_at_str:
+        try:
+            token_healthy = time.time() < int(expires_at_str)
+        except (ValueError, TypeError):
+            pass
 
     return {
         "connected": connected,
         "scopes": scopes,
         "email": email or None,
+        "token_expires_at": int(expires_at_str) if expires_at_str else None,
+        "token_healthy": token_healthy if connected else None,
     }
 
 

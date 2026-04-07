@@ -237,6 +237,19 @@ export interface ModelParamDefinition {
   options?: string[];
 }
 
+export interface ResolvedToolEntry {
+  name: string;
+  source: string;       // "bot", "carapace:<id>", "memory_scheme"
+  source_label: string;  // human-readable
+  integration: string;
+}
+
+export interface ResolvedPreview {
+  tools: ResolvedToolEntry[];
+  pinned_tools: ResolvedToolEntry[];
+  mcp_servers: ResolvedToolEntry[];
+}
+
 export interface BotEditorData {
   bot: BotConfig;
   tool_groups: ToolGroup[];
@@ -248,6 +261,7 @@ export interface BotEditorData {
   all_sandbox_profiles: { name: string; description?: string }[];
   model_param_definitions: ModelParamDefinition[];
   model_param_support: Record<string, string[]>;
+  resolved_preview?: ResolvedPreview | null;
 }
 
 // Integration binding

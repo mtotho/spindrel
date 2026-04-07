@@ -28,6 +28,7 @@ class Dispatcher(Protocol):
                            icon_url: str | None = None,
                            client_actions: list[dict] | None = None,
                            extra_metadata: dict | None = None) -> bool: ...
+    async def delete_attachment(self, dispatch_config: dict, metadata: dict) -> bool: ...
 
 
 _registry: dict[str, Dispatcher] = {}
@@ -58,8 +59,14 @@ class _NoneDispatcher:
                            extra_metadata: dict | None = None) -> bool:
         return False
 
+    async def delete_attachment(self, dispatch_config: dict, metadata: dict) -> bool:
+        return False
+
 
 class _WebhookDispatcher:
+    async def delete_attachment(self, dispatch_config: dict, metadata: dict) -> bool:
+        return False
+
     async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
                       extra_metadata: dict | None = None) -> None:
         cfg = task.dispatch_config or {}
@@ -97,6 +104,9 @@ class _WebhookDispatcher:
 
 
 class _InternalDispatcher:
+    async def delete_attachment(self, dispatch_config: dict, metadata: dict) -> bool:
+        return False
+
     async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
                       extra_metadata: dict | None = None) -> None:
         """Persist result as a user message in a parent session so the parent bot can process it."""

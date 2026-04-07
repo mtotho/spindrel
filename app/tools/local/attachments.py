@@ -319,6 +319,125 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
 @register({
     "type": "function",
     "function": {
+        "name": "delete_attachment",
+        "description": (
+            "Permanently delete an attachment from the database and from any "
+            "connected integration (e.g. Slack). Use list_attachments to find "
+            "the attachment ID first. This is irreversible."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "attachment_id": {
+                    "type": "string",
+                    "description": "The UUID of the attachment to delete.",
+                },
+            },
+            "required": ["attachment_id"],
+        },
+    },
+})
+async def delete_attachment(attachment_id: str) -> str:
+    from app.services.attachments import delete_attachment as _delete
+
+    try:
+        att_uuid = uuid.UUID(attachment_id)
+    except ValueError:
+        return json.dumps({"error": "Invalid attachment_id — must be a valid UUID."})
+
+    result = await _delete(att_uuid)
+    return json.dumps(result)
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "delete_recent_attachments",
+        "description": (
+            "Delete all attachments in the current channel that were created within "
+            "the last max_age_seconds. Useful for cleaning up temporary files "
+            "(e.g. photos sent for assessment) without needing to look up individual IDs. "
+            "Also deletes from connected integrations (e.g. Slack). Returns a list of "
+            "what was deleted."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "max_age_seconds": {
+                    "type": "integer",
+                    "description": "Only delete attachments created within this many seconds ago. Default 120 (2 minutes). Max 600 (10 minutes).",
+                    "default": 120,
+                },
+                "type_filter": {
+                    "type": "string",
+                    "description": "Only delete attachments of this type: 'image', 'file', 'text', 'audio', 'video'. Omit for all types.",
+                },
+            },
+            "required": [],
+        },
+    },
+})
+async def delete_recent_attachments(
+    max_age_seconds: int = 120,
+    type_filter: str | None = None,
+) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select
+
+    from app.agent.context import current_channel_id
+    from app.db.engine import async_session
+    from app.db.models import Attachment
+    from app.services.attachments import delete_attachment as _delete
+
+    ch_id = current_channel_id.get()
+    if ch_id is None:
+        return json.dumps({"error": "No current channel context."})
+
+    max_age_seconds = max(1, min(int(max_age_seconds), 600))
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+
+    async with async_session() as db:
+        stmt = (
+            select(Attachment.id, Attachment.filename, Attachment.type, Attachment.created_at)
+            .where(
+                Attachment.channel_id == ch_id,
+                Attachment.created_at >= cutoff,
+            )
+            .order_by(Attachment.created_at.desc())
+        )
+        if type_filter:
+            stmt = stmt.where(Attachment.type == type_filter)
+
+        rows = (await db.execute(stmt)).all()
+
+    if not rows:
+        return json.dumps({
+            "message": f"No attachments found in this channel within the last {max_age_seconds} seconds.",
+            "deleted_count": 0,
+        })
+
+    deleted = []
+    for row in rows:
+        result = await _delete(row.id)
+        if "error" not in result:
+            deleted.append({
+                "id": str(row.id),
+                "filename": row.filename,
+                "type": row.type,
+                "integration_deleted": result.get("integration_deleted", False),
+            })
+
+    return json.dumps({
+        "message": f"Deleted {len(deleted)} attachment(s).",
+        "deleted_count": len(deleted),
+        "deleted": deleted,
+    })
+
+
+@register({
+    "type": "function",
+    "function": {
         "name": "save_attachment",
         "description": (
             "Save an attachment's file data to a path on disk. "

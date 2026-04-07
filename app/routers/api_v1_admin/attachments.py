@@ -183,12 +183,11 @@ async def delete_attachment(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("attachments:write")),
 ):
-    """Hard delete an attachment."""
-    att = await db.get(Attachment, attachment_id)
-    if not att:
-        raise HTTPException(status_code=404, detail="Attachment not found")
-    await db.delete(att)
-    await db.commit()
+    """Hard delete an attachment, including from connected integrations."""
+    from app.services.attachments import delete_attachment as _delete_with_dispatch
+    result = await _delete_with_dispatch(attachment_id)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
 
 
 @router.post("/attachments/purge", response_model=PurgeResult)

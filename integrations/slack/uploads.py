@@ -31,7 +31,7 @@ async def upload_image(
     action: dict,
     username: str | None = None,
     icon_emoji: str | None = None,
-) -> None:
+) -> str | None:
     """Upload an upload_image client_action to a Slack channel.
 
     Args:
@@ -45,12 +45,12 @@ async def upload_image(
     """
     raw = action.get("data")
     if not raw:
-        return
+        return None
     try:
         img_bytes = base64.b64decode(raw)
     except Exception:
         logger.warning("slack_uploads: could not base64-decode image data")
-        return
+        return None
 
     filename = action.get("filename") or "generated.png"
     caption = action.get("caption") or None
@@ -88,12 +88,12 @@ async def upload_image(
         payload = r.json()
         if not payload.get("ok"):
             logger.error("slack_uploads: getUploadURLExternal failed: %s", payload.get("error"))
-            return
+            return None
         upload_url: str = payload["upload_url"]
         file_id: str = payload["file_id"]
     except Exception:
         logger.exception("slack_uploads: failed to get upload URL")
-        return
+        return None
 
     # Step 2: PUT/POST the raw bytes to the pre-signed URL
     try:
@@ -101,7 +101,7 @@ async def upload_image(
         r.raise_for_status()
     except Exception:
         logger.exception("slack_uploads: failed to upload image bytes")
-        return
+        return None
 
     # Step 3: complete the upload and share to the channel (no initial_comment — caption posted above)
     try:
@@ -120,5 +120,57 @@ async def upload_image(
         result = r.json()
         if not result.get("ok"):
             logger.error("slack_uploads: completeUploadExternal failed: %s", result.get("error"))
+            return None
     except Exception:
         logger.exception("slack_uploads: failed to complete upload")
+        return None
+
+    # Persist Slack file_id on the attachment so we can delete it later
+    attachment_id = action.get("attachment_id")
+    if attachment_id and file_id:
+        try:
+            await _store_slack_file_id(attachment_id, file_id)
+        except Exception:
+            logger.warning("slack_uploads: failed to store file_id on attachment %s", attachment_id, exc_info=True)
+
+    return file_id
+
+
+async def _store_slack_file_id(attachment_id: str, slack_file_id: str) -> None:
+    """Save the Slack file_id in the attachment's metadata for later deletion."""
+    import copy
+    import uuid
+
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.db.engine import async_session
+    from app.db.models import Attachment
+
+    att_uuid = uuid.UUID(attachment_id)
+    async with async_session() as db:
+        att = await db.get(Attachment, att_uuid)
+        if att:
+            meta = copy.deepcopy(att.metadata_) if att.metadata_ else {}
+            meta["slack_file_id"] = slack_file_id
+            att.metadata_ = meta
+            flag_modified(att, "metadata_")
+            await db.commit()
+
+
+async def delete_slack_file(token: str, file_id: str) -> bool:
+    """Delete a file from Slack via files.delete API."""
+    try:
+        r = await _http.post(
+            "https://slack.com/api/files.delete",
+            data={"file": file_id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        r.raise_for_status()
+        result = r.json()
+        if not result.get("ok"):
+            logger.error("slack_uploads: files.delete failed: %s", result.get("error"))
+            return False
+        return True
+    except Exception:
+        logger.exception("slack_uploads: failed to delete file %s", file_id)
+        return False

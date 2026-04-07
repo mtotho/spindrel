@@ -185,6 +185,112 @@ async def get_attachments_for_message(message_id: uuid.UUID) -> list[Attachment]
         return list(result.scalars().all())
 
 
+async def delete_attachment(attachment_id: uuid.UUID) -> dict:
+    """Delete an attachment from the DB and dispatch deletion to integrations.
+
+    Uses the dispatcher protocol so each integration handles its own cleanup
+    (e.g. Slack deletes the file via files.delete). No integration-specific
+    code lives here.
+
+    Returns a dict with status info (deleted, integration_deleted, error).
+    """
+    async with async_session() as db:
+        att = await db.get(Attachment, attachment_id)
+        if att is None:
+            return {"error": f"Attachment {attachment_id} not found."}
+
+        # Attempt integration-side deletion before removing from DB.
+        # Check metadata for integration-specific keys (e.g. slack_file_id)
+        # rather than relying on source_integration alone — mirrored channels
+        # may have source_integration="web" but still have a Slack file.
+        integration_deleted = False
+        meta = att.metadata_ or {}
+
+        if att.channel_id and meta:
+            integration_type = _infer_integration_from_metadata(meta, att.source_integration)
+            if integration_type:
+                dispatch_config = await _resolve_dispatch_config(att.channel_id, integration_type)
+                if dispatch_config:
+                    try:
+                        from app.agent import dispatchers
+                        dispatcher = dispatchers.get(integration_type)
+                        integration_deleted = await dispatcher.delete_attachment(dispatch_config, meta)
+                    except Exception:
+                        logger.warning(
+                            "Failed to dispatch attachment deletion for %s via %s",
+                            attachment_id, integration_type, exc_info=True,
+                        )
+
+        filename = att.filename
+        await db.delete(att)
+        await db.commit()
+
+    logger.info("Deleted attachment %s (%s), integration_deleted=%s", attachment_id, filename, integration_deleted)
+    return {
+        "deleted": str(attachment_id),
+        "filename": filename,
+        "integration_deleted": integration_deleted,
+    }
+
+
+def _infer_integration_from_metadata(meta: dict, source_integration: str) -> str | None:
+    """Determine which integration to dispatch deletion to based on metadata keys.
+
+    Metadata keys are prefixed with the integration name (e.g. slack_file_id),
+    so we can detect which integration uploaded the file even if
+    source_integration is "web" (mirrored channels).
+    """
+    # Map metadata key prefixes to integration types
+    if meta.get("slack_file_id"):
+        return "slack"
+    # Future: discord_file_id → "discord", telegram_file_id → "telegram", etc.
+
+    # Fallback: use source_integration if it's not "web"
+    if source_integration and source_integration != "web":
+        return source_integration
+
+    return None
+
+
+async def _resolve_dispatch_config(channel_id: uuid.UUID, integration_type: str) -> dict | None:
+    """Resolve dispatch_config for a channel's integration binding."""
+    from app.db.models import Channel, ChannelIntegration
+
+    async with async_session() as db:
+        # Try channel-level dispatch_config first
+        channel = await db.get(Channel, channel_id)
+        if channel and channel.integration == integration_type and channel.dispatch_config:
+            return channel.dispatch_config
+
+        # Fall back to ChannelIntegration binding
+        result = await db.execute(
+            select(ChannelIntegration)
+            .where(
+                ChannelIntegration.channel_id == channel_id,
+                ChannelIntegration.integration_type == integration_type,
+            )
+            .limit(1)
+        )
+        binding = result.scalar_one_or_none()
+        if not binding:
+            return None
+
+        if binding.dispatch_config:
+            return binding.dispatch_config
+
+        # Legacy: resolve via integration hook
+        if binding.client_id:
+            try:
+                from app.agent.hooks import get_integration_meta
+                meta = get_integration_meta(integration_type)
+                if meta and meta.resolve_dispatch_config:
+                    return meta.resolve_dispatch_config(binding.client_id)
+            except Exception:
+                pass
+
+    return None
+
+
 async def get_attachments_for_channel(
     channel_id: uuid.UUID,
     attachment_type: str | None = None,

@@ -65,6 +65,31 @@ With `prompt`: makes a fresh vision model call (e.g. "What's in this image?").
 
 Works with image attachments only.
 
+### delete_attachment(attachment_id) — permanently delete
+
+Permanently removes an attachment from the database **and** from any connected
+integration (e.g. deletes the Slack file). Irreversible. Use `list_attachments`
+to find the UUID first.
+
+```
+delete_attachment(attachment_id="<uuid>")
+```
+
+### delete_recent_attachments — bulk delete by age
+
+Delete all attachments in the current channel created within the last N seconds. No UUID lookup needed — useful for bots that process then clean up.
+
+| Parameter | Type | Default | Notes |
+|---|---|---|---|
+| max_age_seconds | int | 120 | Max 600 (10 min) |
+| type_filter | string | (all) | `image`, `file`, `text`, `audio`, `video` |
+
+```
+delete_recent_attachments(type_filter="image", max_age_seconds=120)
+```
+
+Returns a list of deleted filenames and whether each was also removed from the integration.
+
 ### save_attachment(attachment_id, path) — download to disk
 
 Save an attachment's file data to the filesystem. Use when you need to process a file locally (e.g. include a user-uploaded image in a slide deck).
@@ -127,6 +152,19 @@ Generated images become attachments immediately:
 1. list_attachments(type_filter="file", limit=5)
 2. save_attachment(attachment_id="<uuid>", path="/workspace/data/")
 ```
+
+### Delete an attachment (also removes from Slack)
+```
+1. list_attachments(type_filter="image", limit=5)
+2. delete_attachment(attachment_id="<uuid>")
+```
+
+### Analyze then clean up (e.g. assess a photo then delete it)
+```
+1. describe_attachment(attachment_id="<uuid>", prompt="Assess this image")
+2. delete_recent_attachments(type_filter="image", max_age_seconds=120)
+```
+No UUID lookup needed for the delete — it cleans up all recent images in the channel.
 
 ### Describe an image
 ```

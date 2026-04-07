@@ -269,8 +269,9 @@ async def generate_image_tool(
             filename = f"generated_{idx}.png" if len(resp.data) > 1 else "generated.png"
 
             # Persist to attachments table so it's available for future edits/references
+            gen_att_id = None
             try:
-                await create_attachment(
+                gen_att = await create_attachment(
                     message_id=None,
                     channel_id=channel_id,
                     filename=filename,
@@ -282,15 +283,19 @@ async def generate_image_tool(
                     attachment_type="image",
                     bot_id=bot_id,
                 )
+                gen_att_id = str(gen_att.id)
             except Exception:
                 logger.warning("Failed to persist generated image %d as attachment", idx, exc_info=True)
 
-            results.append({
+            action_dict: dict = {
                 "type": "upload_image",
                 "data": b64,
                 "filename": filename,
                 "caption": "",
-            })
+            }
+            if gen_att_id:
+                action_dict["attachment_id"] = gen_att_id
+            results.append(action_dict)
 
     if not results:
         return json.dumps({"error": "No images could be retrieved from response"})

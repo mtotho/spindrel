@@ -367,6 +367,7 @@ class Attachment(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     posted_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_integration: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'web'"))
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, server_default=text("'{}'::jsonb"))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     description_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     described_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)

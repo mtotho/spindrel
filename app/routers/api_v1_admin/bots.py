@@ -118,6 +118,20 @@ class WorkspaceSkillOut(BaseModel):
     chunk_count: int = 0
 
 
+class ResolvedToolEntry(BaseModel):
+    name: str
+    source: str  # "bot", "carapace:<id>", "memory_scheme"
+    source_label: str  # human-readable: "Bot config", "Capability: Orchestrator", etc.
+    integration: str = "core"  # integration grouping for the tool
+
+
+class ResolvedPreview(BaseModel):
+    """Bot-level resolved tools preview (before channel overrides)."""
+    tools: list[ResolvedToolEntry] = []
+    pinned_tools: list[ResolvedToolEntry] = []
+    mcp_servers: list[ResolvedToolEntry] = []
+
+
 class BotEditorDataOut(BaseModel):
     bot: BotOut
     tool_groups: list[ToolGroupOut] = []
@@ -129,6 +143,7 @@ class BotEditorDataOut(BaseModel):
     all_sandbox_profiles: list[dict] = []
     model_param_definitions: list[dict] = []
     model_param_support: dict[str, list[str]] = {}
+    resolved_preview: ResolvedPreview | None = None
 
 
 @router.get("/bots/{bot_id}/editor-data")
@@ -248,6 +263,14 @@ async def admin_bot_editor_data(
                     chunk_count=r.chunk_count,
                 ))
 
+    # Resolve preview (full tool picture at bot level)
+    resolved_preview = None
+    if not is_new:
+        try:
+            resolved_preview = _build_resolved_preview(bot, tool_rows)
+        except Exception:
+            logger.warning("Failed to build resolved preview", exc_info=True)
+
     return BotEditorDataOut(
         bot=bot_out,
         tool_groups=[ToolGroupOut(**g) for g in tool_groups],
@@ -259,6 +282,7 @@ async def admin_bot_editor_data(
         all_sandbox_profiles=sandbox_profiles,
         model_param_definitions=PARAM_DEFINITIONS,
         model_param_support={k: sorted(v) for k, v in MODEL_PARAM_SUPPORT.items()},
+        resolved_preview=resolved_preview,
     )
 
 
@@ -338,6 +362,116 @@ def _build_tool_groups(tool_rows, *, memory_scheme: str | None = None) -> list[d
             "total": sum(len(v) for v in packs_dict.values()),
         })
     return groups
+
+
+def _build_resolved_preview(bot, tool_rows) -> ResolvedPreview:
+    """Compute the full resolved tool set at bot level (before channel overrides).
+
+    Resolves carapaces and memory scheme to show what tools the bot will
+    actually have at runtime, with provenance labels for each.
+    """
+    from app.agent.carapaces import get_carapace, resolve_carapaces
+
+    # Build a lookup: tool_name → source_integration
+    tool_integration: dict[str, str] = {}
+    for r in tool_rows:
+        if r.server_name is None:
+            tool_integration[r.tool_name] = r.source_integration or "core"
+
+    seen_tools: set[str] = set()
+    tools: list[ResolvedToolEntry] = []
+    seen_pinned: set[str] = set()
+    pinned: list[ResolvedToolEntry] = []
+    seen_mcp: set[str] = set()
+    mcp: list[ResolvedToolEntry] = []
+
+    def _add_tool(name: str, source: str, source_label: str) -> None:
+        if name in seen_tools:
+            return
+        seen_tools.add(name)
+        tools.append(ResolvedToolEntry(
+            name=name, source=source, source_label=source_label,
+            integration=tool_integration.get(name, "core"),
+        ))
+
+    def _add_pinned(name: str, source: str, source_label: str) -> None:
+        if name in seen_pinned:
+            return
+        seen_pinned.add(name)
+        pinned.append(ResolvedToolEntry(
+            name=name, source=source, source_label=source_label,
+            integration=tool_integration.get(name, "core"),
+        ))
+
+    def _add_mcp(name: str, source: str, source_label: str) -> None:
+        if name in seen_mcp:
+            return
+        seen_mcp.add(name)
+        mcp.append(ResolvedToolEntry(
+            name=name, source=source, source_label=source_label,
+        ))
+
+    # 1. Bot-level local_tools
+    for t in bot.local_tools or []:
+        _add_tool(t, "bot", "Bot config")
+
+    # 2. Bot-level pinned_tools
+    for t in bot.pinned_tools or []:
+        _add_pinned(t, "bot", "Bot config")
+
+    # 3. Bot-level mcp_servers
+    for t in bot.mcp_servers or []:
+        _add_mcp(t, "bot", "Bot config")
+
+    # 4. Carapace resolution — walk each carapace and its includes recursively
+    carapace_ids = list(bot.carapaces or [])
+    if carapace_ids:
+        _visited_caps: set[str] = set()
+
+        def _walk_carapace(cid: str, via: str | None = None, depth: int = 0) -> None:
+            if cid in _visited_caps or depth > 5:
+                return
+            _visited_caps.add(cid)
+            c = get_carapace(cid)
+            if not c:
+                return
+            cap_name = c.get("name", cid)
+            source = f"carapace:{cid}"
+            label = f"Capability: {cap_name}" + (f" (via {via})" if via else "")
+
+            # Resolve includes first (depth-first, matching resolve_carapaces order)
+            for inc_id in c.get("includes", []):
+                _walk_carapace(inc_id, via=cap_name, depth=depth + 1)
+
+            for t in c.get("local_tools", []):
+                _add_tool(t, source, label)
+            for t in c.get("pinned_tools", []):
+                _add_pinned(t, source, label)
+            for t in c.get("mcp_tools", []):
+                _add_mcp(t, source, label)
+
+        for cid in carapace_ids:
+            _walk_carapace(cid)
+
+    # 5. Memory scheme injections
+    memory_scheme = getattr(bot, "memory_scheme", None)
+    if memory_scheme == "workspace-files":
+        # Hide knowledge tools
+        _hidden = {
+            "upsert_knowledge", "append_to_knowledge", "edit_knowledge",
+            "delete_knowledge", "get_knowledge", "list_knowledge_bases",
+            "search_knowledge", "pin_knowledge", "unpin_knowledge",
+            "set_knowledge_similarity_threshold",
+        }
+        tools[:] = [t for t in tools if t.name not in _hidden]
+        seen_tools -= _hidden
+
+        # Inject memory tools
+        for t in ["search_memory", "get_memory_file", "file", "manage_bot_skill"]:
+            _add_tool(t, "memory_scheme", "Memory scheme (workspace-files)")
+            _add_pinned(t, "memory_scheme", "Memory scheme (workspace-files)")
+
+    return ResolvedPreview(tools=tools, pinned_tools=pinned, mcp_servers=mcp)
 
 
 # ---------------------------------------------------------------------------

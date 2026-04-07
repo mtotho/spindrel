@@ -8,6 +8,9 @@ import os
 import shlex
 import shutil
 import tempfile
+import time
+
+import httpx
 
 from integrations import _register as reg
 from integrations.google_workspace.config import SERVICE_ALIASES
@@ -18,6 +21,9 @@ setting = reg.get_settings()
 
 # Max output size to return (50 KB)
 _MAX_OUTPUT = 50_000
+
+# Refresh the access token if it expires within this many seconds
+_REFRESH_BUFFER_SECONDS = 120
 
 
 def _extract_service(command: str) -> str | None:
@@ -34,6 +40,81 @@ def _extract_service(command: str) -> str | None:
 def _normalize_service(raw: str) -> str:
     """Normalize a service name, resolving known aliases."""
     return SERVICE_ALIASES.get(raw, raw)
+
+
+async def _refresh_access_token() -> str | None:
+    """Refresh the access token using the stored refresh token.
+
+    Returns the new access token, or None if refresh failed.
+    Updates stored tokens in DB on success.
+    """
+    client_id = setting("GWS_CLIENT_ID")
+    client_secret = setting("GWS_CLIENT_SECRET")
+    refresh_token = setting("GWS_REFRESH_TOKEN")
+
+    if not all([client_id, client_secret, refresh_token]):
+        return None
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as http:
+            resp = await http.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+            )
+
+        if resp.status_code != 200:
+            logger.error("Token refresh failed: %s %s", resp.status_code, resp.text[:500])
+            return None
+
+        data = resp.json()
+        new_access_token = data.get("access_token", "")
+        expires_in = data.get("expires_in")
+        expires_at = str(int(time.time() + expires_in)) if expires_in else ""
+
+        if not new_access_token:
+            return None
+
+        # Persist the refreshed token
+        try:
+            from app.db.engine import async_session
+            from app.services.integration_settings import update_settings
+
+            setup_vars = [
+                {"key": "GWS_ACCESS_TOKEN", "secret": True},
+                {"key": "GWS_TOKEN_EXPIRES_AT", "secret": False},
+            ]
+            async with async_session() as db:
+                await update_settings(
+                    "google_workspace",
+                    {"GWS_ACCESS_TOKEN": new_access_token, "GWS_TOKEN_EXPIRES_AT": expires_at},
+                    setup_vars,
+                    db,
+                )
+        except Exception:
+            logger.debug("Failed to persist refreshed token to DB", exc_info=True)
+
+        logger.info("Google Workspace access token refreshed (expires in %ss)", expires_in)
+        return new_access_token
+    except Exception:
+        logger.error("Token refresh request failed", exc_info=True)
+        return None
+
+
+def _token_needs_refresh() -> bool:
+    """Check if the access token is expired or expiring soon."""
+    expires_at = setting("GWS_TOKEN_EXPIRES_AT")
+    if not expires_at:
+        # No expiry tracked — assume expired to be safe
+        return True
+    try:
+        return time.time() >= (int(expires_at) - _REFRESH_BUFFER_SECONDS)
+    except (ValueError, TypeError):
+        return True
 
 
 async def _get_channel_allowed_services(channel_id) -> list[str] | None:
@@ -119,6 +200,15 @@ async def gws(command: str) -> str:
             "Configure OAuth in Admin > Integrations > Google Workspace."
         )
 
+    # Proactively refresh the access token if expired or expiring soon
+    if _token_needs_refresh():
+        refreshed = await _refresh_access_token()
+        if not refreshed:
+            return (
+                "Error: Google access token expired and refresh failed. "
+                "The account owner needs to reconnect at Admin > Integrations > Google Workspace."
+            )
+
     # Extract and validate service
     raw_service = _extract_service(command)
     if not raw_service:
@@ -183,6 +273,18 @@ async def gws(command: str) -> str:
 
         if proc.returncode != 0:
             combined = (err_output or output).strip()
+            combined_lower = combined.lower()
+            # Detect auth failures from the CLI and surface a clear message
+            if any(hint in combined_lower for hint in [
+                "invalid_grant", "token has been expired or revoked",
+                "token has been revoked", "unauthorized", "401",
+                "refresh token", "invalid credentials",
+            ]):
+                return (
+                    "Error: Google authentication failed — the account connection "
+                    "may have expired or been revoked. "
+                    "Reconnect at Admin > Integrations > Google Workspace."
+                )
             if len(combined) > _MAX_OUTPUT:
                 combined = combined[:_MAX_OUTPUT] + "\n... (output truncated)"
             return f"GWS CLI error (exit {proc.returncode}):\n{combined}"

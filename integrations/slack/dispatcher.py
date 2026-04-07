@@ -170,6 +170,15 @@ class SlackDispatcher:
         return ok
 
 
+    async def delete_attachment(self, dispatch_config: dict, metadata: dict) -> bool:
+        """Delete a Slack file using the file_id stored in attachment metadata."""
+        token = dispatch_config.get("token")
+        slack_file_id = metadata.get("slack_file_id")
+        if not token or not slack_file_id:
+            return False
+        from integrations.slack.uploads import delete_slack_file
+        return await delete_slack_file(token, slack_file_id)
+
     async def request_approval(
         self,
         *,
