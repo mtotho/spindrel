@@ -844,8 +844,11 @@ async def run_task(task: Task) -> None:
                 created_at=datetime.now(timezone.utc),
             ))
 
-        # Notify parent: create a callback task for the parent bot if requested
-        if _cb.get("notify_parent") and result_text:
+        # Notify parent: create a callback task for the parent bot if requested.
+        # Fire when there's text OR client_actions (e.g. image-bot may generate
+        # images via tools but return empty text).
+        _has_result = bool(result_text) or bool(run_result.client_actions)
+        if _cb.get("notify_parent") and _has_result:
             _parent_bot_id = _cb.get("parent_bot_id")
             _parent_session_str = _cb.get("parent_session_id")
             _parent_client_id = _cb.get("parent_client_id")
@@ -859,11 +862,12 @@ async def run_task(task: Task) -> None:
                         _child_display = _child_bot.display_name or _child_bot.name
                     except Exception:
                         pass
+                    _cb_result_desc = result_text or "[The sub-agent completed its work via tool calls with no text response.]"
                     _cb_prompt = (
                         f"[DELEGATION RESULT — from {_child_display}]\n"
                         f"The sub-agent has already posted its response to the channel. "
                         f"Here is what it returned:\n\n"
-                        f"{result_text}\n\n"
+                        f"{_cb_result_desc}\n\n"
                         f"Provide a brief follow-up or summary if appropriate. "
                         f"Do NOT re-post any files or images the sub-agent already provided. "
                         f"Do NOT delegate again — the work is complete."

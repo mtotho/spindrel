@@ -132,7 +132,7 @@ interface SessionStatus {
 export function useSessionStatus(channelId: string | undefined, enabled: boolean) {
   return useQuery({
     queryKey: ["session-status", channelId],
-    queryFn: () => apiFetch<SessionStatus>(`/channels/${channelId}/session-status`),
+    queryFn: () => apiFetch<SessionStatus>(`/api/v1/channels/${channelId}/session-status`),
     enabled: !!channelId && enabled,
     refetchInterval: enabled ? 3000 : false,
   });
