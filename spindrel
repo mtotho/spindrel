@@ -3,12 +3,23 @@ set -euo pipefail
 
 # ── Spindrel CLI ─────────────────────────────────────────────────────────────
 # Thin shell dispatcher for managing the Spindrel agent server.
-# Commands: start, stop, restart, pull, backup, restore, status, logs
+# Commands: start, stop, restart, pull, pull-integrations, backup, restore, status, logs
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 COMPOSE_FILE="${REPO_DIR}/docker-compose.yml"
 SERVICE_NAME="spindrel"
 BACKING_SERVICES="postgres searxng playwright"
+
+# Load API_KEY and BASE_URL from .env for API calls
+_load_env() {
+    local _api_key="" _base_url=""
+    if [ -f "$REPO_DIR/.env" ]; then
+        _api_key="$(grep -E '^API_KEY=' "$REPO_DIR/.env" | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+        _base_url="$(grep -E '^BASE_URL=' "$REPO_DIR/.env" | cut -d= -f2- | tr -d '"' | tr -d "'" || true)"
+    fi
+    SPINDREL_API_KEY="${_api_key}"
+    SPINDREL_URL="${_base_url:-http://localhost:8000}"
+}
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -17,14 +28,15 @@ usage() {
 Usage: spindrel <command> [options]
 
 Commands:
-  start       Start backing services and the Spindrel app
-  stop        Stop the Spindrel app and backing services
-  restart     Restart the Spindrel app (and optionally backing services)
-  pull        Git pull + reinstall deps + restart
-  backup      Run database backup
-  restore     Restore database from backup
-  status      Show status of all services
-  logs        Tail application or service logs
+  start              Start backing services and the Spindrel app
+  stop               Stop the Spindrel app and backing services
+  restart            Restart the Spindrel app (and optionally backing services)
+  pull               Git pull + reinstall deps + restart
+  pull-integrations  Git pull external integration repos + restart
+  backup             Run database backup
+  restore            Restore database from backup
+  status             Show status of all services
+  logs               Tail application or service logs
 
 Run 'spindrel <command> --help' for details on a specific command.
 EOF
@@ -138,6 +150,85 @@ EOF
     echo "Restarting Spindrel..."
     sudo systemctl restart "$SERVICE_NAME"
     echo "Pull complete."
+}
+
+cmd_pull_integrations() {
+    if [ "${1:-}" = "--help" ]; then
+        cat <<EOF
+Usage: spindrel pull-integrations
+
+Git pull each external integration directory (from INTEGRATION_DIRS in .env
+or the DB), including any nested git repos, then restart the app so updated
+tools/skills/capabilities are loaded.
+EOF
+        return 0
+    fi
+
+    # Read INTEGRATION_DIRS from the running server (has DB overrides applied)
+    _load_env
+    local dirs=""
+    if [ -n "$SPINDREL_API_KEY" ]; then
+        dirs="$(curl -sf -H "Authorization: Bearer $SPINDREL_API_KEY" \
+            "${SPINDREL_URL}/api/v1/admin/settings" 2>/dev/null \
+            | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for group in data.get('groups', {}).values():
+    for s in group:
+        if s['key'] == 'INTEGRATION_DIRS':
+            print(s.get('value') or '')
+            sys.exit(0)
+" 2>/dev/null || true)"
+    fi
+
+    # Fall back to .env if server isn't reachable
+    if [ -z "$dirs" ] && [ -f "$REPO_DIR/.env" ]; then
+        dirs="$(grep -E '^INTEGRATION_DIRS=' "$REPO_DIR/.env" | cut -d= -f2- | tr -d '"' | tr -d "'")"
+    fi
+
+    if [ -z "$dirs" ]; then
+        die "No INTEGRATION_DIRS configured"
+    fi
+    echo "INTEGRATION_DIRS: $dirs"
+
+    local pulled=0
+
+    # Split on : and process each path
+    IFS=':' read -ra PATHS <<< "$dirs"
+    for raw_path in "${PATHS[@]}"; do
+        # Expand ~ to home dir
+        local dir_path="${raw_path/#\~/$HOME}"
+        dir_path="$(realpath "$dir_path" 2>/dev/null || echo "$dir_path")"
+
+        if [ ! -d "$dir_path" ]; then
+            echo "  skip: $dir_path (not found)"
+            continue
+        fi
+
+        # Pull the top-level dir if it's a git repo
+        if [ -d "$dir_path/.git" ]; then
+            echo "  pulling: $dir_path"
+            git -C "$dir_path" pull --rebase || echo "  warning: pull failed for $dir_path"
+            pulled=$((pulled + 1))
+        fi
+
+        # Pull any nested git repos (one level deep)
+        for sub in "$dir_path"/*/; do
+            [ -d "$sub/.git" ] || continue
+            echo "  pulling: $sub"
+            git -C "$sub" pull --rebase || echo "  warning: pull failed for $sub"
+            pulled=$((pulled + 1))
+        done
+    done
+
+    if [ $pulled -eq 0 ]; then
+        echo "No git repos found in INTEGRATION_DIRS."
+        return 0
+    fi
+
+    echo "Pulled $pulled repo(s). Restarting Spindrel..."
+    sudo systemctl restart "$SERVICE_NAME"
+    echo "Done."
 }
 
 cmd_backup() {
@@ -298,6 +389,7 @@ case "$command" in
     stop)    cmd_stop "$@" ;;
     restart) cmd_restart "$@" ;;
     pull)    cmd_pull "$@" ;;
+    pull-integrations) cmd_pull_integrations "$@" ;;
     backup)  cmd_backup "$@" ;;
     restore) cmd_restore "$@" ;;
     status)  cmd_status "$@" ;;
