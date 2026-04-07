@@ -183,7 +183,7 @@ class TestQueuedMessagePersistence:
     @pytest.fixture(autouse=True)
     def _mock_session_locks(self):
         """Mock session locks so acquire returns False (session busy)."""
-        with patch("app.routers.chat.session_locks") as mock:
+        with patch("app.routers.chat._routes.session_locks") as mock:
             mock.acquire.return_value = False
             mock.is_active.return_value = True
             yield mock

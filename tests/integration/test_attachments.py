@@ -36,7 +36,7 @@ def _make_file_metadata(**overrides):
 class TestPostMessageWithSlackFile:
     @pytest.fixture(autouse=True)
     def _mock_run(self):
-        with patch("app.routers.chat.run", new_callable=AsyncMock) as mock:
+        with patch("app.routers.chat._routes.run", new_callable=AsyncMock) as mock:
             from dataclasses import dataclass
 
             @dataclass
@@ -54,18 +54,18 @@ class TestPostMessageWithSlackFile:
 
     @pytest.fixture(autouse=True)
     def _mock_persist(self):
-        with patch("app.routers.chat.persist_turn", new_callable=AsyncMock) as mock:
+        with patch("app.routers.chat._routes.persist_turn", new_callable=AsyncMock) as mock:
             mock.return_value = uuid.uuid4()  # Return a user_msg_id
             yield mock
 
     @pytest.fixture(autouse=True)
     def _mock_compact(self):
-        with patch("app.routers.chat.maybe_compact"):
+        with patch("app.routers.chat._routes.maybe_compact"):
             yield
 
     async def test_slack_file_triggers_attachment_creation(self, client):
         """Slack message with file → attachment creation awaited."""
-        with patch("app.routers.chat._create_attachments_from_metadata", new_callable=AsyncMock) as mock_create:
+        with patch("app.routers.chat._routes._create_attachments_from_metadata", new_callable=AsyncMock) as mock_create:
             resp = await client.post(
                 "/chat",
                 json={

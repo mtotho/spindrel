@@ -53,7 +53,7 @@ class TestChat:
     @pytest.fixture(autouse=True)
     def _mock_run(self):
         """Mock the agent run() function to avoid real LLM calls."""
-        with patch("app.routers.chat.run", new_callable=AsyncMock) as mock:
+        with patch("app.routers.chat._routes.run", new_callable=AsyncMock) as mock:
             mock.return_value = FakeRunResult()
             self._mock_run_fn = mock
             yield mock
@@ -61,13 +61,13 @@ class TestChat:
     @pytest.fixture(autouse=True)
     def _mock_persist(self):
         """Mock persist_turn to avoid complex DB operations."""
-        with patch("app.routers.chat.persist_turn", new_callable=AsyncMock):
+        with patch("app.routers.chat._routes.persist_turn", new_callable=AsyncMock):
             yield
 
     @pytest.fixture(autouse=True)
     def _mock_compact(self):
         """Mock maybe_compact to avoid background compaction."""
-        with patch("app.routers.chat.maybe_compact"):
+        with patch("app.routers.chat._routes.maybe_compact"):
             yield
 
     async def test_chat_basic(self, client):
@@ -166,19 +166,19 @@ class TestChatMirror:
 
     @pytest.fixture(autouse=True)
     def _mock_run(self):
-        with patch("app.routers.chat.run", new_callable=AsyncMock) as mock:
+        with patch("app.routers.chat._routes.run", new_callable=AsyncMock) as mock:
             mock.return_value = FakeRunResult(response="Bot reply")
             self._mock_run_fn = mock
             yield mock
 
     @pytest.fixture(autouse=True)
     def _mock_persist(self):
-        with patch("app.routers.chat.persist_turn", new_callable=AsyncMock):
+        with patch("app.routers.chat._routes.persist_turn", new_callable=AsyncMock):
             yield
 
     @pytest.fixture(autouse=True)
     def _mock_compact(self):
-        with patch("app.routers.chat.maybe_compact"):
+        with patch("app.routers.chat._routes.maybe_compact"):
             yield
 
     async def test_chat_mirrors_to_slack(self, client):
@@ -188,7 +188,7 @@ class TestChatMirror:
         mock_dispatcher.post_message = AsyncMock(return_value=True)
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], False)),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
@@ -219,7 +219,7 @@ class TestChatMirror:
         mock_dispatcher.post_message = AsyncMock(return_value=True)
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], True)),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
@@ -243,7 +243,7 @@ class TestChatMirror:
         mock_dispatcher.post_message = AsyncMock(return_value=True)
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], True)),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
@@ -262,7 +262,7 @@ class TestChatMirror:
         ch = _make_channel(integration=None, dispatch_config=None)
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], False)),
             patch("app.agent.dispatchers.get") as mock_get,
         ):
@@ -283,7 +283,7 @@ class TestChatMirror:
         self._mock_run_fn.return_value = FakeRunResult(response="")
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], False)),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
@@ -303,17 +303,17 @@ class TestChatStreamMirror:
 
     @pytest.fixture(autouse=True)
     def _mock_persist(self):
-        with patch("app.routers.chat.persist_turn", new_callable=AsyncMock):
+        with patch("app.routers.chat._routes.persist_turn", new_callable=AsyncMock):
             yield
 
     @pytest.fixture(autouse=True)
     def _mock_compact(self):
-        with patch("app.routers.chat.maybe_compact"):
+        with patch("app.routers.chat._routes.maybe_compact"):
             yield
 
     @pytest.fixture(autouse=True)
     def _mock_session_locks(self):
-        with patch("app.routers.chat.session_locks") as mock:
+        with patch("app.routers.chat._routes.session_locks") as mock:
             mock.acquire.return_value = True
             yield mock
 
@@ -329,9 +329,9 @@ class TestChatStreamMirror:
             yield {"type": "response", "text": "Bot reply", "client_actions": []}
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], False)),
-            patch("app.routers.chat.run_stream", side_effect=fake_stream),
+            patch("app.routers.chat._routes.run_stream", side_effect=fake_stream),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
             resp = await client.post(
@@ -361,9 +361,9 @@ class TestChatStreamMirror:
             yield {"type": "response", "text": "reply", "client_actions": []}
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], True)),
-            patch("app.routers.chat.run_stream", side_effect=fake_stream),
+            patch("app.routers.chat._routes.run_stream", side_effect=fake_stream),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
             resp = await client.post(
@@ -386,9 +386,9 @@ class TestChatStreamMirror:
             yield {"type": "response", "text": "reply", "client_actions": []}
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], False)),
-            patch("app.routers.chat.run_stream", side_effect=fake_stream),
+            patch("app.routers.chat._routes.run_stream", side_effect=fake_stream),
             patch("app.agent.dispatchers.get") as mock_get,
         ):
             resp = await client.post(
@@ -411,9 +411,9 @@ class TestChatStreamMirror:
             yield {"type": "response", "text": "Speak this", "client_actions": actions}
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], False)),
-            patch("app.routers.chat.run_stream", side_effect=fake_stream),
+            patch("app.routers.chat._routes.run_stream", side_effect=fake_stream),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
             resp = await client.post(
@@ -437,9 +437,9 @@ class TestChatStreamMirror:
             yield {"type": "response", "text": "reply", "client_actions": []}
 
         with (
-            patch("app.routers.chat._resolve_channel_and_session", new_callable=AsyncMock,
+            patch("app.routers.chat._routes._resolve_channel_and_session", new_callable=AsyncMock,
                   return_value=(ch, uuid.uuid4(), [], False)),
-            patch("app.routers.chat.run_stream", side_effect=fake_stream),
+            patch("app.routers.chat._routes.run_stream", side_effect=fake_stream),
             patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
         ):
             resp = await client.post(

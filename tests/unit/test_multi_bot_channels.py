@@ -82,7 +82,7 @@ class TestMemberBotRouting:
 
         db = _mock_db_with_member_rows([_make_member_row("helper")])
 
-        with patch("app.routers.chat.get_bot", return_value=member):
+        with patch("app.agent.bots.get_bot", return_value=member):
             result_bot, result_cfg = await _maybe_route_to_member_bot(
                 db, channel, primary, "@helper what do you think?"
             )
@@ -101,7 +101,7 @@ class TestMemberBotRouting:
 
         db = _mock_db_with_member_rows([_make_member_row("helper")])
 
-        with patch("app.routers.chat.get_bot", return_value=member):
+        with patch("app.agent.bots.get_bot", return_value=member):
             result_bot, result_cfg = await _maybe_route_to_member_bot(
                 db, channel, primary, "@bot:helper please respond"
             )
@@ -165,7 +165,7 @@ class TestMemberBotRouting:
 
         db = _mock_db_with_member_rows([_make_member_row("helper")])
 
-        with patch("app.routers.chat.get_bot", side_effect=Exception("not found")):
+        with patch("app.agent.bots.get_bot", side_effect=Exception("not found")):
             result_bot, _ = await _maybe_route_to_member_bot(
                 db, channel, primary, "@helper hello"
             )
@@ -185,7 +185,7 @@ class TestMemberBotRouting:
         cfg = {"model_override": "gpt-4o", "auto_respond": True, "priority": 1}
         db = _mock_db_with_member_rows([_make_member_row("helper", config=cfg)])
 
-        with patch("app.routers.chat.get_bot", return_value=member):
+        with patch("app.agent.bots.get_bot", return_value=member):
             result_bot, result_cfg = await _maybe_route_to_member_bot(
                 db, channel, primary, "@helper hello"
             )
@@ -582,9 +582,9 @@ class TestMultiBotIdentity:
              patch("app.agent.loop.run_stream", fake_run_stream), \
              patch("app.services.channel_events.publish"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.routers.chat._mirror_to_integration", new_callable=AsyncMock), \
+             patch("app.routers.chat._multibot._mirror_to_integration", new_callable=AsyncMock), \
              patch("app.agent.context.set_agent_context"), \
-             patch("app.routers.chat._record_channel_run"), \
+             patch("app.routers.chat._multibot._record_channel_run"), \
              patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False):
             await _run_member_bot_reply(
                 uuid.uuid4(), uuid.uuid4(), "helper", {}, "primary",
@@ -640,9 +640,9 @@ class TestMultiBotIdentity:
              patch("app.agent.loop.run_stream", fake_run_stream), \
              patch("app.services.channel_events.publish"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.routers.chat._mirror_to_integration", new_callable=AsyncMock), \
+             patch("app.routers.chat._multibot._mirror_to_integration", new_callable=AsyncMock), \
              patch("app.agent.context.set_agent_context"), \
-             patch("app.routers.chat._record_channel_run"), \
+             patch("app.routers.chat._multibot._record_channel_run"), \
              patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False), \
              patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value="Helper persona text"):
             await _run_member_bot_reply(
@@ -1169,7 +1169,7 @@ class TestBotToBotMention:
         """Channel throttle prevents member bot reply."""
         from app.routers.chat import _run_member_bot_reply
 
-        with patch("app.routers.chat._channel_throttled", return_value=True):
+        with patch("app.routers.chat._multibot._channel_throttled", return_value=True):
             # Should return without doing anything
             await _run_member_bot_reply(
                 uuid.uuid4(), uuid.uuid4(), "helper-bot", {},
@@ -1182,8 +1182,8 @@ class TestBotToBotMention:
         """If session lock can't be acquired, reply is skipped."""
         from app.routers.chat import _run_member_bot_reply
 
-        with patch("app.routers.chat._channel_throttled", return_value=False), \
-             patch("app.routers.chat.session_locks") as mock_locks, \
+        with patch("app.routers.chat._multibot._channel_throttled", return_value=False), \
+             patch("app.routers.chat._multibot.session_locks") as mock_locks, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             # Lock always busy
             mock_locks.acquire.return_value = False
@@ -1993,12 +1993,12 @@ class TestParallelInvocation:
             {"role": "user", "content": "hello"},
         ]
 
-        with patch("app.routers.chat._channel_throttled", return_value=False), \
-             patch("app.routers.chat.session_locks") as mock_locks, \
-             patch("app.routers.chat.get_bot", return_value=_make_bot(id="helper-bot", name="Helper")), \
-             patch("app.routers.chat._record_channel_run"), \
-             patch("app.routers.chat.set_agent_context"), \
-             patch("app.routers.chat.run_stream", side_effect=_fake_stream), \
+        with patch("app.routers.chat._multibot._channel_throttled", return_value=False), \
+             patch("app.routers.chat._multibot.session_locks") as mock_locks, \
+             patch("app.agent.bots.get_bot", return_value=_make_bot(id="helper-bot", name="Helper")), \
+             patch("app.routers.chat._multibot._record_channel_run"), \
+             patch("app.agent.context.set_agent_context"), \
+             patch("app.agent.loop.run_stream", side_effect=_fake_stream), \
              patch("app.services.channel_events.publish"), \
              patch("app.db.engine.async_session") as mock_session:
 
@@ -2170,8 +2170,8 @@ class TestParallelInvocation:
              patch("app.agent.bots.get_bot", return_value=_make_bot(id="helper-bot", name="Helper")), \
              patch("app.services.sessions.load_or_create", new_callable=AsyncMock,
                    return_value=(session_id, mock_messages)), \
-             patch("app.routers.chat._run_member_bot_reply", new_callable=AsyncMock) as mock_run, \
-             patch("app.routers.chat._background_tasks", set()):
+             patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock) as mock_run, \
+             patch("app.routers.chat._multibot._background_tasks", set()):
             result = await invoke_member_bot(bot_id="helper-bot", message="focus on errors")
 
         data = json.loads(result)
@@ -2216,8 +2216,8 @@ class TestParallelInvocation:
              patch("app.agent.bots.get_bot", return_value=_make_bot(id="helper-bot")), \
              patch("app.services.sessions.load_or_create", new_callable=AsyncMock,
                    return_value=(uuid.uuid4(), [{"role": "system", "content": "s"}])), \
-             patch("app.routers.chat._run_member_bot_reply", new_callable=AsyncMock), \
-             patch("app.routers.chat._background_tasks", set()):
+             patch("app.routers.chat._multibot._run_member_bot_reply", new_callable=AsyncMock), \
+             patch("app.routers.chat._multibot._background_tasks", set()):
             await invoke_member_bot(bot_id="helper-bot")
 
         # The original set should NOT have been mutated in-place
@@ -2244,8 +2244,8 @@ class TestParallelInvocation:
              patch("app.agent.loop.run_stream") as mock_run_stream, \
              patch("app.db.engine.async_session") as mock_session_factory, \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.routers.chat._mirror_to_integration", new_callable=AsyncMock), \
-             patch("app.routers.chat._trigger_member_bot_replies", new_callable=AsyncMock) as mock_trigger, \
+             patch("app.routers.chat._multibot._mirror_to_integration", new_callable=AsyncMock), \
+             patch("app.routers.chat._multibot._trigger_member_bot_replies", new_callable=AsyncMock) as mock_trigger, \
              patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False):
 
             mock_get_bot.side_effect = lambda bid: _make_bot(id=bid, name=bid)
