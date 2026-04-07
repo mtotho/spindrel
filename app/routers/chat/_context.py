@@ -52,12 +52,14 @@ def _rewrite_history_for_member_bot(
     responses as its own (the LLM treats role=assistant as "I said that").
 
     This function:
-    - Converts other bots' assistant messages to user messages with name prefix
-    - Keeps the target bot's own assistant messages as-is
+    - For the primary bot: keeps its own assistant messages, rewrites others'
+    - For member bots: rewrites ALL assistant messages to user role with
+      ``[BotName]: ...`` attribution.  This prevents poisoned history (prior
+      identity-confused responses persisted with the member bot's sender_id)
+      from teaching the model the wrong voice.  The member bot builds its
+      voice entirely from system prompt + persona, not from history.
     - Adds speaker attribution to user messages
     - Drops other bots' tool_call/tool messages (not relevant to the target bot)
-    - Treats untagged assistant messages (no sender_id) as coming from another bot
-      (since the member bot is joining an existing conversation)
     - When ``is_primary=True``, untagged messages are treated as the primary bot's
       own (they predate multi-bot metadata and were authored by the primary bot)
     """
@@ -79,20 +81,16 @@ def _rewrite_history_for_member_bot(
             sender_id = meta.get("sender_id", "")
             sender_name = meta.get("sender_display_name", "")
 
-            # If sender_id matches this bot, keep as assistant (it's our own message)
-            if sender_id == member_sender_id:
-                i += 1
-                continue
+            # Primary bot: keep its own messages as assistant role
+            if is_primary:
+                if sender_id == member_sender_id or not sender_id:
+                    i += 1
+                    continue
+            # Member bot: rewrite ALL assistant messages (including "own")
+            # to prevent poisoned history from reinforcing wrong identity.
 
-            # Untagged messages (no sender_id) predate multi-bot metadata.
-            # For the primary bot they're its own; for member bots, treat as other.
-            if not sender_id and is_primary:
-                i += 1
-                continue
-
-            # Otherwise — explicitly another bot, or untagged for a member bot.
+            # Drop tool-call messages and their results (from any bot)
             if msg.get("tool_calls"):
-                # Drop tool-call messages from other bots (and their results)
                 tool_call_ids = {
                     tc.get("id") for tc in msg["tool_calls"] if tc.get("id")
                 }

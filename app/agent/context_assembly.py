@@ -405,6 +405,9 @@ async def assemble_context(
 
     if _ch_row is not None:
         _eff = resolve_effective_tools(bot, _ch_row)
+        # Member bots (system_preamble set) keep their own carapaces —
+        # channel-level carapaces_extra are for the primary bot's role.
+        _eff_carapaces = list(bot.carapaces or []) if system_preamble else _eff.carapaces
         bot = _dc_replace(
             bot,
             local_tools=_eff.local_tools,
@@ -412,7 +415,7 @@ async def assemble_context(
             client_tools=_eff.client_tools,
             pinned_tools=_eff.pinned_tools,
             skills=_eff.skills,
-            carapaces=_eff.carapaces,
+            carapaces=_eff_carapaces,
         )
         if _ch_row.model_override:
             result.channel_model_override = _ch_row.model_override

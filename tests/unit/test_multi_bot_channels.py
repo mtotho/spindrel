@@ -1204,8 +1204,13 @@ class TestRewriteHistoryForMemberBot:
     """Tests for _rewrite_history_for_member_bot — ensures member bots
     have proper identity by rewriting other bots' messages."""
 
-    def test_member_bot_own_messages_kept_as_assistant(self):
-        """Messages from the member bot itself stay as role=assistant."""
+    def test_member_bot_own_messages_rewritten_to_user(self):
+        """Member bot's own messages are rewritten to user role with attribution.
+
+        This prevents poisoned history (prior identity-confused responses
+        persisted with the member bot's sender_id) from teaching the model
+        the wrong voice.
+        """
         from app.routers.chat import _rewrite_history_for_member_bot
 
         messages = [
@@ -1217,8 +1222,8 @@ class TestRewriteHistoryForMemberBot:
         ]
         _rewrite_history_for_member_bot(messages, "helper")
 
-        assert messages[2]["role"] == "assistant"
-        assert messages[2]["content"] == "Hi there!"
+        assert messages[2]["role"] == "user"
+        assert messages[2]["content"] == "[Helper Bot]: Hi there!"
 
     def test_other_bot_messages_rewritten_to_user(self):
         """Messages from another bot become role=user with name prefix."""
@@ -1284,8 +1289,12 @@ class TestRewriteHistoryForMemberBot:
         assert messages[1]["role"] == "user"
         assert messages[1]["content"] == "[Primary Bot]: Here's what I found."
 
-    def test_member_bot_tool_calls_kept(self):
-        """Tool call messages from the member bot itself are kept intact."""
+    def test_member_bot_tool_calls_dropped(self):
+        """Tool call messages from the member bot itself are dropped.
+
+        Member bots get ALL assistant messages (including their own) rewritten
+        or dropped to prevent poisoned history from reinforcing wrong identity.
+        """
         from app.routers.chat import _rewrite_history_for_member_bot
 
         messages = [
@@ -1300,12 +1309,11 @@ class TestRewriteHistoryForMemberBot:
         ]
         _rewrite_history_for_member_bot(messages, "helper")
 
-        assert len(messages) == 4  # all kept
-        assert messages[1]["role"] == "assistant"
-        assert messages[1].get("tool_calls")
-        assert messages[2]["role"] == "tool"
-        assert messages[3]["role"] == "assistant"
-        assert messages[3]["content"] == "Done!"
+        # Tool call + tool result dropped, text response rewritten to user
+        assert len(messages) == 2  # user + rewritten text
+        assert messages[0]["role"] == "user"
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == "[Helper Bot]: Done!"
 
     def test_user_messages_get_attribution(self):
         """User messages with sender_display_name get prefixed."""
@@ -1391,10 +1399,10 @@ class TestRewriteHistoryForMemberBot:
         assert messages[2]["content"] == "[Rolland]: Everything looks good. Let me ask @dev_bot."
 
         # Hidden trigger prompt is REMOVED (it's a system-injected prompt, not real input)
-        # Dev bot's own response stays as assistant — now at index 3
+        # Dev bot's own response is rewritten to user (member bots get no assistant msgs)
         assert len(messages) == 4
-        assert messages[3]["role"] == "assistant"
-        assert messages[3]["content"] == "I checked the CI — all green."
+        assert messages[3]["role"] == "user"
+        assert messages[3]["content"] == "[Dev Bot]: I checked the CI — all green."
 
     def test_primary_bot_sees_member_responses_with_attribution(self):
         """Primary bot should see member bot responses as attributed user messages."""
@@ -1454,7 +1462,8 @@ class TestRewriteHistoryForMemberBot:
         _rewrite_history_for_member_bot(messages, "test_bot")
         assert len(messages) == 3
         assert messages[1]["content"] == "Normal message"
-        assert messages[2]["role"] == "assistant"
+        # Member bot's own message rewritten to user (no assistant msgs for members)
+        assert messages[2]["role"] == "user"
 
 
 # ---------------------------------------------------------------------------
@@ -1668,9 +1677,9 @@ class TestMetadataPreservation:
         # Primary bot's message should be rewritten
         assert messages[0]["role"] == "user"
         assert "[Primary Bot]:" in messages[0]["content"]
-        # Helper's own message stays as assistant
-        assert messages[1]["role"] == "assistant"
-        assert messages[1]["content"] == "Helper said this."
+        # Helper's own message also rewritten (member bots get no assistant msgs)
+        assert messages[1]["role"] == "user"
+        assert messages[1]["content"] == "[Helper Bot]: Helper said this."
 
     def test_rewriting_without_metadata_treats_all_as_other(self):
         """Without _metadata (the bug), all messages are treated as other bot."""
