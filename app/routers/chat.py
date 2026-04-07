@@ -723,6 +723,22 @@ async def _run_member_bot_reply(
                 db, member_bot_id, channel_id,
             )
 
+        # Check if the snapshot ends with a human user message.  If so,
+        # we'll extract it and pass it as the prompt so assemble_context
+        # places it at the END of the message array (after all injected
+        # context).  Without this, the user's message is buried in history
+        # before dozens of system messages, and the model loses track of
+        # what to respond to — and whose identity to use.
+        _extracted_user_prompt = ""
+        if _use_snapshot and messages_snapshot:
+            _last_snap = messages_snapshot[-1]
+            _last_snap_meta = _last_snap.get("_metadata") or {}
+            if (_last_snap.get("role") == "user"
+                    and _last_snap_meta.get("sender_type") != "bot"):
+                _extracted_user_prompt = _last_snap.get("content", "")
+                if not isinstance(_extracted_user_prompt, str):
+                    _extracted_user_prompt = ""
+
         if _use_snapshot:
             # Use the provided snapshot — no DB load, no lock needed.
             # System messages are per-bot context (rebuilt by assemble_context),
@@ -738,6 +754,10 @@ async def _run_member_bot_reply(
                 _persona = await get_persona(member_bot.id, workspace_id=member_bot.shared_workspace_id)
                 if _persona:
                     messages.insert(1, {"role": "system", "content": f"[PERSONA]\n{_persona}"})
+            # Remove the extracted user message from history so it isn't
+            # duplicated (assemble_context will append it at the end).
+            if _extracted_user_prompt and messages and messages[-1].get("role") == "user":
+                messages.pop()
         else:
             # Load session with member bot's system prompt (preserve _metadata for
             # history rewriting — we need sender_id to distinguish message authors)
@@ -786,7 +806,7 @@ async def _run_member_bot_reply(
                 f"{mentioning_bot.name} (@{mentioning_bot_id}) mentioned you. "
                 f"Read the conversation and respond naturally. Do not @-mention yourself."
             )
-        prompt = ""
+        prompt = _extracted_user_prompt
         model_override = member_config.get("model_override")
 
         # Set agent context so run_stream internals have proper metadata
@@ -833,11 +853,15 @@ async def _run_member_bot_reply(
             "hidden": True,
         }
         async with _async_session() as db:
+            # If we extracted the user message from history to place at end
+            # of context, skip re-persisting it (it's already in the session).
+            _skip_user = uuid.UUID(int=0) if _extracted_user_prompt else None
             await persist_turn(
                 db, session_id, member_bot, messages, from_index,
                 correlation_id=correlation_id,
                 channel_id=channel_id,
                 msg_metadata=msg_metadata,
+                pre_user_msg_id=_skip_user,
             )
 
         # Notify UI that streaming ended (after persist so data is committed)
