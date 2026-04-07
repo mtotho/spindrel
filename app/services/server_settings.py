@@ -302,6 +302,31 @@ def _mask_value(key: str, value: Any) -> str:
     return s[:4] + "****" + s[-4:]
 
 
+async def _recalc_hygiene_schedules(db: AsyncSession) -> None:
+    """Recalculate next_hygiene_run_at for all bots using global target_hour.
+
+    Called when MEMORY_HYGIENE_TARGET_HOUR or MEMORY_HYGIENE_INTERVAL_HOURS
+    changes globally. Only affects bots that don't have a bot-level override.
+    """
+    from app.db.models import Bot as BotRow
+    from app.services.memory_hygiene import _compute_next_run, resolve_enabled
+
+    now = datetime.now(timezone.utc)
+    rows = (await db.execute(select(BotRow).where(BotRow.memory_scheme == "workspace-files"))).scalars().all()
+    updated = 0
+    for bot in rows:
+        if not resolve_enabled(bot):
+            continue
+        # Skip bots with bot-level target_hour override (they're unaffected)
+        if bot.memory_hygiene_target_hour is not None:
+            continue
+        bot.next_hygiene_run_at = _compute_next_run(bot, now, after_run=False)
+        updated += 1
+    if updated:
+        await db.commit()
+        logger.info("Recalculated hygiene schedule for %d bots after global setting change", updated)
+
+
 async def update_settings(updates: dict[str, Any], db: AsyncSession) -> dict[str, Any]:
     """Upsert settings to DB and patch in-memory. Returns applied updates."""
     applied = {}
@@ -332,6 +357,15 @@ async def update_settings(updates: dict[str, Any], db: AsyncSession) -> dict[str
         applied[key] = typed_value
 
     await db.commit()
+
+    # Recalculate hygiene schedules when global target_hour or interval changes
+    _hygiene_schedule_keys = {"MEMORY_HYGIENE_TARGET_HOUR", "MEMORY_HYGIENE_INTERVAL_HOURS"}
+    if _hygiene_schedule_keys & set(applied):
+        try:
+            await _recalc_hygiene_schedules(db)
+        except Exception:
+            logger.exception("Failed to recalculate hygiene schedules after global setting change")
+
     return applied
 
 

@@ -133,6 +133,11 @@ async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: boo
     exec_cfg: dict | None = None
     model = resolve_model(bot_row)
     provider = resolve_model_provider_id(bot_row)
+    # Auto-resolve provider from model when not explicitly set — prevents
+    # routing a model (e.g. minimax/MiniMax-M2.7) through the wrong provider.
+    if model and not provider:
+        from app.services.providers import resolve_provider_for_model
+        provider = resolve_provider_for_model(model)
     if model or provider:
         exec_cfg = {}
         if model:

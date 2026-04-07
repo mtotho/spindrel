@@ -726,6 +726,14 @@ async def run_task(task: Task) -> None:
                 _c_prompt = "\n\n".join(_resolved_c.system_prompt_fragments)
                 _system_preamble = (_system_preamble + "\n\n" + _c_prompt) if _system_preamble else _c_prompt
 
+        # Exclude specific tools (e.g. block delegate_to_agent in callback tasks)
+        _exclude_tools = _ecfg_pre.get("exclude_tools") or None
+        if _exclude_tools:
+            import dataclasses as _dc
+            _exclude_set = set(_exclude_tools)
+            bot = _dc.replace(bot, local_tools=[t for t in bot.local_tools if t not in _exclude_set])
+            logger.info("Task %s: excluded tools %s", task.id, _exclude_tools)
+
         _task_timeout = resolve_task_timeout(task, _task_channel)
 
         run_result = await asyncio.wait_for(
@@ -778,17 +786,6 @@ async def run_task(task: Task) -> None:
         async with async_session() as db:
             await persist_turn(db, session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=task.channel_id, msg_metadata=_task_meta)
 
-        # Mark complete
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "complete"
-                t.result = result_text
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
-
-        await _fire_task_complete(task, "complete")
-
         # Dispatch result (including any generated images)
         # Prepend a visual indicator for Slack / other text-based dispatchers
         _dispatch_text = result_text
@@ -813,16 +810,26 @@ async def run_task(task: Task) -> None:
                 "delegation_task_id": str(task.id),
             }
 
+        # Callback tasks should NOT re-dispatch client_actions (images/files)
+        # that were already dispatched by the child delegation task.
+        _dispatch_actions = None if task.task_type == "callback" else run_result.client_actions
+
         dispatcher = dispatchers.get(task.dispatch_type)
-        await dispatcher.deliver(task, _dispatch_text, client_actions=run_result.client_actions,
+        await dispatcher.deliver(task, _dispatch_text, client_actions=_dispatch_actions,
                                  extra_metadata=_delegation_meta)
 
         _cb = task.callback_config or {}
 
+        # Prepare follow-up tasks to create atomically with completion.
+        # Creating them in the same transaction as the status=complete update
+        # prevents a race where pending_tasks briefly drops to 0 between
+        # the delegation completing and the callback being created.
+        _followup_tasks: list[Task] = []
+
         # trigger_rag_loop: create an immediate follow-up agent turn so the bot can
         # react to what it just posted. Posts response to the same channel.
         if _cb.get("trigger_rag_loop") and result_text:
-            _trl_task = Task(
+            _followup_tasks.append(Task(
                 bot_id=task.bot_id,
                 client_id=task.client_id,
                 session_id=session_id,
@@ -835,11 +842,7 @@ async def run_task(task: Task) -> None:
                 callback_config={"trigger_rag_loop": False},  # prevent loop
                 parent_task_id=task.id,
                 created_at=datetime.now(timezone.utc),
-            )
-            async with async_session() as db:
-                db.add(_trl_task)
-                await db.commit()
-            logger.info("Task %s: created trigger_rag_loop follow-up task", task.id)
+            ))
 
         # Notify parent: create a callback task for the parent bot if requested
         if _cb.get("notify_parent") and result_text:
@@ -849,29 +852,60 @@ async def run_task(task: Task) -> None:
             if _parent_bot_id and _parent_session_str:
                 try:
                     _parent_session_id = uuid.UUID(_parent_session_str)
-                    _cb_task = Task(
+                    # Resolve child bot display name for the callback prompt
+                    _child_display = task.bot_id
+                    try:
+                        _child_bot = get_bot(task.bot_id)
+                        _child_display = _child_bot.display_name or _child_bot.name
+                    except Exception:
+                        pass
+                    _cb_prompt = (
+                        f"[DELEGATION RESULT — from {_child_display}]\n"
+                        f"The sub-agent has already posted its response to the channel. "
+                        f"Here is what it returned:\n\n"
+                        f"{result_text}\n\n"
+                        f"Provide a brief follow-up or summary if appropriate. "
+                        f"Do NOT re-post any files or images the sub-agent already provided. "
+                        f"Do NOT delegate again — the work is complete."
+                    )
+                    _followup_tasks.append(Task(
                         bot_id=_parent_bot_id,
                         client_id=_parent_client_id,
                         session_id=_parent_session_id,
                         channel_id=task.channel_id,
-                        prompt=f"[Sub-agent {task.bot_id} completed]\n\n{result_text}",
+                        prompt=_cb_prompt,
                         status="pending",
                         task_type="callback",
                         dispatch_type=task.dispatch_type,
                         dispatch_config=dict(task.dispatch_config or {}),
+                        # Block delegation tools in callback to prevent re-delegation loops
+                        execution_config={"exclude_tools": ["delegate_to_agent"]},
                         parent_task_id=task.id,
                         created_at=datetime.now(timezone.utc),
-                    )
-                    async with async_session() as db:
-                        db.add(_cb_task)
-                        await db.commit()
-                        await db.refresh(_cb_task)
-                    logger.info(
-                        "Task %s: created parent callback task %s (bot=%s, session=%s)",
-                        task.id, _cb_task.id, _parent_bot_id, _parent_session_id,
-                    )
+                    ))
                 except Exception:
-                    logger.exception("Failed to create parent callback task for task %s", task.id)
+                    logger.exception("Failed to build parent callback task for task %s", task.id)
+
+        # Mark complete and create follow-up tasks atomically
+        async with async_session() as db:
+            t = await db.get(Task, task.id)
+            if t:
+                t.status = "complete"
+                t.result = result_text
+                t.completed_at = datetime.now(timezone.utc)
+            for _ft in _followup_tasks:
+                db.add(_ft)
+            await db.commit()
+            for _ft in _followup_tasks:
+                await db.refresh(_ft)
+
+        await _fire_task_complete(task, "complete")
+
+        for _ft in _followup_tasks:
+            logger.info(
+                "Task %s: created follow-up task %s (type=%s, bot=%s)",
+                task.id, _ft.id, _ft.task_type, _ft.bot_id,
+            )
 
     except asyncio.TimeoutError:
         logger.error("Task %s timed out after %ds", task.id, _task_timeout)
