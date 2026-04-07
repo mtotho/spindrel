@@ -1587,7 +1587,7 @@ async def assemble_context(
         _inject_chars["system_preamble"] = len(system_preamble)
 
     # --- current-turn marker (helps models distinguish injected context from the live message) ---
-    if system_preamble:
+    if system_preamble and not user_message:
         # Heartbeat or other system-initiated task — don't frame as "user message"
         messages.append({
             "role": "system",

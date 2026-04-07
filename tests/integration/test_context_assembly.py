@@ -126,7 +126,7 @@ class TestBasicPipeline:
             events = await _collect(assemble_context(
                 messages=messages,
                 bot=bot,
-                user_message="check status",
+                user_message="",
                 session_id=None,
                 client_id=None,
                 correlation_id=None,
@@ -143,7 +143,7 @@ class TestBasicPipeline:
         preamble_msgs = [m for m in messages if "heartbeat check" in m["content"]]
         assert len(preamble_msgs) == 1
 
-        # Marker should use task framing, not user framing
+        # Heartbeat (preamble + no user message) should use task framing
         marker_msgs = [m for m in messages if "TASK PROMPT follows" in m["content"]]
         assert len(marker_msgs) == 1
 

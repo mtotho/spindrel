@@ -774,13 +774,15 @@ async def _run_member_bot_reply(
         # Identity/context as system_preamble (not user message) to avoid LLM echo.
         if invocation_message:
             _system_preamble = (
-                f"You are {member_bot.name} (bot_id: {member_bot_id}). "
+                f"IDENTITY: You are {member_bot.name} (bot_id: {member_bot_id}). "
+                f"You are NOT {_primary_bot_name or _primary_bot_id}. "
                 f"{mentioning_bot.name} (@{mentioning_bot_id}) invoked you with this context: {invocation_message} "
                 f"Read the conversation and respond naturally. Do not @-mention yourself."
             )
         else:
             _system_preamble = (
-                f"You are {member_bot.name} (bot_id: {member_bot_id}). "
+                f"IDENTITY: You are {member_bot.name} (bot_id: {member_bot_id}). "
+                f"You are NOT {_primary_bot_name or _primary_bot_id}. "
                 f"{mentioning_bot.name} (@{mentioning_bot_id}) mentioned you. "
                 f"Read the conversation and respond naturally. Do not @-mention yourself."
             )
@@ -1090,10 +1092,12 @@ async def chat(
         # Identity reinforcement for routed non-primary bot (see streaming path comment)
         _routed_preamble_nc: str | None = None
         if not _is_primary_nc:
+            _primary_name_nc = _pb_nc.name if _pb_nc else _primary_bot_id_nc
             _routed_preamble_nc = (
-                f"You are {bot.name} (bot_id: {bot.id}). "
-                f"The user addressed you directly. "
-                f"Respond as yourself — do not adopt the identity of any other bot in this channel."
+                f"IDENTITY: You are {bot.name} (bot_id: {bot.id}). "
+                f"You are NOT {_primary_name_nc} and NOT {_primary_bot_id_nc}. "
+                f"The conversation history contains messages from other bots — those are NOT yours. "
+                f"The user addressed you directly. Respond only as {bot.name}."
             )
 
         result = await run(
@@ -1139,7 +1143,7 @@ async def chat(
             _mirror_text = _redact(_mirror_text)
         await _mirror_to_integration(
             channel, _mirror_text,
-            bot_id=req.bot_id, client_actions=result.client_actions,
+            bot_id=bot.id, client_actions=result.client_actions,
         )
 
     # Multi-bot: trigger member bots @-mentioned in the user's message.
@@ -1595,10 +1599,12 @@ async def chat_stream(
             # channel primary, causing the model to adopt the wrong identity.
             _routed_preamble: str | None = None
             if not _is_primary_s:
+                _primary_name_s = _pb_s.name if _pb_s else _primary_bot_id
                 _routed_preamble = (
-                    f"You are {bot.name} (bot_id: {bot.id}). "
-                    f"The user addressed you directly. "
-                    f"Respond as yourself — do not adopt the identity of any other bot in this channel."
+                    f"IDENTITY: You are {bot.name} (bot_id: {bot.id}). "
+                    f"You are NOT {_primary_name_s} and NOT {_primary_bot_id}. "
+                    f"The conversation history contains messages from other bots — those are NOT yours. "
+                    f"The user addressed you directly. Respond only as {bot.name}."
                 )
 
             stream = run_stream(
@@ -1685,7 +1691,7 @@ async def chat_stream(
                     _mirror_text = _redact(_mirror_text)
                 await _mirror_to_integration(
                     channel, _mirror_text,
-                    bot_id=req.bot_id, client_actions=response_actions,
+                    bot_id=bot.id, client_actions=response_actions,
                 )
 
             maybe_compact(

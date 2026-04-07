@@ -535,7 +535,7 @@ class BotCreateIn(BaseModel):
     compaction_model: Optional[str] = None
     context_pruning: Optional[bool] = None
     context_pruning_keep_turns: Optional[int] = None
-    history_mode: Optional[str] = "summary"
+    history_mode: Optional[str] = "file"
     audio_input: Optional[str] = "transcribe"
     memory_config: Optional[dict] = None
     knowledge_config: Optional[dict] = None

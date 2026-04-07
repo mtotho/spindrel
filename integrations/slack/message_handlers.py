@@ -260,6 +260,11 @@ async def _run_dispatch(channel: str, payload: dict, client, identity: dict) -> 
             msg_metadata=msg_metadata,
         ):
             etype = event.get("type")
+            if etype == "stream_meta":
+                _new_bot_id = event.get("responding_bot_id")
+                if _new_bot_id and _new_bot_id != bot_id:
+                    identity = _get_identity(_new_bot_id)
+                continue
             if etype == "queued":
                 # Server queued the message — response will arrive later via
                 # the task dispatcher.  React with hourglass so user knows it's queued.
