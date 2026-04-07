@@ -245,9 +245,9 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "has_router": (candidate / "router.py").exists(),
             "has_dispatcher": (candidate / "dispatcher.py").exists(),
             "has_hooks": (candidate / "hooks.py").exists(),
-            "has_tools": (candidate / "tools").is_dir(),
-            "has_skills": (candidate / "skills").is_dir(),
-            "has_carapaces": (candidate / "carapaces").is_dir(),
+            "has_tools": any((candidate / "tools").glob("*.py")) if (candidate / "tools").is_dir() else False,
+            "has_skills": any((candidate / "skills").glob("*.md")) if (candidate / "skills").is_dir() else False,
+            "has_carapaces": any((candidate / "carapaces").glob("*.yaml")) if (candidate / "carapaces").is_dir() else False,
             "has_process": has_process,
             "process_launchable": process_launchable,
             "process_description": process_description,
@@ -258,6 +258,38 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "status": "not_configured",
             "readme": None,
         }
+
+        # Enumerate tool/skill/carapace names for detail display
+        # Prefer live registry (shows actual loaded tool names); fall back to files on disk
+        try:
+            from app.tools.registry import _tools as _reg_tools
+            entry["tool_names"] = sorted(
+                name for name, meta in _reg_tools.items()
+                if meta.get("source_integration") == integration_id
+            )
+        except Exception:
+            entry["tool_names"] = []
+        tools_dir = candidate / "tools"
+        if tools_dir.is_dir():
+            entry["tool_files"] = sorted(
+                f.stem for f in tools_dir.glob("*.py") if not f.name.startswith("_")
+            )
+        else:
+            entry["tool_files"] = []
+        skills_dir = candidate / "skills"
+        if skills_dir.is_dir():
+            entry["skill_files"] = sorted(
+                f.stem for f in skills_dir.glob("*.md")
+            )
+        else:
+            entry["skill_files"] = []
+        carapaces_dir = candidate / "carapaces"
+        if carapaces_dir.is_dir():
+            entry["carapace_files"] = sorted(
+                f.stem for f in carapaces_dir.glob("*.yaml")
+            )
+        else:
+            entry["carapace_files"] = []
 
         # Check if globally disabled
         try:

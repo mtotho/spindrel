@@ -996,6 +996,89 @@ export default function IntegrationDetailScreen() {
           </div>
         </SectionBox>
 
+        {/* Detected tools / skills / capabilities */}
+        {((item.tool_names && item.tool_names.length > 0) ||
+          (item.tool_files && item.tool_files.length > 0) ||
+          (item.skill_files && item.skill_files.length > 0) ||
+          (item.carapace_files && item.carapace_files.length > 0)) && (
+          <SectionBox title="Detected Assets">
+            {/* Tools — prefer live registered names, fall back to file names */}
+            {(() => {
+              const names = item.tool_names && item.tool_names.length > 0
+                ? item.tool_names
+                : item.tool_files && item.tool_files.length > 0
+                  ? item.tool_files
+                  : null;
+              if (!names) return null;
+              const isLive = !!(item.tool_names && item.tool_names.length > 0);
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    Tools ({names.length}){!isLive && " — files on disk, not yet loaded"}
+                  </span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {names.map((n) => (
+                      <span
+                        key={n}
+                        style={{
+                          fontSize: 11, fontFamily: "monospace",
+                          padding: "2px 8px", borderRadius: 4,
+                          background: isLive ? "rgba(59,130,246,0.1)" : "rgba(107,114,128,0.08)",
+                          color: isLive ? "#3b82f6" : t.textMuted,
+                        }}
+                      >
+                        {n}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            {item.skill_files && item.skill_files.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Skills ({item.skill_files.length})
+                </span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {item.skill_files.map((n) => (
+                    <span
+                      key={n}
+                      style={{
+                        fontSize: 11, fontFamily: "monospace",
+                        padding: "2px 8px", borderRadius: 4,
+                        background: "rgba(168,85,247,0.1)", color: "#a855f7",
+                      }}
+                    >
+                      {n}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {item.carapace_files && item.carapace_files.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Capabilities ({item.carapace_files.length})
+                </span>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {item.carapace_files.map((n) => (
+                    <span
+                      key={n}
+                      style={{
+                        fontSize: 11, fontFamily: "monospace",
+                        padding: "2px 8px", borderRadius: 4,
+                        background: "rgba(34,197,94,0.1)", color: "#22c55e",
+                      }}
+                    >
+                      {n}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </SectionBox>
+        )}
+
         {/* README — show early so users see setup instructions before config */}
         {item.readme && <ReadmeSection content={item.readme} />}
 

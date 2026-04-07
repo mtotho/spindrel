@@ -317,14 +317,9 @@ async def lifespan(application: FastAPI):
     # Import local tools to trigger @register decorators
     import app.tools.local  # noqa: F401
 
-    logger.info("Indexing local tool schemas for retrieval...")
-    await index_local_tools()
-    # Auto-remove orphaned local_tools entries (tools that no longer exist)
+    # Orphan cleanup needs the registry but no embedding calls — keep blocking
     from app.tools.registry import _tools as _registered_tools
     await _cleanup_orphaned_tools(_registered_tools)
-    logger.info("Fetching and indexing MCP tool schemas...")
-    await warm_mcp_tool_index_for_all_bots()
-    await validate_pinned_tools()
 
     # Feature validation (carapace requires, memory scheme tools, etc.)
     from app.services.feature_validation import validate_features
@@ -340,10 +335,6 @@ async def lifespan(application: FastAPI):
     from app.agent.carapaces import load_carapaces
     logger.info("Loading carapaces from DB...")
     await load_carapaces()
-    # Index capability embeddings for RAG-based discovery
-    from app.agent.capability_rag import index_capabilities
-    logger.info("Indexing capability embeddings...")
-    await index_capabilities()
     # Workflow YAML seeding is handled by sync_all_files() above; just load registry.
     from app.services.workflows import load_workflows
     logger.info("Loading workflows from DB...")
@@ -434,15 +425,9 @@ async def lifespan(application: FastAPI):
                 await shared_workspace_service.ensure_container(_sw)
             except Exception:
                 logger.warning("Failed to auto-start shared workspace %s", _sw.name)
-    # Embed workspace skills + start shared workspace watchers
-    from app.services.workspace_skills import embed_workspace_skills as _embed_ws_skills
+    # Start shared workspace watchers (fast — no embedding)
     _sw_watch_targets: list[tuple[str, str, bool]] = []
     for _sw in _sw_rows:
-        if _sw.workspace_skills_enabled:
-            try:
-                await _embed_ws_skills(str(_sw.id))
-            except Exception:
-                logger.warning("Failed to embed workspace skills for %s", _sw.name)
         _sw_watch_targets.append(
             (str(_sw.id), shared_workspace_service.get_host_root(str(_sw.id)), bool(_sw.workspace_skills_enabled))
         )
@@ -452,49 +437,93 @@ async def lifespan(application: FastAPI):
     # Index filesystem directories + start watchers in background (doesn't block startup)
     _workers.append(safe_create_task(_index_filesystems_and_start_watchers(), name="fs_index"))
 
-    # Reconcile docker stacks (sync DB status with reality)
-    if settings.DOCKER_STACKS_ENABLED:
+    # ---------------------------------------------------------------------------
+    # Background warmup: embedding indexes, MCP tool fetching, docker stacks.
+    # These are safe to run after the server is ready — they only populate RAG
+    # indexes and reconcile container state.  Content-hash checks skip unchanged
+    # items, so steady-state restarts finish quickly.
+    # ---------------------------------------------------------------------------
+    _sw_ids_for_skill_embed = [
+        str(_sw.id) for _sw in _sw_rows if _sw.workspace_skills_enabled
+    ]
+
+    async def _background_warmup() -> None:
+        import time as _time
+        _t0 = _time.monotonic()
+        logger.info("Background warmup: starting...")
+
+        # Phase 1: Tool & MCP indexing (parallel)
+        logger.info("Background warmup: indexing local tools + MCP tools...")
+        async def _index_tools():
+            await index_local_tools()
+            await warm_mcp_tool_index_for_all_bots()
+            await validate_pinned_tools()
+
+        async def _index_caps():
+            from app.agent.capability_rag import index_capabilities
+            await index_capabilities()
+
+        async def _embed_ws_skills():
+            from app.services.workspace_skills import embed_workspace_skills as _embed
+            for ws_id in _sw_ids_for_skill_embed:
+                try:
+                    await _embed(ws_id)
+                except Exception:
+                    logger.warning("Failed to embed workspace skills for %s", ws_id)
+
+        await asyncio.gather(
+            _index_tools(),
+            _index_caps(),
+            _embed_ws_skills(),
+            return_exceptions=True,
+        )
+
+        # Phase 2: Docker stack reconciliation
+        if settings.DOCKER_STACKS_ENABLED:
+            try:
+                from app.services.docker_stacks import stack_service
+                fixed = await stack_service.reconcile_running()
+                if fixed:
+                    logger.info("Reconciled %d docker stack(s) to stopped", fixed)
+            except Exception:
+                logger.exception("Failed to reconcile docker stacks")
+
+        # Sync integration Docker Compose stacks
         try:
             from app.services.docker_stacks import stack_service
-            fixed = await stack_service.reconcile_running()
-            if fixed:
-                logger.info("Reconciled %d docker stack(s) to stopped", fixed)
+            from integrations import discover_docker_compose_stacks
+            from app.services.integration_settings import get_value as _get_int_setting
+            for _dc_info in discover_docker_compose_stacks():
+                _int_id = _dc_info["integration_id"]
+                try:
+                    _stack = await stack_service.sync_integration_stack(
+                        integration_id=_int_id,
+                        name=_dc_info["description"] or _int_id,
+                        compose_definition=_dc_info["compose_definition"],
+                        project_name=_dc_info["project_name"],
+                        description=_dc_info["description"],
+                        connect_networks=_dc_info["connect_networks"],
+                        config_files=_dc_info["config_files"],
+                    )
+                    _enabled = False
+                    if _dc_info["enabled_setting"]:
+                        _val = _get_int_setting(_int_id, _dc_info["enabled_setting"], "false")
+                        _enabled = _val.lower() in ("true", "1", "yes")
+                    if _enabled and _stack.status != "running":
+                        logger.info("Auto-starting integration stack: %s", _int_id)
+                        await stack_service.start(_stack)
+                    elif not _enabled and _stack.status == "running":
+                        logger.info("Stopping disabled integration stack: %s", _int_id)
+                        await stack_service.stop(_stack)
+                except Exception:
+                    logger.exception("Failed to sync integration stack: %s", _int_id)
         except Exception:
-            logger.exception("Failed to reconcile docker stacks")
+            logger.exception("Failed to discover/sync integration docker stacks")
 
-    # Sync integration Docker Compose stacks (runs independently of DOCKER_STACKS_ENABLED —
-    # integration containers are code-managed, not user-created)
-    try:
-        from app.services.docker_stacks import stack_service
-        from integrations import discover_docker_compose_stacks
-        from app.services.integration_settings import get_value as _get_int_setting
-        for _dc_info in discover_docker_compose_stacks():
-            _int_id = _dc_info["integration_id"]
-            try:
-                _stack = await stack_service.sync_integration_stack(
-                    integration_id=_int_id,
-                    name=_dc_info["description"] or _int_id,
-                    compose_definition=_dc_info["compose_definition"],
-                    project_name=_dc_info["project_name"],
-                    description=_dc_info["description"],
-                    connect_networks=_dc_info["connect_networks"],
-                    config_files=_dc_info["config_files"],
-                )
-                # Check enabled_setting to decide start/stop
-                _enabled = False
-                if _dc_info["enabled_setting"]:
-                    _val = _get_int_setting(_int_id, _dc_info["enabled_setting"], "false")
-                    _enabled = _val.lower() in ("true", "1", "yes")
-                if _enabled and _stack.status != "running":
-                    logger.info("Auto-starting integration stack: %s", _int_id)
-                    await stack_service.start(_stack)
-                elif not _enabled and _stack.status == "running":
-                    logger.info("Stopping disabled integration stack: %s", _int_id)
-                    await stack_service.stop(_stack)
-            except Exception:
-                logger.exception("Failed to sync integration stack: %s", _int_id)
-    except Exception:
-        logger.exception("Failed to discover/sync integration docker stacks")
+        _elapsed = _time.monotonic() - _t0
+        logger.info("Background warmup: complete in %.1fs", _elapsed)
+
+    _workers.append(safe_create_task(_background_warmup(), name="bg_warmup"))
 
     if settings.STT_PROVIDER:
         logger.info("Warming up STT provider (%s)...", settings.STT_PROVIDER)

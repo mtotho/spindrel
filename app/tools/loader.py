@@ -33,7 +33,59 @@ def _import_tool_file(path: Path) -> None:
         _registry._current_load_source_file = None
 
 
-def _scan_integration_tools(base_dir: Path) -> None:
+def _ensure_external_integration_importable(integration_dir: Path, integration_id: str) -> None:
+    """Register an external integration's modules in sys.modules.
+
+    External integrations live outside the in-repo ``integrations/`` package,
+    so ``from integrations.{id}.config import settings`` would fail.  This
+    pre-registers the integration directory as a package under
+    ``integrations.{id}`` and file-imports any top-level .py modules (like
+    ``config.py``) so that dotted imports resolve at tool-load time.
+    """
+    pkg_name = f"integrations.{integration_id}"
+    if pkg_name in sys.modules:
+        return
+
+    # Register the directory itself as a package
+    pkg_spec = importlib.util.spec_from_file_location(
+        pkg_name,
+        integration_dir / "__init__.py",
+        submodule_search_locations=[str(integration_dir)],
+    )
+    if pkg_spec is None:
+        # No __init__.py — create a namespace-style package
+        import types
+        pkg = types.ModuleType(pkg_name)
+        pkg.__path__ = [str(integration_dir)]
+        pkg.__package__ = pkg_name
+        sys.modules[pkg_name] = pkg
+    else:
+        pkg = importlib.util.module_from_spec(pkg_spec)
+        sys.modules[pkg_name] = pkg
+        try:
+            pkg_spec.loader.exec_module(pkg)
+        except Exception:
+            logger.debug("Could not exec __init__.py for %s", pkg_name)
+
+    # Pre-import top-level .py files (e.g. config.py) so dotted imports work
+    for py_file in sorted(integration_dir.glob("*.py")):
+        if py_file.name.startswith("_"):
+            continue
+        mod_name = f"{pkg_name}.{py_file.stem}"
+        if mod_name in sys.modules:
+            continue
+        spec = importlib.util.spec_from_file_location(mod_name, py_file)
+        if spec is None or spec.loader is None:
+            continue
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[mod_name] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except Exception:
+            logger.debug("Could not pre-import %s for external integration %s", py_file.name, integration_id)
+
+
+def _scan_integration_tools(base_dir: Path, *, is_external: bool = False) -> None:
     """Scan base_dir/*/tools/*.py for integration tools."""
     import app.tools.registry as _registry
 
@@ -51,6 +103,9 @@ def _scan_integration_tools(base_dir: Path) -> None:
                 continue
         except Exception:
             pass
+        # External integrations need their modules registered for dotted imports
+        if is_external:
+            _ensure_external_integration_importable(intg_tools_dir.parent, integration_id)
         _registry._current_source_integration = integration_id
         try:
             for py_file in sorted(intg_tools_dir.glob("*.py")):
@@ -92,7 +147,7 @@ def discover_and_load_tools(extra_dirs: list[Path] | None = None) -> None:
         for p in extra.split(":"):
             p = p.strip()
             if p:
-                _scan_integration_tools(Path(p).expanduser().resolve())
+                _scan_integration_tools(Path(p).expanduser().resolve(), is_external=True)
 
 
 def load_integration_tools(integration_dir: Path) -> list[str]:
@@ -106,6 +161,15 @@ def load_integration_tools(integration_dir: Path) -> list[str]:
     tools_dir = integration_dir / "tools"
     if not tools_dir.is_dir():
         return []
+
+    # Check if this is an external integration (not under integrations/ or packages/)
+    root = _project_root()
+    is_external = not (
+        str(integration_dir.resolve()).startswith(str(root / "integrations"))
+        or str(integration_dir.resolve()).startswith(str(root / "packages"))
+    )
+    if is_external:
+        _ensure_external_integration_importable(integration_dir, integration_dir.name)
 
     before = set(_registry._tools.keys())
     integration_id = integration_dir.name
