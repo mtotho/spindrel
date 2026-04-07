@@ -1,9 +1,10 @@
 /**
  * ResolvedSummary — read-only view of a bot's resolved tool set with provenance labels.
- * Shows where each tool comes from (bot config, capability, memory scheme).
+ * Shows a single unified list of all tools the bot will have, with pinned status
+ * and source provenance for each.
  */
 import { useState, useMemo } from "react";
-import { Wrench, Shield, Puzzle, Server, ChevronDown, ChevronRight } from "lucide-react";
+import { Wrench, Shield, Puzzle, Server, Pin, ChevronDown, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { BotConfig, BotEditorData, ResolvedToolEntry } from "@/src/types/api";
 
@@ -26,7 +27,6 @@ function groupBySource(entries: ResolvedToolEntry[]): { source: string; label: s
     }
     group.tools.push(e.name);
   }
-  // Sort: "bot" first, then carapaces, then memory_scheme
   const order = (s: string) => s === "bot" ? 0 : s.startsWith("carapace:") ? 1 : 2;
   return [...map.entries()]
     .sort(([a], [b]) => order(a) - order(b))
@@ -42,20 +42,21 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
   const carapaces = draft.carapaces || [];
   const clientTools = draft.client_tools || [];
 
-  // Use resolved preview if available, fall back to draft data
   const toolCount = preview ? preview.tools.length : (draft.local_tools || []).length;
-  const pinnedCount = preview ? preview.pinned_tools.length : (draft.pinned_tools || []).length;
   const mcpCount = preview ? preview.mcp_servers.length : (draft.mcp_servers || []).length;
+
+  // Build pinned set for marking tools
+  const pinnedSet = useMemo(() => {
+    if (!preview) return new Set(draft.pinned_tools || []);
+    return new Set(preview.pinned_tools.map((e) => e.name));
+  }, [preview, draft.pinned_tools]);
+
+  const pinnedCount = pinnedSet.size;
 
   // Group tools by source for provenance display
   const toolGroups = useMemo(() => {
     if (!preview) return [];
     return groupBySource(preview.tools);
-  }, [preview]);
-
-  const pinnedGroups = useMemo(() => {
-    if (!preview) return [];
-    return groupBySource(preview.pinned_tools);
   }, [preview]);
 
   const mcpGroups = useMemo(() => {
@@ -78,15 +79,24 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
       .filter((g) => g.tools.length > 0);
   }, [preview, editorData.tool_groups, draft.local_tools]);
 
-  const renderToolChip = (name: string, _color: string) => (
-    <span key={name} style={{
-      fontSize: 10, fontFamily: "monospace", padding: "1px 6px", borderRadius: 3,
-      background: t.surfaceOverlay, color: t.textMuted,
-    }}>
-      {name}
-    </span>
-  );
+  /** Render a single tool chip, with optional pin indicator */
+  const renderToolChip = (name: string) => {
+    const pinned = pinnedSet.has(name);
+    return (
+      <span key={name} style={{
+        fontSize: 10, fontFamily: "monospace", padding: "1px 6px", borderRadius: 3,
+        background: pinned ? "#eab30810" : t.surfaceOverlay,
+        color: pinned ? "#eab308" : t.textMuted,
+        border: pinned ? "1px solid #eab30820" : undefined,
+        display: "inline-flex", alignItems: "center", gap: 3,
+      }}>
+        {pinned && <Pin size={7} />}
+        {name}
+      </span>
+    );
+  };
 
+  /** Render a provenance source group with its tools */
   const renderSourceGroup = (
     group: { source: string; label: string; tools: string[] },
     sectionLabel?: string,
@@ -109,7 +119,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
           </span>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginLeft: 2 }}>
-          {group.tools.map((name) => renderToolChip(name, color))}
+          {group.tools.map((name) => renderToolChip(name))}
         </div>
       </div>
     );
@@ -189,26 +199,28 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
             </div>
           )}
 
-          {/* Tools — with provenance (new) or grouped by integration (fallback) */}
+          {/* Unified tools list — with provenance (new) or grouped by integration (fallback) */}
           {preview ? (
             <>
-              {/* Pinned tools with provenance */}
-              {pinnedGroups.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: "#eab308", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
-                    Pinned ({pinnedCount})
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 4 }}>
-                    {pinnedGroups.map((g) => renderSourceGroup(g, "pinned"))}
-                  </div>
-                </div>
-              )}
-
-              {/* All tools with provenance */}
               {toolGroups.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+                  <div style={{
+                    fontSize: 9, fontWeight: 700, color: t.textDim,
+                    textTransform: "uppercase", letterSpacing: "0.05em",
+                    marginBottom: 2,
+                  }}>
                     Tools ({toolCount})
+                  </div>
+                  <div style={{
+                    fontSize: 9, color: t.textDim, marginBottom: 6,
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    All tools the bot can use.
+                    {pinnedCount > 0 && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "#eab308" }}>
+                        <Pin size={7} /> = pinned (always included)
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 4 }}>
                     {toolGroups.map((g) => renderSourceGroup(g, "tools"))}
@@ -230,29 +242,39 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
             </>
           ) : (
             <>
-              {/* Fallback: pinned tools (no provenance) */}
-              {(draft.pinned_tools || []).length > 0 && (
+              {/* Fallback: tools grouped by integration */}
+              {fallbackGroupedTools.length > 0 && (
                 <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: "#eab308", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
-                    Pinned ({(draft.pinned_tools || []).length})
+                  <div style={{
+                    fontSize: 9, fontWeight: 700, color: t.textDim,
+                    textTransform: "uppercase", letterSpacing: "0.05em",
+                    marginBottom: 2,
+                  }}>
+                    Tools ({(draft.local_tools || []).length})
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                    {(draft.pinned_tools || []).map((name) => renderToolChip(name, t.textMuted))}
+                  <div style={{
+                    fontSize: 9, color: t.textDim, marginBottom: 6,
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}>
+                    All tools the bot can use.
+                    {pinnedCount > 0 && (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 2, color: "#eab308" }}>
+                        <Pin size={7} /> = pinned (always included)
+                      </span>
+                    )}
                   </div>
+                  {fallbackGroupedTools.map((group) => (
+                    <div key={group.integration} style={{ marginBottom: 4 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
+                        {group.is_core ? "Core" : group.integration} ({group.tools.length})
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                        {group.tools.map((tool) => renderToolChip(tool.name))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
-
-              {/* Fallback: tools grouped by integration */}
-              {fallbackGroupedTools.map((group) => (
-                <div key={group.integration}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
-                    {group.is_core ? "Core" : group.integration} ({group.tools.length})
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                    {group.tools.map((tool) => renderToolChip(tool.name, t.textMuted))}
-                  </div>
-                </div>
-              ))}
 
               {/* Fallback: MCP servers */}
               {(draft.mcp_servers || []).length > 0 && (
@@ -261,7 +283,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
                     MCP Servers ({(draft.mcp_servers || []).length})
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                    {(draft.mcp_servers || []).map((s) => renderToolChip(s, t.textMuted))}
+                    {(draft.mcp_servers || []).map((s) => renderToolChip(s))}
                   </div>
                 </div>
               )}
@@ -295,7 +317,7 @@ export function ResolvedSummary({ editorData, draft }: { editorData: BotEditorDa
                 Client Tools ({clientTools.length})
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                {clientTools.map((ct) => renderToolChip(ct, t.textMuted))}
+                {clientTools.map((ct) => renderToolChip(ct))}
               </div>
             </div>
           )}

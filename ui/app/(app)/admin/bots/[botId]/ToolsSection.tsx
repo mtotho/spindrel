@@ -289,6 +289,9 @@ function FullToolList({
   if (draft.history_mode === "file" || draft.history_mode === "structured") {
     autoInjectedTools.add("read_conversation_history");
   }
+  // activate_capability is auto-injected by context assembly when capability
+  // RAG finds relevant matches — the checkbox state is irrelevant.
+  autoInjectedTools.add("activate_capability");
 
   const toggleTool = (name: string) => {
     if (localTools.includes(name)) {
@@ -378,7 +381,7 @@ function FullToolList({
       {/* Legend */}
       <div style={{ display: "flex", gap: 16, fontSize: 10, color: t.textDim, flexWrap: "wrap" }}>
         <span>&#10003; = enabled</span>
-        {autoInjectedTools.size > 0 && <span style={{ color: t.purple }}>auto = injected by memory scheme</span>}
+        {autoInjectedTools.size > 0 && <span style={{ color: t.purple }}>auto = injected automatically at runtime</span>}
         {draft.tool_retrieval && <span style={{ color: "#eab308" }}>pinned = always available</span>}
         <span style={{ color: "#f97316" }}>skip sum = skip summarization</span>
       </div>
@@ -506,14 +509,14 @@ function FullToolList({
                               onChange={() => !autoInj && toggleTool(tool.name)}
                               disabled={autoInj}
                               style={{ accentColor: autoInj ? t.purple : t.accent, cursor: autoInj ? "default" : undefined }}
-                              title={autoInj ? "Auto-injected by memory scheme" : undefined}
+                              title={autoInj ? "Auto-injected at runtime" : undefined}
                             />
                             <span
                               style={{
                                 fontFamily: "monospace", color: autoInj ? t.purple : enabled ? t.accent : t.textDim,
                                 flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                               }}
-                              title={autoInj ? `${tool.name} — auto-injected by workspace-files memory scheme` : tool.description || tool.name}
+                              title={autoInj ? `${tool.name} — auto-injected at runtime` : tool.description || tool.name}
                             >
                               {tool.name}
                             </span>
