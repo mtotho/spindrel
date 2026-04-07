@@ -245,6 +245,108 @@ def systemd_logs(repo, args):
         pass
 
 
+def _load_env(repo):
+    """Read API_KEY and BASE_URL from .env."""
+    env_file = os.path.join(repo, ".env")
+    api_key = ""
+    base_url = "http://localhost:8000"
+    if os.path.isfile(env_file):
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("API_KEY="):
+                    api_key = line.split("=", 1)[1].strip("\"'")
+                elif line.startswith("BASE_URL="):
+                    val = line.split("=", 1)[1].strip("\"'")
+                    if val:
+                        base_url = val
+    return api_key, base_url
+
+
+def _get_integration_dirs(repo):
+    """Get INTEGRATION_DIRS from the running server API, fall back to .env."""
+    import json
+    import urllib.request
+
+    api_key, base_url = _load_env(repo)
+
+    # Try the server API first (has DB overrides applied)
+    if api_key:
+        try:
+            req = urllib.request.Request(
+                f"{base_url}/api/v1/admin/settings",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+                for group in data.get("groups", {}).values():
+                    for s in group:
+                        if s["key"] == "INTEGRATION_DIRS" and s.get("value"):
+                            return s["value"]
+        except Exception:
+            pass
+
+    # Fall back to .env
+    env_file = os.path.join(repo, ".env")
+    if os.path.isfile(env_file):
+        with open(env_file) as f:
+            for line in f:
+                if line.strip().startswith("INTEGRATION_DIRS="):
+                    return line.strip().split("=", 1)[1].strip("\"'")
+    return ""
+
+
+def _pull_integrations(repo, args):
+    dirs = _get_integration_dirs(repo)
+    if not dirs:
+        print("error: No INTEGRATION_DIRS configured", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"INTEGRATION_DIRS: {dirs}")
+    pulled = 0
+
+    for raw_path in dirs.split(":"):
+        raw_path = raw_path.strip()
+        if not raw_path:
+            continue
+        dir_path = os.path.expanduser(raw_path)
+        dir_path = os.path.realpath(dir_path)
+
+        if not os.path.isdir(dir_path):
+            print(f"  skip: {dir_path} (not found)")
+            continue
+
+        # Pull top-level if it's a git repo
+        if os.path.isdir(os.path.join(dir_path, ".git")):
+            print(f"  pulling: {dir_path}")
+            run(f"git -C {dir_path} pull --rebase", check=False)
+            pulled += 1
+
+        # Pull nested git repos (one level deep)
+        for entry in sorted(os.listdir(dir_path)):
+            sub = os.path.join(dir_path, entry)
+            if os.path.isdir(sub) and os.path.isdir(os.path.join(sub, ".git")):
+                print(f"  pulling: {sub}")
+                run(f"git -C {sub} pull --rebase", check=False)
+                pulled += 1
+
+    if pulled == 0:
+        print("No git repos found in INTEGRATION_DIRS.")
+        return
+
+    print(f"Pulled {pulled} repo(s). Restarting Spindrel...")
+
+
+def systemd_pull_integrations(repo, args):
+    _pull_integrations(repo, args)
+    systemd_restart(repo, args)
+
+
+def docker_pull_integrations(repo, args):
+    _pull_integrations(repo, args)
+    docker_restart(repo, args)
+
+
 def systemd_backup(repo, args):
     docker_backup(repo, args)  # same implementation
 
@@ -270,6 +372,7 @@ def main():
                            help="Specific service to restart (Docker mode)")
 
     sub.add_parser("pull", help="Git pull + rebuild + restart")
+    sub.add_parser("pull-integrations", help="Git pull external integration repos + restart")
     sub.add_parser("rebuild", help="Rebuild containers and restart (Docker mode)")
     sub.add_parser("backup", help="Run backup")
     sub.add_parser("status", help="Show service status")
@@ -297,6 +400,7 @@ def main():
             "stop": docker_stop,
             "restart": docker_restart,
             "pull": docker_pull,
+            "pull-integrations": docker_pull_integrations,
             "rebuild": docker_rebuild,
             "status": docker_status,
             "logs": docker_logs,
@@ -310,6 +414,7 @@ def main():
             "stop": systemd_stop,
             "restart": systemd_restart,
             "pull": systemd_pull,
+            "pull-integrations": systemd_pull_integrations,
             "rebuild": lambda r, a: print("Rebuild is only for Docker mode. Use 'spindrel pull' instead."),
             "status": systemd_status,
             "logs": systemd_logs,
