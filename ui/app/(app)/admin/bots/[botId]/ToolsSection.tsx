@@ -1,13 +1,14 @@
 import { useState, useMemo } from "react";
 import { useWindowDimensions } from "react-native";
-import { Search, X, Info, AlertTriangle, Plus, Pin, Wrench, Shield, Puzzle, Server, ChevronDown, ChevronRight } from "lucide-react";
+import { Search, X, Info, AlertTriangle, Plus, Pin } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   TextInput, SelectInput, Toggle, FormRow, Row, Col,
 } from "@/src/components/shared/FormControls";
 import { AdvancedSection } from "@/src/components/shared/SettingsControls";
-import type { BotConfig, BotEditorData, ToolGroup, ResolvedToolEntry } from "@/src/types/api";
+import type { BotConfig, BotEditorData, ToolGroup } from "@/src/types/api";
+import { ResolvedSummary } from "./ResolvedSummary";
 import { MOBILE_NAV_BREAKPOINT } from "./constants";
 import { ToolSchemaModal } from "./ToolSchemaModal";
 
@@ -583,308 +584,6 @@ function FullToolList({
 }
 
 // ---------------------------------------------------------------------------
-// Resolved capabilities summary (read-only, bot-level)
-// ---------------------------------------------------------------------------
-
-/** Color for a provenance source tag */
-function sourceColor(source: string, t: ReturnType<typeof useThemeTokens>): string {
-  if (source === "bot") return t.textDim;
-  if (source.startsWith("carapace:")) return t.purple || "#8b5cf6";
-  if (source === "memory_scheme") return "#10b981";
-  return t.textDim;
-}
-
-/** Group resolved tool entries by source for display */
-function groupBySource(entries: ResolvedToolEntry[]): { source: string; label: string; tools: string[] }[] {
-  const map = new Map<string, { label: string; tools: string[] }>();
-  for (const e of entries) {
-    let group = map.get(e.source);
-    if (!group) {
-      group = { label: e.source_label, tools: [] };
-      map.set(e.source, group);
-    }
-    group.tools.push(e.name);
-  }
-  // Sort: "bot" first, then carapaces, then memory_scheme
-  const order = (s: string) => s === "bot" ? 0 : s.startsWith("carapace:") ? 1 : 2;
-  return [...map.entries()]
-    .sort(([a], [b]) => order(a) - order(b))
-    .map(([source, { label, tools }]) => ({ source, label, tools }));
-}
-
-function ResolvedSummary({ editorData, draft }: { editorData: BotEditorData; draft: BotConfig }) {
-  const t = useThemeTokens();
-  const [expanded, setExpanded] = useState(false);
-
-  const preview = editorData.resolved_preview;
-  const skills = draft.skills || [];
-  const carapaces = draft.carapaces || [];
-  const clientTools = draft.client_tools || [];
-
-  // Use resolved preview if available, fall back to draft data
-  const toolCount = preview ? preview.tools.length : (draft.local_tools || []).length;
-  const pinnedCount = preview ? preview.pinned_tools.length : (draft.pinned_tools || []).length;
-  const mcpCount = preview ? preview.mcp_servers.length : (draft.mcp_servers || []).length;
-
-  // Group tools by source for provenance display
-  const toolGroups = useMemo(() => {
-    if (!preview) return [];
-    return groupBySource(preview.tools);
-  }, [preview]);
-
-  const pinnedGroups = useMemo(() => {
-    if (!preview) return [];
-    return groupBySource(preview.pinned_tools);
-  }, [preview]);
-
-  const mcpGroups = useMemo(() => {
-    if (!preview) return [];
-    return groupBySource(preview.mcp_servers);
-  }, [preview]);
-
-  // Fallback: group by integration (old behavior) when no preview
-  const fallbackGroupedTools = useMemo(() => {
-    if (preview) return [];
-    const localTools = draft.local_tools || [];
-    const enabled = new Set(localTools);
-    return editorData.tool_groups
-      .map((group) => {
-        const tools = group.packs
-          .flatMap((p) => p.tools)
-          .filter((tool) => enabled.has(tool.name));
-        return { integration: group.integration, is_core: group.is_core, tools };
-      })
-      .filter((g) => g.tools.length > 0);
-  }, [preview, editorData.tool_groups, draft.local_tools]);
-
-  const renderToolChip = (name: string, color: string) => (
-    <span key={name} style={{
-      fontSize: 10, fontFamily: "monospace", padding: "1px 6px", borderRadius: 3,
-      background: t.surfaceOverlay, color: t.textMuted,
-    }}>
-      {name}
-    </span>
-  );
-
-  const renderSourceGroup = (
-    group: { source: string; label: string; tools: string[] },
-    sectionLabel?: string,
-  ) => {
-    const color = sourceColor(group.source, t);
-    return (
-      <div key={`${sectionLabel || ""}:${group.source}`} style={{ marginBottom: 2 }}>
-        <div style={{
-          fontSize: 9, color, fontWeight: 600,
-          marginBottom: 2, display: "flex", alignItems: "center", gap: 4,
-        }}>
-          <span style={{
-            padding: "0 4px", borderRadius: 3, lineHeight: "14px",
-            background: `${color}12`, border: `1px solid ${color}25`,
-          }}>
-            {group.label}
-          </span>
-          <span style={{ color: t.textDim, fontWeight: 400 }}>
-            ({group.tools.length})
-          </span>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginLeft: 2 }}>
-          {group.tools.map((name) => renderToolChip(name, color))}
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div style={{
-      borderRadius: 8,
-      border: `1px solid ${t.surfaceRaised}`,
-      overflow: "hidden",
-    }}>
-      <div
-        onClick={() => setExpanded((e) => !e)}
-        style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 12px", cursor: "pointer",
-          background: t.surface,
-        }}
-      >
-        {expanded ? <ChevronDown size={12} color={t.textDim} /> : <ChevronRight size={12} color={t.textDim} />}
-        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>
-          Resolved Capabilities
-        </span>
-        <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-          {toolCount > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
-              <Wrench size={9} /> {toolCount}
-            </span>
-          )}
-          {carapaces.length > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
-              <Shield size={9} /> {carapaces.length}
-            </span>
-          )}
-          {skills.length > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
-              <Puzzle size={9} /> {skills.length}
-            </span>
-          )}
-          {mcpCount > 0 && (
-            <span style={{ fontSize: 10, color: t.textDim, display: "inline-flex", alignItems: "center", gap: 3 }}>
-              <Server size={9} /> {mcpCount}
-            </span>
-          )}
-        </span>
-      </div>
-
-      {expanded && (
-        <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10, borderTop: `1px solid ${t.inputBg}` }}>
-          {/* Caveat */}
-          <div style={{
-            fontSize: 10, color: t.warningMuted, padding: "4px 8px",
-            background: t.warningSubtle, borderRadius: 4,
-            border: `1px solid ${t.warningSubtle}`,
-            lineHeight: "15px",
-          }}>
-            Bot-level tools before channel overrides. Check a specific channel to see what applies there.
-          </div>
-
-          {/* Capabilities */}
-          {carapaces.length > 0 && (
-            <div>
-              <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
-                Capabilities ({carapaces.length})
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                {carapaces.map((id) => (
-                  <span key={id} style={{
-                    fontSize: 10, padding: "1px 6px", borderRadius: 3,
-                    background: `${t.purple || "#8b5cf6"}10`, color: t.purple || "#8b5cf6",
-                    border: `1px solid ${t.purple || "#8b5cf6"}20`,
-                  }}>
-                    {id}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Tools — with provenance (new) or grouped by integration (fallback) */}
-          {preview ? (
-            <>
-              {/* Pinned tools with provenance */}
-              {pinnedGroups.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: "#eab308", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
-                    Pinned ({pinnedCount})
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 4 }}>
-                    {pinnedGroups.map((g) => renderSourceGroup(g, "pinned"))}
-                  </div>
-                </div>
-              )}
-
-              {/* All tools with provenance */}
-              {toolGroups.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
-                    Tools ({toolCount})
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 4 }}>
-                    {toolGroups.map((g) => renderSourceGroup(g, "tools"))}
-                  </div>
-                </div>
-              )}
-
-              {/* MCP servers with provenance */}
-              {mcpGroups.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
-                    MCP Servers ({mcpCount})
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingLeft: 4 }}>
-                    {mcpGroups.map((g) => renderSourceGroup(g, "mcp"))}
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              {/* Fallback: pinned tools (no provenance) */}
-              {(draft.pinned_tools || []).length > 0 && (
-                <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: "#eab308", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
-                    Pinned ({(draft.pinned_tools || []).length})
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                    {(draft.pinned_tools || []).map((name) => renderToolChip(name, t.textMuted))}
-                  </div>
-                </div>
-              )}
-
-              {/* Fallback: tools grouped by integration */}
-              {fallbackGroupedTools.map((group) => (
-                <div key={group.integration}>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
-                    {group.is_core ? "Core" : group.integration} ({group.tools.length})
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                    {group.tools.map((tool) => renderToolChip(tool.name, t.textMuted))}
-                  </div>
-                </div>
-              ))}
-
-              {/* Fallback: MCP servers */}
-              {(draft.mcp_servers || []).length > 0 && (
-                <div>
-                  <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
-                    MCP Servers ({(draft.mcp_servers || []).length})
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                    {(draft.mcp_servers || []).map((s) => renderToolChip(s, t.textMuted))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Skills */}
-          {skills.length > 0 && (
-            <div>
-              <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
-                Skills ({skills.length})
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                {skills.map((s) => (
-                  <span key={s.id} style={{
-                    fontSize: 10, padding: "1px 6px", borderRadius: 3,
-                    background: `${t.accent}12`, color: t.accent,
-                    border: `1px solid ${t.accent}25`,
-                  }}>
-                    {s.id}{s.mode === "pinned" ? " (pinned)" : ""}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Client tools */}
-          {clientTools.length > 0 && (
-            <div>
-              <div style={{ fontSize: 9, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>
-                Client Tools ({clientTools.length})
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                {clientTools.map((ct) => renderToolChip(ct, t.textMuted))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 export function ToolsSection({
@@ -898,11 +597,43 @@ export function ToolsSection({
 }) {
   const t = useThemeTokens();
 
+  const retrieval = draft.tool_retrieval ?? true;
+  const discovery = draft.tool_discovery ?? true;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Info text */}
-      <div style={{ fontSize: 11, color: t.textDim }}>
-        Tools are automatically discovered based on conversation context. Pin specific tools to always include them.
+      {/* How tools work explainer */}
+      <div style={{
+        fontSize: 11, color: t.textMuted, lineHeight: "17px",
+        padding: "10px 12px", borderRadius: 6,
+        background: t.surfaceOverlay,
+        border: `1px solid ${t.surfaceRaised}`,
+        display: "flex", flexDirection: "column", gap: 6,
+      }}>
+        <div style={{ fontWeight: 600, color: t.text, fontSize: 12 }}>How tools work</div>
+        <div>
+          <strong>Pinned tools</strong> are always available to the bot on every turn.
+        </div>
+        <div>
+          <strong>Tool Retrieval</strong>{retrieval ? " (on)" : " (off)"} &mdash;
+          {retrieval
+            ? " Each turn, the most relevant tools are selected via semantic search and passed to the model. Non-pinned tools are only included when they match the conversation context."
+            : " Disabled. All declared tools are passed every turn (may hit context limits with large tool sets)."}
+        </div>
+        {retrieval && (
+          <div>
+            <strong>Tool Discovery</strong>{discovery ? " (on)" : " (off)"} &mdash;
+            {discovery
+              ? " The bot can also discover tools outside its configured set from the full tool pool. Discovered tools are subject to tool policies and may require approval before use."
+              : " Disabled. The bot can only use tools explicitly configured below."}
+          </div>
+        )}
+        <div>
+          <strong>Capabilities</strong> (carapaces) can inject additional tools, skills, and system prompt context. These are reflected in the resolved view below.
+        </div>
+        <div>
+          <strong>Memory scheme</strong> and <strong>channel overrides</strong> can also add or remove tools at runtime.
+        </div>
       </div>
 
       {/* Resolved capabilities summary */}
@@ -917,96 +648,101 @@ export function ToolsSection({
       {/* Client Tools */}
       <ClientToolsSection editorData={editorData} draft={draft} update={update} filter="" />
 
-      {/* Advanced: full tool list + settings */}
-      <AdvancedSection title="Advanced Tool Settings">
-        <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 8 }}>
-          {/* Full tool list */}
-          <FullToolList editorData={editorData} draft={draft} update={update} />
+      {/* Full tool list */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>All Available Tools</div>
+        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
+          Enable or disable individual tools. Enabled tools are candidates for retrieval; pinned tools are always included.
+        </div>
+        <FullToolList editorData={editorData} draft={draft} update={update} />
+      </div>
 
-          {/* Tool Retrieval */}
+      {/* Tool Retrieval & Discovery settings */}
+      <div style={{
+        display: "flex", flexDirection: "column", gap: 12,
+        padding: "12px 0", borderTop: `1px solid ${t.surfaceRaised}`,
+      }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Retrieval Settings</div>
+        <Toggle
+          value={retrieval}
+          onChange={(v) => update({ tool_retrieval: v })}
+          label="Tool Retrieval (RAG)"
+          description="Only pass top-K relevant tools per turn. Pinned tools bypass filtering."
+        />
+        {retrieval && (
+          <div style={{ marginTop: 4, maxWidth: 300 }}>
+            <FormRow label="Similarity Threshold">
+              <TextInput
+                value={String(draft.tool_similarity_threshold ?? "")}
+                onChangeText={(v) => update({ tool_similarity_threshold: v ? parseFloat(v) : null })}
+                placeholder="0.35" type="number"
+              />
+            </FormRow>
+          </div>
+        )}
+
+        {retrieval && (
           <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
             <Toggle
-              value={draft.tool_retrieval ?? true}
-              onChange={(v) => update({ tool_retrieval: v })}
-              label="Tool Retrieval (RAG)"
-              description="Only pass top-K relevant tools per turn. Pinned tools bypass filtering."
+              value={discovery}
+              onChange={(v) => update({ tool_discovery: v })}
+              label="Tool Discovery"
+              description="Discover undeclared tools from the full tool pool via RAG. Discovered tools are subject to tool policies and may require approval."
             />
-            {(draft.tool_retrieval ?? true) && (
-              <div style={{ marginTop: 8, maxWidth: 300 }}>
-                <FormRow label="Similarity Threshold">
-                  <TextInput
-                    value={String(draft.tool_similarity_threshold ?? "")}
-                    onChangeText={(v) => update({ tool_similarity_threshold: v ? parseFloat(v) : null })}
-                    placeholder="0.35" type="number"
-                  />
-                </FormRow>
-              </div>
-            )}
           </div>
+        )}
+      </div>
 
-          {/* Tool Discovery */}
-          {(draft.tool_retrieval ?? true) && (
-            <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
-              <Toggle
-                value={draft.tool_discovery ?? true}
-                onChange={(v) => update({ tool_discovery: v })}
-                label="Tool Discovery"
-                description="Discover undeclared tools from the full tool pool via RAG. Disable to restrict to manually configured tools only."
+      {/* Tool Result Summarization */}
+      <AdvancedSection title="Tool Result Summarization">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 8 }}>
+          <div style={{ fontSize: 11, color: t.textDim }}>Summarizes large tool outputs to save context.</div>
+          <Row gap={12}>
+            <Col>
+              <SelectInput
+                value={draft.tool_result_config?.enabled === true ? "true" : draft.tool_result_config?.enabled === false ? "false" : ""}
+                onChange={(v) => {
+                  const trc = { ...draft.tool_result_config };
+                  if (v === "true") trc.enabled = true;
+                  else if (v === "false") trc.enabled = false;
+                  else delete trc.enabled;
+                  update({ tool_result_config: trc });
+                }}
+                options={[
+                  { label: "Inherit global", value: "" },
+                  { label: "Force on", value: "true" },
+                  { label: "Force off", value: "false" },
+                ]}
               />
-            </div>
-          )}
-
-          {/* Tool Result Summarization */}
-          <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 500, color: t.text, marginBottom: 4 }}>Tool Result Summarization</div>
-            <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8 }}>Summarizes large tool outputs.</div>
-            <Row gap={12}>
-              <Col>
-                <SelectInput
-                  value={draft.tool_result_config?.enabled === true ? "true" : draft.tool_result_config?.enabled === false ? "false" : ""}
-                  onChange={(v) => {
-                    const trc = { ...draft.tool_result_config };
-                    if (v === "true") trc.enabled = true;
-                    else if (v === "false") trc.enabled = false;
-                    else delete trc.enabled;
-                    update({ tool_result_config: trc });
-                  }}
-                  options={[
-                    { label: "Inherit global", value: "" },
-                    { label: "Force on", value: "true" },
-                    { label: "Force off", value: "false" },
-                  ]}
+            </Col>
+            <Col>
+              <FormRow label="Trigger size (chars)">
+                <TextInput
+                  value={String((draft.tool_result_config as any)?.threshold ?? "")}
+                  onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, threshold: v ? parseInt(v) : undefined } })}
+                  placeholder="global (3000)" type="number"
                 />
-              </Col>
-              <Col>
-                <FormRow label="Trigger size (chars)">
-                  <TextInput
-                    value={String((draft.tool_result_config as any)?.threshold ?? "")}
-                    onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, threshold: v ? parseInt(v) : undefined } })}
-                    placeholder="global (3000)" type="number"
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <FormRow label="Summarizer model">
-                  <LlmModelDropdown
-                    value={(draft.tool_result_config as any)?.model ?? ""}
-                    onChange={(v) => update({ tool_result_config: { ...draft.tool_result_config, model: v || undefined } })}
-                    placeholder="global model"
-                  />
-                </FormRow>
-              </Col>
-              <Col>
-                <FormRow label="Max summary tokens">
-                  <TextInput
-                    value={String((draft.tool_result_config as any)?.max_tokens ?? "")}
-                    onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, max_tokens: v ? parseInt(v) : undefined } })}
-                    placeholder="global (300)" type="number"
-                  />
-                </FormRow>
-              </Col>
-            </Row>
-          </div>
+              </FormRow>
+            </Col>
+            <Col>
+              <FormRow label="Summarizer model">
+                <LlmModelDropdown
+                  value={(draft.tool_result_config as any)?.model ?? ""}
+                  onChange={(v) => update({ tool_result_config: { ...draft.tool_result_config, model: v || undefined } })}
+                  placeholder="global model"
+                />
+              </FormRow>
+            </Col>
+            <Col>
+              <FormRow label="Max summary tokens">
+                <TextInput
+                  value={String((draft.tool_result_config as any)?.max_tokens ?? "")}
+                  onChangeText={(v) => update({ tool_result_config: { ...draft.tool_result_config, max_tokens: v ? parseInt(v) : undefined } })}
+                  placeholder="global (300)" type="number"
+                />
+              </FormRow>
+            </Col>
+          </Row>
         </div>
       </AdvancedSection>
     </div>
