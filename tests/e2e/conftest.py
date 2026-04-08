@@ -32,6 +32,10 @@ _FILE_TO_TIER = {
     "test_server_behavior": "server_behavior",
     "test_workspace_memory": "server_behavior",
     "test_model_smoke": "model_smoke",
+    "test_settings_config": "api_contract",
+    "test_providers_models": "api_contract",
+    "test_channel_details": "api_contract",
+    "test_carapaces_crud": "api_contract",
 }
 
 
