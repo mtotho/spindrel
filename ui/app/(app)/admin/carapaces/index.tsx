@@ -218,7 +218,7 @@ export default function CarapacesPage() {
 
 function CarapaceCard({ carapace: c, t }: { carapace: Carapace; t: ThemeTokens }) {
   return (
-    <Link href={`/admin/carapaces/${c.id}` as any} asChild>
+    <Link href={`/admin/carapaces/${c.id.replaceAll("/", "--")}` as any} asChild>
       <Pressable
         style={{
           backgroundColor: t.surfaceRaised,

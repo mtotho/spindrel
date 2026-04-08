@@ -263,10 +263,11 @@ async def run_scenario(client: E2EClient, scenario: Scenario) -> ScenarioResult:
     """Execute a complete YAML scenario and return the result."""
     step_results: list[StepResult] = []
     inline_bot_id: str | None = None
+    is_external = client.config.is_external
 
     try:
-        # Create inline bot if needed
-        if scenario.bot:
+        # Create inline bot if needed (skip in external mode — use default bot)
+        if scenario.bot and not is_external:
             inline_bot_id = scenario.bot.id
             try:
                 await _create_inline_bot(client, scenario.bot)
@@ -277,7 +278,8 @@ async def run_scenario(client: E2EClient, scenario: Scenario) -> ScenarioResult:
                     error=f"Failed to create inline bot: {e}",
                 )
 
-        bot_id = scenario.effective_bot_id
+        # In external mode, always use the configured default bot
+        bot_id = client.default_bot_id if is_external else scenario.effective_bot_id(client.default_bot_id)
         channel_id = client.new_channel_id()
 
         for i, step in enumerate(scenario.steps):

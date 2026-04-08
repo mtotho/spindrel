@@ -12,7 +12,7 @@ export function useCarapaces() {
 export function useCarapace(id?: string) {
   return useQuery({
     queryKey: ["carapaces", id],
-    queryFn: () => apiFetch<Carapace>(`/api/v1/admin/carapaces/${encodeURIComponent(id!)}`),
+    queryFn: () => apiFetch<Carapace>(`/api/v1/admin/carapaces/${id!.replaceAll("/", "--")}`),
     enabled: !!id,
   });
 }
@@ -36,7 +36,7 @@ export function useUpdateCarapace(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Partial<Carapace>) =>
-      apiFetch<Carapace>(`/api/v1/admin/carapaces/${id}`, {
+      apiFetch<Carapace>(`/api/v1/admin/carapaces/${id.replaceAll("/", "--")}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
@@ -52,7 +52,7 @@ export function useDeleteCarapace() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch(`/api/v1/admin/carapaces/${id}`, { method: "DELETE" }),
+      apiFetch(`/api/v1/admin/carapaces/${id.replaceAll("/", "--")}`, { method: "DELETE" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["carapaces"] });
     },
@@ -71,7 +71,7 @@ export interface ResolvedCarapace {
 export function useResolveCarapace(id?: string) {
   return useQuery({
     queryKey: ["carapaces", id, "resolve"],
-    queryFn: () => apiFetch<ResolvedCarapace>(`/api/v1/admin/carapaces/${id}/resolve`),
+    queryFn: () => apiFetch<ResolvedCarapace>(`/api/v1/admin/carapaces/${id!.replaceAll("/", "--")}/resolve`),
     enabled: !!id,
   });
 }
@@ -86,7 +86,7 @@ export interface CarapaceUsageItem {
 export function useCarapaceUsage(id?: string) {
   return useQuery({
     queryKey: ["carapaces", id, "usage"],
-    queryFn: () => apiFetch<CarapaceUsageItem[]>(`/api/v1/admin/carapaces/${id}/usage`),
+    queryFn: () => apiFetch<CarapaceUsageItem[]>(`/api/v1/admin/carapaces/${id!.replaceAll("/", "--")}/usage`),
     enabled: !!id,
   });
 }

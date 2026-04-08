@@ -19,7 +19,8 @@ class TestChatStream:
 
     async def test_stream_has_response(self, client: E2EClient) -> None:
         """Stream ends with a response containing text."""
-        result = await client.chat_stream("What is 1+1?")
+        channel_id = client.new_channel_id()
+        result = await client.chat_stream("What is 1+1?", channel_id=channel_id)
         assert_response_not_empty(result.response_text)
 
     async def test_stream_no_errors(self, client: E2EClient) -> None:

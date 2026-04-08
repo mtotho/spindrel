@@ -28,6 +28,11 @@ class E2EEnvironment:
 
     async def setup(self) -> None:
         """Build image, start stack, optionally pull model, wait for healthy."""
+        if self.config.is_external:
+            logger.info("External mode — skipping compose, using %s", self.config.base_url)
+            await self._wait_for_healthy()
+            self._started = True
+            return
         self._ensure_image()
         self._compose_up()
         if self.config.use_ollama:
@@ -37,11 +42,9 @@ class E2EEnvironment:
 
     async def teardown(self) -> None:
         """Stop and remove the compose stack (unless keep_running is set)."""
-        if self.config.keep_running:
-            logger.info(
-                "E2E_KEEP_RUNNING=1 — leaving stack running at %s",
-                self.config.base_url,
-            )
+        if self.config.is_external or self.config.keep_running:
+            logger.info("Leaving stack as-is (external=%s, keep_running=%s)",
+                        self.config.is_external, self.config.keep_running)
             return
         self._compose_down()
         self._started = False
@@ -178,7 +181,8 @@ class E2EEnvironment:
                     resp = await client.get(url, headers=headers)
                     if resp.status_code == 200:
                         body = resp.json()
-                        return body.get("healthy", False) or body.get("database", False)
+                        # Admin health returns {"healthy": true}, basic returns {"status": "ok"}
+                        return body.get("healthy", False) or body.get("database", False) or body.get("status") == "ok"
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
                 pass
             return False

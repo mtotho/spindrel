@@ -33,6 +33,25 @@ from app.tools.registry import get_local_tool_schemas
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve_effective_provider(
+    model_override: str | None,
+    provider_id_override: str | None,
+    bot_model_provider_id: str | None,
+) -> str | None:
+    """Resolve the effective provider for the current call.
+
+    When a model_override is set without an explicit provider_id_override,
+    auto-resolve the provider from the model rather than falling back to the
+    bot's default provider (which may be a completely different service).
+    """
+    if provider_id_override:
+        return provider_id_override
+    if model_override:
+        from app.services.providers import resolve_provider_for_model
+        return resolve_provider_for_model(model_override) or bot_model_provider_id
+    return bot_model_provider_id
+
 # Regex for detecting user corrections.
 # First branch: anchored to start of message (low false-positive).
 # Second branch: non-anchored patterns for mid-message corrections.
@@ -272,7 +291,7 @@ async def run_agent_tool_loop(
     """
     effective_max_iterations = max_iterations or settings.AGENT_MAX_ITERATIONS
     model = model_override or bot.model
-    provider_id = provider_id_override or bot.model_provider_id
+    provider_id = _resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id)
 
     # Effective tool result summarization settings (bot-level overrides global)
     _trc = bot.tool_result_config or {}
@@ -1289,7 +1308,7 @@ async def run_stream(
     if settings.CONTEXT_BUDGET_ENABLED:
         from app.agent.context_budget import ContextBudget, get_model_context_window
         _effective_model = model_override or bot.model
-        _effective_provider = provider_id_override or bot.model_provider_id
+        _effective_provider = _resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id)
         _window = get_model_context_window(_effective_model, _effective_provider)
         _reserve_ratio = settings.CONTEXT_BUDGET_RESERVE_RATIO
         _budget = ContextBudget(
@@ -1338,7 +1357,7 @@ async def run_stream(
     from app.services.reranking import rerank_rag_context
     _rerank_result = await rerank_rag_context(
         messages, user_message,
-        provider_id=provider_id_override or bot.model_provider_id,
+        provider_id=_resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id),
     )
     if _rerank_result is not None:
         logger.info(

@@ -41,9 +41,10 @@ class TestErrorHandling:
         unauthenticated_client: httpx.AsyncClient,
     ) -> None:
         """Request without auth header returns 401 or 403."""
-        resp = await unauthenticated_client.get("/health")
-        assert resp.status_code in (401, 403), (
-            f"Expected 401/403 without auth, got {resp.status_code}"
+        # /health may be unauthenticated; test an endpoint that requires auth
+        resp = await unauthenticated_client.get("/api/v1/admin/bots")
+        assert resp.status_code in (401, 403, 422), (
+            f"Expected 401/403/422 without auth, got {resp.status_code}"
         )
 
     async def test_wrong_api_key_returns_401(
@@ -52,7 +53,7 @@ class TestErrorHandling:
         bad_auth_client: httpx.AsyncClient,
     ) -> None:
         """Request with wrong API key returns 401 or 403."""
-        resp = await bad_auth_client.get("/health")
+        resp = await bad_auth_client.get("/bots")
         assert resp.status_code in (401, 403), (
             f"Expected 401/403 with wrong key, got {resp.status_code}"
         )

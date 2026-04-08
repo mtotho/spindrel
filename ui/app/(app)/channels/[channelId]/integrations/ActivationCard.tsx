@@ -8,8 +8,7 @@ import { ActivationConfigFields } from "./ActivationConfigFields";
 import { HudPresetPicker } from "./HudPresetPicker";
 
 function CarapacePill({ id, t }: { id: string; t: any }) {
-  // Encode slashes in carapace IDs so the route param stays a single segment
-  const href = `/admin/carapaces/${encodeURIComponent(id)}` as any;
+  const href = `/admin/carapaces/${id.replaceAll("/", "--")}` as any;
   return (
     <Link href={href} asChild>
       <a

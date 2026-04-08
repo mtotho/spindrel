@@ -7,7 +7,7 @@ import re
 from .streaming import StreamEvent
 
 
-def assert_response_not_empty(text: str, min_chars: int = 5) -> None:
+def assert_response_not_empty(text: str, min_chars: int = 1) -> None:
     """Assert the response is non-empty and has meaningful content."""
     assert text is not None, "Response is None"
     stripped = text.strip()

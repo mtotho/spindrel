@@ -13,7 +13,8 @@ from tests.e2e.harness.assertions import (
 class TestChatBasic:
     async def test_simple_question(self, client: E2EClient) -> None:
         """Send a simple math question and get a correct answer."""
-        resp = await client.chat("What is 2+2? Reply with just the number.")
+        channel_id = client.new_channel_id()
+        resp = await client.chat("What is 2+2? Reply with just the number.", channel_id=channel_id)
         assert_response_not_empty(resp.response)
         assert_contains_any(resp.response, ["4", "four"])
 

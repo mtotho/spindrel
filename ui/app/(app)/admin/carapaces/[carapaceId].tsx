@@ -28,7 +28,9 @@ import type { Carapace, SkillConfig } from "@/src/types/api";
 export default function CarapaceDetailPage() {
   const t = useThemeTokens();
   const router = useRouter();
-  const { carapaceId } = useLocalSearchParams<{ carapaceId: string }>();
+  const { carapaceId: rawId } = useLocalSearchParams<{ carapaceId: string }>();
+  // Decode -- back to / for IDs with slashes (e.g. integration carapaces)
+  const carapaceId = rawId?.replaceAll("--", "/");
   const isNew = carapaceId === "new";
 
   const { data: existing, isLoading } = useCarapace(isNew ? undefined : carapaceId);

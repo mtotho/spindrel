@@ -3,37 +3,42 @@
 import pytest
 
 from tests.e2e.harness.client import E2EClient
+from tests.e2e.harness.config import E2EConfig
 
 
 @pytest.mark.e2e
 class TestAdminCrud:
-    async def test_list_bots_includes_e2e(self, client: E2EClient) -> None:
-        """GET /bots returns list including the e2e test bot."""
+    async def test_list_bots_includes_configured_bot(self, client: E2EClient) -> None:
+        """GET /bots returns list including the configured test bot."""
         bots = await client.list_bots()
         assert isinstance(bots, list)
         bot_ids = [b.get("id") for b in bots]
-        assert "e2e" in bot_ids, f"Expected 'e2e' bot in {bot_ids}"
+        assert client.default_bot_id in bot_ids, (
+            f"Expected '{client.default_bot_id}' bot in {bot_ids}"
+        )
 
-    async def test_e2e_bot_has_expected_fields(self, client: E2EClient) -> None:
-        """The e2e bot has name, model, and expected config."""
+    async def test_configured_bot_has_expected_fields(self, client: E2EClient) -> None:
+        """The configured test bot has name and model."""
         bots = await client.list_bots()
-        e2e_bot = next((b for b in bots if b.get("id") == "e2e"), None)
-        assert e2e_bot is not None
-        assert e2e_bot["name"] == "E2E Test Bot"
+        bot = next((b for b in bots if b.get("id") == client.default_bot_id), None)
+        assert bot is not None
+        assert bot.get("name"), "Bot should have a name"
+        assert bot.get("model"), "Bot should have a model"
 
-    async def test_chat_creates_channel(self, client: E2EClient) -> None:
+    async def test_chat_creates_channel(self, client: E2EClient, e2e_config: E2EConfig) -> None:
         """Sending a chat message auto-creates a channel."""
-        # Use a unique channel_id to avoid collisions
         channel_id = client.new_channel_id()
         resp = await client.chat("Hello", channel_id=channel_id)
         assert resp.session_id
 
-        # The channel should now exist
-        channels = await client.list_channels()
-        channel_ids = [str(c.get("id")) for c in channels]
-        assert channel_id in channel_ids, (
-            f"Expected channel {channel_id} in {channel_ids}"
-        )
+        if e2e_config.is_external:
+            # External mode: channel routing depends on client_id,
+            # so new channel_id may not appear in admin list. Just verify chat worked.
+            return
+
+        # Compose mode: verify channel was created with our ID
+        r = await client.get(f"/api/v1/admin/channels/{channel_id}")
+        assert r.status_code == 200, f"Expected channel {channel_id} to exist, got {r.status_code}"
 
     async def test_list_channels(self, client: E2EClient) -> None:
         """GET /api/v1/admin/channels returns a list."""

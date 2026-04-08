@@ -662,8 +662,13 @@ async def compute_context_breakdown(
     if settings.CONTEXT_BUDGET_ENABLED:
         try:
             from app.agent.context_budget import get_model_context_window, estimate_tokens
+            from app.agent.loop import _resolve_effective_provider
             _model = channel.model_override or bot.model
-            _provider = getattr(channel, "model_provider_id_override", None) or bot.model_provider_id
+            _provider = _resolve_effective_provider(
+                channel.model_override,
+                getattr(channel, "model_provider_id_override", None),
+                bot.model_provider_id,
+            )
             _window = get_model_context_window(_model, _provider)
             _reserve = int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO)
             _available = _window - _reserve

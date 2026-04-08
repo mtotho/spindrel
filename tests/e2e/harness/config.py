@@ -11,6 +11,9 @@ from pathlib import Path
 class E2EConfig:
     """Configuration for the E2E test harness."""
 
+    # Mode: "compose" (default) spins up Docker stack; "external" skips it
+    mode: str = "compose"
+
     # Docker image
     image_name: str = "agent-server:e2e"
     build_if_missing: bool = True
@@ -30,6 +33,9 @@ class E2EConfig:
     startup_timeout: int = 120
     request_timeout: int = 60
     model_pull_timeout: int = 300
+
+    # Default bot for tests (override for external servers without e2e bot)
+    bot_id: str = "e2e"
 
     # Behavior
     keep_running: bool = False
@@ -57,10 +63,15 @@ class E2EConfig:
     def use_ollama(self) -> bool:
         return self.llm_provider == "ollama"
 
+    @property
+    def is_external(self) -> bool:
+        return self.mode == "external"
+
     @classmethod
     def from_env(cls) -> E2EConfig:
         """Load configuration from E2E_* environment variables."""
         return cls(
+            mode=os.environ.get("E2E_MODE", "compose"),
             image_name=os.environ.get("E2E_IMAGE", "agent-server:e2e"),
             build_if_missing=os.environ.get("E2E_BUILD_IF_MISSING", "1") == "1",
             llm_provider=os.environ.get("E2E_LLM_PROVIDER", "ollama"),
@@ -73,5 +84,6 @@ class E2EConfig:
             startup_timeout=int(os.environ.get("E2E_STARTUP_TIMEOUT", "120")),
             request_timeout=int(os.environ.get("E2E_REQUEST_TIMEOUT", "60")),
             model_pull_timeout=int(os.environ.get("E2E_MODEL_PULL_TIMEOUT", "300")),
+            bot_id=os.environ.get("E2E_BOT_ID", "e2e"),
             keep_running=os.environ.get("E2E_KEEP_RUNNING", "") == "1",
         )

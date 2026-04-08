@@ -1,6 +1,11 @@
 """Carapaces CRUD: /carapaces."""
 from __future__ import annotations
 
+
+def _decode_carapace_id(raw: str) -> str:
+    """Decode ``--`` back to ``/`` for integration-sourced carapace IDs."""
+    return raw.replace("--", "/")
+
 from datetime import datetime, timezone
 
 import yaml
@@ -52,6 +57,7 @@ async def admin_get_carapace(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("carapaces:read")),
 ):
+    carapace_id = _decode_carapace_id(carapace_id)
     row = await db.get(CarapaceRow, carapace_id)
     if not row:
         raise HTTPException(status_code=404, detail="Carapace not found")
@@ -107,6 +113,7 @@ async def admin_update_carapace(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("carapaces:write")),
 ):
+    carapace_id = _decode_carapace_id(carapace_id)
     row = await db.get(CarapaceRow, carapace_id)
     if not row:
         raise HTTPException(status_code=404, detail="Carapace not found")
@@ -149,6 +156,7 @@ async def admin_delete_carapace(
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("carapaces:write")),
 ):
+    carapace_id = _decode_carapace_id(carapace_id)
     row = await db.get(CarapaceRow, carapace_id)
     if not row:
         raise HTTPException(status_code=404, detail="Carapace not found")
@@ -181,6 +189,7 @@ async def admin_resolve_carapace(
     _auth=Depends(require_scopes("carapaces:read")),
 ):
     """Resolve a carapace and its includes into a flat preview."""
+    carapace_id = _decode_carapace_id(carapace_id)
     row = await db.get(CarapaceRow, carapace_id)
     if not row:
         raise HTTPException(status_code=404, detail="Carapace not found")
@@ -232,6 +241,7 @@ async def admin_carapace_usage(
     """Return bots and channels that reference this carapace."""
     from app.db.models import Bot as BotModel, Channel as ChannelModel
 
+    carapace_id = _decode_carapace_id(carapace_id)
     row = await db.get(CarapaceRow, carapace_id)
     if not row:
         raise HTTPException(status_code=404, detail="Carapace not found")
@@ -283,6 +293,7 @@ async def admin_export_carapace(
     _auth=Depends(require_scopes("carapaces:read")),
 ):
     """Export a carapace as YAML."""
+    carapace_id = _decode_carapace_id(carapace_id)
     row = await db.get(CarapaceRow, carapace_id)
     if not row:
         raise HTTPException(status_code=404, detail="Carapace not found")

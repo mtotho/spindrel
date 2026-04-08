@@ -59,12 +59,11 @@ class Scenario:
     steps: list[ScenarioStep] = field(default_factory=list)
     source_file: str = ""  # path of the YAML file this came from
 
-    @property
-    def effective_bot_id(self) -> str:
+    def effective_bot_id(self, default: str = "e2e") -> str:
         """Return the bot ID to use for chat requests."""
         if self.bot:
             return self.bot.id
-        return self.bot_id or "e2e"
+        return self.bot_id or default
 
     @property
     def test_id(self) -> str:

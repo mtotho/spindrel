@@ -29,6 +29,7 @@ class E2EClient:
 
     def __init__(self, config: E2EConfig) -> None:
         self.config = config
+        self.default_bot_id = config.bot_id
         self._client = httpx.AsyncClient(
             base_url=config.base_url,
             headers={"Authorization": f"Bearer {config.api_key}"},
@@ -43,14 +44,15 @@ class E2EClient:
     async def chat(
         self,
         message: str,
-        bot_id: str = "e2e",
+        bot_id: str | None = None,
         channel_id: str | None = None,
         **kwargs: Any,
     ) -> ChatResponse:
         """Send a message to the non-streaming /chat endpoint."""
         payload: dict[str, Any] = {
             "message": message,
-            "bot_id": bot_id,
+            "bot_id": bot_id or self.default_bot_id,
+            "msg_metadata": {"sender_type": "human", "source": "e2e-test"},
             **kwargs,
         }
         if channel_id:
@@ -70,14 +72,15 @@ class E2EClient:
     async def chat_stream(
         self,
         message: str,
-        bot_id: str = "e2e",
+        bot_id: str | None = None,
         channel_id: str | None = None,
         **kwargs: Any,
     ) -> StreamResult:
         """Send a message to the streaming /chat/stream endpoint and collect all events."""
         payload: dict[str, Any] = {
             "message": message,
-            "bot_id": bot_id,
+            "bot_id": bot_id or self.default_bot_id,
+            "msg_metadata": {"sender_type": "human", "source": "e2e-test"},
             **kwargs,
         }
         if channel_id:
@@ -98,7 +101,10 @@ class E2EClient:
     # -- Admin/utility endpoints --
 
     async def health(self) -> dict:
-        """GET /health."""
+        """GET /health or /api/v1/admin/health (tries admin first for richer data)."""
+        resp = await self._client.get("/api/v1/admin/health")
+        if resp.status_code == 200:
+            return resp.json()
         resp = await self._client.get("/health")
         resp.raise_for_status()
         return resp.json()
@@ -107,13 +113,15 @@ class E2EClient:
         """GET /bots."""
         resp = await self._client.get("/bots")
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        return data["bots"] if isinstance(data, dict) and "bots" in data else data
 
     async def list_channels(self) -> list[dict]:
         """GET /api/v1/admin/channels."""
         resp = await self._client.get("/api/v1/admin/channels")
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        return data["channels"] if isinstance(data, dict) and "channels" in data else data
 
     # -- Generic HTTP methods --
 

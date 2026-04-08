@@ -33,6 +33,10 @@ _ALL_SCENARIOS = _collect_scenarios()
 )
 async def test_yaml_scenario(client: E2EClient, scenario: Scenario) -> None:
     """Execute a single YAML scenario and assert all steps pass."""
+    # Scenarios with inline bots can't run in external mode (no bot creation)
+    if client.config.is_external and scenario.bot:
+        pytest.skip("Inline bot scenario — requires compose mode")
+
     result = await run_scenario(client, scenario)
 
     if result.error:
