@@ -557,10 +557,7 @@ async def admin_channel_detail(
         .where(Session.channel_id == channel_id)
     )).scalar_one()
 
-    memory_count = (await db.execute(
-        select(func.count()).select_from(Memory)
-        .where(Memory.channel_id == channel_id)
-    )).scalar_one()
+    memory_count = 0  # memories table is deprecated
 
     task_count = (await db.execute(
         select(func.count()).select_from(Task)

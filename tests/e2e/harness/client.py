@@ -77,6 +77,7 @@ class E2EClient:
         message: str,
         bot_id: str | None = None,
         channel_id: str | None = None,
+        client_id: str | None = None,
         **kwargs: Any,
     ) -> StreamResult:
         """Send a message to the streaming /chat/stream endpoint and collect all events."""
@@ -88,6 +89,8 @@ class E2EClient:
         }
         if channel_id:
             payload["channel_id"] = channel_id
+        if client_id:
+            payload["client_id"] = client_id
 
         result = StreamResult()
 

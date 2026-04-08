@@ -109,12 +109,12 @@ async def test_regression_rapid_api_messages_not_throttled(
     client: E2EClient,
 ) -> None:
     """Rapid sequential messages with sender_type=human should not be throttled."""
-    channel_id = client.new_channel_id()
+    cid = client.new_client_id()
     # Send 3 messages in quick succession — previously this would hit throttle
     for i in range(3):
         resp = await client.chat(
             f"Throttle test message {i}",
-            channel_id=channel_id,
+            client_id=cid,
         )
         assert resp.response, f"Message {i} should get a response"
 
@@ -148,8 +148,8 @@ async def test_regression_bot_default_memory_scheme(client: E2EClient) -> None:
 @pytest.mark.asyncio
 async def test_regression_chat_returns_valid_session(client: E2EClient) -> None:
     """Chat endpoint must return a session_id and non-empty response."""
-    channel_id = client.new_channel_id()
-    resp = await client.chat("Say the word 'hello'.", channel_id=channel_id)
+    cid = client.new_client_id()
+    resp = await client.chat("Say the word 'hello'.", client_id=cid)
     assert resp.session_id, "Must return a session_id"
     assert len(resp.response) > 0, "Response must not be empty"
 
@@ -157,9 +157,9 @@ async def test_regression_chat_returns_valid_session(client: E2EClient) -> None:
 @pytest.mark.asyncio
 async def test_regression_stream_returns_events(client: E2EClient) -> None:
     """Stream endpoint must return at least one response event."""
-    channel_id = client.new_channel_id()
+    cid = client.new_client_id()
     result = await client.chat_stream(
-        "Say the word 'hello'.", channel_id=channel_id
+        "Say the word 'hello'.", client_id=cid
     )
     assert len(result.events) > 0, "Must return at least one SSE event"
     assert result.response_text, "Must produce response text"
@@ -174,18 +174,18 @@ async def test_regression_stream_returns_events(client: E2EClient) -> None:
 @pytest.mark.asyncio
 async def test_regression_multi_turn_context(client: E2EClient) -> None:
     """Second message in same channel should have context from first."""
-    channel_id = client.new_channel_id()
+    cid = client.new_client_id()
 
     # First turn: establish a fact
     await client.chat(
         "Remember: the secret code is PINEAPPLE42.",
-        channel_id=channel_id,
+        client_id=cid,
     )
 
-    # Second turn: ask about it
+    # Second turn: ask about it (same client_id = same channel + session)
     resp = await client.chat(
         "What is the secret code I just told you?",
-        channel_id=channel_id,
+        client_id=cid,
     )
     assert "PINEAPPLE42" in resp.response.upper().replace(" ", ""), (
         "Bot should recall context from previous turn"
@@ -200,19 +200,19 @@ async def test_regression_multi_turn_context(client: E2EClient) -> None:
 @pytest.mark.asyncio
 async def test_regression_channel_isolation(client: E2EClient) -> None:
     """Messages in one channel must not leak to another."""
-    channel_a = client.new_channel_id()
-    channel_b = client.new_channel_id()
+    cid_a = client.new_client_id()
+    cid_b = client.new_client_id()
 
     # Establish context in channel A
     await client.chat(
         "Remember: the password is ZEBRA99.",
-        channel_id=channel_a,
+        client_id=cid_a,
     )
 
     # Ask in channel B — should NOT know the password
     resp = await client.chat(
         "What password did I tell you?",
-        channel_id=channel_b,
+        client_id=cid_b,
     )
     assert "ZEBRA99" not in resp.response.upper().replace(" ", ""), (
         "Channel B must not see Channel A's context"
