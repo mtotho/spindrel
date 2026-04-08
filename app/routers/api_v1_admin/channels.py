@@ -110,6 +110,7 @@ class ChannelOut(BaseModel):
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
     integrations: list[IntegrationBindingOut] = []
+    member_bots: list[dict] = []
     heartbeat_enabled: bool = False
     heartbeat_in_quiet_hours: bool = False
     channel_workspace_enabled: Optional[bool] = None
@@ -553,7 +554,7 @@ async def admin_channel_detail(
     """Channel detail with linked entity counts."""
     channel = (await db.execute(
         select(Channel)
-        .options(selectinload(Channel.integrations))
+        .options(selectinload(Channel.integrations), selectinload(Channel.bot_members))
         .where(Channel.id == channel_id)
     )).scalar_one_or_none()
     if not channel:
@@ -584,8 +585,11 @@ async def admin_channel_detail(
             .where(Message.session_id == channel.active_session_id)
         )).scalar_one()
 
+    from app.routers.api_v1_channels import _enrich_bot_members
+    channel_out = ChannelOut.model_validate(channel)
+    channel_out.member_bots = _enrich_bot_members(channel)
     return ChannelDetailOut(
-        channel=ChannelOut.model_validate(channel),
+        channel=channel_out,
         entities=ChannelEntitySummary(
             session_count=session_count,
             message_count=message_count,

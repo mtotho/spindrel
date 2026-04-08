@@ -8,7 +8,7 @@ import httpx
 from integrations.arr.config import settings
 from integrations._register import register
 
-from integrations.arr.tools._helpers import error, sanitize, validate_url
+from integrations.arr.tools._helpers import coerce_list, error, sanitize, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +196,7 @@ async def radarr_command(
     try:
         payload: dict = {"name": action}
         if action in ("MoviesSearch", "RefreshMovie"):
+            movie_ids = coerce_list(movie_ids, item_type=int) if movie_ids else []
             if not movie_ids:
                 return error(f"movie_ids required for {action}")
             payload["movieIds"] = movie_ids
@@ -396,19 +397,19 @@ async def radarr_history(movie_id: int, limit: int = 30) -> str:
         records = data if isinstance(data, list) else data.get("records", [])
         events = []
         for rec in records[:limit]:
-            evt_data = rec.get("data", {})
-            event = {
+            evt_data = rec.get("data", {}) or {}
+            event: dict = {
                 "event_type": rec.get("eventType", ""),
                 "date": rec.get("date", ""),
                 "quality": rec.get("quality", {}).get("quality", {}).get("name", ""),
+                "source_title": sanitize(rec.get("sourceTitle", ""), max_len=200),
             }
             evt_type = rec.get("eventType", "")
-            if evt_type in ("grabbed", "downloadFolderImported", "downloadFailed"):
-                event["release_title"] = sanitize(evt_data.get("nzbInfoUrl", evt_data.get("torrentInfoHash", "")), max_len=200)
             if evt_type == "downloadFailed":
                 event["error_message"] = sanitize(evt_data.get("message", ""), max_len=300)
             if evt_type == "downloadFolderImported":
                 event["imported_path"] = evt_data.get("importedPath", "")
+                event["dropped_path"] = evt_data.get("droppedPath", "")
             if evt_type == "movieFileDeleted":
                 event["reason"] = evt_data.get("reason", "")
             events.append(event)
@@ -459,6 +460,7 @@ async def radarr_queue_manage(
 ) -> str:
     if not settings.RADARR_URL:
         return error("RADARR_URL is not configured")
+    queue_ids = coerce_list(queue_ids, item_type=int)
     if not queue_ids:
         return error("queue_ids is required")
     try:

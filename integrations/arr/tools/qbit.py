@@ -9,7 +9,7 @@ import httpx
 from integrations.arr.config import settings
 from integrations._register import register
 
-from integrations.arr.tools._helpers import error, sanitize, validate_url
+from integrations.arr.tools._helpers import coerce_list, error, sanitize, validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +139,7 @@ async def qbit_torrents(filter: str = "all", limit: int = 50) -> str:
 async def qbit_manage(hashes: list[str], action: str) -> str:
     if not settings.QBIT_URL:
         return error("QBIT_URL is not configured")
+    hashes = coerce_list(hashes, item_type=str)
     if not hashes:
         return error("hashes list is empty")
     try:

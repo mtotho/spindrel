@@ -24,6 +24,27 @@ def sanitize(text: str, max_len: int = 500) -> str:
     return cleaned
 
 
+def coerce_list(value, item_type=None):
+    """Coerce a value that should be a list but might arrive as a JSON string.
+
+    LLMs frequently pass array parameters as JSON-encoded strings, e.g.
+    ``"[1, 2, 3]"`` instead of ``[1, 2, 3]``.  This helper normalises both
+    forms to a plain Python list, with optional per-item type conversion.
+    """
+    if isinstance(value, str):
+        value = value.strip()
+        if value.startswith("["):
+            value = json.loads(value)
+        else:
+            # Single bare value
+            value = [value]
+    if not isinstance(value, list):
+        value = [value]
+    if item_type is not None:
+        value = [item_type(v) for v in value]
+    return value
+
+
 def error(msg: str) -> str:
     return json.dumps({"error": msg})
 
