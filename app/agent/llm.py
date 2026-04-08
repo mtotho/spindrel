@@ -536,6 +536,7 @@ class _ErrorClassification:
     base_wait: float = 2.0
     skip_to_fallback: bool = False
     retry_without_tools: bool = False
+    retry_without_images: bool = False
 
 
 def _classify_error(exc: Exception, has_tools: bool) -> _ErrorClassification:
@@ -543,6 +544,8 @@ def _classify_error(exc: Exception, has_tools: bool) -> _ErrorClassification:
     if isinstance(exc, openai.BadRequestError):
         if _is_tools_not_supported_error(exc) and has_tools:
             return _ErrorClassification(retry_without_tools=True)
+        if _is_vision_not_supported_error(exc):
+            return _ErrorClassification(retry_without_images=True)
         return _ErrorClassification()  # not retryable, propagate
 
     if isinstance(exc, openai.RateLimitError):
@@ -566,6 +569,7 @@ async def _retry_single_model(
     on_event=None,
     *,
     retry_without_tools_fn=None,
+    retry_without_images_fn=None,
 ):
     """Retry loop for a single model.  Returns result on success, raises on exhaustion.
 
@@ -583,6 +587,8 @@ async def _retry_single_model(
         ``(event_dict) -> None`` — called for retry/status events.
     retry_without_tools_fn : async callable, optional
         ``async () -> result`` — called when model doesn't support tools.
+    retry_without_images_fn : async callable, optional
+        ``async () -> result`` — called when model doesn't support vision/images.
     """
     for attempt in range(max_retries + 1):
         try:
@@ -598,6 +604,18 @@ async def _retry_single_model(
                     return await retry_without_tools_fn()
                 except Exception as retry_exc:
                     logger.warning("Retry without tools also failed for %s: %s", model, retry_exc)
+                    raise retry_exc from exc
+
+            if cl.retry_without_images and retry_without_images_fn is not None:
+                from app.services.providers import mark_model_no_vision
+                asyncio.ensure_future(mark_model_no_vision(model))
+                if on_event:
+                    on_event({"type": "llm_retry", "attempt": 1, "max_retries": 1,
+                              "wait_seconds": 0, "reason": "vision_not_supported", "model": model})
+                try:
+                    return await retry_without_images_fn()
+                except Exception as retry_exc:
+                    logger.warning("Retry without images also failed for %s: %s", model, retry_exc)
                     raise retry_exc from exc
 
             if cl.skip_to_fallback:
@@ -630,6 +648,7 @@ async def _run_with_fallback_chain(
     make_no_tools_fn,
     max_retries: int,
     on_event=None,
+    make_no_images_fn=None,
 ):
     """Orchestrate circuit breaker + primary model + fallback chain.
 
@@ -639,6 +658,8 @@ async def _run_with_fallback_chain(
         ``(model, provider_id, model_params) -> async () -> result`` — factory for attempt callables.
     make_no_tools_fn : callable
         ``(model, provider_id, model_params) -> async () -> result`` — factory for no-tools attempt.
+    make_no_images_fn : callable, optional
+        ``(model, provider_id, model_params) -> async () -> result`` — factory for no-images attempt.
     on_event : callable, optional
         ``(event_dict) -> None`` — called for retry/fallback events.
 
@@ -659,10 +680,12 @@ async def _run_with_fallback_chain(
         if on_event:
             on_event({"type": "llm_cooldown_skip", "model": model, "using": cooldown_fb})
         try:
+            _no_img = make_no_images_fn(cooldown_fb, effective_cd_provider, model_params) if make_no_images_fn else None
             result = await _retry_single_model(
                 make_attempt_fn(cooldown_fb, effective_cd_provider, model_params),
                 cooldown_fb, has_tools, max_retries, on_event,
                 retry_without_tools_fn=make_no_tools_fn(cooldown_fb, effective_cd_provider, model_params),
+                retry_without_images_fn=_no_img,
             )
             last_fallback_info.set(FallbackInfo(
                 original_model=model, fallback_model=cooldown_fb,
@@ -676,10 +699,12 @@ async def _run_with_fallback_chain(
     # --- Primary model ---
     if primary_exc is None:
         try:
+            _no_img = make_no_images_fn(model, provider_id, model_params) if make_no_images_fn else None
             return await _retry_single_model(
                 make_attempt_fn(model, provider_id, model_params),
                 model, has_tools, max_retries, on_event,
                 retry_without_tools_fn=make_no_tools_fn(model, provider_id, model_params),
+                retry_without_images_fn=_no_img,
             )
         except _FALLBACK_TRIGGER_ERRORS as exc:
             primary_exc = exc
@@ -706,10 +731,12 @@ async def _run_with_fallback_chain(
             on_event({"type": "llm_fallback", "from_model": model, "to_model": fb_model,
                        "reason": type(last_exc).__name__})
         try:
+            _no_img = make_no_images_fn(fb_model, fb_provider, model_params) if make_no_images_fn else None
             result = await _retry_single_model(
                 make_attempt_fn(fb_model, fb_provider, model_params),
                 fb_model, has_tools, max_retries, on_event,
                 retry_without_tools_fn=make_no_tools_fn(fb_model, fb_provider, model_params),
+                retry_without_images_fn=_no_img,
             )
             last_fallback_info.set(FallbackInfo(
                 original_model=model, fallback_model=fb_model,
@@ -896,6 +923,18 @@ def _is_tools_not_supported_error(exc: openai.BadRequestError) -> bool:
     ))
 
 
+def _is_vision_not_supported_error(exc: openai.BadRequestError) -> bool:
+    """Detect 400 errors that indicate the model doesn't support image/vision content."""
+    msg = str(exc).lower()
+    return any(k in msg for k in (
+        "unsupported content type 'image_url'",
+        "image_url is not supported",
+        "does not support image",
+        "does not support vision",
+        "image input is not supported",
+    ))
+
+
 def _is_non_transient_500(exc: openai.InternalServerError) -> bool:
     """Detect 500s that wrap non-transient upstream errors (e.g. LiteLLM wrapping a 400)."""
     msg = str(exc).lower()
@@ -929,7 +968,7 @@ def _prepare_call_params(
 ) -> _CallParams:
     """Shared model preparation: client, param filtering, message folding, tool stripping."""
     from app.agent.model_params import filter_model_params
-    from app.services.providers import get_llm_client, model_supports_tools, requires_system_message_folding, resolve_provider_for_model
+    from app.services.providers import get_llm_client, model_supports_tools, model_supports_vision, requires_system_message_folding, resolve_provider_for_model
 
     # Auto-resolve provider when caller didn't specify one and the model is
     # registered under a specific provider.
@@ -949,6 +988,9 @@ def _prepare_call_params(
         from app.agent.prompt_cache import should_apply_cache_control, apply_cache_breakpoints
         if should_apply_cache_control(model, provider_id):
             eff_msgs = apply_cache_breakpoints(eff_msgs)
+
+    if not model_supports_vision(model):
+        eff_msgs = _strip_images_from_messages(eff_msgs)
 
     eff_tools = tools_param
     eff_tool_choice = tool_choice
@@ -1052,6 +1094,21 @@ async def _llm_call_stream(
             return await p.client.chat.completions.create(**kwargs)
         return _attempt
 
+    def _make_no_images(m, pid, mp):
+        async def _attempt():
+            stripped = _strip_images_from_messages(messages)
+            p = _prepare_call_params(m, stripped, tools_param, tool_choice, pid, mp)
+            kwargs: dict = dict(
+                model=p.model, messages=p.messages, stream=True,
+                stream_options={"include_usage": True}, **p.extra,
+            )
+            if p.tools is not None:
+                kwargs["tools"] = p.tools
+            if p.tool_choice is not None:
+                kwargs["tool_choice"] = p.tool_choice
+            return await p.client.chat.completions.create(**kwargs)
+        return _attempt
+
     # Run the retry/fallback chain in a background task so we can yield
     # events from the queue in real-time while retries are in progress.
     stream_result: list = []  # single-element list to hold the stream
@@ -1067,6 +1124,7 @@ async def _llm_call_stream(
                 make_no_tools_fn=_make_no_tools,
                 max_retries=settings.LLM_MAX_RETRIES,
                 on_event=_on_event,
+                make_no_images_fn=_make_no_images,
             )
             stream_result.append(result)
         except Exception as exc:
@@ -1147,6 +1205,26 @@ async def _llm_call(
             return resp
         return _attempt
 
+    def _make_no_images(m, pid, mp):
+        async def _attempt():
+            stripped = _strip_images_from_messages(messages)
+            p = _prepare_call_params(m, stripped, tools_param, tool_choice, pid, mp)
+            kwargs: dict = dict(model=p.model, messages=p.messages, **p.extra)
+            if p.tools is not None:
+                kwargs["tools"] = p.tools
+            if p.tool_choice is not None:
+                kwargs["tool_choice"] = p.tool_choice
+            resp = await p.client.chat.completions.create(**kwargs)
+            if not resp.choices:
+                raise EmptyChoicesError(
+                    f"LLM returned empty choices list (model={m}, "
+                    f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
+                )
+            if resp.usage:
+                record_usage(p.provider_id, resp.usage.total_tokens)
+            return resp
+        return _attempt
+
     return await _run_with_fallback_chain(
         model, provider_id, model_params,
         has_tools=bool(tools_param),
@@ -1154,7 +1232,36 @@ async def _llm_call(
         make_attempt_fn=_make_attempt,
         make_no_tools_fn=_make_no_tools,
         max_retries=settings.LLM_MAX_RETRIES,
+        make_no_images_fn=_make_no_images,
     )
+
+
+_IMAGE_STRIPPED_NOTE = (
+    "[An image was attached but your model does not support viewing images directly. "
+    "If you have the `describe_attachment` tool available, use it to get a text description. "
+    "Otherwise, let the user know you cannot view images with your current model.]"
+)
+
+
+def _strip_images_from_messages(messages: list) -> list:
+    """Return a copy of *messages* with image_url content blocks replaced by text notes."""
+    out = []
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            out.append(msg)
+            continue
+        new_parts = []
+        had_image = False
+        for part in content:
+            if part.get("type") == "image_url":
+                had_image = True
+            else:
+                new_parts.append(part)
+        if had_image:
+            new_parts.append({"type": "text", "text": _IMAGE_STRIPPED_NOTE})
+        out.append({**msg, "content": new_parts})
+    return out
 
 
 def _fold_system_messages(messages: list) -> list:

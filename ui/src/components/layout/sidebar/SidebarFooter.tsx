@@ -1,5 +1,5 @@
 import { Link } from "expo-router";
-import { Sun, Moon } from "lucide-react";
+import { Sun, Moon, Search } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
 import { useAuthStore } from "../../../stores/auth";
 import { useThemeStore } from "../../../stores/theme";
@@ -91,6 +91,33 @@ export function SidebarFooterCollapsed({ version }: { version?: string }) {
   );
 }
 
+function SearchShortcutHint() {
+  const t = useThemeTokens();
+  const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: !isMac, metaKey: isMac }))}
+      className="sidebar-nav-item"
+      style={{
+        display: "flex", alignItems: "center", gap: 12,
+        padding: "8px 12px", borderRadius: 6,
+        background: "none", border: "none", cursor: "pointer",
+        width: "100%", textAlign: "left",
+      }}
+    >
+      <Search size={16} color={t.textDim} />
+      <span style={{ flex: 1, fontSize: 14, color: t.textDim }}>Search</span>
+      <kbd style={{
+        fontSize: 10, color: t.textDim, background: t.surface,
+        border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+        padding: "2px 6px", fontFamily: "inherit",
+      }}>
+        {isMac ? "\u2318" : "Ctrl"}+K
+      </kbd>
+    </button>
+  );
+}
+
 export function SidebarFooterExpanded({ pathname, mobile, version }: { pathname: string; mobile?: boolean; version?: string }) {
   const closeMobile = useUIStore((s) => s.closeMobileSidebar);
   const user = useAuthStore((s) => s.user);
@@ -103,6 +130,7 @@ export function SidebarFooterExpanded({ pathname, mobile, version }: { pathname:
       padding: 10, display: "flex", flexDirection: "column", gap: 2,
     }}>
       <UsageHudBadge collapsed={false} />
+      {!mobile && <SearchShortcutHint />}
       <ThemeToggleRow />
       <Link href={"/(app)/profile" as any} onPress={closeMobile}>
         <div

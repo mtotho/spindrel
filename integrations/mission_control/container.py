@@ -10,6 +10,10 @@ import os
 import signal
 import subprocess
 import sys
+import time
+
+MAX_RESTARTS = 10
+RESTART_WINDOW = 3600  # reset counter after 1 hour of stability
 
 
 def _get_config():
@@ -74,21 +78,7 @@ def main():
 
     api_key = os.environ.get("AGENT_API_KEY", "")
 
-    if _container_running(name):
-        print(f"[mission-control] Container {name} already running, attaching...")
-        proc = subprocess.run(["docker", "logs", "-f", name])
-        sys.exit(proc.returncode)
-
-    if _container_exists(name):
-        print(f"[mission-control] Starting existing container {name}...")
-        proc = subprocess.run(["docker", "start", "-a", name])
-        if proc.returncode != 0:
-            print(f"[mission-control] Container failed to start (exit {proc.returncode}). Removing and recreating...")
-            subprocess.run(["docker", "rm", name], capture_output=True)
-        else:
-            sys.exit(proc.returncode)
-
-    # Check if image exists — auto-build if missing
+    # Ensure image exists — auto-build if missing
     image = cfg.MISSION_CONTROL_IMAGE
     img_check = subprocess.run(["docker", "image", "inspect", image], capture_output=True)
     if img_check.returncode != 0:
@@ -107,25 +97,61 @@ def main():
             sys.exit(1)
         print(f"[mission-control] Image '{image}' built successfully.")
 
-    # Build the docker run command
-    cmd = [
-        "docker", "run",
-        "--name", name,
-        "-v", f"{ws_root}:/workspaces:ro",
-        "-p", f"{cfg.MISSION_CONTROL_PORT}:3000",
-        "-e", f"AGENT_SERVER_URL={cfg.AGENT_SERVER_URL}",
-        "-e", f"AGENT_SERVER_API_KEY={api_key}",
-        "--add-host", "host.docker.internal:host-gateway",
-        image,
-    ]
+    # Run with auto-restart on crash
+    restart_count = 0
+    last_stable = time.monotonic()
 
-    # Redact secrets from logged command
-    safe_cmd = [c if not c.startswith("AGENT_SERVER_API_KEY=") else "AGENT_SERVER_API_KEY=***" for c in cmd]
-    print(f"[mission-control] Starting container: {' '.join(safe_cmd)}")
-    proc = subprocess.run(cmd)
-    if proc.returncode != 0:
-        print(f"[mission-control] Container exited with code {proc.returncode}")
-    sys.exit(proc.returncode)
+    while True:
+        # Start or attach to container
+        if _container_running(name):
+            print(f"[mission-control] Container {name} already running, attaching...")
+            proc = subprocess.run(["docker", "logs", "-f", name])
+        elif _container_exists(name):
+            print(f"[mission-control] Starting existing container {name}...")
+            proc = subprocess.run(["docker", "start", "-a", name])
+        else:
+            cmd = [
+                "docker", "run",
+                "--name", name,
+                "-v", f"{ws_root}:/workspaces:ro",
+                "-p", f"{cfg.MISSION_CONTROL_PORT}:3000",
+                "-e", f"AGENT_SERVER_URL={cfg.AGENT_SERVER_URL}",
+                "-e", f"AGENT_SERVER_API_KEY={api_key}",
+                "--add-host", "host.docker.internal:host-gateway",
+                image,
+            ]
+            safe_cmd = [c if not c.startswith("AGENT_SERVER_API_KEY=") else "AGENT_SERVER_API_KEY=***" for c in cmd]
+            print(f"[mission-control] Starting container: {' '.join(safe_cmd)}")
+            proc = subprocess.run(cmd)
+
+        uptime = time.monotonic() - last_stable
+        exit_code = proc.returncode
+
+        # Clean exit — done
+        if exit_code == 0:
+            print(f"[mission-control] Container exited cleanly")
+            sys.exit(0)
+
+        # Crash — decide whether to restart
+        print(f"[mission-control] Container exited with code {exit_code} (uptime {uptime:.0f}s)")
+
+        # Reset counter if it ran long enough to be considered stable
+        if uptime > RESTART_WINDOW:
+            restart_count = 0
+
+        restart_count += 1
+        if restart_count > MAX_RESTARTS:
+            print(f"[mission-control] Too many restarts ({restart_count}), giving up")
+            sys.exit(exit_code)
+
+        # Clean up failed container so we can recreate
+        if _container_exists(name):
+            subprocess.run(["docker", "rm", name], capture_output=True)
+
+        delay = min(5 * restart_count, 30)
+        print(f"[mission-control] Restarting in {delay}s (attempt {restart_count}/{MAX_RESTARTS})...")
+        time.sleep(delay)
+        last_stable = time.monotonic()
 
 
 if __name__ == "__main__":

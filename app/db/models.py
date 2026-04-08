@@ -776,6 +776,7 @@ class ProviderModel(Base):
     output_cost_per_1m: Mapped[str | None] = mapped_column(Text, nullable=True)
     no_system_messages: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     supports_tools: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    supports_vision: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     provider: Mapped["ProviderConfig"] = relationship(back_populates="models")

@@ -84,7 +84,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                   style={{
                     background: t.surfaceRaised,
                     border: `1px solid ${t.surfaceBorder}`,
-                    borderRadius: 10,
+                    borderRadius: 8,
                     padding: 12,
                   }}
                 >
@@ -113,7 +113,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                     alignItems: "center",
                     gap: 10,
                     padding: "10px 14px",
-                    borderRadius: 10,
+                    borderRadius: 8,
                     border: `1px solid ${t.surfaceBorder}`,
                     background: t.surfaceRaised,
                   }}
@@ -137,28 +137,34 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                   <button
                     onClick={() => setEditingId(b.id)}
                     style={{
-                      background: "none",
+                      background: "transparent",
                       border: "none",
                       cursor: "pointer",
                       padding: 6,
                       borderRadius: 6,
                       display: "flex",
                       alignItems: "center",
+                      transition: "background 0.1s",
                     }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceOverlay; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   >
                     <Pencil size={13} color={t.textDim} />
                   </button>
                   <button
                     onClick={() => setUnbindTarget({ id: b.id, type: b.integration_type, clientId: b.client_id })}
                     style={{
-                      background: "none",
+                      background: "transparent",
                       border: "none",
                       cursor: "pointer",
                       padding: 6,
                       borderRadius: 6,
                       display: "flex",
                       alignItems: "center",
+                      transition: "background 0.1s",
                     }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceOverlay; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   >
                     <X size={14} color={t.danger} />
                   </button>

@@ -11,10 +11,12 @@ import { useUIStore } from "../../stores/ui";
 import { useChatStore } from "../../stores/chat";
 import { useSystemStatus } from "../../api/hooks/useSystemStatus";
 import { useThemeTokens } from "../../theme/tokens";
+import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
 
 export function AppShell() {
   const columns = useResponsiveColumns();
   const hasDetail = useUIStore((s) => s.detailPanel.type !== null);
+  const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPaletteShortcut();
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
   const { data: status } = useSystemStatus();
@@ -116,6 +118,9 @@ export function AppShell() {
           </div>
         )}
       </div>
+
+      {/* Global command palette (Cmd+K / Ctrl+K) */}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );
 }

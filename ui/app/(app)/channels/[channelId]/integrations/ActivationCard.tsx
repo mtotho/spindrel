@@ -16,15 +16,18 @@ function CarapacePill({ id, t }: { id: string; t: any }) {
           alignItems: "center",
           gap: 4,
           padding: "2px 8px",
-          borderRadius: 5,
+          borderRadius: 4,
           background: t.accentSubtle,
           border: `1px solid ${t.accentBorder}`,
           textDecoration: "none",
           cursor: "pointer",
+          transition: "filter 0.12s",
         }}
+        onMouseEnter={(e) => { e.currentTarget.style.filter = "brightness(0.95)"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.filter = "none"; }}
       >
         <Layers size={10} color={t.accent} />
-        <span style={{ fontSize: 11, fontWeight: 600, color: t.accent }}>{id}</span>
+        <span style={{ fontSize: 10, fontWeight: 600, color: t.accent }}>{id}</span>
       </a>
     </Link>
   );
@@ -49,35 +52,30 @@ function InjectionSummaryLine({ ig }: { ig: ActivatableIntegration }) {
 
 function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
   if (ig.tools.length === 0 && ig.skill_count === 0 && !ig.has_system_prompt && ig.carapaces.length === 0) return null;
+
+  // Compact single-line summary for the injection metadata
+  const meta: string[] = [];
+  if (ig.tools.length > 0) meta.push(`${ig.tools.length} tools`);
+  if (ig.skill_count > 0) meta.push(`${ig.skill_count} skills`);
+  if (ig.has_system_prompt) meta.push("system prompt");
+
   return (
-    <div style={{ marginTop: 6, paddingTop: 6, borderTop: `1px solid ${t.surfaceBorder}` }}>
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${t.surfaceBorder}` }}>
       {ig.carapaces.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>Capability:</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
           {ig.carapaces.map((id) => (
             <CarapacePill key={id} id={id} t={t} />
           ))}
-          <span style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>
-            from {prettyIntegrationName(ig.integration_type)}
-          </span>
+          {meta.length > 0 && (
+            <span style={{ fontSize: 10, color: t.textDim }}>
+              {meta.join(" \u00b7 ")}
+            </span>
+          )}
         </div>
       )}
-      {ig.tools.length > 0 && (
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 3 }}>
-          <span style={{ fontWeight: 600, color: t.text }}>Tools: </span>
-          {ig.tools.join(", ")}
-        </div>
-      )}
-      {ig.skill_count > 0 && (
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 3 }}>
-          <span style={{ fontWeight: 600, color: t.text }}>Skills: </span>
-          {ig.skill_count}
-        </div>
-      )}
-      {ig.has_system_prompt && (
+      {ig.carapaces.length === 0 && meta.length > 0 && (
         <div style={{ fontSize: 11, color: t.textDim }}>
-          <span style={{ fontWeight: 600, color: t.text }}>System prompt: </span>
-          injected
+          {meta.join(" \u00b7 ")}
         </div>
       )}
     </div>
@@ -103,7 +101,7 @@ export function ActivationCard({
   return (
     <div
       style={{
-        borderRadius: 10,
+        borderRadius: 8,
         border: `1px solid ${ig.activated ? t.accentBorder : t.surfaceBorder}`,
         background: ig.activated ? t.accentSubtle : t.surfaceRaised,
         transition: "all 0.15s ease",
@@ -148,13 +146,14 @@ export function ActivationCard({
             {ig.includes?.length > 0 && (
               <span style={{
                 fontSize: 10,
-                fontWeight: 600,
-                color: t.textDim,
-                padding: "1px 6px",
-                borderRadius: 3,
+                fontWeight: 500,
+                color: t.textMuted,
+                padding: "2px 8px",
+                borderRadius: 4,
                 background: t.surfaceOverlay,
+                letterSpacing: 0.2,
               }}>
-                includes {ig.includes.map(i => prettyIntegrationName(i)).join(", ")}
+                + {ig.includes.map(i => prettyIntegrationName(i)).join(", ")}
               </span>
             )}
             {ig.requires_workspace && !workspaceEnabled && (
@@ -179,9 +178,9 @@ export function ActivationCard({
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 5,
-            padding: "6px 12px",
-            borderRadius: 6,
+            gap: 6,
+            padding: "6px 14px",
+            borderRadius: 8,
             border: ig.activated
               ? `1px solid ${t.dangerBorder}`
               : `1px solid ${t.accentBorder}`,

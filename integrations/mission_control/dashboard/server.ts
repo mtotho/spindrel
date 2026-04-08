@@ -12,6 +12,18 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+// ---------------------------------------------------------------------------
+// Crash logging — catch unhandled errors so we can diagnose silent exits
+// ---------------------------------------------------------------------------
+process.on("uncaughtException", (err) => {
+  console.error("[mission-control] FATAL uncaughtException:", err);
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[mission-control] FATAL unhandledRejection:", reason);
+  process.exit(1);
+});
+
 const app = express();
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const WORKSPACES_ROOT = process.env.WORKSPACES_ROOT || "/workspaces";

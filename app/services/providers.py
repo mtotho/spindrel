@@ -24,6 +24,8 @@ _model_info_cache: dict[str | None, dict[str, dict]] = {}
 _no_sys_msg_models: set[str] = set()
 # Cached set of model_ids flagged as supports_tools=False in provider_models table
 _no_tools_models: set[str] = set()
+# Cached set of model_ids flagged as supports_vision=False in provider_models table
+_no_vision_models: set[str] = set()
 # Cached set of model_ids belonging to plan-billed providers
 _plan_billed_models: set[str] = set()
 # Reverse index: model_id → provider_id (built from provider_models table)
@@ -132,6 +134,7 @@ async def load_providers() -> None:
     _model_info_cache = {}
     _no_sys_msg_models = set()
     _no_tools_models = set()
+    _no_vision_models = set()
     _plan_billed_models = set()
     _model_to_provider = {}
     _live_model_to_provider = {}
@@ -162,6 +165,16 @@ async def load_providers() -> None:
             )
         ).scalars().all()
         _no_tools_models = set(no_tools)
+
+        # Load model IDs flagged as not supporting vision
+        no_vision = (
+            await db.execute(
+                select(ProviderModel.model_id).where(
+                    ProviderModel.supports_vision == False  # noqa: E712
+                )
+            )
+        ).scalars().all()
+        _no_vision_models = set(no_vision)
 
         # Load model IDs belonging to plan-billed providers
         plan_provider_ids = [r.id for r in rows if r.billing_type == "plan"]
@@ -217,6 +230,8 @@ async def load_providers() -> None:
         logger.info("Models with no_system_messages flag: %s", _no_sys_msg_models)
     if _no_tools_models:
         logger.info("Models with supports_tools=false flag: %s", _no_tools_models)
+    if _no_vision_models:
+        logger.info("Models with supports_vision=false flag: %s", _no_vision_models)
     if _plan_billed_models:
         logger.info("Models on plan-billed providers: %s", _plan_billed_models)
 
@@ -286,6 +301,40 @@ def model_supports_tools(model: str) -> bool:
         if pattern in model_lower:
             return False
     return True
+
+
+def model_supports_vision(model: str) -> bool:
+    """Check whether a model supports image/vision content.
+
+    Defaults to True. Set to False in the DB (provider_models.supports_vision)
+    or auto-learned at runtime when the API rejects image_url content.
+    """
+    return model not in _no_vision_models
+
+
+async def mark_model_no_vision(model: str) -> None:
+    """Persist supports_vision=False for *model* and update the runtime cache.
+
+    Called automatically when the API rejects image_url content for a model.
+    """
+    global _no_vision_models
+    if model in _no_vision_models:
+        return
+    _no_vision_models = _no_vision_models | {model}
+    logger.warning("Auto-learned: model %s does not support vision — persisting flag", model)
+    try:
+        from sqlalchemy import update
+        async with async_session() as db:
+            result = await db.execute(
+                update(ProviderModel)
+                .where(ProviderModel.model_id == model)
+                .values(supports_vision=False)
+            )
+            await db.commit()
+            if result.rowcount == 0:
+                logger.info("No ProviderModel row for %s — flag cached in-memory only", model)
+    except Exception:
+        logger.exception("Failed to persist supports_vision=false for %s", model)
 
 
 def get_provider(provider_id: str) -> ProviderConfigRow | None:

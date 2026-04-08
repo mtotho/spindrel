@@ -138,6 +138,7 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                     "input_cost_per_1m": m.get("input_cost_per_1m"),
                     "output_cost_per_1m": m.get("output_cost_per_1m"),
                     "no_system_messages": m.get("no_system_messages", False),
+                    "supports_vision": m.get("supports_vision", True),
                 }
                 await db.execute(pg_insert(ProviderModel).values(**m_vals))
         _track("providers", c, u)

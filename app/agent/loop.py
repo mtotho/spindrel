@@ -1029,17 +1029,25 @@ async def run_agent_tool_loop(
 
             # Inject images as synthetic user message so LLM sees them natively
             if _iteration_injected_images:
-                _img_parts: list[dict] = [{"type": "text", "text": "[Requested image(s) for your analysis]"}]
-                for img in _iteration_injected_images:
-                    mime = img.get("mime_type", "image/jpeg")
-                    b64 = img.get("base64", "")
-                    if b64:
-                        _img_parts.append({
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime};base64,{b64}"},
-                        })
-                if len(_img_parts) > 1:
-                    messages.append({"role": "user", "content": _img_parts})
+                from app.services.providers import model_supports_vision
+                if model_supports_vision(model):
+                    _img_parts: list[dict] = [{"type": "text", "text": "[Requested image(s) for your analysis]"}]
+                    for img in _iteration_injected_images:
+                        mime = img.get("mime_type", "image/jpeg")
+                        b64 = img.get("base64", "")
+                        if b64:
+                            _img_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{mime};base64,{b64}"},
+                            })
+                    if len(_img_parts) > 1:
+                        messages.append({"role": "user", "content": _img_parts})
+                else:
+                    messages.append({"role": "user", "content": (
+                        "[Your model does not support viewing images directly. "
+                        "If you have the `describe_attachment` tool available, use it to get a text description. "
+                        "Otherwise, let the user know you cannot view images with your current model.]"
+                    )})
 
             # --- Skill learning nudge (one-shot after N iterations) ---
             _nudge_after = settings.SKILL_NUDGE_AFTER_ITERATIONS
