@@ -47,6 +47,7 @@ cd "$PROJECT_ROOT"
     .venv/bin/pytest \
         tests/e2e/scenarios/test_api_contract.py \
         tests/e2e/scenarios/test_regressions.py \
+        tests/e2e/scenarios/test_multibot_channels.py \
         tests/e2e/scenarios/test_server_behavior.py \
         tests/e2e/scenarios/test_workspace_memory.py \
         tests/e2e/scenarios/test_model_smoke.py \

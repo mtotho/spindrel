@@ -142,23 +142,43 @@ export default function ChannelSettingsScreen() {
     }
   }, [settings]);
 
+  // Debounced auto-save: every patch() triggers a save after 800ms.
+  // Multiple rapid changes batch into one PATCH request.
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const formRef = useRef(form);
+  formRef.current = form;
+
+  const debouncedSave = useCallback(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        await updateMutation.mutateAsync(formRef.current);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      } catch {
+        // Error state handled by updateMutation.isError
+      }
+    }, 800);
+  }, [updateMutation]);
+
+  // Flush pending save on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        updateMutation.mutate(formRef.current);
+      }
+    };
+  }, [updateMutation]);
+
   const patch = useCallback(
     <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => {
       setForm((f) => ({ ...f, [key]: value }));
       setSaved(false);
+      debouncedSave();
     },
-    []
+    [debouncedSave]
   );
-
-  const handleSave = useCallback(async () => {
-    try {
-      await updateMutation.mutateAsync(form);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch {
-      // Error state handled by updateMutation.isError
-    }
-  }, [form, updateMutation]);
 
   if (isLoading || !settings) {
     return (
@@ -167,8 +187,6 @@ export default function ChannelSettingsScreen() {
       </View>
     );
   }
-
-  const showSave = tab === "general" || tab === "history" || tab === "workspace";
 
   return (
     <View className="flex-1 bg-surface">
@@ -211,37 +229,21 @@ export default function ChannelSettingsScreen() {
               ))}
             </View>
           </View>
-          {showSave && (
-            <Pressable
-              onPress={handleSave}
-              disabled={updateMutation.isPending}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: 5,
-                paddingHorizontal: 12,
-                minHeight: 36,
-                borderRadius: 8,
-                backgroundColor: saved ? t.successSubtle : updateMutation.isError ? "#ef4444" : t.accent,
-                flexShrink: 0,
-              }}
-            >
-              {saved ? (
-                <>
-                  <Check size={14} color={t.success} />
-                  <Text style={{ color: t.success, fontSize: 12, fontWeight: "600" }}>Saved</Text>
-                </>
-              ) : updateMutation.isError ? (
-                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
-                  Retry
-                </Text>
-              ) : (
-                <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>
-                  {updateMutation.isPending ? "..." : "Save"}
-                </Text>
-              )}
-            </Pressable>
+          {/* Auto-save status indicator */}
+          {updateMutation.isPending && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
+              <ActivityIndicator size={10} color={t.textDim} />
+              <Text style={{ fontSize: 11, color: t.textDim }}>Saving</Text>
+            </View>
+          )}
+          {saved && !updateMutation.isPending && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
+              <Check size={12} color={t.success} />
+              <Text style={{ fontSize: 11, color: t.success }}>Saved</Text>
+            </View>
+          )}
+          {updateMutation.isError && !updateMutation.isPending && !saved && (
+            <Text style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}>Save failed</Text>
           )}
         </View>
       </View>

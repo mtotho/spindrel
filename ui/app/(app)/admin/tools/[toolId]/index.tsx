@@ -1,7 +1,6 @@
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft } from "lucide-react";
-import { useGoBack } from "@/src/hooks/useGoBack";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import { useTool } from "@/src/api/hooks/useTools";
 import { Section } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -91,7 +90,6 @@ function ParamRow({ name, param, required }: { name: string; param: any; require
 export default function ToolDetailScreen() {
   const t = useThemeTokens();
   const { toolId } = useLocalSearchParams<{ toolId: string }>();
-  const goBack = useGoBack("/admin/tools");
   const { data: tool, isLoading } = useTool(toolId);
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
@@ -119,23 +117,12 @@ export default function ToolDetailScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: `1px solid ${t.surfaceBorder}`, gap: 8,
-      }}>
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ChevronLeft size={22} color={t.textMuted} />
-        </button>
-        <span style={{
-          color: t.text, fontSize: 14, fontWeight: 700, fontFamily: "monospace", flexShrink: 0,
-        }}>
-          {tool.tool_name}
-        </span>
-        <TypeBadge tool={tool} />
-        <div style={{ flex: 1 }} />
-      </div>
+      <DetailHeader
+        parentLabel="Tools"
+        parentHref="/admin/tools"
+        title={tool.tool_name}
+        right={<TypeBadge tool={tool} />}
+      />
 
       {/* Body */}
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{

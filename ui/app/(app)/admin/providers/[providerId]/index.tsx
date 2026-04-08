@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Zap, Plus, X } from "lucide-react";
+import { Trash2, Zap, Plus, X } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useProvider, useCreateProvider, useUpdateProvider, useDeleteProvider, useTestProvider, useTestProviderInline,
@@ -185,66 +186,59 @@ export default function ProviderDetailScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: `1px solid ${t.surfaceBorder}`, gap: 8,
-      }}>
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ChevronLeft size={22} color={t.textMuted} />
-        </button>
-        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-          {isNew ? "New Provider" : "Edit Provider"}
-        </span>
-        {!isNew && isWide && (
-          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>{providerId}</span>
-        )}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={handleTest}
-          disabled={testMut.isPending || testInlineMut.isPending}
-          style={{
-            display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-            padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
-            border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-            background: "transparent", color: t.textMuted, cursor: "pointer", flexShrink: 0,
-          }}
-        >
-          <Zap size={13} />
-          {isWide && ((testMut.isPending || testInlineMut.isPending) ? "Testing..." : "Test")}
-        </button>
-        {!isNew && (
-          <button
-            onClick={handleDelete}
-            disabled={deleteMut.isPending}
-            title="Delete"
-            style={{
-              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
-            }}
-          >
-            <Trash2 size={14} />
-            {isWide && "Delete"}
-          </button>
-        )}
-        <EnableToggle enabled={isEnabled} onChange={setIsEnabled} compact={!isWide} />
-        <button
-          onClick={handleSave}
-          disabled={isSaving || !canSave}
-          style={{
-            padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
-            border: "none", borderRadius: 6, flexShrink: 0,
-            background: !canSave ? t.surfaceBorder : t.accent,
-            color: !canSave ? t.textDim : "#fff",
-            cursor: !canSave ? "not-allowed" : "pointer",
-          }}
-        >
-          {isSaving ? "..." : "Save"}
-        </button>
-      </div>
+      <DetailHeader
+        parentLabel="Providers"
+        parentHref="/admin/providers"
+        title={isNew ? "New Provider" : "Edit Provider"}
+        subtitle={!isNew ? providerId : undefined}
+        right={
+          <>
+            <button
+              onClick={handleTest}
+              disabled={testMut.isPending || testInlineMut.isPending}
+              style={{
+                display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                padding: isWide ? "6px 14px" : "6px 8px", fontSize: 12, fontWeight: 600,
+                border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
+                background: "transparent", color: t.textMuted, cursor: "pointer", flexShrink: 0,
+              }}
+            >
+              <Zap size={13} />
+              {isWide && ((testMut.isPending || testInlineMut.isPending) ? "Testing..." : "Test")}
+            </button>
+            {!isNew && (
+              <button
+                onClick={handleDelete}
+                disabled={deleteMut.isPending}
+                title="Delete"
+                style={{
+                  display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                  padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
+                  border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+                  background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
+                }}
+              >
+                <Trash2 size={14} />
+                {isWide && "Delete"}
+              </button>
+            )}
+            <EnableToggle enabled={isEnabled} onChange={setIsEnabled} compact={!isWide} />
+            <button
+              onClick={handleSave}
+              disabled={isSaving || !canSave}
+              style={{
+                padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
+                border: "none", borderRadius: 6, flexShrink: 0,
+                background: !canSave ? t.surfaceBorder : t.accent,
+                color: !canSave ? t.textDim : "#fff",
+                cursor: !canSave ? "not-allowed" : "pointer",
+              }}
+            >
+              {isSaving ? "..." : "Save"}
+            </button>
+          </>
+        }
+      />
 
       {/* Error display */}
       {mutError && (

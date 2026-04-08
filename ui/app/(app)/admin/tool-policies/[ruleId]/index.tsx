@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
 import { View, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Play } from "lucide-react";
+import { Trash2, Play } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import {
   useToolPolicies,
   useCreateToolPolicy,
@@ -148,74 +149,51 @@ export default function ToolPolicyDetailScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "12px 20px",
-          borderBottom: `1px solid ${t.surfaceOverlay}`,
-        }}
-      >
-        <button
-          onClick={goBack}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: 4,
-          }}
-        >
-          <ChevronLeft size={22} color={t.textMuted} />
-        </button>
-        <span
-          style={{
-            flex: 1,
-            fontSize: 16,
-            fontWeight: 600,
-            color: t.text,
-          }}
-        >
-          {isNew ? "New Policy Rule" : "Edit Policy Rule"}
-        </span>
-        {!isNew && (
-          <button
-            onClick={handleDelete}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "6px 12px",
-              borderRadius: 6,
-              background: t.dangerSubtle,
-              border: `1px solid ${t.dangerBorder}`,
-              cursor: "pointer",
-              fontSize: 12,
-              color: t.dangerMuted,
-            }}
-          >
-            <Trash2 size={13} /> Delete
-          </button>
-        )}
-        <button
-          onClick={handleSave}
-          disabled={isSaving || !toolName.trim()}
-          style={{
-            padding: "6px 18px",
-            borderRadius: 6,
-            background: isSaving || !toolName.trim() ? t.surfaceBorder : t.accent,
-            border: "none",
-            cursor: isSaving || !toolName.trim() ? "default" : "pointer",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#fff",
-            opacity: isSaving || !toolName.trim() ? 0.5 : 1,
-          }}
-        >
-          {isSaving ? "Saving..." : "Save"}
-        </button>
-      </div>
+      <DetailHeader
+        parentLabel="Tool Policies"
+        parentHref="/admin/tool-policies"
+        title={isNew ? "New Policy Rule" : "Edit Policy Rule"}
+        right={
+          <>
+            {!isNew && (
+              <button
+                onClick={handleDelete}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  background: t.dangerSubtle,
+                  border: `1px solid ${t.dangerBorder}`,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: t.dangerMuted,
+                }}
+              >
+                <Trash2 size={13} /> Delete
+              </button>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={isSaving || !toolName.trim()}
+              style={{
+                padding: "6px 18px",
+                borderRadius: 6,
+                background: isSaving || !toolName.trim() ? t.surfaceBorder : t.accent,
+                border: "none",
+                cursor: isSaving || !toolName.trim() ? "default" : "pointer",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#fff",
+                opacity: isSaving || !toolName.trim() ? 0.5 : 1,
+              }}
+            >
+              {isSaving ? "Saving..." : "Save"}
+            </button>
+          </>
+        }
+      />
 
       <ScrollView style={{ flex: 1 }}>
         <div

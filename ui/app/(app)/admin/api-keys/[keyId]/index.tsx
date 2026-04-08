@@ -1,9 +1,10 @@
 import { useState, useCallback } from "react";
 import { View, ScrollView, ActivityIndicator, Pressable } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Copy, Check, AlertTriangle, Info } from "lucide-react";
+import { Trash2, Copy, Check, AlertTriangle, Info } from "lucide-react";
 import { writeToClipboard } from "@/src/utils/clipboard";
 import { useGoBack } from "@/src/hooks/useGoBack";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import {
   useApiKey,
   useApiKeyScopes,
@@ -235,75 +236,52 @@ export default function ApiKeyDetailScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "12px 20px",
-          borderBottom: `1px solid ${t.surfaceOverlay}`,
-        }}
-      >
-        <button
-          onClick={goBack}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: 4,
-          }}
-        >
-          <ChevronLeft size={22} color={t.textMuted} />
-        </button>
-        <span
-          style={{
-            flex: 1,
-            fontSize: 16,
-            fontWeight: 600,
-            color: t.text,
-          }}
-        >
-          {isNew ? "New API Key" : "Edit API Key"}
-        </span>
-        {!isNew && (
-          <button
-            onClick={handleDelete}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "6px 12px",
-              borderRadius: 6,
-              background: t.dangerSubtle,
-              border: `1px solid ${t.dangerBorder}`,
-              cursor: "pointer",
-              fontSize: 12,
-              color: t.dangerMuted,
-            }}
-          >
-            <Trash2 size={13} /> Delete
-          </button>
-        )}
-        <button
-          onClick={createdKey ? goBack : handleSave}
-          disabled={!createdKey && (isSaving || !name.trim())}
-          style={{
-            padding: "6px 18px",
-            borderRadius: 6,
-            background:
-              !createdKey && (isSaving || !name.trim()) ? t.surfaceBorder : t.accent,
-            border: "none",
-            cursor: !createdKey && (isSaving || !name.trim()) ? "default" : "pointer",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#fff",
-            opacity: !createdKey && (isSaving || !name.trim()) ? 0.5 : 1,
-          }}
-        >
-          {isSaving ? "Saving..." : createdKey ? "Done" : "Save"}
-        </button>
-      </div>
+      <DetailHeader
+        parentLabel="API Keys"
+        parentHref="/admin/api-keys"
+        title={isNew ? "New API Key" : "Edit API Key"}
+        right={
+          <>
+            {!isNew && (
+              <button
+                onClick={handleDelete}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  background: t.dangerSubtle,
+                  border: `1px solid ${t.dangerBorder}`,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: t.dangerMuted,
+                }}
+              >
+                <Trash2 size={13} /> Delete
+              </button>
+            )}
+            <button
+              onClick={createdKey ? goBack : handleSave}
+              disabled={!createdKey && (isSaving || !name.trim())}
+              style={{
+                padding: "6px 18px",
+                borderRadius: 6,
+                background:
+                  !createdKey && (isSaving || !name.trim()) ? t.surfaceBorder : t.accent,
+                border: "none",
+                cursor: !createdKey && (isSaving || !name.trim()) ? "default" : "pointer",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#fff",
+                opacity: !createdKey && (isSaving || !name.trim()) ? 0.5 : 1,
+              }}
+            >
+              {isSaving ? "Saving..." : createdKey ? "Done" : "Save"}
+            </button>
+          </>
+        }
+      />
 
       <ScrollView style={{ flex: 1 }}>
         <div

@@ -204,6 +204,47 @@ class E2EClient:
     async def delete(self, path: str, **kwargs: Any) -> httpx.Response:
         return await self._client.delete(path, **kwargs)
 
+    # -- Bot member endpoints (multi-bot channels) --
+
+    async def create_channel(self, channel_data: dict[str, Any]) -> dict:
+        """POST /api/v1/channels — create a channel, return ChannelOut."""
+        resp = await self._client.post("/api/v1/channels", json=channel_data)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def list_bot_members(self, channel_id: str) -> list[dict]:
+        """GET /api/v1/channels/{channel_id}/bot-members."""
+        resp = await self._client.get(f"/api/v1/channels/{channel_id}/bot-members")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def add_bot_member(self, channel_id: str, bot_id: str) -> dict:
+        """POST /api/v1/channels/{channel_id}/bot-members."""
+        resp = await self._client.post(
+            f"/api/v1/channels/{channel_id}/bot-members",
+            json={"bot_id": bot_id},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def remove_bot_member(self, channel_id: str, bot_id: str) -> None:
+        """DELETE /api/v1/channels/{channel_id}/bot-members/{bot_id}."""
+        resp = await self._client.delete(
+            f"/api/v1/channels/{channel_id}/bot-members/{bot_id}"
+        )
+        resp.raise_for_status()
+
+    async def update_bot_member_config(
+        self, channel_id: str, bot_id: str, config: dict[str, Any]
+    ) -> dict:
+        """PATCH /api/v1/channels/{channel_id}/bot-members/{bot_id}/config."""
+        resp = await self._client.patch(
+            f"/api/v1/channels/{channel_id}/bot-members/{bot_id}/config",
+            json=config,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     # -- Helpers --
 
     async def create_temp_bot(

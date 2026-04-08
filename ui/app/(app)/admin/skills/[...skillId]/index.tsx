@@ -1,8 +1,9 @@
 import { useState, useCallback } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
-import { ChevronLeft, Trash2, Info } from "lucide-react";
+import { Trash2, Info } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import { useSkill, useCreateSkill, useUpdateSkill, useDeleteSkill } from "@/src/api/hooks/useSkills";
 import { FormRow, TextInput, Section } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -82,52 +83,45 @@ export default function SkillDetailScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: `1px solid ${t.surfaceBorder}`, gap: 8,
-      }}>
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ChevronLeft size={22} color={t.textMuted} />
-        </button>
-        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-          {isNew ? "New Skill" : "Edit Skill"}
-        </span>
-        {!isNew && isWide && (
-          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>{skillId}</span>
-        )}
-        <div style={{ flex: 1 }} />
-        {!isNew && !isFileManaged && (
-          <button
-            onClick={handleDelete}
-            disabled={deleteMut.isPending}
-            title="Delete"
-            style={{
-              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
-            }}
-          >
-            <Trash2 size={14} />
-            {isWide && "Delete"}
-          </button>
-        )}
-        <button
-          onClick={handleSave}
-          disabled={isSaving || !canSave || isFileManaged}
-          style={{
-            padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
-            border: "none", borderRadius: 6, flexShrink: 0,
-            background: (!canSave || isFileManaged) ? t.surfaceBorder : t.accent,
-            color: (!canSave || isFileManaged) ? t.textDim : "#fff",
-            cursor: (!canSave || isFileManaged) ? "not-allowed" : "pointer",
-          }}
-        >
-          {isSaving ? "..." : isNew ? "Create & Embed" : "Save & Re-embed"}
-        </button>
-      </div>
+      <DetailHeader
+        parentLabel="Skills"
+        parentHref="/admin/skills"
+        title={isNew ? "New Skill" : "Edit Skill"}
+        subtitle={!isNew ? skillId : undefined}
+        right={
+          <>
+            {!isNew && !isFileManaged && (
+              <button
+                onClick={handleDelete}
+                disabled={deleteMut.isPending}
+                title="Delete"
+                style={{
+                  display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                  padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
+                  border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+                  background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
+                }}
+              >
+                <Trash2 size={14} />
+                {isWide && "Delete"}
+              </button>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={isSaving || !canSave || isFileManaged}
+              style={{
+                padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
+                border: "none", borderRadius: 6, flexShrink: 0,
+                background: (!canSave || isFileManaged) ? t.surfaceBorder : t.accent,
+                color: (!canSave || isFileManaged) ? t.textDim : "#fff",
+                cursor: (!canSave || isFileManaged) ? "not-allowed" : "pointer",
+              }}
+            >
+              {isSaving ? "..." : isNew ? "Create & Embed" : "Save & Re-embed"}
+            </button>
+          </>
+        }
+      />
 
       {/* Error display */}
       {mutError && (

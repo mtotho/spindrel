@@ -2,10 +2,11 @@ import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { View, ScrollView, ActivityIndicator, useWindowDimensions } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import {
-  ChevronLeft, Trash2, Play, Square, RefreshCw, Download,
+  Trash2, Play, Square, RefreshCw, Download,
   FileText, AlertCircle,
 } from "lucide-react";
 import { useGoBack } from "@/src/hooks/useGoBack";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import {
   useWorkspace, useCreateWorkspace, useUpdateWorkspace, useDeleteWorkspace,
   useStartWorkspace, useStopWorkspace, useRecreateWorkspace,
@@ -367,74 +368,64 @@ export default function WorkspaceDetailScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div style={{
-        display: "flex", alignItems: "center",
-        padding: isWide ? "12px 20px" : "10px 12px",
-        borderBottom: `1px solid ${t.surfaceBorder}`, gap: 8,
-      }}>
-        <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, flexShrink: 0, width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <ChevronLeft size={22} color={t.textMuted} />
-        </button>
-        <span style={{ color: t.text, fontSize: 14, fontWeight: 700, flexShrink: 0 }}>
-          {isNew ? "New Workspace" : "Edit Workspace"}
-        </span>
-        {!isNew && isWide && (
-          <span style={{ color: t.textDim, fontSize: 11, fontFamily: "monospace" }}>
-            {workspaceId?.slice(0, 8)}
-          </span>
-        )}
-        {!isNew && <StatusBadge status={currentStatus} />}
-        <div style={{ flex: 1 }} />
-        {!isNew && (
-          <button
-            onClick={handleDelete}
-            disabled={deleteMut.isPending}
-            title="Delete"
-            style={{
-              display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
-              padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-              border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-              background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
-            }}
-          >
-            <Trash2 size={14} />
-            {isWide && "Delete"}
-          </button>
-        )}
-        {/* Unsaved indicator */}
-        {isDirty && !isNew && !justSaved && (
-          <span style={{
-            fontSize: 11, fontWeight: 600, color: t.warningMuted,
-            flexShrink: 0, whiteSpace: "nowrap",
-          }}>
-            Unsaved changes
-          </span>
-        )}
-        {justSaved && (
-          <span style={{
-            fontSize: 11, fontWeight: 600, color: t.success,
-            flexShrink: 0,
-          }}>
-            Saved
-          </span>
-        )}
-        <button
-          onClick={handleSave}
-          disabled={isSaving || !canSave}
-          style={{
-            padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
-            border: isDirty && canSave ? `2px solid ${t.accent}` : "none",
-            borderRadius: 6, flexShrink: 0,
-            background: !canSave ? t.surfaceBorder : isDirty ? t.accent : t.accentMuted,
-            color: !canSave ? t.textDim : isDirty ? "#fff" : t.accent,
-            cursor: !canSave ? "not-allowed" : "pointer",
-            transition: "all 0.2s",
-          }}
-        >
-          {isSaving ? "Saving..." : "Save"}
-        </button>
-      </div>
+      <DetailHeader
+        parentLabel="Workspaces"
+        parentHref="/admin/workspaces"
+        title={isNew ? "New Workspace" : "Edit Workspace"}
+        subtitle={!isNew ? workspaceId?.slice(0, 8) : undefined}
+        right={
+          <>
+            {!isNew && <StatusBadge status={currentStatus} />}
+            {!isNew && (
+              <button
+                onClick={handleDelete}
+                disabled={deleteMut.isPending}
+                title="Delete"
+                style={{
+                  display: "flex", alignItems: "center", gap: isWide ? 6 : 0,
+                  padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
+                  border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
+                  background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
+                }}
+              >
+                <Trash2 size={14} />
+                {isWide && "Delete"}
+              </button>
+            )}
+            {isDirty && !isNew && !justSaved && (
+              <span style={{
+                fontSize: 11, fontWeight: 600, color: t.warningMuted,
+                flexShrink: 0, whiteSpace: "nowrap",
+              }}>
+                Unsaved changes
+              </span>
+            )}
+            {justSaved && (
+              <span style={{
+                fontSize: 11, fontWeight: 600, color: t.success,
+                flexShrink: 0,
+              }}>
+                Saved
+              </span>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={isSaving || !canSave}
+              style={{
+                padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
+                border: isDirty && canSave ? `2px solid ${t.accent}` : "none",
+                borderRadius: 6, flexShrink: 0,
+                background: !canSave ? t.surfaceBorder : isDirty ? t.accent : t.accentMuted,
+                color: !canSave ? t.textDim : isDirty ? "#fff" : t.accent,
+                cursor: !canSave ? "not-allowed" : "pointer",
+                transition: "all 0.2s",
+              }}
+            >
+              {isSaving ? "Saving..." : "Save"}
+            </button>
+          </>
+        }
+      />
 
       {/* Tab bar */}
       <div style={{

@@ -2,7 +2,6 @@ import { useState, useCallback } from "react";
 import { View, ScrollView, ActivityIndicator } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import {
-  ChevronLeft,
   Trash2,
   Copy,
   Check,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 import { writeToClipboard } from "@/src/utils/clipboard";
 import { useGoBack } from "@/src/hooks/useGoBack";
+import { DetailHeader } from "@/src/components/layout/DetailHeader";
 import {
   useWebhook,
   useWebhookEvents,
@@ -282,69 +282,58 @@ export default function WebhookDetailScreen() {
 
   return (
     <View className="flex-1 bg-surface">
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "12px 20px",
-          borderBottom: `1px solid ${t.surfaceOverlay}`,
-        }}
-      >
-        <button
-          onClick={goBack}
-          style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}
-        >
-          <ChevronLeft size={22} color={t.textMuted} />
-        </button>
-        <span style={{ flex: 1, fontSize: 16, fontWeight: 600, color: t.text }}>
-          {isNew ? "New Webhook" : "Edit Webhook"}
-        </span>
-        {!isNew && (
-          <button
-            onClick={handleDelete}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              padding: "6px 12px",
-              borderRadius: 6,
-              background: t.dangerSubtle,
-              border: `1px solid ${t.dangerBorder}`,
-              cursor: "pointer",
-              fontSize: 12,
-              color: t.dangerMuted,
-            }}
-          >
-            <Trash2 size={13} /> Delete
-          </button>
-        )}
-        <button
-          onClick={createdSecret ? goBack : handleSave}
-          disabled={!createdSecret && (isSaving || !name.trim() || !url.trim())}
-          style={{
-            padding: "6px 18px",
-            borderRadius: 6,
-            background:
-              !createdSecret && (isSaving || !name.trim() || !url.trim())
-                ? t.surfaceBorder
-                : t.accent,
-            border: "none",
-            cursor:
-              !createdSecret && (isSaving || !name.trim() || !url.trim())
-                ? "default"
-                : "pointer",
-            fontSize: 13,
-            fontWeight: 600,
-            color: "#fff",
-            opacity:
-              !createdSecret && (isSaving || !name.trim() || !url.trim()) ? 0.5 : 1,
-          }}
-        >
-          {isSaving ? "Saving..." : createdSecret ? "Done" : "Save"}
-        </button>
-      </div>
+      <DetailHeader
+        parentLabel="Webhooks"
+        parentHref="/admin/webhooks"
+        title={isNew ? "New Webhook" : "Edit Webhook"}
+        right={
+          <>
+            {!isNew && (
+              <button
+                onClick={handleDelete}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  background: t.dangerSubtle,
+                  border: `1px solid ${t.dangerBorder}`,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  color: t.dangerMuted,
+                }}
+              >
+                <Trash2 size={13} /> Delete
+              </button>
+            )}
+            <button
+              onClick={createdSecret ? goBack : handleSave}
+              disabled={!createdSecret && (isSaving || !name.trim() || !url.trim())}
+              style={{
+                padding: "6px 18px",
+                borderRadius: 6,
+                background:
+                  !createdSecret && (isSaving || !name.trim() || !url.trim())
+                    ? t.surfaceBorder
+                    : t.accent,
+                border: "none",
+                cursor:
+                  !createdSecret && (isSaving || !name.trim() || !url.trim())
+                    ? "default"
+                    : "pointer",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#fff",
+                opacity:
+                  !createdSecret && (isSaving || !name.trim() || !url.trim()) ? 0.5 : 1,
+              }}
+            >
+              {isSaving ? "Saving..." : createdSecret ? "Done" : "Save"}
+            </button>
+          </>
+        }
+      />
 
       <ScrollView style={{ flex: 1 }}>
         <div style={{ padding: 20, maxWidth: 800, margin: "0 auto", width: "100%" }}>
