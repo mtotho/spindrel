@@ -90,11 +90,11 @@ You can also **pin** capabilities to a bot (`carapaces: [qa, code-review]` in bo
 
 ### How the Bot Finds Skills
 
-Capabilities use a **fragment-as-index** pattern. The system prompt fragment acts as a routing table:
+Skills use the same semantic search as tools and capabilities. On each message, the system retrieves the most relevant skills from the bot's enrolled set and presents a compact index. The bot calls `get_skill()` to load the full content of any skill it needs, or `get_skill_list()` to browse all available skills when the index doesn't show what it's looking for.
 
-> "When the user asks about task management or project status, fetch `get_skill('mission_control')` for the full reference."
+Skills aren't all loaded at once (that would blow the context window). Only the most relevant skills appear in the index each turn, and the bot fetches full content on demand. This means a bot can have access to thousands of pages of domain knowledge without any of it consuming context until it's actually needed.
 
-Skills aren't all loaded at once (that would blow the context window). Instead, the system prompt tells the bot *when* to load each skill, and the bot fetches them on demand via `get_skill()`. This means a bot can have access to thousands of pages of domain knowledge without any of it consuming context until it's actually needed.
+Capabilities can also route to skills via their system prompt fragment — e.g., "when the user asks about task management, fetch `get_skill('mission_control')`" — providing an explicit routing layer on top of the semantic search.
 
 ### How Capabilities Activate
 
@@ -131,8 +131,8 @@ On every message, Spindrel's context assembly pipeline runs:
 1. **Capability resolution** — Collects all capabilities (pinned + activated + auto-discovered), resolves includes, merges tools and skills
 2. **Template injection** — The workspace schema is injected so the bot knows the file structure
 3. **Workspace files** — Active `.md` files in the workspace root are injected into context (the bot "sees" project state)
-4. **Tool retrieval** — Relevant tools are selected via embedding similarity (not all tools are sent every time)
-5. **Skill routing** — The system prompt fragments tell the bot when to load on-demand skills
+4. **Tool retrieval** — Relevant tools are selected via semantic search (vector + BM25 hybrid, not all tools are sent every time)
+5. **Skill retrieval** — Relevant on-demand skills are selected via semantic search and presented as a compact index; the bot loads full content via `get_skill()`
 
 The result: the bot has exactly the right tools, knowledge, and context for this channel's purpose — assembled fresh on every request.
 

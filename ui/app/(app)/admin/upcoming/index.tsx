@@ -45,7 +45,7 @@ function botColor(botId: string) {
 
 const TYPE_BADGE: Record<string, { bg: string; fg: string; label: string }> = {
   heartbeat: { bg: "rgba(234,179,8,0.12)", fg: "#ca8a04", label: "Heartbeat" },
-  memory_hygiene: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea", label: "Hygiene" },
+  memory_hygiene: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea", label: "Dreaming" },
   scheduled: { bg: "rgba(59,130,246,0.12)", fg: "#3b82f6", label: "Scheduled" },
   delegation: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea", label: "Delegation" },
   agent: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af", label: "Task" },
@@ -120,7 +120,7 @@ export default function UpcomingActivityPage() {
     { key: "all", label: "All" },
     { key: "heartbeat", label: "Heartbeats" },
     { key: "task", label: "Tasks" },
-    { key: "memory_hygiene", label: "Hygiene" },
+    { key: "memory_hygiene", label: "Dreaming" },
   ];
 
   return (

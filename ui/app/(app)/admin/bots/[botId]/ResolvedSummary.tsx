@@ -13,6 +13,7 @@ function sourceColor(source: string, t: ReturnType<typeof useThemeTokens>): stri
   if (source === "bot") return t.textDim;
   if (source.startsWith("carapace:")) return t.purple || "#8b5cf6";
   if (source === "memory_scheme") return "#10b981";
+  if (source === "auto") return "#6366f1";
   return t.textDim;
 }
 

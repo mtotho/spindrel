@@ -661,15 +661,16 @@ def discover_activation_manifests() -> dict[str, dict]:
         except Exception:
             logger.exception("Failed to load activation manifest for integration %r", integration_id)
 
-    # Resolve "includes" — merge carapaces from included integrations.
-    # Note: requires_workspace is NOT inherited — each integration declares
-    # its own requirement.  Included carapaces are a bonus; their tools
-    # degrade gracefully if workspace isn't enabled.
+    # Resolve "includes" — merge carapaces and config_fields from included
+    # integrations.  requires_workspace is NOT inherited — each integration
+    # declares its own requirement.
     for itype, manifest in results.items():
         includes = manifest.get("includes")
         if not includes or not isinstance(includes, list):
             continue
         merged_carapaces = list(manifest.get("carapaces", []))
+        merged_config_fields = list(manifest.get("config_fields", []))
+        existing_keys = {f["key"] for f in merged_config_fields}
         for included_id in includes:
             included = results.get(included_id)
             if not included:
@@ -677,7 +678,16 @@ def discover_activation_manifests() -> dict[str, dict]:
             for cap_id in included.get("carapaces", []):
                 if cap_id not in merged_carapaces:
                     merged_carapaces.append(cap_id)
+            for field in included.get("config_fields", []):
+                if field["key"] not in existing_keys:
+                    merged_config_fields.append({
+                        **field,
+                        "source_integration": included_id,
+                    })
+                    existing_keys.add(field["key"])
         manifest["carapaces"] = merged_carapaces
+        if merged_config_fields:
+            manifest["config_fields"] = merged_config_fields
 
     _activation_manifests = results
     return results

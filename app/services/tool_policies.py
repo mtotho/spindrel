@@ -158,8 +158,12 @@ async def evaluate_tool_policy(
                 timeout=rule.approval_timeout,
             )
 
-    # No rule matched — check tier defaults before global fallback
-    if settings.TOOL_POLICY_TIER_GATING:
+    # No rule matched — check tier defaults before global fallback.
+    # Tier gating only applies when default_action is NOT "allow" — if the user
+    # explicitly set default_action="allow", they want everything allowed unless
+    # a specific rule says otherwise.
+    default_action = settings.TOOL_POLICY_DEFAULT_ACTION
+    if settings.TOOL_POLICY_TIER_GATING and default_action != "allow":
         from app.tools.registry import get_tool_safety_tier
         tier = get_tool_safety_tier(tool_name)
         tier_action = _TIER_DEFAULTS.get(tier)
@@ -169,9 +173,6 @@ async def evaluate_tool_policy(
                 reason=f"Tool safety tier '{tier}' defaults to {tier_action}",
                 tier=tier,
             )
-
-    # Global fallback
-    default_action = settings.TOOL_POLICY_DEFAULT_ACTION
     return PolicyDecision(
         action=default_action,
         reason=f"No matching policy rule (default: {default_action})",

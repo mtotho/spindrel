@@ -745,10 +745,12 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
     if counts["errors"]:
         logger.warning("file_sync errors: %s", counts["errors"])
 
-    # Invalidate auto-enrollment caches so next context assembly picks up changes
+    # Invalidate auto-enrollment and skill index caches so next context assembly picks up changes
     try:
         from app.agent.context_assembly import invalidate_skill_auto_enroll_cache
         invalidate_skill_auto_enroll_cache()
+        from app.agent.rag import invalidate_skill_index_cache
+        invalidate_skill_index_cache()
     except Exception:
         pass
 

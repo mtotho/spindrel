@@ -187,6 +187,7 @@ textarea::placeholder {
 .typing-dot:nth-child(3) { animation-delay: 0.3s; }
 
 /* CSS spinner (replaces ActivityIndicator on web) */
+@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes chat-spin { to { transform: rotate(360deg); } }
 .chat-spinner {
   width: 20px; height: 20px;

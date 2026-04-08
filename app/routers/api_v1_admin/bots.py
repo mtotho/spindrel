@@ -471,6 +471,19 @@ def _build_resolved_preview(bot, tool_rows) -> ResolvedPreview:
             _add_tool(t, "memory_scheme", "Memory scheme (workspace-files)")
             _add_pinned(t, "memory_scheme", "Memory scheme (workspace-files)")
 
+    # 6. Auto-injected tools (always available at runtime)
+    tool_retrieval = getattr(bot, "tool_retrieval", True)
+    if tool_retrieval:
+        _add_tool("get_tool_info", "auto", "Auto-injected (tool retrieval)")
+        _add_pinned("get_tool_info", "auto", "Auto-injected (tool retrieval)")
+    skills = getattr(bot, "skills", None)
+    if skills:
+        for _sk in ("get_skill", "get_skill_list"):
+            _add_tool(_sk, "auto", "Auto-injected (skills)")
+            _add_pinned(_sk, "auto", "Auto-injected (skills)")
+    # activate_capability is injected dynamically when capability RAG finds matches
+    _add_tool("activate_capability", "auto", "Auto-injected (capability discovery)")
+
     return ResolvedPreview(tools=tools, pinned_tools=pinned, mcp_servers=mcp)
 
 

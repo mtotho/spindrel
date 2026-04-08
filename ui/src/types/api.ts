@@ -323,6 +323,17 @@ export interface ChatHudPreset {
   description?: string;
 }
 
+export interface ConfigField {
+  key: string;
+  type: "string" | "boolean" | "number" | "select" | "multiselect" | "browse";
+  label: string;
+  description?: string;
+  default?: any;
+  options?: { value: string; label: string }[];
+  source_integration?: string;
+  browse_endpoint?: string;
+}
+
 export interface ActivatableIntegration {
   integration_type: string;
   description: string;
@@ -337,6 +348,8 @@ export interface ActivatableIntegration {
   chat_hud?: ChatHudWidget[];
   chat_hud_presets?: Record<string, ChatHudPreset>;
   activation_config?: Record<string, any>;
+  config_fields?: ConfigField[];
+  included_by?: string[];
 }
 
 export interface ActivationResult {

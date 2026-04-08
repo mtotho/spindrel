@@ -24,7 +24,7 @@ export function MemoryHygieneGroupBanner() {
       />
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: "#8b5cf6" }}>
-          What is Memory Hygiene?
+          What is Dreaming?
         </span>
         <span style={{ fontSize: 11, color: t.textMuted, lineHeight: "17px" }}>
           A periodic background task for bots using workspace-files memory. Each

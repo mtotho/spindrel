@@ -82,6 +82,70 @@ async def get_skill(skill_id: str) -> str:
     return f"# {row.name}\n\n{row.content}"
 
 
+@register({
+    "type": "function",
+    "function": {
+        "name": "get_skill_list",
+        "description": (
+            "List all available skills with their IDs, names, and descriptions. "
+            "Use this to discover skills when the skill index in your context "
+            "doesn't show what you need."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+})
+async def get_skill_list() -> str:
+    """Return the full flat index of all on-demand skills configured for this bot."""
+    from sqlalchemy import select
+
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return "No bot context available."
+
+    # Use resolved skill IDs (includes auto-enrolled core/integration skills)
+    from app.agent.context import current_resolved_skill_ids
+    resolved = current_resolved_skill_ids.get()
+
+    if resolved:
+        skill_ids = list(resolved)
+    else:
+        # Fallback to bot config if context var not set
+        try:
+            from app.agent.bots import get_bot
+            bot = get_bot(bot_id)
+        except Exception:
+            return "Bot not found."
+        if not bot.skills:
+            return "No skills configured."
+        skill_ids = [s.id for s in bot.skills if s.mode != "pinned"]
+
+    if not skill_ids:
+        return "No on-demand skills configured."
+
+    async with async_session() as db:
+        rows = (await db.execute(
+            select(SkillRow.id, SkillRow.name, SkillRow.description, SkillRow.triggers)
+            .where(SkillRow.id.in_(skill_ids))
+        )).all()
+
+    if not rows:
+        return "No skills found in database."
+
+    lines = []
+    for r in rows:
+        parts = [f"- {r.id}: {r.name}"]
+        if r.description:
+            parts.append(f" — {r.description}")
+        if r.triggers:
+            parts.append(f" [{', '.join(r.triggers)}]")
+        lines.append("".join(parts))
+
+    return f"All available skills ({len(lines)}):\n" + "\n".join(lines)
+
+
 def _check_carapace_skill_access(bot, skill_id: str) -> bool:
     """Cold-path fallback: resolve bot's carapaces and check if skill_id is included."""
     try:

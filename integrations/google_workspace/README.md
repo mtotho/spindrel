@@ -46,3 +46,24 @@ In the [API Library](https://console.cloud.google.com/apis/library), enable the 
 3. Choose which services this channel can access (you can give different channels different access)
 
 That's it — your agent can now use the `gws` tool to interact with Google Workspace.
+
+## Recommended OAuth Scopes
+
+Scope selection happens in Google Cloud Console on your OAuth consent screen, not in Spindrel. Below are the minimum scopes per service:
+
+| Service | Required Scopes | Notes |
+|---------|----------------|-------|
+| Drive | `drive.readonly` or `drive` | `drive` for read+write |
+| Gmail | `gmail.readonly`, `gmail.send` | `gmail.modify` for full access |
+| Calendar | `calendar.readonly` or `calendar` | `calendar` for creating events |
+| Sheets | `spreadsheets.readonly` or `spreadsheets` | |
+| Docs | `documents.readonly` or `documents` | |
+| Slides | `presentations.readonly` or `presentations` | |
+| Tasks | `tasks.readonly` or `tasks` | |
+| Contacts | `contacts.readonly` or `contacts` | Uses People API |
+| Chat | `chat.messages.readonly` or `chat.messages` | |
+| Forms | `forms.body.readonly` or `forms.body` | |
+| Keep | `keep.readonly` or `keep` | |
+| Meet | `meetings.space.readonly` or `meetings.space.created` | |
+
+All scopes are prefixed with `https://www.googleapis.com/auth/`. The `.readonly` variants are sufficient for read-only agents; use the full variants if your agent needs to create or modify content.

@@ -590,6 +590,11 @@ def _invalidate_cache(bot_id: str) -> None:
         invalidate_bot_skill_cache(bot_id)
     except Exception:
         pass  # non-critical
+    try:
+        from app.agent.rag import invalidate_skill_index_cache
+        invalidate_skill_index_cache()
+    except Exception:
+        pass  # non-critical
     # Also clear the repeated-lookup cache so the nudge stops firing
     # after the bot creates/merges a skill (it already acted on the nudge).
     try:

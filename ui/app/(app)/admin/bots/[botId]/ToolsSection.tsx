@@ -605,37 +605,51 @@ export function ToolsSection({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* How tools work explainer */}
+      {/* Discovery & Retrieval — top-level controls */}
       <div style={{
-        fontSize: 11, color: t.textMuted, lineHeight: "17px",
-        padding: "10px 12px", borderRadius: 6,
+        padding: "12px 14px", borderRadius: 8,
         background: t.surfaceOverlay,
         border: `1px solid ${t.surfaceRaised}`,
-        display: "flex", flexDirection: "column", gap: 6,
+        display: "flex", flexDirection: "column", gap: 10,
       }}>
-        <div style={{ fontWeight: 600, color: t.text, fontSize: 12 }}>How tools work</div>
-        <div>
-          <strong>Pinned tools</strong> are always available to the bot on every turn.
+        <div style={{ fontWeight: 600, color: t.text, fontSize: 12 }}>Discovery &amp; Retrieval</div>
+        <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "17px" }}>
+          Controls how the bot finds and selects tools each turn. With both enabled, the bot can discover
+          any tool in the system and uses semantic search to pick the most relevant ones per message.
         </div>
-        <div>
-          <strong>Tool Retrieval</strong>{retrieval ? " (on)" : " (off)"} &mdash;
-          {retrieval
-            ? " Each turn, the most relevant tools are selected via semantic search and passed to the model. Non-pinned tools are only included when they match the conversation context."
-            : " Disabled. All declared tools are passed every turn (may hit context limits with large tool sets)."}
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 4 }}>
+          <Toggle
+            value={retrieval}
+            onChange={(v) => update({ tool_retrieval: v })}
+            label="Tool Retrieval"
+            description="Select the most relevant tools per turn via semantic search (vector + BM25). When off, all declared tools are passed every turn."
+          />
+          {retrieval && (
+            <div style={{ paddingLeft: 24 }}>
+              <Toggle
+                value={discovery}
+                onChange={(v) => update({ tool_discovery: v })}
+                label="Auto-Discovery"
+                description="Discover tools beyond this bot's configured set from the full tool pool. Discovered tools use a stricter similarity threshold and are subject to tool policies."
+              />
+            </div>
+          )}
         </div>
         {retrieval && (
-          <div>
-            <strong>Tool Discovery</strong>{discovery ? " (on)" : " (off)"} &mdash;
-            {discovery
-              ? " The bot can also discover tools outside its configured set from the full tool pool. Discovered tools are subject to tool policies and may require approval before use."
-              : " Disabled. The bot can only use tools explicitly configured below."}
+          <div style={{ maxWidth: 240, paddingLeft: 24 }}>
+            <FormRow label="Similarity Threshold">
+              <TextInput
+                value={String(draft.tool_similarity_threshold ?? "")}
+                onChangeText={(v) => update({ tool_similarity_threshold: v ? parseFloat(v) : null })}
+                placeholder="0.45" type="number"
+              />
+            </FormRow>
           </div>
         )}
-        <div>
-          <strong>Capabilities</strong> (carapaces) can inject additional tools, skills, and system prompt context. These are reflected in the resolved view below.
-        </div>
-        <div>
-          <strong>Memory scheme</strong> and <strong>channel overrides</strong> can also add or remove tools at runtime.
+        <div style={{ fontSize: 10, color: t.textDim, lineHeight: "15px", borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 8 }}>
+          <strong>Skills</strong> and <strong>capabilities</strong> are also selected via semantic search each turn &mdash;
+          only the most relevant appear in context. The bot can call <code>get_skill_list()</code> to browse all available skills.
+          Memory scheme and channel overrides can further add or remove tools at runtime.
         </div>
       </div>
 
@@ -652,49 +666,16 @@ export function ToolsSection({
       <ClientToolsSection editorData={editorData} draft={draft} update={update} filter="" />
 
       {/* Full tool list */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>All Available Tools</div>
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
-          Enable or disable individual tools. Enabled tools are candidates for retrieval; pinned tools are always included.
+      <AdvancedSection title="All Available Tools">
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 8 }}>
+          <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
+            {discovery
+              ? "With auto-discovery on, the bot can find any tool in the pool. This list lets you explicitly enable or disable individual tools. Pinned tools are always included regardless of retrieval."
+              : "Enable or disable individual tools. Enabled tools are candidates for retrieval; pinned tools are always included."}
+          </div>
+          <FullToolList editorData={editorData} draft={draft} update={update} />
         </div>
-        <FullToolList editorData={editorData} draft={draft} update={update} />
-      </div>
-
-      {/* Tool Retrieval & Discovery settings */}
-      <div style={{
-        display: "flex", flexDirection: "column", gap: 12,
-        padding: "12px 0", borderTop: `1px solid ${t.surfaceRaised}`,
-      }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Retrieval Settings</div>
-        <Toggle
-          value={retrieval}
-          onChange={(v) => update({ tool_retrieval: v })}
-          label="Tool Retrieval (RAG)"
-          description="Only pass top-K relevant tools per turn. Pinned tools bypass filtering."
-        />
-        {retrieval && (
-          <div style={{ marginTop: 4, maxWidth: 300 }}>
-            <FormRow label="Similarity Threshold">
-              <TextInput
-                value={String(draft.tool_similarity_threshold ?? "")}
-                onChangeText={(v) => update({ tool_similarity_threshold: v ? parseFloat(v) : null })}
-                placeholder="0.35" type="number"
-              />
-            </FormRow>
-          </div>
-        )}
-
-        {retrieval && (
-          <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
-            <Toggle
-              value={discovery}
-              onChange={(v) => update({ tool_discovery: v })}
-              label="Tool Discovery"
-              description="Discover undeclared tools from the full tool pool via RAG. Discovered tools are subject to tool policies and may require approval."
-            />
-          </div>
-        )}
-      </div>
+      </AdvancedSection>
 
       {/* Tool Result Summarization */}
       <AdvancedSection title="Tool Result Summarization">

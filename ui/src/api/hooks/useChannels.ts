@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { Channel, ChannelBotMember, ChannelBotMemberConfig, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult } from "../../types/api";
+import type { Channel, ChannelBotMember, ChannelBotMemberConfig, ChannelSettings, ContextBreakdown, EffectiveTools, IntegrationBinding, ActivatableIntegration, ActivationResult, ConfigField } from "../../types/api";
 import { useChatStore } from "../../stores/chat";
 import { useDraftsStore } from "../../stores/drafts";
 import { useChannelReadStore } from "../../stores/channelRead";
@@ -177,14 +177,7 @@ export function useAdoptIntegration(channelId: string) {
   });
 }
 
-export interface ConfigField {
-  key: string;
-  type: "string" | "boolean" | "number" | "select" | "multiselect";
-  label: string;
-  description?: string;
-  default?: any;
-  options?: { value: string; label: string }[];
-}
+export type { ConfigField } from "../../types/api";
 
 export interface BindingSuggestion {
   client_id: string;

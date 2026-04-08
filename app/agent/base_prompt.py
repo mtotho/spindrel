@@ -40,7 +40,7 @@ def render_base_prompt(bot) -> str | None:
 
     variables = defaultdict(str, {
         "bot_name": getattr(bot, "name", "Assistant"),
-        "skills_section": "\n- **Skills**: You can retrieve skill documents with get_skill for specialized knowledge." if has_skills else "",
+        "skills_section": "\n- **Skills**: You can retrieve skill documents with get_skill for specialized knowledge. Use get_skill_list() to browse all available skills." if has_skills else "",
         "memory_section": "\n- **Memory**: You have persistent memory across conversations. Relevant memories are automatically recalled." if has_memory else "",
         "knowledge_section": "\n- **Knowledge**: You can read and write knowledge documents for long-term reference." if has_knowledge else "",
         "delegation_section": "\n- **Delegation**: You can delegate tasks to sub-agents via delegate_to_agent or @bot-id mentions." if has_delegation else "",

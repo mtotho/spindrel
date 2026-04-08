@@ -208,6 +208,111 @@ def _fuse_results(
     return chunks, best_similarity
 
 
+# ---------------------------------------------------------------------------
+# Skill index retrieval — semantic selection of on-demand skills
+# ---------------------------------------------------------------------------
+_skill_index_cache: dict[str, tuple[float, list[dict]]] = {}
+_SKILL_INDEX_CACHE_TTL = 300  # 5 minutes
+
+
+def invalidate_skill_index_cache() -> None:
+    """Clear the skill index retrieval cache (call after skill re-embed)."""
+    _skill_index_cache.clear()
+
+
+async def retrieve_skill_index(
+    query: str,
+    skill_ids: list[str],
+    *,
+    top_k: int | None = None,
+    threshold: float | None = None,
+) -> list[dict]:
+    """Retrieve the most relevant skill IDs for a user query via semantic search.
+
+    Searches skill chunk embeddings in the documents table, groups by skill_id,
+    and returns top-K distinct skills sorted by best similarity.
+
+    Returns list of dicts: [{"skill_id": str, "similarity": float}, ...]
+    """
+    import hashlib
+    import time
+
+    if not query or not skill_ids:
+        return []
+
+    top_k = top_k or settings.SKILL_INDEX_RETRIEVAL_TOP_K
+    threshold = threshold if threshold is not None else settings.SKILL_INDEX_RETRIEVAL_THRESHOLD
+
+    # Cache check
+    _q_hash = hashlib.md5(query.encode(), usedforsecurity=False).hexdigest()[:12]
+    _ids_hash = hashlib.md5(",".join(sorted(skill_ids)).encode(), usedforsecurity=False).hexdigest()[:12]
+    cache_key = f"{_q_hash}:{_ids_hash}:{top_k}:{threshold}"
+    cached = _skill_index_cache.get(cache_key)
+    if cached and (time.time() - cached[0]) < _SKILL_INDEX_CACHE_TTL:
+        return cached[1]
+
+    try:
+        query_embedding = await embed_text(query)
+    except Exception:
+        logger.exception("Failed to embed query for skill index retrieval")
+        return []
+
+    from app.agent.vector_ops import halfvec_cosine_distance
+    distance_expr = halfvec_cosine_distance(Document.embedding, query_embedding)
+
+    skill_sources = [f"skill:{sid}" for sid in skill_ids]
+    vector_limit = top_k * 3  # fetch extra to allow grouping by skill
+
+    stmt = (
+        select(Document.source, distance_expr.label("distance"))
+        .where(Document.source.in_(skill_sources))
+        .order_by(distance_expr)
+        .limit(vector_limit)
+    )
+
+    try:
+        async with async_session() as db:
+            result = await db.execute(stmt)
+            vector_rows = result.all()
+    except Exception:
+        logger.exception("Failed to query skill index embeddings")
+        return []
+
+    # Group by skill_id, keep best similarity per skill
+    best_by_skill: dict[str, float] = {}
+    for source, distance in vector_rows:
+        sid = source.removeprefix("skill:")
+        sim = 1.0 - distance
+        if sid not in best_by_skill or sim > best_by_skill[sid]:
+            best_by_skill[sid] = sim
+
+    # BM25 fusion: boost skills that match keywords
+    if settings.HYBRID_SEARCH_ENABLED:
+        bm25_rows = await _bm25_search(query, sources=skill_sources, top_k=vector_limit)
+        for _content, source, _rank in bm25_rows:
+            sid = source.removeprefix("skill:")
+            if sid not in best_by_skill:
+                # BM25-only match — include with a synthetic similarity above threshold
+                best_by_skill[sid] = threshold
+
+    # Filter by threshold and sort
+    results = [
+        {"skill_id": sid, "similarity": sim}
+        for sid, sim in best_by_skill.items()
+        if sim >= threshold
+    ]
+    results.sort(key=lambda x: x["similarity"], reverse=True)
+    results = results[:top_k]
+
+    logger.info(
+        "Skill index retrieval: %d/%d skills above threshold=%.3f (query=%s...)",
+        len(results), len(skill_ids), threshold, query[:60],
+    )
+
+    _skill_index_cache[cache_key] = (time.time(), results)
+    return results
+
+
 async def fetch_skill_chunks_by_id(skill_id: str) -> list[str]:
     """Fetch all chunks for a skill by ID, ordered by chunk index.
 

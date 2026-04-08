@@ -60,33 +60,59 @@ class TestTierGating:
         invalidate_cache()
 
     @pytest.mark.asyncio
-    async def test_exec_capable_requires_approval_when_no_rule(self):
-        """exec_capable tool → require_approval when tier gating is on."""
+    async def test_exec_capable_requires_approval_when_default_not_allow(self):
+        """exec_capable tool → require_approval when tier gating is on and default != allow."""
         db = _make_db()
         with (
             patch("app.services.tool_policies.settings") as mock_settings,
             patch("app.tools.registry.get_tool_safety_tier", return_value="exec_capable"),
         ):
             mock_settings.TOOL_POLICY_TIER_GATING = True
-            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "deny"
             decision = await evaluate_tool_policy(db, "bot1", "exec_command", {})
         assert decision.action == "require_approval"
         assert decision.tier == "exec_capable"
         assert "exec_capable" in decision.reason
 
     @pytest.mark.asyncio
-    async def test_control_plane_requires_approval_when_no_rule(self):
-        """control_plane tool → require_approval when tier gating is on."""
+    async def test_control_plane_requires_approval_when_default_not_allow(self):
+        """control_plane tool → require_approval when tier gating is on and default != allow."""
         db = _make_db()
         with (
             patch("app.services.tool_policies.settings") as mock_settings,
             patch("app.tools.registry.get_tool_safety_tier", return_value="control_plane"),
         ):
             mock_settings.TOOL_POLICY_TIER_GATING = True
-            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "deny"
             decision = await evaluate_tool_policy(db, "bot1", "manage_stacks", {})
         assert decision.action == "require_approval"
         assert decision.tier == "control_plane"
+
+    @pytest.mark.asyncio
+    async def test_exec_capable_respects_default_allow(self):
+        """exec_capable tool → allow when default_action='allow' (tier gating skipped)."""
+        db = _make_db()
+        with (
+            patch("app.services.tool_policies.settings") as mock_settings,
+        ):
+            mock_settings.TOOL_POLICY_TIER_GATING = True
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            decision = await evaluate_tool_policy(db, "bot1", "exec_command", {})
+        assert decision.action == "allow"
+        assert decision.tier is None
+
+    @pytest.mark.asyncio
+    async def test_control_plane_respects_default_allow(self):
+        """control_plane tool → allow when default_action='allow' (tier gating skipped)."""
+        db = _make_db()
+        with (
+            patch("app.services.tool_policies.settings") as mock_settings,
+        ):
+            mock_settings.TOOL_POLICY_TIER_GATING = True
+            mock_settings.TOOL_POLICY_DEFAULT_ACTION = "allow"
+            decision = await evaluate_tool_policy(db, "bot1", "manage_stacks", {})
+        assert decision.action == "allow"
+        assert decision.tier is None
 
     @pytest.mark.asyncio
     async def test_readonly_uses_global_default(self):

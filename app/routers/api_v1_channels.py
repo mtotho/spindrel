@@ -1270,6 +1270,8 @@ class AvailableIntegrationOut(BaseModel):
     chat_hud: list[dict] = []
     chat_hud_presets: dict[str, dict] = {}
     activation_config: dict = {}
+    config_fields: list[dict] = []
+    included_by: list[str] = []
 
 
 def _resolve_activation_client_id(integration_type: str, channel_id: uuid.UUID) -> str:
@@ -1381,6 +1383,47 @@ async def activate_integration(
 
     await db.commit()
 
+    # Auto-activate included integrations
+    for included_id in manifest.get("includes", []):
+        included_manifest = manifests.get(included_id)
+        if not included_manifest:
+            continue
+        already = (await db.execute(
+            select(ChannelIntegration).where(
+                ChannelIntegration.channel_id == channel_id,
+                ChannelIntegration.integration_type == included_id,
+                ChannelIntegration.activated == True,  # noqa: E712
+            )
+        )).scalar_one_or_none()
+        if already:
+            continue
+        inc_client_id = f"mc-activated:{channel_id}"
+        try:
+            inc_client_id = _resolve_activation_client_id(included_id, channel_id)
+        except Exception:
+            pass
+        inc_inactive = (await db.execute(
+            select(ChannelIntegration).where(
+                ChannelIntegration.channel_id == channel_id,
+                ChannelIntegration.integration_type == included_id,
+                ChannelIntegration.activated == False,  # noqa: E712
+            )
+        )).scalar_one_or_none()
+        if inc_inactive:
+            inc_inactive.activated = True
+            inc_inactive.client_id = inc_client_id
+            db.add(inc_inactive)
+        else:
+            db.add(ChannelIntegration(
+                channel_id=channel_id,
+                integration_type=included_id,
+                client_id=inc_client_id,
+                activated=True,
+            ))
+
+    if manifest.get("includes"):
+        await db.commit()
+
     # Run feature validation
     warnings: list[dict] = []
     try:
@@ -1406,9 +1449,13 @@ async def deactivate_integration(
     _auth=Depends(require_scopes("channels.integrations:write")),
 ):
     """Deactivate an integration on a channel."""
+    from integrations import get_activation_manifests
+
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
+
+    manifests = get_activation_manifests()
 
     result = await db.execute(
         select(ChannelIntegration).where(
@@ -1421,6 +1468,41 @@ async def deactivate_integration(
     for row in rows:
         row.activated = False
         db.add(row)
+
+    # Flush so the "still_needed" queries below see the deactivated rows
+    await db.flush()
+
+    # Deactivate included integrations if no other active integration still includes them
+    manifest = manifests.get(integration_type, {})
+    for included_id in manifest.get("includes", []):
+        # Check if any OTHER active integration still includes this one
+        still_needed = False
+        for other_type, other_manifest in manifests.items():
+            if other_type == integration_type:
+                continue
+            if included_id not in other_manifest.get("includes", []):
+                continue
+            other_active = (await db.execute(
+                select(ChannelIntegration).where(
+                    ChannelIntegration.channel_id == channel_id,
+                    ChannelIntegration.integration_type == other_type,
+                    ChannelIntegration.activated == True,  # noqa: E712
+                )
+            )).scalar_one_or_none()
+            if other_active:
+                still_needed = True
+                break
+        if not still_needed:
+            inc_result = await db.execute(
+                select(ChannelIntegration).where(
+                    ChannelIntegration.channel_id == channel_id,
+                    ChannelIntegration.integration_type == included_id,
+                    ChannelIntegration.activated == True,  # noqa: E712
+                )
+            )
+            for inc_row in inc_result.scalars().all():
+                inc_row.activated = False
+                db.add(inc_row)
 
     await db.commit()
     return {"ok": True, "integration_type": integration_type, "activated": False}
@@ -1483,7 +1565,17 @@ async def list_available_integrations(
             chat_hud=huds.get(itype, []),
             chat_hud_presets=hud_presets.get(itype, {}),
             activation_config=activation_config,
+            config_fields=manifest.get("config_fields", []),
         ))
+
+    # Second pass: populate included_by — for each integration that has
+    # includes, mark each included integration as included_by the parent.
+    by_type = {r.integration_type: r for r in result}
+    for r in result:
+        for included_id in r.includes:
+            included = by_type.get(included_id)
+            if included:
+                included.included_by.append(r.integration_type)
 
     return result
 

@@ -120,6 +120,8 @@ def _token_needs_refresh() -> bool:
 async def _get_channel_allowed_services(channel_id) -> list[str] | None:
     """Get allowed services for the current channel from its ChannelIntegration config.
 
+    Checks activation_config first, falls back to any binding's dispatch_config
+    (covers data created before the config_fields migration to activations).
     Returns list of allowed service names, or None if integration not activated.
     """
     if not channel_id:
@@ -142,9 +144,50 @@ async def _get_channel_allowed_services(channel_id) -> list[str] | None:
                 return None
 
             config = ci.activation_config or {}
-            return config.get("allowed_services", ["drive", "gmail", "calendar"])
+            services = config.get("allowed_services")
+            if services:
+                return services
+
+            # Fallback: check binding dispatch_config (pre-migration data)
+            binding_stmt = select(ChannelIntegration).where(
+                ChannelIntegration.channel_id == channel_id,
+                ChannelIntegration.integration_type == "google_workspace",
+            )
+            binding_result = await db.execute(binding_stmt)
+            for row in binding_result.scalars().all():
+                dc = row.dispatch_config or {}
+                if "allowed_services" in dc:
+                    return dc["allowed_services"]
+
+            return ["drive", "gmail", "calendar"]
     except Exception:
         logger.debug("Failed to check channel integration config", exc_info=True)
+        return None
+
+
+async def _get_channel_drive_root(channel_id) -> str | None:
+    """Get drive_root_folder for the current channel, if configured."""
+    if not channel_id:
+        return None
+    try:
+        from app.db.engine import async_session
+        from app.db.models import ChannelIntegration
+        from sqlalchemy import select
+
+        async with async_session() as db:
+            stmt = select(ChannelIntegration).where(
+                ChannelIntegration.channel_id == channel_id,
+                ChannelIntegration.integration_type == "google_workspace",
+                ChannelIntegration.activated.is_(True),
+            )
+            result = await db.execute(stmt)
+            ci = result.scalar_one_or_none()
+            if not ci:
+                return None
+            config = ci.activation_config or {}
+            return config.get("drive_root_folder") or None
+    except Exception:
+        logger.debug("Failed to check drive root folder config", exc_info=True)
         return None
 
 
@@ -295,6 +338,13 @@ async def gws(command: str) -> str:
 
         if len(result) > _MAX_OUTPUT:
             result = result[:_MAX_OUTPUT] + "\n... (output truncated)"
+
+        # Prepend drive root folder hint for drive operations
+        if service == "drive":
+            drive_root = await _get_channel_drive_root(channel_id)
+            if drive_root:
+                hint = f"Note: This channel's Drive workspace is scoped to folder {drive_root}."
+                result = f"{hint}\n\n{result}" if result else hint
 
         return result if result else "(no output)"
 

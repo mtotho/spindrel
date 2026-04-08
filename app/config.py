@@ -546,6 +546,10 @@ class Settings(BaseSettings):
     CAPABILITY_RETRIEVAL_THRESHOLD: float = 0.50
     CAPABILITY_APPROVAL: str = "required"  # "required" = ask user, "none" = silent
 
+    # On-demand skill index retrieval (semantic selection instead of flat dump)
+    SKILL_INDEX_RETRIEVAL_TOP_K: int = 8
+    SKILL_INDEX_RETRIEVAL_THRESHOLD: float = 0.35
+
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
     TOOL_RETRIEVAL_THRESHOLD: float = 0.45
     TOOL_RETRIEVAL_TOP_K: int = 10

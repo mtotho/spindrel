@@ -36,6 +36,7 @@ import { BotOverridesList } from "@/src/components/settings/BotOverridesList";
 import { FlushPromptOverrideWarning } from "@/src/components/settings/FlushPromptOverrideWarning";
 import { FileModeOnlyBanner } from "@/src/components/settings/FileModeOnlyBanner";
 import { MemoryHygieneGroupBanner } from "@/src/components/settings/MemoryHygieneGroupBanner";
+import { DreamingBotList } from "@/src/components/settings/DreamingBotList";
 import { BackupSection } from "@/src/components/settings/BackupSection";
 
 // ---------------------------------------------------------------------------
@@ -380,6 +381,16 @@ function SettingRow({
 }
 
 // ---------------------------------------------------------------------------
+// Display name mapping (rebrand without changing backend keys)
+// ---------------------------------------------------------------------------
+const GROUP_DISPLAY_NAMES: Record<string, string> = {
+  "Memory Hygiene": "Dreaming",
+};
+function groupDisplayName(key: string) {
+  return GROUP_DISPLAY_NAMES[key] ?? key;
+}
+
+// ---------------------------------------------------------------------------
 // Group section nav
 // ---------------------------------------------------------------------------
 
@@ -409,7 +420,7 @@ function GroupNav({
                 : "text-text-muted"
             }`}
           >
-            {g.group}
+            {groupDisplayName(g.group)}
           </Text>
         </Pressable>
       ))}
@@ -714,7 +725,7 @@ export default function SettingsScreen() {
                         : "text-text-muted"
                     }`}
                   >
-                    {g.group}
+                    {groupDisplayName(g.group)}
                   </Text>
                 </Pressable>
               ))}
@@ -723,7 +734,7 @@ export default function SettingsScreen() {
 
           {/* Group title */}
           <Text className="text-text font-semibold text-lg mb-2">
-            {activeGroup}
+            {groupDisplayName(activeGroup)}
           </Text>
 
           {/* Appearance section — shown in Global group */}
@@ -771,6 +782,9 @@ export default function SettingsScreen() {
               </View>
             );
           })}
+
+          {/* Dreaming (Memory Hygiene) bot list */}
+          {activeGroup === "Memory Hygiene" && <DreamingBotList />}
 
           {/* Bot overrides for Attachments / Model Elevation */}
           {(activeGroup === "Attachments" || activeGroup === "Model Elevation") && (

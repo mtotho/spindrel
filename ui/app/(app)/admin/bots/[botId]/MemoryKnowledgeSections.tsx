@@ -225,14 +225,24 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
       background: t.surface, border: `1px solid ${t.surfaceRaised}`,
       borderRadius: 8, padding: "14px 16px",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
         <Clock size={14} color={t.purple} />
         <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
-          Memory Hygiene
+          Dreaming
         </span>
-        <span style={{ fontSize: 10, color: t.textDim }}>
+        <span style={{ fontSize: 10, color: t.textDim, flex: 1, minWidth: 200 }}>
           Scheduled background review — curates MEMORY.md, promotes facts from daily logs, detects contradictions, generates reflections, and consolidates skills across all channels.
         </span>
+        {status?.next_run_at && (
+          <span style={{
+            fontSize: 10, color: t.purple, fontWeight: 500,
+            padding: "2px 8px", borderRadius: 4,
+            background: t.purpleSubtle, border: `1px solid ${t.purpleBorder}`,
+            whiteSpace: "nowrap",
+          }}>
+            Next: {fmtTime(status.next_run_at)}
+          </span>
+        )}
       </div>
 
       {/* Enable selector */}
@@ -402,7 +412,7 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
 
       {/* Built-in hygiene prompt (collapsible, shown when no custom override) */}
       {!draft.memory_hygiene_prompt && status?.resolved_prompt && (
-        <BuiltinPromptCollapsible label="Built-in Hygiene Prompt" content={status.resolved_prompt} />
+        <BuiltinPromptCollapsible label="Built-in Dreaming Prompt" content={status.resolved_prompt} />
       )}
 
       {/* Status line + Run Now */}
@@ -540,7 +550,7 @@ export function MemorySection({ draft, update, botId }: {
         )}
       </div>
 
-      {/* Memory Hygiene */}
+      {/* Dreaming (Memory Hygiene) */}
       <MemoryHygieneSubsection draft={draft} update={update} botId={botId} />
     </div>
   );

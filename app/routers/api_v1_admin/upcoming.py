@@ -136,7 +136,7 @@ async def upcoming_activity(
                 "bot_name": bot_name,
                 "channel_id": None,
                 "channel_name": None,
-                "title": "Memory Hygiene",
+                "title": "Dreaming",
                 "interval_hours": interval,
             })
 

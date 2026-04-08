@@ -39,13 +39,6 @@ SETUP = {
         "carapaces": ["google-workspace"],
         "requires_workspace": False,
         "description": "Google Workspace — Drive, Gmail, Calendar, Sheets, Docs, and more",
-    },
-    "webhook": None,
-    "instructions_url": None,
-    "binding": {
-        "client_id_prefix": "gws:",
-        "client_id_placeholder": "gws:default",
-        "client_id_description": "Google Workspace account identifier",
         "config_fields": [
             {
                 "key": "allowed_services",
@@ -68,6 +61,20 @@ SETUP = {
                 ],
                 "default": ["drive", "gmail", "calendar"],
             },
+            {
+                "key": "drive_root_folder",
+                "type": "string",
+                "label": "Drive Root Folder",
+                "description": "Folder ID to scope Drive operations to (paste from Drive URL). Leave empty for full Drive access.",
+            },
         ],
+    },
+    "webhook": None,
+    "instructions_url": None,
+    "binding": {
+        "client_id_prefix": "gws:",
+        "client_id_placeholder": "gws:default",
+        "client_id_description": "Google Workspace account identifier",
+        "config_fields": [],
     },
 }
