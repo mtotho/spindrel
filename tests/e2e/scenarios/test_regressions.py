@@ -176,15 +176,15 @@ async def test_regression_multi_turn_context(client: E2EClient) -> None:
     """Second message in same channel should have context from first."""
     cid = client.new_client_id()
 
-    # First turn: establish a fact
+    # First turn: establish a fact (avoid "remember" — triggers memory tool seeking)
     await client.chat(
-        "Remember: the secret code is PINEAPPLE42.",
+        "The secret code is PINEAPPLE42. Acknowledge you received it.",
         client_id=cid,
     )
 
     # Second turn: ask about it (same client_id = same channel + session)
     resp = await client.chat(
-        "What is the secret code I just told you?",
+        "What was the secret code from my previous message?",
         client_id=cid,
     )
     assert "PINEAPPLE42" in resp.response.upper().replace(" ", ""), (
@@ -205,13 +205,13 @@ async def test_regression_channel_isolation(client: E2EClient) -> None:
 
     # Establish context in channel A
     await client.chat(
-        "Remember: the password is ZEBRA99.",
+        "The password is ZEBRA99. Acknowledge you received it.",
         client_id=cid_a,
     )
 
     # Ask in channel B — should NOT know the password
     resp = await client.chat(
-        "What password did I tell you?",
+        "What password did I tell you in a previous message?",
         client_id=cid_b,
     )
     assert "ZEBRA99" not in resp.response.upper().replace(" ", ""), (

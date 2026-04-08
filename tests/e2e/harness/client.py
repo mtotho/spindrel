@@ -180,6 +180,13 @@ class E2EClient:
         resp.raise_for_status()
         return resp.json()
 
+    async def delete_channel(self, channel_id: str) -> None:
+        """DELETE /api/v1/channels/{channel_id}."""
+        resp = await self._client.delete(f"/api/v1/channels/{channel_id}")
+        # 204 = deleted, 404 = already gone — both are fine
+        if resp.status_code not in (200, 204, 404):
+            resp.raise_for_status()
+
     # -- Generic HTTP methods --
 
     async def get(self, path: str, **kwargs: Any) -> httpx.Response:
