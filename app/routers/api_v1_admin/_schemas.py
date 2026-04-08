@@ -88,6 +88,7 @@ class BotOut(BaseModel):
     memory_hygiene_model: Optional[str] = None
     memory_hygiene_model_provider_id: Optional[str] = None
     memory_hygiene_target_hour: Optional[int] = None
+    carapaces: list[str] = []
     workspace_only: bool = False
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False

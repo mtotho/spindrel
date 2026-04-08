@@ -5,7 +5,7 @@ import { useCarapaces } from "@/src/api/hooks/useCarapaces";
 import { AdvancedSection } from "@/src/components/shared/SettingsControls";
 import type { BotConfig, Carapace } from "@/src/types/api";
 
-function SourceBadge({ type }: { type: string }) {
+function SourceBadge({ type, label: customLabel }: { type: string; label?: string }) {
   const t = useThemeTokens();
   const cfg: Record<string, { bg: string; fg: string; label: string }> = {
     file: { bg: t.accentSubtle, fg: t.accent, label: "file" },
@@ -19,7 +19,7 @@ function SourceBadge({ type }: { type: string }) {
       padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600,
       background: c.bg, color: c.fg,
     }}>
-      {c.label}
+      {customLabel || c.label}
     </span>
   );
 }
@@ -186,6 +186,9 @@ export function CarapacesSection({
               <Pin size={9} color={t.accent} />
               <span style={{ color: t.accent, fontWeight: 500 }}>{c.name}</span>
               <span style={{ fontSize: 9, color: t.textDim, fontFamily: "monospace" }}>{c.id}</span>
+              {c.source_type === "integration" && (
+                <SourceBadge type="integration" label={fmtIntName(extractIntegrationName(c) || "integration")} />
+              )}
               <button
                 onClick={() => toggle(c.id)}
                 style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
@@ -245,7 +248,9 @@ export function CarapacesSection({
                 >
                   <span style={{ fontWeight: 500 }}>{c.name}</span>
                   <span style={{ fontSize: 9, color: t.textDim, fontFamily: "monospace" }}>{c.id}</span>
-                  {c.source_type === "integration" && <SourceBadge type="integration" />}
+                  {c.source_type === "integration" && (
+                    <SourceBadge type="integration" label={fmtIntName(extractIntegrationName(c) || "integration")} />
+                  )}
                 </button>
               ))}
               {filteredUnpinned.length === 0 && (
