@@ -6,6 +6,7 @@ These run against the live server in external mode.
 
 from __future__ import annotations
 
+import re
 import uuid
 
 import pytest
@@ -197,6 +198,88 @@ async def test_regression_multi_turn_context(client: E2EClient) -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Tool calling: bot should use tools when appropriate
+# The e2e bot has get_current_time and get_current_local_time tools.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_regression_tool_calling_chat(client: E2EClient) -> None:
+    """Bot should call a time tool when asked for the current time."""
+    cid = client.new_client_id()
+    resp = await client.chat(
+        "What is the current time right now? Use your time tool.",
+        client_id=cid,
+    )
+    # The response should contain time-like content (digits with colons)
+    assert re.search(r"\d{1,2}:\d{2}", resp.response), (
+        f"Response should contain a time but got: {resp.response[:200]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_regression_tool_calling_stream(client: E2EClient) -> None:
+    """Streaming should emit tool_start and tool_result events when tools are used."""
+    cid = client.new_client_id()
+    result = await client.chat_stream(
+        "What is the current time right now? Use your time tool.",
+        client_id=cid,
+    )
+    assert result.response_text, "Must produce response text"
+    assert not result.error_events, "Must not produce error events"
+
+    # Verify tool events were emitted
+    assert len(result.tool_events) > 0, (
+        f"Should have tool events but got types: {result.event_types}"
+    )
+    assert any(e.type == "tool_start" for e in result.tool_events), (
+        "Should have a tool_start event"
+    )
+    assert any(e.type == "tool_result" for e in result.tool_events), (
+        "Should have a tool_result event"
+    )
+
+    # Verify the tool used was one of the time tools
+    time_tools = {"get_current_time", "get_current_local_time"}
+    assert any(t in time_tools for t in result.tools_used), (
+        f"Should have used a time tool but used: {result.tools_used}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool persistence: bot tools survive PATCH updates
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_regression_bot_tools_persist_after_update(client: E2EClient) -> None:
+    """Updating a bot field must not wipe its local_tools list."""
+    bot_id = _test_bot_id()
+    try:
+        await client.create_bot(
+            {
+                "id": bot_id,
+                "name": "Tools persist",
+                "model": "gemini/gemini-2.5-flash-lite",
+                "local_tools": ["get_current_time"],
+            }
+        )
+
+        # Update an unrelated field
+        result = await client.update_bot(bot_id, {"name": "Tools persist v2"})
+        assert "get_current_time" in result.get("local_tools", []), (
+            "local_tools must survive unrelated PATCH"
+        )
+    finally:
+        await client.delete_bot(bot_id)
+
+
+# ---------------------------------------------------------------------------
+# Channel isolation
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.asyncio
 async def test_regression_channel_isolation(client: E2EClient) -> None:
     """Messages in one channel must not leak to another."""
@@ -217,3 +300,61 @@ async def test_regression_channel_isolation(client: E2EClient) -> None:
     assert "ZEBRA99" not in resp.response.upper().replace(" ", ""), (
         "Channel B must not see Channel A's context"
     )
+
+
+# ---------------------------------------------------------------------------
+# Capability activation: carapaces can be assigned and removed via API
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_regression_capability_activation_roundtrip(
+    client: E2EClient,
+) -> None:
+    """Activating and deactivating a carapace must reflect in bot config."""
+    bot_id = _test_bot_id()
+    try:
+        await client.create_bot(
+            {"id": bot_id, "name": "Cap test", "model": "gemini/gemini-2.5-flash-lite"}
+        )
+
+        # Activate
+        result = await client.update_bot(bot_id, {"carapaces": ["e2e-testing"]})
+        assert result["carapaces"] == ["e2e-testing"], "Carapace must activate"
+
+        # Verify persistence
+        fetched = await client.get_bot(bot_id)
+        assert fetched["carapaces"] == ["e2e-testing"], "Activation must persist"
+
+        # Deactivate
+        result = await client.update_bot(bot_id, {"carapaces": []})
+        assert result["carapaces"] == [], "Carapace must deactivate"
+
+        # Verify deactivation persists
+        fetched = await client.get_bot(bot_id)
+        assert fetched["carapaces"] == [], "Deactivation must persist"
+    finally:
+        await client.delete_bot(bot_id)
+
+
+# ---------------------------------------------------------------------------
+# Multiple capabilities: bot can have several carapaces at once
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_regression_multiple_capabilities(client: E2EClient) -> None:
+    """Bot should support multiple carapaces simultaneously."""
+    bot_id = _test_bot_id()
+    try:
+        await client.create_bot(
+            {"id": bot_id, "name": "Multi cap", "model": "gemini/gemini-2.5-flash-lite"}
+        )
+
+        caps = ["e2e-testing", "researcher"]
+        result = await client.update_bot(bot_id, {"carapaces": caps})
+        assert sorted(result["carapaces"]) == sorted(caps), (
+            "Must support multiple carapaces"
+        )
+    finally:
+        await client.delete_bot(bot_id)
