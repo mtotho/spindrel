@@ -185,6 +185,15 @@ def _finalize_response(
             messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
         transcript_emitted = True
 
+    # Final safety net: never emit an empty response to the UI — unless the
+    # bot intentionally said nothing after completing tool work (silent completion).
+    if not text.strip() and not tool_calls_made:
+        logger.warning("_finalize_response received empty text with no tool calls — applying fallback.")
+        text = "I had trouble generating a response. Could you try again?"
+        # Update persisted messages so the fallback survives a page refresh.
+        if messages and messages[-1].get("role") == "assistant":
+            messages[-1]["content"] = text
+
     _trace("✓ response (%d chars)", len(text))
     logger.info("Final response (%d chars): %r", len(text), text[:120])
 
@@ -664,6 +673,9 @@ async def run_agent_tool_loop(
                             )
                             text = _sanitize_llm_text(retry.choices[0].message.content or "")
                             text = _redact_secrets(text)
+                            if not text.strip():
+                                logger.warning("Forced-response retry also returned empty — using fallback.")
+                                text = "I had trouble generating a response. Could you try again?"
                             _retry_msg = retry.choices[0].message.model_dump(exclude_none=True)
                             _retry_msg["content"] = text
                             messages.append(_retry_msg)
