@@ -541,6 +541,7 @@ class BotUpdateIn(BaseModel):
     memory_hygiene_model: Optional[str] = None
     memory_hygiene_model_provider_id: Optional[str] = None
     memory_hygiene_target_hour: Optional[int] = None
+    carapaces: Optional[list[str]] = None
     workspace_only: Optional[bool] = None
     system_prompt_workspace_file: Optional[bool] = None
     system_prompt_write_protected: Optional[bool] = None
