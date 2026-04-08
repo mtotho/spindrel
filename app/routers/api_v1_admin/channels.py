@@ -7,11 +7,11 @@ import logging
 import time as _time
 import uuid
 from datetime import datetime, time as dt_time, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -195,6 +195,15 @@ class HeartbeatConfigOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator("quiet_start", "quiet_end", mode="before")
+    @classmethod
+    def _coerce_time_to_str(cls, v: Any) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, dt_time):
+            return v.strftime("%H:%M")
+        return str(v)
 
     @classmethod
     def from_orm_heartbeat(cls, hb: ChannelHeartbeat) -> "HeartbeatConfigOut":

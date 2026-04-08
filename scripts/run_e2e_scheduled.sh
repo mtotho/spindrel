@@ -15,6 +15,8 @@ LOG_DIR="$HOME/logs/e2e"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 LOG_FILE="$LOG_DIR/$TIMESTAMP.log"
 LATEST_LINK="$LOG_DIR/latest.log"
+# Shared workspace where log-bot can read results
+WORKSPACE_SUMMARY="${E2E_WORKSPACE_SUMMARY:-$HOME/.agent-workspaces/shared/70aae325-6b38-47e2-8044-b31064595121/e2e-results.json}"
 
 mkdir -p "$LOG_DIR"
 
@@ -55,6 +57,29 @@ cd "$PROJECT_ROOT"
 
 # Update latest symlink
 ln -sf "$LOG_FILE" "$LATEST_LINK"
+
+# Write JSON summary to shared workspace for log-bot to read
+_PASSED=$(grep -c "PASSED" "$LOG_FILE" 2>/dev/null || echo 0)
+_FAILED=$(grep -c "FAILED" "$LOG_FILE" 2>/dev/null || echo 0)
+_ERRORS=$(grep -c "ERROR" "$LOG_FILE" 2>/dev/null || echo 0)
+_STATUS="pass"
+grep -q "=== Result: FAIL ===" "$LOG_FILE" && _STATUS="fail"
+_FAILED_NAMES=$(grep "FAILED" "$LOG_FILE" | sed 's/.*::\(.*\) FAILED.*/\1/' | paste -sd ',' - 2>/dev/null || echo "")
+_DURATION=$(grep -oP '\d+\.\d+s' "$LOG_FILE" | tail -1 || echo "?")
+
+cat > "$WORKSPACE_SUMMARY" <<ENDJSON
+{
+  "timestamp": "$(date -Iseconds)",
+  "status": "$_STATUS",
+  "passed": $_PASSED,
+  "failed": $_FAILED,
+  "errors": $_ERRORS,
+  "duration": "$_DURATION",
+  "failed_tests": "$_FAILED_NAMES",
+  "log_file": "$LOG_FILE",
+  "model": "${E2E_DEFAULT_MODEL}"
+}
+ENDJSON
 
 # Prune logs older than 14 days
 find "$LOG_DIR" -name "*.log" -mtime +14 -not -name "latest.log" -delete 2>/dev/null

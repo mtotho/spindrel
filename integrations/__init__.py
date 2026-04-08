@@ -246,8 +246,8 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "has_dispatcher": (candidate / "dispatcher.py").exists(),
             "has_hooks": (candidate / "hooks.py").exists(),
             "has_tools": any((candidate / "tools").glob("*.py")) if (candidate / "tools").is_dir() else False,
-            "has_skills": any((candidate / "skills").glob("*.md")) if (candidate / "skills").is_dir() else False,
-            "has_carapaces": any((candidate / "carapaces").glob("*.yaml")) if (candidate / "carapaces").is_dir() else False,
+            "has_skills": any((candidate / "skills").glob("**/*.md")) if (candidate / "skills").is_dir() else False,
+            "has_carapaces": any((candidate / "carapaces").glob("**/*.yaml")) if (candidate / "carapaces").is_dir() else False,
             "has_process": has_process,
             "process_launchable": process_launchable,
             "process_description": process_description,
@@ -279,15 +279,21 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
         skills_dir = candidate / "skills"
         if skills_dir.is_dir():
             entry["skill_files"] = sorted(
-                f.stem for f in skills_dir.glob("*.md")
+                f.stem for f in skills_dir.glob("**/*.md")
             )
         else:
             entry["skill_files"] = []
         carapaces_dir = candidate / "carapaces"
         if carapaces_dir.is_dir():
-            entry["carapace_files"] = sorted(
-                f.stem for f in carapaces_dir.glob("*.yaml")
-            )
+            # Flat: carapaces/foo.yaml → stem is "foo"
+            # Nested: carapaces/foo/carapace.yaml → use parent dir name
+            carapace_names: set[str] = set()
+            for f in carapaces_dir.glob("**/*.yaml"):
+                if f.name == "carapace.yaml":
+                    carapace_names.add(f.parent.name)
+                else:
+                    carapace_names.add(f.stem)
+            entry["carapace_files"] = sorted(carapace_names)
         else:
             entry["carapace_files"] = []
 
