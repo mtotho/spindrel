@@ -542,7 +542,11 @@ async def admin_channel_detail(
     _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Channel detail with linked entity counts."""
-    channel = await db.get(Channel, channel_id)
+    channel = (await db.execute(
+        select(Channel)
+        .options(selectinload(Channel.integrations))
+        .where(Channel.id == channel_id)
+    )).scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
