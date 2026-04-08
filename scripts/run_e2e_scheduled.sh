@@ -55,6 +55,9 @@ cd "$PROJECT_ROOT"
         tests/e2e/scenarios/test_providers_models.py \
         tests/e2e/scenarios/test_channel_details.py \
         tests/e2e/scenarios/test_carapaces_crud.py \
+        tests/e2e/scenarios/test_search_indexing.py \
+        tests/e2e/scenarios/test_tool_policies.py \
+        tests/e2e/scenarios/test_memory_behavior.py \
         -v --tb=short 2>&1
 
     EXIT_CODE=$?

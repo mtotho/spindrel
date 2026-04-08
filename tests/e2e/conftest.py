@@ -36,6 +36,9 @@ _FILE_TO_TIER = {
     "test_providers_models": "api_contract",
     "test_channel_details": "api_contract",
     "test_carapaces_crud": "api_contract",
+    "test_search_indexing": "api_contract",
+    "test_tool_policies": "api_contract",
+    "test_memory_behavior": "server_behavior",
 }
 
 
