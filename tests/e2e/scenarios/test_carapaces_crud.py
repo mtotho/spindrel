@@ -230,13 +230,13 @@ async def test_carapace_usage_after_bot_assign(client: E2EClient) -> None:
         # Create carapace
         await client.post(_ADMIN, json=_carapace_payload(cid))
 
-        # Create bot with this carapace
+        # Create bot, then assign carapace via PATCH (BotCreateIn lacks carapaces field)
         await client.create_bot({
             "id": bot_id,
             "name": "Carapace Usage Test Bot",
             "model": "gemini/gemini-2.5-flash",
-            "carapaces": [cid],
         })
+        await client.update_bot(bot_id, {"carapaces": [cid]})
 
         # Check usage
         resp = await client.get(f"{_ADMIN}/{cid}/usage")

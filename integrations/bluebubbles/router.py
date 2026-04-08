@@ -1031,6 +1031,18 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         if binding_text_footer:
             dispatch_config["text_footer"] = binding_text_footer
 
+        # Resolve sender display name early so it's available for content prefixes.
+        # BB contact info → binding display name → raw address
+        sender_display = (
+            handle.get("displayName")
+            or _format_handle_name(handle)
+            or binding.display_name
+            or (handle.get("address") if not is_from_me else None)
+        )
+        # Label used in message content so the LLM can distinguish speakers.
+        # is_from_me → "Me", otherwise → contact's display name or raw address.
+        _sender_label = sender_display or sender if not is_from_me else "Me"
+
         # Sender filtering: for 1:1 chats, only the bound contact's messages
         # should trigger the bot.  Messages from other phone numbers (e.g. the
         # user texting from a secondary device) are stored passively.
@@ -1049,22 +1061,22 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         if _unexpected_sender:
             # Not from the expected contact — store passively regardless of settings
             run_agent = False
-            content = f"[{sender}]: {text}"
+            content = f"[{_sender_label}]: {text}"
         elif not channel.require_mention:
             # No mention required
             if is_from_me:
                 # Human texting from their own phone — always active
                 run_agent = True
-                content = text
+                content = f"[Me]: {text}"
             elif shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
                 # Suppress if we just replied (catches echoed bot messages
                 # that iMessage modified, breaking content hash)
                 logger.info("BB webhook: echo suppress (no-mention path), chat_guid=%s", chat_guid)
                 run_agent = False
-                content = f"[{sender}]: {text}"
+                content = f"[{_sender_label}]: {text}"
             else:
                 run_agent = True
-                content = text
+                content = f"[{_sender_label}]: {text}"
         else:
             # require_mention is True — check wake words for ALL messages
             # (including is_from_me so the user can text in monitored chats
@@ -1080,22 +1092,14 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                 if not is_from_me and shared_tracker.in_echo_suppress(chat_guid, window=effective_echo_window):
                     logger.info("BB webhook: echo suppress (wake word path), chat_guid=%s", chat_guid)
                     run_agent = False
-                    content = f"[{sender}]: {text}"
+                    content = f"[{_sender_label}]: {text}"
                 else:
                     run_agent = True
-                    content = text
+                    content = f"[{_sender_label}]: {text}"
             else:
                 # Passive — store with sender prefix, no agent run
                 run_agent = False
-                content = f"[{sender}]: {text}" if not is_from_me else text
-
-        # Resolve sender display name: BB contact info → binding display name → raw address
-        sender_display = (
-            handle.get("displayName")
-            or _format_handle_name(handle)
-            or binding.display_name
-            or (handle.get("address") if not is_from_me else None)
-        )
+                content = f"[{_sender_label}]: {text}"
 
         # Sender metadata for UI display (name, source label, etc.)
         extra_metadata: dict = {
