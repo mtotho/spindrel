@@ -59,9 +59,12 @@ cd "$PROJECT_ROOT"
 ln -sf "$LOG_FILE" "$LATEST_LINK"
 
 # Write JSON summary to shared workspace for log-bot to read
-_PASSED=$(grep -c "PASSED" "$LOG_FILE" 2>/dev/null || echo 0)
-_FAILED=$(grep -c "FAILED" "$LOG_FILE" 2>/dev/null || echo 0)
-_ERRORS=$(grep -c "ERROR" "$LOG_FILE" 2>/dev/null || echo 0)
+_PASSED=$(grep -c "PASSED" "$LOG_FILE" 2>/dev/null || true)
+_FAILED=$(grep -c "FAILED" "$LOG_FILE" 2>/dev/null || true)
+_ERRORS=$(grep -c "ERROR" "$LOG_FILE" 2>/dev/null || true)
+_PASSED=${_PASSED:-0}
+_FAILED=${_FAILED:-0}
+_ERRORS=${_ERRORS:-0}
 _STATUS="pass"
 grep -q "=== Result: FAIL ===" "$LOG_FILE" && _STATUS="fail"
 _FAILED_NAMES=$(grep "FAILED" "$LOG_FILE" | sed 's/.*::\(.*\) FAILED.*/\1/' | paste -sd ',' - 2>/dev/null || echo "")

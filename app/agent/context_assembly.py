@@ -1436,7 +1436,7 @@ async def assemble_context(
         if fs_chunks:
             _fs_body = (
                 "Relevant workspace file excerpts (partial segments — "
-                "use exec_command with `cat <filepath>` to read full file contents):\n\n"
+                "use the file tool with operation=\"read\" to read full file contents):\n\n"
                 + "\n\n---\n\n".join(fs_chunks)
             )
             # P3: skip if budget is too tight
@@ -1481,7 +1481,7 @@ async def assemble_context(
                 "role": "system",
                 "content": (
                     "Relevant file excerpts from indexed directories (partial segments — "
-                    "use exec_command with `cat <filepath>` to read full file contents):\n\n"
+                    "use the file tool with operation=\"read\" to read full file contents):\n\n"
                     + "\n\n---\n\n".join(fs_chunks)
                 ),
             })
