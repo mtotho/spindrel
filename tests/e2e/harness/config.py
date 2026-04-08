@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _DEFAULT_SMOKE_MODELS = [
-    {"model": "gemini/gemini-2.5-flash-lite"},
     {"model": "gemma4:e4b"},
 ]
 
