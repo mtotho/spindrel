@@ -527,7 +527,8 @@ async def lifespan(application: FastAPI):
                     )
                     _enabled = False
                     if _dc_info["enabled_setting"]:
-                        _val = _get_int_setting(_int_id, _dc_info["enabled_setting"], "false")
+                        _default = _dc_info.get("enabled_default", "false")
+                        _val = _get_int_setting(_int_id, _dc_info["enabled_setting"], _default)
                         _enabled = _val.lower() in ("true", "1", "yes")
                     if _enabled and _stack.status != "running":
                         logger.info("Auto-starting integration stack: %s", _int_id)

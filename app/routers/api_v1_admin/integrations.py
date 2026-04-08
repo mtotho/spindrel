@@ -170,6 +170,41 @@ async def get_integration_settings(integration_id: str, _auth=Depends(require_sc
     return {"settings": settings}
 
 
+async def _sync_docker_compose_stack(integration_id: str) -> None:
+    """If this integration declares a docker_compose stack, start/stop it based on enabled_setting."""
+    from integrations import discover_docker_compose_stacks
+    from app.services.docker_stacks import stack_service
+    from app.services.integration_settings import get_value as _get_int_setting
+
+    for dc_info in discover_docker_compose_stacks():
+        if dc_info["integration_id"] != integration_id:
+            continue
+        try:
+            stack = await stack_service.sync_integration_stack(
+                integration_id=integration_id,
+                name=dc_info["description"] or integration_id,
+                compose_definition=dc_info["compose_definition"],
+                project_name=dc_info["project_name"],
+                description=dc_info["description"],
+                connect_networks=dc_info["connect_networks"],
+                config_files=dc_info["config_files"],
+            )
+            enabled = False
+            if dc_info["enabled_setting"]:
+                default = dc_info.get("enabled_default", "false")
+                val = _get_int_setting(integration_id, dc_info["enabled_setting"], default)
+                enabled = val.lower() in ("true", "1", "yes")
+            if enabled and stack.status != "running":
+                logger.info("Starting integration stack: %s", integration_id)
+                await stack_service.start(stack)
+            elif not enabled and stack.status == "running":
+                logger.info("Stopping integration stack: %s", integration_id)
+                await stack_service.stop(stack)
+        except Exception:
+            logger.exception("Failed to sync docker stack for %s", integration_id)
+        break
+
+
 class UpdateSettingsBody(BaseModel):
     settings: dict[str, str]
 
@@ -190,6 +225,9 @@ async def update_integration_settings(
         raise HTTPException(status_code=422, detail=f"Unknown setting keys: {', '.join(sorted(bad_keys))}")
 
     applied = await update_settings(integration_id, body.settings, setup_vars, db)
+
+    # If a docker_compose.enabled_setting was toggled, start/stop the stack immediately
+    await _sync_docker_compose_stack(integration_id)
 
     # Auto-provision API key if integration declares api_permissions and doesn't have one yet
     api_permissions = _get_api_permissions(integration_id)

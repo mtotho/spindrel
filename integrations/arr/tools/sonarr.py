@@ -68,6 +68,29 @@ async def _post(path: str, payload: dict, timeout: float = 15.0):
         )
 
 
+async def _delete(path: str, params: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.SONARR_URL, "Sonarr")
+    if url_err:
+        raise ValueError(url_err)
+    url = f"{_base_url()}{path}"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(url, headers=_headers(), params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp.status_code
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:500] if e.response else ""
+        raise httpx.HTTPStatusError(
+            f"Sonarr {e.response.status_code} on {path}: {body}",
+            request=e.request,
+            response=e.response,
+        )
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Sonarr request timed out after {timeout}s: {path}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -285,17 +308,29 @@ async def sonarr_queue() -> str:
             size_mb = round((rec.get("size", 0) or 0) / 1_048_576, 1)
             remaining_mb = round((rec.get("sizeleft", 0) or 0) / 1_048_576, 1)
             progress = round(100 * (1 - remaining_mb / size_mb), 1) if size_mb > 0 else 0
-            items.append({
+            item: dict = {
+                "queue_id": rec.get("id"),
                 "series": sanitize(series.get("title", "Unknown")),
+                "series_id": series.get("id"),
                 "season": episode.get("seasonNumber"),
                 "episode": episode.get("episodeNumber"),
+                "episode_id": episode.get("id"),
                 "quality": rec.get("quality", {}).get("quality", {}).get("name", ""),
                 "size_mb": size_mb,
                 "remaining_mb": remaining_mb,
                 "status": rec.get("status", ""),
+                "tracked_status": rec.get("trackedDownloadStatus", ""),
                 "progress_pct": progress,
                 "eta": rec.get("estimatedCompletionTime", ""),
-            })
+            }
+            # Include error messages for failed/warning items
+            status_messages = rec.get("statusMessages", [])
+            if status_messages:
+                item["errors"] = [
+                    sanitize(msg.get("title", ""), max_len=200)
+                    for msg in status_messages[:3]
+                ]
+            items.append(item)
         return json.dumps({"count": len(items), "items": items})
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
@@ -311,21 +346,22 @@ async def sonarr_queue() -> str:
     "function": {
         "name": "sonarr_command",
         "description": (
-            "Trigger a Sonarr command: search for a series, specific episodes, or all missing episodes. "
+            "Trigger a Sonarr command: search for a series, specific episodes, all missing episodes, "
+            "or refresh a series (rescan disk without searching). "
             "Actions: SeriesSearch (requires series_id), EpisodeSearch (requires episode_ids), "
-            "MissingEpisodeSearch (no params needed)."
+            "MissingEpisodeSearch (no params), RefreshSeries (requires series_id — rescans disk state)."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["SeriesSearch", "EpisodeSearch", "MissingEpisodeSearch"],
+                    "enum": ["SeriesSearch", "EpisodeSearch", "MissingEpisodeSearch", "RefreshSeries"],
                     "description": "Command to execute.",
                 },
                 "series_id": {
                     "type": "integer",
-                    "description": "Series ID (required for SeriesSearch).",
+                    "description": "Series ID (required for SeriesSearch and RefreshSeries).",
                 },
                 "episode_ids": {
                     "type": "array",
@@ -346,9 +382,9 @@ async def sonarr_command(
         return error("SONARR_URL is not configured")
     try:
         payload: dict = {"name": action}
-        if action == "SeriesSearch":
+        if action in ("SeriesSearch", "RefreshSeries"):
             if series_id is None:
-                return error("series_id required for SeriesSearch")
+                return error(f"series_id required for {action}")
             payload["seriesId"] = series_id
         elif action == "EpisodeSearch":
             if not episode_ids:
@@ -455,4 +491,210 @@ async def sonarr_releases(
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
         logger.exception("sonarr_releases failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "sonarr_episodes",
+        "description": (
+            "Get episode details for a series — shows hasFile, episodeFileId, monitored status, "
+            "and episode IDs needed for other operations. Essential for diagnosing phantom file "
+            "references (hasFile=true but file is actually missing/corrupt)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "series_id": {
+                    "type": "integer",
+                    "description": "Series ID (from sonarr_series results).",
+                },
+                "season": {
+                    "type": "integer",
+                    "description": "Filter to specific season number. Omit for all seasons.",
+                },
+            },
+            "required": ["series_id"],
+        },
+    },
+})
+async def sonarr_episodes(series_id: int, season: int | None = None) -> str:
+    if not settings.SONARR_URL:
+        return error("SONARR_URL is not configured")
+    try:
+        params: dict = {"seriesId": series_id}
+        if season is not None:
+            params["seasonNumber"] = season
+        data = await _get("/api/v3/episode", params=params)
+        episodes = []
+        for ep in data:
+            ep_file = ep.get("episodeFile", {}) or {}
+            episodes.append({
+                "id": ep.get("id"),
+                "season": ep.get("seasonNumber"),
+                "episode": ep.get("episodeNumber"),
+                "title": sanitize(ep.get("title", "")),
+                "air_date": ep.get("airDateUtc", "")[:10],
+                "has_file": ep.get("hasFile", False),
+                "episode_file_id": ep.get("episodeFileId", 0),
+                "monitored": ep.get("monitored", False),
+                "file_path": ep_file.get("relativePath", ""),
+                "file_quality": ep_file.get("quality", {}).get("quality", {}).get("name", ""),
+                "file_size_mb": round((ep_file.get("size", 0) or 0) / 1_048_576, 1),
+            })
+        return json.dumps({"count": len(episodes), "episodes": episodes})
+    except httpx.HTTPStatusError as e:
+        return error(f"Sonarr API error: {e}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Sonarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("sonarr_episodes failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "sonarr_history",
+        "description": (
+            "Get recent history events for a series or episode — shows grabs, imports, "
+            "import failures, and deletions with error messages. Use to diagnose why "
+            "downloads aren't importing."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "series_id": {
+                    "type": "integer",
+                    "description": "Series ID to get history for.",
+                },
+                "episode_id": {
+                    "type": "integer",
+                    "description": "Episode ID for episode-specific history. Omit for full series history.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max events to return (default 30).",
+                },
+            },
+            "required": ["series_id"],
+        },
+    },
+})
+async def sonarr_history(
+    series_id: int,
+    episode_id: int | None = None,
+    limit: int = 30,
+) -> str:
+    if not settings.SONARR_URL:
+        return error("SONARR_URL is not configured")
+    try:
+        if episode_id is not None:
+            params: dict = {
+                "pageSize": limit,
+                "episodeId": episode_id,
+                "includeSeries": "true",
+                "includeEpisode": "true",
+            }
+            data = await _get("/api/v3/history", params=params)
+        else:
+            data = await _get(f"/api/v3/history/series", params={
+                "seriesId": series_id,
+                "includeSeries": "true",
+                "includeEpisode": "true",
+            })
+        records = data if isinstance(data, list) else data.get("records", [])
+        events = []
+        for rec in records[:limit]:
+            episode = rec.get("episode", {})
+            evt_data = rec.get("data", {})
+            event = {
+                "event_type": rec.get("eventType", ""),
+                "date": rec.get("date", ""),
+                "season": episode.get("seasonNumber"),
+                "episode": episode.get("episodeNumber"),
+                "quality": rec.get("quality", {}).get("quality", {}).get("name", ""),
+            }
+            # Include relevant data fields based on event type
+            evt_type = rec.get("eventType", "")
+            if evt_type in ("grabbed", "downloadFolderImported", "downloadFailed"):
+                event["release_title"] = sanitize(evt_data.get("nzbInfoUrl", evt_data.get("torrentInfoHash", "")), max_len=200)
+            if evt_type == "downloadFailed":
+                event["error_message"] = sanitize(evt_data.get("message", ""), max_len=300)
+            if evt_type == "downloadFolderImported":
+                event["imported_path"] = evt_data.get("importedPath", "")
+            if evt_type == "episodeFileDeleted":
+                event["reason"] = evt_data.get("reason", "")
+            events.append(event)
+        return json.dumps({"count": len(events), "events": events})
+    except httpx.HTTPStatusError as e:
+        return error(f"Sonarr API error: {e}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Sonarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("sonarr_history failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "sonarr_queue_manage",
+        "description": (
+            "Remove items from Sonarr's download queue. Can optionally blocklist the release "
+            "and/or remove from the download client (qBittorrent). Use this to clear stuck "
+            "imports, phantom file references, or cancel unwanted downloads. "
+            "Get queue item IDs from sonarr_queue() results."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "queue_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Queue record IDs to remove (from sonarr_queue results).",
+                },
+                "blocklist": {
+                    "type": "boolean",
+                    "description": "Add release to blocklist to prevent re-grabbing (default false).",
+                },
+                "remove_from_client": {
+                    "type": "boolean",
+                    "description": "Also remove from download client/qBittorrent (default true).",
+                },
+            },
+            "required": ["queue_ids"],
+        },
+    },
+})
+async def sonarr_queue_manage(
+    queue_ids: list[int],
+    blocklist: bool = False,
+    remove_from_client: bool = True,
+) -> str:
+    if not settings.SONARR_URL:
+        return error("SONARR_URL is not configured")
+    if not queue_ids:
+        return error("queue_ids is required")
+    try:
+        results = []
+        for qid in queue_ids:
+            try:
+                await _delete(f"/api/v3/queue/{qid}", params={
+                    "removeFromClient": str(remove_from_client).lower(),
+                    "blocklist": str(blocklist).lower(),
+                })
+                results.append({"id": qid, "status": "removed"})
+            except httpx.HTTPStatusError as e:
+                results.append({"id": qid, "status": "error", "error": str(e)[:200]})
+        return json.dumps({
+            "removed": sum(1 for r in results if r["status"] == "removed"),
+            "errors": sum(1 for r in results if r["status"] == "error"),
+            "results": results,
+        })
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Sonarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("sonarr_queue_manage failed")
         return error(str(e))

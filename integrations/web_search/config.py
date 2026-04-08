@@ -25,7 +25,7 @@ class _Settings:
 
     @property
     def WEB_SEARCH_CONTAINERS(self) -> bool:
-        val = _get("WEB_SEARCH_CONTAINERS", "false")
+        val = _get("WEB_SEARCH_CONTAINERS", "true")
         return val.lower() in ("true", "1", "yes")
 
     @property
@@ -33,8 +33,8 @@ class _Settings:
         val = _get("SEARXNG_URL", "")
         if val:
             return val
-        # Auto-detect: container names in Docker, localhost in local dev
-        if _in_docker() or self.WEB_SEARCH_CONTAINERS:
+        # Inside Docker: use container hostname; on host: use localhost
+        if _in_docker():
             return "http://spindrel-searxng:8080"
         return "http://localhost:8080"
 
@@ -43,8 +43,8 @@ class _Settings:
         val = _get("PLAYWRIGHT_WS_URL", "")
         if val:
             return val
-        # Auto-detect: container names in Docker, localhost in local dev
-        if _in_docker() or self.WEB_SEARCH_CONTAINERS:
+        # Inside Docker: use container hostname; on host: use localhost
+        if _in_docker():
             return "ws://spindrel-playwright:3000"
         return "ws://localhost:3000"
 

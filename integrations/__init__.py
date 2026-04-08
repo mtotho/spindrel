@@ -842,12 +842,22 @@ def discover_docker_compose_stacks() -> list[dict]:
                         integration_id, cfg_path,
                     )
 
+            # Resolve the default for enabled_setting from env_vars
+            enabled_setting = dc.get("enabled_setting")
+            enabled_default = "false"
+            if enabled_setting:
+                for var in setup.get("env_vars", []):
+                    if var.get("key") == enabled_setting:
+                        enabled_default = var.get("default", "false")
+                        break
+
             results.append({
                 "integration_id": integration_id,
                 "project_name": dc.get("project_name", f"spindrel-{integration_id}"),
                 "compose_definition": compose_definition,
                 "config_files": config_files,
-                "enabled_setting": dc.get("enabled_setting"),
+                "enabled_setting": enabled_setting,
+                "enabled_default": enabled_default,
                 "connect_networks": dc.get("connect_networks", []),
                 "description": dc.get("description", ""),
             })

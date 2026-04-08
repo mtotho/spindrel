@@ -72,8 +72,8 @@ steps:
       - **Stalled**: 0 seeds, stalledDL state, ETA=8640000 — flag as issue
       - **Errored**: tracker error, missing files — flag as issue
 
-      For stalled/errored torrents, auto-remediate:
-      1. `qbit_manage(hashes=[...], action="delete")` — remove stuck torrent
+      For stalled torrents (stalledDL, 0 seeds), auto-remediate:
+      1. `qbit_manage(hashes=[HASH], action="delete")` — remove stuck torrent (one at a time)
       2. Look up the media in Sonarr/Radarr queue to find the series_id/movie_id
       3. Trigger re-search: `sonarr_command(action="SeriesSearch", series_id=X)` or
          `radarr_command(action="MoviesSearch", movie_ids=[X])`
@@ -81,6 +81,15 @@ steps:
 
       **Sonarr** (if UP):
       1. `sonarr_queue()` — in-progress downloads
+
+      For completed-but-stuck items (status="completed" + tracked_status="warning", or errors present):
+      These are phantom file references — the download finished but import failed.
+      1. `sonarr_queue_manage(queue_ids=[ID], remove_from_client=true, blocklist=true)` — clear Sonarr queue + qBit + blocklist bad release
+      2. `sonarr_command(action="SeriesSearch", series_id=X)` — trigger re-search for clean release
+      3. Do NOT use EpisodeSearch on these — it fails with "Sequence contains no matching element"
+      4. Log: `append_timeline_event` with remediation details
+
+      Red flags in queue: `.scr` suffix = screener/corrupt, size << 1GB for TV episode = bad release.
       2. `sonarr_wanted(limit=20)` — missing episodes for monitored series
       3. `sonarr_calendar(days_ahead=7)` — upcoming episodes
 
@@ -90,6 +99,10 @@ steps:
       **Radarr** (if UP):
       1. `radarr_queue()` — in-progress downloads
       2. `radarr_movies(filter="wanted")` — missing/wanted movies
+
+      For completed-but-stuck items in Radarr queue (same pattern as Sonarr):
+      1. `radarr_queue_manage(queue_ids=[ID], remove_from_client=true, blocklist=true)`
+      2. `radarr_command(action="MoviesSearch", movie_ids=[X])`
 
       Note any movies that are newly available.
 

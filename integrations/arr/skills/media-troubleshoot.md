@@ -42,6 +42,16 @@ If no results, try shorter/simpler variations of the title.
 ### 2c. Recent imports (if downloaded)
 - `jellyfin_library(action="recent", limit=20)` — did it import recently?
 
+### 2d. Inspect episodes (if import issue suspected)
+- `sonarr_episodes(series_id=X, season=N)` — check `has_file`, `episode_file_id`, `file_size_mb`
+- `sonarr_history(series_id=X, episode_id=Y)` — see grab/import/failure events with error messages
+
+**Phantom file indicators:**
+- Queue shows `status: "completed"` + `tracked_status: "warning"` but episode isn't in Jellyfin
+- `sonarr_episodes` shows `has_file: true` but file is actually bad/missing
+- History shows `downloadFailed` events or no `downloadFolderImported` event after a `grabbed` event
+- `.scr` suffix in release title = screener/corrupt file
+
 ### Determine diagnosis
 Based on findings, classify as one of:
 - **NOT_TRACKED** — not in Sonarr/Radarr at all
@@ -50,6 +60,7 @@ Based on findings, classify as one of:
 - **QUEUED** — grabbed but download hasn't started
 - **NOT_GRABBED** — tracked but no release grabbed yet
 - **IMPORT_ISSUE** — downloaded/completed but not in Jellyfin library
+- **PHANTOM_FILE** — Sonarr thinks it has the file (hasFile=true, queue completed) but the file is bad/missing/corrupt. Common with `.scr` releases or failed imports.
 
 If **DOWNLOADING**: tell the user the current progress and ETA. No fix needed — just patience. Skip to Step 4.
 
@@ -77,6 +88,20 @@ Take corrective action based on diagnosis. Use the canonical title/IDs from Step
 ### IMPORT_ISSUE — Trigger library refresh
 - `jellyfin_library(action="scan")` to force a library scan
 - Check if the content appears after scan
+
+### PHANTOM_FILE — Clear bad state and re-search
+This is the trickiest case. The download completed but the file is bad/missing, and Sonarr's internal state is confused.
+
+**Step-by-step fix:**
+1. **Remove from Sonarr queue**: `sonarr_queue_manage(queue_ids=[ID], remove_from_client=true, blocklist=true)` — this clears the queue entry AND removes the bad torrent from qBittorrent AND blocklists the bad release
+2. **Trigger SeriesSearch**: `sonarr_command(action="SeriesSearch", series_id=X)` — this re-evaluates ALL episodes for the series and searches for new releases
+3. **Monitor**: Check `sonarr_queue()` after a minute to see if a new release was grabbed
+
+**Important:** Do NOT use `EpisodeSearch` or `rescan_series` on episodes with phantom file references — they fail with "Sequence contains no matching element." Always use `SeriesSearch` as the workaround.
+
+**Why not just delete from qBittorrent?** Deleting from qBit does NOT clear Sonarr's phantom file reference. The queue item persists in Sonarr and blocks new downloads. You MUST remove via `sonarr_queue_manage` to properly clean up.
+
+**Batch operations:** Process queue removals one at a time — passing multiple IDs is fine with `sonarr_queue_manage`, but if qBit batch delete is needed separately, delete one torrent at a time (known qBit API bug with multiple hashes).
 
 ## Step 4: Report
 

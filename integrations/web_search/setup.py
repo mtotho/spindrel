@@ -15,7 +15,7 @@ SETUP = {
             "key": "WEB_SEARCH_CONTAINERS",
             "required": False,
             "description": "Start built-in SearXNG + Playwright containers (only needed in searxng mode with no external instance)",
-            "default": "false",
+            "default": "true",
         },
         {
             "key": "SEARXNG_URL",

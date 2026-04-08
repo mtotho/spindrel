@@ -13,15 +13,20 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 - `sonarr_calendar(days_ahead=7)` — upcoming episodes for next N days, with download status
 - `sonarr_series(search=None, limit=50)` — list monitored series (newest first) or search TVDB
 - `sonarr_wanted(limit=20)` — missing episodes (paged, newest airdate first)
-- `sonarr_queue()` — items currently being downloaded with progress, quality, ETA
+- `sonarr_queue()` — items in download queue with progress, quality, ETA, queue_id, tracked_status, and error messages
 - `sonarr_command(action, series_id=None, episode_ids=None)` — trigger searches: SeriesSearch (needs series_id), EpisodeSearch (needs episode_ids), MissingEpisodeSearch (no params)
-- `sonarr_releases(action, series_id=None, episode_id=None, guid=None, indexer_id=None)` — action="search" to browse releases (sorted by seeders, top 15); action="grab" to download (needs guid + indexer_id). Release search uses 60s timeout.
+- `sonarr_releases(action, episode_id=None, guid=None, indexer_id=None)` — action="search" to browse releases (sorted by seeders, top 15); action="grab" to download (needs guid + indexer_id). Release search uses 60s timeout.
+- `sonarr_episodes(series_id, season=None)` — episode details: hasFile, episodeFileId, monitored, file path/quality/size. Essential for diagnosing phantom file references.
+- `sonarr_history(series_id, episode_id=None, limit=30)` — grab/import/failure events with error messages. Use to see why imports failed.
+- `sonarr_queue_manage(queue_ids, blocklist=False, remove_from_client=True)` — remove items from Sonarr queue. Optionally blocklist bad release and/or remove torrent from qBittorrent.
 
 ### Radarr (Movies)
 - `radarr_movies(search=None, filter=None)` — list library (newest first) or search TMDB; filter: "missing" (no file), "wanted" (missing + monitored)
 - `radarr_command(action, movie_ids=None)` — trigger searches: MoviesSearch (needs movie_ids), MissingMoviesSearch (no params)
-- `radarr_queue()` — items currently being downloaded
+- `radarr_queue()` — items in download queue with progress, quality, ETA, queue_id, tracked_status, and error messages
 - `radarr_releases(action, movie_id=None, guid=None, indexer_id=None)` — same as sonarr_releases but for movies
+- `radarr_history(movie_id, limit=30)` — grab/import/failure events with error messages
+- `radarr_queue_manage(queue_ids, blocklist=False, remove_from_client=True)` — remove items from Radarr queue (same as sonarr_queue_manage)
 
 ### qBittorrent (Downloads)
 - `qbit_torrents(filter="all", limit=50)` — list torrents with speeds; filters: all, downloading, seeding, completed, paused, active, stalled
@@ -66,11 +71,17 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 3. `sonarr_queue()` or `qbit_torrents(filter="downloading")` — monitor progress
 
 ### Fix stuck downloads
-1. `qbit_torrents(filter="stalled")` — find stuck torrents
-2. `qbit_manage(hashes=["abc123"], action="delete")` — remove stuck ones
-3. `sonarr_releases(action="search", series_id=123)` — browse alternatives
-4. Evaluate: 1080p preferred, seeders ≥10, reasonable size, not rejected
-5. `sonarr_releases(action="grab", guid="...", indexer_id=1)` — grab best release
+1. `sonarr_queue()` / `radarr_queue()` — find items with `tracked_status: "warning"` or `status: "completed"` still in queue
+2. `sonarr_queue_manage(queue_ids=[ID], remove_from_client=true, blocklist=true)` — remove from queue + qBit + blocklist bad release
+3. `sonarr_command(action="SeriesSearch", series_id=X)` — trigger re-search for clean release
+4. If auto-search doesn't grab: `sonarr_releases(action="search", episode_id=Y)` — browse alternatives manually
+5. Evaluate: 1080p preferred, seeders ≥10, reasonable size, not rejected, no `.scr` suffix
+6. `sonarr_releases(action="grab", guid="...", indexer_id=1)` — grab best release
+
+### Diagnose import failures
+1. `sonarr_episodes(series_id=X, season=N)` — check `has_file` and `file_size_mb` for suspicious state
+2. `sonarr_history(series_id=X, episode_id=Y)` — see grab/import/failure events
+3. Look for: `downloadFailed` events, missing `downloadFolderImported` after `grabbed`, phantom file references
 
 ### Browse and grab specific releases
 1. `sonarr_releases(action="search", series_id=123)` or `radarr_releases(action="search", movie_id=456)`

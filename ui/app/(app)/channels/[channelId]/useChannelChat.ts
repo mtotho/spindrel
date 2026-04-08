@@ -152,7 +152,24 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
               && (!m.attachments || m.attachments.length === 0)) return false;
           return true;
         });
-      setMessages(channelId, allMessages);
+
+      // Preserve synthetic messages from finishStreaming() that the DB doesn't
+      // have yet. This happens when SSE drops mid-stream — the client saw the
+      // response but persist_turn() may not have committed (or the process died).
+      // Without this, the refetch overwrites the store and the message vanishes.
+      const currentMessages = useChatStore.getState().channels[channelId]?.messages ?? [];
+      const dbCorrelationIds = new Set(
+        allMessages.map((m) => m.correlation_id).filter(Boolean)
+      );
+      const syntheticToKeep = currentMessages.filter(
+        (m) =>
+          m.id.startsWith("msg-") &&
+          m.role === "assistant" &&
+          m.correlation_id &&
+          !dbCorrelationIds.has(m.correlation_id)
+      );
+
+      setMessages(channelId, [...allMessages, ...syntheticToKeep]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, pages]);
@@ -274,10 +291,13 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         setMessages(qCh, msgs.filter((m) => m.id !== optimisticMsgId));
       }
       // SSE dropped but server likely still processed the message.
-      // Refetch messages after a short delay so the response appears.
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-      }, 2000);
+      // Refetch with backoff — persist_turn may still be running (or may never
+      // complete if the server process died). Multiple attempts give it time.
+      for (const delay of [2000, 5000, 12000]) {
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        }, delay);
+      }
     },
     onComplete: () => {
       if (channelId) {

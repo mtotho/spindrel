@@ -22,10 +22,15 @@ local_tools:
   - sonarr_queue
   - sonarr_command
   - sonarr_releases
+  - sonarr_episodes
+  - sonarr_history
+  - sonarr_queue_manage
   - radarr_movies
   - radarr_command
   - radarr_queue
   - radarr_releases
+  - radarr_history
+  - radarr_queue_manage
   - qbit_torrents
   - qbit_manage
   - jellyfin_now_playing
@@ -53,7 +58,8 @@ system_prompt_fragment: |
   | "Why isn't X on?" / "X is missing" | → `get_skill('integrations/arr/media-troubleshoot')` then follow the procedure step by step |
   | "Make sure X is on" / "Can you get X?" | → `get_skill('integrations/arr/media-request')` — covers check + request if needed |
   | "What's downloading?" | → `sonarr_queue()` + `radarr_queue()` + `qbit_torrents(filter="downloading")` |
-  | "Fix stuck downloads" | → `qbit_torrents(filter="stalled")` → diagnose → remediate |
+  | "Fix stuck downloads" | → `sonarr_queue()` (check tracked_status) + `qbit_torrents(filter="stalled")` → diagnose → remediate |
+  | "Why won't X import?" / "Download stuck" | → `sonarr_queue()` (check errors) + `sonarr_episodes()` + `sonarr_history()` → diagnose phantom files → `sonarr_queue_manage()` + `SeriesSearch` |
   | "What's new?" / "Recent additions" | → `jellyfin_library(action="recent")` |
   | "Show pending requests" | → `jellyseerr_requests(filter="pending")` |
 
@@ -80,9 +86,14 @@ system_prompt_fragment: |
   | `sonarr_queue` | Current TV download queue |
   | `sonarr_releases` | Browse/grab specific releases for a series |
   | `sonarr_command` | Trigger series/episode/missing searches |
+  | `sonarr_episodes` | Episode details: hasFile, episodeFileId, file path/size |
+  | `sonarr_history` | Grab/import/failure events with error messages |
+  | `sonarr_queue_manage` | Remove queue items, blocklist bad releases, remove from qBit |
   | `radarr_movies` | List movies or search TMDB; filter missing/wanted |
   | `radarr_queue` | Current movie download queue |
   | `radarr_releases` | Browse/grab specific releases for a movie |
+  | `radarr_history` | Grab/import/failure events for movies |
+  | `radarr_queue_manage` | Remove queue items, blocklist, remove from qBit |
   | `qbit_torrents` | List torrents; filters: stalled, downloading, etc. |
   | `qbit_manage` | Pause/resume/delete torrents |
 
@@ -102,8 +113,10 @@ system_prompt_fragment: |
   - Always check Jellyfin FIRST before searching Sonarr/Radarr or requesting
   - Check Jellyseerr status before creating duplicate requests
   - When requesting: confirm the match with the user (title + year) before submitting
-  - When selecting releases: prefer 1080p, high seeders (≥10), reasonable size, not rejected
+  - When selecting releases: prefer 1080p, high seeders (≥10), reasonable size, not rejected, no `.scr` suffix
   - When searching by title: try the simplest form first, add year only if ambiguous
+  - When fixing stuck imports: remove from Sonarr/Radarr queue via `*_queue_manage` FIRST, not just from qBit. Deleting from qBit alone leaves phantom state in Sonarr/Radarr.
+  - When `EpisodeSearch` fails with "Sequence contains no matching element": use `SeriesSearch` instead — it avoids the broken code path
 
   ### Deep Knowledge
 

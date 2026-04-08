@@ -20,20 +20,31 @@ Report: total items downloading, overall progress, any issues.
 ### 2. Detect Stuck Downloads
 ```
 qbit_torrents(filter="stalled") → torrents with no peers/progress
+sonarr_queue()                  → check for tracked_status: "warning" (import failures)
+radarr_queue()                  → same for movies
 ```
 
-A torrent is "stuck" if:
+A torrent is "stuck downloading" if:
 - State is `stalledDL` (stalled downloading)
 - Progress hasn't changed in consecutive checks
 - ETA is `8640000` (qBit's "infinity" value)
 
+A download is "completed but stuck importing" if:
+- `sonarr_queue` / `radarr_queue` shows `status: "completed"` + `tracked_status: "warning"`
+- qBit shows torrent at 100% in `stoppedUP` state but still in Sonarr/Radarr queue
+- The `errors` field in queue results describes what went wrong
+
 ### 3. Fix Stuck Downloads
 For each stuck torrent:
-1. `qbit_manage(hashes=["..."], action="delete")` — remove the bad torrent
-2. Identify the source: check `sonarr_queue` / `radarr_queue` for matching items
-3. `sonarr_releases(action="search", series_id=X)` or `radarr_releases(action="search", movie_id=X)` — browse alternatives
-4. Evaluate releases (see selection criteria below)
-5. `*_releases(action="grab", guid="...", indexer_id=N)` — grab the best one
+1. **Remove from Sonarr/Radarr queue first** (this is critical):
+   - `sonarr_queue_manage(queue_ids=[ID], remove_from_client=true, blocklist=true)` — removes queue entry + torrent + blocklists bad release
+   - OR `radarr_queue_manage(...)` for movies
+2. **Trigger re-search**: `sonarr_command(action="SeriesSearch", series_id=X)` or `radarr_command(action="MoviesSearch", movie_ids=[X])`
+3. Monitor `sonarr_queue()` / `radarr_queue()` for new grab
+
+**Important:** Do NOT just delete from qBittorrent — this leaves a phantom entry in Sonarr/Radarr's queue that blocks new downloads. Always remove via `*_queue_manage` first.
+
+**If the queue is empty but episode is still missing**, use `sonarr_episodes(series_id=X)` to inspect file state, then `sonarr_history(series_id=X)` to see what happened.
 
 ### 4. Check Wanted Items
 ```
@@ -70,7 +81,9 @@ When evaluating releases from `*_releases(action="search")`:
 ### Red Flags
 - Size = 0 MB → fake release
 - Size << expected → likely low quality or wrong content
+- `.scr` suffix in release title → screener/corrupt file, will fail to import
 - All releases rejected → quality profile may need adjustment, inform user
+- `tracked_status: "warning"` in queue → import problem, check `errors` field
 
 ## Workspace Tracking
 

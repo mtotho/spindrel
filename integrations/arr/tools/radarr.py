@@ -53,6 +53,22 @@ async def _post(path: str, payload: dict, timeout: float = 15.0):
         )
 
 
+async def _delete(path: str, params: dict | None = None, timeout: float = 15.0):
+    url_err = validate_url(settings.RADARR_URL, "Radarr")
+    if url_err:
+        raise ValueError(url_err)
+    url = f"{_base_url()}{path}"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(url, headers=_headers(), params=params, timeout=timeout)
+            resp.raise_for_status()
+            return resp.status_code
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Radarr request timed out after {timeout}s: {path}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -148,21 +164,23 @@ async def radarr_movies(search: str | None = None, filter: str | None = None, li
     "function": {
         "name": "radarr_command",
         "description": (
-            "Trigger a Radarr command: search for specific movies or all missing movies. "
-            "Actions: MoviesSearch (requires movie_ids), MissingMoviesSearch (no params needed)."
+            "Trigger a Radarr command: search for specific movies, all missing movies, "
+            "or refresh a movie (rescan disk without searching). "
+            "Actions: MoviesSearch (requires movie_ids), MissingMoviesSearch (no params), "
+            "RefreshMovie (requires movie_ids — rescans disk state)."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["MoviesSearch", "MissingMoviesSearch"],
+                    "enum": ["MoviesSearch", "MissingMoviesSearch", "RefreshMovie"],
                     "description": "Command to execute.",
                 },
                 "movie_ids": {
                     "type": "array",
                     "items": {"type": "integer"},
-                    "description": "Movie IDs (required for MoviesSearch).",
+                    "description": "Movie IDs (required for MoviesSearch and RefreshMovie).",
                 },
             },
             "required": ["action"],
@@ -177,9 +195,9 @@ async def radarr_command(
         return error("RADARR_URL is not configured")
     try:
         payload: dict = {"name": action}
-        if action == "MoviesSearch":
+        if action in ("MoviesSearch", "RefreshMovie"):
             if not movie_ids:
-                return error("movie_ids required for MoviesSearch")
+                return error(f"movie_ids required for {action}")
             payload["movieIds"] = movie_ids
         result = await _post("/api/v3/command", payload)
         return json.dumps({
@@ -226,16 +244,26 @@ async def radarr_queue() -> str:
             size_mb = round((rec.get("size", 0) or 0) / 1_048_576, 1)
             remaining_mb = round((rec.get("sizeleft", 0) or 0) / 1_048_576, 1)
             progress = round(100 * (1 - remaining_mb / size_mb), 1) if size_mb > 0 else 0
-            items.append({
+            item: dict = {
+                "queue_id": rec.get("id"),
                 "movie": sanitize(movie.get("title", "Unknown")),
+                "movie_id": movie.get("id"),
                 "year": movie.get("year"),
                 "quality": rec.get("quality", {}).get("quality", {}).get("name", ""),
                 "size_mb": size_mb,
                 "remaining_mb": remaining_mb,
                 "status": rec.get("status", ""),
+                "tracked_status": rec.get("trackedDownloadStatus", ""),
                 "progress_pct": progress,
                 "eta": rec.get("estimatedCompletionTime", ""),
-            })
+            }
+            status_messages = rec.get("statusMessages", [])
+            if status_messages:
+                item["errors"] = [
+                    sanitize(msg.get("title", ""), max_len=200)
+                    for msg in status_messages[:3]
+                ]
+            items.append(item)
         return json.dumps({"count": len(items), "items": items})
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: HTTP {e.response.status_code}")
@@ -329,4 +357,128 @@ async def radarr_releases(
         return error(f"Cannot connect to Radarr at {_base_url()}")
     except Exception as e:
         logger.exception("radarr_releases failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "radarr_history",
+        "description": (
+            "Get recent history events for a movie — shows grabs, imports, "
+            "import failures, and deletions with error messages. Use to diagnose "
+            "why downloads aren't importing."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "movie_id": {
+                    "type": "integer",
+                    "description": "Movie ID to get history for.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max events to return (default 30).",
+                },
+            },
+            "required": ["movie_id"],
+        },
+    },
+})
+async def radarr_history(movie_id: int, limit: int = 30) -> str:
+    if not settings.RADARR_URL:
+        return error("RADARR_URL is not configured")
+    try:
+        data = await _get(f"/api/v3/history/movie", params={
+            "movieId": movie_id,
+            "includeMovie": "true",
+        })
+        records = data if isinstance(data, list) else data.get("records", [])
+        events = []
+        for rec in records[:limit]:
+            evt_data = rec.get("data", {})
+            event = {
+                "event_type": rec.get("eventType", ""),
+                "date": rec.get("date", ""),
+                "quality": rec.get("quality", {}).get("quality", {}).get("name", ""),
+            }
+            evt_type = rec.get("eventType", "")
+            if evt_type in ("grabbed", "downloadFolderImported", "downloadFailed"):
+                event["release_title"] = sanitize(evt_data.get("nzbInfoUrl", evt_data.get("torrentInfoHash", "")), max_len=200)
+            if evt_type == "downloadFailed":
+                event["error_message"] = sanitize(evt_data.get("message", ""), max_len=300)
+            if evt_type == "downloadFolderImported":
+                event["imported_path"] = evt_data.get("importedPath", "")
+            if evt_type == "movieFileDeleted":
+                event["reason"] = evt_data.get("reason", "")
+            events.append(event)
+        return json.dumps({"count": len(events), "events": events})
+    except httpx.HTTPStatusError as e:
+        return error(f"Radarr API error: HTTP {e.response.status_code}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Radarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("radarr_history failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "radarr_queue_manage",
+        "description": (
+            "Remove items from Radarr's download queue. Can optionally blocklist the release "
+            "and/or remove from the download client (qBittorrent). Use this to clear stuck "
+            "imports or cancel unwanted downloads. Get queue item IDs from radarr_queue() results."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "queue_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Queue record IDs to remove (from radarr_queue results).",
+                },
+                "blocklist": {
+                    "type": "boolean",
+                    "description": "Add release to blocklist to prevent re-grabbing (default false).",
+                },
+                "remove_from_client": {
+                    "type": "boolean",
+                    "description": "Also remove from download client/qBittorrent (default true).",
+                },
+            },
+            "required": ["queue_ids"],
+        },
+    },
+})
+async def radarr_queue_manage(
+    queue_ids: list[int],
+    blocklist: bool = False,
+    remove_from_client: bool = True,
+) -> str:
+    if not settings.RADARR_URL:
+        return error("RADARR_URL is not configured")
+    if not queue_ids:
+        return error("queue_ids is required")
+    try:
+        results = []
+        for qid in queue_ids:
+            try:
+                await _delete(f"/api/v3/queue/{qid}", params={
+                    "removeFromClient": str(remove_from_client).lower(),
+                    "blocklist": str(blocklist).lower(),
+                })
+                results.append({"id": qid, "status": "removed"})
+            except httpx.HTTPStatusError as e:
+                results.append({"id": qid, "status": "error", "error": str(e)[:200]})
+        return json.dumps({
+            "removed": sum(1 for r in results if r["status"] == "removed"),
+            "errors": sum(1 for r in results if r["status"] == "error"),
+            "results": results,
+        })
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Radarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("radarr_queue_manage failed")
         return error(str(e))
