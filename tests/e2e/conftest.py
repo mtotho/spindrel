@@ -42,7 +42,7 @@ class _ResultCollector:
         self.results: list[dict] = []
         self.start_time = time.monotonic()
 
-    def add(self, nodeid: str, outcome: str) -> None:
+    def add(self, nodeid: str, outcome: str, duration: float = 0.0) -> None:
         # nodeid looks like "tests/e2e/scenarios/test_foo.py::test_bar[param]"
         parts = nodeid.split("::")
         file_stem = parts[0].rsplit("/", 1)[-1].replace(".py", "") if parts else ""
@@ -53,20 +53,27 @@ class _ResultCollector:
             "file": file_stem,
             "test": test_name,
             "outcome": outcome,
+            "duration_s": round(duration, 2),
         })
 
     def build_summary(self, config: E2EConfig) -> dict:
         duration = time.monotonic() - self.start_time
 
-        # Build tier summaries
+        # Build tier summaries with per-test detail
         tiers: dict = {}
         for r in self.results:
             tier = r["tier"]
+            test_entry = {
+                "name": r["test"],
+                "outcome": r["outcome"],
+                "duration_s": r["duration_s"],
+            }
             if tier == "model_smoke":
                 # Group by model param: test_name[model]
                 model = "unknown"
                 if "[" in r["test"] and r["test"].endswith("]"):
                     model = r["test"].rsplit("[", 1)[1][:-1]
+                    test_entry["name"] = r["test"].rsplit("[", 1)[0]
                 if "model_smoke" not in tiers:
                     tiers["model_smoke"] = {}
                 bucket = tiers["model_smoke"].setdefault(model, {
@@ -76,7 +83,7 @@ class _ResultCollector:
                     bucket["passed"] += 1
                 else:
                     bucket["failed"] += 1
-                    bucket["tests"].append(r["test"])
+                bucket["tests"].append(test_entry)
             else:
                 bucket = tiers.setdefault(tier, {"passed": 0, "failed": 0, "tests": []})
                 if tier == "server_behavior" and "model" not in bucket:
@@ -85,7 +92,7 @@ class _ResultCollector:
                     bucket["passed"] += 1
                 else:
                     bucket["failed"] += 1
-                    bucket["tests"].append(r["test"])
+                bucket["tests"].append(test_entry)
 
         total_passed = sum(
             r["outcome"] == "passed" for r in self.results
@@ -120,7 +127,7 @@ def pytest_configure(config: pytest.Config) -> None:
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     """Collect per-test results for tiered JSON output."""
     if report.when == "call":
-        _collector.add(report.nodeid, report.outcome)
+        _collector.add(report.nodeid, report.outcome, report.duration)
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
