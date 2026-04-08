@@ -417,7 +417,7 @@ async def create_channel(
             if existing:
                 continue
             # Resolve proper client_id from binding config if available
-            act_client_id = f"mc-activated:{channel.id}"
+            act_client_id = f"mc-activated:{int_type}:{channel.id}"
             try:
                 act_client_id = _resolve_activation_client_id(int_type, channel.id)
             except Exception:
@@ -1287,11 +1287,11 @@ def _resolve_activation_client_id(integration_type: str, channel_id: uuid.UUID) 
 
     binding = discover_binding_metadata().get(integration_type)
     if not binding:
-        return f"mc-activated:{channel_id}"
+        return f"mc-activated:{integration_type}:{channel_id}"
 
     template = binding.get("auto_client_id")
     if not template:
-        return f"mc-activated:{channel_id}"
+        return f"mc-activated:{integration_type}:{channel_id}"
 
     # Substitute {VAR_NAME} placeholders with setting values
     import re
@@ -1303,7 +1303,7 @@ def _resolve_activation_client_id(integration_type: str, channel_id: uuid.UUID) 
     # If any placeholder resolved to empty, fall back
     prefix = binding.get("client_id_prefix", "")
     if resolved == prefix or not resolved or resolved == template:
-        return f"mc-activated:{channel_id}"
+        return f"mc-activated:{integration_type}:{channel_id}"
 
     return resolved
 
@@ -1353,7 +1353,7 @@ async def activate_integration(
         )
 
     # Resolve client_id: use binding auto_client_id if available, else mc-activated:
-    client_id = f"mc-activated:{channel_id}"
+    client_id = f"mc-activated:{integration_type}:{channel_id}"
     try:
         client_id = _resolve_activation_client_id(integration_type, channel_id)
     except Exception:
@@ -1397,7 +1397,7 @@ async def activate_integration(
         )).scalar_one_or_none()
         if already:
             continue
-        inc_client_id = f"mc-activated:{channel_id}"
+        inc_client_id = f"mc-activated:{included_id}:{channel_id}"
         try:
             inc_client_id = _resolve_activation_client_id(included_id, channel_id)
         except Exception:

@@ -2,7 +2,7 @@
  * Memory + Knowledge sections for the bot editor.
  * Workspace-files is the only memory mode (DB memory is removed).
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, Clock, HelpCircle, Play, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useMemorySchemeDefaults } from "@/src/api/hooks/useMemorySchemeDefaults";
@@ -476,13 +476,6 @@ export function MemorySection({ draft, update, botId }: {
   const builtInPrompt = defaults?.prompt ?? "";
   const [showPrompt, setShowPrompt] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-
-  // Auto-set memory_scheme if not already workspace-files
-  useEffect(() => {
-    if (draft.memory_scheme !== "workspace-files") {
-      update({ memory_scheme: "workspace-files" });
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>

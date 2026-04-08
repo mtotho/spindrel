@@ -48,8 +48,8 @@ export function ActivationsSection({
 
   return (
     <Section
-      title="Integration Features"
-      description="Enable integration features on this channel."
+      title="Capabilities"
+      description="Add tools, skills, and system prompts to this channel's bot. Activating a capability gives the bot new abilities without any external routing."
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {visible.map((ig) => (

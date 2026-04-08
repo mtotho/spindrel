@@ -656,6 +656,12 @@ export default function BotEditorScreen() {
           {activeSection === "advanced" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Advanced</div>
+              <FormRow label="Workspace-Files Memory" description="Enable workspace-files memory scheme (MEMORY.md, logs, reference). Required for dreaming.">
+                <Toggle
+                  value={draft.memory_scheme === "workspace-files"}
+                  onChange={(v) => update({ memory_scheme: v ? "workspace-files" : null })}
+                />
+              </FormRow>
               <FormRow label="Audio Input">
                 <SelectInput value={draft.audio_input || "transcribe"} onChange={(v) => update({ audio_input: v })}
                   options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]}

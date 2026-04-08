@@ -8,8 +8,10 @@ import { ActivationConfigFields } from "./ActivationConfigFields";
 import { HudPresetPicker } from "./HudPresetPicker";
 
 function CarapacePill({ id, t }: { id: string; t: any }) {
+  // Encode slashes in carapace IDs so the route param stays a single segment
+  const href = `/admin/carapaces/${encodeURIComponent(id)}` as any;
   return (
-    <Link href={`/admin/carapaces/${id}` as any} asChild>
+    <Link href={href} asChild>
       <a
         style={{
           display: "inline-flex",

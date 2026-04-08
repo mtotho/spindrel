@@ -29,12 +29,9 @@ export function DreamingBotList() {
   const { data: bots } = useAdminBots();
   const qc = useQueryClient();
 
-  // Only workspace-files bots are relevant
-  const eligibleBots = useMemo(() => {
+  const sortedBots = useMemo(() => {
     if (!bots) return [];
-    return [...bots]
-      .filter((b) => b.memory_scheme === "workspace-files")
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return [...bots].sort((a, b) => a.name.localeCompare(b.name));
   }, [bots]);
 
   const updateMut = useMutation({
@@ -50,7 +47,7 @@ export function DreamingBotList() {
     },
   });
 
-  if (!eligibleBots.length) return null;
+  if (!sortedBots.length) return null;
 
   return (
     <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -61,12 +58,14 @@ export function DreamingBotList() {
         </span>
       </div>
       <span style={{ fontSize: 11, color: t.textDim, lineHeight: "17px" }}>
-        Toggle dreaming (memory hygiene) per bot. &ldquo;Inherit&rdquo; uses the global default above.
+        Toggle dreaming per bot. &ldquo;Inherit&rdquo; uses the global default above.
+        Bots without workspace-files memory are shown dimmed.
       </span>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {eligibleBots.map((bot) => {
+        {sortedBots.map((bot) => {
           const current = resolveState(bot.memory_hygiene_enabled);
+          const isEligible = bot.memory_scheme === "workspace-files";
           return (
             <div
               key={bot.id}
@@ -78,6 +77,7 @@ export function DreamingBotList() {
                 borderRadius: 8,
                 border: `1px solid ${t.surfaceOverlay}`,
                 padding: "8px 12px",
+                opacity: isEligible ? 1 : 0.45,
               }}
             >
               <button
@@ -90,6 +90,11 @@ export function DreamingBotList() {
                 <span style={{ color: t.text, fontSize: 13, fontWeight: 500, display: "block" }}>
                   {bot.name}
                 </span>
+                {!isEligible && (
+                  <span style={{ color: t.textDim, fontSize: 10, display: "block", marginTop: 1 }}>
+                    no workspace-files memory
+                  </span>
+                )}
               </button>
 
               <div style={{ display: "flex", gap: 4 }}>
@@ -98,9 +103,9 @@ export function DreamingBotList() {
                   return (
                     <button
                       key={s}
-                      disabled={updateMut.isPending}
+                      disabled={updateMut.isPending || !isEligible}
                       onClick={() => {
-                        if (!isSelected) {
+                        if (!isSelected && isEligible) {
                           updateMut.mutate({ botId: bot.id, value: stateToValue(s) });
                         }
                       }}
@@ -109,7 +114,7 @@ export function DreamingBotList() {
                         borderRadius: 4,
                         fontSize: 11,
                         fontWeight: 500,
-                        cursor: isSelected ? "default" : "pointer",
+                        cursor: isSelected || !isEligible ? "default" : "pointer",
                         border: isSelected
                           ? `1px solid ${t.purpleBorder}`
                           : `1px solid ${t.surfaceOverlay}`,

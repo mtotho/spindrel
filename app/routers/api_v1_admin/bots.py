@@ -733,6 +733,9 @@ async def admin_bot_create(
     fields = data.model_dump(exclude_none=True)
     persona_content_val = fields.pop("persona_content", None)
 
+    # Default memory_scheme to workspace-files for new bots
+    fields.setdefault("memory_scheme", "workspace-files")
+
     row = BotRow(
         id=fields.pop("id"),
         name=fields.pop("name"),

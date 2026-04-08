@@ -783,15 +783,20 @@ export default function SettingsScreen() {
             );
           })}
 
-          {/* Dreaming (Memory Hygiene) bot list */}
-          {activeGroup === "Memory Hygiene" && <DreamingBotList />}
+          {/* Dreaming: memory scheme + per-bot toggles */}
+          {activeGroup === "Memory Hygiene" && (
+            <>
+              <MemorySchemeSection />
+              <DreamingBotList />
+            </>
+          )}
 
           {/* Bot overrides for Attachments / Model Elevation */}
           {(activeGroup === "Attachments" || activeGroup === "Model Elevation") && (
             <BotOverridesList group={activeGroup} />
           )}
 
-          {/* Chat History extras: section index preview + deviations (file mode only) + memory scheme */}
+          {/* Chat History extras: section index preview + deviations (file mode only) */}
           {activeGroup === "Chat History" && (
             <>
               {String(localValues["DEFAULT_HISTORY_MODE"] ?? "file") === "file" && (
@@ -799,7 +804,6 @@ export default function SettingsScreen() {
                   verbosity={String(localValues["SECTION_INDEX_VERBOSITY"] ?? "standard")}
                 />
               )}
-              <MemorySchemeSection />
             </>
           )}
         </RefreshableScrollView>

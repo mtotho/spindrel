@@ -50,7 +50,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
 
   if (isLoading) {
     return (
-      <Section title="Dispatcher Bindings" description="Route bot responses to external services.">
+      <Section title="Dispatcher Bindings" description="Connect this channel to external messaging services. When the bot responds, its messages are forwarded to the bound service (e.g. a Slack channel or iMessage chat).">
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12 }}>
           <span
             style={{
@@ -70,12 +70,12 @@ export function BindingsSection({ channelId }: { channelId: string }) {
 
   return (
     <>
-      <Section title="Dispatcher Bindings" description="Route bot responses to external services.">
-        {(!bindings || bindings.length === 0) ? (
+      <Section title="Dispatcher Bindings" description="Connect this channel to external messaging services. When the bot responds, its messages are forwarded to the bound service (e.g. a Slack channel or iMessage chat).">
+        {(!bindings || bindings.filter((b) => !b.client_id.startsWith("mc-activated:")).length === 0) ? (
           <EmptyState message="No integrations bound to this channel" />
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {bindings.map((b) => {
+            {bindings.filter((b) => !b.client_id.startsWith("mc-activated:")).map((b) => {
               const dc = b.dispatch_config ?? {};
               const summary = configSummaryText(dc, available.find((a) => a.type === b.integration_type)?.binding?.config_fields);
               return editingId === b.id ? (

@@ -87,7 +87,7 @@ class TestActivateEndpoint:
         ci = ChannelIntegration(
             channel_id=ch.id,
             integration_type="mission_control",
-            client_id=f"mc-activated:{ch.id}",
+            client_id=f"mc-activated:mission_control:{ch.id}",
             activated=True,
         )
         db_session.add(ci)
@@ -139,7 +139,7 @@ class TestDeactivateEndpoint:
         ci = ChannelIntegration(
             channel_id=ch.id,
             integration_type="mission_control",
-            client_id=f"mc-activated:{ch.id}",
+            client_id=f"mc-activated:mission_control:{ch.id}",
             activated=True,
         )
         db_session.add(ci)
@@ -206,7 +206,7 @@ class TestAvailableIntegrationsEndpoint:
         ci = ChannelIntegration(
             channel_id=ch.id,
             integration_type="mission_control",
-            client_id=f"mc-activated:{ch.id}",
+            client_id=f"mc-activated:mission_control:{ch.id}",
             activated=True,
         )
         db_session.add(ci)

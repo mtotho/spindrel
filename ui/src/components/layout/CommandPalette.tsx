@@ -221,7 +221,11 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     if (open) {
       setMounted(true);
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => setVisible(true));
+        requestAnimationFrame(() => {
+          setVisible(true);
+          // Focus immediately once the DOM is there
+          inputRef.current?.focus();
+        });
       });
     } else {
       setVisible(false);
@@ -335,7 +339,6 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     if (open) {
       setQuery("");
       setSelectedIndex(0);
-      requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
 
@@ -438,6 +441,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           <span style={{ flexShrink: 0, display: "flex" }}><Search size={16} color={t.textDim} /></span>
           <input
             ref={inputRef}
+            autoFocus
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);

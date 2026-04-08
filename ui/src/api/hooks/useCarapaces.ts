@@ -12,7 +12,7 @@ export function useCarapaces() {
 export function useCarapace(id?: string) {
   return useQuery({
     queryKey: ["carapaces", id],
-    queryFn: () => apiFetch<Carapace>(`/api/v1/admin/carapaces/${id}`),
+    queryFn: () => apiFetch<Carapace>(`/api/v1/admin/carapaces/${encodeURIComponent(id!)}`),
     enabled: !!id,
   });
 }

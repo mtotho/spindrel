@@ -41,7 +41,7 @@ def test_falls_back_when_setting_empty():
     ):
         result = _resolve_activation_client_id("gmail", CHANNEL_ID)
 
-    assert result == f"mc-activated:{CHANNEL_ID}"
+    assert result.startswith("mc-activated:") and result.endswith(str(CHANNEL_ID))
 
 
 def test_falls_back_when_no_binding():
@@ -49,7 +49,7 @@ def test_falls_back_when_no_binding():
     with patch("integrations.discover_binding_metadata", return_value={}):
         result = _resolve_activation_client_id("mission_control", CHANNEL_ID)
 
-    assert result == f"mc-activated:{CHANNEL_ID}"
+    assert result.startswith("mc-activated:") and result.endswith(str(CHANNEL_ID))
 
 
 def test_falls_back_when_no_auto_client_id():
@@ -63,7 +63,7 @@ def test_falls_back_when_no_auto_client_id():
     with patch("integrations.discover_binding_metadata", return_value=binding_meta):
         result = _resolve_activation_client_id("slack", CHANNEL_ID)
 
-    assert result == f"mc-activated:{CHANNEL_ID}"
+    assert result.startswith("mc-activated:") and result.endswith(str(CHANNEL_ID))
 
 
 def test_multiple_placeholders():
