@@ -46,6 +46,7 @@ class E2EClient:
         message: str,
         bot_id: str | None = None,
         channel_id: str | None = None,
+        client_id: str | None = None,
         **kwargs: Any,
     ) -> ChatResponse:
         """Send a message to the non-streaming /chat endpoint."""
@@ -57,6 +58,8 @@ class E2EClient:
         }
         if channel_id:
             payload["channel_id"] = channel_id
+        if client_id:
+            payload["client_id"] = client_id
 
         resp = await self._client.post("/chat", json=payload)
         resp.raise_for_status()
@@ -123,6 +126,57 @@ class E2EClient:
         data = resp.json()
         return data["channels"] if isinstance(data, dict) and "channels" in data else data
 
+    # -- Bot admin endpoints --
+
+    async def create_bot(self, bot_data: dict[str, Any]) -> dict:
+        """POST /api/v1/admin/bots — create a bot, return BotOut."""
+        resp = await self._client.post("/api/v1/admin/bots", json=bot_data)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_bot(self, bot_id: str) -> dict:
+        """GET /api/v1/admin/bots/{bot_id} — return BotOut."""
+        resp = await self._client.get(f"/api/v1/admin/bots/{bot_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def update_bot(self, bot_id: str, updates: dict[str, Any]) -> dict:
+        """PATCH /api/v1/admin/bots/{bot_id} — return updated BotOut."""
+        resp = await self._client.patch(f"/api/v1/admin/bots/{bot_id}", json=updates)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def delete_bot(self, bot_id: str, force: bool = True) -> None:
+        """DELETE /api/v1/admin/bots/{bot_id}."""
+        resp = await self._client.delete(
+            f"/api/v1/admin/bots/{bot_id}", params={"force": str(force).lower()}
+        )
+        resp.raise_for_status()
+
+    # -- Channel admin endpoints --
+
+    async def get_channel(self, channel_id: str) -> dict:
+        """GET /api/v1/admin/channels/{channel_id} — return ChannelDetailOut."""
+        resp = await self._client.get(f"/api/v1/admin/channels/{channel_id}")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def get_channel_settings(self, channel_id: str) -> dict:
+        """GET /api/v1/admin/channels/{channel_id}/settings."""
+        resp = await self._client.get(f"/api/v1/admin/channels/{channel_id}/settings")
+        resp.raise_for_status()
+        return resp.json()
+
+    async def update_channel_settings(
+        self, channel_id: str, updates: dict[str, Any]
+    ) -> dict:
+        """PATCH /api/v1/admin/channels/{channel_id}/settings."""
+        resp = await self._client.patch(
+            f"/api/v1/admin/channels/{channel_id}/settings", json=updates
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     # -- Generic HTTP methods --
 
     async def get(self, path: str, **kwargs: Any) -> httpx.Response:
@@ -134,6 +188,9 @@ class E2EClient:
     async def put(self, path: str, **kwargs: Any) -> httpx.Response:
         return await self._client.put(path, **kwargs)
 
+    async def patch(self, path: str, **kwargs: Any) -> httpx.Response:
+        return await self._client.patch(path, **kwargs)
+
     async def delete(self, path: str, **kwargs: Any) -> httpx.Response:
         return await self._client.delete(path, **kwargs)
 
@@ -143,3 +200,16 @@ class E2EClient:
     def new_channel_id() -> str:
         """Generate a unique channel ID for test isolation."""
         return str(uuid.uuid4())
+
+    @staticmethod
+    def new_client_id(prefix: str = "e2e-test") -> str:
+        """Generate a unique client_id for channel creation."""
+        return f"{prefix}:{uuid.uuid4().hex[:12]}"
+
+    @staticmethod
+    def derive_channel_id(client_id: str) -> str:
+        """Derive the channel UUID that the server will create for a client_id.
+
+        Mirrors app/services/channels.py:derive_channel_id().
+        """
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, f"channel:{client_id}"))
