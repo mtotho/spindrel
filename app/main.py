@@ -593,6 +593,12 @@ async def lifespan(application: FastAPI):
     try:
         yield
     finally:
+        # Signal SSE connections to close. By the time we get here, uvicorn's
+        # --timeout-graceful-shutdown has already force-closed connections, but
+        # this ensures clean subscriber cleanup for any stragglers.
+        from app.services.channel_events import signal_shutdown
+        signal_shutdown()
+
         for w in _workers:
             w.cancel()
         await asyncio.gather(*_workers, return_exceptions=True)

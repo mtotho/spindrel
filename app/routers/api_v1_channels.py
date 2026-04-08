@@ -1109,15 +1109,18 @@ async def channel_events(
 
     import asyncio
     import json
-    from app.services.channel_events import subscribe
+    from app.services.channel_events import subscribe, get_shutdown_event
 
     async def _event_stream():
+        shutdown = get_shutdown_event()
         async_gen = subscribe(channel_id)
         pending = asyncio.ensure_future(async_gen.__anext__())
         try:
-            while True:
+            while not shutdown.is_set():
                 try:
                     event = await asyncio.wait_for(asyncio.shield(pending), timeout=15.0)
+                    if event.event_type == "shutdown":
+                        break
                     payload = {
                         "type": event.event_type,
                         "channel_id": str(event.channel_id),

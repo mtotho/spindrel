@@ -137,6 +137,53 @@ async def test_channel_isolation(client: E2EClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tool depth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tool_result_in_response(client: E2EClient) -> None:
+    """Tool result should be incorporated into the final response text."""
+    cid = client.new_client_id()
+    result = await client.chat_stream(
+        "Use your time tool to get the current time, then tell me the time "
+        "in your response. You MUST include the exact time.",
+        client_id=cid,
+    )
+    assert not result.error_events, f"Errors: {result.error_events}"
+    assert len(result.tool_events) > 0, "Should have tool events"
+
+    time_tools = {"get_current_time", "get_current_local_time"}
+    assert any(t in time_tools for t in result.tools_used), (
+        f"Should have used a time tool but used: {result.tools_used}"
+    )
+    assert re.search(r"\d{1,2}:\d{2}", result.response_text), (
+        f"Response should contain a time: {result.response_text[:200]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_no_tool_when_unnecessary(client: E2EClient) -> None:
+    """Bot should NOT call action tools for a simple factual question.
+
+    Memory-scheme tools (search_memory, get_memory_file) may fire
+    proactively and are excluded from this check.
+    """
+    cid = client.new_client_id()
+    result = await client.chat_stream(
+        "What is 2 + 2? Just answer with the number.",
+        client_id=cid,
+    )
+    assert not result.error_events, f"Errors: {result.error_events}"
+    assert result.response_text, "Should have a response"
+    _memory_tools = {"search_memory", "get_memory_file"}
+    _action_tools = [t for t in result.tools_used if t not in _memory_tools]
+    assert not _action_tools, (
+        f"Should not use action tools for simple math, but used: {_action_tools}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Rapid messages (throttle bypass)
 # ---------------------------------------------------------------------------
 

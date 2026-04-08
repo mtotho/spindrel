@@ -41,6 +41,40 @@ class ChannelEvent:
 # channel_id → set of subscriber queues
 _subscribers: dict[uuid.UUID, set[asyncio.Queue[ChannelEvent]]] = defaultdict(set)
 
+# Set during server shutdown to break SSE loops
+_shutdown_event: asyncio.Event | None = None
+
+
+def get_shutdown_event() -> asyncio.Event:
+    """Return (and lazily create) the shutdown event."""
+    global _shutdown_event
+    if _shutdown_event is None:
+        _shutdown_event = asyncio.Event()
+    return _shutdown_event
+
+
+def signal_shutdown() -> None:
+    """Signal all SSE subscribers to disconnect.
+
+    Sets the shutdown event AND pushes a sentinel to every queue so
+    subscribers wake up immediately instead of waiting for the next
+    keepalive timeout.
+    """
+    get_shutdown_event().set()
+    total = 0
+    sentinel = ChannelEvent(
+        channel_id=uuid.UUID(int=0),
+        event_type="shutdown",
+    )
+    for subs in _subscribers.values():
+        for q in subs:
+            try:
+                q.put_nowait(sentinel)
+                total += 1
+            except asyncio.QueueFull:
+                pass
+    logger.info("Channel events: shutdown signalled, pushed sentinel to %d subscriber(s)", total)
+
 
 def publish(channel_id: uuid.UUID, event_type: str, metadata: dict | None = None) -> int:
     """Publish an event to all subscribers of a channel.

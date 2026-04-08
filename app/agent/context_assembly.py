@@ -219,6 +219,7 @@ class AssemblyResult:
     channel_fallback_models: list[dict] = field(default_factory=list)
     channel_model_tier_overrides: dict | None = None
     budget_utilization: float | None = None
+    effective_local_tools: list[str] | None = None
 
 
 async def _inject_workspace_skills(
@@ -1611,6 +1612,7 @@ async def assemble_context(
         _authorized_names.update(t["function"]["name"] for t in _injected)
     result.pre_selected_tools = pre_selected_tools
     result.authorized_tool_names = _authorized_names
+    result.effective_local_tools = list(bot.local_tools)
 
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and _ch_row is not None:

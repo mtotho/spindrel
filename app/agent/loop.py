@@ -1404,6 +1404,12 @@ async def run_stream(
     _authorized_tool_names = assembly_result.authorized_tool_names
     user_msg_index = assembly_result.user_msg_index
 
+    # Apply tool injections from context assembly (memory scheme, channel workspace)
+    # so the tool loop sees the full tool list even when tool_retrieval=false.
+    if assembly_result.effective_local_tools and list(bot.local_tools) != assembly_result.effective_local_tools:
+        from dataclasses import replace as _dc_replace
+        bot = _dc_replace(bot, local_tools=assembly_result.effective_local_tools)
+
 # Resolve fallback models: explicit override > channel list > bot list (global appended in _llm_call)
     _fallback_models = fallback_models if fallback_models is not None else (assembly_result.channel_fallback_models or bot.fallback_models or [])
 

@@ -375,7 +375,7 @@ async def chat(
     return ChatResponse(
         session_id=session_id,
         response=response_text,
-        transcript=response_transcript,
+        transcript=response_transcript or "",
         client_actions=response_actions or [],
     )
 
