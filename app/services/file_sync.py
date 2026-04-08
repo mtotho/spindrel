@@ -167,7 +167,9 @@ def _collect_skill_files() -> list[tuple[Path, str, str]]:
                 c_skills = c_dir / "skills"
                 if c_skills.is_dir():
                     for p in sorted(c_skills.glob("*.md")):
-                        skill_id = f"{base_dir.name}/{intg_dir.name}/carapaces/{c_dir.name}/{p.stem}"
+                        # Use carapaces/{cap_name}/{skill} format (same as in-repo
+                        # carapaces) so skill IDs are stable across installs
+                        skill_id = f"carapaces/{c_dir.name}/{p.stem}"
                         items.append((p, skill_id, SOURCE_INTEGRATION))
 
     return items
@@ -1109,8 +1111,9 @@ def _classify_path(path: Path) -> tuple[str, str, str | None, str] | None:
         return ("carapace", carapace_id, None, SOURCE_INTEGRATION)
 
     # integrations/{id}/carapaces/*/skills/*.md (integration carapace-scoped skills)
+    # Use carapaces/{cap_name}/{skill} format (same as in-repo carapaces)
     if len(parts) == 6 and parts[0] == "integrations" and parts[2] == "carapaces" and parts[4] == "skills" and parts[5].endswith(".md"):
-        skill_id = f"integrations/{parts[1]}/carapaces/{parts[3]}/{Path(parts[5]).stem}"
+        skill_id = f"carapaces/{parts[3]}/{Path(parts[5]).stem}"
         return ("skill", skill_id, None, SOURCE_INTEGRATION)
 
     # workflows/*.yaml

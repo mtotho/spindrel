@@ -159,7 +159,7 @@ class TestClassifyPath:
         assert result is not None
         kind, skill_id, bot_id, source_type = result
         assert kind == "skill"
-        assert skill_id == "integrations/myintg/carapaces/myc/guide"
+        assert skill_id == "carapaces/myc/guide"
         assert source_type == "integration"
 
     def test_flat_carapace_yaml_still_works(self, tmp_path, monkeypatch):
@@ -234,9 +234,9 @@ class TestCollectSkillFiles:
             items = _collect_skill_files()
 
         ids = [sid for _, sid, _ in items]
-        assert "integrations/myintg/carapaces/myc/guide" in ids
+        assert "carapaces/myc/guide" in ids
         # Verify source type is integration
-        matching = [(p, sid, st) for p, sid, st in items if sid == "integrations/myintg/carapaces/myc/guide"]
+        matching = [(p, sid, st) for p, sid, st in items if sid == "carapaces/myc/guide"]
         assert matching[0][2] == "integration"
 
 

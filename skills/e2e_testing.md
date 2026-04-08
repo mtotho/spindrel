@@ -1,7 +1,7 @@
 ---
 name: E2E Testing
 description: Run and interpret end-to-end tests against a Spindrel server instance
-triggers: e2e, end-to-end, integration test, smoke test, test harness, run tests, run scenario
+triggers: test harness, run pytest e2e, run scenario, e2e compose, e2e harness
 category: development
 ---
 
