@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import get_bot, list_bots
 from app.agent.context import set_agent_context
-from app.agent.loop import run, run_stream
+from app.agent.loop import run_stream
 from app.agent.pending import resolve_pending
 from app.db.models import Message as MessageModel, Task as TaskModel
 from app.dependencies import get_db, require_scopes
@@ -233,26 +233,76 @@ async def chat(
         # Apply model override (per-request takes priority over member config)
         _effective_model_override = req.model_override or ctx.model_override
 
-        result = await run(
-            messages, bot, message,
-            session_id=session_id, client_id=req.client_id,
-            audio_data=audio_data, audio_format=audio_format,
-            attachments=att_payload,
-            correlation_id=correlation_id,
-            dispatch_type=req.dispatch_type,
-            dispatch_config=req.dispatch_config,
-            channel_id=channel_id,
-            model_override=_effective_model_override,
-            provider_id_override=req.model_provider_id_override,
-            system_preamble=ctx.system_preamble,
-        )
+        # Use run_stream() and publish events to channel event bus so UI tabs
+        # watching this channel see live streaming (typing indicator, tokens, tools).
+        from app.services.channel_events import publish as _publish_stream
+        _api_stream_id = str(uuid.uuid4())
+        _publish_stream(channel_id, "stream_start", {
+            "stream_id": _api_stream_id,
+            "responding_bot_id": bot.id,
+            "responding_bot_name": bot.name,
+        })
+
+        response_text = ""
+        response_transcript = None
+        response_actions: list | None = None
+        _intermediate_texts: list[str] = []
+        try:
+            async for event in run_stream(
+                messages, bot, message,
+                session_id=session_id, client_id=req.client_id,
+                audio_data=audio_data, audio_format=audio_format,
+                attachments=att_payload,
+                correlation_id=correlation_id,
+                dispatch_type=req.dispatch_type,
+                dispatch_config=req.dispatch_config,
+                channel_id=channel_id,
+                model_override=_effective_model_override,
+                provider_id_override=req.model_provider_id_override,
+                system_preamble=ctx.system_preamble,
+            ):
+                etype = event.get("type")
+                if etype == "response":
+                    final_text = event.get("text", "")
+                    if not (final_text or "").strip() and _intermediate_texts:
+                        response_text = "\n\n".join(_intermediate_texts)
+                    else:
+                        response_text = final_text
+                    response_actions = event.get("client_actions")
+                elif etype == "assistant_text":
+                    _intermediate_texts.append(event.get("text", ""))
+                elif etype == "transcript":
+                    response_transcript = event.get("text")
+                elif etype == "delegation_post" and req.dispatch_type and req.dispatch_config:
+                    from app.services.delegation import delegation_service as _ds
+                    try:
+                        await _ds.post_child_response(
+                            dispatch_type=req.dispatch_type,
+                            dispatch_config=req.dispatch_config,
+                            text=event.get("text", ""),
+                            bot_id=event.get("bot_id") or "",
+                            reply_in_thread=event.get("reply_in_thread", False),
+                            client_actions=event.get("client_actions", []),
+                        )
+                    except Exception:
+                        logger.warning("POST /chat: delegation_post failed for bot %s", event.get("bot_id"))
+                event_with_session = {**event, "session_id": str(session_id)}
+                _publish_stream(channel_id, "stream_event", {
+                    "stream_id": _api_stream_id,
+                    "event": event_with_session,
+                })
+        finally:
+            try:
+                _publish_stream(channel_id, "stream_end", {"stream_id": _api_stream_id})
+            except Exception:
+                logger.warning("Failed to publish stream_end for %s", _api_stream_id)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"LLM backend error: {e}")
 
-    logger.info("Response (%d chars): %r", len(result.response), result.response[:100])
-    if result.client_actions:
-        logger.info("Client actions: %d", len(result.client_actions))
-        logger.debug("Client actions: %s", result.client_actions)
+    logger.info("Response (%d chars): %r", len(response_text), response_text[:100])
+    if response_actions:
+        logger.info("Client actions: %d", len(response_actions))
+        logger.debug("Client actions: %s", response_actions)
 
     await persist_turn(
         db, session_id, bot, messages, from_index,
@@ -269,14 +319,14 @@ async def chat(
     )
 
     # Mirror response to integration (redact if secrets detected)
-    if not req.dispatch_config and result.response:
-        _mirror_text = result.response
+    if not req.dispatch_config and response_text:
+        _mirror_text = response_text
         if _detected_secrets:
             from app.services.secret_registry import redact as _redact
             _mirror_text = _redact(_mirror_text)
         await _mirror_to_integration(
             channel, _mirror_text,
-            bot_id=bot.id, client_actions=result.client_actions,
+            bot_id=bot.id, client_actions=response_actions,
         )
 
     # Multi-bot: trigger member bots @-mentioned in the user's message.
@@ -304,17 +354,17 @@ async def chat(
 
     # Bot-to-bot @-mention: if the response mentions a member bot, trigger its reply.
     # Pass a snapshot so member bots run lock-free.
-    if result.response and channel_id:
+    if response_text and channel_id:
         import copy as _copy_chat
         _snap = _copy_chat.deepcopy(ctx.raw_snapshot)
         _snap.append({
             "role": "assistant",
-            "content": result.response,
+            "content": response_text,
             "_metadata": {"sender_id": f"bot:{bot.id}", "sender_display_name": bot.name},
         })
         task = asyncio.create_task(
             _trigger_member_bot_replies(
-                channel_id, session_id, bot.id, result.response,
+                channel_id, session_id, bot.id, response_text,
                 messages_snapshot=_snap,
                 already_invoked=_user_mentioned,
             )
@@ -324,9 +374,9 @@ async def chat(
 
     return ChatResponse(
         session_id=session_id,
-        response=result.response,
-        transcript=result.transcript,
-        client_actions=result.client_actions,
+        response=response_text,
+        transcript=response_transcript,
+        client_actions=response_actions or [],
     )
 
 

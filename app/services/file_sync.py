@@ -531,6 +531,7 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
 
     carapace_files = collect_carapace_files()
     seen_carapace_ids: set[str] = set()
+    _carapace_changed = False
 
     for path, carapace_id, source_type in carapace_files:
         try:
@@ -570,6 +571,7 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                     session.add(row)
                     await session.commit()
                     counts["added"] += 1
+                    _carapace_changed = True
                     logger.info("file_sync: added carapace '%s' from %s", cid, path)
                 elif existing.content_hash != content_hash:
                     existing.name = data.get("name", cid)
@@ -588,6 +590,7 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                     existing.updated_at = datetime.now(timezone.utc)
                     await session.commit()
                     counts["updated"] += 1
+                    _carapace_changed = True
                     logger.info("file_sync: updated carapace '%s' from %s", cid, path)
                 else:
                     counts["unchanged"] += 1
@@ -610,6 +613,7 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                 if row.id not in seen_carapace_ids:
                     await session.delete(row)
                     counts["deleted"] += 1
+                    _carapace_changed = True
                     logger.info("file_sync: deleted orphaned carapace '%s'", row.id)
             await session.commit()
     elif not carapace_files:
@@ -627,18 +631,14 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                 existing_count, cwd,
             )
 
-    # Reload carapace registry after sync and re-index embeddings
-    if carapace_files or seen_carapace_ids:
+    # Reload carapace registry if any carapaces were added or updated.
+    # Capability embedding is handled by _background_warmup() — don't duplicate here.
+    if _carapace_changed:
         try:
             from app.agent.carapaces import reload_carapaces
             await reload_carapaces()
         except Exception:
             logger.warning("file_sync: failed to reload carapaces", exc_info=True)
-        try:
-            from app.agent.capability_rag import index_capabilities
-            await index_capabilities()
-        except Exception:
-            logger.warning("file_sync: failed to reindex capability embeddings", exc_info=True)
 
     # --- Workflows ---
     from app.services.workflows import collect_workflow_files

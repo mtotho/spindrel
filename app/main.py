@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,6 +26,13 @@ logger = logging.getLogger(__name__)
 
 LOG_FORMAT = "%(asctime)s %(levelname)-5s [%(name)s] %(message)s"
 LOG_DATE_FORMAT = "%H:%M:%S"
+
+
+def _tlog(label: str, t0: float) -> float:
+    """Log elapsed time since t0 and return current time for next section."""
+    now = time.monotonic()
+    logger.info("[%.1fs] %s", now - t0, label)
+    return now
 
 
 async def _cleanup_orphaned_tools(registered_tools: dict) -> None:
@@ -193,12 +201,14 @@ async def lifespan(application: FastAPI):
             f"are hardcoded to 1536. Do not change this value — models with different native "
             f"dimensions are zero-padded or Matryoshka-truncated automatically."
         )
+    _t = _t_start = time.monotonic()
     logger.info("Running database migrations...")
     try:
         await run_migrations()
     except Exception:
         logger.critical("Database migration failed — refusing to start with stale schema", exc_info=True)
         raise
+    _t = _tlog("Database migrations", _t)
     logger.info("Loading server settings from DB...")
     from app.services.server_settings import load_settings_from_db
     await load_settings_from_db()
@@ -252,6 +262,7 @@ async def lifespan(application: FastAPI):
                 "Auto-generated ENCRYPTION_KEY but could not write to .env. "
                 "Add the key from the running config to your environment to persist it."
             )
+    _t = _tlog("Config loading (settings, integrations, providers, encryption)", _t)
     logger.info("Loading usage limits...")
     from app.services.usage_limits import load_limits, start_refresh_task
     await load_limits()
@@ -281,6 +292,7 @@ async def lifespan(application: FastAPI):
             await load_integration_settings()
             await load_mcp_servers()
 
+    _t = _tlog("Usage limits, spike config, server config", _t)
     logger.info("Seeding bots from YAML (seed-once)...")
     await seed_bots_from_yaml()
     logger.info("Loading bot configurations from DB...")
@@ -295,6 +307,7 @@ async def lifespan(application: FastAPI):
         if added:
             logger.info("Auto-enrolled %d bot(s) into workspace", added)
             await load_bots()  # Reload so shared_workspace_id is populated
+    _t = _tlog("Bot seeding, loading, workspace bootstrap", _t)
 
     logger.info("Loading secret values from DB...")
     from app.services.secret_values import load_from_db as load_secret_values
@@ -316,10 +329,12 @@ async def lifespan(application: FastAPI):
     discover_and_load_tools(extra_tool_dirs)
     # Import local tools to trigger @register decorators
     import app.tools.local  # noqa: F401
+    _t = _tlog("Secrets, MCP, tools, orchestrator channel", _t)
 
     # Orphan cleanup needs the registry but no embedding calls — keep blocking
     from app.tools.registry import _tools as _registered_tools
     await _cleanup_orphaned_tools(_registered_tools)
+    _t = _tlog("Orphaned tool cleanup", _t)
 
     # Feature validation (carapace requires, memory scheme tools, etc.)
     from app.services.feature_validation import validate_features
@@ -329,8 +344,10 @@ async def lifespan(application: FastAPI):
 
     logger.info("Syncing file-sourced skills and knowledge...")
     await file_sync.sync_all_files()
+    _t = _tlog("File sync (skills, knowledge, carapaces, prompts, workflows)", _t)
     logger.info("Loading skills from DB...")
     await load_skills()
+    _t = _tlog("Load skills (embedding check)", _t)
     # Carapace YAML seeding is handled by sync_all_files() above; just load registry.
     from app.agent.carapaces import load_carapaces
     logger.info("Loading carapaces from DB...")
@@ -346,6 +363,7 @@ async def lifespan(application: FastAPI):
     # Register workflow task completion hook
     from app.services.workflow_hooks import register_workflow_hooks
     register_workflow_hooks()
+    _t = _tlog("Load carapaces, workflows, webhooks", _t)
     logger.info("Starting file watcher...")
     _workers: list[asyncio.Task] = []
     _workers.append(safe_create_task(file_sync.watch_files(), name="file_watcher"))
@@ -417,6 +435,8 @@ async def lifespan(application: FastAPI):
         _iid = _web_ui["integration_id"]
         _INTEGRATION_WEB_UI_DIRS[_iid] = Path(_web_ui["static_dir_path"])
         logger.info("Registered integration web UI: /integrations/%s/ui → %s", _iid, _web_ui["static_dir_path"])
+
+    _t = _tlog("Memory bootstrap, workspace dirs, integrations, endpoint catalog", _t)
 
     # Auto-start shared workspace containers that were previously running
     for _sw in _sw_rows:
@@ -524,11 +544,14 @@ async def lifespan(application: FastAPI):
         logger.info("Background warmup: complete in %.1fs", _elapsed)
 
     _workers.append(safe_create_task(_background_warmup(), name="bg_warmup"))
+    _t = _tlog("Container auto-start, watchers, background warmup launched", _t)
 
     if settings.STT_PROVIDER:
         logger.info("Warming up STT provider (%s)...", settings.STT_PROVIDER)
         from app.stt import warm_up as stt_warm_up
         stt_warm_up()
+        _t = _tlog("STT warmup", _t)
+    logger.info("[%.1fs] TOTAL startup (blocking)", time.monotonic() - _t_start)
     logger.info("Agent server ready. (LOG_LEVEL=%s)", settings.LOG_LEVEL.upper())
     from app.agent.tasks import task_worker
     _workers.append(safe_create_task(task_worker(), name="task_worker"))
