@@ -828,23 +828,49 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
     return d
 
 
-def _filter_old_heartbeats(msgs: list[dict]) -> list[dict]:
-    """Strip heartbeat *prompt* messages but keep assistant heartbeat responses.
+def _filter_old_heartbeats(msgs: list[dict], *, keep_latest: int = 1) -> list[dict]:
+    """Strip old heartbeat turns, keeping only the most recent ones.
 
-    User-role heartbeat messages are synthetic prompts that look like user
-    instructions and confuse the LLM into continuing from the heartbeat
-    context instead of the user's actual message — these are dropped.
+    All heartbeat messages (user prompts, assistant responses, tool results)
+    are dropped except for the *keep_latest* most recent heartbeat "turns".
+    A turn is a contiguous run of heartbeat-tagged messages.
 
-    Assistant-role heartbeat responses are kept so the bot remains aware of
-    its own heartbeat output when the user messages next.  Tool-role messages
-    from heartbeat turns are also kept (they're part of the assistant's work).
+    This prevents stale heartbeat loops from flooding context and drowning
+    out user messages.  The bot retains awareness of its most recent heartbeat
+    output via the kept turn(s).
     """
+    # Identify heartbeat turn boundaries.  A "turn" starts at each
+    # user-role heartbeat message and includes all subsequent heartbeat
+    # messages until the next non-heartbeat message or another user-role
+    # heartbeat.
+    hb_turn_starts: list[int] = []
+    hb_indices: set[int] = set()
+    for i, m in enumerate(msgs):
+        meta = m.get("_metadata") or {}
+        if meta.get("is_heartbeat"):
+            hb_indices.add(i)
+            if m.get("role") == "user":
+                hb_turn_starts.append(i)
+
+    if not hb_turn_starts:
+        # No heartbeat turns at all — return as-is.
+        return msgs
+
+    # Map each heartbeat message index to its turn number.
+    # Messages before the first heartbeat-user are assigned to turn 0.
+    turn_for: dict[int, int] = {}
+    current_turn = 0
+    for i in sorted(hb_indices):
+        if i in hb_turn_starts:
+            current_turn = hb_turn_starts.index(i)
+        turn_for[i] = current_turn
+
+    total_turns = len(hb_turn_starts)
+    keep_from_turn = max(0, total_turns - keep_latest)
+
     return [
-        m for m in msgs
-        if not (
-            (m.get("_metadata") or {}).get("is_heartbeat")
-            and m.get("role") == "user"
-        )
+        m for i, m in enumerate(msgs)
+        if i not in hb_indices or turn_for.get(i, 0) >= keep_from_turn
     ]
 
 

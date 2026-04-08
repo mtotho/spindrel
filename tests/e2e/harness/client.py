@@ -206,6 +206,30 @@ class E2EClient:
 
     # -- Helpers --
 
+    async def create_temp_bot(
+        self,
+        model: str,
+        provider_id: str | None = None,
+        tools: list[str] | None = None,
+        system_prompt: str = "You are a test bot. Follow instructions exactly.",
+    ) -> str:
+        """Create a temporary bot for testing. Returns bot_id. Caller must delete."""
+        bot_id = f"e2e-tmp-{uuid.uuid4().hex[:8]}"
+        bot_data: dict[str, Any] = {
+            "id": bot_id,
+            "name": f"E2E Temp ({model})",
+            "model": model,
+            "system_prompt": system_prompt,
+            "local_tools": tools or ["get_current_time"],
+            "tool_retrieval": False,
+            "tool_discovery": False,
+            "persona": False,
+        }
+        if provider_id:
+            bot_data["provider_id"] = provider_id
+        await self.create_bot(bot_data)
+        return bot_id
+
     @staticmethod
     def new_channel_id() -> str:
         """Generate a unique channel ID for test isolation."""

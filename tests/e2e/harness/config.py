@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+_DEFAULT_SMOKE_MODELS = [
+    {"model": "gemini/gemini-2.5-flash-lite"},
+    {"model": "gemma4:e4b"},
+]
 
 
 @dataclass
@@ -22,7 +28,10 @@ class E2EConfig:
     llm_provider: str = "ollama"  # "ollama" or "external"
     llm_base_url: str = ""  # resolved in __post_init__
     llm_api_key: str = ""
-    default_model: str = "gemma3:1b"
+    default_model: str = "gemma4:e4b"
+
+    # Model smoke test targets (Tier 3)
+    smoke_models: list[dict] = field(default_factory=lambda: list(_DEFAULT_SMOKE_MODELS))
 
     # Server connection
     host: str = ""  # auto-detected in __post_init__
@@ -77,7 +86,8 @@ class E2EConfig:
             llm_provider=os.environ.get("E2E_LLM_PROVIDER", "ollama"),
             llm_base_url=os.environ.get("E2E_LLM_BASE_URL", ""),
             llm_api_key=os.environ.get("E2E_LLM_API_KEY", ""),
-            default_model=os.environ.get("E2E_DEFAULT_MODEL", "gemma3:1b"),
+            default_model=os.environ.get("E2E_DEFAULT_MODEL", "gemma4:e4b"),
+            smoke_models=json.loads(os.environ.get("E2E_SMOKE_MODELS", "null")) or list(_DEFAULT_SMOKE_MODELS),
             host=os.environ.get("E2E_HOST", ""),
             port=int(os.environ.get("E2E_PORT", "18000")),
             api_key=os.environ.get("E2E_API_KEY", "e2e-test-key-12345"),

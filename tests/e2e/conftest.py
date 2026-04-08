@@ -3,11 +3,16 @@
 Session-scoped environment (compose stack starts once per pytest session).
 Function-scoped client (fresh per test, with unique channel IDs for isolation).
 Automatic cleanup of test-created channels after each session.
+Tiered JSON results output for structured reporting.
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import time
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import pytest
@@ -19,6 +24,87 @@ from .harness.client import E2EClient
 
 logger = logging.getLogger(__name__)
 
+# Map test file stems to tier names
+_FILE_TO_TIER = {
+    "test_api_contract": "api_contract",
+    "test_regressions": "api_contract",
+    "test_server_behavior": "server_behavior",
+    "test_model_smoke": "model_smoke",
+}
+
+
+class _ResultCollector:
+    """Collects per-test results and writes tiered JSON summary."""
+
+    def __init__(self) -> None:
+        self.results: list[dict] = []
+        self.start_time = time.monotonic()
+
+    def add(self, nodeid: str, outcome: str) -> None:
+        # nodeid looks like "tests/e2e/scenarios/test_foo.py::test_bar[param]"
+        parts = nodeid.split("::")
+        file_stem = parts[0].rsplit("/", 1)[-1].replace(".py", "") if parts else ""
+        test_name = parts[-1] if len(parts) > 1 else nodeid
+        tier = _FILE_TO_TIER.get(file_stem, "unknown")
+        self.results.append({
+            "tier": tier,
+            "file": file_stem,
+            "test": test_name,
+            "outcome": outcome,
+        })
+
+    def build_summary(self, config: E2EConfig) -> dict:
+        duration = time.monotonic() - self.start_time
+
+        # Build tier summaries
+        tiers: dict = {}
+        for r in self.results:
+            tier = r["tier"]
+            if tier == "model_smoke":
+                # Group by model param: test_name[model]
+                model = "unknown"
+                if "[" in r["test"] and r["test"].endswith("]"):
+                    model = r["test"].rsplit("[", 1)[1][:-1]
+                if "model_smoke" not in tiers:
+                    tiers["model_smoke"] = {}
+                bucket = tiers["model_smoke"].setdefault(model, {
+                    "passed": 0, "failed": 0, "tests": [],
+                })
+                if r["outcome"] == "passed":
+                    bucket["passed"] += 1
+                else:
+                    bucket["failed"] += 1
+                    bucket["tests"].append(r["test"])
+            else:
+                bucket = tiers.setdefault(tier, {"passed": 0, "failed": 0, "tests": []})
+                if tier == "server_behavior" and "model" not in bucket:
+                    bucket["model"] = config.default_model
+                if r["outcome"] == "passed":
+                    bucket["passed"] += 1
+                else:
+                    bucket["failed"] += 1
+                    bucket["tests"].append(r["test"])
+
+        total_passed = sum(
+            r["outcome"] == "passed" for r in self.results
+        )
+        total_failed = sum(
+            r["outcome"] != "passed" for r in self.results
+        )
+
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "duration": f"{duration:.0f}s",
+            "status": "pass" if total_failed == 0 else "fail",
+            "tiers": tiers,
+            "total_passed": total_passed,
+            "total_failed": total_failed,
+        }
+
+
+# Session-level collector instance
+_collector = _ResultCollector()
+
 
 def pytest_configure(config: pytest.Config) -> None:
     """Override the default '-m not e2e' when targeting e2e tests directly."""
@@ -27,6 +113,31 @@ def pytest_configure(config: pytest.Config) -> None:
     if any("tests/e2e" in str(a) or "e2e/" in str(a) for a in args):
         # Clear the marker expression that was set by addopts
         config.option.markexpr = ""
+
+
+def pytest_runtest_logreport(report: pytest.TestReport) -> None:
+    """Collect per-test results for tiered JSON output."""
+    if report.when == "call":
+        _collector.add(report.nodeid, report.outcome)
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Write tiered JSON results to workspace summary path."""
+    summary_path = os.environ.get(
+        "E2E_WORKSPACE_SUMMARY",
+        os.path.expanduser(
+            "~/logs/e2e/e2e-results.json"
+        ),
+    )
+    try:
+        config = E2EConfig.from_env()
+        summary = _collector.build_summary(config)
+        os.makedirs(os.path.dirname(summary_path), exist_ok=True)
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2)
+        logger.info("E2E results written to %s", summary_path)
+    except Exception:
+        logger.warning("Failed to write E2E results summary", exc_info=True)
 
 
 @pytest.fixture(scope="session")
