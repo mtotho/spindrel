@@ -10,6 +10,8 @@ import { useRouter } from "expo-router";
 import { useThemeTokens } from "../../theme/tokens";
 import { useBot } from "../../api/hooks/useBots";
 import { useChannel, useChannelEffectiveTools } from "../../api/hooks/useChannels";
+import { useCarapaces } from "../../api/hooks/useCarapaces";
+import { buildSkillCarapaceMap, buildToolCarapaceMap } from "../../utils/carapaceMapping";
 
 interface Props {
   botId: string;
@@ -36,7 +38,7 @@ function ToolGroupSection({
     <div>
       <div style={{
         fontSize: 9, fontWeight: 700, color: accent || t.textDim,
-        textTransform: "uppercase", letterSpacing: "0.05em",
+        textTransform: "uppercase", letterSpacing: 1,
         marginBottom: 4,
       }}>
         {label} ({tools.length})
@@ -45,7 +47,7 @@ function ToolGroupSection({
         {tools.map((name) => (
           <span key={name} style={{
             fontSize: 10, fontFamily: "monospace",
-            padding: "1px 6px", borderRadius: 3,
+            padding: "1px 6px", borderRadius: 4,
             background: t.surfaceOverlay, color: t.textMuted,
           }}>
             {name}
@@ -69,6 +71,7 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
 
   // effective-tools is resolved for the channel's primary bot — only show for primary
   const { data: effective } = useChannelEffectiveTools(isMemberBot ? undefined : channelId);
+  const { data: allCarapaces } = useCarapaces();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -83,8 +86,38 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
     ? { local_tools: bot?.local_tools || [], pinned_tools: bot?.pinned_tools || [], mcp_servers: bot?.mcp_servers || [], client_tools: bot?.client_tools || [], skills: (bot?.skills || []).map((s) => ({ id: s.id, mode: s.mode || "on-demand", name: s.id })), carapaces: bot?.carapaces || [], carapace_sources: {} as Record<string, string> }
     : effective;
 
-  // Split tools into pinned vs other
-  const pinnedSet = useMemo(() => new Set(displayTools?.pinned_tools || []), [displayTools]);
+  // Provenance maps
+  const skillCapMap = useMemo(() => {
+    if (!allCarapaces || !displayTools?.carapaces) return new Map();
+    return buildSkillCarapaceMap(allCarapaces, displayTools.carapaces);
+  }, [allCarapaces, displayTools]);
+
+  const toolCapMap = useMemo(() => {
+    if (!allCarapaces || !displayTools?.carapaces) return new Map();
+    return buildToolCarapaceMap(allCarapaces, displayTools.carapaces);
+  }, [allCarapaces, displayTools]);
+
+  // Group tools by capability
+  const toolGroups = useMemo(() => {
+    if (!displayTools) return [];
+    const allTools = displayTools.local_tools;
+    const groups = new Map<string, { name: string; tools: string[] }>();
+    const ungrouped: string[] = [];
+    for (const tool of allTools) {
+      const cap = toolCapMap.get(tool);
+      if (cap) {
+        const g = groups.get(cap.carapaceId);
+        if (g) g.tools.push(tool);
+        else groups.set(cap.carapaceId, { name: cap.carapaceName, tools: [tool] });
+      } else {
+        ungrouped.push(tool);
+      }
+    }
+    const result: { label: string; tools: string[] }[] = [];
+    for (const [, g] of groups) result.push({ label: g.name, tools: g.tools });
+    if (ungrouped.length > 0) result.push({ label: "Other tools", tools: ungrouped });
+    return result;
+  }, [displayTools, toolCapMap]);
 
   // Summary counts
   const toolCount = displayTools?.local_tools.length ?? 0;
@@ -110,7 +143,7 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
         style={{
           background: t.surface,
           border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 10,
+          borderRadius: 8,
           width: "90%",
           maxWidth: 420,
           maxHeight: "80vh",
@@ -154,7 +187,9 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
           </div>
           <button
             onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: t.textDim }}
+            style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: t.textDim, borderRadius: 4, transition: "background 0.15s" }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceOverlay; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "none"; }}
           >
             <X size={16} />
           </button>
@@ -186,41 +221,43 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
             <CaparacesSection carapaces={displayTools.carapaces} sources={displayTools.carapace_sources} />
           )}
 
-          {/* Pinned tools */}
-          {displayTools && displayTools.pinned_tools.length > 0 && (
-            <ToolGroupSection label="Pinned tools" tools={displayTools.pinned_tools} accent="#eab308" />
-          )}
+          {/* Tools grouped by capability */}
+          {displayTools && toolGroups.map((g) => (
+            <ToolGroupSection key={g.label} label={g.label} tools={g.tools} />
+          ))}
 
-          {/* Other tools (non-pinned) */}
-          {displayTools && (
-            <ToolGroupSection
-              label="Available tools"
-              tools={displayTools.local_tools.filter((n) => !pinnedSet.has(n))}
-            />
-          )}
-
-          {/* Skills */}
+          {/* Skills with provenance */}
           {displayTools && displayTools.skills.length > 0 && (
             <div>
               <div style={{
                 fontSize: 9, fontWeight: 700, color: t.textDim,
-                textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4,
+                textTransform: "uppercase", letterSpacing: 1, marginBottom: 4,
               }}>
                 Skills ({displayTools.skills.length})
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
-                {displayTools.skills.map((s) => (
-                  <span key={s.id} style={{
-                    fontSize: 10, padding: "1px 6px", borderRadius: 3,
-                    background: `${t.accent}12`, color: t.accent,
-                    border: `1px solid ${t.accent}25`,
-                  }}>
-                    {s.name || s.id}
-                    {s.mode === "pinned" && (
-                      <span style={{ marginLeft: 3, fontSize: 8, opacity: 0.7 }}>pinned</span>
-                    )}
-                  </span>
-                ))}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {displayTools.skills.map((s) => {
+                  const capInfo = skillCapMap.get(s.id);
+                  const provenance = s.mode === "pinned"
+                    ? "pinned on bot"
+                    : capInfo
+                      ? `via ${capInfo.carapaceName}`
+                      : "auto-enrolled";
+                  return (
+                    <div key={s.id} style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "2px 6px", borderRadius: 4,
+                      background: t.accentSubtle,
+                    }}>
+                      <span style={{ fontSize: 10, color: t.accent, fontWeight: 500 }}>
+                        {s.name || s.id}
+                      </span>
+                      <span style={{ fontSize: 8, color: t.textDim, marginLeft: "auto" }}>
+                        {provenance}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -274,7 +311,7 @@ function CaparacesSection({ carapaces, sources }: { carapaces: string[]; sources
     <div>
       <div style={{
         fontSize: 9, fontWeight: 700, color: t.textDim,
-        textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4,
+        textTransform: "uppercase", letterSpacing: 1, marginBottom: 4,
       }}>
         Capabilities ({carapaces.length})
       </div>
@@ -283,10 +320,10 @@ function CaparacesSection({ carapaces, sources }: { carapaces: string[]; sources
           <div key={id} style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "3px 8px", borderRadius: 4,
-            background: `${t.purple || "#8b5cf6"}10`,
-            border: `1px solid ${t.purple || "#8b5cf6"}20`,
+            background: t.purpleSubtle,
+            border: `1px solid ${t.purpleBorder}`,
           }}>
-            <Shield size={10} color={t.purple || "#8b5cf6"} />
+            <Shield size={10} color={t.purple} />
             <span style={{ fontSize: 11, color: t.text, flex: 1 }}>{id}</span>
             {sources[id] && (
               <span style={{ fontSize: 9, color: t.textDim }}>{sources[id]}</span>

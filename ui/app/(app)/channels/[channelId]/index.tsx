@@ -326,6 +326,15 @@ export default function ChatScreen() {
     isQueued,
     onCancelQueue: cancelQueue,
     onSendNow: handleSendNow,
+    contextUtilization: (chatState.contextBudget ?? savedBudget)?.utilization ?? null,
+    contextTokens: (() => {
+      const cb = chatState.contextBudget;
+      if (cb) return { consumed: cb.consumed, total: cb.total };
+      if (savedBudget?.consumed_tokens != null && savedBudget?.total_tokens != null)
+        return { consumed: savedBudget.consumed_tokens, total: savedBudget.total_tokens };
+      return null;
+    })(),
+    onContextIndicatorClick: () => setBotInfoBotId(channel?.bot_id || null),
   };
 
   // ---- Shared message area props ----

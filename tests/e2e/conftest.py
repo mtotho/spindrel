@@ -206,18 +206,48 @@ async def client(
     await c.close()
 
 
+async def _sweep_stale_e2e_channels(base_url: str, api_key: str) -> None:
+    """Delete any e2e-* channels left over from prior interrupted runs."""
+    import httpx
+    async with httpx.AsyncClient(
+        base_url=base_url,
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=30,
+    ) as http:
+        try:
+            resp = await http.get("/api/v1/admin/channels?page_size=100")
+            if resp.status_code != 200:
+                return
+            channels = resp.json().get("channels", [])
+            stale = [
+                c["id"] for c in channels
+                if (c.get("client_id") or "").startswith("e2e-")
+            ]
+            if stale:
+                logger.info("Sweeping %d stale e2e channels from prior runs", len(stale))
+                for ch_id in stale:
+                    await http.delete(f"/api/v1/channels/{ch_id}")
+        except Exception:
+            logger.warning("Failed to sweep stale e2e channels", exc_info=True)
+
+
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def _cleanup_test_channels(
     e2e_config: E2EConfig,
     e2e_env: E2EEnvironment,  # noqa: ARG001
     _channel_tracker: list[str],
 ) -> AsyncGenerator[None, None]:
-    """Delete all channels created during tests after the session ends."""
+    """Sweep stale channels at start, delete tracked channels at end."""
+    # Clean up leftovers from interrupted prior runs
+    await _sweep_stale_e2e_channels(e2e_config.base_url, e2e_config.api_key)
+
     yield
-    if not _channel_tracker:
+
+    # Clean up channels created during this session
+    unique_ids = list(set(_channel_tracker))
+    if not unique_ids:
         return
 
-    unique_ids = list(set(_channel_tracker))
     logger.info("Cleaning up %d test channels", len(unique_ids))
 
     import httpx

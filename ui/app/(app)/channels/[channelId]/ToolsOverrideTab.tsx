@@ -14,6 +14,8 @@ import { StatusBadge, AdvancedSection } from "@/src/components/shared/SettingsCo
 import type { ChannelSettings } from "@/src/types/api";
 import { EffectiveToolsList } from "./EffectiveToolsList";
 import { EffectiveSkillsList } from "./EffectiveSkillsList";
+import { ActivationsSection } from "./integrations/ActivationsSection";
+import { buildSkillCarapaceMap } from "@/src/utils/carapaceMapping";
 
 function SectionDivider({ label, count }: { label: string; count?: number }) {
   const t = useThemeTokens();
@@ -30,7 +32,7 @@ function SectionDivider({ label, count }: { label: string; count?: number }) {
   );
 }
 
-export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botId?: string }) {
+export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { channelId: string; botId?: string; workspaceEnabled?: boolean }) {
   const t = useThemeTokens();
   const { data: editorData, isLoading: editorLoading } = useBotEditorData(botId);
   const { data: settings } = useChannelSettings(channelId);
@@ -105,34 +107,8 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
 
   // Build skill -> carapace mapping for active carapaces (walks includes)
   const skillFromCarapace = useMemo(() => {
-    const map = new Map<string, { carapaceId: string; carapaceName: string; mode: string }>();
-    if (!allCarapaces || !effective?.carapaces) return map;
-
-    const carapaceById = new Map(allCarapaces.map((c) => [c.id, c]));
-    const activeIds = new Set(effective.carapaces);
-    const visited = new Set<string>();
-
-    function walk(id: string, rootId: string, rootName: string) {
-      const key = `${rootId}:${id}`;
-      if (visited.has(key)) return;
-      visited.add(key);
-      const c = carapaceById.get(id);
-      if (!c) return;
-      for (const s of c.skills) {
-        if (!map.has(s.id)) {
-          map.set(s.id, { carapaceId: rootId, carapaceName: rootName, mode: s.mode || "on_demand" });
-        }
-      }
-      for (const inc of c.includes) {
-        walk(inc, rootId, rootName);
-      }
-    }
-
-    for (const cId of activeIds) {
-      const c = carapaceById.get(cId);
-      if (c) walk(cId, cId, c.name);
-    }
-    return map;
+    if (!allCarapaces || !effective?.carapaces) return new Map();
+    return buildSkillCarapaceMap(allCarapaces, effective.carapaces);
   }, [allCarapaces, effective]);
 
   if (editorLoading) {
@@ -201,26 +177,27 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
         )}
       </div>
 
-      {/* Active Capabilities — read-only with disable buttons */}
-      {allCapabilities.length > 0 && (
+      {/* Capability activation cards (from integrations) */}
+      <ActivationsSection channelId={channelId} workspaceEnabled={!!workspaceEnabled} />
+
+      {/* Active Capabilities — bot-default and channel-added (excludes activation-sourced to avoid duplication) */}
+      {(() => {
+        const nonActivationCaps = allCapabilities.filter((c) => {
+          const source = effective?.carapace_sources?.[c.id];
+          if (source?.startsWith("activation:")) return false;
+          const isExtra = extras.has(c.id);
+          return (source || isExtra) && !disabled.has(c.id);
+        });
+        if (nonActivationCaps.length === 0) return null;
+        return (
         <>
-          <SectionDivider label="Active Capabilities" count={effective?.carapaces.length ?? 0} />
+          <SectionDivider label="Active Capabilities" count={nonActivationCaps.length} />
           <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8 }}>
-            Capabilities active for this channel. Disable any you don't need.
+            Capabilities from bot config or added to this channel. Disable any you don't need.
           </div>
-          {allCapabilities
-            .filter((c) => {
-              // Show capabilities that are active (from bot, activation, or extras) and not disabled
-              const source = effective?.carapace_sources?.[c.id];
-              const isExtra = extras.has(c.id);
-              return (source || isExtra) && !disabled.has(c.id);
-            })
+          {nonActivationCaps
             .map((c) => {
               const source = effective?.carapace_sources?.[c.id];
-              const isActivation = source?.startsWith("activation:");
-              const activationLabel = isActivation
-                ? `via ${source!.replace("activation:", "")} activation`
-                : null;
               const isExtra = extras.has(c.id);
 
               return (
@@ -236,7 +213,6 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 12, fontWeight: 500, color: t.text }}>{c.name}</span>
                       <span style={{ fontSize: 10, fontFamily: "monospace", color: t.textDim }}>{c.id}</span>
-                      {isActivation && <StatusBadge label={activationLabel!} variant="purple" />}
                       {source === "bot" && <StatusBadge label="bot default" variant="neutral" />}
                       {isExtra && <StatusBadge label="added" variant="success" />}
                     </div>
@@ -248,7 +224,10 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
                       border: `1px solid ${t.surfaceBorder}`,
                       background: "transparent",
                       color: t.textDim,
+                      transition: "background 0.15s",
                     }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceOverlay; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   >
                     Disable
                   </button>
@@ -256,7 +235,8 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
               );
             })}
         </>
-      )}
+        );
+      })()}
 
       {/* Disabled Items — consolidated view */}
       {allDisabled.length > 0 && (

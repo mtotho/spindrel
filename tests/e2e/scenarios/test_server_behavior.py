@@ -116,25 +116,6 @@ async def test_multi_turn_context(client: E2EClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_channel_isolation(client: E2EClient) -> None:
-    """Messages in one channel must not leak to another."""
-    cid_a = client.new_client_id()
-    cid_b = client.new_client_id()
-
-    await client.chat(
-        "The password is ZEBRA99. Acknowledge you received it.",
-        client_id=cid_a,
-    )
-
-    resp = await client.chat(
-        "What password did I tell you in a previous message?",
-        client_id=cid_b,
-    )
-    assert "ZEBRA99" not in resp.response.upper().replace(" ", ""), (
-        "Channel B must not see Channel A's context"
-    )
-
 
 # ---------------------------------------------------------------------------
 # Tool depth

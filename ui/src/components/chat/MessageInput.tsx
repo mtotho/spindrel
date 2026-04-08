@@ -38,6 +38,12 @@ interface Props {
   onCancelQueue?: () => void;
   /** Interrupt current response and send immediately */
   onSendNow?: (message: string, files?: PendingFile[]) => void;
+  /** Context utilization (0-1) for the health indicator */
+  contextUtilization?: number | null;
+  /** Consumed / total tokens for tooltip */
+  contextTokens?: { consumed: number; total: number } | null;
+  /** Click handler for the context indicator */
+  onContextIndicatorClick?: () => void;
 }
 
 /** Rebuild PendingFile objects from serialized DraftFiles (restores File + preview). */
@@ -52,7 +58,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow, contextUtilization, contextTokens, onContextIndicatorClick }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -518,6 +524,28 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 );
               })()}
             </div>
+          )}
+          {/* Context health indicator — desktop only */}
+          {!isMobile && contextUtilization != null && (
+            <button
+              onClick={onContextIndicatorClick}
+              title={contextTokens
+                ? `Context: ${Math.round(contextUtilization * 100)}% (${Math.round(contextTokens.consumed / 1000)}K / ${Math.round(contextTokens.total / 1000)}K tokens)`
+                : `Context: ${Math.round(contextUtilization * 100)}%`}
+              style={{
+                width: 10, height: 10, flexShrink: 0, borderRadius: "50%",
+                border: "none", padding: 0, cursor: "pointer",
+                backgroundColor: contextUtilization > 0.8
+                  ? "#ef4444"
+                  : contextUtilization > 0.5
+                    ? "#eab308"
+                    : "#22c55e",
+                opacity: 0.8,
+                transition: "background-color 0.3s, transform 0.15s, opacity 0.15s",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; e.currentTarget.style.transform = "scale(1.3)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.8"; e.currentTarget.style.transform = "scale(1)"; }}
+            />
           )}
           {/* Send / Stop / Mic button */}
           <button

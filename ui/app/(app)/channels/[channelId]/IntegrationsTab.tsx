@@ -1,4 +1,3 @@
-import { ActivationsSection } from "./integrations/ActivationsSection";
 import { BindingsSection } from "./integrations/BindingsSection";
 
 export function IntegrationsTab({
@@ -8,13 +7,5 @@ export function IntegrationsTab({
   channelId: string;
   workspaceEnabled: boolean;
 }) {
-  return (
-    <>
-      <ActivationsSection
-        channelId={channelId}
-        workspaceEnabled={workspaceEnabled}
-      />
-      <BindingsSection channelId={channelId} />
-    </>
-  );
+  return <BindingsSection channelId={channelId} />;
 }

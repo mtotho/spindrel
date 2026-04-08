@@ -285,9 +285,19 @@ function FullToolList({
     autoInjectedTools.add("search_memory");
     autoInjectedTools.add("get_memory_file");
     autoInjectedTools.add("file");
+    autoInjectedTools.add("manage_bot_skill");
   }
   if (draft.history_mode === "file" || draft.history_mode === "structured") {
     autoInjectedTools.add("read_conversation_history");
+  }
+  // Tool retrieval: get_tool_info is always injected when tool_retrieval is on
+  if (draft.tool_retrieval !== false) {
+    autoInjectedTools.add("get_tool_info");
+  }
+  // Skill discovery: auto-injected when bot has skills
+  if (editorData.all_skills.length > 0) {
+    autoInjectedTools.add("get_skill");
+    autoInjectedTools.add("get_skill_list");
   }
   // activate_capability is auto-injected by context assembly when capability
   // RAG finds relevant matches — the checkbox state is irrelevant.

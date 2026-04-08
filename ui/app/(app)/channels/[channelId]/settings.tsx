@@ -43,8 +43,8 @@ const PRIMARY_TABS = [
   { key: "workspace", label: "Workspace" },
   { key: "heartbeat", label: "Heartbeat" },
   { key: "history", label: "History" },
-  { key: "tools", label: "Tools" },
-  { key: "integrations", label: "Integrations" },
+  { key: "capabilities", label: "Capabilities" },
+  { key: "connections", label: "Connections" },
   { key: "attachments", label: "Attachments" },
 ];
 const ADVANCED_TABS = [
@@ -387,7 +387,7 @@ export default function ChannelSettingsScreen() {
         refreshing={refreshing}
         onRefresh={onRefresh}
         className="flex-1"
-        contentContainerStyle={{ padding: isMobile ? 12 : 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: isMobile ? 16 : 20, maxWidth: (["logs", "tasks", "context", "workflows"] as string[]).includes(tab) ? 1200 : (["tools"] as string[]).includes(tab) ? 960 : 680, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
+        contentContainerStyle={{ padding: isMobile ? 12 : 16, paddingBottom: Math.max(insets.bottom, 20) + 16, gap: isMobile ? 16 : 20, maxWidth: (["logs", "tasks", "context", "workflows"] as string[]).includes(tab) ? 1200 : (["capabilities"] as string[]).includes(tab) ? 960 : 680, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
         key={tab}
       >
         {tab === "general" && (
@@ -411,8 +411,8 @@ export default function ChannelSettingsScreen() {
         {tab === "history" && (
           <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} botHistoryMode={currentBot?.history_mode} />
         )}
-        {tab === "tools" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
-        {tab === "integrations" && <IntegrationsTab channelId={channelId!} workspaceEnabled={!!form.channel_workspace_enabled} />}
+        {tab === "capabilities" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} workspaceEnabled={!!form.channel_workspace_enabled} />}
+        {tab === "connections" && <IntegrationsTab channelId={channelId!} workspaceEnabled={!!form.channel_workspace_enabled} />}
         {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "workflows" && <WorkflowsTab channelId={channelId!} />}
