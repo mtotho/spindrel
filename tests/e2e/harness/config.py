@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _DEFAULT_SMOKE_MODELS = [
+    {"model": "gemini/gemini-2.5-flash-lite"},
     {"model": "gemma4:e4b"},
 ]
 
@@ -27,7 +28,7 @@ class E2EConfig:
     llm_provider: str = "ollama"  # "ollama" or "external"
     llm_base_url: str = ""  # resolved in __post_init__
     llm_api_key: str = ""
-    default_model: str = "gemma4:e4b"
+    default_model: str = "gemini/gemini-2.5-flash-lite"
 
     # Model smoke test targets (Tier 3)
     smoke_models: list[dict] = field(default_factory=lambda: list(_DEFAULT_SMOKE_MODELS))

@@ -217,9 +217,9 @@ export function SkillsSection({
               <Pin size={9} color={t.accent} />
               <span style={{ color: t.accent, fontWeight: 500 }}>{s.name}</span>
               <button
-                onClick={() => setMode(s.id, "on_demand")}
+                onClick={() => update({ skills: skills.filter((sk) => sk.id !== s.id) })}
                 style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}
-                title="Unpin (switch to on-demand)"
+                title="Unpin (remove — auto-enrollment handles on-demand)"
               >
                 <X size={10} color={t.textDim} />
               </button>
