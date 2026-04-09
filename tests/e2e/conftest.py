@@ -38,6 +38,7 @@ _FILE_TO_TIER = {
     "test_carapaces_crud": "api_contract",
     "test_search_indexing": "api_contract",
     "test_tool_policies": "api_contract",
+    "test_bot_hooks": "api_contract",
     "test_memory_behavior": "server_behavior",
     "test_workflows": "server_behavior",
     "test_chat_basic": "server_behavior",

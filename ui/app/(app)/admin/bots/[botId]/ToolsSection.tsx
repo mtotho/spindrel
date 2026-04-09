@@ -720,51 +720,41 @@ export function ToolsSection({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Discovery & Retrieval — top-level controls */}
+      {/* Discovery & Retrieval */}
       <div style={{
-        padding: "12px 14px", borderRadius: 8,
-        background: t.surfaceOverlay,
-        border: `1px solid ${t.surfaceRaised}`,
-        display: "flex", flexDirection: "column", gap: 10,
+        display: "flex", flexDirection: "column", gap: 12,
+        padding: "14px 16px", borderRadius: 10,
+        border: `1px solid ${t.surfaceBorder}`,
       }}>
-        <div style={{ fontWeight: 600, color: t.text, fontSize: 12 }}>Discovery &amp; Retrieval</div>
-        <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "17px" }}>
-          Controls how the bot finds and selects tools each turn. With both enabled, the bot can discover
-          any tool in the system and uses semantic search to pick the most relevant ones per message.
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, paddingTop: 4 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <Toggle
             value={retrieval}
             onChange={(v) => update({ tool_retrieval: v })}
             label="Tool Retrieval"
-            description="Select the most relevant tools per turn via semantic search (vector + BM25). When off, all declared tools are passed every turn."
+            description="Semantic search selects the most relevant tools per turn."
           />
           {retrieval && (
-            <div style={{ paddingLeft: 24 }}>
+            <div style={{ paddingLeft: 24, display: "flex", flexDirection: "column", gap: 10 }}>
               <Toggle
                 value={discovery}
                 onChange={(v) => update({ tool_discovery: v })}
                 label="Auto-Discovery"
-                description="Discover tools beyond this bot's configured set from the full tool pool. Discovered tools use a stricter similarity threshold and are subject to tool policies."
+                description="Discover tools beyond this bot's configured set from the full pool."
               />
+              <div style={{ maxWidth: 180 }}>
+                <FormRow label="Similarity Threshold">
+                  <TextInput
+                    value={String(draft.tool_similarity_threshold ?? "")}
+                    onChangeText={(v) => update({ tool_similarity_threshold: v ? parseFloat(v) : null })}
+                    placeholder="0.45" type="number"
+                  />
+                </FormRow>
+              </div>
             </div>
           )}
         </div>
-        {retrieval && (
-          <div style={{ maxWidth: 240, paddingLeft: 24 }}>
-            <FormRow label="Similarity Threshold">
-              <TextInput
-                value={String(draft.tool_similarity_threshold ?? "")}
-                onChangeText={(v) => update({ tool_similarity_threshold: v ? parseFloat(v) : null })}
-                placeholder="0.45" type="number"
-              />
-            </FormRow>
-          </div>
-        )}
-        <div style={{ fontSize: 10, color: t.textDim, lineHeight: "15px", borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 8 }}>
-          <strong>Skills</strong> and <strong>capabilities</strong> are also selected via semantic search each turn &mdash;
-          only the most relevant appear in context. The bot can call <code>get_skill_list()</code> to browse all available skills.
-          Memory scheme and channel overrides can further add or remove tools at runtime.
+        <div style={{ fontSize: 10, color: t.textDim, lineHeight: "14px", borderTop: `1px solid ${t.surfaceBorder}`, paddingTop: 8 }}>
+          Skills and capabilities also use semantic search per turn. Memory scheme and channel overrides can add or remove tools at runtime.
         </div>
       </div>
 

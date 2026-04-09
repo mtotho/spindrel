@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { ActivityIndicator } from "react-native";
+import { Plus, Pencil, Trash2, Zap, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+import {
+  FormRow, TextInput, SelectInput, Row, Col,
+} from "@/src/components/shared/FormControls";
+import { ActionButton, StatusBadge, InfoBanner } from "@/src/components/shared/SettingsControls";
 import {
   useBotHooks,
   useCreateBotHook,
@@ -9,26 +14,44 @@ import {
   type BotHookItem,
 } from "@/src/api/hooks/useBotHooks";
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const TRIGGER_OPTIONS = [
-  { value: "before_access", label: "Before Access", desc: "Runs before any read/write/exec on matching path" },
-  { value: "after_write", label: "After Write", desc: "Runs after file mutation on matching path (debounced)" },
-  { value: "after_exec", label: "After Exec", desc: "Runs after command execution in matching directory" },
+  { value: "before_access", label: "Before Access" },
+  { value: "after_write", label: "After Write" },
+  { value: "after_exec", label: "After Exec" },
 ];
 
-const TRIGGER_COLORS: Record<string, (t: any) => { bg: string; fg: string }> = {
-  before_access: (t) => ({ bg: t.warningSubtle, fg: t.warning }),
-  after_write: (t) => ({ bg: t.successSubtle, fg: t.success }),
-  after_exec: (t) => ({ bg: t.accentSubtle, fg: t.accent }),
+const TRIGGER_BADGE: Record<string, { variant: "warning" | "success" | "info"; label: string }> = {
+  before_access: { variant: "warning", label: "before access" },
+  after_write: { variant: "success", label: "after write" },
+  after_exec: { variant: "info", label: "after exec" },
 };
+
+const ON_FAILURE_OPTIONS = [
+  { value: "block", label: "Block" },
+  { value: "warn", label: "Warn" },
+];
+
+const TRIGGER_DESCRIPTIONS: Record<string, string> = {
+  before_access: "Runs before any file read, write, or exec on a matching path. Use for freshness (e.g. git pull).",
+  after_write: "Runs after file mutations on a matching path, debounced. Use for propagation (e.g. git commit + push).",
+  after_exec: "Runs after command execution in a matching working directory. Use for cleanup.",
+};
+
+// ---------------------------------------------------------------------------
+// Form state
+// ---------------------------------------------------------------------------
 
 interface HookFormState {
   name: string;
   trigger: string;
   path: string;
   command: string;
-  cooldown_seconds: number;
+  cooldown_seconds: string;
   on_failure: string;
-  enabled: boolean;
 }
 
 const EMPTY_FORM: HookFormState = {
@@ -36,10 +59,24 @@ const EMPTY_FORM: HookFormState = {
   trigger: "before_access",
   path: "",
   command: "",
-  cooldown_seconds: 60,
-  on_failure: "",
-  enabled: true,
+  cooldown_seconds: "60",
+  on_failure: "block",
 };
+
+function hookToForm(h: BotHookItem): HookFormState {
+  return {
+    name: h.name,
+    trigger: h.trigger,
+    path: h.conditions?.path || "",
+    command: h.command,
+    cooldown_seconds: String(h.cooldown_seconds),
+    on_failure: h.on_failure,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// HookForm — create / edit
+// ---------------------------------------------------------------------------
 
 function HookForm({
   initial,
@@ -54,134 +91,224 @@ function HookForm({
 }) {
   const t = useThemeTokens();
   const [form, setForm] = useState<HookFormState>(initial);
-
-  const inputStyle = {
-    padding: "8px 10px",
-    borderRadius: 6,
-    border: `1px solid ${t.surfaceBorder}`,
-    background: t.inputBg,
-    color: t.text,
-    fontSize: 13,
-    fontFamily: "monospace" as const,
-    width: "100%",
-  };
+  const triggerDesc = TRIGGER_DESCRIPTIONS[form.trigger];
 
   return (
     <div style={{
-      display: "flex", flexDirection: "column", gap: 10,
-      padding: 14, borderRadius: 8,
+      display: "flex", flexDirection: "column", gap: 14,
+      padding: 16, borderRadius: 10,
       background: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`,
     }}>
-      <div style={{ display: "flex", gap: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label style={{ fontSize: 11, color: t.textDim, marginBottom: 4, display: "block" }}>Name</label>
-          <input
-            style={inputStyle}
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="e.g. vault-sync-pull"
-          />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={{ fontSize: 11, color: t.textDim, marginBottom: 4, display: "block" }}>Trigger</label>
-          <select
-            style={{ ...inputStyle, fontFamily: "inherit" }}
-            value={form.trigger}
-            onChange={(e) => setForm({ ...form, trigger: e.target.value })}
-          >
-            {TRIGGER_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <Row>
+        <Col>
+          <FormRow label="Name">
+            <TextInput
+              value={form.name}
+              onChangeText={(v) => setForm({ ...form, name: v })}
+              placeholder="e.g. vault-sync-pull"
+            />
+          </FormRow>
+        </Col>
+        <Col>
+          <FormRow label="Trigger">
+            <SelectInput
+              value={form.trigger}
+              onChange={(v) => setForm({
+                ...form,
+                trigger: v,
+                on_failure: v === "before_access" ? "block" : "warn",
+              })}
+              options={TRIGGER_OPTIONS}
+            />
+          </FormRow>
+        </Col>
+      </Row>
 
-      <div>
-        <label style={{ fontSize: 11, color: t.textDim, marginBottom: 4, display: "block" }}>
-          Path Pattern (glob)
-        </label>
-        <input
-          style={inputStyle}
+      {triggerDesc && (
+        <div style={{ fontSize: 11, color: t.textDim, lineHeight: "1.5", marginTop: -6 }}>
+          {triggerDesc}
+        </div>
+      )}
+
+      <FormRow label="Path Pattern" description="Glob matched against the container path (e.g. /workspace/repos/vault/**)">
+        <TextInput
           value={form.path}
-          onChange={(e) => setForm({ ...form, path: e.target.value })}
+          onChangeText={(v) => setForm({ ...form, path: v })}
           placeholder="/workspace/repos/myrepo/**"
+          style={{ fontFamily: "monospace", fontSize: 14 }}
         />
-      </div>
+      </FormRow>
 
-      <div>
-        <label style={{ fontSize: 11, color: t.textDim, marginBottom: 4, display: "block" }}>Command</label>
+      <FormRow label="Command" description="Shell command executed in the bot's workspace container">
         <textarea
-          style={{ ...inputStyle, minHeight: 60, resize: "vertical" }}
           value={form.command}
           onChange={(e) => setForm({ ...form, command: e.target.value })}
           placeholder="cd /workspace/repos/myrepo && git pull --ff-only"
+          style={{
+            background: t.codeBg,
+            border: `1px solid ${t.codeBorder}`,
+            borderRadius: 8,
+            padding: "10px 12px",
+            color: t.codeText,
+            fontSize: 13,
+            fontFamily: "monospace",
+            width: "100%",
+            minHeight: 72,
+            resize: "vertical",
+            outline: "none",
+            lineHeight: "1.5",
+          }}
+        />
+      </FormRow>
+
+      <Row>
+        <Col minWidth={160}>
+          <FormRow label="Cooldown" description="Min seconds between firings">
+            <TextInput
+              value={form.cooldown_seconds}
+              onChangeText={(v) => setForm({ ...form, cooldown_seconds: v })}
+              type="number"
+              placeholder="60"
+            />
+          </FormRow>
+        </Col>
+        <Col minWidth={160}>
+          <FormRow label="On Failure" description={form.on_failure === "block" ? "Abort the triggering operation" : "Log warning and continue"}>
+            <SelectInput
+              value={form.on_failure}
+              onChange={(v) => setForm({ ...form, on_failure: v })}
+              options={ON_FAILURE_OPTIONS}
+            />
+          </FormRow>
+        </Col>
+      </Row>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+        <ActionButton
+          label={submitLabel}
+          onPress={() => onSubmit(form)}
+          disabled={!form.name.trim() || !form.command.trim()}
+          size="small"
+        />
+        <ActionButton
+          label="Cancel"
+          onPress={onCancel}
+          variant="secondary"
+          size="small"
         />
       </div>
+    </div>
+  );
+}
 
-      <div style={{ display: "flex", gap: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label style={{ fontSize: 11, color: t.textDim, marginBottom: 4, display: "block" }}>
-            Cooldown (seconds)
-          </label>
-          <input
-            type="number"
-            style={inputStyle}
-            value={form.cooldown_seconds}
-            onChange={(e) => setForm({ ...form, cooldown_seconds: parseInt(e.target.value) || 60 })}
-          />
+// ---------------------------------------------------------------------------
+// HookRow — single hook display
+// ---------------------------------------------------------------------------
+
+function HookRow({
+  hook,
+  onEdit,
+  onToggle,
+  onDelete,
+}: {
+  hook: BotHookItem;
+  onEdit: () => void;
+  onToggle: () => void;
+  onDelete: () => void;
+}) {
+  const t = useThemeTokens();
+  const badge = TRIGGER_BADGE[hook.trigger] || TRIGGER_BADGE.before_access;
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "flex-start", gap: 12,
+      padding: "12px 14px", borderRadius: 8,
+      background: t.inputBg, border: `1px solid ${t.surfaceRaised}`,
+      opacity: hook.enabled ? 1 : 0.45,
+      transition: "opacity 0.15s",
+    }}>
+      {/* Left: toggle indicator */}
+      <button
+        onClick={onToggle}
+        title={hook.enabled ? "Disable hook" : "Enable hook"}
+        style={{
+          width: 8, height: 8, borderRadius: 4, flexShrink: 0, marginTop: 6,
+          background: hook.enabled ? t.success : t.surfaceBorder,
+          border: "none", cursor: "pointer", padding: 0,
+          transition: "background 0.15s",
+        }}
+      />
+
+      {/* Center: content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{hook.name}</span>
+          <StatusBadge label={badge.label} variant={badge.variant} />
+          {hook.on_failure === "block" && (
+            <StatusBadge label="blocking" variant="danger" />
+          )}
+          <span style={{ fontSize: 10, color: t.textDim }}>
+            {hook.cooldown_seconds}s cooldown
+          </span>
         </div>
-        <div style={{ flex: 1 }}>
-          <label style={{ fontSize: 11, color: t.textDim, marginBottom: 4, display: "block" }}>On Failure</label>
-          <select
-            style={{ ...inputStyle, fontFamily: "inherit" }}
-            value={form.on_failure || (form.trigger === "before_access" ? "block" : "warn")}
-            onChange={(e) => setForm({ ...form, on_failure: e.target.value })}
-          >
-            <option value="block">Block (abort operation)</option>
-            <option value="warn">Warn (log and continue)</option>
-          </select>
+
+        {hook.conditions?.path && (
+          <div style={{
+            fontSize: 12, fontFamily: "monospace", color: t.textDim,
+            marginTop: 4, padding: "3px 8px", borderRadius: 4,
+            background: t.codeBg, display: "inline-block",
+          }}>
+            {hook.conditions.path}
+          </div>
+        )}
+
+        <div style={{
+          fontSize: 12, fontFamily: "monospace", color: t.textMuted,
+          marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        }}>
+          <Zap size={10} color={t.textDim} style={{ marginRight: 4, verticalAlign: "middle" }} />
+          {hook.command}
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+      {/* Right: actions */}
+      <div style={{ display: "flex", gap: 4, flexShrink: 0, marginTop: 2 }}>
         <button
-          onClick={() => onSubmit(form)}
-          disabled={!form.name || !form.command}
+          onClick={onEdit}
+          title="Edit hook"
           style={{
-            padding: "8px 16px", borderRadius: 6,
-            background: t.accent, border: "none",
-            cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#fff",
-            opacity: (!form.name || !form.command) ? 0.5 : 1,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 30, height: 30, borderRadius: 6,
+            background: "transparent", border: `1px solid ${t.surfaceBorder}`,
+            cursor: "pointer", transition: "background 0.12s",
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceOverlay; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
         >
-          {submitLabel}
+          <Pencil size={12} color={t.textDim} />
         </button>
         <button
-          onClick={onCancel}
+          onClick={onDelete}
+          title="Delete hook"
           style={{
-            padding: "8px 16px", borderRadius: 6,
-            background: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`,
-            cursor: "pointer", fontSize: 12, color: t.textMuted,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 30, height: 30, borderRadius: 6,
+            background: "transparent", border: `1px solid ${t.surfaceBorder}`,
+            cursor: "pointer", transition: "background 0.12s",
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = t.dangerSubtle; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
         >
-          Cancel
+          <Trash2 size={12} color={t.danger} />
         </button>
       </div>
     </div>
   );
 }
 
-function hookToForm(h: BotHookItem): HookFormState {
-  return {
-    name: h.name,
-    trigger: h.trigger,
-    path: h.conditions?.path || "",
-    command: h.command,
-    cooldown_seconds: h.cooldown_seconds,
-    on_failure: h.on_failure,
-    enabled: h.enabled,
-  };
-}
+// ---------------------------------------------------------------------------
+// BotHooksSection — main export
+// ---------------------------------------------------------------------------
 
 export function BotHooksSection({ botId }: { botId: string }) {
   const t = useThemeTokens();
@@ -195,13 +322,12 @@ export function BotHooksSection({ botId }: { botId: string }) {
   const handleCreate = (form: HookFormState) => {
     createMutation.mutate({
       bot_id: botId,
-      name: form.name,
+      name: form.name.trim(),
       trigger: form.trigger,
-      conditions: form.path ? { path: form.path } : {},
-      command: form.command,
-      cooldown_seconds: form.cooldown_seconds,
+      conditions: form.path.trim() ? { path: form.path.trim() } : {},
+      command: form.command.trim(),
+      cooldown_seconds: parseInt(form.cooldown_seconds) || 60,
       on_failure: form.on_failure || undefined,
-      enabled: form.enabled,
     }, { onSuccess: () => setShowCreate(false) });
   };
 
@@ -209,19 +335,18 @@ export function BotHooksSection({ botId }: { botId: string }) {
     updateMutation.mutate({
       hookId,
       data: {
-        name: form.name,
+        name: form.name.trim(),
         trigger: form.trigger,
-        conditions: form.path ? { path: form.path } : {},
-        command: form.command,
-        cooldown_seconds: form.cooldown_seconds,
+        conditions: form.path.trim() ? { path: form.path.trim() } : {},
+        command: form.command.trim(),
+        cooldown_seconds: parseInt(form.cooldown_seconds) || 60,
         on_failure: form.on_failure,
-        enabled: form.enabled,
       },
     }, { onSuccess: () => setEditingId(null) });
   };
 
   const handleDelete = (hookId: string) => {
-    if (confirm("Delete this hook?")) {
+    if (confirm("Delete this hook? This cannot be undone.")) {
       deleteMutation.mutate(hookId);
     }
   };
@@ -233,123 +358,68 @@ export function BotHooksSection({ botId }: { botId: string }) {
     });
   };
 
+  const activeCount = hooks?.filter((h) => h.enabled).length ?? 0;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Hooks</div>
-      <div style={{ fontSize: 11, color: t.textDim }}>
-        Lifecycle hooks that run shell commands automatically in response to file access or command execution.
-        Hooks run in the bot's workspace container.
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Header */}
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Hooks</span>
+          {hooks && hooks.length > 0 && (
+            <span style={{ fontSize: 11, color: t.textDim }}>
+              {activeCount} active
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 12, color: t.textDim, lineHeight: "1.5" }}>
+          Run shell commands automatically when this bot accesses or modifies files in its workspace.
+        </div>
       </div>
 
+      {/* Hook list */}
       {isLoading ? (
-        <ActivityIndicator color={t.accent} />
+        <div style={{ padding: 32, textAlign: "center" }}>
+          <ActivityIndicator color={t.accent} />
+        </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {hooks?.map((h) => {
-            if (editingId === h.id) {
-              return (
-                <HookForm
-                  key={h.id}
-                  initial={hookToForm(h)}
-                  onSubmit={(form) => handleUpdate(h.id, form)}
-                  onCancel={() => setEditingId(null)}
-                  submitLabel="Save"
-                />
-              );
-            }
-
-            const colors = (TRIGGER_COLORS[h.trigger] || TRIGGER_COLORS.before_access)(t);
-            return (
-              <div
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {hooks?.map((h) =>
+            editingId === h.id ? (
+              <HookForm
                 key={h.id}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  padding: "10px 12px", borderRadius: 6,
-                  background: t.inputBg, border: `1px solid ${t.surfaceRaised}`,
-                  opacity: h.enabled ? 1 : 0.5,
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{h.name}</span>
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3,
-                      background: colors.bg, color: colors.fg,
-                    }}>
-                      {h.trigger}
-                    </span>
-                    <span style={{
-                      fontSize: 10, padding: "1px 6px", borderRadius: 3,
-                      background: h.on_failure === "block" ? t.dangerSubtle : t.surfaceOverlay,
-                      color: h.on_failure === "block" ? t.danger : t.textDim,
-                    }}>
-                      {h.on_failure}
-                    </span>
-                  </div>
-                  {h.conditions?.path && (
-                    <div style={{ fontSize: 11, fontFamily: "monospace", color: t.textDim, marginBottom: 2 }}>
-                      {h.conditions.path}
-                    </div>
-                  )}
-                  <div style={{
-                    fontSize: 11, fontFamily: "monospace", color: t.textMuted,
-                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                  }}>
-                    {h.command}
-                  </div>
-                </div>
+                initial={hookToForm(h)}
+                onSubmit={(form) => handleUpdate(h.id, form)}
+                onCancel={() => setEditingId(null)}
+                submitLabel="Save Changes"
+              />
+            ) : (
+              <HookRow
+                key={h.id}
+                hook={h}
+                onEdit={() => setEditingId(h.id)}
+                onToggle={() => handleToggle(h)}
+                onDelete={() => handleDelete(h.id)}
+              />
+            ),
+          )}
 
-                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                  <button
-                    onClick={() => handleToggle(h)}
-                    title={h.enabled ? "Disable" : "Enable"}
-                    style={{
-                      padding: "4px 8px", borderRadius: 4, fontSize: 11,
-                      background: h.enabled ? t.successSubtle : t.surfaceOverlay,
-                      border: `1px solid ${h.enabled ? t.success + "33" : t.surfaceBorder}`,
-                      color: h.enabled ? t.success : t.textDim,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {h.enabled ? "On" : "Off"}
-                  </button>
-                  <button
-                    onClick={() => setEditingId(h.id)}
-                    style={{
-                      padding: "4px 8px", borderRadius: 4, fontSize: 11,
-                      background: t.surfaceOverlay, border: `1px solid ${t.surfaceBorder}`,
-                      color: t.textMuted, cursor: "pointer",
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(h.id)}
-                    style={{
-                      padding: "4px 8px", borderRadius: 4, fontSize: 11,
-                      background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
-                      color: t.danger, cursor: "pointer",
-                    }}
-                  >
-                    Delete
-                  </button>
+          {(!hooks || hooks.length === 0) && !showCreate && (
+            <InfoBanner variant="info">
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>No hooks configured</div>
+                <div>
+                  Hooks let this bot automatically run commands when files are accessed or modified.
+                  Common use: <span style={{ fontFamily: "monospace" }}>git pull</span> before reading a
+                  cloned repo, or <span style={{ fontFamily: "monospace" }}>git commit && push</span> after writing.
                 </div>
               </div>
-            );
-          })}
-
-          {(!hooks || hooks.length === 0) && (
-            <div style={{
-              padding: 20, textAlign: "center", borderRadius: 8,
-              background: t.surfaceOverlay, border: `1px dashed ${t.surfaceBorder}`,
-              color: t.textDim, fontSize: 13,
-            }}>
-              No hooks configured. Hooks run shell commands automatically when files are accessed or modified.
-            </div>
+            </InfoBanner>
           )}
         </div>
       )}
 
+      {/* Create form or add button */}
       {showCreate ? (
         <HookForm
           initial={EMPTY_FORM}
@@ -358,17 +428,12 @@ export function BotHooksSection({ botId }: { botId: string }) {
           submitLabel="Create Hook"
         />
       ) : (
-        <button
-          onClick={() => setShowCreate(true)}
-          style={{
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-            padding: "10px 16px", borderRadius: 6,
-            background: t.accent, border: "none",
-            cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#fff",
-          }}
-        >
-          Add Hook
-        </button>
+        <ActionButton
+          label="Add Hook"
+          onPress={() => setShowCreate(true)}
+          size="small"
+          icon={<Plus size={14} />}
+        />
       )}
     </div>
   );

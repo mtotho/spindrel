@@ -267,7 +267,7 @@ async def seed_carapaces_from_yaml() -> None:
                 continue
 
             data = yaml.safe_load(raw)
-            if not data:
+            if not data or not isinstance(data, dict):
                 continue
 
             # Use id from file content if present, otherwise use filename-derived id

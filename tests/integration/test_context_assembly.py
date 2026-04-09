@@ -421,7 +421,7 @@ class TestSkillInjection:
         factory = _session_factory(engine)
 
         # Mock retrieve_skill_index — uses pgvector <=> operator unsupported in SQLite
-        _mock_retrieve = AsyncMock(return_value=[{"id": "test-skill", "similarity": 0.8}])
+        _mock_retrieve = AsyncMock(return_value=[{"skill_id": "test-skill", "similarity": 0.8}])
 
         with (
             patch("app.db.engine.async_session", factory),
