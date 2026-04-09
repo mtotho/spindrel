@@ -6,7 +6,7 @@ import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   TextInput, SelectInput, Toggle, FormRow, Row, Col,
 } from "@/src/components/shared/FormControls";
-import { AdvancedSection } from "@/src/components/shared/SettingsControls";
+import { AdvancedSection, InfoBanner } from "@/src/components/shared/SettingsControls";
 import type { BotConfig, BotEditorData, ToolGroup } from "@/src/types/api";
 import { ResolvedSummary } from "./ResolvedSummary";
 import { MOBILE_NAV_BREAKPOINT } from "./constants";
@@ -16,10 +16,11 @@ import { ToolSchemaModal } from "./ToolSchemaModal";
 // Pinned Tools picker (default view)
 // ---------------------------------------------------------------------------
 function PinnedToolsPicker({
-  editorData, draft, update,
+  editorData, draft, update, discovery,
 }: {
   editorData: BotEditorData; draft: BotConfig;
   update: (patch: Partial<BotConfig>) => void;
+  discovery: boolean;
 }) {
   const t = useThemeTokens();
   const pinnedTools = draft.pinned_tools || [];
@@ -75,7 +76,9 @@ function PinnedToolsPicker({
       </div>
       {pinnedTools.length === 0 && !adding && (
         <div style={{ fontSize: 11, color: t.textDim, padding: "4px 0 8px" }}>
-          No pinned tools. Tools are discovered automatically per conversation.
+          {discovery
+            ? "No pinned tools. All tools are discoverable \u2014 pin any that must be available every turn."
+            : "No pinned tools. Enable tools below, then pin any that must be available every turn."}
         </div>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
@@ -267,10 +270,11 @@ function ClientToolsSection({
 // Full tool list (advanced view)
 // ---------------------------------------------------------------------------
 function FullToolList({
-  editorData, draft, update,
+  editorData, draft, update, discovery,
 }: {
   editorData: BotEditorData; draft: BotConfig;
   update: (patch: Partial<BotConfig>) => void;
+  discovery: boolean;
 }) {
   const [toolFilter, setToolFilter] = useState("");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -667,7 +671,7 @@ export function ToolsSection({
       <ResolvedSummary editorData={editorData} draft={draft} />
 
       {/* Pinned Tools */}
-      <PinnedToolsPicker editorData={editorData} draft={draft} update={update} />
+      <PinnedToolsPicker editorData={editorData} draft={draft} update={update} discovery={discovery} />
 
       {/* MCP Servers */}
       <McpServersSection editorData={editorData} draft={draft} update={update} filter="" />
@@ -683,7 +687,7 @@ export function ToolsSection({
               ? "With auto-discovery on, the bot can find any tool in the pool. This list lets you explicitly enable or disable individual tools. Pinned tools are always included regardless of retrieval."
               : "Enable or disable individual tools. Enabled tools are candidates for retrieval; pinned tools are always included."}
           </div>
-          <FullToolList editorData={editorData} draft={draft} update={update} />
+          <FullToolList editorData={editorData} draft={draft} update={update} discovery={discovery} />
         </div>
       </AdvancedSection>
 

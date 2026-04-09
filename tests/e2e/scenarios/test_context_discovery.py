@@ -507,39 +507,53 @@ async def test_skills_indexed_with_retrievable_chunks(client: E2EClient) -> None
 
 
 # ---------------------------------------------------------------------------
-# 13. Memory search relevance — write then find
+# 13. Memory search returns content (not just file paths)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_memory_search_finds_written_content(client: E2EClient) -> None:
-    """Write a distinctive memory, then search for it and verify it appears."""
-    # Write a memory with a unique marker
-    cid = client.new_client_id("e2e-ctx-memfind")
-    await client.chat(
-        "Write a memory file called e2e_ctx_discovery_test.md with this exact content: "
-        "'The Fibonacci sequence starts with 0, 1, 1, 2, 3, 5, 8, 13.'",
-        client_id=cid,
-    )
+async def test_memory_search_returns_content_not_empty(client: E2EClient) -> None:
+    """Memory search results should include actual content, not empty strings.
 
-    # Search via diagnostic endpoint (bypasses the 300s index cooldown
-    # by searching raw files)
-    resp = await client.get(
-        f"/api/v1/admin/diagnostics/memory-search/{client.default_bot_id}",
-        params={"query": "Fibonacci sequence"},
+    This tests already-indexed memory files (from prior e2e runs).
+    We search for a generic term that should match existing files.
+    """
+    # Search via the main search endpoint (uses indexed content)
+    resp = await client.post(
+        "/api/v1/search/memory",
+        json={
+            "query": "test",
+            "bot_ids": [client.default_bot_id],
+            "top_k": 5,
+        },
     )
     assert resp.status_code == 200
-    data = resp.json()
+    results = resp.json().get("results", [])
 
-    # Should find results (diagnostic endpoint searches indexed + raw)
-    results = data.get("results", [])
-    if len(results) > 0:
-        # At least one result should mention fibonacci
-        contents = " ".join(r.get("content", "") for r in results).lower()
-        assert "fibonacci" in contents, (
-            f"Searched for 'Fibonacci' but results don't contain it: "
-            f"{[r.get('file_path', '') for r in results[:3]]}"
-        )
+    assert len(results) > 0, (
+        "Expected memory search results for 'test' — e2e bot should have "
+        "indexed memory files from prior test runs"
+    )
+
+    # BUG CHECK: results should have non-empty content
+    with_content = [r for r in results if r.get("content", "").strip()]
+    assert len(with_content) > 0, (
+        f"Memory search returned {len(results)} results but ALL have empty content. "
+        f"Files: {[r.get('file_path', '') for r in results[:3]]}. "
+        f"Scores: {[r.get('score', 0) for r in results[:3]]}. "
+        "This suggests the search index has file paths but no content."
+    )
+
+    # Scores should indicate real semantic match, not just BM25 noise
+    top_score = results[0].get("score", 0)
+    assert top_score > 0.1, (
+        f"Top score is {top_score:.4f} — too low for a relevant match. "
+        f"May indicate vector search is not working (BM25-only fallback)."
+    )
+
+    # Results should be ranked by score descending
+    scores = [r["score"] for r in results]
+    assert scores == sorted(scores, reverse=True), "Results not ranked by score"
 
 
 # ---------------------------------------------------------------------------
