@@ -9,7 +9,8 @@ import { X, Bot, Wrench, Puzzle, Server, Shield, ExternalLink } from "lucide-rea
 import { useRouter } from "expo-router";
 import { useThemeTokens } from "../../theme/tokens";
 import { useBot } from "../../api/hooks/useBots";
-import { useChannel, useChannelEffectiveTools } from "../../api/hooks/useChannels";
+import { useChannel, useChannelEffectiveTools, useChannelContextEstimate } from "../../api/hooks/useChannels";
+import type { ContextEstimate } from "../../api/hooks/useChannels";
 import { useCarapaces } from "../../api/hooks/useCarapaces";
 import { buildSkillCarapaceMap, buildToolCarapaceMap } from "../../utils/carapaceMapping";
 
@@ -72,6 +73,7 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
   // effective-tools is resolved for the channel's primary bot — only show for primary
   const { data: effective } = useChannelEffectiveTools(isMemberBot ? undefined : channelId);
   const { data: allCarapaces } = useCarapaces();
+  const { data: contextEstimate } = useChannelContextEstimate(isMemberBot ? undefined : channelId);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -216,6 +218,9 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
             {mcpCount > 0 && <CountBadge icon={<Server size={10} />} label={`${mcpCount} MCP`} />}
           </div>
 
+          {/* Configuration overhead */}
+          {contextEstimate && <ConfigOverhead estimate={contextEstimate} t={t} />}
+
           {/* Capabilities (carapaces) */}
           {displayTools && displayTools.carapaces.length > 0 && (
             <CaparacesSection carapaces={displayTools.carapaces} sources={displayTools.carapace_sources} />
@@ -302,6 +307,90 @@ function CountBadge({ icon, label }: { icon: React.ReactNode; label: string }) {
       {icon}
       {label}
     </span>
+  );
+}
+
+function ConfigOverhead({ estimate, t }: { estimate: ContextEstimate; t: any }) {
+  const pct = estimate.overhead_pct != null ? Math.round(estimate.overhead_pct * 100) : null;
+  const barColor = pct == null ? t.textDim : pct > 40 ? "#ef4444" : pct > 20 ? "#eab308" : "#22c55e";
+  const tokensK = Math.round(estimate.approx_tokens / 1000);
+  const windowK = Math.round(estimate.context_window / 1000);
+
+  // Map raw labels to user-friendly names
+  const labelMap: Record<string, string> = {
+    "sys:global_base_prompt": "Global prompt",
+    "sys:base_prompt": "Platform prompt",
+    "sys:datetime": "Date/time",
+    "sys:system_prompt": "System prompt",
+    "sys:persona": "Persona",
+    "sys:skill_pinned": "Pinned skills",
+    "sys:skill_index": "Skill index",
+    "sys:tool_index": "Tool index",
+    "sys:delegate_index": "Delegation",
+    "sys:memory (typical)": "Memory",
+    "sys:knowledge (typical)": "Knowledge",
+    "sys:pinned_knowledge (typical)": "Pinned knowledge",
+    "sys:fs_context (typical)": "File system",
+    "sys:section_index (typical)": "Section index",
+    "sys:audio": "Audio",
+    "tools:param": "Tools",
+    "tools:param (schemas)": "Tool schemas",
+    "tools:param (all schemas)": "Tool schemas",
+  };
+
+  const displayLines = estimate.lines
+    .filter((l) => l.chars > 0)
+    .map((l) => ({
+      label: labelMap[l.label] || l.label,
+      tokens: Math.round(l.chars / 4),
+      hint: l.hint,
+    }))
+    .sort((a, b) => b.tokens - a.tokens);
+
+  return (
+    <div>
+      <div style={{
+        fontSize: 9, fontWeight: 700, color: t.textDim,
+        textTransform: "uppercase", letterSpacing: 1, marginBottom: 6,
+      }}>
+        Configuration Overhead
+      </div>
+      {/* Bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <div style={{
+          flex: 1, height: 6, borderRadius: 3,
+          background: t.surfaceOverlay, overflow: "hidden",
+        }}>
+          <div style={{
+            width: `${Math.min(pct ?? 0, 100)}%`, height: "100%",
+            background: barColor, borderRadius: 3,
+            transition: "width 0.3s, background-color 0.3s",
+          }} />
+        </div>
+        <span style={{ fontSize: 10, fontWeight: 600, color: barColor, whiteSpace: "nowrap" }}>
+          {pct != null ? `${pct}%` : "?"} ({tokensK}K / {windowK}K)
+        </span>
+      </div>
+      {/* Breakdown */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {displayLines.map((line, i) => (
+          <div key={i} style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "2px 0",
+          }}
+          title={line.hint || undefined}
+          >
+            <span style={{ fontSize: 10, color: t.text, flex: 1 }}>{line.label}</span>
+            <span style={{ fontSize: 10, fontFamily: "monospace", color: t.textMuted }}>
+              ~{line.tokens >= 1000 ? `${Math.round(line.tokens / 1000)}K` : line.tokens} tokens
+            </span>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 9, color: t.textDim, marginTop: 4, fontStyle: "italic" }}>
+        {estimate.disclaimer}
+      </div>
+    </div>
   );
 }
 

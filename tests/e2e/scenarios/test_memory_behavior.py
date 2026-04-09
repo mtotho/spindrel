@@ -196,11 +196,15 @@ async def test_memory_write_then_read_via_admin_api(client: E2EClient) -> None:
     if not workspace_id:
         pytest.skip("Bot has no shared_workspace_id — can't verify via API")
 
+    # In a shared workspace, the bot's files live under bots/{bot_id}/
+    ws_path = f"bots/{client.default_bot_id}/memory/{filename}"
     resp = await client.get(
         f"/api/v1/workspaces/{workspace_id}/files/content",
-        params={"path": f"memory/{filename}"},
+        params={"path": ws_path},
     )
-    assert resp.status_code == 200, f"File not found via API: {resp.status_code}"
+    assert resp.status_code == 200, (
+        f"File not found via API at {ws_path}: {resp.status_code} {resp.text[:200]}"
+    )
     content = resp.text
     assert token in content, (
         f"Expected token {token} in file content but got: {content[:200]}"

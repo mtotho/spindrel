@@ -1,4 +1,4 @@
-import { Zap, Power, Layers } from "lucide-react";
+import { Puzzle, Plus, X as XIcon, Layers } from "lucide-react";
 import { Link } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { prettyIntegrationName } from "@/src/utils/format";
@@ -131,10 +131,9 @@ export function ActivationCard({
             transition: "background 0.15s",
           }}
         >
-          <Zap
+          <Puzzle
             size={16}
             color={ig.activated ? "#fff" : t.textDim}
-            fill={ig.activated ? "#fff" : "none"}
           />
         </div>
 
@@ -143,7 +142,7 @@ export function ActivationCard({
             <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
               {prettyIntegrationName(ig.integration_type)}
             </span>
-            {ig.activated && <StatusBadge label="Active" variant="success" />}
+            {ig.activated && <StatusBadge label="Added" variant="success" />}
             {ig.includes?.length > 0 && (
               <span style={{
                 fontSize: 10,
@@ -182,11 +181,9 @@ export function ActivationCard({
             gap: 6,
             padding: "6px 14px",
             borderRadius: 8,
-            border: ig.activated
-              ? `1px solid ${t.dangerBorder}`
-              : `1px solid ${t.accentBorder}`,
+            border: `1px solid ${ig.activated ? t.surfaceBorder : t.accentBorder}`,
             background: ig.activated ? "transparent" : t.accent,
-            color: ig.activated ? t.danger : "#fff",
+            color: ig.activated ? t.textDim : "#fff",
             fontSize: 11,
             fontWeight: 600,
             cursor: disabled || toggling ? "not-allowed" : "pointer",
@@ -200,17 +197,19 @@ export function ActivationCard({
               style={{
                 width: 12,
                 height: 12,
-                border: `2px solid ${ig.activated ? t.danger : "#fff"}`,
+                border: `2px solid ${ig.activated ? t.textDim : "#fff"}`,
                 borderTopColor: "transparent",
                 borderRadius: "50%",
                 display: "inline-block",
                 animation: "spin 0.6s linear infinite",
               }}
             />
+          ) : ig.activated ? (
+            <XIcon size={12} />
           ) : (
-            <Power size={12} />
+            <Plus size={12} />
           )}
-          {ig.activated ? "Deactivate" : "Activate"}
+          {ig.activated ? "Remove" : "Add"}
         </button>
       </div>
 

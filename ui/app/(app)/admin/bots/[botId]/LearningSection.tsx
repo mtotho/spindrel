@@ -102,7 +102,7 @@ export function HealthBadge({ health }: { health: Health }) {
 // Stat card
 // ---------------------------------------------------------------------------
 export function StatCard({ label, value, icon, color }: {
-  label: string; value: number; icon: React.ReactNode; color?: string;
+  label: string; value: number | string; icon: React.ReactNode; color?: string;
 }) {
   const t = useThemeTokens();
   return (

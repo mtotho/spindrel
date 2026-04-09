@@ -44,7 +44,7 @@ const PRIMARY_TABS = [
   { key: "heartbeat", label: "Heartbeat" },
   { key: "history", label: "History" },
   { key: "capabilities", label: "Capabilities" },
-  { key: "connections", label: "Connections" },
+  { key: "integrations", label: "Integrations" },
   { key: "attachments", label: "Attachments" },
 ];
 const ADVANCED_TABS = [
@@ -412,7 +412,7 @@ export default function ChannelSettingsScreen() {
           <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} botHistoryMode={currentBot?.history_mode} />
         )}
         {tab === "capabilities" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} workspaceEnabled={!!form.channel_workspace_enabled} />}
-        {tab === "connections" && <IntegrationsTab channelId={channelId!} workspaceEnabled={!!form.channel_workspace_enabled} />}
+        {tab === "integrations" && <IntegrationsTab channelId={channelId!} workspaceEnabled={!!form.channel_workspace_enabled} />}
         {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
         {tab === "context" && <ContextTab channelId={channelId!} />}
         {tab === "workflows" && <WorkflowsTab channelId={channelId!} />}

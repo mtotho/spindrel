@@ -27,6 +27,10 @@ export interface ChannelHeaderProps {
   toggleParticipantsPanel?: () => void;
   /** Context budget from last SSE stream */
   contextBudget?: { utilization: number; consumed: number; total: number } | null;
+  /** Config overhead percentage (0-1) — pre-conversation cost of tools/skills/prompts */
+  configOverhead?: { pct: number; tokens: number } | null;
+  /** Called when user clicks the config overhead badge */
+  onConfigOverheadClick?: () => void;
 }
 
 export function ChannelHeader({
@@ -49,6 +53,8 @@ export function ChannelHeader({
   participantsPanelOpen,
   toggleParticipantsPanel,
   contextBudget,
+  configOverhead,
+  onConfigOverheadClick,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const router = useRouter();
@@ -119,6 +125,27 @@ export function ChannelHeader({
                 >
                   {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
                 </span>
+              )}
+              {configOverhead && (
+                <button
+                  onClick={onConfigOverheadClick}
+                  style={{
+                    fontSize: 10,
+                    fontFamily: "monospace",
+                    fontWeight: 600,
+                    padding: "1px 6px",
+                    borderRadius: 4,
+                    border: "none",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                    background: configOverhead.pct > 0.4 ? "#ef444420" : configOverhead.pct > 0.2 ? "#eab30820" : "transparent",
+                    color: configOverhead.pct > 0.4 ? "#ef4444" : configOverhead.pct > 0.2 ? "#eab308" : t.textDim,
+                    transition: "background 0.15s",
+                  }}
+                  title={`Config overhead: ~${Math.round(configOverhead.tokens / 1000)}K tokens (${Math.round(configOverhead.pct * 100)}% of context window used by tools, skills, and prompts before conversation)`}
+                >
+                  cfg {Math.round(configOverhead.pct * 100)}%
+                </button>
               )}
             </div>
           )}
@@ -250,6 +277,16 @@ export function ChannelHeader({
                 color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
               }}>
                 {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
+              </Text>
+            )}
+            {configOverhead && (
+              <Text style={{
+                fontSize: 10,
+                fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace",
+                fontWeight: "600",
+                color: configOverhead.pct > 0.4 ? "#ef4444" : configOverhead.pct > 0.2 ? "#eab308" : t.textDim,
+              }}>
+                cfg {Math.round(configOverhead.pct * 100)}%
               </Text>
             )}
           </View>

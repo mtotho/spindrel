@@ -448,6 +448,30 @@ export function useChannelContextBudget(channelId: string | undefined) {
   });
 }
 
+export interface ContextEstimateLine {
+  label: string;
+  chars: number;
+  hint: string;
+}
+
+export interface ContextEstimate {
+  lines: ContextEstimateLine[];
+  total_chars: number;
+  approx_tokens: number;
+  context_window: number;
+  overhead_pct: number | null;
+  disclaimer: string;
+}
+
+export function useChannelContextEstimate(channelId: string | undefined) {
+  return useQuery<ContextEstimate>({
+    queryKey: ["channel-context-estimate", channelId],
+    queryFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/context-estimate`),
+    enabled: !!channelId,
+    staleTime: 120_000,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Bot members (multi-bot channels)
 // ---------------------------------------------------------------------------

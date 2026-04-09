@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useRouter } from "expo-router";
-import { ExternalLink, ChevronDown, ChevronRight, Clock, Zap } from "lucide-react";
+import { ExternalLink, ChevronDown, ChevronRight, Clock, Zap, FileText } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { MemoryHygieneRun } from "@/src/api/hooks/useMemoryHygiene";
 
-type RunWithBotName = MemoryHygieneRun & { bot_name?: string };
+type RunWithExtras = MemoryHygieneRun & { bot_name?: string; files_affected?: string[] };
 
 function fmtDuration(ms: number | null | undefined): string {
   if (ms == null) return "";
@@ -19,7 +19,7 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
-export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithBotName[]; showBotName?: boolean }) {
+export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[]; showBotName?: boolean }) {
   const t = useThemeTokens();
   const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -84,6 +84,27 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithBotName
                       whiteSpace: "pre-wrap", wordBreak: "break-word",
                     }}>
                       {run.error}
+                    </div>
+                  )}
+                  {run.files_affected && run.files_affected.length > 0 && (
+                    <div style={{
+                      display: "flex", alignItems: "flex-start", gap: 6,
+                      marginBottom: 8, padding: "6px 8px",
+                      background: "rgba(139,92,246,0.06)", borderRadius: 4,
+                      border: "1px solid rgba(139,92,246,0.15)",
+                    }}>
+                      <FileText size={11} color="#8b5cf6" style={{ marginTop: 1, flexShrink: 0 }} />
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                        {run.files_affected.map((f) => (
+                          <span key={f} style={{
+                            fontSize: 10, color: "#8b5cf6", fontWeight: 500,
+                            padding: "1px 6px", borderRadius: 3,
+                            background: "rgba(139,92,246,0.1)",
+                          }}>
+                            {f.replace(/^memory\//, "")}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {run.result && (

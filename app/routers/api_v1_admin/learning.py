@@ -48,6 +48,16 @@ class RecentHygieneRun(BaseModel):
     total_tokens: int = 0
     iterations: int = 0
     duration_ms: Optional[int] = None
+    files_affected: list[str] = []  # memory file paths written during this run
+
+class MemoryFileActivity(BaseModel):
+    bot_id: str
+    bot_name: str
+    file_path: str
+    operation: str  # write, append, edit
+    created_at: datetime
+    is_hygiene: bool = False
+    correlation_id: Optional[str] = None
 
 class LearningOverviewOut(BaseModel):
     total_bots: int = 0
@@ -57,6 +67,7 @@ class LearningOverviewOut(BaseModel):
     total_surfacings: int = 0
     bots: list[BotDreamingStatus] = []
     recent_runs: list[RecentHygieneRun] = []
+    memory_activity: list[MemoryFileActivity] = []
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +92,33 @@ async def learning_overview(
     bot_statuses: list[BotDreamingStatus] = []
     enabled_count = 0
     bot_name_map: dict[str, str] = {}
+    bot_ids = [bot.id for bot in all_bots]
+
+    for bot in all_bots:
+        bot_name_map[bot.id] = bot.name
+
+    # Batch: get last hygiene task status per bot in one query
+    last_task_map: dict[str, str] = {}
+    if bot_ids:
+        # Window function to get latest task per bot in one query
+        latest_subq = (
+            select(
+                TaskRow.bot_id,
+                TaskRow.status,
+                func.row_number().over(
+                    partition_by=TaskRow.bot_id,
+                    order_by=TaskRow.created_at.desc(),
+                ).label("rn"),
+            )
+            .where(TaskRow.bot_id.in_(bot_ids), TaskRow.task_type == "memory_hygiene")
+            .subquery()
+        )
+        latest_rows = (await db.execute(
+            select(latest_subq.c.bot_id, latest_subq.c.status)
+            .where(latest_subq.c.rn == 1)
+        )).all()
+        for row in latest_rows:
+            last_task_map[row.bot_id] = row.status
 
     for bot in all_bots:
         enabled = resolve_enabled(bot)
@@ -88,22 +126,13 @@ async def learning_overview(
         model = resolve_model(bot)
         if enabled:
             enabled_count += 1
-        bot_name_map[bot.id] = bot.name
-
-        # Get last task status per bot
-        last_task = (await db.execute(
-            select(TaskRow.status, TaskRow.completed_at)
-            .where(TaskRow.bot_id == bot.id, TaskRow.task_type == "memory_hygiene")
-            .order_by(TaskRow.created_at.desc())
-            .limit(1)
-        )).first()
 
         bot_statuses.append(BotDreamingStatus(
             bot_id=bot.id,
             bot_name=bot.name,
             enabled=enabled,
             last_run_at=bot.last_hygiene_run_at.isoformat() if bot.last_hygiene_run_at else None,
-            last_task_status=last_task.status if last_task else None,
+            last_task_status=last_task_map.get(bot.id),
             next_run_at=bot.next_hygiene_run_at.isoformat() if bot.next_hygiene_run_at else None,
             interval_hours=interval,
             model=model,
@@ -172,6 +201,34 @@ async def learning_overview(
             if task.completed_at and task.created_at:
                 run.duration_ms = int((task.completed_at - task.created_at).total_seconds() * 1000)
 
+    # 2b. Extract files affected per hygiene run from tool calls
+    if correlation_ids:
+        file_write_rows = (await db.execute(
+            select(ToolCall.correlation_id, ToolCall.arguments)
+            .where(
+                ToolCall.correlation_id.in_(correlation_ids),
+                ToolCall.tool_name == "file",
+                ToolCall.arguments["operation"].astext.in_(["write", "append", "edit"]),
+            )
+        )).all()
+        files_by_corr: dict[str, list[str]] = {}
+        for row in file_write_rows:
+            path = row.arguments.get("path", "") if row.arguments else ""
+            if "memory/" in path:
+                # Normalize: strip workspace prefix, keep from memory/ onward
+                idx = path.find("memory/")
+                short = path[idx:] if idx >= 0 else path
+                files_by_corr.setdefault(str(row.correlation_id), []).append(short)
+        for run in runs_out:
+            if run.correlation_id and run.correlation_id in files_by_corr:
+                run.files_affected = sorted(set(files_by_corr[run.correlation_id]))
+
+    # 2c. Collect hygiene correlation_ids for tagging memory activity
+    hygiene_corr_ids: set[str] = set()
+    for task in recent_tasks:
+        if task.correlation_id:
+            hygiene_corr_ids.add(str(task.correlation_id))
+
     # 3. Hygiene runs count (last 7 days)
     seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
     runs_7d = (await db.execute(
@@ -190,6 +247,37 @@ async def learning_overview(
         .where(SkillRow.source_type == "tool")
     )).first()
 
+    # 5. Recent memory file activity (last 7 days, across all bots)
+    memory_writes = (await db.execute(
+        select(ToolCall)
+        .where(
+            ToolCall.tool_name == "file",
+            ToolCall.arguments["operation"].astext.in_(["write", "append", "edit"]),
+            ToolCall.created_at >= seven_days_ago,
+            ToolCall.bot_id.in_(bot_ids) if bot_ids else ToolCall.bot_id.is_(None),
+        )
+        .order_by(ToolCall.created_at.desc())
+        .limit(50)
+    )).scalars().all()
+
+    memory_activity: list[MemoryFileActivity] = []
+    for tc in memory_writes:
+        path = tc.arguments.get("path", "") if tc.arguments else ""
+        if "memory/" not in path:
+            continue
+        idx = path.find("memory/")
+        short = path[idx:] if idx >= 0 else path
+        corr_str = str(tc.correlation_id) if tc.correlation_id else None
+        memory_activity.append(MemoryFileActivity(
+            bot_id=tc.bot_id or "",
+            bot_name=bot_name_map.get(tc.bot_id or "", tc.bot_id or ""),
+            file_path=short,
+            operation=tc.arguments.get("operation", "write") if tc.arguments else "write",
+            created_at=tc.created_at,
+            is_hygiene=corr_str in hygiene_corr_ids if corr_str else False,
+            correlation_id=corr_str,
+        ))
+
     return LearningOverviewOut(
         total_bots=len(all_bots),
         dreaming_enabled_count=enabled_count,
@@ -198,4 +286,5 @@ async def learning_overview(
         total_surfacings=int(skill_stats.surfacings) if skill_stats else 0,
         bots=bot_statuses,
         recent_runs=runs_out,
+        memory_activity=memory_activity,
     )

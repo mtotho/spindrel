@@ -191,7 +191,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
         if (nonActivationCaps.length === 0) return null;
         return (
         <>
-          <SectionDivider label="Active Capabilities" count={nonActivationCaps.length} />
+          <SectionDivider label="Bot & Channel Capabilities" count={nonActivationCaps.length} />
           <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8 }}>
             Capabilities from bot config or added to this channel. Disable any you don't need.
           </div>

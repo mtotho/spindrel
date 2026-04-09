@@ -32,6 +32,17 @@ export interface LearningHygieneRun {
   total_tokens: number;
   iterations: number;
   duration_ms?: number | null;
+  files_affected: string[];
+}
+
+export interface MemoryFileActivity {
+  bot_id: string;
+  bot_name: string;
+  file_path: string;
+  operation: string;
+  created_at: string;
+  is_hygiene: boolean;
+  correlation_id?: string | null;
 }
 
 export interface LearningOverview {
@@ -42,6 +53,7 @@ export interface LearningOverview {
   total_surfacings: number;
   bots: BotDreamingStatus[];
   recent_runs: LearningHygieneRun[];
+  memory_activity: MemoryFileActivity[];
 }
 
 export function useLearningOverview() {

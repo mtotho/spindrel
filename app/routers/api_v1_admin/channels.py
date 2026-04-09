@@ -1884,6 +1884,97 @@ async def admin_channel_context_breakdown(
     }
 
 
+@router.get("/channels/{channel_id}/context-estimate")
+async def admin_channel_context_estimate(
+    channel_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("channels:read")),
+):
+    """Estimate configuration overhead (tools, skills, system prompt) before any conversation."""
+    from dataclasses import asdict
+    from app.agent.context_budget import get_model_context_window
+    from app.services.context_estimate import estimate_bot_context
+
+    channel = (await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )).scalar_one_or_none()
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    bot = get_bot(channel.bot_id)
+
+    # Apply channel overrides to tool/skill lists
+    local_tools = list(bot.local_tools)
+    mcp_servers = list(bot.mcp_servers)
+    client_tools = list(bot.client_tools or [])
+    skills = [{"id": s.id, "mode": s.mode or "on_demand"} for s in bot.skills]
+
+    disabled_local = set(channel.local_tools_disabled or [])
+    disabled_mcp = set(channel.mcp_servers_disabled or [])
+    disabled_client = set(channel.client_tools_disabled or [])
+    disabled_skills = set(channel.skills_disabled or [])
+
+    if disabled_local:
+        local_tools = [t for t in local_tools if t not in disabled_local]
+    if disabled_mcp:
+        mcp_servers = [s for s in mcp_servers if s not in disabled_mcp]
+    if disabled_client:
+        client_tools = [t for t in client_tools if t not in disabled_client]
+    if disabled_skills:
+        skills = [s for s in skills if s["id"] not in disabled_skills]
+
+    # Add channel-extra skills
+    for sid in (channel.skills_extra or []):
+        if not any(s["id"] == sid for s in skills):
+            skills.append({"id": sid, "mode": "on_demand"})
+
+    # Build a draft dict from the resolved bot config + channel overrides
+    draft: dict = {
+        "name": bot.name,
+        "model": channel.model_override or bot.model,
+        "system_prompt": bot.system_prompt or "",
+        "persona": bool(bot.persona),
+        "persona_content": "",  # persona loaded at runtime from DB/files; omit from static estimate
+        "local_tools": local_tools,
+        "mcp_servers": mcp_servers,
+        "client_tools": client_tools,
+        "pinned_tools": list(bot.pinned_tools or []),
+        "skills": skills,
+        "tool_retrieval": bot.tool_retrieval if bot.tool_retrieval is not None else True,
+        "tool_similarity_threshold": bot.tool_similarity_threshold,
+        "memory_enabled": bot.memory.enabled if bot.memory else False,
+        "memory_similarity_threshold": getattr(bot.memory, "similarity_threshold", None),
+        "memory_max_inject_chars": getattr(bot.memory, "max_inject_chars", None),
+        "knowledge_enabled": bot.knowledge.enabled if bot.knowledge else False,
+        "knowledge_max_inject_chars": getattr(bot.knowledge, "max_inject_chars", None),
+        "filesystem_indexes": bot.filesystem_indexes or [],
+        "delegation_config": {"delegate_bots": list(bot.delegate_bots)} if bot.delegate_bots else {},
+        "history_mode": bot.history_mode,
+        "context_pruning": bot.context_pruning,
+        "context_pruning_keep_turns": bot.context_pruning_keep_turns,
+        "audio_input": bot.audio_input or "transcribe",
+        "base_prompt": bot.base_prompt if bot.base_prompt is not None else True,
+    }
+
+    result = await estimate_bot_context(draft=draft, bot_id=bot.id)
+
+    # Resolve model context window for overhead percentage
+    effective_model = channel.model_override or bot.model
+    provider_id = None
+    if "/" in effective_model:
+        provider_id, _ = effective_model.split("/", 1)
+    context_window = get_model_context_window(effective_model, provider_id)
+
+    return {
+        "lines": [asdict(line) for line in result.lines],
+        "total_chars": result.total_chars,
+        "approx_tokens": result.approx_tokens,
+        "context_window": context_window,
+        "overhead_pct": round(result.approx_tokens / context_window, 4) if context_window else None,
+        "disclaimer": result.disclaimer,
+    }
+
+
 @router.get("/channels/{channel_id}/context-budget")
 async def admin_channel_context_budget(
     channel_id: uuid.UUID,

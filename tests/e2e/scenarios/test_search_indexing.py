@@ -100,15 +100,13 @@ async def test_diagnostics_memory_search_shape(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_diagnostics_memory_search_nonexistent_bot(client: E2EClient) -> None:
-    """Memory search diagnostic for nonexistent bot returns error message."""
+async def test_diagnostics_memory_search_nonexistent_bot_404(client: E2EClient) -> None:
+    """Memory search diagnostic for nonexistent bot returns 404."""
     resp = await client.get(
         "/api/v1/admin/diagnostics/memory-search/e2e-nonexistent-bot-999",
         params={"query": "test"},
     )
-    assert resp.status_code == 200  # endpoint returns 200 with error in body
-    data = resp.json()
-    assert "error" in data
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -281,10 +279,12 @@ async def test_tool_tiers_nonempty_with_valid_tiers(client: E2EClient) -> None:
     assert "tool_name" in entry
     assert "safety_tier" in entry
     # All tiers should be valid values
-    valid_tiers = {"safe", "moderate", "sensitive", "critical"}
+    valid_tiers = {"readonly", "mutating", "exec_capable", "control_plane"}
     tier_values = {e["safety_tier"] for e in data}
     invalid = tier_values - valid_tiers
     assert not invalid, f"Unexpected safety tier values: {invalid}"
+    # Should have at least 2 different tier levels
+    assert len(tier_values) >= 2, f"Expected multiple tier levels but got: {tier_values}"
 
 
 # ---------------------------------------------------------------------------
