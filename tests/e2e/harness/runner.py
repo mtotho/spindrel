@@ -278,8 +278,12 @@ async def run_scenario(client: E2EClient, scenario: Scenario) -> ScenarioResult:
                     error=f"Failed to create inline bot: {e}",
                 )
 
-        # In external mode, always use the configured default bot
-        bot_id = client.default_bot_id if is_external else scenario.effective_bot_id(client.default_bot_id)
+        # In external mode, use the scenario's bot_id if it references a pre-existing
+        # server bot; only fall back to default for inline bots (which can't be created).
+        if is_external:
+            bot_id = scenario.bot_id or client.default_bot_id
+        else:
+            bot_id = scenario.effective_bot_id(client.default_bot_id)
         channel_id = client.new_channel_id()
 
         for i, step in enumerate(scenario.steps):
