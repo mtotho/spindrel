@@ -439,16 +439,10 @@ async def test_approve_with_create_rule(client: E2EClient) -> None:
 
         await asyncio.wait_for(stream_task, timeout=90)
 
-        # Verify the auto-created rule exists via list endpoint
-        rules_resp = await client.get(
-            "/api/v1/tool-policies",
-            params={"bot_id": client.default_bot_id},
-        )
-        assert rules_resp.status_code == 200
-        auto_rule = next(
-            (r for r in rules_resp.json() if r["id"] == auto_rule_id), None
-        )
-        assert auto_rule is not None, f"Auto-created rule {auto_rule_id} not found in list"
+        # Verify the auto-created rule exists
+        rule_resp = await client.get(f"/api/v1/tool-policies/{auto_rule_id}")
+        assert rule_resp.status_code == 200
+        auto_rule = rule_resp.json()
         assert auto_rule["tool_name"] == "get_current_time"
         assert auto_rule["action"] == "allow"
 

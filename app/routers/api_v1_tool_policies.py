@@ -189,6 +189,18 @@ async def list_policy_rules(
     return [PolicyRuleOut.model_validate(r) for r in rows]
 
 
+@router.get("/{rule_id}", response_model=PolicyRuleOut)
+async def get_policy_rule(
+    rule_id: uuid.UUID,
+    _auth=Depends(require_scopes("tool_policies:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    rule = await db.get(ToolPolicyRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Policy rule not found")
+    return PolicyRuleOut.model_validate(rule)
+
+
 @router.post("", response_model=PolicyRuleOut, status_code=201)
 async def create_policy_rule(
     body: PolicyRuleCreate,
