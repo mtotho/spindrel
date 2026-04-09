@@ -32,7 +32,7 @@ import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
 import { ParticipantsPanel } from "./ParticipantsPanel";
 import { BotInfoPanel } from "@/src/components/chat/BotInfoPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
-import { shouldGroup, formatDateSeparator, isDifferentDay } from "./chatUtils";
+import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { ChannelHeader } from "./ChannelHeader";
 import { useChannelChat } from "./useChannelChat";
@@ -183,9 +183,8 @@ export default function ChatScreen() {
   // Render order matters per platform:
   // - Native (inverted FlatList): scaleY(-1) flips each cell, so DateSeparator
   //   AFTER the message in DOM ends up ABOVE it visually.
-  // - Web (column-reverse container): no per-cell flip, so DateSeparator must
-  //   come BEFORE the message in DOM to appear above it. Using column-reverse
-  //   on each wrapper would break text selection (same bug as scaleY transforms).
+  // - Web (column layout): messages rendered chronologically, DateSeparator
+  //   comes BEFORE the message in JSX and appears above it visually.
   // When a bot avatar/name is clicked in a message, show the BotInfoPanel.
   // senderBotId comes from message metadata; fall back to channel's primary bot.
   const handleBotClick = useCallback(
@@ -206,7 +205,14 @@ export default function ChatScreen() {
         const card = <TriggerCard message={item} botName={bot?.name} />;
         return <>{dateSep}{card}</>;
       }
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={showDateSep ? false : grouped} onBotClick={handleBotClick} />;
+      const isGrouped = showDateSep ? false : grouped;
+      // Find turn header index (walk toward older messages to find the non-grouped start)
+      let headerIdx = index;
+      while (headerIdx < invertedData.length - 1 && shouldGroup(invertedData[headerIdx], invertedData[headerIdx + 1])) {
+        headerIdx++;
+      }
+      const fullTurnText = getTurnText(invertedData, headerIdx);
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} />;
       return <>{dateSep}{bubble}</>;
     },
     [invertedData, bot?.name, handleBotClick]

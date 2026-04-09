@@ -1,3 +1,4 @@
+import { extractDisplayText } from "@/src/components/chat/messageUtils";
 import type { Message } from "@/src/types/api";
 
 export interface MessagePage {
@@ -31,6 +32,30 @@ export function formatDateSeparator(iso: string): string {
   if (diff === 0) return "Today";
   if (diff === 86400000) return "Yesterday";
   return d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+}
+
+/**
+ * Collect the full text of a bot "turn" starting at the given index in inverted
+ * (newest-first) data.  Returns undefined when the turn is a single message
+ * (no concatenation needed).  For a multi-segment turn, the text is returned in
+ * chronological (oldest-first) order.
+ *
+ * `index` should point at the turn header (non-grouped message with avatar).
+ */
+export function getTurnText(
+  invertedData: Message[],
+  index: number,
+): string | undefined {
+  const header = invertedData[index];
+  if (header.role !== "assistant") return undefined;
+  const texts = [extractDisplayText(header.content)];
+  // Walk toward newer messages (lower indices in inverted list)
+  for (let i = index - 1; i >= 0; i--) {
+    const msg = invertedData[i];
+    if (!shouldGroup(msg, invertedData[i + 1])) break;
+    texts.push(extractDisplayText(msg.content));
+  }
+  return texts.length > 1 ? texts.join("\n\n") : undefined;
 }
 
 /** Are two timestamps on different calendar days (local time)? */

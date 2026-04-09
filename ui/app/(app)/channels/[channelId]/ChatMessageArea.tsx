@@ -58,7 +58,7 @@ export interface ChatMessageAreaProps {
 }
 
 // ---------------------------------------------------------------------------
-// Web: column-reverse scroll container (no scaleY transforms = proper text selection)
+// Web: normal column layout with JS scroll anchoring (proper text selection)
 // ---------------------------------------------------------------------------
 
 function WebChatList({
@@ -76,15 +76,20 @@ function WebChatList({
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [showFab, setShowFab] = useState(false);
+  const atBottomRef = useRef(true);
+  const prevScrollHeightRef = useRef(0);
 
-  // Stable ref for load-more callback — prevents IntersectionObserver from
-  // disconnecting/reconnecting every time handleLoadMore identity changes
-  // (which happens on every hasNextPage/isFetchingNextPage state transition).
+  const isAtBottom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  }, []);
+
+  // Stable ref for load-more callback
   const handleLoadMoreRef = useRef(handleLoadMore);
   handleLoadMoreRef.current = handleLoadMore;
 
   // Load older pages when the sentinel at the visual top becomes visible.
-  // Observer is created once and never reconnects — uses ref for callback.
   useEffect(() => {
     const sentinel = sentinelRef.current;
     const root = scrollRef.current;
@@ -102,22 +107,18 @@ function WebChatList({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // After a page finishes loading, re-check if the sentinel is still visible.
-  // The stable observer above won't re-fire if the sentinel never left the
-  // viewport (e.g. short message list that doesn't fill the screen).
-  // Only triggers on isFetchingNextPage true→false transitions.  The natural
-  // sentinel-visibility check stops loading once content fills the viewport.
+  // After a page finishes loading, preserve scroll position (older content
+  // prepended at top) and re-check sentinel visibility.
   const recheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevFetchingRef = useRef(false);
-  const wasAtBottomRef = useRef(true);
   useEffect(() => {
     const wasFetching = prevFetchingRef.current;
     prevFetchingRef.current = isFetchingNextPage;
 
-    // When a fetch starts, record whether the user is at the bottom.
+    // Fetch starting: snapshot scrollHeight so we can adjust after prepend
     if (isFetchingNextPage && !wasFetching) {
       const el = scrollRef.current;
-      wasAtBottomRef.current = !el || el.scrollTop >= -100;
+      if (el) prevScrollHeightRef.current = el.scrollHeight;
       return;
     }
     if (isFetchingNextPage) return;
@@ -125,16 +126,15 @@ function WebChatList({
     // Page just finished loading (true→false transition).
     if (!wasFetching) return;
 
-    // Pin to bottom if user was at bottom before the load started.
-    // This counteracts any browser scroll-shift from DOM changes.
-    if (wasAtBottomRef.current) {
-      const el = scrollRef.current;
-      if (el) el.scrollTop = 0;
+    // Adjust scrollTop to keep current content in place after prepend
+    const el = scrollRef.current;
+    if (el) {
+      const delta = el.scrollHeight - prevScrollHeightRef.current;
+      if (delta > 0) el.scrollTop += delta;
     }
 
     // Re-check sentinel visibility — if content still doesn't fill the
-    // viewport, load another page.  Once content fills the viewport the
-    // sentinel moves off-screen and loading stops naturally.
+    // viewport, load another page.
     if (recheckRef.current) clearTimeout(recheckRef.current);
     recheckRef.current = setTimeout(() => {
       const sentinel = sentinelRef.current;
@@ -149,31 +149,36 @@ function WebChatList({
     return () => { if (recheckRef.current) clearTimeout(recheckRef.current); };
   }, [isFetchingNextPage]);
 
-  // Track scroll position for FAB visibility
+  // Track scroll position for FAB visibility + at-bottom state
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = () => {
-      // In column-reverse, scrollTop=0 is at the bottom (newest).
-      // Scrolling up toward older messages gives negative scrollTop.
-      setShowFab(el.scrollTop < -300);
+      const bottom = isAtBottom();
+      atBottomRef.current = bottom;
+      setShowFab(!bottom);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [isAtBottom]);
 
-  // Auto-scroll: keep the view pinned to the bottom (scrollTop=0 in
-  // column-reverse) while streaming or when new messages arrive.
-  // Only fires when the user hasn't scrolled up.
+  // Auto-scroll to bottom when new content arrives (if already at bottom)
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && el.scrollTop >= -100) {
-      el.scrollTop = 0;
+    if (el && atBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
     }
   });
 
+  // Initial scroll to bottom on mount
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
   const doScrollToBottom = useCallback(() => {
-    scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, []);
 
   const streamingBotName = chatState.respondingBotName ?? undefined;
@@ -202,12 +207,10 @@ function WebChatList({
   ));
 
   const hasIndicators = primaryIndicator || memberIndicators.length > 0;
-  // In column-reverse, first child = visual bottom (closest to input).
-  // Primary bot goes first (bottom), member bots stack above it.
   const indicators = hasIndicators ? (
     <>
-      {primaryIndicator}
       {memberIndicators}
+      {primaryIndicator}
     </>
   ) : null;
 
@@ -218,24 +221,15 @@ function WebChatList({
         className="chat-scroll-web"
         style={{
           display: "flex",
-          flexDirection: "column-reverse",
+          flexDirection: "column",
           overflowY: "auto",
           height: "100%",
           paddingTop: 8,
           paddingBottom: 8,
         }}
       >
-        {/* First in DOM = visual bottom in column-reverse */}
-        {indicators}
-
-        {invertedData.map((item, index) => (
-          <div key={item.id} style={{ userSelect: "text" }}>
-            {renderMessage({ item, index })}
-          </div>
-        ))}
-
-        {/* Last in DOM = visual top — sentinel for loading older pages */}
-        <div ref={sentinelRef} style={{ minHeight: 1, flexShrink: 0 }}>
+        {/* Top of DOM = visual top — sentinel for loading older pages */}
+        <div ref={sentinelRef} style={{ minHeight: 1, flexShrink: 0, overflowAnchor: "none" }}>
           {isFetchingNextPage && (
             <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
               <div className="chat-spinner" />
@@ -243,7 +237,7 @@ function WebChatList({
           )}
         </div>
 
-        {/* Empty / loading state (last in DOM = visual top) */}
+        {/* Empty / loading state */}
         {invertedData.length === 0 && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 0", flex: 1 }}>
             {isLoading ? (
@@ -255,6 +249,22 @@ function WebChatList({
             )}
           </div>
         )}
+
+        {/* Messages in chronological order (oldest first).
+            invertedData is newest-first, so iterate in reverse.
+            renderMessage expects the index into invertedData. */}
+        {invertedData.map((_unused, i) => {
+          const chronIdx = invertedData.length - 1 - i;
+          const item = invertedData[chronIdx];
+          return (
+            <div key={item.id} style={{ userSelect: "text" }}>
+              {renderMessage({ item, index: chronIdx })}
+            </div>
+          );
+        })}
+
+        {/* Bottom of DOM = visual bottom — streaming indicators */}
+        {indicators}
       </div>
 
       {showFab && (

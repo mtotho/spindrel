@@ -848,9 +848,14 @@ async def assemble_context(
     if _ch_row is not None:
         _eff = resolve_effective_tools(bot, _ch_row)
         _eff = apply_auto_injections(_eff, bot)
-        # Member bots (system_preamble set) keep their own carapaces —
-        # channel-level carapaces_extra are for the primary bot's role.
-        _eff_carapaces = list(bot.carapaces or []) if system_preamble else _eff.carapaces
+        # Member bots keep their own carapaces — channel-level
+        # carapaces_extra are for the primary bot's role.
+        _is_member_bot = (
+            _ch_row is not None
+            and getattr(_ch_row, "bot_id", None)
+            and bot.id != _ch_row.bot_id
+        )
+        _eff_carapaces = list(bot.carapaces or []) if _is_member_bot else _eff.carapaces
         bot = _dc_replace(
             bot,
             local_tools=_eff.local_tools,

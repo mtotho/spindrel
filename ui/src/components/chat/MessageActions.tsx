@@ -16,14 +16,17 @@ import type { ThemeTokens } from "../../theme/tokens";
 
 export function MessageActions({
   text,
+  fullTurnText,
   correlationId,
   t,
 }: {
   text: string;
+  /** Concatenated text of all segments in a multi-segment bot turn */
+  fullTurnText?: string;
   correlationId?: string;
   t: ThemeTokens;
 }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"single" | "full" | false>(false);
   const router = useRouter();
 
   const btnStyle = (active?: boolean): React.CSSProperties => ({
@@ -40,6 +43,13 @@ export function MessageActions({
     padding: 0,
     boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
   });
+
+  const doCopy = (value: string, which: "single" | "full") => {
+    writeToClipboard(value).then(() => {
+      setCopied(which);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   return (
     <div className="msg-actions" style={{ userSelect: "none" }}>
@@ -58,13 +68,10 @@ export function MessageActions({
       <button
         onClick={(e) => {
           e.stopPropagation();
-          writeToClipboard(text).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-          });
+          doCopy(fullTurnText || text, fullTurnText ? "full" : "single");
         }}
-        title="Copy message"
-        style={btnStyle(copied)}
+        title={fullTurnText ? "Copy full response" : "Copy message"}
+        style={btnStyle(!!copied)}
       >
         {copied ? <Check size={14} /> : <Copy size={14} />}
       </button>

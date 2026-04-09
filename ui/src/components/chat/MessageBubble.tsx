@@ -22,13 +22,15 @@ interface Props {
   isGrouped?: boolean;
   /** Called when user clicks a bot's avatar/name (passes sender_bot_id if available, else null) */
   onBotClick?: (senderBotId: string | null) => void;
+  /** Full concatenated text for multi-segment bot turns (only set on the turn header) */
+  fullTurnText?: string;
 }
 
 // ---------------------------------------------------------------------------
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText }: Props) {
   const isWeb = Platform.OS === "web";
   const t = useThemeTokens();
   const meta = message.metadata || {};
@@ -127,7 +129,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           }}
         >
           {messageContent}
-          {displayContent.length > 0 && <MessageActions text={displayContent} correlationId={message.correlation_id} t={t} />}
+          {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} />}
         </div>
       );
     }
@@ -295,7 +297,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         }}
       >
         {webInner}
-        {displayContent.length > 0 && <MessageActions text={displayContent} correlationId={message.correlation_id} t={t} />}
+        {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} />}
       </div>
     );
   }
