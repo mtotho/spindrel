@@ -14,7 +14,7 @@ import { useUIStore } from "@/src/stores/ui";
 import { useChannelReadStore } from "@/src/stores/channelRead";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useChannel, useChannelContextBudget, useChannelContextEstimate } from "@/src/api/hooks/useChannels";
+import { useChannel, useChannelContextBudget, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useEnableEditor } from "@/src/api/hooks/useWorkspaces";
@@ -119,7 +119,7 @@ export default function ChatScreen() {
   const { data: bot } = useBot(channel?.bot_id);
   const { data: systemStatus } = useSystemStatus();
   const { data: savedBudget } = useChannelContextBudget(channelId);
-  const { data: contextEstimate } = useChannelContextEstimate(channelId);
+  const { data: configOverheadData } = useChannelConfigOverhead(channelId);
   const isPaused = systemStatus?.paused ?? false;
   const columns = useResponsiveColumns();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
@@ -327,6 +327,8 @@ export default function ChatScreen() {
     isQueued,
     onCancelQueue: cancelQueue,
     onSendNow: handleSendNow,
+    configOverhead: configOverheadData?.overhead_pct ?? null,
+    onConfigOverheadClick: () => setBotInfoBotId(channel?.bot_id || null),
   };
 
   // ---- Shared message area props ----
@@ -378,11 +380,6 @@ export default function ChatScreen() {
             total: savedBudget.total_tokens ?? 0,
           } : null
         )}
-        configOverhead={contextEstimate?.overhead_pct != null && contextEstimate.overhead_pct >= 0.01 ? {
-          pct: contextEstimate.overhead_pct,
-          tokens: contextEstimate.approx_tokens,
-        } : null}
-        onConfigOverheadClick={() => setBotInfoBotId(channel?.bot_id || null)}
       />
 
       {/* What's active badge bar */}

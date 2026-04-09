@@ -38,38 +38,71 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
               <div
                 onClick={() => hasContent && setExpandedId(isExpanded ? null : run.id)}
                 style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center",
-                  padding: "8px 12px", background: isExpanded ? t.surfaceOverlay : t.surfaceRaised,
+                  display: "flex", flexDirection: "column", gap: 4,
+                  padding: "8px 12px",
+                  background: isExpanded ? t.surfaceOverlay : (run.status === "failed" ? "rgba(239,68,68,0.04)" : t.surfaceRaised),
                   borderRadius: isExpanded ? "6px 6px 0 0" : 6,
-                  border: `1px solid ${isExpanded ? t.accent : t.surfaceOverlay}`,
+                  border: `1px solid ${isExpanded ? t.accent : run.status === "failed" ? "rgba(239,68,68,0.2)" : t.surfaceOverlay}`,
                   cursor: hasContent ? "pointer" : "default",
                   transition: "background 0.1s, border-color 0.1s",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {hasContent && (
-                    isExpanded
-                      ? <ChevronDown size={12} color={t.textDim} />
-                      : <ChevronRight size={12} color={t.textDim} />
-                  )}
-                  {showBotName && run.bot_name && (
-                    <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>
-                      {run.bot_name}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {hasContent && (
+                      isExpanded
+                        ? <ChevronDown size={12} color={t.textDim} />
+                        : <ChevronRight size={12} color={t.textDim} />
+                    )}
+                    {showBotName && run.bot_name && (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>
+                        {run.bot_name}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 12, color: t.textMuted }}>
+                      {new Date(run.created_at).toLocaleString()}
                     </span>
-                  )}
-                  <span style={{ fontSize: 12, color: t.textMuted }}>
-                    {new Date(run.created_at).toLocaleString()}
-                  </span>
-                  {run.completed_at && (
-                    <span style={{ fontSize: 10, color: t.textDim }}>
-                      ({Math.round((new Date(run.completed_at).getTime() - new Date(run.created_at).getTime()) / 1000)}s)
-                    </span>
-                  )}
+                    {run.completed_at && (
+                      <span style={{ fontSize: 10, color: t.textDim }}>
+                        ({Math.round((new Date(run.completed_at).getTime() - new Date(run.created_at).getTime()) / 1000)}s)
+                      </span>
+                    )}
+                  </div>
+                  <StatusBadge
+                    label={run.status}
+                    variant={run.status === "complete" ? "success" : run.status === "failed" ? "danger" : "neutral"}
+                  />
                 </div>
-                <StatusBadge
-                  label={run.status}
-                  variant={run.status === "complete" ? "success" : run.status === "failed" ? "danger" : "neutral"}
-                />
+                {/* Collapsed: show files affected + error preview */}
+                {!isExpanded && (
+                  <>
+                    {run.files_affected && run.files_affected.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 3, marginLeft: hasContent ? 20 : 0 }}>
+                        {run.files_affected.slice(0, 5).map((f) => (
+                          <span key={f} style={{
+                            fontSize: 9, color: "#8b5cf6", fontWeight: 500,
+                            padding: "1px 5px", borderRadius: 3,
+                            background: "rgba(139,92,246,0.08)",
+                          }}>
+                            {f.replace(/^memory\//, "")}
+                          </span>
+                        ))}
+                        {run.files_affected.length > 5 && (
+                          <span style={{ fontSize: 9, color: t.textDim }}>+{run.files_affected.length - 5}</span>
+                        )}
+                      </div>
+                    )}
+                    {run.status === "failed" && run.error && (
+                      <div style={{
+                        fontSize: 10, color: t.danger, marginLeft: hasContent ? 20 : 0,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        maxWidth: "100%",
+                      }}>
+                        {run.error}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
               {isExpanded && (
                 <div style={{

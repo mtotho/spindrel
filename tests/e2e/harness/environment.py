@@ -171,30 +171,56 @@ class E2EEnvironment:
     # -- Health polling --
 
     async def _wait_for_healthy(self) -> None:
-        """Poll the /health endpoint until it returns ok."""
+        """Poll until health returns ok AND the configured bot is loadable.
+
+        After a restart, /health can return 200 before the bot registry is
+        populated.  Tests that hit /chat immediately would get 404 because
+        get_bot() raises HTTPException(404) for unknown bot IDs.  So we
+        also verify the E2E bot exists via /bots before proceeding.
+        """
         url = f"{self.config.base_url}/health"
+        bot_url = f"{self.config.base_url}/bots"
+        bot_id = self.config.bot_id
         headers = {"Authorization": f"Bearer {self.config.api_key}"}
 
         async def check() -> bool:
             try:
                 async with httpx.AsyncClient(timeout=5) as client:
+                    # Step 1: health endpoint must be up
                     resp = await client.get(url, headers=headers)
-                    if resp.status_code == 200:
-                        body = resp.json()
-                        # Admin health returns {"healthy": true}, basic returns {"status": "ok"}
-                        return body.get("healthy", False) or body.get("database", False) or body.get("status") == "ok"
+                    if resp.status_code != 200:
+                        return False
+                    body = resp.json()
+                    healthy = (
+                        body.get("healthy", False)
+                        or body.get("database", False)
+                        or body.get("status") == "ok"
+                    )
+                    if not healthy:
+                        return False
+
+                    # Step 2: the configured bot must be in the registry
+                    resp = await client.get(bot_url, headers=headers)
+                    if resp.status_code != 200:
+                        return False
+                    data = resp.json()
+                    bots = data["bots"] if isinstance(data, dict) and "bots" in data else data
+                    if not any(b.get("id") == bot_id for b in bots):
+                        logger.debug("Bot %s not yet in registry (%d bots loaded)", bot_id, len(bots))
+                        return False
+                    return True
             except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
                 pass
             return False
 
-        logger.info("Waiting for E2E server at %s ...", url)
+        logger.info("Waiting for E2E server at %s (bot=%s) ...", url, bot_id)
         start = time.monotonic()
         try:
             await wait_for_condition(
                 check,
                 timeout=self.config.startup_timeout,
                 interval=2.0,
-                description=f"server healthy at {url}",
+                description=f"server healthy at {url} with bot {bot_id}",
             )
         except Exception:
             # Dump logs on failure for debugging
@@ -203,7 +229,7 @@ class E2EEnvironment:
             raise
 
         elapsed = time.monotonic() - start
-        logger.info("E2E server healthy in %.1fs", elapsed)
+        logger.info("E2E server healthy in %.1fs (bot %s ready)", elapsed, bot_id)
 
     # -- Diagnostics --
 

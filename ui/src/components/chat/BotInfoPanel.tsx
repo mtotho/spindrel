@@ -9,7 +9,7 @@ import { X, Bot, Wrench, Puzzle, Server, Shield, ExternalLink } from "lucide-rea
 import { useRouter } from "expo-router";
 import { useThemeTokens } from "../../theme/tokens";
 import { useBot } from "../../api/hooks/useBots";
-import { useChannel, useChannelEffectiveTools, useChannelContextEstimate } from "../../api/hooks/useChannels";
+import { useChannel, useChannelEffectiveTools, useChannelConfigOverhead } from "../../api/hooks/useChannels";
 import type { ContextEstimate } from "../../api/hooks/useChannels";
 import { useCarapaces } from "../../api/hooks/useCarapaces";
 import { buildSkillCarapaceMap, buildToolCarapaceMap } from "../../utils/carapaceMapping";
@@ -73,7 +73,7 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
   // effective-tools is resolved for the channel's primary bot — only show for primary
   const { data: effective } = useChannelEffectiveTools(isMemberBot ? undefined : channelId);
   const { data: allCarapaces } = useCarapaces();
-  const { data: contextEstimate } = useChannelContextEstimate(isMemberBot ? undefined : channelId);
+  const { data: configOverhead } = useChannelConfigOverhead(isMemberBot ? undefined : channelId);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -219,7 +219,7 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
           </div>
 
           {/* Configuration overhead */}
-          {contextEstimate && <ConfigOverhead estimate={contextEstimate} t={t} />}
+          {configOverhead && <ConfigOverhead estimate={configOverhead} t={t} />}
 
           {/* Capabilities (carapaces) */}
           {displayTools && displayTools.carapaces.length > 0 && (

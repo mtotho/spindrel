@@ -38,6 +38,10 @@ interface Props {
   onCancelQueue?: () => void;
   /** Interrupt current response and send immediately */
   onSendNow?: (message: string, files?: PendingFile[]) => void;
+  /** Config overhead (0-1) — tools/skills/system prompt cost as fraction of context window */
+  configOverhead?: number | null;
+  /** Called when user clicks the config overhead indicator */
+  onConfigOverheadClick?: () => void;
 }
 
 /** Rebuild PendingFile objects from serialized DraftFiles (restores File + preview). */
@@ -52,7 +56,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -518,6 +522,24 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 );
               })()}
             </div>
+          )}
+          {/* Config overhead indicator — desktop only, visible when overhead is notable */}
+          {!isMobile && configOverhead != null && configOverhead >= 0.05 && (
+            <button
+              onClick={onConfigOverheadClick}
+              title={`Config overhead: ${Math.round(configOverhead * 100)}% of context window used by tools, skills, and prompts`}
+              style={{
+                width: 4, height: 24, flexShrink: 0, borderRadius: 2,
+                border: "none", padding: 0, cursor: "pointer",
+                backgroundColor: configOverhead > 0.4
+                  ? "#ef4444"
+                  : configOverhead > 0.2
+                    ? "#eab308"
+                    : t.textDim,
+                opacity: configOverhead > 0.2 ? 0.9 : 0.35,
+                transition: "background-color 0.3s, opacity 0.3s",
+              }}
+            />
           )}
           {/* Send / Stop / Mic button */}
           <button

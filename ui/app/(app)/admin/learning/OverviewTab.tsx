@@ -2,11 +2,10 @@ import { useMemo } from "react";
 import { useRouter } from "expo-router";
 import { useWindowDimensions } from "react-native";
 import {
-  Moon, Activity, BookOpen, TrendingUp, Clock, FileText, PenLine,
+  Moon, Activity, BookOpen, TrendingUp, AlertTriangle, FileText, PenLine,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useLearningOverview, type MemoryFileActivity } from "@/src/api/hooks/useLearningOverview";
-import { HygieneHistoryList } from "@/app/(app)/admin/bots/[botId]/HygieneHistoryList";
 import { StatusBadge } from "@/src/components/shared/SettingsControls";
 import { StatCard, fmtRelative } from "@/app/(app)/admin/bots/[botId]/LearningSection";
 
@@ -25,7 +24,6 @@ function fmtRelativeFuture(iso: string | null | undefined): string {
 }
 
 function shortPath(path: string): string {
-  // "memory/MEMORY.md" → "MEMORY.md", "memory/logs/2026-04-08.md" → "logs/2026-04-08.md"
   return path.replace(/^memory\//, "");
 }
 
@@ -38,14 +36,14 @@ export function OverviewTab() {
   const isMobile = width < 768;
   const { data, isLoading } = useLearningOverview();
 
-  const recentPreview = useMemo(() => (data?.recent_runs ?? []).slice(0, 5), [data]);
-  const successRate = useMemo(() => {
-    if (!data?.recent_runs.length) return null;
-    const complete = data.recent_runs.filter((r) => r.status === "complete").length;
-    return Math.round((complete / data.recent_runs.length) * 100);
+  const botsWithFailures = useMemo(() => {
+    if (!data) return [];
+    return data.bots.filter((b) => b.last_task_status === "failed");
   }, [data]);
 
-  // Group memory activity by day for the timeline
+  const failedRuns = useMemo(() => (data?.recent_runs ?? []).filter((r) => r.status === "failed"), [data]);
+
+  // Group memory activity by day
   const activityByDay = useMemo(() => {
     if (!data?.memory_activity?.length) return [];
     const groups: { date: string; items: MemoryFileActivity[] }[] = [];
@@ -94,7 +92,55 @@ export function OverviewTab() {
         />
       </div>
 
-      {/* Two-column layout: bot table + memory activity (desktop) */}
+      {/* Failures callout */}
+      {botsWithFailures.length > 0 && (
+        <div style={{
+          display: "flex", flexDirection: "column", gap: 8,
+          padding: "12px 16px", borderRadius: 8,
+          background: t.dangerSubtle, border: `1px solid ${t.dangerBorder}`,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <AlertTriangle size={14} color={t.danger} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: t.danger }}>
+              {botsWithFailures.length} bot{botsWithFailures.length !== 1 ? "s" : ""} failed last dreaming run
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {botsWithFailures.map((bot) => {
+              const failedRun = failedRuns.find((r) => r.bot_id === bot.bot_id);
+              return (
+                <button
+                  key={bot.bot_id}
+                  onClick={() => router.push(`/admin/bots/${bot.bot_id}#memory` as any)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "6px 10px", borderRadius: 6,
+                    background: "rgba(239,68,68,0.06)", border: `1px solid ${t.dangerBorder}`,
+                    cursor: "pointer", textAlign: "left", width: "100%",
+                  }}
+                >
+                  <span style={{ fontSize: 12, fontWeight: 500, color: t.text, flexShrink: 0 }}>
+                    {bot.bot_name}
+                  </span>
+                  <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>
+                    {fmtRelativeFuture(bot.last_run_at)}
+                  </span>
+                  {failedRun?.error && (
+                    <span style={{
+                      fontSize: 10, color: t.danger, flex: 1,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      {failedRun.error}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Two-column: Bot table + Memory Activity */}
       <div style={{ display: "flex", gap: 20, flexDirection: isMobile ? "column" : "row" }}>
         {/* Left: Dreaming status table */}
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -115,7 +161,6 @@ export function OverviewTab() {
             </div>
           ) : (
             <div style={{ borderRadius: 8, border: `1px solid ${t.surfaceBorder}`, overflow: "hidden" }}>
-              {/* Header — hidden on mobile */}
               {!isMobile && (
                 <div style={{
                   display: "grid",
@@ -140,7 +185,7 @@ export function OverviewTab() {
                     flexDirection: isMobile ? "column" : undefined,
                     gridTemplateColumns: isMobile ? undefined : "1fr 70px 110px 80px 110px",
                     gap: isMobile ? 4 : 8,
-                    padding: isMobile ? "10px 14px" : "10px 14px",
+                    padding: "10px 14px",
                     background: "transparent",
                     border: "none",
                     borderBottom: `1px solid ${t.surfaceBorder}`,
@@ -203,16 +248,24 @@ export function OverviewTab() {
         </div>
 
         {/* Right: Memory Activity Feed */}
-        {activityByDay.length > 0 && (
-          <div style={{ flex: 1, minWidth: 0, maxWidth: isMobile ? undefined : 420 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: t.text, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-              <PenLine size={14} color={t.textMuted} />
-              Memory Activity
-              <span style={{ fontSize: 10, color: t.textDim, fontWeight: 400 }}>(7d)</span>
+        <div style={{ flex: 1, minWidth: 0, maxWidth: isMobile ? undefined : 420 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: t.text, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
+            <PenLine size={14} color={t.textMuted} />
+            Memory Activity
+            <span style={{ fontSize: 10, color: t.textDim, fontWeight: 400 }}>(7d)</span>
+          </div>
+          {activityByDay.length === 0 ? (
+            <div style={{
+              padding: 24, textAlign: "center", borderRadius: 8,
+              background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+            }}>
+              <FileText size={20} color={t.textDim} style={{ marginBottom: 8 }} />
+              <div style={{ fontSize: 12, color: t.textDim }}>No memory file activity in the last 7 days.</div>
             </div>
+          ) : (
             <div style={{
               borderRadius: 8, border: `1px solid ${t.surfaceBorder}`, overflow: "hidden",
-              maxHeight: 400, overflowY: "auto",
+              maxHeight: 500, overflowY: "auto",
             }}>
               {activityByDay.map((group) => (
                 <div key={group.date}>
@@ -247,7 +300,7 @@ export function OverviewTab() {
                               fontSize: 8, fontWeight: 600, padding: "1px 5px", borderRadius: 3,
                               background: "rgba(139,92,246,0.12)", color: "#8b5cf6",
                             }}>
-                              hygiene
+                              dreaming
                             </span>
                           )}
                         </div>
@@ -260,31 +313,9 @@ export function OverviewTab() {
                 </div>
               ))}
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* Recent runs */}
-      {recentPreview.length > 0 && (
-        <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-            <Clock size={14} color={t.textMuted} />
-            <span style={{ fontSize: 14, fontWeight: 600, color: t.text }}>
-              Recent Dreaming Runs
-            </span>
-            {successRate !== null && (
-              <span style={{
-                fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
-                background: successRate >= 80 ? "rgba(16,185,129,0.12)" : "rgba(239,68,68,0.12)",
-                color: successRate >= 80 ? "#059669" : "#ef4444",
-              }}>
-                {successRate}% pass
-              </span>
-            )}
-          </div>
-          <HygieneHistoryList runs={recentPreview} showBotName />
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -463,10 +463,10 @@ export interface ContextEstimate {
   disclaimer: string;
 }
 
-export function useChannelContextEstimate(channelId: string | undefined) {
+export function useChannelConfigOverhead(channelId: string | undefined) {
   return useQuery<ContextEstimate>({
-    queryKey: ["channel-context-estimate", channelId],
-    queryFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/context-estimate`),
+    queryKey: ["channel-config-overhead", channelId],
+    queryFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/config-overhead`),
     enabled: !!channelId,
     staleTime: 120_000,
   });

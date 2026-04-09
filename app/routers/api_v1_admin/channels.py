@@ -1884,8 +1884,8 @@ async def admin_channel_context_breakdown(
     }
 
 
-@router.get("/channels/{channel_id}/context-estimate")
-async def admin_channel_context_estimate(
+@router.get("/channels/{channel_id}/config-overhead")
+async def admin_channel_config_overhead(
     channel_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("channels:read")),
