@@ -1,5 +1,5 @@
 ---
-name: workspace-orchestrator
+name: Workspace Orchestrator
 description: "Core orchestrator context — environment, filesystem layout, capabilities, and index to deep knowledge. Always loaded for orchestrator bots."
 ---
 

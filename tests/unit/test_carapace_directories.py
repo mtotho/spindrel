@@ -457,31 +457,6 @@ class TestContextMasterySkill:
         assert content.startswith("---"), "Should have YAML frontmatter"
         assert "name: Context Mastery" in content
 
-    def test_all_carapaces_reference_context_mastery(self):
-        """Every carapace should include context_mastery as on_demand."""
-        from pathlib import Path
-
-        import yaml
-
-        carapace_dirs = [
-            "carapaces/orchestrator",
-            "carapaces/qa",
-            "carapaces/code-review",
-            "carapaces/bug-fix",
-            "carapaces/baking",
-            "carapaces/gardening",
-        ]
-
-        for cdir in carapace_dirs:
-            carapace_file = Path(cdir) / "carapace.yaml"
-            if not carapace_file.is_file():
-                continue  # skip if carapace dir doesn't exist (gitignored)
-            data = yaml.safe_load(carapace_file.read_text())
-            skill_ids = [s["id"] for s in data.get("skills", [])]
-            assert "context_mastery" in skill_ids, (
-                f"{cdir}/carapace.yaml should reference context_mastery skill"
-            )
-
     def test_context_mastery_discovered_by_collect_skill_files(self, tmp_path, monkeypatch):
         """context_mastery.md should be picked up by the global skills scanner."""
         monkeypatch.chdir(tmp_path)

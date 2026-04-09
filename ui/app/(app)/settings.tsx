@@ -31,6 +31,7 @@ import {
 } from "@/src/api/hooks/useSettings";
 import { ServerStatusBar } from "@/src/components/settings/ServerStatusBar";
 import { GlobalSection } from "@/src/components/settings/GlobalSection";
+import { ModelTiersSection } from "@/src/components/settings/ModelTiersSection";
 import { ChatHistoryExtras } from "@/src/components/settings/ChatHistoryExtras";
 import { BotOverridesList } from "@/src/components/settings/BotOverridesList";
 import { FlushPromptOverrideWarning } from "@/src/components/settings/FlushPromptOverrideWarning";
@@ -742,16 +743,19 @@ export default function SettingsScreen() {
 
           {/* Global section (fallback models + config state link) */}
           {isGlobal && (
-            <GlobalSection
-              fbModels={fbModels}
-              onFbChange={handleFbChange}
-              onFbSave={handleFbSave}
-              fbDirty={fbDirty}
-              fbSaving={fbUpdateMut.isPending}
-              fbSaved={fbSaved}
-              fbError={fbUpdateMut.isError}
-              fbLoading={fbQuery.isLoading}
-            />
+            <>
+              <GlobalSection
+                fbModels={fbModels}
+                onFbChange={handleFbChange}
+                onFbSave={handleFbSave}
+                fbDirty={fbDirty}
+                fbSaving={fbUpdateMut.isPending}
+                fbSaved={fbSaved}
+                fbError={fbUpdateMut.isError}
+                fbLoading={fbQuery.isLoading}
+              />
+              <ModelTiersSection />
+            </>
           )}
 
           {/* Backup section */}

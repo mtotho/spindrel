@@ -1,5 +1,5 @@
 ---
-name: workflows
+name: Workflows
 description: >
   Workflow system reference for orchestrators. Load when creating, triggering,
   or managing reusable multi-step workflow templates. Covers YAML format,

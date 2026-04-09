@@ -1,5 +1,5 @@
 ---
-name: image-editing
+name: Image Editing
 description: >
   Advanced image editing patterns: iterative edit chains, version tracking,
   multi-image composition, style transfer, batch generation, and delegation

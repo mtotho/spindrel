@@ -1,0 +1,22 @@
+id: firecrawl
+name: Firecrawl
+icon: Globe
+description: >-
+  Web scraping, crawling, and structured extraction powered by Firecrawl.
+  Converts any webpage into clean markdown, crawls entire sites, and extracts
+  structured data — all optimized for LLM consumption.
+version: "1.0"
+
+settings:
+  - key: FIRECRAWL_API_KEY
+    type: string
+    label: API Key
+    secret: true
+    required: true
+    description: Firecrawl API key (starts with fc-)
+
+mcp_servers:
+  - id: firecrawl
+    display_name: Firecrawl
+    url: https://mcp.firecrawl.dev/v2/mcp
+    api_key_env: FIRECRAWL_API_KEY

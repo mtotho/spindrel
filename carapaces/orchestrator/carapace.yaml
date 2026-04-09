@@ -71,15 +71,6 @@ skills:
     mode: on_demand
   - id: carapaces/orchestrator/integration-builder
     mode: on_demand
-  # Shared skills (not owned by this carapace)
-  - id: channel_workspaces
-    mode: on_demand
-  - id: context_mastery
-    mode: on_demand
-  - id: docker_stacks
-    mode: on_demand
-  # Note: mission-control skills (task boards, planning, project management,
-  # content feeds, integration builder) come via includes: [mission-control]
 
 local_tools:
   - get_system_status
@@ -108,6 +99,7 @@ local_tools:
   - exec_command
   - create_slides
   - read_conversation_history
+  - spawn_subagents
 
 pinned_tools:
   - get_system_status

@@ -1,5 +1,5 @@
 ---
-name: workflow-compiler
+name: Workflow Compiler
 description: >
   Guide for analyzing, optimizing, and compiling workflows. Load when asked to convert
   workflow steps to deterministic tool calls, optimize a workflow, analyze a run's

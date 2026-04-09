@@ -74,6 +74,79 @@ def _import_module(integration_id: str, module_name: str, file_path: Path, is_ex
     return mod
 
 
+def _get_setup(
+    candidate: Path, integration_id: str, is_external: bool, source: str,
+) -> dict | None:
+    """Get the SETUP dict for an integration.
+
+    Checks the DB-backed manifest cache first (supports integration.yaml),
+    then falls back to loading setup.py.  Returns None if neither source
+    provides metadata.
+    """
+    # Try manifest cache (populated from integration.yaml or setup.py at startup)
+    try:
+        from app.services.integration_manifests import get_manifest
+        manifest = get_manifest(integration_id)
+        if manifest:
+            return _manifest_to_setup(manifest)
+    except ImportError:
+        pass
+
+    # Fall back to setup.py
+    setup_file = candidate / "setup.py"
+    if not setup_file.exists():
+        return None
+    try:
+        module = _import_module(integration_id, "setup", setup_file, is_external, source)
+        return getattr(module, "SETUP", None)
+    except Exception:
+        logger.exception("Failed to load setup.py for integration %r", integration_id)
+        return None
+
+
+def _manifest_to_setup(manifest: dict) -> dict:
+    """Convert a manifest dict (from integration.yaml) to SETUP-compatible format.
+
+    This allows all existing discover_* functions to work with either source.
+    """
+    setup: dict = {}
+    setup["icon"] = manifest.get("icon", "Plug")
+    setup["name"] = manifest.get("name")
+    setup["version"] = manifest.get("version")
+    setup["description"] = manifest.get("description")
+
+    # settings → env_vars
+    settings = manifest.get("settings")
+    if settings:
+        setup["env_vars"] = [
+            {
+                "key": s["key"],
+                "required": s.get("required", False),
+                "secret": s.get("secret", False),
+                "description": s.get("label", s["key"]),
+                "default": s.get("default"),
+                "type": s.get("type", "string"),
+            }
+            for s in settings
+        ]
+
+    # dependencies → python_dependencies / npm_dependencies
+    deps = manifest.get("dependencies", {})
+    if isinstance(deps, dict):
+        if "python" in deps:
+            setup["python_dependencies"] = deps["python"]
+        if "npm" in deps:
+            setup["npm_dependencies"] = deps["npm"]
+
+    # Pass through all other known fields
+    from app.services.integration_manifests import PASSTHROUGH_KEYS
+    for key in PASSTHROUGH_KEYS:
+        if key in manifest:
+            setup[key] = manifest[key]
+
+    return setup
+
+
 def _iter_integration_candidates() -> list[tuple[Path, str, bool, str]]:
     """Yield (candidate_dir, integration_id, is_external, source) for all directories.
 
@@ -312,90 +385,91 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             except ImportError:
                 pass
 
-        # Load setup.py if present
-        setup_file = candidate / "setup.py"
-        if setup_file.exists():
-            try:
-                module = _import_module(integration_id, "setup", setup_file, is_external, source)
-                setup = getattr(module, "SETUP", {})
-                entry["icon"] = setup.get("icon", "Plug")
+        # Load manifest (from integration.yaml via DB cache, or setup.py fallback)
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        entry["has_yaml"] = (candidate / "integration.yaml").exists()
+        if setup:
+            entry["icon"] = setup.get("icon", "Plug")
 
-                # Env vars with is_set check (DB cache > env var > default)
-                for var in setup.get("env_vars", []):
+            # Env vars with is_set check (DB cache > env var > default)
+            for var in setup.get("env_vars", []):
+                try:
+                    from app.services.integration_settings import get_value
+                    is_set = bool(get_value(integration_id, var["key"])) or bool(var.get("default"))
+                except ImportError:
+                    is_set = bool(os.environ.get(var["key"])) or bool(var.get("default"))
+                entry["env_vars"].append({
+                    "key": var["key"],
+                    "required": var.get("required", False),
+                    "description": var.get("description", ""),
+                    "default": var.get("default"),
+                    "is_set": is_set,
+                })
+
+            # Python dependencies check
+            py_deps = setup.get("python_dependencies", [])
+            if py_deps:
+                deps_status = []
+                all_installed = True
+                for dep in py_deps:
+                    import_name = dep.get("import_name", dep.get("package", "").replace("-", "_"))
                     try:
-                        from app.services.integration_settings import get_value
-                        is_set = bool(get_value(integration_id, var["key"])) or bool(var.get("default"))
+                        importlib.import_module(import_name)
+                        deps_status.append({"package": dep["package"], "installed": True})
                     except ImportError:
-                        is_set = bool(os.environ.get(var["key"])) or bool(var.get("default"))
-                    entry["env_vars"].append({
-                        "key": var["key"],
-                        "required": var.get("required", False),
-                        "description": var.get("description", ""),
-                        "default": var.get("default"),
-                        "is_set": is_set,
-                    })
+                        deps_status.append({"package": dep["package"], "installed": False})
+                        all_installed = False
+                entry["python_dependencies"] = deps_status
+                entry["deps_installed"] = all_installed
 
-                # Python dependencies check
-                py_deps = setup.get("python_dependencies", [])
-                if py_deps:
-                    deps_status = []
-                    all_installed = True
-                    for dep in py_deps:
-                        import_name = dep.get("import_name", dep.get("package", "").replace("-", "_"))
-                        try:
-                            importlib.import_module(import_name)
-                            deps_status.append({"package": dep["package"], "installed": True})
-                        except ImportError:
-                            deps_status.append({"package": dep["package"], "installed": False})
-                            all_installed = False
-                    entry["python_dependencies"] = deps_status
-                    entry["deps_installed"] = all_installed
+            # npm / binary dependencies check
+            npm_deps = setup.get("npm_dependencies", [])
+            if npm_deps:
+                import shutil
+                _npm_bin = os.path.expanduser("~/.local/bin")
+                npm_status = []
+                all_npm_installed = True
+                for dep in npm_deps:
+                    binary = dep.get("binary_name", dep["package"])
+                    installed = (
+                        shutil.which(binary) is not None
+                        or os.path.isfile(os.path.join(_npm_bin, binary))
+                    )
+                    npm_status.append({"package": dep["package"], "binary_name": binary, "installed": installed})
+                    if not installed:
+                        all_npm_installed = False
+                entry["npm_dependencies"] = npm_status
+                entry["npm_deps_installed"] = all_npm_installed
 
-                # npm / binary dependencies check
-                npm_deps = setup.get("npm_dependencies", [])
-                if npm_deps:
-                    import shutil
-                    _npm_bin = os.path.expanduser("~/.local/bin")
-                    npm_status = []
-                    all_npm_installed = True
-                    for dep in npm_deps:
-                        binary = dep.get("binary_name", dep["package"])
-                        installed = (
-                            shutil.which(binary) is not None
-                            or os.path.isfile(os.path.join(_npm_bin, binary))
-                        )
-                        npm_status.append({"package": dep["package"], "binary_name": binary, "installed": installed})
-                        if not installed:
-                            all_npm_installed = False
-                    entry["npm_dependencies"] = npm_status
-                    entry["npm_deps_installed"] = all_npm_installed
+            # OAuth config (pass through to UI)
+            oauth = setup.get("oauth")
+            if oauth:
+                entry["oauth"] = oauth
 
-                # OAuth config (pass through to UI)
-                oauth = setup.get("oauth")
-                if oauth:
-                    entry["oauth"] = oauth
+            # API permissions
+            ap = setup.get("api_permissions")
+            if ap:
+                entry["api_permissions"] = ap
 
-                # API permissions
-                ap = setup.get("api_permissions")
-                if ap:
-                    entry["api_permissions"] = ap
+            # Debug actions
+            da = setup.get("debug_actions")
+            if da and isinstance(da, list):
+                entry["debug_actions"] = da
 
-                # Debug actions
-                da = setup.get("debug_actions")
-                if da and isinstance(da, list):
-                    entry["debug_actions"] = da
+            # Webhook
+            wh = setup.get("webhook")
+            if wh:
+                full_url = f"{base_url.rstrip('/')}{wh['path']}" if base_url else wh["path"]
+                entry["webhook"] = {
+                    "path": wh["path"],
+                    "url": full_url,
+                    "description": wh.get("description", ""),
+                }
 
-                # Webhook
-                wh = setup.get("webhook")
-                if wh:
-                    full_url = f"{base_url.rstrip('/')}{wh['path']}" if base_url else wh["path"]
-                    entry["webhook"] = {
-                        "path": wh["path"],
-                        "url": full_url,
-                        "description": wh.get("description", ""),
-                    }
-            except Exception:
-                logger.exception("Failed to load setup.py for integration %r", integration_id)
+            # MCP servers declared by integration
+            mcp = setup.get("mcp_servers")
+            if mcp and isinstance(mcp, list):
+                entry["mcp_servers"] = mcp
 
         # Read README.md if present
         readme_file = candidate / "README.md"
@@ -435,23 +509,18 @@ def discover_dashboard_modules() -> list[dict]:
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        if not setup:
             continue
-        try:
-            module = _import_module(integration_id, "setup", setup_file, is_external, source)
-            setup = getattr(module, "SETUP", {})
-            for mod in setup.get("dashboard_modules", []):
-                results.append({
-                    "integration_id": integration_id,
-                    "module_id": mod["id"],
-                    "label": mod.get("label", mod["id"]),
-                    "icon": mod.get("icon", "Zap"),
-                    "description": mod.get("description", ""),
-                    "api_base": f"/integrations/{integration_id}/mc/{mod['id']}",
-                })
-        except Exception:
-            logger.exception("Failed to load dashboard modules for integration %r", integration_id)
+        for mod in setup.get("dashboard_modules", []):
+            results.append({
+                "integration_id": integration_id,
+                "module_id": mod["id"],
+                "label": mod.get("label", mod["id"]),
+                "icon": mod.get("icon", "Zap"),
+                "description": mod.get("description", ""),
+                "api_base": f"/integrations/{integration_id}/mc/{mod['id']}",
+            })
 
     return results
 
@@ -487,12 +556,10 @@ def discover_sidebar_sections(*, refresh: bool = False) -> list[dict]:
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        if not setup:
             continue
         try:
-            module = _import_module(integration_id, "setup", setup_file, is_external, source)
-            setup = getattr(module, "SETUP", {})
             section = setup.get("sidebar_section")
             if section and isinstance(section, dict) and "id" in section and section.get("items"):
                 results.append({
@@ -529,12 +596,10 @@ def discover_chat_huds() -> dict[str, list[dict]]:
     valid_styles = {"status_strip", "side_panel", "input_bar", "floating_action"}
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        if not setup:
             continue
         try:
-            module = _import_module(integration_id, "setup", setup_file, is_external, source)
-            setup = getattr(module, "SETUP", {})
             huds = setup.get("chat_hud")
             if not huds or not isinstance(huds, list):
                 continue
@@ -587,12 +652,10 @@ def discover_chat_hud_presets() -> dict[str, dict[str, dict]]:
     results: dict[str, dict[str, dict]] = {}
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        if not setup:
             continue
         try:
-            module = _import_module(integration_id, "setup", setup_file, is_external, source)
-            setup = getattr(module, "SETUP", {})
             presets = setup.get("chat_hud_presets")
             if not presets or not isinstance(presets, dict):
                 continue
@@ -651,21 +714,16 @@ def discover_activation_manifests() -> dict[str, dict]:
     results: dict[str, dict] = {}
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        if not setup:
             continue
-        try:
-            module = _import_module(integration_id, "setup", setup_file, is_external, source)
-            setup = getattr(module, "SETUP", {})
-            activation = setup.get("activation")
-            if activation and isinstance(activation, dict):
-                # Embed version from top-level SETUP into the manifest
-                version = setup.get("version")
-                if version and "version" not in activation:
-                    activation = {**activation, "version": version}
-                results[integration_id] = activation
-        except Exception:
-            logger.exception("Failed to load activation manifest for integration %r", integration_id)
+        activation = setup.get("activation")
+        if activation and isinstance(activation, dict):
+            # Embed version from top-level SETUP into the manifest
+            version = setup.get("version")
+            if version and "version" not in activation:
+                activation = {**activation, "version": version}
+            results[integration_id] = activation
 
     # Resolve "includes" — merge carapaces and config_fields from included
     # integrations.  requires_workspace is NOT inherited — each integration
@@ -724,34 +782,29 @@ def discover_web_uis() -> list[dict]:
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        if not setup:
             continue
-        try:
-            module = _import_module(integration_id, "setup", setup_file, is_external, source)
-            setup = getattr(module, "SETUP", {})
-            web_ui = setup.get("web_ui")
-            if not web_ui or not isinstance(web_ui, dict):
-                continue
-            static_dir = web_ui.get("static_dir")
-            if not static_dir:
-                continue
-            static_path = (candidate / static_dir).resolve()
-            if not static_path.is_dir():
-                logger.warning(
-                    "Integration %r declares web_ui but static dir does not exist: %s "
-                    "(run 'npm run build' inside the dashboard directory)",
-                    integration_id, static_path,
-                )
-                continue
-            results.append({
-                "integration_id": integration_id,
-                "static_dir_path": static_path,
-                "dev_port": web_ui.get("dev_port"),
-            })
-            logger.info("Discovered web UI for integration %r: %s", integration_id, static_path)
-        except Exception:
-            logger.exception("Failed to load web_ui config for integration %r", integration_id)
+        web_ui = setup.get("web_ui")
+        if not web_ui or not isinstance(web_ui, dict):
+            continue
+        static_dir = web_ui.get("static_dir")
+        if not static_dir:
+            continue
+        static_path = (candidate / static_dir).resolve()
+        if not static_path.is_dir():
+            logger.warning(
+                "Integration %r declares web_ui but static dir does not exist: %s "
+                "(run 'npm run build' inside the dashboard directory)",
+                integration_id, static_path,
+            )
+            continue
+        results.append({
+            "integration_id": integration_id,
+            "static_dir_path": static_path,
+            "dev_port": web_ui.get("dev_port"),
+        })
+        logger.info("Discovered web UI for integration %r: %s", integration_id, static_path)
 
     return results
 
@@ -764,17 +817,12 @@ def discover_binding_metadata() -> dict[str, dict]:
     results: dict[str, dict] = {}
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        if not setup:
             continue
-        try:
-            module = _import_module(integration_id, "setup", setup_file, is_external, source)
-            setup = getattr(module, "SETUP", {})
-            binding = setup.get("binding")
-            if binding:
-                results[integration_id] = binding
-        except Exception:
-            logger.exception("Failed to load binding metadata for integration %r", integration_id)
+        binding = setup.get("binding")
+        if binding:
+            results[integration_id] = binding
 
     return results
 
@@ -806,63 +854,58 @@ def discover_docker_compose_stacks() -> list[dict]:
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, integration_id, is_external, source)
+        if not setup:
             continue
-        try:
-            module = _import_module(integration_id, "setup", setup_file, is_external, source)
-            setup = getattr(module, "SETUP", {})
-            dc = setup.get("docker_compose")
-            if not dc or not isinstance(dc, dict):
-                continue
+        dc = setup.get("docker_compose")
+        if not dc or not isinstance(dc, dict):
+            continue
 
-            compose_file = dc.get("file")
-            if not compose_file:
-                continue
+        compose_file = dc.get("file")
+        if not compose_file:
+            continue
 
-            compose_path = candidate / compose_file
-            if not compose_path.exists():
+        compose_path = candidate / compose_file
+        if not compose_path.exists():
+            logger.warning(
+                "Integration %r declares docker_compose but file not found: %s",
+                integration_id, compose_path,
+            )
+            continue
+
+        compose_definition = compose_path.read_text()
+
+        # Read config files
+        config_files: dict[str, str] = {}
+        for rel_path in dc.get("config_files", []):
+            cfg_path = candidate / rel_path
+            if cfg_path.exists():
+                config_files[rel_path] = cfg_path.read_text()
+            else:
                 logger.warning(
-                    "Integration %r declares docker_compose but file not found: %s",
-                    integration_id, compose_path,
+                    "Integration %r docker_compose config_file not found: %s",
+                    integration_id, cfg_path,
                 )
-                continue
 
-            compose_definition = compose_path.read_text()
+        # Resolve the default for enabled_setting from env_vars
+        enabled_setting = dc.get("enabled_setting")
+        enabled_default = "false"
+        if enabled_setting:
+            for var in setup.get("env_vars", []):
+                if var.get("key") == enabled_setting:
+                    enabled_default = var.get("default", "false")
+                    break
 
-            # Read config files
-            config_files: dict[str, str] = {}
-            for rel_path in dc.get("config_files", []):
-                cfg_path = candidate / rel_path
-                if cfg_path.exists():
-                    config_files[rel_path] = cfg_path.read_text()
-                else:
-                    logger.warning(
-                        "Integration %r docker_compose config_file not found: %s",
-                        integration_id, cfg_path,
-                    )
-
-            # Resolve the default for enabled_setting from env_vars
-            enabled_setting = dc.get("enabled_setting")
-            enabled_default = "false"
-            if enabled_setting:
-                for var in setup.get("env_vars", []):
-                    if var.get("key") == enabled_setting:
-                        enabled_default = var.get("default", "false")
-                        break
-
-            results.append({
-                "integration_id": integration_id,
-                "project_name": dc.get("project_name", f"spindrel-{integration_id}"),
-                "compose_definition": compose_definition,
-                "config_files": config_files,
-                "enabled_setting": enabled_setting,
-                "enabled_default": enabled_default,
-                "connect_networks": dc.get("connect_networks", []),
-                "description": dc.get("description", ""),
-            })
-        except Exception:
-            logger.exception("Failed to load docker_compose config for integration %r", integration_id)
+        results.append({
+            "integration_id": integration_id,
+            "project_name": dc.get("project_name", f"spindrel-{integration_id}"),
+            "compose_definition": compose_definition,
+            "config_files": config_files,
+            "enabled_setting": enabled_setting,
+            "enabled_default": enabled_default,
+            "connect_networks": dc.get("connect_networks", []),
+            "description": dc.get("description", ""),
+        })
 
     return results
 

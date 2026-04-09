@@ -941,6 +941,16 @@ async def assemble_context(
         _new_local = [t for t in _resolved_c.local_tools if t not in _existing_tools]
         _existing_mcp = set(bot.mcp_servers)
         _new_mcp = [t for t in _resolved_c.mcp_tools if t not in _existing_mcp]
+        # Inject MCP servers from activated integrations
+        try:
+            from app.services.integration_manifests import collect_integration_mcp_servers
+            _int_mcp = collect_integration_mcp_servers(
+                getattr(_ch_row, "integrations", None),
+                exclude=_existing_mcp | set(_new_mcp),
+            )
+            _new_mcp.extend(_int_mcp)
+        except ImportError:
+            pass
         _existing_pinned = set(bot.pinned_tools)
         _new_pinned = [t for t in _resolved_c.pinned_tools if t not in _existing_pinned]
         # Re-apply channel disabled lists so carapaces can't bypass channel restrictions

@@ -37,13 +37,15 @@ def render_base_prompt(bot) -> str | None:
     has_memory = False  # DB memory deprecated
     has_knowledge = False  # DB knowledge deprecated
     has_delegation = bool(getattr(bot, "delegate_bots", None))
+    has_subagents = "spawn_subagents" in (getattr(bot, "local_tools", None) or [])
 
     variables = defaultdict(str, {
         "bot_name": getattr(bot, "name", "Assistant"),
         "skills_section": "\n- **Skills**: You can retrieve skill documents with get_skill for specialized knowledge. Use get_skill_list() to browse all available skills." if has_skills else "",
         "memory_section": "\n- **Memory**: You have persistent memory across conversations. Relevant memories are automatically recalled." if has_memory else "",
         "knowledge_section": "\n- **Knowledge**: You can read and write knowledge documents for long-term reference." if has_knowledge else "",
-        "delegation_section": "\n- **Delegation**: You can delegate tasks to sub-agents via delegate_to_agent or @bot-id mentions." if has_delegation else "",
+        "delegation_section": "\n- **Delegation**: You can delegate tasks to other bots via delegate_to_agent or @bot-id mentions." if has_delegation else "",
+        "subagent_section": "\n- **Sub-agents**: Use spawn_subagents for parallel grunt work (file scanning, summarizing, research). They run on cheaper models and return results directly to you." if has_subagents else "",
         "memory_guidelines": "\n- Use memory naturally: reference recalled memories when relevant, save important information for future recall." if has_memory else "",
         "knowledge_guidelines": "\n- Use knowledge docs to persist structured information that should survive across sessions." if has_knowledge else "",
     })

@@ -1,5 +1,5 @@
 ---
-name: workspace-management
+name: Workspace Management
 description: >
   Channels, workspace skills, memory write patterns, base template overrides, and
   operational checklists. Load when managing channels, writing workspace skills,

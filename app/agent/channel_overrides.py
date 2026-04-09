@@ -156,9 +156,21 @@ def resolve_effective_tools(bot: BotConfig, channel: "Channel | None") -> Effect
     if _ch_disabled:
         _carapaces = [c for c in _carapaces if c not in _ch_disabled]
 
+    # Inject MCP servers from activated integrations
+    _mcp = list(bot.mcp_servers)
+    try:
+        from app.services.integration_manifests import collect_integration_mcp_servers
+        _int_mcp = collect_integration_mcp_servers(
+            getattr(channel, "integrations", None),
+            exclude=set(_mcp),
+        )
+        _mcp.extend(_int_mcp)
+    except ImportError:
+        pass
+
     return EffectiveTools(
         local_tools=_apply_disabled(bot.local_tools, channel.local_tools_disabled),
-        mcp_servers=_apply_disabled(bot.mcp_servers, channel.mcp_servers_disabled),
+        mcp_servers=_apply_disabled(_mcp, channel.mcp_servers_disabled),
         client_tools=_apply_disabled(bot.client_tools, channel.client_tools_disabled),
         pinned_tools=list(bot.pinned_tools),
         skills=_resolve_skills(

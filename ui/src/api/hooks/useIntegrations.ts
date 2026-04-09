@@ -498,3 +498,45 @@ export function useIntegrationDebugAction(id: string) {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Integration manifest / YAML hooks
+// ---------------------------------------------------------------------------
+
+export function useIntegrationManifest(id: string) {
+  return useQuery({
+    queryKey: ["admin-integration-manifest", id],
+    queryFn: () =>
+      apiFetch<{ manifest: Record<string, unknown> }>(
+        `/api/v1/admin/integrations/${id}/manifest`
+      ),
+    enabled: !!id,
+  });
+}
+
+export function useIntegrationYaml(id: string) {
+  return useQuery({
+    queryKey: ["admin-integration-yaml", id],
+    queryFn: () =>
+      apiFetch<{ yaml: string; source: string }>(
+        `/api/v1/admin/integrations/${id}/yaml`
+      ),
+    enabled: !!id,
+  });
+}
+
+export function useUpdateIntegrationYaml(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (yaml: string) =>
+      apiFetch(`/api/v1/admin/integrations/${id}/yaml`, {
+        method: "PUT",
+        body: JSON.stringify({ yaml }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-integration-yaml", id] });
+      qc.invalidateQueries({ queryKey: ["admin-integration-manifest", id] });
+      qc.invalidateQueries({ queryKey: ["admin-integrations"] });
+    },
+  });
+}

@@ -1,5 +1,5 @@
 ---
-name: workspace-delegation
+name: Workspace Delegation
 description: >
   Delegation patterns and tool reference for orchestrators. Load when delegating to
   bots or Claude Code, choosing between delegation methods, designing multi-step workflows,

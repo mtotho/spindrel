@@ -9,8 +9,6 @@ tags: [data, analysis, reporting, csv, statistics]
 skills:
   - id: carapaces/data-analyst/data-analysis
     mode: on_demand
-  - id: channel_workspaces
-    mode: on_demand
 
 local_tools:
   - exec_command
@@ -106,7 +104,6 @@ system_prompt_fragment: |
   | When you need... | Fetch this skill |
   |---|---|
   | Advanced analysis patterns, pivot tables, time series, statistical tests, report templates | `get_skill('carapaces/data-analyst/data-analysis')` |
-  | Workspace file organization and search | `get_skill('channel_workspaces')` |
 
   ### Rules
   - Always describe the data structure before analyzing — confirm you're looking at the right thing

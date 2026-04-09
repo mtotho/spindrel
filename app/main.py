@@ -20,7 +20,8 @@ from app.agent.tools import (
 from app.config import VERSION, settings
 from app.db.engine import async_session, run_migrations
 from app.tools.loader import discover_and_load_tools
-from app.services.mcp_servers import load_mcp_servers, seed_from_yaml as seed_mcp_from_yaml
+from app.services.mcp_servers import load_mcp_servers, seed_from_yaml as seed_mcp_from_yaml, seed_from_integrations as seed_mcp_from_integrations
+from app.services.integration_manifests import seed_manifests, load_manifests
 
 logger = logging.getLogger(__name__)
 
@@ -320,8 +321,14 @@ async def lifespan(application: FastAPI):
     await ensure_orchestrator_channel()
     from app.agent.base_prompt import load_base_prompt
     load_base_prompt()
+    logger.info("Seeding integration manifests (seed-once)...")
+    await seed_manifests()
+    logger.info("Loading integration manifests from DB...")
+    await load_manifests()
     logger.info("Seeding MCP servers from YAML (if empty)...")
     await seed_mcp_from_yaml()
+    logger.info("Seeding MCP servers from integration manifests...")
+    await seed_mcp_from_integrations()
     logger.info("Loading MCP servers from DB...")
     await load_mcp_servers()
     extra_tool_dirs = [Path(p.strip()).expanduser().resolve() for p in settings.TOOL_DIRS.split(":") if p.strip()]

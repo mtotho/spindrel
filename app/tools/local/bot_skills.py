@@ -433,6 +433,8 @@ async def manage_bot_skill(
                 return json.dumps({"error": "Cannot delete another bot's skill."})
             await db.delete(row)
             await db.execute(sa_delete(Document).where(Document.source == f"skill:{skill_id}"))
+            from app.agent.skills import cascade_skill_deletion
+            await cascade_skill_deletion(skill_id, db)
             await db.commit()
 
         _invalidate_cache(bot_id)

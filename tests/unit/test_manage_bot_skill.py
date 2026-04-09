@@ -554,6 +554,7 @@ class TestDelete:
             patch("app.tools.local.bot_skills.current_bot_id") as ctx,
             patch("app.db.engine.async_session", _mock_session(db)),
             patch("app.tools.local.bot_skills._invalidate_cache"),
+            patch("app.agent.skills.cascade_skill_deletion", new_callable=AsyncMock, return_value={"bots_updated": 0, "channels_updated": 0}),
         ):
             ctx.get.return_value = "testbot"
             result = _parse(await manage_bot_skill(action="delete", name="my-skill"))

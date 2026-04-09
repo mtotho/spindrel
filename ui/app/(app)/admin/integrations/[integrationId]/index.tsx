@@ -36,12 +36,13 @@ import { useAuthStore } from "@/src/stores/auth";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { StatusBadge, CapBadge, EnvVarPill, formatUptime } from "../components";
 import { IntegrationDebugSection } from "./IntegrationDebugSection";
+import { ManifestEditor } from "./ManifestEditor";
 
 // ---------------------------------------------------------------------------
 // Section wrapper
 // ---------------------------------------------------------------------------
 
-function SectionBox({ title, children }: { title: string; children: React.ReactNode }) {
+export function SectionBox({ title, children }: { title: string; children: React.ReactNode }) {
   const t = useThemeTokens();
   return (
     <div
@@ -995,6 +996,9 @@ export default function IntegrationDetailScreen() {
             </span>
           </div>
         </SectionBox>
+
+        {/* Manifest editor — Visual/YAML toggle with MCP server status */}
+        <ManifestEditor integrationId={item.id} />
 
         {/* Detected tools / skills / capabilities */}
         {((item.tool_names && item.tool_names.length > 0) ||

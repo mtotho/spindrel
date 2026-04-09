@@ -5,12 +5,6 @@ description: >-
   Provides actionable feedback with severity ratings.
 tags: [review, quality]
 
-skills:
-  - id: channel_workspaces
-    mode: on_demand
-  - id: context_mastery
-    mode: on_demand
-
 local_tools:
   - file
   - web_search

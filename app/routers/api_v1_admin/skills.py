@@ -283,8 +283,10 @@ async def admin_delete_skill(
         raise HTTPException(status_code=403, detail="Cannot delete a file-managed skill")
     await db.delete(row)
     await db.execute(sa_delete(Document).where(Document.source == f"skill:{skill_id}"))
+    from app.agent.skills import cascade_skill_deletion
+    cascade_stats = await cascade_skill_deletion(skill_id, db)
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, **cascade_stats}
 
 
 @router.post("/file-sync")

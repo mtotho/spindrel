@@ -15,12 +15,6 @@ delegates:
     model_tier: fast
     description: "Scan source files for test coverage gaps, untested code paths, or missing error handlers."
 
-skills:
-  - id: channel_workspaces
-    mode: on_demand
-  - id: context_mastery
-    mode: on_demand
-
 local_tools:
   - exec_command
   - file

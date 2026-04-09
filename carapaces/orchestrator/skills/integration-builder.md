@@ -1,5 +1,5 @@
 ---
-name: integration-builder
+name: Integration Builder
 description: "Creating custom integrations: scaffold→reload flow, directory structure, SETUP manifest, tool writing patterns, and limitations."
 ---
 

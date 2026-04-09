@@ -1,5 +1,5 @@
 ---
-name: workspace-api-reference
+name: Workspace API Reference
 description: >
   Server API endpoints, agent CLI usage, permissions and scopes reference. Load when
   making API calls from the workspace container, checking permissions, using the agent

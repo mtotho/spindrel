@@ -19,22 +19,20 @@ router = APIRouter()
 
 
 def _get_setup_vars(integration_id: str) -> list[dict]:
-    """Load the SETUP env_vars list for an integration from its setup.py.
+    """Load the SETUP env_vars list for an integration.
 
-    Auto-injects a ``SIDEBAR_ENABLED`` setting for integrations that declare
-    a ``sidebar_section`` in their SETUP, so admins can toggle sidebar visibility
-    without any per-integration code.
+    Checks the manifest cache first (supports integration.yaml),
+    then falls back to setup.py.  Auto-injects a ``SIDEBAR_ENABLED``
+    setting for integrations that declare a ``sidebar_section``.
     """
-    from integrations import _iter_integration_candidates, _import_module
+    from integrations import _iter_integration_candidates, _get_setup
 
     for candidate, iid, is_external, source in _iter_integration_candidates():
         if iid != integration_id:
             continue
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, iid, is_external, source)
+        if not setup:
             return []
-        module = _import_module(iid, "setup", setup_file, is_external, source)
-        setup = getattr(module, "SETUP", {})
         env_vars = list(setup.get("env_vars", []))
 
         # Auto-inject SIDEBAR_ENABLED for integrations with sidebar_section
@@ -367,17 +365,15 @@ async def install_deps(integration_id: str, _auth=Depends(require_scopes("integr
 
 @router.post("/integrations/{integration_id}/install-npm-deps")
 async def install_npm_deps(integration_id: str, _auth=Depends(require_scopes("integrations:write"))):
-    """Install npm dependencies declared in the integration's setup.py."""
-    from integrations import _iter_integration_candidates, _import_module
+    """Install npm dependencies declared in the integration manifest."""
+    from integrations import _iter_integration_candidates, _get_setup
 
-    # Find the integration and read its SETUP
+    # Find the integration and read its manifest
     npm_deps = None
     for candidate, iid, is_external, source in _iter_integration_candidates():
         if iid == integration_id:
-            setup_file = candidate / "setup.py"
-            if setup_file.exists():
-                module = _import_module(iid, "setup", setup_file, is_external, source)
-                setup = getattr(module, "SETUP", {})
+            setup = _get_setup(candidate, iid, is_external, source)
+            if setup:
                 npm_deps = setup.get("npm_dependencies", [])
             break
 
@@ -424,17 +420,15 @@ async def install_npm_deps(integration_id: str, _auth=Depends(require_scopes("in
 
 
 def _get_api_permissions(integration_id: str) -> str | list[str] | None:
-    """Load the api_permissions from an integration's setup.py."""
-    from integrations import _iter_integration_candidates, _import_module
+    """Load the api_permissions from an integration's manifest or setup.py."""
+    from integrations import _iter_integration_candidates, _get_setup
 
     for candidate, iid, is_external, source in _iter_integration_candidates():
         if iid != integration_id:
             continue
-        setup_file = candidate / "setup.py"
-        if not setup_file.exists():
+        setup = _get_setup(candidate, iid, is_external, source)
+        if not setup:
             return None
-        module = _import_module(iid, "setup", setup_file, is_external, source)
-        setup = getattr(module, "SETUP", {})
         return setup.get("api_permissions")
     return None
 
@@ -588,6 +582,96 @@ async def reload_integrations(_auth=Depends(require_scopes("integrations:write")
     except Exception as exc:
         logger.exception("Failed to reload integrations")
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Integration manifest / YAML endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("/integrations/{integration_id}/manifest")
+async def get_integration_manifest(
+    integration_id: str,
+    _auth=Depends(require_scopes("integrations:read")),
+):
+    """Return the full manifest for an integration, with MCP server status."""
+    from app.services.integration_manifests import get_manifest, check_file_drift
+
+    manifest = get_manifest(integration_id)
+    if not manifest:
+        raise HTTPException(status_code=404, detail=f"No manifest for '{integration_id}'")
+
+    # Enrich MCP servers with live status
+    mcp_servers = manifest.get("mcp_servers", [])
+    if mcp_servers:
+        from app.tools.mcp import _servers
+        enriched = []
+        for srv in mcp_servers:
+            server_id = srv.get("id", "")
+            live = _servers.get(server_id)
+            enriched.append({
+                **srv,
+                "connected": live is not None,
+                "url_configured": bool(srv.get("url")),
+            })
+        manifest = {**manifest, "mcp_servers": enriched}
+
+    # Check if source file has drifted
+    drift = await check_file_drift(integration_id)
+    if drift:
+        manifest["_file_drift"] = drift
+
+    return {"manifest": manifest}
+
+
+@router.get("/integrations/{integration_id}/yaml")
+async def get_integration_yaml(
+    integration_id: str,
+    _auth=Depends(require_scopes("integrations:read")),
+):
+    """Return the YAML content for the integration editor."""
+    from app.services.integration_manifests import get_yaml_content, get_manifest
+    import yaml
+
+    content = await get_yaml_content(integration_id)
+    if content is not None:
+        return {"yaml": content, "source": "stored"}
+
+    # Fall back: serialize manifest to YAML
+    manifest = get_manifest(integration_id)
+    if manifest:
+        # Remove internal fields
+        clean = {k: v for k, v in manifest.items()
+                 if k not in ("is_enabled", "source", "source_path", "content_hash")}
+        content = yaml.dump(clean, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        return {"yaml": content, "source": "generated"}
+
+    raise HTTPException(status_code=404, detail=f"No manifest for '{integration_id}'")
+
+
+class UpdateYamlBody(BaseModel):
+    yaml: str
+
+
+@router.put("/integrations/{integration_id}/yaml")
+async def update_integration_yaml(
+    integration_id: str,
+    body: UpdateYamlBody,
+    _auth=Depends(require_scopes("integrations:write")),
+):
+    """Update the integration manifest from edited YAML.
+
+    Parses the YAML, validates it, updates the DB manifest + yaml_content.
+    Does NOT write to the file on disk.
+    """
+    from app.services.integration_manifests import update_manifest
+
+    try:
+        updated = await update_manifest(integration_id, body.yaml)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    return {"manifest": updated}
 
 
 @router.delete("/integrations/{integration_id}/api-key")

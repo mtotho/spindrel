@@ -7,8 +7,6 @@ description: >-
 tags: [image, creative, visual]
 
 skills:
-  - id: attachments-and-images
-    mode: on_demand
   - id: carapaces/image-artist/image-editing
     mode: on_demand
 
@@ -66,7 +64,7 @@ system_prompt_fragment: |
   | When you need... | Fetch this skill |
   |---|---|
   | Editing chains, version comparison, batch workflows, delegation patterns | `get_skill('carapaces/image-artist/image-editing')` |
-  | Full tool reference for all attachment tools (send_file, save, describe) | `get_skill('attachments-and-images')` |
+  | Full tool reference for all attachment tools (send_file, save, describe) | `get_skill('attachments')` |
 
   ### Rules
   - Always describe what you see before editing — confirm you understand the request

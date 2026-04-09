@@ -1,0 +1,37 @@
+name: Example YAML Integration
+id: example_yaml
+icon: FlaskConical
+description: Minimal example of a YAML-only integration — no Python code required.
+version: "1.0"
+
+# Integration-level settings (configured once in admin)
+settings:
+  - key: EXAMPLE_API_URL
+    type: string
+    label: API URL
+    description: URL of the example service
+    default: http://localhost:9090
+  - key: EXAMPLE_API_KEY
+    type: string
+    label: API Key
+    secret: true
+    required: true
+
+# MCP servers this integration provides
+mcp_servers:
+  - id: example-tools
+    display_name: Example Tools
+    url: http://localhost:9090/mcp
+    # image: example/mcp-server:latest  # uncomment for container-based
+
+# Per-channel activation
+activation:
+  carapaces:
+    - example-yaml
+  requires_workspace: false
+  description: Example integration demonstrating YAML-only setup
+  config_fields:
+    - key: project_name
+      type: string
+      label: Project Name
+      description: Name of the project for this channel

@@ -5,12 +5,6 @@ description: >-
   radius, test, fix, verify, and document.
 tags: [debugging, fix]
 
-skills:
-  - id: channel_workspaces
-    mode: on_demand
-  - id: context_mastery
-    mode: on_demand
-
 local_tools:
   - exec_command
   - file

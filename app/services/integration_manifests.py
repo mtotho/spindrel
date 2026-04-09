@@ -1,0 +1,362 @@
+"""Integration manifest service: YAML-first, DB-backed, UI-editable.
+
+Integrations can be defined via integration.yaml (declarative) or setup.py (legacy).
+YAML files are seeded to DB on first startup; DB is source of truth after that.
+The UI reads/writes the DB copy — the YAML file on disk is never overwritten.
+"""
+from __future__ import annotations
+
+import hashlib
+import logging
+from pathlib import Path
+
+import yaml
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+logger = logging.getLogger(__name__)
+
+# In-memory cache: integration_id → manifest dict
+_manifests: dict[str, dict] = {}
+
+
+# ---------------------------------------------------------------------------
+# YAML parsing
+# ---------------------------------------------------------------------------
+
+# Top-level keys we expect in integration.yaml
+_KNOWN_KEYS = {
+    "id", "name", "icon", "description", "version", "includes",
+    "mcp_servers", "settings", "activation", "oauth", "webhook",
+    "binding", "dependencies", "docker_compose", "web_ui",
+    "chat_hud", "chat_hud_presets", "sidebar_section",
+    "debug_actions", "api_permissions", "dashboard_modules",
+}
+
+# Keys passed through as-is between manifest and SETUP dict formats.
+# Shared between setup_dict_to_manifest() and _manifest_to_setup() in integrations/__init__.py.
+PASSTHROUGH_KEYS = (
+    "activation", "oauth", "webhook", "binding", "includes",
+    "mcp_servers", "docker_compose", "web_ui", "chat_hud",
+    "chat_hud_presets", "sidebar_section", "debug_actions",
+    "api_permissions", "dashboard_modules",
+)
+
+
+def parse_integration_yaml(path: Path) -> dict:
+    """Read and validate an integration.yaml file.
+
+    Returns a dict with at minimum 'id' and 'name'.
+    Raises ValueError for invalid files.
+    """
+    with open(path) as f:
+        data = yaml.safe_load(f)
+
+    if not data or not isinstance(data, dict):
+        raise ValueError(f"integration.yaml at {path} is empty or not a mapping")
+
+    if "id" not in data:
+        raise ValueError(f"integration.yaml at {path} missing required 'id' field")
+
+    if "name" not in data:
+        data["name"] = data["id"].replace("_", " ").replace("-", " ").title()
+
+    unknown = set(data.keys()) - _KNOWN_KEYS
+    if unknown:
+        logger.warning(
+            "integration.yaml for '%s' has unknown keys: %s (preserved but not acted on)",
+            data["id"], ", ".join(sorted(unknown)),
+        )
+
+    return data
+
+
+def _file_hash(path: Path) -> str:
+    """SHA256 of file contents for change detection."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Setup.py → manifest conversion
+# ---------------------------------------------------------------------------
+
+def setup_dict_to_manifest(integration_id: str, setup: dict) -> dict:
+    """Convert a legacy SETUP dict from setup.py into a manifest-shaped dict."""
+    manifest: dict = {"id": integration_id}
+
+    manifest["name"] = setup.get("name", integration_id.replace("_", " ").replace("-", " ").title())
+    manifest["icon"] = setup.get("icon", "Plug")
+    manifest["description"] = setup.get("description")
+    manifest["version"] = setup.get("version")
+
+    # Map env_vars → settings
+    if "env_vars" in setup:
+        manifest["settings"] = [
+            {
+                "key": ev["key"],
+                "type": ev.get("type", "string"),
+                "label": ev.get("description", ev["key"]),
+                "required": ev.get("required", False),
+                "secret": ev.get("secret", False),
+                "default": ev.get("default"),
+            }
+            for ev in setup["env_vars"]
+        ]
+
+    # Copy through all other known fields
+    for key in PASSTHROUGH_KEYS:
+        if key in setup:
+            manifest[key] = setup[key]
+
+    # Dependencies
+    deps = {}
+    if "python_dependencies" in setup:
+        deps["python"] = setup["python_dependencies"]
+    if "npm_dependencies" in setup:
+        deps["npm"] = setup["npm_dependencies"]
+    if deps:
+        manifest["dependencies"] = deps
+
+    return manifest
+
+
+# ---------------------------------------------------------------------------
+# DB seeding and loading
+# ---------------------------------------------------------------------------
+
+async def seed_manifests() -> None:
+    """Scan all integration dirs for integration.yaml and seed to DB.
+
+    Uses INSERT ON CONFLICT DO NOTHING — never overwrites existing entries.
+    Also auto-generates manifest entries for setup.py-only integrations.
+    """
+    from integrations import _iter_integration_candidates
+    from app.db.engine import async_session
+    from app.db.models import IntegrationManifest
+
+    candidates = _iter_integration_candidates()
+    if not candidates:
+        return
+
+    seeded = 0
+    async with async_session() as db:
+        for candidate_dir, integration_id, _is_external, source in candidates:
+            yaml_path = candidate_dir / "integration.yaml"
+
+            if yaml_path.exists():
+                try:
+                    data = parse_integration_yaml(yaml_path)
+                    raw_content = yaml_path.read_text()
+                    content_hash = _file_hash(yaml_path)
+                except Exception:
+                    logger.error("Failed to parse %s", yaml_path, exc_info=True)
+                    continue
+
+                stmt = pg_insert(IntegrationManifest).values(
+                    id=data["id"],
+                    name=data.get("name", integration_id),
+                    description=data.get("description"),
+                    version=data.get("version"),
+                    icon=data.get("icon", "Plug"),
+                    manifest=data,
+                    yaml_content=raw_content,
+                    is_enabled=True,
+                    source="yaml",
+                    source_path=str(yaml_path),
+                    content_hash=content_hash,
+                ).on_conflict_do_nothing(index_elements=["id"])
+                await db.execute(stmt)
+                seeded += 1
+                logger.info("Seeded integration manifest '%s' from %s", data["id"], yaml_path)
+
+            else:
+                # Try setup.py for legacy integrations
+                setup_file = candidate_dir / "setup.py"
+                if not setup_file.exists():
+                    continue
+                try:
+                    import importlib.util
+                    mod_name = f"_seed_setup_{integration_id}"
+                    spec = importlib.util.spec_from_file_location(mod_name, setup_file)
+                    if spec is None or spec.loader is None:
+                        continue
+                    mod = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(mod)
+                    setup_dict = getattr(mod, "SETUP", None)
+                    if not setup_dict or not isinstance(setup_dict, dict):
+                        continue
+                    data = setup_dict_to_manifest(integration_id, setup_dict)
+                except Exception:
+                    logger.debug("Could not read setup.py for '%s'", integration_id, exc_info=True)
+                    continue
+
+                stmt = pg_insert(IntegrationManifest).values(
+                    id=integration_id,
+                    name=data.get("name", integration_id),
+                    description=data.get("description"),
+                    version=data.get("version"),
+                    icon=data.get("icon", "Plug"),
+                    manifest=data,
+                    yaml_content=None,
+                    is_enabled=True,
+                    source="setup_py",
+                    source_path=str(setup_file),
+                    content_hash=None,
+                ).on_conflict_do_nothing(index_elements=["id"])
+                await db.execute(stmt)
+                seeded += 1
+                logger.debug("Seeded manifest for setup.py integration '%s'", integration_id)
+
+        await db.commit()
+
+    logger.info("Seeded %d integration manifest(s)", seeded)
+
+
+async def load_manifests() -> None:
+    """Load all manifests from DB into in-memory cache."""
+    from app.db.engine import async_session
+    from app.db.models import IntegrationManifest
+
+    _manifests.clear()
+
+    async with async_session() as db:
+        rows = (await db.execute(select(IntegrationManifest))).scalars().all()
+
+    for row in rows:
+        _manifests[row.id] = {
+            "id": row.id,
+            "name": row.name,
+            "description": row.description,
+            "version": row.version,
+            "icon": row.icon,
+            "is_enabled": row.is_enabled,
+            "source": row.source,
+            "source_path": row.source_path,
+            "content_hash": row.content_hash,
+            **(row.manifest or {}),
+        }
+
+    logger.info("Loaded %d integration manifest(s) from DB", len(_manifests))
+
+
+# ---------------------------------------------------------------------------
+# Accessors
+# ---------------------------------------------------------------------------
+
+def get_manifest(integration_id: str) -> dict | None:
+    """Return cached manifest for an integration, or None."""
+    return _manifests.get(integration_id)
+
+
+def get_all_manifests() -> dict[str, dict]:
+    """Return all cached manifests."""
+    return dict(_manifests)
+
+
+async def get_yaml_content(integration_id: str) -> str | None:
+    """Return raw YAML content from DB for the editor."""
+    from app.db.engine import async_session
+    from app.db.models import IntegrationManifest
+
+    async with async_session() as db:
+        row = await db.get(IntegrationManifest, integration_id)
+        if row is None:
+            return None
+        return row.yaml_content
+
+
+async def update_manifest(integration_id: str, new_yaml: str) -> dict:
+    """Parse YAML string, update DB manifest and yaml_content.
+
+    Returns the updated manifest dict.
+    Raises ValueError if YAML is invalid.
+    """
+    from app.db.engine import async_session
+    from app.db.models import IntegrationManifest
+
+    data = yaml.safe_load(new_yaml)
+    if not data or not isinstance(data, dict):
+        raise ValueError("YAML content is empty or not a mapping")
+
+    # Ensure id is consistent
+    data["id"] = integration_id
+
+    async with async_session() as db:
+        row = await db.get(IntegrationManifest, integration_id)
+        if row is None:
+            raise ValueError(f"Integration '{integration_id}' not found")
+
+        # Capture values before commit (expire_on_commit would invalidate row)
+        row_source = row.source
+        row_source_path = row.source_path
+        row_content_hash = row.content_hash
+
+        row.name = data.get("name", row.name)
+        row.description = data.get("description")
+        row.version = data.get("version")
+        row.icon = data.get("icon", "Plug")
+        row.manifest = data
+        row.yaml_content = new_yaml
+        await db.commit()
+
+    # Update cache
+    _manifests[integration_id] = {
+        "id": integration_id,
+        "name": data.get("name", integration_id),
+        "description": data.get("description"),
+        "version": data.get("version"),
+        "icon": data.get("icon", "Plug"),
+        "is_enabled": True,
+        "source": row_source,
+        "source_path": row_source_path,
+        "content_hash": row_content_hash,
+        **data,
+    }
+
+    return _manifests[integration_id]
+
+
+def collect_integration_mcp_servers(channel_integrations, exclude: set[str] | None = None) -> list[str]:
+    """Return MCP server IDs from activated channel integrations.
+
+    Used by both channel_overrides and context_assembly to inject
+    integration-declared MCP servers into a bot's tool set.
+    """
+    result: list[str] = []
+    _exclude = exclude or set()
+    for ci in (channel_integrations or []):
+        if not getattr(ci, "activated", False):
+            continue
+        manifest = get_manifest(getattr(ci, "integration_type", ""))
+        if not manifest:
+            continue
+        for srv in manifest.get("mcp_servers", []):
+            srv_id = srv.get("id") if isinstance(srv, dict) else None
+            if srv_id and srv_id not in _exclude and srv_id not in result:
+                result.append(srv_id)
+    return result
+
+
+async def check_file_drift(integration_id: str) -> dict | None:
+    """Check if the on-disk YAML has changed since seeding.
+
+    Returns {'drifted': True, 'disk_hash': '...'} if changed, None if not.
+    """
+    manifest = _manifests.get(integration_id)
+    if not manifest or manifest.get("source") != "yaml":
+        return None
+
+    source_path = manifest.get("source_path")
+    if not source_path:
+        return None
+
+    path = Path(source_path)
+    if not path.exists():
+        return {"drifted": True, "disk_hash": None, "reason": "file_missing"}
+
+    disk_hash = _file_hash(path)
+    stored_hash = manifest.get("content_hash")
+    if disk_hash != stored_hash:
+        return {"drifted": True, "disk_hash": disk_hash, "reason": "content_changed"}
+
+    return None

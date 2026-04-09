@@ -1372,6 +1372,26 @@ class ToolApproval(Base):
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
 
+class IntegrationManifest(Base):
+    """Declarative integration manifest — seeded from integration.yaml, edited via UI."""
+
+    __tablename__ = "integration_manifests"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    icon: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'Plug'"))
+    manifest: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    yaml_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_enabled: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"))
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'yaml'"))
+    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+
 class MCPServer(Base):
     __tablename__ = "mcp_servers"
 
