@@ -55,6 +55,56 @@ async def _create_activation_bot(client: E2EClient) -> str:
     return bot_id
 
 
+async def _chat_with_capability_approval(
+    client: E2EClient,
+    message: str,
+    bot_id: str,
+    client_id: str,
+    timeout: float = _LLM_TIMEOUT,
+) -> "StreamResult":  # noqa: F821
+    """Send a chat_stream that triggers activate_capability, auto-approve it.
+
+    activate_capability has safety_tier=mutating → requires approval.
+    We run the stream in background, poll for the pending approval, approve it,
+    then await the stream result.
+    """
+    from ..harness.streaming import StreamResult  # noqa: F811
+
+    stream_task = asyncio.create_task(
+        client.chat_stream(message, bot_id=bot_id, client_id=client_id)
+    )
+
+    # Poll for pending capability approval
+    elapsed = 0.0
+    approval_id = None
+    while elapsed < timeout:
+        resp = await client.get(
+            "/api/v1/approvals",
+            params={"bot_id": bot_id, "status": "pending", "limit": 10},
+        )
+        if resp.status_code == 200:
+            for a in resp.json():
+                if a["tool_name"] == "activate_capability" and a["status"] == "pending":
+                    approval_id = a["id"]
+                    break
+        if approval_id:
+            break
+        await asyncio.sleep(2)
+        elapsed += 2
+
+    if not approval_id:
+        # Maybe the bot didn't call activate_capability — let stream finish
+        return await asyncio.wait_for(stream_task, timeout=30)
+
+    # Approve it
+    await client.post(
+        f"/api/v1/approvals/{approval_id}/decide",
+        json={"approved": True, "decided_by": "e2e_test"},
+    )
+
+    return await asyncio.wait_for(stream_task, timeout=timeout)
+
+
 def _skill_id() -> str:
     return f"{_TEST_PREFIX}{uuid.uuid4().hex[:8]}"
 
@@ -390,13 +440,11 @@ async def test_bot_discovers_and_activates_capability(client: E2EClient) -> None
         assert resp.status_code == 201
 
         client_id = client.new_client_id("e2e-discover")
-        result = await asyncio.wait_for(
-            client.chat_stream(
-                f'Call the activate_capability tool with id="{cid}".',
-                bot_id=bot_id,
-                client_id=client_id,
-            ),
-            timeout=_LLM_TIMEOUT,
+        result = await _chat_with_capability_approval(
+            client,
+            f'Call the activate_capability tool with id="{cid}".',
+            bot_id=bot_id,
+            client_id=client_id,
         )
         assert not result.error_events, f"Errors: {result.error_events}"
         assert "activate_capability" in result.tools_used, (
@@ -452,15 +500,13 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
             },
         )
 
-        # Turn 1: Activate the capability
+        # Turn 1: Activate the capability (with approval flow)
         client_id = client.new_client_id("e2e-multiturn")
-        result1 = await asyncio.wait_for(
-            client.chat_stream(
-                f'Call activate_capability with id="{cid}".',
-                bot_id=bot_id,
-                client_id=client_id,
-            ),
-            timeout=_LLM_TIMEOUT,
+        result1 = await _chat_with_capability_approval(
+            client,
+            f'Call activate_capability with id="{cid}".',
+            bot_id=bot_id,
+            client_id=client_id,
         )
         assert not result1.error_events, f"Turn 1 errors: {result1.error_events}"
         assert "activate_capability" in result1.tools_used, (
