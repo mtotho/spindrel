@@ -758,15 +758,13 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
             },
         )
 
-        # Turn 1: Activate the Martian Chess capability
+        # Turn 1: Activate the Martian Chess capability (with approval)
         client_id = client.new_client_id("e2e-pipeline")
-        result1 = await asyncio.wait_for(
-            client.chat_stream(
-                f'Call activate_capability with id="{cid}".',
-                bot_id=bot_id,
-                client_id=client_id,
-            ),
-            timeout=_LLM_TIMEOUT,
+        result1 = await _chat_with_capability_approval(
+            client,
+            f'Call activate_capability with id="{cid}".',
+            bot_id=bot_id,
+            client_id=client_id,
         )
         assert not result1.error_events, f"Turn 1 errors: {result1.error_events}"
         assert "activate_capability" in result1.tools_used, (
