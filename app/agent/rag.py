@@ -182,6 +182,8 @@ def _fuse_results(
     best_similarity = max(vector_sims.values()) if vector_sims else 0.0
 
     chunks = []
+    bm25_only_count = 0
+    _max_bm25_only = settings.RAG_TOP_K // 2  # cap keyword-only results
     for (item, rrf_score) in fused:
         content, source = item
         vec_sim = vector_sims.get((content, source))
@@ -190,8 +192,10 @@ def _fuse_results(
             # Has a vector match above threshold — include
             chunks.append((content, source))
         elif vec_sim is None and (content, source) in bm25_set:
-            # BM25-only match (no vector match) — include as keyword hit
-            chunks.append((content, source))
+            # BM25-only match (no vector match) — include as keyword hit, capped
+            if bm25_only_count < _max_bm25_only:
+                chunks.append((content, source))
+                bm25_only_count += 1
         elif vec_sim is not None and vec_sim < threshold and (content, source) in bm25_set:
             # Below vector threshold but matched keywords — include
             chunks.append((content, source))

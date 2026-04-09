@@ -56,6 +56,28 @@ def _parse_frontmatter(content: str) -> tuple[dict, str]:
     return meta, content[match.end():]
 
 
+def _extract_skill_metadata(raw: str, skill_id: str) -> dict[str, Any]:
+    """Extract display name, description, category, and triggers from skill frontmatter."""
+    meta, _ = _parse_frontmatter(raw)
+    display_name = meta.get("name", skill_id.replace("_", " ").replace("/", " / ").title())
+    description = meta.get("description")
+    if isinstance(description, str):
+        description = description.strip()
+    triggers_raw = meta.get("triggers", [])
+    if isinstance(triggers_raw, str):
+        triggers = [t.strip() for t in triggers_raw.split(",") if t.strip()]
+    elif isinstance(triggers_raw, list):
+        triggers = triggers_raw
+    else:
+        triggers = []
+    return {
+        "name": display_name,
+        "description": description,
+        "category": meta.get("category"),
+        "triggers": triggers,
+    }
+
+
 def _chunk_markdown(body: str, skill_name: str, max_chunk: int = 1500) -> list[str]:
     from app.agent.skills import _chunk_markdown as _chunk
     return _chunk(body, skill_name, max_chunk)
@@ -275,19 +297,7 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
             continue
 
         content_hash = _sha256(raw)
-        meta, _ = _parse_frontmatter(raw)
-        display_name = meta.get("name", skill_id.replace("_", " ").replace("/", " / ").title())
-        description = meta.get("description")
-        if isinstance(description, str):
-            description = description.strip()
-        category = meta.get("category")
-        triggers_raw = meta.get("triggers", [])
-        if isinstance(triggers_raw, str):
-            triggers = [t.strip() for t in triggers_raw.split(",") if t.strip()]
-        elif isinstance(triggers_raw, list):
-            triggers = triggers_raw
-        else:
-            triggers = []
+        skill_meta = _extract_skill_metadata(raw, skill_id)
         source_path = str(path.resolve())
 
         try:
@@ -296,10 +306,10 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                 if existing is None:
                     row = SkillRow(
                         id=skill_id,
-                        name=display_name,
-                        description=description,
-                        category=category,
-                        triggers=triggers,
+                        name=skill_meta["name"],
+                        description=skill_meta["description"],
+                        category=skill_meta["category"],
+                        triggers=skill_meta["triggers"],
                         content=raw,
                         content_hash=content_hash,
                         source_path=source_path,
@@ -312,10 +322,10 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
                     logger.info("file_sync: added skill '%s' from %s", skill_id, path)
                     await _embed_skill_from_content(skill_id, raw, content_hash)
                 elif existing.content_hash != content_hash:
-                    existing.name = display_name
-                    existing.description = description
-                    existing.category = category
-                    existing.triggers = triggers
+                    existing.name = skill_meta["name"]
+                    existing.description = skill_meta["description"]
+                    existing.category = skill_meta["category"]
+                    existing.triggers = skill_meta["triggers"]
                     existing.content = raw
                     existing.content_hash = content_hash
                     existing.source_path = source_path
@@ -825,14 +835,16 @@ async def sync_changed_file(path: Path) -> None:
 
     if kind == "skill":
         skill_id = skill_id_or_name
-        meta, _ = _parse_frontmatter(raw)
-        display_name = meta.get("name", skill_id.replace("_", " ").title())
+        skill_meta = _extract_skill_metadata(raw, skill_id)
         async with async_session() as session:
             existing = await session.get(SkillRow, skill_id)
             if existing is None:
                 row = SkillRow(
                     id=skill_id,
-                    name=display_name,
+                    name=skill_meta["name"],
+                    description=skill_meta["description"],
+                    category=skill_meta["category"],
+                    triggers=skill_meta["triggers"],
                     content=raw,
                     content_hash=content_hash,
                     source_path=path_str,
@@ -844,7 +856,10 @@ async def sync_changed_file(path: Path) -> None:
                 logger.info("file_sync(watch): added skill '%s'", skill_id)
                 await _embed_skill_from_content(skill_id, raw, content_hash)
             elif existing.content_hash != content_hash:
-                existing.name = display_name
+                existing.name = skill_meta["name"]
+                existing.description = skill_meta["description"]
+                existing.category = skill_meta["category"]
+                existing.triggers = skill_meta["triggers"]
                 existing.content = raw
                 existing.content_hash = content_hash
                 existing.source_path = path_str
