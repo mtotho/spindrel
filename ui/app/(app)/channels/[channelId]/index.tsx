@@ -353,37 +353,44 @@ export default function ChatScreen() {
 
   const outerChildren = (
     <>
-      {/* Header */}
-      <ChannelHeader
-        channelId={channelId!}
-        displayName={displayName}
-        bot={bot}
-        channelModelOverride={channel?.model_override ?? undefined}
-        columns={columns}
-        showHamburger={showHamburger}
-        goBack={goBack}
-        toggleSidebar={toggleSidebar}
-        workspaceEnabled={workspaceEnabled}
-        workspaceId={workspaceId}
-        explorerOpen={explorerOpen}
-        toggleExplorer={toggleExplorer}
-        onBrowseWorkspace={handleBrowseWorkspace}
-        onOpenEditor={handleOpenEditor}
-        isMobile={isMobile}
-        memberBotCount={memberBotCount}
-        participantsPanelOpen={participantsPanelOpen}
-        toggleParticipantsPanel={() => setParticipantsPanelOpen((p) => !p)}
-        contextBudget={chatState.contextBudget ?? (
-          savedBudget?.utilization != null ? {
-            utilization: savedBudget.utilization,
-            consumed: savedBudget.consumed_tokens ?? 0,
-            total: savedBudget.total_tokens ?? 0,
-          } : null
-        )}
-      />
-
-      {/* What's active badge bar */}
-      {channelId && <ActiveBadgeBar channelId={channelId} compact={isMobile} />}
+      {/* Unified header block — glass bg + single bottom border */}
+      <div style={{
+        borderBottom: `1px solid ${t.surfaceBorder}`,
+        flexShrink: 0,
+        backdropFilter: "blur(12px)",
+        WebkitBackdropFilter: "blur(12px)",
+        backgroundColor: `${t.surface}e6`,
+      }}>
+        <ChannelHeader
+          channelId={channelId!}
+          displayName={displayName}
+          bot={bot}
+          channelModelOverride={channel?.model_override ?? undefined}
+          columns={columns}
+          showHamburger={showHamburger}
+          goBack={goBack}
+          toggleSidebar={toggleSidebar}
+          workspaceEnabled={workspaceEnabled}
+          workspaceId={workspaceId}
+          explorerOpen={explorerOpen}
+          toggleExplorer={toggleExplorer}
+          onBrowseWorkspace={handleBrowseWorkspace}
+          onOpenEditor={handleOpenEditor}
+          isMobile={isMobile}
+          memberBotCount={memberBotCount}
+          participantsPanelOpen={participantsPanelOpen}
+          toggleParticipantsPanel={() => setParticipantsPanelOpen((p) => !p)}
+          contextBudget={chatState.contextBudget ?? (
+            savedBudget?.utilization != null ? {
+              utilization: savedBudget.utilization,
+              consumed: savedBudget.consumed_tokens ?? 0,
+              total: savedBudget.total_tokens ?? 0,
+            } : null
+          )}
+          onContextBudgetClick={() => setBotInfoBotId(channel?.bot_id || null)}
+        />
+        {channelId && <ActiveBadgeBar channelId={channelId} compact={isMobile} />}
+      </div>
 
       {/* HUD status strips — collapsible */}
       {statusStrips.length > 0 && (
@@ -620,6 +627,13 @@ export default function ChatScreen() {
           botId={botInfoBotId}
           channelId={channelId}
           onClose={() => setBotInfoBotId(null)}
+          contextBudget={chatState.contextBudget ?? (
+            savedBudget?.utilization != null ? {
+              utilization: savedBudget.utilization,
+              consumed: savedBudget.consumed_tokens ?? 0,
+              total: savedBudget.total_tokens ?? 0,
+            } : null
+          )}
         />
       )}
     </>

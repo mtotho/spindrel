@@ -83,7 +83,7 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
         return (
           <button key={ig.integration_type} onClick={() => nav("integrations")} style={pillStyle}>
             <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.success, display: "inline-block", flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 500, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>
+            <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 500, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", textTransform: "uppercase" as const, letterSpacing: 0.5 }}>
               {prettyIntegrationName(ig.integration_type)}
             </span>
           </button>
@@ -94,7 +94,7 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
       {boundOnly.map((b) => (
         <button key={b.id} onClick={() => nav("integrations")} style={pillStyle}>
           <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.textDim, opacity: 0.5, display: "inline-block", flexShrink: 0 }} />
-          <span style={{ fontSize: 11, color: t.textDim, fontWeight: 500, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }}>
+          <span style={{ fontSize: 10, color: t.textDim, fontWeight: 500, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", textTransform: "uppercase" as const, letterSpacing: 0.5 }}>
             {prettyIntegrationName(b.integration_type)}
           </span>
         </button>
@@ -134,7 +134,7 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
           maxHeight: 26,
           padding: "4px 12px",
           gap: 12,
-          borderBottom: `1px solid ${t.surfaceBorder}`,
+          /* border removed — parent wrapper provides the unified bottom border */
         }}
       >
         {badges}

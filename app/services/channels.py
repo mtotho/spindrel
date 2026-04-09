@@ -114,8 +114,8 @@ async def get_or_create_channel(
     """Find or create a channel. Returns the Channel row.
 
     Resolution order:
-    1. channel_id provided → look up directly
-    2. client_id provided → look up by client_id, or create with derived ID
+    1. channel_id provided → look up directly; if not found, create with that ID (skip client_id)
+    2. client_id provided (no channel_id) → look up by client_id, or create with derived ID
     3. Neither → create new channel with random UUID
     """
     # 1. Explicit channel_id
@@ -123,9 +123,11 @@ async def get_or_create_channel(
         ch = await db.get(Channel, channel_id)
         if ch is not None:
             return ch
+        # channel_id was explicitly requested but doesn't exist yet — skip
+        # client_id fallback and create the channel with the requested ID below.
 
-    # 2. client_id lookup
-    if client_id is not None:
+    # 2. client_id lookup (only when no explicit channel_id was requested)
+    if channel_id is None and client_id is not None:
         # Legacy: check Channel.client_id directly
         result = await db.execute(
             select(Channel).where(Channel.client_id == client_id)

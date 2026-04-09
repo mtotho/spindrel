@@ -5,7 +5,7 @@
 /* ── Theme variables ──────────────────────────────────── */
 
 :root {
-  --color-surface: 250 250 250;
+  --color-surface: 248 249 252;
   --color-surface-raised: 255 255 255;
   --color-surface-overlay: 243 244 246;
   --color-surface-border: 229 231 235;
@@ -18,10 +18,10 @@
 }
 
 .dark {
-  --color-surface: 17 17 17;
-  --color-surface-raised: 26 26 26;
-  --color-surface-overlay: 34 34 34;
-  --color-surface-border: 51 51 51;
+  --color-surface: 15 17 23;
+  --color-surface-raised: 23 25 33;
+  --color-surface-overlay: 30 32 41;
+  --color-surface-border: 46 48 59;
   --color-text: 229 229 229;
   --color-text-muted: 153 153 153;
   --color-text-dim: 102 102 102;
@@ -159,6 +159,7 @@ textarea::placeholder {
   right: 16px;
   display: flex;
   gap: 4px;
+  pointer-events: none;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.1s ease, visibility 0.1s ease;
@@ -168,6 +169,7 @@ textarea::placeholder {
   .msg-hover:hover .msg-actions {
     opacity: 1;
     visibility: visible;
+    pointer-events: auto;
   }
 }
 

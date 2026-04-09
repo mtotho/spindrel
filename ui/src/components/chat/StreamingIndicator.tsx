@@ -99,7 +99,7 @@ export function ProcessingIndicator({ botName }: { botName?: string }) {
           <Avatar name={name} isUser={false} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2, userSelect: "none" }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
           </div>
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
@@ -512,7 +512,7 @@ export function StreamingIndicator({ content, toolCalls, botName, botId, thinkin
 
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Name header */}
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2, userSelect: "none" }}>
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: bg }}>{name}</span>
           </div>
 

@@ -27,6 +27,8 @@ export interface ChannelHeaderProps {
   toggleParticipantsPanel?: () => void;
   /** Context budget from last SSE stream */
   contextBudget?: { utilization: number; consumed: number; total: number } | null;
+  /** Called when user clicks the context budget indicator */
+  onContextBudgetClick?: () => void;
 }
 
 export function ChannelHeader({
@@ -49,6 +51,7 @@ export function ChannelHeader({
   participantsPanelOpen,
   toggleParticipantsPanel,
   contextBudget,
+  onContextBudgetClick,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const router = useRouter();
@@ -70,16 +73,15 @@ export function ChannelHeader({
           alignItems: "center",
           gap: isMobile ? 8 : 12,
           padding: isMobile ? "0 12px" : "0 16px",
-          borderBottom: `1px solid ${t.surfaceBorder}`,
-          backgroundColor: t.surface,
+          backgroundColor: "transparent",
           flexShrink: 0,
           zIndex: 10,
           minHeight: 52,
         }}
       >
         {columns === "single" && (
-          <button className="header-icon-btn" style={{ width: 44, height: 44 }} onClick={goBack} title="Back">
-            <ArrowLeft size={20} color={t.textMuted} />
+          <button className="header-icon-btn" style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44 }} onClick={goBack} title="Back">
+            <ArrowLeft size={isMobile ? 18 : 20} color={t.textMuted} />
           </button>
         )}
         {showHamburger && columns !== "single" && (
@@ -109,12 +111,18 @@ export function ChannelHeader({
               )}
               {contextBudget && contextBudget.total > 0 && (
                 <span
+                  onClick={onContextBudgetClick}
                   style={{
                     fontSize: 10,
                     fontFamily: "monospace",
                     color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
                     flexShrink: 0,
+                    cursor: onContextBudgetClick ? "pointer" : undefined,
+                    borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
+                    transition: "border-color 0.15s",
                   }}
+                  onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
+                  onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
                   title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} tokens (${Math.round(contextBudget.utilization * 100)}%)`}
                 >
                   {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
@@ -123,7 +131,7 @@ export function ChannelHeader({
             </div>
           )}
         </div>
-        {workspaceEnabled && workspaceId && (
+        {workspaceEnabled && workspaceId && !isMobile && (
           <>
             <button
               className="header-icon-btn"
@@ -133,29 +141,25 @@ export function ChannelHeader({
             >
               <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
             </button>
-            {!isMobile && (
-              <button
-                className="header-icon-btn"
-                style={{ width: 36, height: 36 }}
-                onClick={() => { onBrowseWorkspace(); router.push(`/admin/workspaces/${workspaceId}/files` as any); }}
-                title="Browse workspace"
-              >
-                <FolderOpen size={16} color={t.textDim} />
-              </button>
-            )}
-            {!isMobile && (
-              <button
-                className="header-icon-btn"
-                style={{ width: 36, height: 36 }}
-                onClick={onOpenEditor}
-                title="Open in VS Code"
-              >
-                <Code size={16} color={t.textDim} />
-              </button>
-            )}
+            <button
+              className="header-icon-btn"
+              style={{ width: 36, height: 36 }}
+              onClick={() => { onBrowseWorkspace(); router.push(`/admin/workspaces/${workspaceId}/files` as any); }}
+              title="Browse workspace"
+            >
+              <FolderOpen size={16} color={t.textDim} />
+            </button>
+            <button
+              className="header-icon-btn"
+              style={{ width: 36, height: 36 }}
+              onClick={onOpenEditor}
+              title="Open in VS Code"
+            >
+              <Code size={16} color={t.textDim} />
+            </button>
           </>
         )}
-        {toggleParticipantsPanel && (
+        {toggleParticipantsPanel && !isMobile && (
           <button
             className="header-icon-btn"
             style={{
@@ -191,11 +195,11 @@ export function ChannelHeader({
         {channelId && (
           <button
             className="header-icon-btn"
-            style={{ width: 44, height: 44 }}
+            style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44 }}
             onClick={() => router.push(`/channels/${channelId}/settings` as any)}
             title="Channel settings"
           >
-            <Settings size={18} color={t.textDim} />
+            <Settings size={isMobile ? 16 : 18} color={t.textDim} />
           </button>
         )}
       </header>
@@ -205,7 +209,7 @@ export function ChannelHeader({
   // ── Native path ──
   return (
     <View
-      className={`flex-row items-center ${isMobile ? "gap-2 px-3" : "gap-3 px-4"} border-b border-surface-border bg-surface`}
+      className={`flex-row items-center ${isMobile ? "gap-2 px-3" : "gap-3 px-4"} bg-surface`}
       style={{
         flexShrink: 0,
         zIndex: 10,

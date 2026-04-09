@@ -161,7 +161,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {/* Content */}
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Name + timestamp header */}
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2, userSelect: "none" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
           <span
             onClick={handleBotClick}
             className={handleBotClick ? "bot-name-link" : undefined}
@@ -178,7 +178,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           >
             {displayName}
           </span>
-          <span style={{ fontSize: 12, color: t.textDim }}>
+          <span style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase" as const, letterSpacing: 0.5 }}>
             {timestamp}
           </span>
           {isMemberBot && (
@@ -253,7 +253,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           >
             {displayName}
           </Text>
-          <Text style={{ fontSize: 12, color: t.textDim }}>
+          <Text style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
             {timestamp}
           </Text>
           {sourceLabel && (

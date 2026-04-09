@@ -16,11 +16,13 @@ export function DateSeparator({ label }: { label: string }) {
           alignItems: "center",
           gap: 16,
           padding: "12px 20px",
+          maxWidth: 480,
+          margin: "0 auto",
           userSelect: "none",
         }}
       >
         <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: t.textDim, whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim, whiteSpace: "nowrap", textTransform: "uppercase" as const, letterSpacing: 1.5 }}>
           {label}
         </span>
         <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />

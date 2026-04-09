@@ -51,6 +51,8 @@ export interface ThemeTokens {
   codeText: string;
   linkColor: string;
   contentText: string;
+  // Bot messages
+  botMessageBg: string;
   // Overlays (rgba)
   overlayLight: string;
   overlayBorder: string;
@@ -58,10 +60,10 @@ export interface ThemeTokens {
 }
 
 const DARK: ThemeTokens = {
-  surface: "#111111",
-  surfaceRaised: "#1a1a1a",
-  surfaceOverlay: "#222222",
-  surfaceBorder: "#333333",
+  surface: "#0f1117",
+  surfaceRaised: "#171921",
+  surfaceOverlay: "#1e2029",
+  surfaceBorder: "#2e303b",
   text: "#e5e5e5",
   textMuted: "#999999",
   textDim: "#666666",
@@ -89,6 +91,7 @@ const DARK: ThemeTokens = {
   inputBorder: "#333333",
   inputText: "#e5e5e5",
   inputBorderFocus: "#3b82f6",
+  botMessageBg: "rgba(168,85,247,0.04)",
   codeBg: "#1a1a1e",
   codeBorder: "rgba(255,255,255,0.06)",
   codeText: "#e06c75",
@@ -100,7 +103,7 @@ const DARK: ThemeTokens = {
 };
 
 const LIGHT: ThemeTokens = {
-  surface: "#fafafa",
+  surface: "#f8f9fc",
   surfaceRaised: "#ffffff",
   surfaceOverlay: "#f3f4f6",
   surfaceBorder: "#e5e7eb",
@@ -131,6 +134,7 @@ const LIGHT: ThemeTokens = {
   inputBorder: "#d1d5db",
   inputText: "#171717",
   inputBorderFocus: "#3b82f6",
+  botMessageBg: "rgba(124,58,237,0.03)",
   codeBg: "#f3f4f6",
   codeBorder: "rgba(0,0,0,0.08)",
   codeText: "#c7254e",

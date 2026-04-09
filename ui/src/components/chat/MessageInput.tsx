@@ -229,7 +229,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     const sendBtnOpacity = canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
 
     return (
-      <div style={{ flexShrink: 0, borderTop: `1px solid ${t.overlayLight}`, backgroundColor: t.surface }}>
+      <div style={{ flexShrink: 0, boxShadow: "0 -1px 8px rgba(0,0,0,0.06)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", backgroundColor: `${t.surface}e6` }}>
         {/* Audio recorder error */}
         {recorder.error && (
           <div style={{ padding: "4px 20px", background: "rgba(239,68,68,0.08)" }}>
@@ -411,16 +411,17 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           {/* Editor wrapper */}
           <div
             ref={editorWrapperRef}
-            onFocusCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.borderColor = t.overlayBorder; }}
-            onBlurCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.borderColor = t.overlayLight; }}
+            onFocusCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.boxShadow = `inset 0 0 0 1px ${t.overlayBorder}`; }}
+            onBlurCapture={() => { if (editorWrapperRef.current) editorWrapperRef.current.style.boxShadow = `inset 0 0 0 1px ${t.overlayLight}`; }}
             style={{
               flex: 1,
               minWidth: 0,
               minHeight: isMobile ? 36 : 44,
               maxHeight: 280,
               background: t.surfaceRaised,
-              borderRadius: 10,
-              border: `1px solid ${t.overlayLight}`,
+              borderRadius: 16,
+              border: "none",
+              boxShadow: `inset 0 0 0 1px ${t.overlayLight}`,
               overflow: "hidden",
               display: "flex",
             }}
@@ -558,11 +559,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               width: isMobile ? 36 : 44,
               height: isMobile ? 36 : 44,
               flexShrink: 0,
-              borderRadius: 8,
+              borderRadius: 12,
               border: "none",
               padding: 0,
               cursor: (!canSend && !showStop && !showMic && !recorder.isRecording) ? "default" : "pointer",
-              backgroundColor: sendBtnBg,
+              background: (canSend && !showStop && !recorder.isRecording) ? `linear-gradient(135deg, ${t.accent}, ${t.purple})` : undefined,
+              backgroundColor: (canSend && !showStop && !recorder.isRecording) ? undefined : sendBtnBg,
               opacity: sendBtnOpacity,
               transition: "background-color 0.15s, opacity 0.15s",
             }}

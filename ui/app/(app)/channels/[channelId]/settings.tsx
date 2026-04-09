@@ -3,7 +3,7 @@ import { useHashTab } from "@/src/hooks/useHashTab";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useLocalSearchParams, Link } from "expo-router";
+import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
@@ -62,6 +62,7 @@ const ADVANCED_KEYS = new Set(ADVANCED_TABS.map((t) => t.key));
 export default function ChannelSettingsScreen() {
   const t = useThemeTokens();
   const isMobile = useIsMobile();
+  const router = useRouter();
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const insets = useSafeAreaInsets();
   const goBack = useGoBack(`/channels/${channelId}`);
@@ -191,62 +192,69 @@ export default function ChannelSettingsScreen() {
   return (
     <View className="flex-1 bg-surface">
       {/* Header */}
-      <View
-        className="border-b border-surface-border"
-        style={{ flexShrink: 0, paddingTop: Math.max(insets.top, 12) }}
+      <div
+        style={{
+          flexShrink: 0,
+          paddingTop: Math.max(insets.top, 12),
+          borderBottom: `1px solid ${t.surfaceBorder}`,
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          backgroundColor: `${t.surface}e6`,
+        }}
       >
-        <View className="flex-row items-center gap-2 px-3 py-2" style={{ minHeight: 48 }}>
-          <Pressable
-            onPress={goBack}
-            className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{ width: 40, height: 40, flexShrink: 0 }}
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: isMobile ? 8 : 12, padding: isMobile ? "0 12px" : "0 16px", minHeight: 52 }}>
+          <button
+            className="header-icon-btn"
+            onClick={goBack}
+            style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44, flexShrink: 0 }}
           >
-            <ArrowLeft size={20} color={t.textMuted} />
-          </Pressable>
-          <View style={{ flex: 1, minWidth: 0 }}>
-            <Text className="text-text font-semibold" style={{ fontSize: 15 }} numberOfLines={1}>
+            <ArrowLeft size={isMobile ? 18 : 20} color={t.textMuted} />
+          </button>
+          <div style={{ flex: 1, minWidth: 0, padding: "8px 0" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {channel?.display_name || channel?.name || channel?.client_id || "Channel"}
-            </Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <Text className="text-text-dim" style={{ fontSize: 11 }} numberOfLines={1}>
+            </div>
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, color: t.textDim }}>
                 Settings
-              </Text>
+              </span>
               {settings?.bot_id && (
-                <Link href={`/admin/bots/${settings.bot_id}` as any} asChild>
-                  <Pressable style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                    <ExternalLink size={10} color={t.accent} />
-                    <Text style={{ fontSize: 11, color: t.accent }} numberOfLines={1}>{currentBot?.name || settings.bot_id}</Text>
-                  </Pressable>
-                </Link>
+                <a
+                  className="header-bot-link"
+                  href={`/admin/bots/${settings.bot_id}`}
+                  onClick={(e) => { e.preventDefault(); router.push(`/admin/bots/${settings.bot_id}` as any); }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.accent, textDecoration: "none", cursor: "pointer" }}
+                >
+                  <ExternalLink size={10} color={t.accent} />
+                  {currentBot?.name || settings.bot_id}
+                </a>
               )}
               {activatable?.filter(ig => ig.activated).map(ig => (
-                <View key={ig.integration_type} style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <span key={ig.integration_type} style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, color: t.success }}>
                   <Zap size={10} color={t.success} fill={t.success} />
-                  <Text style={{ fontSize: 11, color: t.success }}>
-                    {prettyIntegrationName(ig.integration_type)}
-                  </Text>
-                </View>
+                  {prettyIntegrationName(ig.integration_type)}
+                </span>
               ))}
-            </View>
-          </View>
+            </div>
+          </div>
           {/* Auto-save status indicator */}
           {updateMutation.isPending && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
               <ActivityIndicator size={10} color={t.textDim} />
-              <Text style={{ fontSize: 11, color: t.textDim }}>Saving</Text>
-            </View>
+              <span style={{ fontSize: 11, color: t.textDim }}>Saving</span>
+            </div>
           )}
           {saved && !updateMutation.isPending && (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
               <Check size={12} color={t.success} />
-              <Text style={{ fontSize: 11, color: t.success }}>Saved</Text>
-            </View>
+              <span style={{ fontSize: 11, color: t.success }}>Saved</span>
+            </div>
           )}
           {updateMutation.isError && !updateMutation.isPending && !saved && (
-            <Text style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}>Save failed</Text>
+            <span style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}>Save failed</span>
           )}
-        </View>
-      </View>
+        </div>
+      </div>
 
       {/* Tabs — single row with overflow dropdown for advanced */}
       <View style={{ flexShrink: 0 }} className="px-3 pt-2 pb-1">

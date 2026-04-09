@@ -18,6 +18,7 @@ interface Props {
   botId: string;
   channelId: string;
   onClose: () => void;
+  contextBudget?: { utilization: number; consumed: number; total: number } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ function ToolGroupSection({
 // Panel content
 // ---------------------------------------------------------------------------
 
-function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
+function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props) {
   const t = useThemeTokens();
   const router = useRouter();
   const { data: bot } = useBot(botId);
@@ -218,6 +219,42 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
             {mcpCount > 0 && <CountBadge icon={<Server size={10} />} label={`${mcpCount} MCP`} />}
           </div>
 
+          {/* Live context budget */}
+          {contextBudget && contextBudget.total > 0 && (
+            <div>
+              <div style={{
+                fontSize: 9, fontWeight: 700, color: t.textDim,
+                textTransform: "uppercase", letterSpacing: 1, marginBottom: 6,
+              }}>
+                Context Usage
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <div style={{
+                  flex: 1, height: 6, borderRadius: 3,
+                  background: t.surfaceOverlay, overflow: "hidden",
+                }}>
+                  <div style={{
+                    width: `${Math.min(Math.round(contextBudget.utilization * 100), 100)}%`,
+                    height: "100%",
+                    background: contextBudget.utilization > 0.8 ? "#ef4444" : contextBudget.utilization > 0.5 ? "#eab308" : "#22c55e",
+                    borderRadius: 3,
+                    transition: "width 0.3s, background-color 0.3s",
+                  }} />
+                </div>
+                <span style={{
+                  fontSize: 10, fontWeight: 600, fontFamily: "monospace",
+                  color: contextBudget.utilization > 0.8 ? "#ef4444" : contextBudget.utilization > 0.5 ? "#eab308" : t.textMuted,
+                  whiteSpace: "nowrap",
+                }}>
+                  {Math.round(contextBudget.utilization * 100)}% ({Math.round(contextBudget.consumed / 1000)}K / {Math.round(contextBudget.total / 1000)}K)
+                </span>
+              </div>
+              <div style={{ fontSize: 9, color: t.textDim, fontStyle: "italic" }}>
+                Live usage from last message. Includes conversation history + config.
+              </div>
+            </div>
+          )}
+
           {/* Configuration overhead */}
           {configOverhead && <ConfigOverhead estimate={configOverhead} t={t} />}
 
@@ -285,6 +322,28 @@ function BotInfoPanelContent({ botId, channelId, onClose }: Props) {
               No tools or capabilities configured for this bot.
             </span>
           )}
+        </div>
+
+        {/* Footer — link to context tab */}
+        <div style={{
+          padding: "10px 16px",
+          borderTop: `1px solid ${t.surfaceBorder}`,
+          display: "flex",
+          justifyContent: "center",
+        }}>
+          <button
+            onClick={() => { onClose(); router.push(`/channels/${channelId}/settings#context` as any); }}
+            style={{
+              background: "none", border: "none", cursor: "pointer",
+              fontSize: 11, color: t.accent, fontWeight: 500,
+              display: "flex", alignItems: "center", gap: 4,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+          >
+            View full context details
+            <ExternalLink size={10} />
+          </button>
         </div>
       </div>
     </div>
