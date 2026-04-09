@@ -26,6 +26,7 @@ import {
   FileCode,
   Webhook,
   Boxes,
+  Brain,
   ChevronRight,
 } from "lucide-react";
 import { useUIStore } from "../../../stores/ui";
@@ -66,6 +67,7 @@ export const ADMIN_SECTIONS: SectionDef[] = [
   {
     title: "AUTOMATE",
     items: [
+      { label: "Learning", href: "/admin/learning", icon: Brain },
       { label: "Tasks", href: "/admin/tasks", icon: ClipboardList },
       { label: "Workflows", href: "/admin/workflows", icon: Zap },
     ],

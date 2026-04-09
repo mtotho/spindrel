@@ -124,13 +124,11 @@ async def test_memory_persists_across_sessions(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_memory_search_api_finds_written_content(client: E2EClient) -> None:
-    """After writing a memory file, the REST search/memory API can find it.
+async def test_memory_search_api_finds_bot_content(client: E2EClient) -> None:
+    """REST search/memory API returns real results for the e2e bot.
 
-    Note: the search index has a ~300s cooldown, so freshly written content
-    may not be immediately searchable. We write to a well-known path and
-    search for content that should already be indexed (MEMORY.md template).
-    If nothing is indexed yet, we just verify the API returns valid shape.
+    The e2e bot has workspace-files memory scheme with at least MEMORY.md
+    bootstrapped. Searching for "memory" should return indexed content.
     """
     resp = await client.post(
         "/api/v1/search/memory",
@@ -147,11 +145,13 @@ async def test_memory_search_api_finds_written_content(client: E2EClient) -> Non
     # All results should be from the e2e bot
     for item in data["results"]:
         assert item["bot_id"] == client.default_bot_id
+        assert len(item["content"]) > 0, "Search result content should be non-empty"
+        assert item["score"] > 0, "Search result score should be positive"
 
 
 @pytest.mark.asyncio
-async def test_memory_search_diagnostic_for_e2e_bot(client: E2EClient) -> None:
-    """Memory search diagnostic for the e2e bot returns valid data."""
+async def test_memory_search_diagnostic_has_indexed_chunks(client: E2EClient) -> None:
+    """Memory search diagnostic for e2e bot shows indexed chunks exist."""
     resp = await client.get(
         f"/api/v1/admin/diagnostics/memory-search/{client.default_bot_id}",
         params={"query": "memory"},
@@ -159,12 +159,52 @@ async def test_memory_search_diagnostic_for_e2e_bot(client: E2EClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert data["bot_id"] == client.default_bot_id
-    assert "result_count" in data
-    assert "diagnostics" in data
+    assert isinstance(data["result_count"], int)
     diag = data["diagnostics"]
-    # The e2e bot should have at least some chunks indexed
-    assert "total_chunks_in_table" in diag
-    assert "matching_bot_id" in diag
+    assert diag["total_chunks_in_table"] > 0, "No chunks in filesystem_chunks table"
+    assert diag["matching_bot_id"] > 0, (
+        f"No chunks matching bot_id={client.default_bot_id}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_memory_write_then_read_via_admin_api(client: E2EClient) -> None:
+    """Write a memory file via LLM, then verify it exists via workspace admin API.
+
+    This is a round-trip: LLM tool writes a file, then we directly call the
+    workspace file API to confirm the file actually landed on disk.
+    """
+    token = _unique("apicheck")
+    filename = f"e2e-api-verify-{token}.md"
+    cid = client.new_client_id()
+
+    # LLM writes the file
+    r1 = await client.chat_stream(
+        f'{_FILE_TOOL_HINT}'
+        f'Call the "file" tool with operation="write", '
+        f'path="memory/{filename}", '
+        f'content="API verification token: {token}". '
+        f'Confirm you wrote it.',
+        client_id=cid,
+    )
+    assert not r1.error_events
+    assert_tool_called(r1.tools_used, ["file"])
+
+    # Now read via admin workspace API — get the bot's shared workspace ID
+    bot = await client.get_bot(client.default_bot_id)
+    workspace_id = bot.get("shared_workspace_id")
+    if not workspace_id:
+        pytest.skip("Bot has no shared_workspace_id — can't verify via API")
+
+    resp = await client.get(
+        f"/api/v1/workspaces/{workspace_id}/files/content",
+        params={"path": f"memory/{filename}"},
+    )
+    assert resp.status_code == 200, f"File not found via API: {resp.status_code}"
+    content = resp.text
+    assert token in content, (
+        f"Expected token {token} in file content but got: {content[:200]}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +235,7 @@ async def test_memory_hygiene_runs_shape(client: E2EClient) -> None:
     assert "runs" in data
     assert isinstance(data["runs"], list)
     assert "total" in data
+    assert isinstance(data["total"], int)
 
 
 # ---------------------------------------------------------------------------
@@ -203,8 +244,8 @@ async def test_memory_hygiene_runs_shape(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_memory_file_listing(client: E2EClient) -> None:
-    """Bot can list files in its memory directory."""
+async def test_memory_file_listing_includes_memory_md(client: E2EClient) -> None:
+    """Bot can list memory directory and it includes MEMORY.md."""
     cid = client.new_client_id()
 
     result = await client.chat_stream(
@@ -215,5 +256,5 @@ async def test_memory_file_listing(client: E2EClient) -> None:
     )
     assert not result.error_events, f"Errors: {result.error_events}"
     assert_tool_called(result.tools_used, ["file"])
-    # Should at least mention MEMORY.md (bootstrapped for workspace-files bots)
-    assert_contains_any(result.response_text, ["MEMORY", "memory"])
+    # Must mention MEMORY.md specifically (bootstrapped for workspace-files bots)
+    assert_contains_any(result.response_text, ["MEMORY.md"])

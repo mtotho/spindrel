@@ -190,55 +190,90 @@ async def test_policy_test_with_custom_rule(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_tool_calls_list_shape(client: E2EClient) -> None:
-    """GET /tool-calls returns list with expected fields."""
+async def test_tool_calls_list_nonempty(client: E2EClient) -> None:
+    """GET /tool-calls returns non-empty list (E2E tests generate tool calls)."""
     resp = await client.get("/api/v1/tool-calls", params={"limit": 5})
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
-    if data:
-        call = data[0]
-        for key in ("id", "tool_name", "tool_type", "arguments", "created_at"):
-            assert key in call, f"Missing tool call key: {key}"
+    assert len(data) > 0, "Expected tool call history — E2E runs should generate calls"
+    call = data[0]
+    for key in ("id", "tool_name", "tool_type", "arguments", "created_at"):
+        assert key in call, f"Missing tool call key: {key}"
+    assert isinstance(call["arguments"], dict)
 
 
 @pytest.mark.asyncio
 async def test_tool_calls_filter_by_bot(client: E2EClient) -> None:
-    """GET /tool-calls?bot_id=... filters correctly."""
+    """GET /tool-calls?bot_id=... filters correctly and returns only that bot."""
     resp = await client.get(
         "/api/v1/tool-calls",
-        params={"bot_id": client.default_bot_id, "limit": 5},
+        params={"bot_id": client.default_bot_id, "limit": 10},
     )
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
+    assert len(data) > 0, (
+        f"Expected tool calls for bot {client.default_bot_id} — "
+        "memory/file tests should have generated some"
+    )
     for call in data:
         assert call["bot_id"] == client.default_bot_id
 
 
 @pytest.mark.asyncio
-async def test_tool_calls_stats_shape(client: E2EClient) -> None:
-    """GET /tool-calls/stats returns grouped statistics."""
+async def test_tool_calls_stats_nonempty(client: E2EClient) -> None:
+    """GET /tool-calls/stats returns non-empty statistics with valid values."""
     resp = await client.get("/api/v1/tool-calls/stats")
     assert resp.status_code == 200
     data = resp.json()
-    assert "group_by" in data
     assert data["group_by"] == "tool_name"
-    assert "stats" in data
     assert isinstance(data["stats"], list)
-    if data["stats"]:
-        stat = data["stats"][0]
-        for key in ("key", "count", "total_duration_ms", "avg_duration_ms", "error_count"):
-            assert key in stat, f"Missing stat key: {key}"
+    assert len(data["stats"]) > 0, "Expected tool call stats — calls exist"
+    stat = data["stats"][0]
+    for key in ("key", "count", "total_duration_ms", "avg_duration_ms", "error_count"):
+        assert key in stat, f"Missing stat key: {key}"
+    assert stat["count"] > 0
 
 
 @pytest.mark.asyncio
 async def test_tool_calls_stats_group_by_bot(client: E2EClient) -> None:
-    """GET /tool-calls/stats?group_by=bot_id groups by bot."""
+    """GET /tool-calls/stats?group_by=bot_id groups by bot and returns data."""
     resp = await client.get("/api/v1/tool-calls/stats", params={"group_by": "bot_id"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["group_by"] == "bot_id"
+    assert len(data["stats"]) > 0, "Expected stats grouped by bot_id"
+
+
+@pytest.mark.asyncio
+async def test_tool_calls_stats_group_by_type(client: E2EClient) -> None:
+    """GET /tool-calls/stats?group_by=tool_type groups by type."""
+    resp = await client.get("/api/v1/tool-calls/stats", params={"group_by": "tool_type"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["group_by"] == "tool_type"
+    types = {s["key"] for s in data["stats"]}
+    assert "local" in types, f"Expected 'local' tool type in stats but got: {types}"
+
+
+@pytest.mark.asyncio
+async def test_tool_call_detail_by_id(client: E2EClient) -> None:
+    """Fetching a real tool call by ID returns full detail."""
+    # Get a real tool call ID first
+    list_resp = await client.get("/api/v1/tool-calls", params={"limit": 1})
+    assert list_resp.status_code == 200
+    calls = list_resp.json()
+    assert len(calls) > 0
+    call_id = calls[0]["id"]
+
+    # Fetch detail
+    resp = await client.get(f"/api/v1/tool-calls/{call_id}")
+    assert resp.status_code == 200
+    detail = resp.json()
+    assert detail["id"] == call_id
+    assert "tool_name" in detail
+    assert "arguments" in detail
 
 
 @pytest.mark.asyncio
@@ -254,27 +289,29 @@ async def test_tool_call_nonexistent_404(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_approvals_list_shape(client: E2EClient) -> None:
-    """GET /approvals returns list with expected fields."""
-    resp = await client.get("/api/v1/approvals", params={"limit": 5})
+async def test_approvals_list_has_data(client: E2EClient) -> None:
+    """GET /approvals returns list with expected fields (may be non-empty from prior runs)."""
+    resp = await client.get("/api/v1/approvals", params={"limit": 10})
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
     if data:
         approval = data[0]
-        for key in ("id", "bot_id", "tool_name", "status", "created_at"):
+        for key in ("id", "bot_id", "tool_name", "status", "created_at",
+                     "tool_type", "arguments", "timeout_seconds"):
             assert key in approval, f"Missing approval key: {key}"
+        assert approval["status"] in ("pending", "approved", "denied", "expired")
 
 
 @pytest.mark.asyncio
 async def test_approvals_filter_by_status(client: E2EClient) -> None:
-    """GET /approvals?status=pending filters correctly."""
-    resp = await client.get("/api/v1/approvals", params={"status": "pending"})
+    """GET /approvals?status=approved filters correctly (if any exist)."""
+    resp = await client.get("/api/v1/approvals", params={"status": "approved", "limit": 5})
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
     for approval in data:
-        assert approval["status"] == "pending"
+        assert approval["status"] == "approved"
 
 
 @pytest.mark.asyncio
@@ -282,3 +319,21 @@ async def test_approval_nonexistent_404(client: E2EClient) -> None:
     """GET /approvals/{id} for nonexistent ID returns 404."""
     resp = await client.get("/api/v1/approvals/00000000-0000-0000-0000-000000000000")
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Policy rules — existing rules on server
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_policy_rules_list_existing(client: E2EClient) -> None:
+    """GET /tool-policies returns existing rules (server should have some configured)."""
+    resp = await client.get("/api/v1/tool-policies")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) > 0, "Expected at least one policy rule configured on the server"
+    rule = data[0]
+    for key in ("id", "tool_name", "action", "priority", "enabled"):
+        assert key in rule, f"Missing rule key: {key}"

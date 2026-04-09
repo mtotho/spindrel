@@ -10,7 +10,7 @@ import { useSkills, type SkillItem } from "@/src/api/hooks/useSkills";
 // ---------------------------------------------------------------------------
 // Frontmatter parser — extracts category + triggers from YAML frontmatter
 // ---------------------------------------------------------------------------
-function parseFrontmatter(content: string): { category?: string; triggers?: string[] } {
+export function parseFrontmatter(content: string): { category?: string; triggers?: string[] } {
   const m = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!m) return {};
   const lines = m[1].split(/\r?\n/);
@@ -45,7 +45,7 @@ function parseFrontmatter(content: string): { category?: string; triggers?: stri
 // ---------------------------------------------------------------------------
 // Relative time formatter
 // ---------------------------------------------------------------------------
-function fmtRelative(iso: string | null | undefined): string {
+export function fmtRelative(iso: string | null | undefined): string {
   if (!iso) return "never";
   const d = new Date(iso);
   const diffMs = Date.now() - d.getTime();
@@ -62,9 +62,9 @@ function fmtRelative(iso: string | null | undefined): string {
 // ---------------------------------------------------------------------------
 // Health badge
 // ---------------------------------------------------------------------------
-type Health = "new" | "hot" | "stale" | "dormant" | null;
+export type Health = "new" | "hot" | "stale" | "dormant" | null;
 
-function getHealth(s: SkillItem): Health {
+export function getHealth(s: SkillItem): Health {
   const ageMs = Date.now() - new Date(s.created_at).getTime();
   const ageDays = ageMs / 86_400_000;
 
@@ -85,7 +85,7 @@ const HEALTH_CFG: Record<string, { bg: string; fg: string; label: string }> = {
   dormant: { bg: "rgba(156,163,175,0.15)", fg: "#6b7280", label: "dormant" },
 };
 
-function HealthBadge({ health }: { health: Health }) {
+export function HealthBadge({ health }: { health: Health }) {
   if (!health) return null;
   const c = HEALTH_CFG[health];
   return (
@@ -101,7 +101,7 @@ function HealthBadge({ health }: { health: Health }) {
 // ---------------------------------------------------------------------------
 // Stat card
 // ---------------------------------------------------------------------------
-function StatCard({ label, value, icon, color }: {
+export function StatCard({ label, value, icon, color }: {
   label: string; value: number; icon: React.ReactNode; color?: string;
 }) {
   const t = useThemeTokens();

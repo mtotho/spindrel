@@ -6,6 +6,8 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { MemoryHygieneRun } from "@/src/api/hooks/useMemoryHygiene";
 
+type RunWithBotName = MemoryHygieneRun & { bot_name?: string };
+
 function fmtDuration(ms: number | null | undefined): string {
   if (ms == null) return "";
   if (ms < 1000) return `${ms}ms`;
@@ -17,7 +19,7 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
-export function HygieneHistoryList({ runs }: { runs: MemoryHygieneRun[] }) {
+export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithBotName[]; showBotName?: boolean }) {
   const t = useThemeTokens();
   const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -49,6 +51,11 @@ export function HygieneHistoryList({ runs }: { runs: MemoryHygieneRun[] }) {
                     isExpanded
                       ? <ChevronDown size={12} color={t.textDim} />
                       : <ChevronRight size={12} color={t.textDim} />
+                  )}
+                  {showBotName && run.bot_name && (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>
+                      {run.bot_name}
+                    </span>
                   )}
                   <span style={{ fontSize: 12, color: t.textMuted }}>
                     {new Date(run.created_at).toLocaleString()}
