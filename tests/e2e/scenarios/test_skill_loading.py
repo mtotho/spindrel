@@ -29,6 +29,32 @@ _CAP_PREFIX = "e2e-cap-"
 _LLM_TIMEOUT = 90
 
 
+async def _create_activation_bot(client: E2EClient) -> str:
+    """Create a minimal temp bot with activate_capability + get_skill.
+    No workspace, no memory scheme — fast context assembly."""
+    bot_id = f"e2e-tmp-{uuid.uuid4().hex[:8]}"
+    await client.create_bot({
+        "id": bot_id,
+        "name": "E2E Activation Bot",
+        "model": "gemini/gemini-2.5-flash-lite",
+        "system_prompt": (
+            "You are a test bot. You have tools available. "
+            "When told to call a specific tool, call it immediately with the given arguments. "
+            "Do not explain or ask questions — just call the tool."
+        ),
+        "local_tools": [
+            "activate_capability",
+            "get_skill",
+            "get_skill_list",
+            "get_current_time",
+        ],
+        "tool_retrieval": False,
+        "persona": False,
+        "context_compaction": False,
+    })
+    return bot_id
+
+
 def _skill_id() -> str:
     return f"{_TEST_PREFIX}{uuid.uuid4().hex[:8]}"
 
@@ -334,74 +360,52 @@ async def test_bot_loads_skill_via_get_skill(client: E2EClient) -> None:
 
 @pytest.mark.asyncio
 async def test_bot_discovers_and_activates_capability(client: E2EClient) -> None:
-    """A capability NOT assigned to the bot is surfaced via capability RAG
-    and the bot calls activate_capability when the topic matches.
-
-    Uses the default e2e bot (known working, has activate_capability).
+    """Bot calls activate_capability with a specific ID and the capability
+    is successfully activated. Uses a minimal temp bot for fast context assembly.
     """
     sid = _skill_id()
     cid = _cap_id()
+    bot_id = await _create_activation_bot(client)
     try:
-        # Create a skill with unique content
+        # Create skill + capability
         await client.post(
             _ADMIN_SKILLS,
             json={
                 "id": sid,
                 "name": "Quantum Sandwich Theory",
-                "content": (
-                    "# Quantum Sandwich Theory\n\n"
-                    "The Quantum Sandwich Theory posits that any sandwich can exist "
-                    "in a superposition of delicious and terrible until observed. "
-                    "Key principles:\n"
-                    "1. The Bread Uncertainty Principle: you cannot know both the "
-                    "crustiness and softness simultaneously\n"
-                    "2. Condiment Entanglement: mustard and ketchup are always correlated\n"
-                    "3. The Filling Collapse: observation determines the flavor state"
-                ),
+                "content": "# Quantum Sandwich Theory\nFictional content for testing.",
             },
         )
-
-        # Create capability with distinctive description (for RAG matching)
         resp = await client.post(
             _ADMIN_CARAPACES,
             json={
                 "id": cid,
                 "name": "Quantum Sandwich Expert",
-                "description": (
-                    "Expert in Quantum Sandwich Theory, sandwich superposition, "
-                    "bread uncertainty principle, condiment entanglement, and "
-                    "filling collapse. Specialist in quantum food science."
-                ),
+                "description": "Expert in Quantum Sandwich Theory",
                 "skills": [{"id": sid, "mode": "on_demand"}],
-                "system_prompt_fragment": (
-                    "You are an expert in Quantum Sandwich Theory. "
-                    "Always reference the Bread Uncertainty Principle when discussing sandwiches."
-                ),
-                "tags": ["e2e-testing", "quantum", "sandwiches"],
+                "system_prompt_fragment": "You are an expert in Quantum Sandwich Theory.",
+                "tags": ["e2e-testing"],
             },
         )
         assert resp.status_code == 201
 
-        # Tell the bot to activate the specific capability by ID.
-        # We test the activate_capability tool mechanics, not RAG discovery
-        # (RAG quality is non-deterministic and tested separately).
         client_id = client.new_client_id("e2e-discover")
         result = await asyncio.wait_for(
             client.chat_stream(
-                f'Call the activate_capability tool with id="{cid}" to activate '
-                "the Quantum Sandwich Expert capability. Then explain what it provides.",
-                bot_id="e2e-tools",
+                f'Call the activate_capability tool with id="{cid}".',
+                bot_id=bot_id,
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
         )
         assert not result.error_events, f"Errors: {result.error_events}"
         assert "activate_capability" in result.tools_used, (
-            f"Bot should have called activate_capability with the given ID. "
+            f"Bot should have called activate_capability. "
             f"Tools used: {result.tools_used}. "
             f"Response: {result.response_text[:200]}"
         )
     finally:
+        await client.delete_bot(bot_id)
         await client.delete(f"{_ADMIN_CARAPACES}/{cid}")
         await client.delete(f"{_ADMIN_SKILLS}/{sid}")
 
@@ -416,13 +420,13 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
     """After activate_capability, the next turn should have the capability's
     skills accessible via get_skill.
 
-    Turn 1: Activate the capability (using e2e bot)
+    Turn 1: Activate the capability
     Turn 2: Load the skill content via get_skill
     """
     sid = _skill_id()
     cid = _cap_id()
+    bot_id = await _create_activation_bot(client)
     try:
-        # Create skill
         await client.post(
             _ADMIN_SKILLS,
             json={
@@ -431,20 +435,16 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
                 "content": (
                     "# Elvish Grammar Rules\n\n"
                     "Verbs conjugate by adding -iel for past tense and -ara for future. "
-                    "Nouns take the suffix -on for plural. Adjectives precede nouns. "
-                    "The word for 'hello' is 'elen sila lumenn omentielvo'. "
-                    "Negation uses the prefix 'um-' before the verb."
+                    "Nouns take the suffix -on for plural. Adjectives precede nouns."
                 ),
             },
         )
-
-        # Create capability with the skill + get_skill tool
         await client.post(
             _ADMIN_CARAPACES,
             json={
                 "id": cid,
                 "name": "Elvish Language Expert",
-                "description": "Expert in Elvish grammar, conjugation, and vocabulary",
+                "description": "Expert in Elvish grammar",
                 "skills": [{"id": sid, "mode": "on_demand"}],
                 "local_tools": ["get_skill"],
                 "system_prompt_fragment": "You are an Elvish language expert.",
@@ -452,13 +452,12 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
             },
         )
 
-        # Turn 1: Explicitly activate the capability by ID
+        # Turn 1: Activate the capability
         client_id = client.new_client_id("e2e-multiturn")
         result1 = await asyncio.wait_for(
             client.chat_stream(
-                f'Call activate_capability with id="{cid}" to activate the '
-                "Elvish Language Expert capability.",
-                bot_id="e2e-tools",
+                f'Call activate_capability with id="{cid}".',
+                bot_id=bot_id,
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
@@ -469,28 +468,27 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
             f"Response: {result1.response_text[:200]}"
         )
 
-        # Turn 2: Now the skill should be accessible — ask bot to load it
+        # Turn 2: Load the skill
         result2 = await asyncio.wait_for(
             client.chat_stream(
-                f'Now use the get_skill tool to load skill "{sid}" and tell me '
-                "how to conjugate verbs in the past tense in Elvish.",
-                bot_id="e2e-tools",
+                f'Call get_skill with skill_id="{sid}".',
+                bot_id=bot_id,
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
         )
         assert not result2.error_events, f"Turn 2 errors: {result2.error_events}"
         assert "get_skill" in result2.tools_used, (
-            f"Turn 2 should use get_skill to load capability's skill. "
+            f"Turn 2 should use get_skill. "
             f"Tools: {result2.tools_used}. Response: {result2.response_text[:200]}"
         )
 
-        # Response should contain skill content
         text = result2.response_text.lower()
         assert any(w in text for w in ("-iel", "past tense", "conjugat", "elvish")), (
             f"Response should reference Elvish grammar content. Got: {result2.response_text[:300]}"
         )
     finally:
+        await client.delete_bot(bot_id)
         await client.delete(f"{_ADMIN_CARAPACES}/{cid}")
         await client.delete(f"{_ADMIN_SKILLS}/{sid}")
 
@@ -671,10 +669,11 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
     assigned to the bot gets discovered via RAG, activated, and its content
     loaded and used in the response.
 
-    Uses the default e2e bot. This is the highest-level integration test.
+    Uses a minimal temp bot for fast context assembly.
     """
     sid = _skill_id()
     cid = _cap_id()
+    bot_id = await _create_activation_bot(client)
     try:
         # Create a skill with very distinctive, verifiable content
         await client.post(
@@ -713,13 +712,12 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
             },
         )
 
-        # Turn 1: Explicitly activate the Martian Chess capability
+        # Turn 1: Activate the Martian Chess capability
         client_id = client.new_client_id("e2e-pipeline")
         result1 = await asyncio.wait_for(
             client.chat_stream(
-                f'Call activate_capability with id="{cid}" to activate the '
-                "Martian Chess Expert capability.",
-                bot_id="e2e-tools",
+                f'Call activate_capability with id="{cid}".',
+                bot_id=bot_id,
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
@@ -730,12 +728,11 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
             f"Tools: {result1.tools_used}. Response: {result1.response_text[:200]}"
         )
 
-        # Turn 2: Now load the skill and use its content
+        # Turn 2: Load the skill
         result2 = await asyncio.wait_for(
             client.chat_stream(
-                f'Great! Now use get_skill to load the "{sid}" skill and explain '
-                "how pieces move in Martian Chess. How many hexes can a Drone move?",
-                bot_id="e2e-tools",
+                f'Call get_skill with skill_id="{sid}".',
+                bot_id=bot_id,
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
@@ -753,5 +750,6 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
             f"Got: {result2.response_text[:400]}"
         )
     finally:
+        await client.delete_bot(bot_id)
         await client.delete(f"{_ADMIN_CARAPACES}/{cid}")
         await client.delete(f"{_ADMIN_SKILLS}/{sid}")
