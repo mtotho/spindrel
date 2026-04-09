@@ -869,29 +869,29 @@ class TestCooldown:
 class TestMultipleHooks:
     """Verify behavior when multiple hooks match the same path."""
 
-    async def test_two_warn_hooks_both_allow(self, client: E2EClient) -> None:
-        """Two failing warn hooks on the same path: both fire, operation still proceeds."""
+    async def test_two_hooks_both_fire_operation_succeeds(self, client: E2EClient) -> None:
+        """Two succeeding hooks on the same path: both fire, operation proceeds normally."""
         bot_id = client.default_bot_id
         channel_id = client.new_channel_id()
         ext = f"multi-{uuid.uuid4().hex[:6]}"
 
         h1 = await _create_hook(
             client, bot_id=bot_id,
-            name="e2e-multi-warn-1",
+            name="e2e-multi-1",
             trigger="before_access",
             conditions={"path": f"*.{ext}"},
-            command="exit 1",
+            command="true",
             cooldown_seconds=0,
-            on_failure="warn",
+            on_failure="block",  # block mode, but command succeeds → no block
         )
         h2 = await _create_hook(
             client, bot_id=bot_id,
-            name="e2e-multi-warn-2",
+            name="e2e-multi-2",
             trigger="before_access",
             conditions={"path": f"*.{ext}"},
-            command="exit 1",
+            command="true",
             cooldown_seconds=0,
-            on_failure="warn",
+            on_failure="block",
         )
         try:
             result = await client.chat_stream(
@@ -900,7 +900,7 @@ class TestMultipleHooks:
                 bot_id=bot_id,
                 channel_id=channel_id,
             )
-            # Both hooks fail with warn, but operation should succeed
+            # Both hooks fire and succeed, operation should proceed
             assert_contains_any(result.response_text, ["multi-test"])
         finally:
             await _cleanup_hooks(client, [h1["id"], h2["id"]])

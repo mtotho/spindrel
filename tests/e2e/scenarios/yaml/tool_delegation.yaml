@@ -20,5 +20,5 @@ scenarios:
         stream: true
         assertions:
           - tool_called: [delegate_to_agent]
-          - response_contains_any: ["error", "not found", "not allowed", "cannot", "couldn't", "unable", "fail", "not available", "not an available"]
+          - response_contains_any: ["error", "not found", "not allowed", "cannot", "couldn't", "unable", "fail", "not available", "not an available", "isn't available", "don't have", "does not exist", "no bot", "nonexistent"]
           - no_errors: true

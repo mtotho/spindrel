@@ -65,7 +65,7 @@ async def test_tool_dispatch_stream(client: E2EClient) -> None:
     """Streaming should emit tool_start and tool_result events when tools are used."""
     cid = client.new_client_id()
     result = await client.chat_stream(
-        "What is the current time right now? Use your time tool.",
+        "Call the get_current_time tool right now and tell me the result.",
         client_id=cid,
     )
     assert result.response_text, "Must produce response text"

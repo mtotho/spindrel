@@ -106,10 +106,11 @@ async def test_multi_tool_file_and_time(client: E2EClient) -> None:
 
     result = await client.chat_stream(
         f'{_FILE_TOOL_HINT}'
-        f'Step 1: Call "get_current_time" to get the current time. '
+        f'Do exactly these two steps in order:\n'
+        f'Step 1: Call the "get_current_time" tool to get the current UTC time.\n'
         f'Step 2: Call the "file" tool with operation="write", '
-        f'path="{filename}", and the time as content. '
-        f'Tell me the time you wrote.',
+        f'path="{filename}", and the time as content.\n'
+        f'You MUST call both tools. Tell me the time you wrote.',
         client_id=cid,
     )
     assert not result.error_events, f"Errors: {result.error_events}"

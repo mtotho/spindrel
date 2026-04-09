@@ -98,7 +98,10 @@ async def test_approval_flow_approve(client: E2EClient) -> None:
 
         # Run stream in background — it will block at the approval gate
         stream_task = asyncio.create_task(
-            client.chat_stream("What is the current time?", client_id=cid)
+            client.chat_stream(
+                "Call the get_current_time tool right now and tell me what time it is.",
+                client_id=cid,
+            )
         )
 
         # Poll for the pending approval
@@ -153,7 +156,10 @@ async def test_approval_flow_deny(client: E2EClient) -> None:
 
         cid = client.new_client_id()
         stream_task = asyncio.create_task(
-            client.chat_stream("What is the current time?", client_id=cid)
+            client.chat_stream(
+                "Call the get_current_time tool right now and tell me what time it is.",
+                client_id=cid,
+            )
         )
 
         approval = await _poll_pending_approval(
@@ -198,7 +204,10 @@ async def test_pending_approval_in_list_api(client: E2EClient) -> None:
 
         cid = client.new_client_id()
         stream_task = asyncio.create_task(
-            client.chat_stream("What is the current time?", client_id=cid)
+            client.chat_stream(
+                "Call the get_current_time tool right now and tell me what time it is.",
+                client_id=cid,
+            )
         )
 
         approval = await _poll_pending_approval(
@@ -241,7 +250,10 @@ async def test_approval_suggestions_shape(client: E2EClient) -> None:
 
         cid = client.new_client_id()
         stream_task = asyncio.create_task(
-            client.chat_stream("What is the current time?", client_id=cid)
+            client.chat_stream(
+                "Call the get_current_time tool right now and tell me what time it is.",
+                client_id=cid,
+            )
         )
 
         approval = await _poll_pending_approval(
@@ -281,7 +293,10 @@ async def test_double_decide_409(client: E2EClient) -> None:
 
         cid = client.new_client_id()
         stream_task = asyncio.create_task(
-            client.chat_stream("What is the current time?", client_id=cid)
+            client.chat_stream(
+                "Call the get_current_time tool right now and tell me what time it is.",
+                client_id=cid,
+            )
         )
 
         approval = await _poll_pending_approval(
@@ -411,7 +426,10 @@ async def test_approve_with_create_rule(client: E2EClient) -> None:
 
         cid = client.new_client_id()
         stream_task = asyncio.create_task(
-            client.chat_stream("What is the current time?", client_id=cid)
+            client.chat_stream(
+                "Call the get_current_time tool right now and tell me what time it is.",
+                client_id=cid,
+            )
         )
 
         approval = await _poll_pending_approval(
