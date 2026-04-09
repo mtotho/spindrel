@@ -44,7 +44,7 @@ class TestRenderChannelWorkspacePrompt:
         result = self._render()
         assert "search_channel_archive" in result
         assert "search_channel_workspace" in result
-        assert "list_workspace_channels" in result
+        assert "list_channels" in result
 
     def test_default_template_empty_data_listing(self):
         """Empty data listing should not cause errors."""

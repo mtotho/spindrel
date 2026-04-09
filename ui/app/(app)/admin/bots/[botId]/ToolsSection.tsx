@@ -446,9 +446,19 @@ function FullToolList({
       {/* Local tool groups */}
       {editorData.tool_groups.map((group) => {
         const groupKey = group.integration;
+
+        // Cluster packs by their meta-group; ungrouped packs go under null key
+        const metaClusters = new Map<string | null, typeof group.packs>();
+        const metaOrder: (string | null)[] = [];
+        for (const pack of group.packs) {
+          const mg = pack.group ?? null;
+          if (!metaClusters.has(mg)) { metaClusters.set(mg, []); metaOrder.push(mg); }
+          metaClusters.get(mg)!.push(pack);
+        }
+
         return (
           <div key={groupKey} style={{ border: `1px solid ${t.surfaceRaised}`, borderRadius: 8, overflow: "hidden" }}>
-            {/* Group header */}
+            {/* Integration header */}
             <div style={{
               padding: "6px 10px", background: t.surface,
               display: "flex", alignItems: "center", gap: 6,
@@ -490,8 +500,62 @@ function FullToolList({
               })()}
             </div>
 
-            {/* Packs */}
-            {group.packs.map((pack) => {
+            {/* Meta-grouped packs */}
+            {metaOrder.map((metaGroup) => {
+              const clusterPacks = metaClusters.get(metaGroup)!;
+              const metaKey = `${groupKey}::meta::${metaGroup ?? "ungrouped"}`;
+              const isMetaCollapsed = !q && collapsed[metaKey];
+
+              // Ungrouped packs render without a meta-group header
+              if (!metaGroup) {
+                return <>{clusterPacks.map((pack) => renderPack(pack, groupKey))}</>;
+              }
+
+              const metaNames = clusterPacks.flatMap((p) => p.tools.map((tool) => tool.name));
+              const metaSelected = metaNames.filter((n) => localTools.includes(n)).length;
+              const metaAllEnabled = metaSelected === metaNames.length && metaNames.length > 0;
+
+              return (
+                <div key={metaKey}>
+                  <div
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "5px 10px", background: `${t.surface}aa`,
+                      borderTop: `1px solid ${t.surfaceRaised}`, cursor: "pointer",
+                    }}
+                    onClick={() => setCollapsed((c) => ({ ...c, [metaKey]: !c[metaKey] }))}
+                  >
+                    <span style={{
+                      fontSize: 8, color: t.textDim, transform: isMetaCollapsed ? "rotate(0deg)" : "rotate(90deg)",
+                      transition: "transform 0.15s", display: "inline-block",
+                    }}>&#9654;</span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, color: t.textMuted,
+                      textTransform: "uppercase", letterSpacing: "0.06em", flex: 1,
+                    }}>
+                      {metaGroup}
+                    </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePack(metaNames); }}
+                      style={{
+                        background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                        padding: "1px 6px", fontSize: 9, cursor: "pointer",
+                        color: metaAllEnabled ? t.dangerMuted : t.success,
+                      }}
+                      title={metaAllEnabled ? "Disable all in group" : "Enable all in group"}
+                    >
+                      {metaAllEnabled ? "none" : "all"}
+                    </button>
+                    <span style={{ fontSize: 9, color: t.textDim }}>{metaSelected}/{metaNames.length}</span>
+                  </div>
+                  {!isMetaCollapsed && clusterPacks.map((pack) => renderPack(pack, groupKey))}
+                </div>
+              );
+            })}
+          </div>
+        );
+
+        function renderPack(pack: typeof group.packs[number], gKey: string) {
               const packKey = `${groupKey}::${pack.pack}`;
               const filtered = q ? pack.tools.filter((tool) => tool.name.toLowerCase().includes(q)) : pack.tools;
               if (filtered.length === 0) return null;
@@ -686,9 +750,7 @@ function FullToolList({
                   )}
                 </div>
               );
-            })}
-          </div>
-        );
+        }
       })}
 
       {schemaModalTool && (

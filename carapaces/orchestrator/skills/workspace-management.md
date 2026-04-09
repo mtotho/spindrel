@@ -21,7 +21,7 @@ A single bot can have many channels (different users, different projects). When 
 
 - **Create channels** for member bots to give them persistent conversation contexts
 - **Inject messages** into a channel to trigger bot processing (`run_agent: true` returns a `task_id`)
-- **Search across channels** with `list_workspace_channels` + `search_channel_workspace`
+- **Search across channels** with `list_channels` + `search_channel_workspace`
 - **Configure per-channel** settings (model, tools, indexed directories) via the config API
 
 ```sh

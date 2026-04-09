@@ -35,7 +35,7 @@ _SCHEMA = {
                 },
                 "channel_id": {
                     "type": "string",
-                    "description": "Optional. Only needed for cross-channel reads (from list_workspace_channels). Omit to read the current channel.",
+                    "description": "Optional. Only needed for cross-channel reads (from list_channels). Omit to read the current channel.",
                 },
             },
             "required": ["section"],
@@ -241,16 +241,31 @@ async def read_conversation_history(section: str, channel_id: str | None = None)
                 return f"Unknown channel: {channel_id}"
 
     if resolved_channel_id and resolved_channel_id != my_channel_id:
-        # Verify the bot is a member of the requested channel or has cross_workspace_access
+        # Verify the bot has access: primary owner, member, or cross_workspace_access
         async with async_session() as db:
             ch = await db.get(Channel, resolved_channel_id)
-        if not ch or ch.bot_id != bot_id:
-            from app.agent.bots import get_bot
-            caller_bot = get_bot(bot_id)
-            if caller_bot and caller_bot.cross_workspace_access and ch:
-                owner_bot_id = ch.bot_id
+        if not ch:
+            return "Access denied: channel not found."
+        if str(ch.bot_id) != bot_id:
+            # Not the primary bot — check membership
+            from app.db.models import ChannelBotMember
+            from sqlalchemy import select as _sel, exists as _exists
+            async with async_session() as db:
+                is_member = await db.scalar(
+                    _sel(_exists().where(
+                        ChannelBotMember.channel_id == resolved_channel_id,
+                        ChannelBotMember.bot_id == bot_id,
+                    ))
+                )
+            if is_member:
+                pass  # member access — bot reads its own sessions
             else:
-                return "Access denied: this bot is not a member of the requested channel."
+                from app.agent.bots import get_bot
+                caller_bot = get_bot(bot_id)
+                if caller_bot and caller_bot.cross_workspace_access:
+                    owner_bot_id = ch.bot_id
+                else:
+                    return "Access denied: this bot is not a member of the requested channel."
     else:
         resolved_channel_id = my_channel_id
 

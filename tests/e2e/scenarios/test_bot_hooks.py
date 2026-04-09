@@ -25,6 +25,7 @@ import uuid
 import pytest
 
 from tests.e2e.harness.client import E2EClient
+from tests.e2e.harness.config import E2EConfig
 from tests.e2e.harness.assertions import (
     assert_response_not_empty,
     assert_contains_any,
@@ -540,12 +541,13 @@ class TestAfterExecHooks:
     """Verify after_exec hooks fire after exec_command calls."""
 
     @pytest.fixture
-    async def exec_bot(self, client: E2EClient):
+    async def exec_bot(self, client: E2EClient, e2e_config: E2EConfig):
         """Create a temporary bot with exec_command in its local_tools."""
         bot_id = f"e2e-exec-{uuid.uuid4().hex[:8]}"
         await client.create_bot({
             "id": bot_id,
             "name": "E2E Exec Hook Test Bot",
+            "model": e2e_config.default_model,
             "system_prompt": (
                 "You are a test bot with shell access. When asked to run a command, "
                 "use the exec_command tool. When asked about files, use the file tool. "

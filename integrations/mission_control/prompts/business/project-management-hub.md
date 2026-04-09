@@ -60,7 +60,7 @@ Organize workspace files as follows:
   - Format: `### Project Name — YYYY-MM-DD`
   - What went well, what didn't, what to change
 
-Use `list_workspace_channels` to discover all active project channels.
+Use `list_channels` to discover all active project channels.
 Use `search_channel_workspace(query, channel_id=...)` to pull status from individual projects.
 When generating reports, pull live data from project channels rather than relying on stale dashboard entries.
 

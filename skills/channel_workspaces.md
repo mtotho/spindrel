@@ -111,7 +111,7 @@ reference. Use `search_channel_workspace` to search data file content.
 
 Each channel has its own workspace. When the user references another project or channel:
 
-1. Use `list_workspace_channels` to see all channels with workspace enabled — this returns
+1. Use `list_channels` to see all channels with workspace enabled — this returns
    display names and channel IDs
 2. Use `search_channel_workspace(query, channel_id=...)` to search that channel's files
    (both active and archived)
@@ -134,7 +134,7 @@ The search is indexed and will return relevant chunks efficiently.
 | Existing concern updated | Update the relevant workspace file |
 | Task resolved, file no longer useful | Archive it, update index |
 | Need info from old resolved file | Use `search_channel_archive` tool |
-| User references another project | `list_workspace_channels` then `search_channel_workspace` |
+| User references another project | `list_channels` then `search_channel_workspace` |
 | Received a PDF/image/binary | Save to `data/`, describe in a workspace `.md` file |
 | Learned something durable about client/vendor/pattern | Write to `memory.md` |
 | State change is minor / transient | No file needed — conversation context is enough |

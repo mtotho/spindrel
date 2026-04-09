@@ -1,4 +1,4 @@
-"""Local tools for channel workspace: search_channel_archive, search_channel_workspace, list_workspace_channels."""
+"""Local tools for channel workspace: search_channel_archive, search_channel_workspace, list_channels."""
 from __future__ import annotations
 
 import logging
@@ -219,11 +219,11 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
 @register({
     "type": "function",
     "function": {
-        "name": "list_workspace_channels",
+        "name": "list_channels",
         "description": (
-            "List other channels that have workspace enabled. "
-            "Returns channel IDs and display names so you can use search_channel_workspace "
-            "to search their files. Useful when the user references another project or channel."
+            "List all channels this bot belongs to (primary and member). "
+            "Returns channel IDs, display names, and flags (workspace enabled, current, member). "
+            "Use channel IDs with read_conversation_history, search_channel_workspace, etc."
         ),
         "parameters": {
             "type": "object",
@@ -231,8 +231,8 @@ async def search_channel_workspace(query: str, channel_id: str | None = None) ->
         },
     },
 })
-async def list_workspace_channels() -> str:
-    """List channels with workspace enabled for cross-channel discovery."""
+async def list_channels() -> str:
+    """List all channels the bot belongs to (primary + member)."""
     bot_id = current_bot_id.get()
     my_ch_id = str(current_channel_id.get()) if current_channel_id.get() else None
     if not bot_id:
@@ -243,42 +243,54 @@ async def list_workspace_channels() -> str:
     cross_access = bot.cross_workspace_access if bot else False
 
     from app.db.engine import async_session
-    from sqlalchemy import select, true
+    from sqlalchemy import select
     from app.db.models import Bot as BotRow, Channel
 
     async with async_session() as db:
         if cross_access:
             # Cross-workspace: list channels across ALL bots, include bot name
             stmt = (
-                select(Channel.id, Channel.name, Channel.client_id, Channel.bot_id, BotRow.name.label("bot_name"))
+                select(
+                    Channel.id, Channel.name, Channel.client_id,
+                    Channel.bot_id, Channel.channel_workspace_enabled,
+                    BotRow.name.label("bot_name"),
+                )
                 .join(BotRow, BotRow.id == Channel.bot_id)
-                .where(Channel.channel_workspace_enabled == true())
                 .order_by(BotRow.name, Channel.name)
             )
         else:
             from app.services.channels import bot_channel_filter
             stmt = (
-                select(Channel.id, Channel.name, Channel.client_id, Channel.bot_id)
+                select(
+                    Channel.id, Channel.name, Channel.client_id,
+                    Channel.bot_id, Channel.channel_workspace_enabled,
+                )
                 .where(bot_channel_filter(bot_id))
-                .where(Channel.channel_workspace_enabled == true())
                 .order_by(Channel.name)
             )
         rows = (await db.execute(stmt)).all()
 
     if not rows:
-        return "No channels with workspace enabled found."
+        return "No channels found."
 
     lines = []
     for row in rows:
         ch_str = str(row.id)
         label = row.name or row.client_id
-        marker = " (current)" if ch_str == my_ch_id else ""
+        flags = []
+        if ch_str == my_ch_id:
+            flags.append("current")
+        if row.channel_workspace_enabled:
+            flags.append("workspace")
         if cross_access:
             bot_label = row.bot_name or str(row.bot_id)
             own = " (yours)" if str(row.bot_id) == bot_id else ""
-            lines.append(f"- **{label}**{marker} [{bot_label}{own}]: `{ch_str}`")
+            flag_str = f" ({', '.join(flags)})" if flags else ""
+            lines.append(f"- **{label}**{flag_str} [{bot_label}{own}]: `{ch_str}`")
         else:
-            role = " (member)" if str(row.bot_id) != bot_id else ""
-            lines.append(f"- **{label}**{marker}{role}: `{ch_str}`")
+            if str(row.bot_id) != bot_id:
+                flags.append("member")
+            flag_str = f" ({', '.join(flags)})" if flags else ""
+            lines.append(f"- **{label}**{flag_str}: `{ch_str}`")
 
-    return "Channels with workspace enabled:\n" + "\n".join(lines)
+    return "Your channels:\n" + "\n".join(lines)

@@ -351,7 +351,7 @@ async def _inject_memory_scheme(
         logger.warning("Failed to inject memory scheme files for bot %s", bot.id, exc_info=True)
 
 
-_CW_TOOLS = ["file", "search_channel_archive", "search_channel_workspace", "list_workspace_channels"]
+_CW_TOOLS = ["file", "search_channel_archive", "search_channel_workspace", "list_channels"]
 _CW_BUDGET = 50_000
 
 

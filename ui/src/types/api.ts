@@ -196,6 +196,7 @@ export interface WorkflowConnection {
 export interface ToolPack {
   pack: string;
   label: string;
+  group?: string | null;
   warning?: string | null;
   tools: { name: string; description?: string | null }[];
 }

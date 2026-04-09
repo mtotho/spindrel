@@ -89,6 +89,7 @@ async def admin_bot_detail(
 class ToolPackOut(BaseModel):
     pack: str
     label: str
+    group: Optional[str] = None
     warning: Optional[str] = None
     tools: list[dict] = []
 
@@ -311,10 +312,37 @@ async def _fetch_sandbox_profiles(db: AsyncSession):
 
 
 PACK_METADATA: dict[str, dict] = {
-    "memory":       {"label": "Memory (DB)",    "deprecated": True},
-    "memory_files": {"label": "Memory (Files)"},
-    "knowledge":    {"label": "Knowledge (DB)", "deprecated": True},
-    "plans":        {"label": "Plans (DB)",      "deprecated": True},
+    # Memory
+    "memory":       {"label": "Memory (DB)",    "deprecated": True, "group": "Memory"},
+    "memory_files": {"label": "Memory (Files)", "group": "Memory"},
+    "knowledge":    {"label": "Knowledge (DB)", "deprecated": True, "group": "Memory"},
+    # Channels
+    "channel_workspace":    {"label": "Channel Workspace",    "group": "Channels"},
+    "conversation_history": {"label": "Conversation History", "group": "Channels"},
+    "search_history":       {"label": "Search History",       "group": "Channels"},
+    "summarize_channel":    {"label": "Summarize Channel",    "group": "Channels"},
+    # Workspace
+    "workspace":        {"label": "Workspace Search",  "group": "Workspace"},
+    "workspace_skills": {"label": "Workspace Skills",  "group": "Workspace"},
+    "file_ops":         {"label": "File Operations",   "group": "Workspace"},
+    # Agent
+    "delegation":   {"label": "Delegation",     "group": "Agent"},
+    "exec_tool":    {"label": "Exec Tool",      "group": "Agent"},
+    "exec_command": {"label": "Exec Command",   "group": "Agent"},
+    "tasks":        {"label": "Tasks",          "group": "Agent"},
+    "plans":        {"label": "Plans (DB)",     "deprecated": True, "group": "Agent"},
+    # Admin
+    "admin_bots":         {"label": "Bot Admin",         "group": "Admin"},
+    "admin_channels":     {"label": "Channel Admin",     "group": "Admin"},
+    "admin_integrations": {"label": "Integration Admin", "group": "Admin"},
+    "admin_secrets":      {"label": "Secrets Admin",     "group": "Admin"},
+    "admin_system":       {"label": "System Admin",      "group": "Admin"},
+    # Discovery
+    "discovery":    {"label": "Discovery",      "group": "Discovery"},
+    "capabilities": {"label": "Capabilities",   "group": "Discovery"},
+    "carapaces":    {"label": "Carapaces",      "group": "Discovery"},
+    "bot_skills":   {"label": "Bot Skills",     "group": "Discovery"},
+    "skills":       {"label": "Skills",         "group": "Discovery"},
 }
 
 
@@ -352,6 +380,7 @@ def _build_tool_groups(tool_rows, *, memory_scheme: str | None = None) -> list[d
             packs_out.append({
                 "pack": pn,
                 "label": label,
+                "group": meta.get("group"),
                 "warning": warning,
                 "tools": sorted(packs_dict[pn], key=lambda t: t["name"]),
             })

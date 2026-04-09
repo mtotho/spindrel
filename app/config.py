@@ -135,7 +135,7 @@ Use search_channel_archive to search archived files, search_channel_workspace fo
 Keep active files minimal — archive resolved items. Write durable learnings to memory/ files, not workspace.
 The data/ subfolder holds binary files (PDFs, images, etc.) — not auto-injected into context.
 When receiving data files, save to data/ and create/update a workspace .md file with descriptions and metadata.
-Cross-channel: if the user references another project/channel, use list_workspace_channels to find it, \
+Cross-channel: if the user references another project/channel, use list_channels to find it, \
 then search_channel_workspace with its channel_id to find relevant workspace content.
 For task tracking, use the create_task_card and move_task_card tools to manage kanban cards in tasks.md.
 {data_listing}"""
@@ -159,7 +159,7 @@ Your goal: keep memory lean, promote stable facts, prune stale entries, detect c
 generate cross-channel reflections, and consolidate skills.
 
 ## Step 1 — Survey channels
-Use `list_workspace_channels()` to see all your channels (including member channels). For each active channel:
+Use `list_channels()` to see all your channels (including member channels). For each active channel:
 - Use `read_conversation_history(section="index", channel_id=<id>)` to review recent activity.
 - Note channels with no recent activity (candidates for archiving stale daily logs).
 

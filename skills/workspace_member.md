@@ -144,7 +144,7 @@ agent api POST /api/v1/channels/{id}/messages \
   '{"content":"message","run_agent":true}'         # Inject message + trigger processing
 ```
 
-Use `list_workspace_channels` and `search_channel_workspace` to discover and search across channel workspaces. If the user references another project or channel, these tools help you find relevant content without needing to know the channel ID upfront.
+Use `list_channels` and `search_channel_workspace` to discover and search across channel workspaces. If the user references another project or channel, these tools help you find relevant content without needing to know the channel ID upfront.
 
 ---
 

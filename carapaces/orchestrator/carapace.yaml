@@ -91,7 +91,7 @@ local_tools:
   - delegate_to_exec
   - run_claude_code
   - search_bot_memory
-  - list_workspace_channels
+  - list_channels
   - search_channel_workspace
   - schedule_task
   - list_tasks

@@ -43,7 +43,7 @@ These are the tools that make cross-channel project management possible:
 
 | Tool | Purpose |
 |---|---|
-| `list_workspace_channels` | Discover all channels with workspace enabled — returns names, IDs, client IDs |
+| `list_channels` | Discover all channels with workspace enabled — returns names, IDs, client IDs |
 | `search_channel_workspace(query, channel_id=...)` | Search another channel's workspace files (active + archived) |
 | `search_channel_archive(query)` | Search archived files in the *current* channel only |
 | `file` | Read/write/edit files in the current channel's workspace (preferred over shell) |
@@ -53,7 +53,7 @@ These are the tools that make cross-channel project management possible:
 Always start with discovery before reporting:
 
 ```
-1. list_workspace_channels          → get all project channels
+1. list_channels          → get all project channels
 2. For each relevant channel:
    search_channel_workspace("status OR progress OR tasks", channel_id=<id>)
 3. Synthesize findings into your workspace files
@@ -145,7 +145,7 @@ Append new reports. Archive old ones monthly.
 
 ### Quick Status ("How are my projects doing?")
 
-1. `list_workspace_channels` — get all channels
+1. `list_channels` — get all channels
 2. For each active channel, run `search_channel_workspace("status tasks progress current", channel_id=...)`
 3. Scan results for: open tasks, blockers, recent completions, current phase
 4. Present a concise summary grouped by status (At Risk first, then On Track)
@@ -153,7 +153,7 @@ Append new reports. Archive old ones monthly.
 
 ### Deep Dive ("Tell me about project X")
 
-1. Find the channel ID from `projects.md` or `list_workspace_channels`
+1. Find the channel ID from `projects.md` or `list_channels`
 2. `search_channel_workspace("*", channel_id=...)` — broad search for everything
 3. Search for specific concerns: tasks, decisions, blockers, timeline
 4. Present findings organized by: current state, recent changes, open items, risks
@@ -174,7 +174,7 @@ Append new reports. Archive old ones monthly.
 
 ### Cross-Project Search ("Where did we discuss X?")
 
-1. `list_workspace_channels` — get all channels
+1. `list_channels` — get all channels
 2. `search_channel_workspace("<query>", channel_id=...)` for each relevant channel
 3. Compile findings with channel attribution:
    - "In **henderson-kitchen**: found in tasks.md — ..."
