@@ -4,7 +4,7 @@ Verifies the full pipeline from skill/capability creation through to LLM usage:
 - Skills created via admin API are retrievable
 - Bots with skills get get_skill/get_skill_list tools auto-injected
 - Capabilities with skills resolve correctly
-- Bot assigned a capability gets the capability's skills in effective tools
+- Bot assigned a capability gets the capability's skills in context
 - LLM calls get_skill to load skill content (behavioral)
 - LLM discovers unassigned capability and calls activate_capability (behavioral)
 - After activation, capability's skills become accessible (behavioral)
@@ -12,6 +12,7 @@ Verifies the full pipeline from skill/capability creation through to LLM usage:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
@@ -24,6 +25,9 @@ _ADMIN_CHANNELS = "/api/v1/admin/channels"
 _TEST_PREFIX = "e2e-skill-"
 _CAP_PREFIX = "e2e-cap-"
 
+# Hard ceiling for LLM-dependent tests to prevent stream hangs
+_LLM_TIMEOUT = 90
+
 
 def _skill_id() -> str:
     return f"{_TEST_PREFIX}{uuid.uuid4().hex[:8]}"
@@ -31,6 +35,16 @@ def _skill_id() -> str:
 
 def _cap_id() -> str:
     return f"{_CAP_PREFIX}{uuid.uuid4().hex[:8]}"
+
+
+async def _find_channel_for_bot(client: E2EClient, bot_id: str) -> str:
+    """Look up channel ID via admin API (more reliable than derive_channel_id
+    for temp bots where client_id may not match)."""
+    resp = await client.get(f"{_ADMIN_CHANNELS}?page_size=100")
+    channels = resp.json().get("channels", [])
+    matching = [c for c in channels if c.get("bot_id") == bot_id]
+    assert matching, f"No channel found for bot {bot_id}"
+    return matching[0]["id"]
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +209,7 @@ async def test_capability_with_skills_resolves(client: E2EClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 5. Bot assigned a capability gets capability's skills in effective tools
+# 5. Bot assigned a capability gets capability's skills in context
 # ---------------------------------------------------------------------------
 
 
@@ -238,8 +252,8 @@ async def test_capability_skills_appear_in_context_after_assignment(client: E2EC
 
         # Chat to create channel (triggers context assembly + carapace resolution)
         client_id = client.new_client_id("e2e-cap-skill")
-        channel_id = client.derive_channel_id(client_id)
         await client.chat("Hello.", bot_id=bot_id, client_id=client_id)
+        channel_id = await _find_channel_for_bot(client, bot_id)
 
         # Context preview should show the capability's system_prompt_fragment
         resp = await client.get(f"{_ADMIN_CHANNELS}/{channel_id}/context-preview")
@@ -290,11 +304,14 @@ async def test_bot_loads_skill_via_get_skill(client: E2EClient) -> None:
 
         # Chat with e2e-tools bot (has get_skill in local_tools)
         cid = client.new_client_id("e2e-getskill")
-        result = await client.chat_stream(
-            f'Use the get_skill tool to retrieve the skill with id "{sid}" '
-            "and tell me about the Zorblax Protocol handshake phases.",
-            bot_id="e2e-tools",
-            client_id=cid,
+        result = await asyncio.wait_for(
+            client.chat_stream(
+                f'Use the get_skill tool to retrieve the skill with id "{sid}" '
+                "and tell me about the Zorblax Protocol handshake phases.",
+                bot_id="e2e-tools",
+                client_id=cid,
+            ),
+            timeout=_LLM_TIMEOUT,
         )
         assert not result.error_events, f"Errors: {result.error_events}"
         assert "get_skill" in result.tools_used, (
@@ -320,12 +337,10 @@ async def test_bot_discovers_and_activates_capability(client: E2EClient) -> None
     """A capability NOT assigned to the bot is surfaced via capability RAG
     and the bot calls activate_capability when the topic matches.
 
-    This is the core discovery test: the capability is created fresh,
-    indexed for RAG, and the bot should find it semantically.
+    Uses the default e2e bot (known working, has activate_capability).
     """
     sid = _skill_id()
     cid = _cap_id()
-    bot_id = f"e2e-tmp-{uuid.uuid4().hex[:8]}"
     try:
         # Create a skill with unique content
         await client.post(
@@ -367,30 +382,16 @@ async def test_bot_discovers_and_activates_capability(client: E2EClient) -> None
         )
         assert resp.status_code == 201
 
-        # Create a bot with activate_capability but NO capabilities assigned
-        await client.create_bot({
-            "id": bot_id,
-            "name": "Discovery Test Bot",
-            "model": "gemini/gemini-2.5-flash-lite",
-            "system_prompt": (
-                "You are a helpful test bot. When you see available capabilities "
-                "listed in your context that match the user's question, you MUST "
-                "call activate_capability to activate them before answering. "
-                "Always check for and activate relevant capabilities."
-            ),
-            "local_tools": ["get_current_time"],
-            "tool_retrieval": False,
-            "persona": False,
-        })
-
-        # Chat about quantum sandwiches — should trigger capability RAG match
+        # Use default e2e bot — has activate_capability auto-injected
         client_id = client.new_client_id("e2e-discover")
-        result = await client.chat_stream(
-            "I need help understanding the Quantum Sandwich Theory. "
-            "What is the Bread Uncertainty Principle? "
-            "If there is a relevant capability available, please activate it first.",
-            bot_id=bot_id,
-            client_id=client_id,
+        result = await asyncio.wait_for(
+            client.chat_stream(
+                "I need help understanding the Quantum Sandwich Theory. "
+                "What is the Bread Uncertainty Principle? "
+                "If there is a relevant capability available, please activate it first.",
+                client_id=client_id,
+            ),
+            timeout=_LLM_TIMEOUT,
         )
         assert not result.error_events, f"Errors: {result.error_events}"
         assert "activate_capability" in result.tools_used, (
@@ -399,7 +400,6 @@ async def test_bot_discovers_and_activates_capability(client: E2EClient) -> None
             f"Response: {result.response_text[:200]}"
         )
     finally:
-        await client.delete_bot(bot_id)
         await client.delete(f"{_ADMIN_CARAPACES}/{cid}")
         await client.delete(f"{_ADMIN_SKILLS}/{sid}")
 
@@ -414,12 +414,11 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
     """After activate_capability, the next turn should have the capability's
     skills accessible via get_skill.
 
-    Turn 1: Activate the capability
+    Turn 1: Activate the capability (using e2e bot)
     Turn 2: Load the skill content via get_skill
     """
     sid = _skill_id()
     cid = _cap_id()
-    bot_id = f"e2e-tmp-{uuid.uuid4().hex[:8]}"
     try:
         # Create skill
         await client.post(
@@ -451,28 +450,15 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
             },
         )
 
-        # Create bot with NO skills or capabilities — just activate_capability
-        await client.create_bot({
-            "id": bot_id,
-            "name": "Multi-Turn Activation Bot",
-            "model": "gemini/gemini-2.5-flash-lite",
-            "system_prompt": (
-                "You are a test bot. When you see available capabilities, "
-                "activate them. When you have skills available, use get_skill "
-                "to load their content before answering."
-            ),
-            "local_tools": ["get_current_time"],
-            "tool_retrieval": False,
-            "persona": False,
-        })
-
-        # Turn 1: Activate the capability
+        # Turn 1: Activate the capability (using default e2e bot)
         client_id = client.new_client_id("e2e-multiturn")
-        result1 = await client.chat_stream(
-            "I need help with Elvish grammar. Please activate the Elvish "
-            "language capability if it's available.",
-            bot_id=bot_id,
-            client_id=client_id,
+        result1 = await asyncio.wait_for(
+            client.chat_stream(
+                "I need help with Elvish grammar. Please activate the Elvish "
+                "language capability if it's available.",
+                client_id=client_id,
+            ),
+            timeout=_LLM_TIMEOUT,
         )
         assert not result1.error_events, f"Turn 1 errors: {result1.error_events}"
         assert "activate_capability" in result1.tools_used, (
@@ -481,11 +467,13 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
         )
 
         # Turn 2: Now the skill should be accessible — ask bot to load it
-        result2 = await client.chat_stream(
-            f'Now use the get_skill tool to load skill "{sid}" and tell me '
-            "how to conjugate verbs in the past tense in Elvish.",
-            bot_id=bot_id,
-            client_id=client_id,
+        result2 = await asyncio.wait_for(
+            client.chat_stream(
+                f'Now use the get_skill tool to load skill "{sid}" and tell me '
+                "how to conjugate verbs in the past tense in Elvish.",
+                client_id=client_id,
+            ),
+            timeout=_LLM_TIMEOUT,
         )
         assert not result2.error_events, f"Turn 2 errors: {result2.error_events}"
         assert "get_skill" in result2.tools_used, (
@@ -499,7 +487,6 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
             f"Response should reference Elvish grammar content. Got: {result2.response_text[:300]}"
         )
     finally:
-        await client.delete_bot(bot_id)
         await client.delete(f"{_ADMIN_CARAPACES}/{cid}")
         await client.delete(f"{_ADMIN_SKILLS}/{sid}")
 
@@ -543,10 +530,13 @@ async def test_get_skill_list_returns_bot_skills(client: E2EClient) -> None:
 
         # Ask bot to list skills
         client_id = client.new_client_id("e2e-skilllist")
-        result = await client.chat_stream(
-            "Use the get_skill_list tool to show me all your available skills.",
-            bot_id=bot_id,
-            client_id=client_id,
+        result = await asyncio.wait_for(
+            client.chat_stream(
+                "Use the get_skill_list tool to show me all your available skills.",
+                bot_id=bot_id,
+                client_id=client_id,
+            ),
+            timeout=_LLM_TIMEOUT,
         )
         assert not result.error_events, f"Errors: {result.error_events}"
         assert "get_skill_list" in result.tools_used, (
@@ -589,10 +579,13 @@ async def test_skill_access_denied_for_unrelated_bot(client: E2EClient) -> None:
 
         # e2e-tools bot has get_skill but this skill is NOT in its config
         client_id = client.new_client_id("e2e-denied")
-        result = await client.chat_stream(
-            f'Use the get_skill tool to retrieve skill "{sid}" right now.',
-            bot_id="e2e-tools",
-            client_id=client_id,
+        result = await asyncio.wait_for(
+            client.chat_stream(
+                f'Use the get_skill tool to retrieve skill "{sid}" right now.',
+                bot_id="e2e-tools",
+                client_id=client_id,
+            ),
+            timeout=_LLM_TIMEOUT,
         )
         assert "get_skill" in result.tools_used, (
             f"Bot should have attempted get_skill. Tools: {result.tools_used}"
@@ -637,8 +630,8 @@ async def test_context_preview_includes_skill_index(client: E2EClient) -> None:
 
         # Chat to create channel
         client_id = client.new_client_id("e2e-preview")
-        channel_id = client.derive_channel_id(client_id)
         await client.chat("Hello.", bot_id=bot_id, client_id=client_id)
+        channel_id = await _find_channel_for_bot(client, bot_id)
 
         # Context preview should show skill-related block
         resp = await client.get(f"{_ADMIN_CHANNELS}/{channel_id}/context-preview")
@@ -670,11 +663,10 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
     assigned to the bot gets discovered via RAG, activated, and its content
     loaded and used in the response.
 
-    This is the highest-level integration test for skill discovery.
+    Uses the default e2e bot. This is the highest-level integration test.
     """
     sid = _skill_id()
     cid = _cap_id()
-    bot_id = f"e2e-tmp-{uuid.uuid4().hex[:8]}"
     try:
         # Create a skill with very distinctive, verifiable content
         await client.post(
@@ -713,29 +705,15 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
             },
         )
 
-        # Create bot with NO capabilities assigned
-        await client.create_bot({
-            "id": bot_id,
-            "name": "Full Pipeline Bot",
-            "model": "gemini/gemini-2.5-flash-lite",
-            "system_prompt": (
-                "You are a helpful assistant. When you see available capabilities "
-                "in your context that match the user's request, you MUST activate them "
-                "by calling activate_capability. After activating, use get_skill to "
-                "load skill content before answering."
-            ),
-            "local_tools": ["get_current_time"],
-            "tool_retrieval": False,
-            "persona": False,
-        })
-
         # Turn 1: Ask about Martian Chess — should discover + activate capability
         client_id = client.new_client_id("e2e-pipeline")
-        result1 = await client.chat_stream(
-            "I want to learn about Martian Chess. What is the midline rule? "
-            "Check for any relevant capabilities and activate them.",
-            bot_id=bot_id,
-            client_id=client_id,
+        result1 = await asyncio.wait_for(
+            client.chat_stream(
+                "I want to learn about Martian Chess. What is the midline rule? "
+                "Check for any relevant capabilities and activate them.",
+                client_id=client_id,
+            ),
+            timeout=_LLM_TIMEOUT,
         )
         # Capability might be discovered via RAG — check if activation happened
         activated = "activate_capability" in result1.tools_used
@@ -747,11 +725,13 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
             )
 
         # Turn 2: Now load the skill and use its content
-        result2 = await client.chat_stream(
-            f'Great! Now use get_skill to load the "{sid}" skill and explain '
-            "how pieces move in Martian Chess. How many hexes can a Drone move?",
-            bot_id=bot_id,
-            client_id=client_id,
+        result2 = await asyncio.wait_for(
+            client.chat_stream(
+                f'Great! Now use get_skill to load the "{sid}" skill and explain '
+                "how pieces move in Martian Chess. How many hexes can a Drone move?",
+                client_id=client_id,
+            ),
+            timeout=_LLM_TIMEOUT,
         )
         assert not result2.error_events, f"Turn 2 errors: {result2.error_events}"
         assert "get_skill" in result2.tools_used, (
@@ -766,6 +746,5 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
             f"Got: {result2.response_text[:400]}"
         )
     finally:
-        await client.delete_bot(bot_id)
         await client.delete(f"{_ADMIN_CARAPACES}/{cid}")
         await client.delete(f"{_ADMIN_SKILLS}/{sid}")
