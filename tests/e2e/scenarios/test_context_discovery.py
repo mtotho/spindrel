@@ -321,17 +321,14 @@ async def test_embedding_health_active(client: E2EClient) -> None:
     assert resp.status_code == 200
     data = resp.json()
 
-    # Embedding should be healthy
-    embed = data.get("embedding") or data.get("embeddings") or {}
-    if isinstance(embed, dict):
-        healthy = embed.get("healthy", embed.get("status") == "healthy")
-        assert healthy, f"Expected embedding to be healthy: {embed}"
+    systems = data.get("systems", {})
 
-    # Should have indexed content
-    fs = data.get("filesystem") or {}
-    if isinstance(fs, dict) and "bots" in fs:
-        bots = fs["bots"]
-        if isinstance(bots, list):
-            assert len(bots) > 0, "Expected at least one bot with indexed content"
-        elif isinstance(bots, dict):
-            assert len(bots) > 0, "Expected at least one bot with indexed content"
+    # Embedding should be healthy
+    embed = systems.get("embedding", {})
+    assert embed.get("healthy") is True, f"Expected embedding healthy=true: {embed}"
+
+    # Should have file skills on disk
+    file_skills = systems.get("file_skills", {})
+    assert file_skills.get("files_on_disk", 0) > 0, (
+        f"Expected file skills on disk: {file_skills}"
+    )
