@@ -317,7 +317,7 @@ async def test_context_budget_utilization(client: E2EClient) -> None:
 @pytest.mark.asyncio
 async def test_embedding_health_active(client: E2EClient) -> None:
     """Diagnostics confirm embedding indexes are healthy and have content."""
-    resp = await client.get("/api/v1/admin/diagnostics/health")
+    resp = await client.get("/api/v1/admin/diagnostics/indexing")
     assert resp.status_code == 200
     data = resp.json()
 
