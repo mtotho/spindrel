@@ -70,7 +70,29 @@ async def test_movies_search_success():
     assert result["count"] == 1
     assert result["results"][0]["tmdb_id"] == 27205
     assert result["results"][0]["runtime"] == 148
+    assert "id" not in result["results"][0]  # not in library
     mock_get.assert_awaited_once_with("/api/v3/movie/lookup", params={"term": "inception"})
+
+
+@pytest.mark.asyncio
+async def test_movies_search_includes_library_id():
+    """When a searched movie is already in the library, include the internal Radarr ID."""
+    api_data = [
+        {
+            "id": 99,
+            "tmdbId": 27205,
+            "title": "Inception",
+            "year": 2010,
+            "overview": "A thief who steals corporate secrets through dream-sharing technology.",
+            "status": "released",
+            "runtime": 148,
+        },
+    ]
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=api_data):
+        result = json.loads(await radarr_movies(search="inception"))
+
+    assert result["results"][0]["id"] == 99
+    assert result["results"][0]["tmdb_id"] == 27205
 
 
 @pytest.mark.asyncio

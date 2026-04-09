@@ -153,8 +153,9 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
         "name": "sonarr_series",
         "description": (
             "List monitored series in Sonarr (newest first) or search TVDB for new series to add. "
-            "Without search: returns library series sorted by recently added. "
-            "With search: searches TVDB for matching series."
+            "Without search: returns library series with internal 'id' sorted by recently added. "
+            "With search: searches TVDB — results include 'id' (internal Sonarr ID) if already in library. "
+            "IMPORTANT: Use the internal 'id' (NOT tvdb_id) for sonarr_episodes, sonarr_command, etc."
         ),
         "parameters": {
             "type": "object",
@@ -179,14 +180,18 @@ async def sonarr_series(search: str | None = None, limit: int = 50) -> str:
             data = await _get("/api/v3/series/lookup", params={"term": search})
             results = []
             for s in data[:20]:
-                results.append({
+                entry: dict = {
                     "tvdb_id": s.get("tvdbId"),
                     "title": sanitize(s.get("title", "")),
                     "year": s.get("year"),
                     "overview": sanitize(s.get("overview", ""), max_len=200),
                     "status": s.get("status"),
                     "season_count": s.get("statistics", {}).get("seasonCount", 0),
-                })
+                }
+                # Include internal Sonarr ID if series is already in library
+                if s.get("id"):
+                    entry["id"] = s["id"]
+                results.append(entry)
             return json.dumps({"count": len(results), "results": results})
         else:
             data = await _get("/api/v3/series")

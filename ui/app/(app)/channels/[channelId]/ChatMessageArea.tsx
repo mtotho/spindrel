@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, ActivityIndicator, Pressable, Platform, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 import { ChevronDown } from "lucide-react";
 import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -8,38 +7,28 @@ import type { MemberStreamState } from "@/src/stores/chat";
 
 export function DateSeparator({ label }: { label: string }) {
   const t = useThemeTokens();
-  if (Platform.OS === "web") {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 16,
-          padding: "12px 20px",
-          maxWidth: 480,
-          margin: "0 auto",
-          userSelect: "none",
-        }}
-      >
-        <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
-        <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim, whiteSpace: "nowrap", textTransform: "uppercase" as const, letterSpacing: 1.5 }}>
-          {label}
-        </span>
-        <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
-      </div>
-    );
-  }
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 16, paddingHorizontal: 20, paddingVertical: 12 }}>
-      <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
-      <Text style={{ fontSize: 12, fontWeight: "600", color: t.textDim }}>{label}</Text>
-      <View style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
-    </View>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 16,
+        padding: "12px 20px",
+        maxWidth: 480,
+        margin: "0 auto",
+        userSelect: "none",
+      }}
+    >
+      <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+      <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim, whiteSpace: "nowrap", textTransform: "uppercase" as const, letterSpacing: 1.5 }}>
+        {label}
+      </span>
+      <div style={{ flex: 1, height: 1, backgroundColor: t.surfaceBorder }} />
+    </div>
   );
 }
 
 export interface ChatMessageAreaProps {
-  flatListRef: React.RefObject<FlatList | null>;
   invertedData: Message[];
   renderMessage: (info: { item: Message; index: number }) => React.JSX.Element;
   chatState: { isStreaming: boolean; streamingContent: string; toolCalls: any[]; thinkingContent: string; respondingBotName?: string | null; memberStreams?: Record<string, MemberStreamState> };
@@ -47,11 +36,6 @@ export interface ChatMessageAreaProps {
   botId?: string;
   isLoading: boolean;
   isFetchingNextPage: boolean;
-  showScrollBtn: boolean;
-  scrollToBottom: () => void;
-  handleScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
-  handleListLayout: (e: any) => void;
-  handleContentSizeChange: (w: number, h: number) => void;
   handleLoadMore: () => void;
   isProcessing?: boolean;
   t: ReturnType<typeof useThemeTokens>;
@@ -61,11 +45,10 @@ export interface ChatMessageAreaProps {
 // Web: normal column layout with JS scroll anchoring (proper text selection)
 // ---------------------------------------------------------------------------
 
-function WebChatList({
+export function ChatMessageArea({
   invertedData,
   renderMessage,
   chatState,
-  bot,
   botId,
   isLoading,
   isFetchingNextPage,
@@ -293,149 +276,4 @@ function WebChatList({
       )}
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Native: inverted FlatList (scaleY is fine on native — no text selection issue)
-// ---------------------------------------------------------------------------
-
-/**
- * Cell wrapper that enables text selection on web.
- * Kept for the native FlatList path as a no-op on non-web.
- */
-const SelectableCell = Platform.OS === "web"
-  ? React.forwardRef<View, any>((props, ref) => (
-      <View {...props} ref={ref} style={[props.style, { userSelect: "text" } as any]} />
-    ))
-  : undefined;
-if (SelectableCell) SelectableCell.displayName = "SelectableCell";
-
-function NativeChatList({
-  flatListRef,
-  invertedData,
-  renderMessage,
-  chatState,
-  bot,
-  isLoading,
-  isFetchingNextPage,
-  showScrollBtn,
-  scrollToBottom,
-  handleScroll,
-  handleListLayout,
-  handleContentSizeChange,
-  handleLoadMore,
-  isProcessing,
-  t,
-}: ChatMessageAreaProps) {
-  return (
-    <View style={{ flex: 1, position: "relative" }}>
-      <FlatList
-        ref={flatListRef}
-        inverted
-        style={{ flex: 1 }}
-        data={invertedData}
-        keyExtractor={(item) => item.id}
-        renderItem={renderMessage}
-        contentContainerStyle={{ paddingTop: 8, paddingBottom: 8 }}
-        CellRendererComponent={SelectableCell}
-        scrollEventThrottle={100}
-        onScroll={handleScroll}
-        onLayout={handleListLayout}
-        onContentSizeChange={handleContentSizeChange}
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={1.5}
-        initialNumToRender={20}
-        maxToRenderPerBatch={15}
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-        automaticallyAdjustContentInsets={false}
-        contentInsetAdjustmentBehavior="never"
-        ListHeaderComponent={(() => {
-          const nativeBotName = chatState.respondingBotName ?? undefined;
-          const nativePrimary = chatState.isStreaming ? (
-            <StreamingIndicator
-              content={chatState.streamingContent}
-              toolCalls={chatState.toolCalls}
-              botName={nativeBotName}
-              thinkingContent={chatState.thinkingContent}
-            />
-          ) : isProcessing ? (
-            <ProcessingIndicator botName={nativeBotName} />
-          ) : null;
-          const nativeMemberEntries = Object.entries(chatState.memberStreams ?? {});
-          const nativeMemberIndicators = nativeMemberEntries.map(([sid, ms]) => (
-            <StreamingIndicator
-              key={sid}
-              content={ms.streamingContent}
-              toolCalls={ms.toolCalls}
-              botName={ms.botName}
-              thinkingContent={ms.thinkingContent}
-            />
-          ));
-          if (!nativePrimary && nativeMemberIndicators.length === 0) return null;
-          // Primary bot first (at bottom in inverted list), member bots above
-          return (
-            <>
-              {nativePrimary}
-              {nativeMemberIndicators}
-            </>
-          );
-        })()
-        }
-        ListFooterComponent={
-          isFetchingNextPage ? (
-            <View className="items-center py-3">
-              <ActivityIndicator size="small" color="#666666" />
-            </View>
-          ) : null
-        }
-        ListEmptyComponent={
-          <View style={{ flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 80, transform: [{ scaleY: -1 }] }}>
-            {isLoading ? (
-              <ActivityIndicator color={t.textDim} />
-            ) : (
-              <Text style={{ color: t.textDim, fontSize: 14 }}>
-                Send a message to start the conversation
-              </Text>
-            )}
-          </View>
-        }
-      />
-      {showScrollBtn && (
-        <Pressable
-          onPress={scrollToBottom}
-          style={{
-            position: "absolute",
-            bottom: 16,
-            right: 24,
-            width: 40,
-            height: 40,
-            borderRadius: 20,
-            backgroundColor: t.surfaceRaised,
-            borderWidth: 1,
-            borderColor: t.surfaceBorder,
-            alignItems: "center",
-            justifyContent: "center",
-            ...Platform.select({
-              web: { boxShadow: "0 2px 8px rgba(0,0,0,0.3)", cursor: "pointer" } as any,
-              default: { elevation: 4 },
-            }),
-          }}
-        >
-          <ChevronDown size={20} color={t.textMuted} />
-        </Pressable>
-      )}
-    </View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Public component — picks the right implementation per platform
-// ---------------------------------------------------------------------------
-
-export function ChatMessageArea(props: ChatMessageAreaProps) {
-  if (Platform.OS === "web") {
-    return <WebChatList {...props} />;
-  }
-  return <NativeChatList {...props} />;
 }

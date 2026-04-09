@@ -112,14 +112,18 @@ async def radarr_movies(search: str | None = None, filter: str | None = None, li
             data = await _get("/api/v3/movie/lookup", params={"term": search})
             results = []
             for m in data[:20]:
-                results.append({
+                entry: dict = {
                     "tmdb_id": m.get("tmdbId"),
                     "title": sanitize(m.get("title", "")),
                     "year": m.get("year"),
                     "overview": sanitize(m.get("overview", ""), max_len=200),
                     "status": m.get("status"),
                     "runtime": m.get("runtime"),
-                })
+                }
+                # Include internal Radarr ID if movie is already in library
+                if m.get("id"):
+                    entry["id"] = m["id"]
+                results.append(entry)
             return json.dumps({"count": len(results), "results": results})
         else:
             data = await _get("/api/v3/movie")

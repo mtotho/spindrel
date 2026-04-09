@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { Shield, ChevronUp, ChevronDown } from "lucide-react";
@@ -37,7 +36,7 @@ import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { ChannelHeader } from "./ChannelHeader";
 import { useChannelChat } from "./useChannelChat";
 import type { Message } from "@/src/types/api";
-import type { NativeSyntheticEvent, NativeScrollEvent } from "react-native";
+
 import type { ActiveHud } from "@/src/api/hooks/useChatHud";
 
 /** Collapsible wrapper around HUD status strips with a toggle icon. */
@@ -112,7 +111,6 @@ function HudStripBar({
 export default function ChatScreen() {
   const { channelId } = useLocalSearchParams<{ channelId: string }>();
   const goBack = useGoBack("/");
-  const flatListRef = useRef<FlatList>(null);
   const router = useRouter();
 
   const { data: channel } = useChannel(channelId);
@@ -138,7 +136,6 @@ export default function ChatScreen() {
   }, [channelId]);
 
   const [activeFile, setActiveFile] = useState<string | null>(null);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [participantsPanelOpen, setParticipantsPanelOpen] = useState(false);
   const [botInfoBotId, setBotInfoBotId] = useState<string | null>(null);
   const memberBotCount = channel?.member_bots?.length ?? 0;
@@ -154,8 +151,6 @@ export default function ChatScreen() {
     handleRetry,
     handleSlashCommand,
     handleLoadMore,
-    handleListLayout,
-    handleContentSizeChange,
     turnModelOverride,
     turnProviderIdOverride,
     handleModelOverrideChange,
@@ -167,15 +162,6 @@ export default function ChatScreen() {
     handleSendNow,
     cancelQueue,
   } = useChannelChat({ channelId, channel, activeFile });
-
-  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = e.nativeEvent.contentOffset.y;
-    setShowScrollBtn(y > 300);
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-  }, []);
 
   // In inverted list: index 0 = newest, index+1 = chronologically previous (older).
   // Show date separator when the current message starts a new day vs the older message above it.
@@ -339,7 +325,6 @@ export default function ChatScreen() {
 
   // ---- Shared message area props ----
   const messageAreaProps = {
-    flatListRef,
     invertedData,
     renderMessage,
     chatState,
@@ -347,11 +332,6 @@ export default function ChatScreen() {
     botId: channel?.bot_id,
     isLoading,
     isFetchingNextPage,
-    showScrollBtn,
-    scrollToBottom,
-    handleScroll,
-    handleListLayout,
-    handleContentSizeChange,
     handleLoadMore,
     isProcessing: chatState.isProcessing,
     t,

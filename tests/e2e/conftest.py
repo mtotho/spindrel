@@ -141,21 +141,109 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
         _collector.add(report.nodeid, report.outcome, report.duration)
 
 
+def _write_results(summary: dict, base_dir: str, ts: str) -> None:
+    """Write latest results + timestamped history copy to a directory."""
+    os.makedirs(base_dir, exist_ok=True)
+    with open(os.path.join(base_dir, "e2e-results.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+    history_dir = os.path.join(base_dir, "e2e-history")
+    os.makedirs(history_dir, exist_ok=True)
+    with open(os.path.join(history_dir, f"{ts}.json"), "w") as f:
+        json.dump(summary, f, indent=2)
+    _update_status(summary, history_dir, base_dir)
+
+
+def _update_status(current: dict, history_dir: str, base_dir: str) -> None:
+    """Update e2e-status.json — lightweight summary a bot can quick-scan.
+
+    Includes current run headline + per-test failure rates across recent history.
+    """
+    from collections import defaultdict
+    from pathlib import Path
+
+    # Load recent history (last 20 runs)
+    history_files = sorted(Path(history_dir).glob("*.json"), reverse=True)[:20]
+    runs = []
+    for f in history_files:
+        try:
+            with open(f) as fh:
+                runs.append(json.load(fh))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+    # Build per-test stats across runs
+    stats: dict[str, dict] = defaultdict(lambda: {"runs": 0, "failures": 0})
+    for run in runs:
+        for tier_data in run.get("tiers", {}).values():
+            tests = tier_data.get("tests", [])
+            if not tests and isinstance(tier_data, dict):
+                # model_smoke nesting
+                for bucket in tier_data.values():
+                    if isinstance(bucket, dict):
+                        for t in bucket.get("tests", []):
+                            s = stats[t["name"]]
+                            s["runs"] += 1
+                            if t["outcome"] != "passed":
+                                s["failures"] += 1
+                continue
+            for t in tests:
+                s = stats[t["name"]]
+                s["runs"] += 1
+                if t["outcome"] != "passed":
+                    s["failures"] += 1
+
+    # Identify problem tests
+    flaky = []
+    for name, s in stats.items():
+        if s["failures"] > 0:
+            rate = round(s["failures"] / s["runs"], 2)
+            flaky.append({
+                "test": name,
+                "failure_rate": rate,
+                "failures": s["failures"],
+                "runs": s["runs"],
+            })
+    flaky.sort(key=lambda x: -x["failure_rate"])
+
+    # Current run failures
+    current_failures = []
+    for tier_data in current.get("tiers", {}).values():
+        for t in tier_data.get("tests", []):
+            if t.get("outcome") != "passed":
+                current_failures.append(t["name"])
+
+    status = {
+        "last_run": current.get("timestamp"),
+        "last_duration": current.get("duration"),
+        "last_status": current.get("status"),
+        "passed": current.get("total_passed", 0),
+        "failed": current.get("total_failed", 0),
+        "current_failures": current_failures,
+        "runs_analyzed": len(runs),
+        "flaky_tests": flaky,
+    }
+
+    with open(os.path.join(base_dir, "e2e-status.json"), "w") as f:
+        json.dump(status, f, indent=2)
+
+
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Write tiered JSON results to workspace summary path."""
-    summary_path = os.environ.get(
-        "E2E_WORKSPACE_SUMMARY",
-        os.path.expanduser(
-            "~/logs/e2e/e2e-results.json"
-        ),
-    )
+    """Write tiered JSON results to logs dir and workspace (if set)."""
     try:
         config = E2EConfig.from_env()
         summary = _collector.build_summary(config)
-        os.makedirs(os.path.dirname(summary_path), exist_ok=True)
-        with open(summary_path, "w") as f:
-            json.dump(summary, f, indent=2)
-        logger.info("E2E results written to %s", summary_path)
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+
+        # Always write to ~/logs/e2e/
+        logs_dir = os.path.expanduser("~/logs/e2e")
+        _write_results(summary, logs_dir, ts)
+        logger.info("E2E results written to %s", logs_dir)
+
+        # Also write to workspace if E2E_WORKSPACE_DIR is set
+        ws_dir = os.environ.get("E2E_WORKSPACE_DIR")
+        if ws_dir:
+            _write_results(summary, ws_dir, ts)
+            logger.info("E2E results mirrored to workspace %s", ws_dir)
     except Exception:
         logger.warning("Failed to write E2E results summary", exc_info=True)
 

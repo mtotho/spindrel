@@ -170,12 +170,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           const updatedToolCalls = data.tools_used?.length
             ? data.tools_used.map((name) => ({ name, status: "done" as const }))
             : ch.toolCalls;
+          // Don't replace streamingContent — text_deltas already accumulated it.
+          // Only use response text as fallback when no deltas were received (e.g. non-streaming path).
           return {
             channels: {
               ...s.channels,
               [channelId]: {
                 ...ch,
-                streamingContent: data.text ?? ch.streamingContent,
+                streamingContent: ch.streamingContent || data.text || "",
                 toolCalls: updatedToolCalls,
                 correlationId: data.correlation_id ?? ch.correlationId,
               },
@@ -222,14 +224,16 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           };
         }
         case "assistant_text": {
-          // Intermediate text emitted alongside tool calls
+          // Intermediate text emitted alongside tool calls.
+          // Don't replace streamingContent — text_deltas already accumulated it.
+          // Only use as fallback when no deltas were received.
           const data = event.data as { text?: string };
           return {
             channels: {
               ...s.channels,
               [channelId]: {
                 ...ch,
-                streamingContent: data.text ?? ch.streamingContent,
+                streamingContent: ch.streamingContent || data.text || "",
               },
             },
           };
@@ -561,13 +565,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           break;
         }
         case "assistant_text": {
+          // Don't replace — text_deltas already accumulated content
           const data = event.data as { text?: string };
-          updated = { ...stream, streamingContent: data.text ?? stream.streamingContent };
+          updated = { ...stream, streamingContent: stream.streamingContent || data.text || "" };
           break;
         }
         case "response": {
+          // Don't replace — text_deltas already accumulated content
           const data = event.data as { text?: string };
-          updated = { ...stream, streamingContent: data.text ?? stream.streamingContent };
+          updated = { ...stream, streamingContent: stream.streamingContent || data.text || "" };
           break;
         }
         case "tool_start": {

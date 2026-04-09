@@ -120,7 +120,29 @@ async def test_series_search_success():
 
     assert result["count"] == 1
     assert result["results"][0]["tvdb_id"] == 81189
+    assert "id" not in result["results"][0]  # not in library
     mock_get.assert_awaited_once_with("/api/v3/series/lookup", params={"term": "breaking bad"})
+
+
+@pytest.mark.asyncio
+async def test_series_search_includes_library_id():
+    """When a searched series is already in the library, include the internal Sonarr ID."""
+    api_data = [
+        {
+            "id": 42,
+            "tvdbId": 81189,
+            "title": "Breaking Bad",
+            "year": 2008,
+            "overview": "A high school teacher turns to cooking meth.",
+            "status": "ended",
+            "statistics": {"seasonCount": 5},
+        },
+    ]
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=api_data):
+        result = json.loads(await sonarr_series(search="breaking bad"))
+
+    assert result["results"][0]["id"] == 42
+    assert result["results"][0]["tvdb_id"] == 81189
 
 
 @pytest.mark.asyncio

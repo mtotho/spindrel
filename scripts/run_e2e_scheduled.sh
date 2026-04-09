@@ -16,8 +16,6 @@ LOG_DIR="$HOME/logs/e2e"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 LOG_FILE="$LOG_DIR/$TIMESTAMP.log"
 LATEST_LINK="$LOG_DIR/latest.log"
-# Shared workspace where log-bot can read results (conftest writes JSON here)
-export E2E_WORKSPACE_SUMMARY="${E2E_WORKSPACE_SUMMARY:-$HOME/logs/e2e/e2e-results.json}"
 
 mkdir -p "$LOG_DIR"
 
@@ -73,6 +71,8 @@ ln -sf "$LOG_FILE" "$LATEST_LINK"
 
 # Prune logs older than 14 days
 find "$LOG_DIR" -name "*.log" -mtime +14 -not -name "latest.log" -delete 2>/dev/null
+# Prune JSON history older than 90 days
+find "$LOG_DIR/e2e-history" -name "*.json" -mtime +90 -delete 2>/dev/null
 
 # Print summary unless --quiet
 if [[ "${1:-}" != "--quiet" ]]; then

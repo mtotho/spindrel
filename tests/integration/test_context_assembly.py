@@ -396,6 +396,147 @@ class TestWithChannel:
 
         assert result.channel_max_iterations == 5
 
+    @pytest.mark.asyncio
+    async def test_channel_carapaces_preserved_with_system_preamble_for_primary_bot(
+        self, engine, db_session
+    ):
+        """Channel carapaces_extra must apply when system_preamble is set for
+        the primary bot (e.g. heartbeat), not just when no preamble is set.
+        Only actual member bots (bot.id != channel.bot_id) should lose them.
+
+        Regression test for: heartbeat requests set system_preamble for task
+        guidance, which was incorrectly used as a proxy for member-bot detection,
+        causing channel-level carapaces to be stripped.
+        """
+        from app.db.models import Channel
+        from app.agent.carapaces import _registry
+
+        channel_id = uuid.uuid4()
+        ch = Channel(
+            id=channel_id,
+            bot_id="test-bot",
+            name="heartbeat-channel",
+            carapaces_extra=["test-cap"],
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        _registry["test-cap"] = {
+            "id": "test-cap",
+            "name": "Test Capability",
+            "description": "Test capability for heartbeat",
+            "skills": [],
+            "local_tools": ["test_tool_alpha"],
+            "system_prompt_fragment": "## Test Cap\nYou have test tools.",
+        }
+
+        bot = _make_bot()  # id="test-bot" matches channel.bot_id → primary
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        try:
+            with (
+                patch("app.db.engine.async_session", factory),
+                patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+                patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+                patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+                patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+                patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock, return_value=[]),
+            ):
+                events = await _collect(assemble_context(
+                    messages=messages,
+                    bot=bot,
+                    user_message="run heartbeat",
+                    session_id=None,
+                    client_id="heartbeat",
+                    correlation_id=None,
+                    channel_id=channel_id,
+                    audio_data=None,
+                    audio_format=None,
+                    attachments=None,
+                    native_audio=False,
+                    result=result,
+                    system_preamble="Execute the heartbeat task.",
+                ))
+
+            # Carapace system_prompt_fragment should be injected despite preamble
+            cap_msgs = [m for m in messages if "Test Cap" in m.get("content", "")]
+            assert len(cap_msgs) >= 1, (
+                "Channel carapace should be injected for primary bot even with system_preamble"
+            )
+
+            carapace_events = [e for e in events if e.get("type") == "carapace_context"]
+            assert len(carapace_events) == 1
+        finally:
+            _registry.pop("test-cap", None)
+
+    @pytest.mark.asyncio
+    async def test_member_bot_does_not_get_channel_carapaces(
+        self, engine, db_session
+    ):
+        """A member bot (bot.id != channel.bot_id) should NOT receive
+        channel-level carapaces_extra — those belong to the primary bot."""
+        from app.db.models import Channel
+        from app.agent.carapaces import _registry
+
+        channel_id = uuid.uuid4()
+        ch = Channel(
+            id=channel_id,
+            bot_id="primary-bot",  # different from the bot we'll assemble for
+            name="multi-bot-channel",
+            carapaces_extra=["test-cap"],
+        )
+        db_session.add(ch)
+        await db_session.commit()
+
+        _registry["test-cap"] = {
+            "id": "test-cap",
+            "name": "Test Capability",
+            "description": "Test capability",
+            "skills": [],
+            "local_tools": ["test_tool_alpha"],
+            "system_prompt_fragment": "## Test Cap\nYou have test tools.",
+        }
+
+        # bot id is "test-bot" but channel.bot_id is "primary-bot" → member bot
+        bot = _make_bot()
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        try:
+            with (
+                patch("app.db.engine.async_session", factory),
+                patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+                patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+                patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+                patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+                patch("app.agent.rag.fetch_skill_chunks_by_id", new_callable=AsyncMock, return_value=[]),
+            ):
+                events = await _collect(assemble_context(
+                    messages=messages,
+                    bot=bot,
+                    user_message="help",
+                    session_id=None,
+                    client_id=None,
+                    correlation_id=None,
+                    channel_id=channel_id,
+                    audio_data=None,
+                    audio_format=None,
+                    attachments=None,
+                    native_audio=False,
+                    result=result,
+                ))
+
+            # Channel carapace should NOT be injected for member bot
+            cap_msgs = [m for m in messages if "Test Cap" in m.get("content", "")]
+            assert len(cap_msgs) == 0, (
+                "Channel carapace should NOT be injected for member bot"
+            )
+        finally:
+            _registry.pop("test-cap", None)
+
 
 class TestSkillInjection:
     """Tests for skill injection (pinned, rag, on-demand)."""

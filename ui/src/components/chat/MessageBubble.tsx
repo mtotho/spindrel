@@ -1,5 +1,4 @@
 import { memo } from "react";
-import { View, Text, Platform } from "react-native";
 import { useThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
 import { DelegationCard } from "./DelegationCard";
@@ -31,7 +30,6 @@ interface Props {
 // ---------------------------------------------------------------------------
 
 export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText }: Props) {
-  const isWeb = Platform.OS === "web";
   const t = useThemeTokens();
   const meta = message.metadata || {};
   // Extract text from content (handles JSON-array content blocks) then strip integration prefixes
@@ -89,7 +87,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     );
   }
 
-  const messageContent = isWeb ? (
+  const messageContent = (
     <>
       {displayContent.length > 0 && (
         <MarkdownContent text={displayContent} t={t} />
@@ -100,50 +98,24 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
       {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
     </>
-  ) : (
-    <>
-      <Text
-        className="text-[15px] leading-relaxed"
-        style={{ color: t.contentText }}
-        selectable
-      >
-        {displayContent}
-      </Text>
-      {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
-      {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
-    </>
   );
 
   // Grouped message -- compact, no avatar or name header
   if (isGrouped) {
-    if (isWeb) {
-      return (
-        <div
-          className="msg-hover"
-          style={{
-            paddingLeft: 68,
-            paddingRight: 20,
-            paddingTop: 1,
-            paddingBottom: 1,
-            borderRadius: 4,
-          }}
-        >
-          {messageContent}
-          {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} />}
-        </div>
-      );
-    }
     return (
-      <View
+      <div
+        className="msg-hover"
         style={{
           paddingLeft: 68,
           paddingRight: 20,
           paddingTop: 1,
           paddingBottom: 1,
+          borderRadius: 4,
         }}
       >
         {messageContent}
-      </View>
+        {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} />}
+      </div>
     );
   }
 
@@ -153,8 +125,20 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     : undefined;
 
   // Full message -- avatar + name header + content
-  const webInner = isWeb ? (
-    <>
+  return (
+    <div
+      className="msg-hover"
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        gap: 12,
+        paddingLeft: 20,
+        paddingRight: 20,
+        paddingTop: 8,
+        paddingBottom: 4,
+        borderRadius: 4,
+      }}
+    >
       {/* Avatar */}
       <div style={{ paddingTop: 2 }}>
         <Avatar name={displayName} isUser={isUser} onClick={handleBotClick} />
@@ -232,87 +216,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         {/* Message content */}
         {messageContent}
       </div>
-    </>
-  ) : null;
 
-  const nativeInner = !isWeb ? (
-    <>
-      {/* Avatar */}
-      <View style={{ paddingTop: 2 }}>
-        <Avatar name={displayName} isUser={isUser} />
-      </View>
-
-      {/* Content */}
-      <View style={{ flex: 1, minWidth: 0 }}>
-        {/* Name + timestamp header */}
-        <View className="select-none" style={{ flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <Text
-            style={{
-              fontSize: 15,
-              fontWeight: "700",
-              color: isUser ? t.text : avatarColor(displayName),
-            }}
-          >
-            {displayName}
-          </Text>
-          <Text style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-            {timestamp}
-          </Text>
-          {sourceLabel && (
-            <Text style={{ fontSize: 11, color: t.textMuted, fontStyle: "italic" }}>
-              {sourceLabel}
-            </Text>
-          )}
-          {delegatedByDisplay && (
-            <Text style={{ fontSize: 11, color: "#8b5cf6", fontStyle: "italic" }}>
-              delegated by {delegatedByDisplay}
-            </Text>
-          )}
-          {triggerBadge && (
-            <Text style={{ fontSize: 10, color: triggerBadge.color, fontWeight: "600" }}>
-              {triggerBadge.icon} {triggerBadge.label}
-            </Text>
-          )}
-        </View>
-
-        {/* Message content */}
-        {messageContent}
-      </View>
-    </>
-  ) : null;
-
-  if (isWeb) {
-    return (
-      <div
-        className="msg-hover"
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          gap: 12,
-          paddingLeft: 20,
-          paddingRight: 20,
-          paddingTop: 8,
-          paddingBottom: 4,
-          borderRadius: 4,
-        }}
-      >
-        {webInner}
-        {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} />}
-      </div>
-    );
-  }
-
-  return (
-    <View
-      style={{
-        flexDirection: "row",
-        gap: 12,
-        paddingHorizontal: 20,
-        paddingTop: 8,
-        paddingBottom: 4,
-      }}
-    >
-      {nativeInner}
-    </View>
+      {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} />}
+    </div>
   );
 });
