@@ -16,5 +16,7 @@ def arr_env(monkeypatch):
     monkeypatch.setenv("JELLYFIN_API_KEY", "test-jellyfin-key")
     monkeypatch.setenv("JELLYSEERR_URL", "http://jellyseerr:5055")
     monkeypatch.setenv("JELLYSEERR_API_KEY", "test-jellyseerr-key")
+    monkeypatch.setenv("PROWLARR_URL", "http://prowlarr:9696")
+    monkeypatch.setenv("PROWLARR_API_KEY", "test-prowlarr-key")
     monkeypatch.setenv("BAZARR_URL", "http://bazarr:6767")
     monkeypatch.setenv("BAZARR_API_KEY", "test-bazarr-key")

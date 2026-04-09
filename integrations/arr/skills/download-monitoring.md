@@ -68,15 +68,30 @@ For each stuck torrent:
 3. Select a release that passes all checks (see AI-Assisted Torrent Selection below)
 4. Grab: `*_releases(action="grab", guid="...", indexer_id=N)`
 
-### 4. Check Wanted Items
+### 4. Check Indexer Health
+```
+prowlarr_health()       → system warnings (disabled indexers, sync issues)
+prowlarr_indexers()     → all indexers with enabled/disabled status and failure info
+```
+
+Watch for:
+- Indexers with `disabled_till` set — temporarily disabled, will auto-recover
+- Indexers with `escalation_level > 3` — failing repeatedly, may need attention
+- `enabled: false` — disabled indexer, may be intentional or may need re-enabling
+- Health warnings about unavailable indexers or app sync issues
+
+If many indexers are disabled/failing, this explains why searches return no results.
+
+### 5. Check Wanted Items
 ```
 sonarr_wanted(limit=10)              → missing TV episodes
 radarr_movies(filter="wanted")       → missing movies
 ```
 
 If items have been wanted for a long time, consider triggering a manual search.
+If manual search also returns nothing, check indexer health (Step 4) and consider adding more indexers.
 
-### 5. Update Workspace (if enabled)
+### 6. Update Workspace (if enabled)
 Update MEDIA.md with current state (see workspace tracking below).
 
 ## AI-Assisted Torrent Selection

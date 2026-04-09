@@ -66,6 +66,15 @@ class _Settings:
     def JELLYSEERR_API_KEY(self) -> str:
         return _get("JELLYSEERR_API_KEY")
 
+    # -- Prowlarr --
+    @property
+    def PROWLARR_URL(self) -> str:
+        return _get("PROWLARR_URL")
+
+    @property
+    def PROWLARR_API_KEY(self) -> str:
+        return _get("PROWLARR_API_KEY")
+
     # -- Bazarr --
     @property
     def BAZARR_URL(self) -> str:

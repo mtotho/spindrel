@@ -122,6 +122,36 @@ Sonarr/Radarr auto-grabbed something that won't import (wrong quality, sketchy f
 - TV: `sonarr_command(action="SeriesSearch", series_id=X)` or `sonarr_command(action="EpisodeSearch", episode_ids=[...])`
 - Movie: `radarr_command(action="MoviesSearch", movie_ids=[X])`
 - If search returns no results, browse releases manually and grab the best one
+- **If no releases found at all**, escalate to indexer diagnostics (see below)
+
+### NO_RELEASES — Indexer diagnostics
+When `sonarr_releases` or `radarr_releases` returns 0 results, or all results are rejected, the problem is likely at the indexer level.
+
+**Step-by-step diagnosis:**
+1. **Search Prowlarr directly**: `prowlarr_search(query="Show S01E05")` — this searches ALL indexers. If Prowlarr finds results but Sonarr doesn't, the indexer isn't synced to Sonarr properly.
+2. **Check indexer health**: `prowlarr_health()` — look for warnings about unavailable indexers.
+3. **List indexers**: `prowlarr_indexers()` — check for:
+   - `enabled: false` → indexer is disabled, may need re-enabling
+   - `disabled_till` set → temporarily disabled due to failures (will auto-recover)
+   - `escalation_level` > 0 → indexer has been failing repeatedly
+4. **Test failing indexers**: `prowlarr_indexers(action="test", indexer_id=X)` — confirms whether the indexer is actually reachable.
+5. **Check app sync**: `prowlarr_apps()` — verify Sonarr/Radarr are connected with `sync_level: "fullSync"`.
+
+**Common causes and fixes:**
+- **Indexer temporarily disabled** (rate limiting) — check `disabled_till`, it'll auto-recover. If urgent, re-enable: `prowlarr_indexer_manage(action="update", indexer_id=X, enabled=true)`
+- **Indexer API key expired** — test will fail. Update credentials: `prowlarr_indexer_manage(action="update", indexer_id=X, field_values={"apiKey": "new-key"})`
+- **Indexer down/unreachable** — test fails with connection error. Wait, or try alternative indexers.
+- **Prowlarr→Sonarr sync broken** — `prowlarr_apps()` shows the connection status. If `sync_level` isn't "fullSync", indexers won't propagate.
+- **Not enough indexers** — if only 1-2 indexers are configured, content coverage is limited. Browse available indexers: `prowlarr_indexer_schemas(search="torrent")` and add more: `prowlarr_indexer_manage(action="add", definition_name="...", field_values={...})`
+- **Content simply not available** — `prowlarr_search()` returns 0 results from all indexers. Tell user to wait (content may not be released/indexed yet) or try different search terms.
+
+**Adding new indexers** (when current ones don't have the content):
+1. `prowlarr_indexer_schemas(search="...")` — browse available indexer types by name
+2. Review which ones are public (no account needed) vs private (requires registration)
+3. For public indexers: `prowlarr_indexer_manage(action="add", definition_name="thepiratebay")` — most work with defaults
+4. For private indexers: user will need to provide API key or credentials
+5. After adding: `prowlarr_indexers(action="test", indexer_id=N)` to verify it works
+6. Prowlarr auto-syncs new indexers to Sonarr/Radarr if app sync is configured
 
 ### IMPORT_ISSUE — Diagnose why import failed, then fix
 First check `sonarr_queue()` / `radarr_queue()` — read the `errors[]` field carefully:

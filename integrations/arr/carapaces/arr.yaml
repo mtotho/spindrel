@@ -39,6 +39,12 @@ local_tools:
   - jellyseerr_requests
   - jellyseerr_search
   - jellyseerr_manage
+  - prowlarr_indexers
+  - prowlarr_search
+  - prowlarr_apps
+  - prowlarr_health
+  - prowlarr_indexer_schemas
+  - prowlarr_indexer_manage
   - bazarr_subtitles
 
 system_prompt_fragment: |
@@ -63,6 +69,9 @@ system_prompt_fragment: |
   | "Why won't X import?" / "Download stuck" | → `get_skill('integrations/arr/media-troubleshoot')` — classifies as STALLED/BAD_GRAB/IMPORT_ISSUE/PHANTOM_FILE and fixes |
   | "What's new?" / "Recent additions" | → `jellyfin_library(action="recent")` |
   | "Show pending requests" | → `jellyseerr_requests(filter="pending")` |
+  | "No releases found" / "No indexers" / "Indexer issues" | → `prowlarr_health()` + `prowlarr_indexers()` → check for disabled/failing indexers → test failing ones → `prowlarr_search(query="...")` to verify search works |
+  | "Check indexers" / "Why can't Sonarr find X?" | → `prowlarr_search(query="X")` to see which indexers have results + `prowlarr_indexers()` to see health |
+  | "Add an indexer" / "Set up X indexer" | → `prowlarr_indexer_schemas(search="X")` to find it → `prowlarr_indexer_manage(action="add", definition_name="...", field_values={...})` → `prowlarr_indexers(action="test", indexer_id=N)` to verify |
 
   ### Quality Preferences
 
@@ -97,6 +106,12 @@ system_prompt_fragment: |
   | `radarr_queue_manage` | Remove queue items, blocklist, remove from qBit |
   | `qbit_torrents` | List torrents; filters: stalled, downloading, etc. |
   | `qbit_manage` | Pause/resume/delete torrents |
+  | `prowlarr_indexers` | List/test indexers — shows health, disabled status, failure info |
+  | `prowlarr_indexer_schemas` | Browse available indexer types to add (search by name) |
+  | `prowlarr_indexer_manage` | Add, update, enable/disable, or remove indexers |
+  | `prowlarr_search` | Search across ALL indexers — shows which have results and which don't |
+  | `prowlarr_apps` | List connected apps (Sonarr/Radarr) and sync status |
+  | `prowlarr_health` | System health check — indexer issues, sync problems, warnings |
 
   ### Pagination
 
