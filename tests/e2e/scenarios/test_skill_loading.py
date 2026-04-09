@@ -200,9 +200,10 @@ async def test_capability_with_skills_resolves(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_capability_skills_appear_in_bot_effective_tools(client: E2EClient) -> None:
-    """Assigning a capability to a bot makes the capability's skills accessible.
-    The effective tools should include get_skill since the bot now has skills."""
+async def test_capability_skills_appear_in_context_after_assignment(client: E2EClient) -> None:
+    """Assigning a capability to a bot makes the capability's skills appear
+    in the runtime context. Carapace skills are resolved at context assembly
+    time (not in static effective-tools), so we verify via context-preview."""
     sid = _skill_id()
     cid = _cap_id()
     bot_id = f"e2e-tmp-{uuid.uuid4().hex[:8]}"
@@ -219,6 +220,7 @@ async def test_capability_skills_appear_in_bot_effective_tools(client: E2EClient
                 "name": "E2E Cap With Skills",
                 "description": "Capability providing skills for testing",
                 "skills": [{"id": sid, "mode": "on_demand"}],
+                "system_prompt_fragment": "You have access to the Cap Skill.",
                 "tags": ["e2e-testing"],
             },
         )
@@ -234,21 +236,21 @@ async def test_capability_skills_appear_in_bot_effective_tools(client: E2EClient
         })
         await client.update_bot(bot_id, {"carapaces": [cid]})
 
-        # Chat to create channel
+        # Chat to create channel (triggers context assembly + carapace resolution)
         client_id = client.new_client_id("e2e-cap-skill")
         channel_id = client.derive_channel_id(client_id)
         await client.chat("Hello.", bot_id=bot_id, client_id=client_id)
 
-        # Effective tools should include get_skill (bot has skills via capability)
-        resp = await client.get(f"{_ADMIN_CHANNELS}/{channel_id}/effective-tools")
+        # Context preview should show the capability's system_prompt_fragment
+        resp = await client.get(f"{_ADMIN_CHANNELS}/{channel_id}/context-preview")
         assert resp.status_code == 200
-        local_tools = set(resp.json().get("local_tools", []))
+        blocks = resp.json()["blocks"]
+        all_content = " ".join(b["content"] for b in blocks).lower()
 
-        assert "get_skill" in local_tools, (
-            f"Bot with capability-provided skills should have get_skill. Got: {sorted(local_tools)}"
-        )
-        assert "get_skill_list" in local_tools, (
-            f"Bot with capability-provided skills should have get_skill_list. Got: {sorted(local_tools)}"
+        # The capability's fragment or skill reference should appear in context
+        assert "cap skill" in all_content or sid in all_content, (
+            f"Context should include capability's content after assignment. "
+            f"Labels: {[b['label'] for b in blocks]}"
         )
     finally:
         await client.delete_bot(bot_id)

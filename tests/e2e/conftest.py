@@ -302,8 +302,24 @@ async def client(
     await c.close()
 
 
+def _is_e2e_channel(channel: dict) -> bool:
+    """Check if a channel was created by E2E tests."""
+    client_id = channel.get("client_id") or ""
+    name = channel.get("name") or ""
+    bot_id = channel.get("bot_id") or ""
+    return (
+        client_id.startswith("e2e-")
+        or name.startswith("chat:e2e")
+        or bot_id.startswith("e2e-tmp-")
+    )
+
+
 async def _sweep_stale_e2e_channels(base_url: str, api_key: str) -> None:
-    """Delete any e2e-* channels left over from prior interrupted runs."""
+    """Delete any e2e channels left over from prior interrupted runs.
+
+    Matches on client_id prefix, channel name, or bot_id since channels
+    created via chat may have client_id=None but a recognizable name.
+    """
     import httpx
     async with httpx.AsyncClient(
         base_url=base_url,
@@ -315,10 +331,7 @@ async def _sweep_stale_e2e_channels(base_url: str, api_key: str) -> None:
             if resp.status_code != 200:
                 return
             channels = resp.json().get("channels", [])
-            stale = [
-                c["id"] for c in channels
-                if (c.get("client_id") or "").startswith("e2e-")
-            ]
+            stale = [c["id"] for c in channels if _is_e2e_channel(c)]
             if stale:
                 logger.info("Sweeping %d stale e2e channels from prior runs", len(stale))
                 for ch_id in stale:
@@ -327,24 +340,74 @@ async def _sweep_stale_e2e_channels(base_url: str, api_key: str) -> None:
             logger.warning("Failed to sweep stale e2e channels", exc_info=True)
 
 
+async def _sweep_stale_e2e_resources(base_url: str, api_key: str) -> None:
+    """Delete stale e2e-* bots, carapaces, and skills from prior runs."""
+    import httpx
+    async with httpx.AsyncClient(
+        base_url=base_url,
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=30,
+    ) as http:
+        try:
+            # Sweep temp bots (e2e-tmp-*)
+            resp = await http.get("/api/v1/admin/bots")
+            if resp.status_code == 200:
+                bots = resp.json()
+                if isinstance(bots, list):
+                    stale = [b["id"] for b in bots if (b.get("id") or "").startswith("e2e-tmp-")]
+                    if stale:
+                        logger.info("Sweeping %d stale e2e bots", len(stale))
+                        for bot_id in stale:
+                            await http.delete(f"/api/v1/admin/bots/{bot_id}?force=true")
+
+            # Sweep test carapaces (e2e-cap-*)
+            resp = await http.get("/api/v1/admin/carapaces")
+            if resp.status_code == 200:
+                caps = resp.json()
+                if isinstance(caps, list):
+                    stale = [c["id"] for c in caps if (c.get("id") or "").startswith("e2e-cap-")]
+                    if stale:
+                        logger.info("Sweeping %d stale e2e carapaces", len(stale))
+                        for cap_id in stale:
+                            await http.delete(f"/api/v1/admin/carapaces/{cap_id}")
+
+            # Sweep test skills (e2e-skill-*)
+            resp = await http.get("/api/v1/admin/skills")
+            if resp.status_code == 200:
+                skills = resp.json()
+                if isinstance(skills, list):
+                    stale = [s["id"] for s in skills if (s.get("id") or "").startswith("e2e-skill-")]
+                    if stale:
+                        logger.info("Sweeping %d stale e2e skills", len(stale))
+                        for skill_id in stale:
+                            await http.delete(f"/api/v1/admin/skills/{skill_id}")
+        except Exception:
+            logger.warning("Failed to sweep stale e2e resources", exc_info=True)
+
+
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def _cleanup_test_channels(
     e2e_config: E2EConfig,
     e2e_env: E2EEnvironment,  # noqa: ARG001
     _channel_tracker: list[str],
 ) -> AsyncGenerator[None, None]:
-    """Sweep stale channels at start, delete tracked channels at end."""
+    """Sweep stale channels/resources at start, delete tracked channels at end."""
     # Clean up leftovers from interrupted prior runs
     await _sweep_stale_e2e_channels(e2e_config.base_url, e2e_config.api_key)
+    await _sweep_stale_e2e_resources(e2e_config.base_url, e2e_config.api_key)
 
     yield
 
-    # Clean up channels created during this session
+    # Clean up channels created during this session (broad sweep catches all)
+    await _sweep_stale_e2e_channels(e2e_config.base_url, e2e_config.api_key)
+    await _sweep_stale_e2e_resources(e2e_config.base_url, e2e_config.api_key)
+
+    # Also clean tracked channels that might not match the sweep patterns
     unique_ids = list(set(_channel_tracker))
     if not unique_ids:
         return
 
-    logger.info("Cleaning up %d test channels", len(unique_ids))
+    logger.info("Cleaning up %d tracked test channels", len(unique_ids))
 
     import httpx
     async with httpx.AsyncClient(

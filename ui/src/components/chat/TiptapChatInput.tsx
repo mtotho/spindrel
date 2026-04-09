@@ -436,6 +436,8 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         editor?.commands.clearContent(true);
         editor?.commands.unsetAllMarks();
         suppressUpdateRef.current = false;
+        // Reset so editor recreation (e.g. mobile refocus) doesn't restore stale draft
+        initialTextRef.current = "";
       },
       getMarkdown: () => (editor?.storage as any)?.markdown?.getMarkdown() ?? "",
     }), [editor]);

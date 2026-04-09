@@ -203,6 +203,16 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const canSend = hasContent && !disabled;
   // Show stop button when streaming and user hasn't typed anything
   const showStop = !!isStreaming && !hasContent;
+  // Grace period: stop button is visible but disabled briefly after streaming starts
+  // to prevent accidental taps (especially on mobile where send → stop is same position)
+  const [stopArmed, setStopArmed] = useState(false);
+  useEffect(() => {
+    if (showStop) {
+      const timer = setTimeout(() => setStopArmed(true), 800);
+      return () => clearTimeout(timer);
+    }
+    setStopArmed(false);
+  }, [showStop]);
   // Show mic icon when input is empty and onSendAudio is available
   const showMic = !hasContent && !!onSendAudio && !isStreaming && Platform.OS === "web";
   // Queue bar: visible when streaming and user has typed content, or when a message is already queued
@@ -546,12 +556,13 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           <button
             className="send-btn"
             onClick={
-              showStop ? onCancel
+              (showStop && stopArmed) ? onCancel
               : recorder.isRecording ? handleMicToggle
               : showMic ? handleMicToggle
+              : showStop ? undefined  // visible but not armed yet
               : handleSend
             }
-            disabled={!canSend && !showStop && !showMic && !recorder.isRecording}
+            disabled={!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording}
             style={{
               display: "flex",
               alignItems: "center",
@@ -562,10 +573,10 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               borderRadius: 12,
               border: "none",
               padding: 0,
-              cursor: (!canSend && !showStop && !showMic && !recorder.isRecording) ? "default" : "pointer",
+              cursor: (!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording) ? "default" : "pointer",
               background: (canSend && !showStop && !recorder.isRecording) ? `linear-gradient(135deg, ${t.accent}, ${t.purple})` : undefined,
               backgroundColor: (canSend && !showStop && !recorder.isRecording) ? undefined : sendBtnBg,
-              opacity: sendBtnOpacity,
+              opacity: (showStop && !stopArmed) ? 0.4 : sendBtnOpacity,
               transition: "background-color 0.15s, opacity 0.15s",
             }}
           >
