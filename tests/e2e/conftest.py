@@ -43,6 +43,7 @@ _FILE_TO_TIER = {
     "test_workflows": "server_behavior",
     "test_chat_basic": "server_behavior",
     "test_chat_stream": "server_behavior",
+    "test_skill_loading": "server_behavior",
 }
 
 
