@@ -718,16 +718,29 @@ async def test_workflow_invalid_session_mode_422(client: E2EClient) -> None:
 async def test_llm_workflow_list(client: E2EClient) -> None:
     """Ask the LLM to list workflows via manage_workflow tool."""
     wf_id = _wf_id()
+    bot_id = None
     try:
-        data = _simple_workflow(wf_id, client.default_bot_id)
+        # Create a temp bot with manage_workflow tool
+        bot_id = await client.create_temp_bot(
+            model=client.config.default_model,
+            tools=["manage_workflow"],
+            system_prompt=(
+                "You are a test bot. You have the manage_workflow tool. "
+                "When asked to list workflows, use manage_workflow with action 'list'. "
+                "Always include workflow IDs in your response."
+            ),
+        )
+
+        data = _simple_workflow(wf_id, bot_id)
         resp = await client.post("/api/v1/admin/workflows", json=data)
         assert resp.status_code == 201
 
-        # Ask LLM to list workflows — use a unique client_id for isolation
+        # Ask LLM to list workflows
         client_id = client.new_client_id("e2e-wf-list")
         result = await client.chat(
             f"Use the manage_workflow tool with action 'list' to list all workflows. "
             f"Include the workflow ID '{wf_id}' in your response if you find it.",
+            bot_id=bot_id,
             client_id=client_id,
         )
         # The response should mention our workflow
@@ -736,14 +749,29 @@ async def test_llm_workflow_list(client: E2EClient) -> None:
         )
     finally:
         await _cleanup_workflow(client, wf_id)
+        if bot_id:
+            await client.delete_bot(bot_id)
 
 
 @pytest.mark.asyncio
 async def test_llm_workflow_trigger_and_check(client: E2EClient) -> None:
     """Ask the LLM to trigger a workflow and check its status."""
     wf_id = _wf_id()
+    bot_id = None
     try:
-        data = _simple_workflow(wf_id, client.default_bot_id)
+        # Create a temp bot with manage_workflow tool
+        bot_id = await client.create_temp_bot(
+            model=client.config.default_model,
+            tools=["manage_workflow"],
+            system_prompt=(
+                "You are a test bot. You have the manage_workflow tool. "
+                "When asked to trigger a workflow, use manage_workflow with action 'trigger'. "
+                "When asked to check status, use manage_workflow with action 'get_run'. "
+                "Always report the run_id and status."
+            ),
+        )
+
+        data = _simple_workflow(wf_id, bot_id)
         resp = await client.post("/api/v1/admin/workflows", json=data)
         assert resp.status_code == 201
 
@@ -753,6 +781,7 @@ async def test_llm_workflow_trigger_and_check(client: E2EClient) -> None:
             f"Use the manage_workflow tool to trigger workflow '{wf_id}'. "
             f"Then use manage_workflow with action 'get_run' to check the run status. "
             f"Tell me the run_id and final status.",
+            bot_id=bot_id,
             client_id=client_id,
         )
         # LLM should mention a run ID (UUID format) and some status
@@ -773,3 +802,5 @@ async def test_llm_workflow_trigger_and_check(client: E2EClient) -> None:
                 await _poll_run_terminal(client, r["id"], timeout=90)
     finally:
         await _cleanup_workflow(client, wf_id)
+        if bot_id:
+            await client.delete_bot(bot_id)
