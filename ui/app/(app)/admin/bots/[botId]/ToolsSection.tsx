@@ -332,6 +332,25 @@ function FullToolList({
     update({ tool_result_config: { ...draft.tool_result_config, exclude_tools: next } });
   };
 
+  // Discovery mode: cycle through discoverable → included → pinned → discoverable
+  const cycleToolState = (name: string) => {
+    const isPinned = pinnedTools.includes(name);
+    const isIncluded = localTools.includes(name);
+    if (isPinned) {
+      // pinned → discoverable (remove from both)
+      update({
+        pinned_tools: pinnedTools.filter((n) => n !== name),
+        local_tools: localTools.filter((n) => n !== name),
+      });
+    } else if (isIncluded) {
+      // included → pinned
+      update({ pinned_tools: [...pinnedTools, name] });
+    } else {
+      // discoverable → included
+      update({ local_tools: [...localTools, name] });
+    }
+  };
+
   const togglePack = (toolNames: string[]) => {
     const allEnabled = toolNames.every((n) => localTools.includes(n));
     if (allEnabled) {
@@ -386,17 +405,40 @@ function FullToolList({
           )}
         </div>
         <span style={{ fontSize: 11, color: t.textDim }}>
-          {localTools.length} selected
+          {localTools.length} {discovery ? "included" : "enabled"}
           {autoInjectedTools.size > 0 && <> · <span style={{ color: t.purple }}>{autoInjectedTools.size} auto</span></>}
           {pinnedTools.length > 0 && <> · {pinnedTools.length} pinned</>}
         </span>
       </div>
 
       {/* Legend */}
-      <div style={{ display: "flex", gap: 16, fontSize: 10, color: t.textDim, flexWrap: "wrap" }}>
-        <span>&#10003; = enabled</span>
-        {autoInjectedTools.size > 0 && <span style={{ color: t.purple }}>auto = injected automatically at runtime</span>}
-        {draft.tool_retrieval && <span style={{ color: "#eab308" }}>pinned = always available</span>}
+      <div style={{ display: "flex", gap: 12, fontSize: 10, color: t.textDim, flexWrap: "wrap", alignItems: "center" }}>
+        {discovery ? (
+          <>
+            <span>Click badge to cycle:</span>
+            <span style={{
+              padding: "1px 6px", borderRadius: 8, fontSize: 9, fontWeight: 600,
+              border: `1px dashed ${t.surfaceBorder}`, color: t.textDim,
+            }}>discover</span>
+            <span style={{ color: t.textDim }}>{"\u2192"}</span>
+            <span style={{
+              padding: "1px 6px", borderRadius: 8, fontSize: 9, fontWeight: 600,
+              background: t.accentSubtle, border: `1px solid ${t.accentBorder}`, color: t.accent,
+            }}>included</span>
+            <span style={{ color: t.textDim }}>{"\u2192"}</span>
+            <span style={{
+              padding: "1px 6px", borderRadius: 8, fontSize: 9, fontWeight: 600,
+              background: t.warningSubtle, border: `1px solid ${t.warningBorder}`, color: t.warningMuted,
+            }}><Pin size={7} style={{ display: "inline", verticalAlign: "middle", marginRight: 2 }} />pinned</span>
+            <span style={{ color: t.textDim }}>{"\u2192 \u2026"}</span>
+          </>
+        ) : (
+          <>
+            <span>&#10003; = enabled</span>
+            {draft.tool_retrieval && <span style={{ color: "#eab308" }}>pinned = always available</span>}
+          </>
+        )}
+        {autoInjectedTools.size > 0 && <span style={{ color: t.purple }}>auto = injected at runtime</span>}
         <span style={{ color: "#f97316" }}>skip sum = skip summarization</span>
       </div>
 
@@ -505,32 +547,86 @@ function FullToolList({
                     <div style={{ display: "grid", gridTemplateColumns: toolsMobile ? "1fr" : "1fr 1fr", gap: 1, padding: 4 }}>
                       {filtered.map((tool) => {
                         const autoInj = autoInjectedTools.has(tool.name);
-                        const enabled = localTools.includes(tool.name) || autoInj;
+                        const isIncluded = localTools.includes(tool.name);
+                        const enabled = isIncluded || autoInj;
                         const pinned = pinnedTools.includes(tool.name);
                         const noSum = excludeTools.includes(tool.name);
+
+                        // Discovery mode: 4 visual states
+                        const toolState = discovery
+                          ? (autoInj ? "auto" : pinned ? "pinned" : isIncluded ? "included" : "discoverable")
+                          : null;
+
+                        const stateStyles: Record<string, { bg: string; border: string; color: string }> = {
+                          pinned:       { bg: t.warningSubtle, border: t.warningBorder, color: t.warningMuted },
+                          included:     { bg: t.accentSubtle,  border: t.accentBorder,  color: t.accent },
+                          discoverable: { bg: "transparent",   border: "transparent",   color: t.textDim },
+                          auto:         { bg: t.purpleSubtle,  border: t.purpleBorder,  color: t.purple },
+                        };
+
+                        const rowBg = toolState
+                          ? stateStyles[toolState].bg
+                          : (autoInj ? t.purpleSubtle : enabled ? t.accentSubtle : "transparent");
+                        const rowBorder = toolState
+                          ? stateStyles[toolState].border
+                          : (autoInj ? t.purpleBorder : enabled ? t.accentBorder : "transparent");
+                        const textColor = toolState
+                          ? stateStyles[toolState].color
+                          : (autoInj ? t.purple : enabled ? t.accent : t.textDim);
+
+                        const badgeTooltips: Record<string, string> = {
+                          pinned: "Always in context \u2014 click to make discoverable",
+                          included: "Priority in search \u2014 click to pin",
+                          discoverable: "Found via auto-discovery \u2014 click to include",
+                          auto: "Injected automatically based on bot config",
+                        };
+
                         return (
                           <div
                             key={tool.name}
                             style={{
-                              display: "flex", alignItems: "center", gap: 4,
+                              display: "flex", alignItems: "center", gap: discovery ? 6 : 4,
                               padding: "3px 6px", borderRadius: 3, fontSize: 11,
-                              background: autoInj ? t.purpleSubtle : enabled ? t.accentSubtle : "transparent",
-                              border: `1px solid ${autoInj ? t.purpleBorder : enabled ? t.accentBorder : "transparent"}`,
+                              background: rowBg,
+                              border: `1px solid ${rowBorder}`,
                             }}
                           >
-                            <input
-                              type="checkbox" checked={enabled}
-                              onChange={() => !autoInj && toggleTool(tool.name)}
-                              disabled={autoInj}
-                              style={{ accentColor: autoInj ? t.purple : t.accent, cursor: autoInj ? "default" : undefined }}
-                              title={autoInj ? "Auto-injected at runtime" : undefined}
-                            />
+                            {discovery && toolState ? (
+                              <button
+                                disabled={autoInj}
+                                onClick={() => cycleToolState(tool.name)}
+                                title={badgeTooltips[toolState]}
+                                style={{
+                                  display: "inline-flex", alignItems: "center", gap: 3,
+                                  padding: "1px 6px", borderRadius: 8, fontSize: 9, fontWeight: 600,
+                                  background: "transparent",
+                                  border: `1px ${toolState === "discoverable" ? "dashed" : "solid"} ${toolState === "discoverable" ? t.surfaceBorder : stateStyles[toolState].border}`,
+                                  color: stateStyles[toolState].color,
+                                  cursor: autoInj ? "default" : "pointer",
+                                  minWidth: 70, justifyContent: "center",
+                                  textTransform: "uppercase", letterSpacing: "0.03em",
+                                  flexShrink: 0,
+                                  transition: "all 0.15s",
+                                }}
+                              >
+                                {toolState === "pinned" && <Pin size={8} />}
+                                {toolState === "discoverable" ? "discover" : toolState}
+                              </button>
+                            ) : (
+                              <input
+                                type="checkbox" checked={enabled}
+                                onChange={() => !autoInj && toggleTool(tool.name)}
+                                disabled={autoInj}
+                                style={{ accentColor: autoInj ? t.purple : t.accent, cursor: autoInj ? "default" : undefined }}
+                                title={autoInj ? "Auto-injected at runtime" : undefined}
+                              />
+                            )}
                             <span
                               style={{
-                                fontFamily: "monospace", color: autoInj ? t.purple : enabled ? t.accent : t.textDim,
+                                fontFamily: "monospace", color: textColor,
                                 flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                               }}
-                              title={autoInj ? `${tool.name} — auto-injected at runtime` : tool.description || tool.name}
+                              title={autoInj ? `${tool.name} \u2014 auto-injected at runtime` : tool.description || tool.name}
                             >
                               {tool.name}
                             </span>
@@ -547,14 +643,14 @@ function FullToolList({
                             >
                               <Info size={11} />
                             </button>
-                            {autoInj && (
+                            {!discovery && autoInj && (
                               <span style={{
                                 fontSize: 8, fontWeight: 700, padding: "0px 4px", borderRadius: 3,
                                 background: t.purpleSubtle, color: t.purple, textTransform: "uppercase",
                                 letterSpacing: "0.05em", whiteSpace: "nowrap",
                               }}>auto</span>
                             )}
-                            {enabled && draft.tool_retrieval && (
+                            {!discovery && enabled && draft.tool_retrieval && (
                               <button
                                 onClick={() => togglePin(tool.name)}
                                 title={pinned ? "Unpin" : "Pin (bypass RAG)"}
@@ -566,7 +662,7 @@ function FullToolList({
                                 <Pin size={10} />
                               </button>
                             )}
-                            {enabled && (
+                            {(discovery ? (toolState === "included" || toolState === "pinned") : enabled) && (
                               <button
                                 onClick={() => toggleNoSum(tool.name)}
                                 title={noSum ? "Allow summarization" : "Skip summarization"}
@@ -670,6 +766,24 @@ export function ToolsSection({
       {/* Resolved capabilities summary */}
       <ResolvedSummary editorData={editorData} draft={draft} />
 
+      {/* Mode explanation banner */}
+      {discovery ? (
+        <InfoBanner variant="info">
+          <strong>All tools are discoverable.</strong> This bot can find and use any tool via semantic search.
+          Pin tools that must be available every turn. Include tools to give them priority in search results.
+        </InfoBanner>
+      ) : retrieval ? (
+        <InfoBanner variant="warning">
+          <strong>Manual toolkit.</strong> Only enabled tools are available to this bot. The most relevant
+          are selected each turn via semantic search. Pin tools to include them every turn regardless of relevance.
+        </InfoBanner>
+      ) : (
+        <InfoBanner variant="warning">
+          <strong>Static toolkit.</strong> All enabled tools are passed to the bot every turn.
+          Consider enabling retrieval for large toolsets to reduce context usage.
+        </InfoBanner>
+      )}
+
       {/* Pinned Tools */}
       <PinnedToolsPicker editorData={editorData} draft={draft} update={update} discovery={discovery} />
 
@@ -680,12 +794,12 @@ export function ToolsSection({
       <ClientToolsSection editorData={editorData} draft={draft} update={update} filter="" />
 
       {/* Full tool list */}
-      <AdvancedSection title="All Available Tools">
+      <AdvancedSection title={discovery ? "Tool Pool" : "Available Tools"}>
         <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 8 }}>
-          <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
+          <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4, lineHeight: "16px" }}>
             {discovery
-              ? "With auto-discovery on, the bot can find any tool in the pool. This list lets you explicitly enable or disable individual tools. Pinned tools are always included regardless of retrieval."
-              : "Enable or disable individual tools. Enabled tools are candidates for retrieval; pinned tools are always included."}
+              ? "All tools below are available via auto-discovery. Click a tool\u2019s status badge to cycle its state: discoverable (found at stricter threshold) \u2192 included (priority in search) \u2192 pinned (always in context). Auto-injected tools are managed by the system."
+              : "Check tools to make them available to this bot. With retrieval on, the most relevant enabled tools are selected each turn. Pinned tools are always included regardless of relevance."}
           </div>
           <FullToolList editorData={editorData} draft={draft} update={update} discovery={discovery} />
         </div>
