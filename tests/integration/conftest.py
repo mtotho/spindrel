@@ -200,6 +200,7 @@ async def client(engine, db_session):
         patch("app.agent.persona.get_persona", return_value=None),
         patch("app.services.workflows.async_session", _test_session_factory),
         patch("app.services.workflow_executor.async_session", _test_session_factory),
+        patch("app.services.bot_hooks.async_session", _test_session_factory),
     ):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:

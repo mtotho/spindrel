@@ -29,10 +29,17 @@ _ADMIN = "/api/v1/admin/channels"
 _DECLARED_LOCAL_TOOLS = {"get_current_time", "get_current_local_time"}
 
 # The e2e bot uses memory_scheme=workspace-files, which injects these at runtime
-_MEMORY_SCHEME_TOOLS = {"file", "search_memory", "get_memory_file"}
+_MEMORY_SCHEME_TOOLS = {"file", "search_memory", "get_memory_file", "manage_bot_skill"}
+
+# The e2e bot has history_mode=file → read_conversation_history
+# activate_capability is always injected
+_AUTO_INJECTED_TOOLS = {
+    "read_conversation_history",
+    "activate_capability",
+}
 
 # All tools the bot should actually be able to call
-_ALL_EXPECTED_TOOLS = _DECLARED_LOCAL_TOOLS | _MEMORY_SCHEME_TOOLS
+_ALL_EXPECTED_TOOLS = _DECLARED_LOCAL_TOOLS | _MEMORY_SCHEME_TOOLS | _AUTO_INJECTED_TOOLS
 
 # Expected context preview block labels for the e2e bot config
 # (memory_scheme=workspace-files, no persona, no capabilities, history_mode=file)
@@ -334,17 +341,11 @@ async def test_effective_tools_complete(client: E2EClient) -> None:
             f"Declared tool '{tool}' missing from effective-tools. Got: {local_tools}"
         )
 
-    # BUG CHECK: memory-scheme tools should be reflected somewhere in effective-tools.
-    # Currently they are NOT — the bot can call file/search_memory/get_memory_file
-    # but effective-tools only shows declared local_tools. This is a known gap.
-    # We test for it explicitly so it fails if/when it's fixed (or stays failing
-    # to track the bug).
-    all_tools_in_response = local_tools
-    missing_memory_tools = _MEMORY_SCHEME_TOOLS - all_tools_in_response
-    if missing_memory_tools:
-        pytest.xfail(
-            f"KNOWN BUG: effective-tools missing memory-scheme tools: "
-            f"{missing_memory_tools}. Bot can call these but admin API doesn't show them."
+    # ALL auto-injected tools should appear (memory-scheme, history, capability)
+    for tool in _ALL_EXPECTED_TOOLS:
+        assert tool in local_tools, (
+            f"Auto-injected tool '{tool}' missing from effective-tools. "
+            f"Got: {sorted(local_tools)}"
         )
 
 

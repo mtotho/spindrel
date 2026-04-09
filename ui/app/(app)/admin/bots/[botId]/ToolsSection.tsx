@@ -88,10 +88,11 @@ function PinnedToolsPicker({
             <div key={name} style={{
               display: "flex", alignItems: "center", gap: 4,
               padding: "3px 8px", borderRadius: 4, fontSize: 11,
-              background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
+              background: discovery ? t.warningSubtle : t.accentSubtle,
+              border: `1px solid ${discovery ? t.warningBorder : t.accentBorder}`,
             }}>
-              <Pin size={9} color={t.accent} />
-              <span style={{ fontFamily: "monospace", color: t.accent }}
+              <Pin size={9} color={discovery ? t.warningMuted : t.accent} />
+              <span style={{ fontFamily: "monospace", color: discovery ? t.warningMuted : t.accent }}
                 title={tool?.description || name}>{name}</span>
               <button
                 onClick={() => removePin(name)}
@@ -478,7 +479,9 @@ function FullToolList({
                         padding: "1px 6px", fontSize: 9, cursor: "pointer",
                         color: allEnabled ? t.dangerMuted : t.success,
                       }}
-                      title={allEnabled ? "Deselect all in group" : "Select all in group"}
+                      title={discovery
+                        ? (allEnabled ? "Clear all in group" : "Include all in group")
+                        : (allEnabled ? "Disable all in group" : "Enable all in group")}
                     >
                       {allEnabled ? "none" : "all"}
                     </button>
@@ -523,7 +526,9 @@ function FullToolList({
                           padding: "1px 6px", fontSize: 9, cursor: "pointer",
                           color: allEnabled ? t.dangerMuted : t.success,
                         }}
-                        title={allEnabled ? "Disable all" : "Enable all"}
+                        title={discovery
+                          ? (allEnabled ? "Clear all" : "Include all")
+                          : (allEnabled ? "Disable all" : "Enable all")}
                       >
                         {allEnabled ? "none" : someEnabled ? "all" : "all"}
                       </button>
@@ -711,7 +716,7 @@ export function ToolsSection({
   const t = useThemeTokens();
 
   const retrieval = draft.tool_retrieval ?? true;
-  const discovery = draft.tool_discovery ?? true;
+  const discovery = retrieval && (draft.tool_discovery ?? true);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>

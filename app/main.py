@@ -360,6 +360,9 @@ async def lifespan(application: FastAPI):
     from app.services.webhooks import load_webhook_endpoints
     logger.info("Loading webhook endpoints...")
     await load_webhook_endpoints()
+    # Load bot hooks into cache
+    from app.services.bot_hooks import load_bot_hooks
+    await load_bot_hooks()
     # Register workflow task completion hook
     from app.services.workflow_hooks import register_workflow_hooks
     register_workflow_hooks()

@@ -60,9 +60,21 @@ async def exec_command(command: str, working_dir: str = "") -> str:
 
     # Workspace execution (all bots are in shared workspace, workspace.enabled is always true)
     if bot.workspace.enabled:
+        # --- Bot hooks: before_access ---
+        from app.services.bot_hooks import run_before_access, run_after_exec, schedule_after_write
+        effective_working_dir = working_dir or "/workspace"
+        block_err = await run_before_access(bot_id, effective_working_dir)
+        if block_err:
+            return json.dumps({"error": "hook_blocked", "message": block_err})
+
         try:
             from app.services.workspace import workspace_service
             result = await workspace_service.exec(bot_id, command, bot.workspace, working_dir, bot=bot)
+
+            # --- Bot hooks: after_exec + after_write ---
+            await run_after_exec(bot_id, effective_working_dir)
+            schedule_after_write(bot_id, effective_working_dir)
+
             return json.dumps({
                 "stdout": result.stdout,
                 "stderr": result.stderr,

@@ -27,6 +27,7 @@ import { LearningSection } from "./LearningSection";
 import { WorkspaceSection } from "./WorkspaceSection";
 import { BotPermissionsSection } from "./BotPermissionsSection";
 import { BotToolPoliciesSection } from "./BotToolPoliciesSection";
+import { BotHooksSection } from "./BotHooksSection";
 import { HistoryModeSection } from "./HistoryModeSection";
 
 // ---------------------------------------------------------------------------
@@ -113,6 +114,7 @@ export default function BotEditorScreen() {
       delegation: ["delegat", "bot"],
       permissions: ["permission", "scope", "api", "key", "access"],
       tool_policies: ["tool", "policy", "policies", "allow", "deny", "approval"],
+      hooks: ["hook", "trigger", "before", "after", "path", "cooldown"],
       display: ["display", "avatar", "icon", "slack", "emoji"],
       advanced: ["audio", "compaction", "interval", "keep_turns"],
     };
@@ -620,6 +622,10 @@ export default function BotEditorScreen() {
 
           {activeSection === "tool_policies" && draft.id && (
             <BotToolPoliciesSection botId={draft.id} />
+          )}
+
+          {activeSection === "hooks" && draft.id && (
+            <BotHooksSection botId={draft.id} />
           )}
 
           {activeSection === "display" && (

@@ -86,6 +86,8 @@ ALL_SCOPES = [
     "approvals:read", "approvals:write",
     # Tool Policies
     "tool_policies:read", "tool_policies:write",
+    # Bot Hooks
+    "bot_hooks:read", "bot_hooks:write",
     # Storage
     "storage:read", "storage:write",
 ]
@@ -164,6 +166,8 @@ SCOPE_DESCRIPTIONS: dict[str, str] = {
     "approvals:write": "Approve or deny tool call requests",
     "tool_policies:read": "List and view tool policy configurations",
     "tool_policies:write": "Create, update, and delete tool policies",
+    "bot_hooks:read": "List and view bot lifecycle hooks",
+    "bot_hooks:write": "Create, update, and delete bot hooks",
     "storage:read": "View storage usage statistics",
     "storage:write": "Manage storage (cleanup, purge)",
 }
@@ -307,6 +311,10 @@ SCOPE_GROUPS: dict[str, dict] = {
     "Tool Policies": {
         "description": "Tool-level permission policies (allow/deny/approval-required)",
         "scopes": ["tool_policies:read", "tool_policies:write"],
+    },
+    "Bot Hooks": {
+        "description": "Bot lifecycle hooks — run commands on file access, writes, or exec events",
+        "scopes": ["bot_hooks:read", "bot_hooks:write"],
     },
     "Storage": {
         "description": "Storage usage and management",

@@ -785,7 +785,9 @@ async def admin_channel_effective_tools(
     except Exception:
         pass
 
+    from app.agent.channel_overrides import apply_auto_injections
     eff = resolve_effective_tools(bot, channel)
+    eff = apply_auto_injections(eff, bot)
 
     # Filter sources to only include carapaces that survived resolution
     _eff_set = set(eff.carapaces)

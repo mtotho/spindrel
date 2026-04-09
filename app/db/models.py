@@ -1552,3 +1552,41 @@ class DockerStack(Base):
             postgresql_where=text("integration_id IS NOT NULL"),
         ),
     )
+
+
+class BotHook(Base):
+    """Bot-configurable hooks that run shell commands in response to lifecycle events."""
+    __tablename__ = "bot_hooks"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    bot_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("bots.id", ondelete="CASCADE"), nullable=False,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    trigger: Mapped[str] = mapped_column(Text, nullable=False)
+    conditions: Mapped[dict] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb"), nullable=False, default=dict,
+    )
+    command: Mapped[str] = mapped_column(Text, nullable=False)
+    cooldown_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("60"),
+    )
+    on_failure: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'warn'"),
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        Index("ix_bot_hooks_bot_id", "bot_id"),
+    )

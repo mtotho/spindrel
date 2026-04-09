@@ -13,7 +13,7 @@ from typing import Any
 from dataclasses import replace as _dc_replace
 
 from app.agent.bots import BotConfig
-from app.agent.channel_overrides import resolve_effective_tools
+from app.agent.channel_overrides import EffectiveTools, apply_auto_injections, resolve_effective_tools
 from app.agent.context import set_ephemeral_delegates, set_ephemeral_skills
 from typing import TYPE_CHECKING
 
@@ -415,6 +415,7 @@ async def assemble_context(
 
     if _ch_row is not None:
         _eff = resolve_effective_tools(bot, _ch_row)
+        _eff = apply_auto_injections(_eff, bot)
         # Member bots (system_preamble set) keep their own carapaces —
         # channel-level carapaces_extra are for the primary bot's role.
         _eff_carapaces = list(bot.carapaces or []) if system_preamble else _eff.carapaces
@@ -436,6 +437,22 @@ async def assemble_context(
             result.channel_fallback_models = _ch_row.fallback_models
         if _ch_row.model_tier_overrides:
             result.channel_model_tier_overrides = _ch_row.model_tier_overrides
+    else:
+        # No channel — still apply auto-injections to bot defaults
+        _eff = EffectiveTools(
+            local_tools=list(bot.local_tools),
+            mcp_servers=list(bot.mcp_servers),
+            client_tools=list(bot.client_tools),
+            pinned_tools=list(bot.pinned_tools),
+            skills=list(bot.skills),
+            carapaces=list(bot.carapaces or []),
+        )
+        _eff = apply_auto_injections(_eff, bot)
+        bot = _dc_replace(
+            bot,
+            local_tools=_eff.local_tools,
+            pinned_tools=_eff.pinned_tools,
+        )
 
     # --- auto-inject carapaces from activated integrations ---
     if _ch_row is not None:
@@ -561,13 +578,7 @@ async def assemble_context(
                 _inject_chars["capability_index"] = len(_cap_index_content)
                 yield {"type": "capability_index", "count": len(_cap_lines)}
 
-                # Inject activate_capability tool into bot's available tools
-                if "activate_capability" not in (bot.local_tools or []):
-                    bot = _dc_replace(
-                        bot,
-                        local_tools=list(bot.local_tools or []) + ["activate_capability"],
-                        pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + ["activate_capability"])),
-                    )
+                # activate_capability tool already injected by apply_auto_injections()
     except Exception:
         logger.warning("Failed to build capability index", exc_info=True)
 
@@ -643,26 +654,10 @@ async def assemble_context(
         except Exception:
             logger.warning("Failed to auto-enroll integration skills", exc_info=True)
 
-    # --- memory scheme: tool hiding + tool injection ---
+    # --- memory scheme: file injection ---
+    # NOTE: memory-scheme TOOL injection (search_memory, file, etc.) is handled
+    # by apply_auto_injections() above. This section only does file/context injection.
     _memory_scheme_injected_paths: set[str] = set()  # track injected files for fs RAG dedup
-    if bot.memory_scheme == "workspace-files":
-        _MEMORY_SCHEME_HIDDEN_TOOLS = {
-            "upsert_knowledge", "append_to_knowledge", "edit_knowledge",
-            "delete_knowledge", "get_knowledge", "list_knowledge_bases",
-            "search_knowledge", "pin_knowledge", "unpin_knowledge",
-            "set_knowledge_similarity_threshold",
-        }
-        _MEMORY_SCHEME_INJECT_TOOLS = ["search_memory", "get_memory_file", "file", "manage_bot_skill"]
-        _filtered_tools = [t for t in bot.local_tools if t not in _MEMORY_SCHEME_HIDDEN_TOOLS]
-        # Add memory file tools if not already present
-        for _mt in _MEMORY_SCHEME_INJECT_TOOLS:
-            if _mt not in _filtered_tools:
-                _filtered_tools.append(_mt)
-        bot = _dc_replace(
-            bot,
-            local_tools=_filtered_tools,
-            pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + _MEMORY_SCHEME_INJECT_TOOLS)),
-        )
 
     # --- memory scheme: file injection ---
     if bot.memory_scheme == "workspace-files":
@@ -1347,12 +1342,7 @@ async def assemble_context(
                     yield {"type": "section_context", "count": len(_sec_rows), "chars": _sec_chars}
 
             elif _hist_mode == "file":
-                # Inject read_conversation_history tool into bot's tools
-                bot = _dc_replace(
-                    bot,
-                    local_tools=list(dict.fromkeys((bot.local_tools or []) + ["read_conversation_history"])),
-                    pinned_tools=list(dict.fromkeys((bot.pinned_tools or []) + ["read_conversation_history"])),
-                )
+                # read_conversation_history tool already injected by apply_auto_injections()
 
                 # Inject section index so the bot knows what's in the archive
                 _si_count = getattr(_sec_ch, "section_index_count", None)

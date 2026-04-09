@@ -420,12 +420,17 @@ class TestSkillInjection:
         result = AssemblyResult()
         factory = _session_factory(engine)
 
+        # Mock retrieve_skill_index — uses pgvector <=> operator unsupported in SQLite
+        _mock_retrieve = AsyncMock(return_value=[{"id": "test-skill", "similarity": 0.8}])
+
         with (
             patch("app.db.engine.async_session", factory),
             patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
             patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
             patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
             patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+            patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
+            patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
         ):
             events = await _collect(assemble_context(
                 messages=messages,

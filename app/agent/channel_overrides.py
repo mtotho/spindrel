@@ -19,6 +19,57 @@ class EffectiveTools:
     carapaces: list[str] = field(default_factory=list)
 
 
+def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools:
+    """Apply all auto-injected tools based on bot config.
+
+    This is the single source of truth for tools that get added at runtime
+    by context_assembly. Call this after resolve_effective_tools() to get
+    the complete tool list that the LLM will actually see.
+
+    Injections:
+    - memory_scheme="workspace-files" → search_memory, get_memory_file, file, manage_bot_skill
+    - tool_retrieval=true → get_tool_info
+    - bot has skills → get_skill, get_skill_list
+    - history_mode="file" → read_conversation_history
+    """
+    import dataclasses
+    from app.services.memory_scheme import MEMORY_SCHEME_TOOLS, MEMORY_SCHEME_HIDDEN_TOOLS
+
+    local = list(eff.local_tools)
+    pinned = list(eff.pinned_tools or [])
+
+    def _inject(tool_name: str) -> None:
+        if tool_name not in local:
+            local.append(tool_name)
+        if tool_name not in pinned:
+            pinned.append(tool_name)
+
+    # Memory scheme
+    if getattr(bot, "memory_scheme", None) == "workspace-files":
+        local[:] = [t for t in local if t not in MEMORY_SCHEME_HIDDEN_TOOLS]
+        for t in MEMORY_SCHEME_TOOLS:
+            _inject(t)
+
+    # Tool retrieval
+    if getattr(bot, "tool_retrieval", False):
+        _inject("get_tool_info")
+
+    # Skills
+    if eff.skills:
+        _inject("get_skill")
+        _inject("get_skill_list")
+
+    # History mode
+    if getattr(bot, "history_mode", None) == "file":
+        _inject("read_conversation_history")
+
+    # activate_capability is conditional on capability RAG matches at runtime,
+    # so we always include it as available (it's low-cost and always registered)
+    _inject("activate_capability")
+
+    return dataclasses.replace(eff, local_tools=local, pinned_tools=pinned)
+
+
 def _apply_disabled(bot_list: list[str], disabled: list | None) -> list[str]:
     """Apply a blacklist to a bot tool list.
 

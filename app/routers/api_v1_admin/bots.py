@@ -456,18 +456,11 @@ def _build_resolved_preview(bot, tool_rows) -> ResolvedPreview:
     # 5. Memory scheme injections
     memory_scheme = getattr(bot, "memory_scheme", None)
     if memory_scheme == "workspace-files":
-        # Hide knowledge tools
-        _hidden = {
-            "upsert_knowledge", "append_to_knowledge", "edit_knowledge",
-            "delete_knowledge", "get_knowledge", "list_knowledge_bases",
-            "search_knowledge", "pin_knowledge", "unpin_knowledge",
-            "set_knowledge_similarity_threshold",
-        }
-        tools[:] = [t for t in tools if t.name not in _hidden]
-        seen_tools -= _hidden
+        from app.services.memory_scheme import MEMORY_SCHEME_TOOLS, MEMORY_SCHEME_HIDDEN_TOOLS
+        tools[:] = [t for t in tools if t.name not in MEMORY_SCHEME_HIDDEN_TOOLS]
+        seen_tools -= MEMORY_SCHEME_HIDDEN_TOOLS
 
-        # Inject memory tools
-        for t in ["search_memory", "get_memory_file", "file", "manage_bot_skill"]:
+        for t in MEMORY_SCHEME_TOOLS:
             _add_tool(t, "memory_scheme", "Memory scheme (workspace-files)")
             _add_pinned(t, "memory_scheme", "Memory scheme (workspace-files)")
 

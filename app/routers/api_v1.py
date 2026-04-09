@@ -16,6 +16,7 @@ from app.routers.api_v1_workspace_editor import router as workspace_editor_route
 from app.routers.api_v1_channel_workspace import router as channel_workspace_router
 from app.routers.api_v1_tool_calls import router as tool_calls_router
 from app.routers.api_v1_tool_policies import router as tool_policies_router
+from app.routers.api_v1_bot_hooks import router as bot_hooks_router
 from app.routers.api_v1_approvals import router as approvals_router
 from app.routers.api_v1_carapaces import router as carapaces_router
 from app.routers.api_v1_llm import router as llm_router
@@ -35,6 +36,7 @@ router.include_router(tasks_router)
 router.include_router(todos_router)
 router.include_router(tool_calls_router)
 router.include_router(tool_policies_router)
+router.include_router(bot_hooks_router)
 router.include_router(users_router)
 router.include_router(workspaces_router)
 router.include_router(workspace_editor_router)

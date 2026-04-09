@@ -219,25 +219,39 @@ async def file(
     except ValueError as e:
         return _error(str(e))
 
+    # --- Bot hooks: before_access ---
+    from app.services.bot_hooks import run_before_access, schedule_after_write
+    block_err = await run_before_access(bot_id, path)
+    if block_err:
+        return _error(block_err)
+
+    _WRITE_OPS = {"write", "append", "edit", "delete", "mkdir", "move"}
+
     try:
         if operation == "read":
-            return _op_read(resolved, effective_ws_root, offset, limit)
+            result = _op_read(resolved, effective_ws_root, offset, limit)
         elif operation == "write":
-            return _op_write(resolved, content)
+            result = _op_write(resolved, content)
         elif operation == "append":
-            return _op_append(resolved, content)
+            result = _op_append(resolved, content)
         elif operation == "edit":
-            return _op_edit(resolved, find, replace, replace_all, content=content)
+            result = _op_edit(resolved, find, replace, replace_all, content=content)
         elif operation == "list":
-            return _op_list(resolved, effective_ws_root)
+            result = _op_list(resolved, effective_ws_root)
         elif operation == "delete":
-            return _op_delete(resolved)
+            result = _op_delete(resolved)
         elif operation == "mkdir":
-            return _op_mkdir(resolved)
+            result = _op_mkdir(resolved)
         elif operation == "move":
-            return await _op_move(resolved, destination, effective_ws_root, effective_bot)
+            result = await _op_move(resolved, destination, effective_ws_root, effective_bot)
         else:
             return _error(f"Unknown operation: {operation}")
+
+        # --- Bot hooks: after_write (debounced) ---
+        if operation in _WRITE_OPS and not result.startswith('{"error"'):
+            schedule_after_write(bot_id, path)
+
+        return result
     except Exception as exc:
         logger.exception("file tool %s failed: %s", operation, path)
         return _error(f"{operation} failed: {exc}")

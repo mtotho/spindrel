@@ -13,6 +13,7 @@ export const SECTIONS = [
   { key: "delegation", label: "Delegation" },
   { key: "permissions", label: "Permissions" },
   { key: "tool_policies", label: "Tool Policies" },
+  { key: "hooks", label: "Hooks" },
   { key: "display", label: "Display" },
   { key: "advanced", label: "Advanced" },
 ] as const;
