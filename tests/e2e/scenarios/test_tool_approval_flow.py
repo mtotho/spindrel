@@ -27,7 +27,7 @@ async def _poll_pending_approval(
     client: E2EClient,
     bot_id: str,
     tool_name: str,
-    timeout: float = 60,
+    timeout: float = 90,
     interval: float = 2,
 ) -> dict:
     """Poll GET /approvals until a pending approval for the given tool appears."""

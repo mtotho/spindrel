@@ -306,7 +306,7 @@ async def test_channel_carapaces_extra(client: E2EClient) -> None:
     """Channel-level carapaces_extra can be set and retrieved."""
     cid = client.new_client_id()
     channel_id = client.derive_channel_id(cid)
-    await client.chat("Carapaces extra test.", client_id=cid)
+    await client.chat("Hi.", client_id=cid)
 
     updated = await client.update_channel_settings(
         channel_id,
