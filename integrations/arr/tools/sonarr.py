@@ -366,7 +366,7 @@ async def sonarr_queue() -> str:
                 },
                 "series_id": {
                     "type": "integer",
-                    "description": "Series ID (required for SeriesSearch and RefreshSeries).",
+                    "description": "Internal Sonarr series ID (the 'id' field, NOT tvdb_id). Required for SeriesSearch and RefreshSeries.",
                 },
                 "episode_ids": {
                     "type": "array",
@@ -514,7 +514,7 @@ async def sonarr_releases(
             "properties": {
                 "series_id": {
                     "type": "integer",
-                    "description": "Series ID (from sonarr_series results).",
+                    "description": "Internal Sonarr series ID (the 'id' field from sonarr_series, NOT tvdb_id).",
                 },
                 "season": {
                     "type": "integer",
@@ -573,7 +573,7 @@ async def sonarr_episodes(series_id: int, season: int | None = None) -> str:
             "properties": {
                 "series_id": {
                     "type": "integer",
-                    "description": "Series ID to get history for.",
+                    "description": "Internal Sonarr series ID (the 'id' field, NOT tvdb_id).",
                 },
                 "episode_id": {
                     "type": "integer",

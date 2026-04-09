@@ -57,9 +57,10 @@ system_prompt_fragment: |
   | "Is X available?" / "Do we have X?" | → Quick check: `jellyfin_library(action="search")` |
   | "Why isn't X on?" / "X is missing" | → `get_skill('integrations/arr/media-troubleshoot')` then follow the procedure step by step |
   | "Make sure X is on" / "Can you get X?" | → `get_skill('integrations/arr/media-request')` — covers check + request if needed |
+  | "Search for X episode" / "Find S01E05" / "Grab the best release for X" | → `sonarr_series()` (get internal `id`) → `sonarr_episodes(series_id=ID, season=N)` (get episode `id`) → `sonarr_releases(action="search", episode_id=EP_ID)` → evaluate & grab best |
   | "What's downloading?" | → `sonarr_queue()` + `radarr_queue()` + `qbit_torrents(filter="downloading")` |
-  | "Fix stuck downloads" | → `sonarr_queue()` (check tracked_status) + `qbit_torrents(filter="stalled")` → diagnose → remediate |
-  | "Why won't X import?" / "Download stuck" | → `sonarr_queue()` (check errors) + `sonarr_episodes()` + `sonarr_history()` → diagnose phantom files → `sonarr_queue_manage()` + `SeriesSearch` |
+  | "Fix stuck downloads" / "Something stalled" | → `get_skill('integrations/arr/download-monitoring')` — covers stalled detection, bad grabs, import failures |
+  | "Why won't X import?" / "Download stuck" | → `get_skill('integrations/arr/media-troubleshoot')` — classifies as STALLED/BAD_GRAB/IMPORT_ISSUE/PHANTOM_FILE and fixes |
   | "What's new?" / "Recent additions" | → `jellyfin_library(action="recent")` |
   | "Show pending requests" | → `jellyseerr_requests(filter="pending")` |
 
@@ -82,11 +83,11 @@ system_prompt_fragment: |
   | `jellyseerr_search` | Find movies/shows on TMDB (paged, 20/page) |
   | `jellyseerr_manage` | Request, approve, decline media |
   | `jellyseerr_requests` | List requests (paged via skip/limit; filter by status) |
-  | `sonarr_series` | List series or search TVDB |
+  | `sonarr_series` | List library series (with internal `id`) or search TVDB. Use `id` (NOT tvdb_id) for all other sonarr_* calls |
   | `sonarr_queue` | Current TV download queue |
-  | `sonarr_releases` | Browse/grab specific releases for a series |
+  | `sonarr_episodes` | Episode details by series `id` + optional season. Returns episode `id` needed for sonarr_releases |
+  | `sonarr_releases` | Browse/grab releases for a specific **episode** (requires episode_id from sonarr_episodes) |
   | `sonarr_command` | Trigger series/episode/missing searches |
-  | `sonarr_episodes` | Episode details: hasFile, episodeFileId, file path/size |
   | `sonarr_history` | Grab/import/failure events with error messages |
   | `sonarr_queue_manage` | Remove queue items, blocklist bad releases, remove from qBit |
   | `radarr_movies` | List movies or search TMDB; filter missing/wanted |
@@ -110,6 +111,8 @@ system_prompt_fragment: |
 
   ### Key Rules
 
+  - **ID types matter**: `sonarr_series()` (no search) returns the internal `id`. `sonarr_series(search=...)` returns `tvdb_id` AND `id` (if in library). ALL other sonarr_* tools need the internal `id`, NOT tvdb_id. Same for Radarr: use `id`, not `tmdb_id`.
+  - **Episode workflow**: series `id` → `sonarr_episodes(series_id=ID)` → episode `id` → `sonarr_releases(episode_id=EP_ID)`
   - Always check Jellyfin FIRST before searching Sonarr/Radarr or requesting
   - Check Jellyseerr status before creating duplicate requests
   - When requesting: confirm the match with the user (title + year) before submitting

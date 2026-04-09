@@ -24,15 +24,31 @@ sonarr_queue()                  → check for tracked_status: "warning" (import 
 radarr_queue()                  → same for movies
 ```
 
-A torrent is "stuck downloading" if:
-- State is `stalledDL` (stalled downloading)
-- Progress hasn't changed in consecutive checks
-- ETA is `8640000` (qBit's "infinity" value)
+**qBit states that indicate problems:**
 
-A download is "completed but stuck importing" if:
-- `sonarr_queue` / `radarr_queue` shows `status: "completed"` + `tracked_status: "warning"`
-- qBit shows torrent at 100% in `stoppedUP` state but still in Sonarr/Radarr queue
-- The `errors` field in queue results describes what went wrong
+| State | Meaning | Severity |
+|-------|---------|----------|
+| `stalledDL` | No peers, download can't progress | High — dead torrent, replace it |
+| `metaDL` (>10 min) | Magnet link can't resolve metadata | High — tracker down or torrent dead |
+| `missingFiles` | Files deleted from disk but torrent active | Critical — need to remove + re-search |
+| `error` | Hash check failed or disk I/O error | Critical — corrupt data |
+| `stalledUP` | 100% complete but no peers to upload to | Low — may still import fine, check arr queue |
+| ETA = `8640000` + speed = 0 | qBit's "infinity" value, zero progress | High — dead torrent |
+
+**Arr queue states that indicate problems:**
+
+| Queue state | Meaning | Action |
+|-------------|---------|--------|
+| `tracked_status: "warning"` | Import failed — read `errors[]` | Diagnose error, likely blocklist + re-search |
+| `status: "completed"` + still in queue | Downloaded but can't import | Read `errors[]` — common: quality rejection, bad format, disk full |
+| `status: "delay"` | Waiting for delay profile | Usually fine, just needs time |
+
+**Common import failure patterns in `errors[]`:**
+- File extension `.exe`, `.scr`, `.bat`, `.com` → malware/fake release, blocklist immediately
+- "Not a Custom Format upgrade" → quality profile rejected, blocklist + search for better match
+- "No files found are eligible for import" → wrong content, corrupt, or unparseable
+- "Sample" or tiny size (< 100 MB) → grabbed a sample, not the full file
+- "Not enough disk space" → disk full, tell user
 
 ### 3. Fix Stuck Downloads
 For each stuck torrent:
@@ -45,6 +61,12 @@ For each stuck torrent:
 **Important:** Do NOT just delete from qBittorrent — this leaves a phantom entry in Sonarr/Radarr's queue that blocks new downloads. Always remove via `*_queue_manage` first.
 
 **If the queue is empty but episode is still missing**, use `sonarr_episodes(series_id=X)` to inspect file state, then `sonarr_history(series_id=X)` to see what happened.
+
+**For bad auto-grabs** (import warning, sketchy file, wrong quality):
+1. Blocklist via `*_queue_manage(queue_ids=[ID], remove_from_client=true, blocklist=true)`
+2. Browse releases manually: `sonarr_episodes(series_id=X, season=N)` → get episode `id` → `sonarr_releases(action="search", episode_id=EP_ID)`
+3. Select a release that passes all checks (see AI-Assisted Torrent Selection below)
+4. Grab: `*_releases(action="grab", guid="...", indexer_id=N)`
 
 ### 4. Check Wanted Items
 ```
@@ -78,12 +100,22 @@ When evaluating releases from `*_releases(action="search")`:
 - **Skip**: Seeders < 5, rejected, suspiciously small (likely fake), suspiciously large
 - **Ask user**: Borderline cases, only rejected releases available, all releases have low seeders
 
-### Red Flags
+### Red Flags — Release Problems
 - Size = 0 MB → fake release
-- Size << expected → likely low quality or wrong content
-- `.scr` suffix in release title → screener/corrupt file, will fail to import
+- Size << expected (e.g. 50 MB "1080p episode") → fake, sample, or wrong content
+- Size >> expected (e.g. 20 GB single TV episode) → wrong content or bloated encode
+- `.scr`, `.exe`, `.bat`, `.com` in release title → malware/fake, never grab these
 - All releases rejected → quality profile may need adjustment, inform user
+- Release title doesn't match expected show/episode → wrong content entirely
+- Seeders = 0 → dead torrent, will never download
 - `tracked_status: "warning"` in queue → import problem, check `errors` field
+
+### Red Flags — After Grabbing
+- qBit shows `stalledDL` immediately after grab → dead torrent, blocklist + try next
+- qBit shows `metaDL` for >10 min → magnet can't resolve, tracker issue
+- qBit shows `missingFiles` → files vanished, re-search needed
+- Queue `errors[]` mentions file extension → sketchy release, blocklist + re-search
+- Download completes but queue shows warning → import rejected, read error message
 
 ## Workspace Tracking
 
