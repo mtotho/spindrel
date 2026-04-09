@@ -382,13 +382,14 @@ async def test_bot_discovers_and_activates_capability(client: E2EClient) -> None
         )
         assert resp.status_code == 201
 
-        # Use default e2e bot — has activate_capability auto-injected
+        # Use e2e-tools bot — lightweight (no workspace-files), fast context assembly
         client_id = client.new_client_id("e2e-discover")
         result = await asyncio.wait_for(
             client.chat_stream(
                 "I need help understanding the Quantum Sandwich Theory. "
                 "What is the Bread Uncertainty Principle? "
                 "If there is a relevant capability available, please activate it first.",
+                bot_id="e2e-tools",
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
@@ -450,12 +451,13 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
             },
         )
 
-        # Turn 1: Activate the capability (using default e2e bot)
+        # Turn 1: Activate the capability (using e2e-tools — lightweight)
         client_id = client.new_client_id("e2e-multiturn")
         result1 = await asyncio.wait_for(
             client.chat_stream(
                 "I need help with Elvish grammar. Please activate the Elvish "
                 "language capability if it's available.",
+                bot_id="e2e-tools",
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
@@ -471,6 +473,7 @@ async def test_activated_capability_skills_available_next_turn(client: E2EClient
             client.chat_stream(
                 f'Now use the get_skill tool to load skill "{sid}" and tell me '
                 "how to conjugate verbs in the past tense in Elvish.",
+                bot_id="e2e-tools",
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
@@ -558,26 +561,26 @@ async def test_get_skill_list_returns_bot_skills(client: E2EClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 10. Skill access denied for unrelated bot (negative test)
+# 10. Bot-scoped skill denied for other bot (negative test)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_skill_access_denied_for_unrelated_bot(client: E2EClient) -> None:
-    """A bot without access to a skill gets a denial message from get_skill.
+async def test_bot_scoped_skill_denied_for_other_bot(client: E2EClient) -> None:
+    """A skill scoped to a specific bot (bots/<bot_id>/...) is NOT accessible
+    to other bots. Only the owning bot can load bot-authored skills.
 
-    The e2e-tools bot has get_skill but no configured skills. Asking it to
-    load a skill that isn't in its config should return an access-denied message.
+    Uses a skill ID prefixed with bots/some-other-bot/ to ensure scoping.
     """
-    sid = _skill_id()
+    # Bot-scoped skill IDs use the pattern bots/<bot_id>/<name>
+    sid = f"bots/nonexistent-bot/{_skill_id()}"
     try:
-        # Create a private skill
         await client.post(
             _ADMIN_SKILLS,
-            json={"id": sid, "name": "Private Skill", "content": "# Secret\nTop secret content."},
+            json={"id": sid, "name": "Scoped Skill", "content": "# Scoped\nThis belongs to another bot."},
         )
 
-        # e2e-tools bot has get_skill but this skill is NOT in its config
+        # e2e-tools bot should NOT have access to another bot's skill
         client_id = client.new_client_id("e2e-denied")
         result = await asyncio.wait_for(
             client.chat_stream(
@@ -594,7 +597,7 @@ async def test_skill_access_denied_for_unrelated_bot(client: E2EClient) -> None:
         # The response should indicate the skill isn't configured/accessible
         text = result.response_text.lower()
         assert any(w in text for w in ("not configured", "not found", "not available", "denied", "access", "cannot")), (
-            f"Expected access denial in response. Got: {result.response_text[:300]}"
+            f"Expected access denial for bot-scoped skill. Got: {result.response_text[:300]}"
         )
     finally:
         await client.delete(f"{_ADMIN_SKILLS}/{sid}")
@@ -706,11 +709,13 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
         )
 
         # Turn 1: Ask about Martian Chess — should discover + activate capability
+        # Use e2e-tools bot (lightweight, has get_skill)
         client_id = client.new_client_id("e2e-pipeline")
         result1 = await asyncio.wait_for(
             client.chat_stream(
                 "I want to learn about Martian Chess. What is the midline rule? "
                 "Check for any relevant capabilities and activate them.",
+                bot_id="e2e-tools",
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
@@ -729,6 +734,7 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
             client.chat_stream(
                 f'Great! Now use get_skill to load the "{sid}" skill and explain '
                 "how pieces move in Martian Chess. How many hexes can a Drone move?",
+                bot_id="e2e-tools",
                 client_id=client_id,
             ),
             timeout=_LLM_TIMEOUT,
