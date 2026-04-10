@@ -19,6 +19,9 @@ SETUP = {
         # Jellyseerr
         {"key": "JELLYSEERR_URL", "required": False, "description": "Jellyseerr base URL (e.g. http://192.168.1.x:5055)"},
         {"key": "JELLYSEERR_API_KEY", "required": False, "description": "Jellyseerr API key (Settings → General)", "secret": True},
+        # Prowlarr
+        {"key": "PROWLARR_URL", "required": False, "description": "Prowlarr base URL (e.g. http://192.168.1.x:9696)"},
+        {"key": "PROWLARR_API_KEY", "required": False, "description": "Prowlarr API key (Settings → General)", "secret": True},
         # Bazarr
         {"key": "BAZARR_URL", "required": False, "description": "Bazarr base URL (e.g. http://192.168.1.x:6767)"},
         {"key": "BAZARR_API_KEY", "required": False, "description": "Bazarr API key (Settings → General)", "secret": True},
@@ -27,7 +30,7 @@ SETUP = {
         "carapaces": ["arr"],
         "includes": ["mission_control"],
         "requires_workspace": False,
-        "description": "Media library management with Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr",
+        "description": "Media library management with Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin, Jellyseerr, and Bazarr",
 
     },
 }
