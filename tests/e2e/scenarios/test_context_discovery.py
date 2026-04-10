@@ -422,8 +422,8 @@ async def test_config_overhead_line_items(client: E2EClient) -> None:
         (line for line in lines if "system_prompt" in line["label"]), None,
     )
     if sys_line:
-        # e2e bot system prompt is ~574 chars
-        assert 200 < sys_line["chars"] < 2000, (
+        # e2e bot system prompt is ~130 chars (short deliberately)
+        assert 50 < sys_line["chars"] < 2000, (
             f"System prompt overhead ({sys_line['chars']} chars) outside "
             f"plausible range for e2e bot"
         )

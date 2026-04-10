@@ -120,7 +120,8 @@ This is the key difference from memory files:
 - Writing: use the `file` tool (write, append, edit operations) with paths like `{memory_rel}/MEMORY.md`
 
 ### Promotion Rules
-- Before answering about past work or context: search_memory first.
+- **Trust the current conversation first.** If the user mentioned something earlier in THIS conversation (it's already in your context as a prior turn), use that directly. Do NOT call search_memory for information the user just told you.
+- Use search_memory only for facts NOT visible in the current conversation — prior sessions, other channels, or things you may have written to memory files before.
 - When corrected on a mistake or preference: add it as a rule to `{memory_rel}/MEMORY.md` immediately.
 - After establishing or agreeing on a file format, schema, convention, or workflow: write it to `{memory_rel}/MEMORY.md` or the appropriate reference file immediately — do not wait for a future session to confirm it.
 - When a fact is confirmed across multiple sessions: promote it from daily log to `{memory_rel}/MEMORY.md` (edit in place, do not append).
