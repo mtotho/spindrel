@@ -9,6 +9,8 @@ import pytest
 from integrations.arr.tools.radarr import (
     radarr_command,
     radarr_movies,
+    radarr_quality_profile_update,
+    radarr_quality_profiles,
     radarr_queue,
     radarr_releases,
 )
@@ -350,3 +352,58 @@ async def test_releases_connect_error():
     ):
         result = json.loads(await radarr_releases(action="search", movie_id=1))
     assert "Cannot connect to Radarr" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# radarr_quality_profiles
+# ---------------------------------------------------------------------------
+
+
+SAMPLE_PROFILE = {
+    "id": 1,
+    "name": "HD-1080p",
+    "upgradeAllowed": True,
+    "cutoff": 7,
+    "items": [
+        {"quality": {"id": 1, "name": "SDTV"}, "allowed": False},
+        {"quality": {"id": 7, "name": "Bluray-1080p"}, "allowed": True},
+        {
+            "id": 2000,
+            "name": "WEB 1080p",
+            "allowed": True,
+            "items": [
+                {"quality": {"id": 3, "name": "WEBDL-1080p"}, "allowed": True},
+                {"quality": {"id": 15, "name": "WEBRip-1080p"}, "allowed": True},
+            ],
+        },
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_quality_profiles_list():
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=[SAMPLE_PROFILE]):
+        result = json.loads(await radarr_quality_profiles())
+
+    assert result["count"] == 1
+    assert result["profiles"][0]["name"] == "HD-1080p"
+    assert result["profiles"][0]["upgrade_allowed"] is True
+
+
+@pytest.mark.asyncio
+async def test_quality_profile_update():
+    updated = {**SAMPLE_PROFILE, "upgradeAllowed": False}
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=SAMPLE_PROFILE):
+        with patch(f"{MODULE}._put", new_callable=AsyncMock, return_value=updated):
+            result = json.loads(await radarr_quality_profile_update(
+                profile_id=1, upgrade_allowed=False,
+            ))
+
+    assert result["upgrade_allowed"] is False
+
+
+@pytest.mark.asyncio
+async def test_quality_profiles_not_configured(monkeypatch):
+    monkeypatch.setenv("RADARR_URL", "")
+    result = json.loads(await radarr_quality_profiles())
+    assert result["error"] == "RADARR_URL is not configured"

@@ -9,6 +9,8 @@ import pytest
 from integrations.arr.tools.sonarr import (
     sonarr_calendar,
     sonarr_command,
+    sonarr_quality_profile_update,
+    sonarr_quality_profiles,
     sonarr_queue,
     sonarr_releases,
     sonarr_series,
@@ -426,3 +428,89 @@ async def test_releases_connect_error():
     ):
         result = json.loads(await sonarr_releases(action="search", series_id=1))
     assert "Cannot connect to Sonarr" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# sonarr_quality_profiles
+# ---------------------------------------------------------------------------
+
+
+SAMPLE_PROFILE = {
+    "id": 1,
+    "name": "HD-1080p",
+    "upgradeAllowed": True,
+    "cutoff": 1080,
+    "items": [
+        {"quality": {"id": 1, "name": "SDTV"}, "allowed": False},
+        {"quality": {"id": 4, "name": "HDTV-720p"}, "allowed": False},
+        {
+            "id": 1080,
+            "name": "WEB 1080p",
+            "allowed": True,
+            "items": [
+                {"quality": {"id": 3, "name": "WEBDL-1080p"}, "allowed": True},
+                {"quality": {"id": 15, "name": "WEBRip-1080p"}, "allowed": True},
+            ],
+        },
+        {"quality": {"id": 7, "name": "Bluray-1080p"}, "allowed": True},
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_quality_profiles_list():
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=[SAMPLE_PROFILE]):
+        result = json.loads(await sonarr_quality_profiles())
+
+    assert result["count"] == 1
+    assert result["profiles"][0]["name"] == "HD-1080p"
+    assert result["profiles"][0]["upgrade_allowed"] is True
+    # WEB 1080p group and Bluray-1080p should be in qualities
+    q_names = []
+    for q in result["profiles"][0]["qualities"]:
+        if isinstance(q, dict):
+            q_names.append(q["group"])
+        else:
+            q_names.append(q)
+    assert "WEB 1080p" in q_names
+    assert "Bluray-1080p" in q_names
+    # SDTV should NOT be included (allowed=False)
+    assert "SDTV" not in q_names
+
+
+@pytest.mark.asyncio
+async def test_quality_profiles_single():
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=SAMPLE_PROFILE):
+        result = json.loads(await sonarr_quality_profiles(profile_id=1))
+
+    assert result["id"] == 1
+    assert result["cutoff"] == "WEB 1080p"
+
+
+@pytest.mark.asyncio
+async def test_quality_profile_update_cutoff():
+    updated = {**SAMPLE_PROFILE, "cutoff": 7}  # Bluray-1080p
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=SAMPLE_PROFILE):
+        with patch(f"{MODULE}._put", new_callable=AsyncMock, return_value=updated):
+            result = json.loads(await sonarr_quality_profile_update(
+                profile_id=1, cutoff_quality="Bluray-1080p",
+            ))
+
+    assert result["cutoff"] == "Bluray-1080p"
+
+
+@pytest.mark.asyncio
+async def test_quality_profile_update_bad_cutoff():
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=SAMPLE_PROFILE):
+        result = json.loads(await sonarr_quality_profile_update(
+            profile_id=1, cutoff_quality="NonexistentQuality",
+        ))
+
+    assert "not found" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_quality_profiles_not_configured(monkeypatch):
+    monkeypatch.setenv("SONARR_URL", "")
+    result = json.loads(await sonarr_quality_profiles())
+    assert result["error"] == "SONARR_URL is not configured"

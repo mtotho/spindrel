@@ -19,6 +19,8 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 - `sonarr_episodes(series_id, season=None)` — episode details: hasFile, episodeFileId, monitored, file path/quality/size. Essential for diagnosing phantom file references.
 - `sonarr_history(series_id, episode_id=None, limit=30)` — grab/import/failure events with error messages. Use to see why imports failed.
 - `sonarr_queue_manage(queue_ids, blocklist=False, remove_from_client=True)` — remove items from Sonarr queue. Optionally blocklist bad release and/or remove torrent from qBittorrent.
+- `sonarr_quality_profiles(profile_id=None)` — list all quality profiles or view one in detail (allowed qualities, cutoff, upgrade settings)
+- `sonarr_quality_profile_update(profile_id, upgrade_allowed=None, cutoff_quality=None, enable_qualities=None, disable_qualities=None)` — modify quality profile: enable/disable qualities by name, change cutoff target, toggle upgrades
 
 ### Radarr (Movies)
 - `radarr_movies(search=None, filter=None)` — list library (newest first) or search TMDB; filter: "missing" (no file), "wanted" (missing + monitored)
@@ -27,6 +29,8 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 - `radarr_releases(action, movie_id=None, guid=None, indexer_id=None)` — same as sonarr_releases but for movies
 - `radarr_history(movie_id, limit=30)` — grab/import/failure events with error messages
 - `radarr_queue_manage(queue_ids, blocklist=False, remove_from_client=True)` — remove items from Radarr queue (same as sonarr_queue_manage)
+- `radarr_quality_profiles(profile_id=None)` — list all quality profiles or view one in detail
+- `radarr_quality_profile_update(profile_id, upgrade_allowed=None, cutoff_quality=None, enable_qualities=None, disable_qualities=None)` — modify quality profile
 
 ### qBittorrent (Downloads)
 - `qbit_torrents(filter="all", limit=50)` — list torrents with speeds; filters: all, downloading, seeding, completed, paused, active, stalled
@@ -110,6 +114,13 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 2. `prowlarr_indexers()` — see which are enabled/disabled/failing
 3. `prowlarr_search(query="Show S01E05")` — test search across all indexers
 4. `prowlarr_indexers(action="test", indexer_id=X)` — test specific indexer connectivity
+
+### Manage quality profiles
+1. `sonarr_quality_profiles()` / `radarr_quality_profiles()` — list all profiles with allowed qualities and cutoff
+2. To enable 4K: `sonarr_quality_profile_update(profile_id=1, enable_qualities=["Bluray-2160p", "WEBDL-2160p"], cutoff_quality="Bluray-2160p")`
+3. To disable SD: `sonarr_quality_profile_update(profile_id=1, disable_qualities=["SDTV", "DVD"])`
+4. To allow upgrades: `sonarr_quality_profile_update(profile_id=1, upgrade_allowed=True)`
+5. Quality names must match exactly — use `*_quality_profiles(profile_id=X)` to see valid names
 
 ### Find something to watch
 1. `jellyfin_library(action="recent")` — see latest additions

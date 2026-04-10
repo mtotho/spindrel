@@ -478,9 +478,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
       const capInfo = skillCapMap.get(s.id);
       let source: ProvenanceSource = "auto";
       let sourceDetail: string | undefined;
-      if (s.mode === "pinned") {
-        source = "bot";
-      } else if (capInfo) {
+      if (capInfo) {
         source = "activation";
         sourceDetail = capInfo.carapaceName;
       }

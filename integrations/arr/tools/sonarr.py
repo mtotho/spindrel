@@ -1,4 +1,4 @@
-"""Sonarr tools — calendar, series, wanted, queue, commands."""
+"""Sonarr tools — calendar, series, wanted, queue, commands, quality profiles."""
 
 import json
 import logging
@@ -53,6 +53,29 @@ async def _post(path: str, payload: dict, timeout: float = 15.0):
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers=_headers(), json=payload, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:500] if e.response else ""
+        raise httpx.HTTPStatusError(
+            f"Sonarr {e.response.status_code} on {path}: {body}",
+            request=e.request,
+            response=e.response,
+        )
+    except httpx.TimeoutException:
+        raise httpx.TimeoutException(
+            f"Sonarr request timed out after {timeout}s: {path}"
+        )
+
+
+async def _put(path: str, payload: dict, timeout: float = 15.0):
+    url_err = validate_url(settings.SONARR_URL, "Sonarr")
+    if url_err:
+        raise ValueError(url_err)
+    url = f"{_base_url()}{path}"
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(url, headers=_headers(), json=payload, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
     except httpx.HTTPStatusError as e:
@@ -705,4 +728,189 @@ async def sonarr_queue_manage(
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
         logger.exception("sonarr_queue_manage failed")
+        return error(str(e))
+
+
+def _format_quality_profile(profile: dict) -> dict:
+    """Extract useful fields from a quality profile."""
+    items = profile.get("items", [])
+    cutoff = profile.get("cutoff")
+
+    # Build quality list — handle both individual qualities and groups
+    qualities = []
+    cutoff_name = None
+    for item in items:
+        if item.get("allowed", False):
+            if item.get("items"):
+                # Quality group
+                group_name = item.get("name", "Group")
+                group_qualities = [
+                    q.get("quality", {}).get("name", "")
+                    for q in item["items"]
+                    if q.get("allowed", True)
+                ]
+                qualities.append({"group": group_name, "qualities": group_qualities})
+                if item.get("id") == cutoff:
+                    cutoff_name = group_name
+            else:
+                # Individual quality
+                q = item.get("quality", {})
+                qualities.append(q.get("name", "Unknown"))
+                if q.get("id") == cutoff:
+                    cutoff_name = q.get("name")
+
+    return {
+        "id": profile.get("id"),
+        "name": sanitize(profile.get("name", "")),
+        "cutoff": cutoff_name or str(cutoff),
+        "upgrade_allowed": profile.get("upgradeAllowed", False),
+        "qualities": qualities,
+    }
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "sonarr_quality_profiles",
+        "description": (
+            "List or view Sonarr quality profiles. Shows allowed qualities, cutoff, "
+            "and upgrade settings. Use profile_id to view a specific profile in detail."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "profile_id": {
+                    "type": "integer",
+                    "description": "View a specific profile by ID. Omit to list all.",
+                },
+            },
+        },
+    },
+})
+async def sonarr_quality_profiles(profile_id: int | None = None) -> str:
+    if not settings.SONARR_URL:
+        return error("SONARR_URL is not configured")
+    try:
+        if profile_id is not None:
+            data = await _get(f"/api/v3/qualityprofile/{profile_id}")
+            return json.dumps(_format_quality_profile(data))
+        else:
+            data = await _get("/api/v3/qualityprofile")
+            profiles = [_format_quality_profile(p) for p in data]
+            return json.dumps({"count": len(profiles), "profiles": profiles})
+    except httpx.HTTPStatusError as e:
+        return error(f"Sonarr API error: {e}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Sonarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("sonarr_quality_profiles failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "sonarr_quality_profile_update",
+        "description": (
+            "Update a Sonarr quality profile — enable/disable specific qualities, "
+            "change the cutoff (quality target), or toggle upgrades. "
+            "Use sonarr_quality_profiles first to see current state and valid quality names."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "profile_id": {
+                    "type": "integer",
+                    "description": "Quality profile ID to update.",
+                },
+                "upgrade_allowed": {
+                    "type": "boolean",
+                    "description": "Whether to allow quality upgrades.",
+                },
+                "cutoff_quality": {
+                    "type": "string",
+                    "description": "Quality name or group name to set as cutoff target (e.g. 'HDTV-1080p', 'WEB 1080p'). Must be an allowed quality.",
+                },
+                "enable_qualities": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Quality names to enable (e.g. ['Bluray-1080p', 'WEB 1080p']).",
+                },
+                "disable_qualities": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Quality names to disable (e.g. ['SDTV', 'DVD']).",
+                },
+            },
+            "required": ["profile_id"],
+        },
+    },
+})
+async def sonarr_quality_profile_update(
+    profile_id: int,
+    upgrade_allowed: bool | None = None,
+    cutoff_quality: str | None = None,
+    enable_qualities: list[str] | None = None,
+    disable_qualities: list[str] | None = None,
+) -> str:
+    if not settings.SONARR_URL:
+        return error("SONARR_URL is not configured")
+    try:
+        # Get current profile
+        profile = await _get(f"/api/v3/qualityprofile/{profile_id}")
+
+        if upgrade_allowed is not None:
+            profile["upgradeAllowed"] = upgrade_allowed
+
+        enable_set = {q.lower() for q in (enable_qualities or [])}
+        disable_set = {q.lower() for q in (disable_qualities or [])}
+        cutoff_target = cutoff_quality.lower() if cutoff_quality else None
+        new_cutoff_id = None
+
+        def _process_items(items: list) -> None:
+            nonlocal new_cutoff_id
+            for item in items:
+                if item.get("items"):
+                    # Quality group
+                    group_name = (item.get("name") or "").lower()
+                    if group_name in enable_set:
+                        item["allowed"] = True
+                    elif group_name in disable_set:
+                        item["allowed"] = False
+                    if cutoff_target and group_name == cutoff_target:
+                        new_cutoff_id = item.get("id")
+                    # Also process individual qualities within the group
+                    for sub in item["items"]:
+                        q_name = (sub.get("quality", {}).get("name") or "").lower()
+                        if q_name in enable_set:
+                            sub["allowed"] = True
+                        elif q_name in disable_set:
+                            sub["allowed"] = False
+                        if cutoff_target and q_name == cutoff_target:
+                            new_cutoff_id = sub.get("quality", {}).get("id")
+                else:
+                    # Individual quality
+                    q_name = (item.get("quality", {}).get("name") or "").lower()
+                    if q_name in enable_set:
+                        item["allowed"] = True
+                    elif q_name in disable_set:
+                        item["allowed"] = False
+                    if cutoff_target and q_name == cutoff_target:
+                        new_cutoff_id = item.get("quality", {}).get("id")
+
+        _process_items(profile.get("items", []))
+
+        if cutoff_target:
+            if new_cutoff_id is None:
+                return error(f"Cutoff quality '{cutoff_quality}' not found in profile. Use sonarr_quality_profiles to see valid names.")
+            profile["cutoff"] = new_cutoff_id
+
+        result = await _put(f"/api/v3/qualityprofile/{profile_id}", profile)
+        return json.dumps(_format_quality_profile(result))
+    except httpx.HTTPStatusError as e:
+        return error(f"Sonarr API error: {e}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Sonarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("sonarr_quality_profile_update failed")
         return error(str(e))

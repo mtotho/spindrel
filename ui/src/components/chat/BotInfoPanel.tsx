@@ -280,9 +280,7 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {displayTools.skills.map((s) => {
                   const capInfo = skillCapMap.get(s.id);
-                  const provenance = s.mode === "pinned"
-                    ? "pinned on bot"
-                    : capInfo
+                  const provenance = capInfo
                       ? `via ${capInfo.carapaceName}`
                       : "auto-enrolled";
                   return (
@@ -382,7 +380,6 @@ function ConfigOverhead({ estimate, t }: { estimate: ContextEstimate; t: any }) 
     "sys:datetime": "Date/time",
     "sys:system_prompt": "System prompt",
     "sys:persona": "Persona",
-    "sys:skill_pinned": "Pinned skills",
     "sys:skill_index": "Skill index",
     "sys:tool_index": "Tool index",
     "sys:delegate_index": "Delegation",

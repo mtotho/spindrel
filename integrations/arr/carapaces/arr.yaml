@@ -25,12 +25,16 @@ local_tools:
   - sonarr_episodes
   - sonarr_history
   - sonarr_queue_manage
+  - sonarr_quality_profiles
+  - sonarr_quality_profile_update
   - radarr_movies
   - radarr_command
   - radarr_queue
   - radarr_releases
   - radarr_history
   - radarr_queue_manage
+  - radarr_quality_profiles
+  - radarr_quality_profile_update
   - qbit_torrents
   - qbit_manage
   - jellyfin_now_playing
@@ -73,6 +77,7 @@ system_prompt_fragment: |
   | "No releases found" / "No indexers" / "Indexer issues" | → `get_skill('integrations/arr/media-troubleshoot')` — see NO_RELEASES diagnosis with full indexer diagnostics |
   | "Check indexers" / "Why can't Sonarr find X?" | → `get_skill('integrations/arr/media-troubleshoot')` — see NO_RELEASES section |
   | "Add an indexer" / "Set up X indexer" | → `get_skill('integrations/arr/media_management')` — see "Add new indexers" workflow |
+  | "Change quality" / "Quality profile" / "Enable 4K" | → `get_skill('integrations/arr/media_management')` — see "Manage quality profiles" workflow |
 
   ### Quality Preferences
 
@@ -100,11 +105,15 @@ system_prompt_fragment: |
   | `sonarr_command` | Trigger series/episode/missing searches |
   | `sonarr_history` | Grab/import/failure events with error messages |
   | `sonarr_queue_manage` | Remove queue items, blocklist bad releases, remove from qBit |
+  | `sonarr_quality_profiles` | List/view quality profiles — allowed qualities, cutoff, upgrade settings |
+  | `sonarr_quality_profile_update` | Enable/disable qualities, change cutoff target, toggle upgrades |
   | `radarr_movies` | List movies or search TMDB; filter missing/wanted |
   | `radarr_queue` | Current movie download queue |
   | `radarr_releases` | Browse/grab specific releases for a movie |
   | `radarr_history` | Grab/import/failure events for movies |
   | `radarr_queue_manage` | Remove queue items, blocklist, remove from qBit |
+  | `radarr_quality_profiles` | List/view quality profiles — allowed qualities, cutoff, upgrade settings |
+  | `radarr_quality_profile_update` | Enable/disable qualities, change cutoff target, toggle upgrades |
   | `qbit_torrents` | List torrents; filters: stalled, downloading, etc. |
   | `qbit_manage` | Pause/resume/delete torrents |
   | `prowlarr_indexers` | List/test indexers — shows health, disabled status, failure info |
