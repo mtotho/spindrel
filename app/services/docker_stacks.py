@@ -652,9 +652,22 @@ class StackService:
             f.write(yaml_content)
 
     def _materialize_file(self, stack_id: str, rel_path: str, content: str) -> None:
-        """Write an auxiliary file (e.g. config) to the stack directory."""
+        """Write an auxiliary file (e.g. config) to the stack directory.
+
+        If ``target`` already exists as a directory (which can happen when
+        ``docker compose up`` ran before this method and Docker auto-created
+        the bind-mount source as an empty dir), wipe it before writing —
+        otherwise the next compose run mounts a directory into a file path
+        and the container fails to start permanently.
+        """
+        import shutil
         target = os.path.join(_stack_dir(stack_id), rel_path)
         os.makedirs(os.path.dirname(target), exist_ok=True)
+        if os.path.isdir(target) and not os.path.islink(target):
+            logger.warning(
+                "Materialize target %s exists as a directory; removing before write", target,
+            )
+            shutil.rmtree(target)
         with open(target, "w") as f:
             f.write(content)
 

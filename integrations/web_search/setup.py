@@ -1,5 +1,21 @@
 """Web Search integration setup manifest."""
 
+
+def is_stack_enabled() -> bool:
+    """Whether the SearXNG/Playwright containers should run.
+
+    Only true when the integration is in ``searxng`` mode AND
+    ``WEB_SEARCH_CONTAINERS`` is truthy.  Instances using ``ddgs`` or
+    ``disabled`` mode never start the stack — this prevents e2e/test
+    instances (which use ``ddgs``) from racing production for the
+    shared host-level container_name.
+    """
+    from integrations.web_search.config import settings as _ws_settings
+    if _ws_settings.WEB_SEARCH_MODE != "searxng":
+        return False
+    return _ws_settings.WEB_SEARCH_CONTAINERS
+
+
 SETUP = {
     "version": "1.0",
     "icon": "Search",

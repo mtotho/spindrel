@@ -686,8 +686,10 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # In-loop pruning (trim old tool results between iterations within a single turn).
     # Prevents one long-running agent run from accumulating 16+ tool results in
     # context. Only the most recent ``KEEP_ITERATIONS`` rounds stay verbatim.
+    # 2 is a balance: short "fetch then act" patterns still see the data they
+    # just fetched, while long exploratory runs still get most of the savings.
     IN_LOOP_PRUNING_ENABLED: bool = True
-    IN_LOOP_PRUNING_KEEP_ITERATIONS: int = 1
+    IN_LOOP_PRUNING_KEEP_ITERATIONS: int = 2
 
     # Context budgeting (prevent exceeding model context window)
     CONTEXT_BUDGET_ENABLED: bool = True

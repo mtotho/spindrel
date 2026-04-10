@@ -896,6 +896,23 @@ def discover_docker_compose_stacks() -> list[dict]:
                     enabled_default = var.get("default", "false")
                     break
 
+        # Optional callable in setup.py: ``is_stack_enabled() -> bool``.
+        # When present, this overrides the env-var check — lets an
+        # integration declare conditional enablement (e.g. only start
+        # containers when in a particular mode).
+        enabled_callable = None
+        setup_file = candidate / "setup.py"
+        if setup_file.exists():
+            try:
+                module = _import_module(integration_id, "setup", setup_file, is_external, source)
+                fn = getattr(module, "is_stack_enabled", None)
+                if callable(fn):
+                    enabled_callable = fn
+            except Exception:
+                logger.exception(
+                    "Failed to load is_stack_enabled() for integration %r", integration_id,
+                )
+
         results.append({
             "integration_id": integration_id,
             "project_name": dc.get("project_name", f"spindrel-{integration_id}"),
@@ -903,6 +920,7 @@ def discover_docker_compose_stacks() -> list[dict]:
             "config_files": config_files,
             "enabled_setting": enabled_setting,
             "enabled_default": enabled_default,
+            "enabled_callable": enabled_callable,
             "connect_networks": dc.get("connect_networks", []),
             "description": dc.get("description", ""),
         })

@@ -192,7 +192,14 @@ async def _sync_docker_compose_stack(integration_id: str) -> None:
                 config_files=dc_info["config_files"],
             )
             enabled = False
-            if dc_info["enabled_setting"]:
+            enabled_callable = dc_info.get("enabled_callable")
+            if enabled_callable is not None:
+                try:
+                    enabled = bool(enabled_callable())
+                except Exception:
+                    logger.exception("enabled_callable failed for %s", integration_id)
+                    enabled = False
+            elif dc_info["enabled_setting"]:
                 default = dc_info.get("enabled_default", "false")
                 val = _get_int_setting(integration_id, dc_info["enabled_setting"], default)
                 enabled = val.lower() in ("true", "1", "yes")

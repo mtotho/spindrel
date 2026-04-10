@@ -765,6 +765,7 @@ async def assemble_context(
                 budget.consume("context_pruning_savings", -max(1, int(_prune_stats["chars_saved"] / 3.5)))
             yield {
                 "type": "context_pruning",
+                "scope": "turn_boundary",
                 "pruned_count": _prune_stats["pruned_count"],
                 "chars_saved": _prune_stats["chars_saved"],
                 "turns_pruned": _prune_stats["turns_pruned"],
@@ -778,6 +779,7 @@ async def assemble_context(
                     event_type="context_pruning",
                     count=_prune_stats["pruned_count"],
                     data={
+                        "scope": "turn_boundary",
                         "chars_saved": _prune_stats["chars_saved"],
                         "turns_pruned": _prune_stats["turns_pruned"],
                         "min_length": _pruning_min_len,

@@ -184,20 +184,23 @@ def prune_in_loop_tool_results(
         # Not enough iterations to prune.
         return {"pruned_count": 0, "chars_saved": 0, "iterations_pruned": 0}
 
-    # Build tool_call_id → tool_name map across the whole message list so
-    # we can label markers correctly even for very old tool results.
-    tool_name_map = _build_tool_name_map(messages)
+    # Build tool_call_id → tool_name map only for the prunable prefix —
+    # tool calls in the kept tail aren't referenced from pruned messages.
+    tool_name_map = _build_tool_name_map(messages[:boundary_idx])
 
     pruned_count = 0
     chars_saved = 0
-    iterations_with_pruning: set[int] = set()
-    current_iter_id = 0
+    iterations_pruned = 0
+    current_iter_had_prunes = False
 
     for i in range(boundary_idx):
         msg = messages[i]
-        # Track iteration index by counting assistant-with-tool-calls boundaries.
+        # Each assistant-with-tool-calls message ends one iteration. If that
+        # iteration produced any prunes, count it now and reset the flag.
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
-            current_iter_id += 1
+            if current_iter_had_prunes:
+                iterations_pruned += 1
+                current_iter_had_prunes = False
             continue
         if msg.get("role") != "tool":
             continue
@@ -226,12 +229,17 @@ def prune_in_loop_tool_results(
         msg["content"] = marker
         pruned_count += 1
         chars_saved += original_length - len(marker)
-        iterations_with_pruning.add(current_iter_id)
+        current_iter_had_prunes = True
+
+    # The trailing iteration (the one that ends at boundary_idx) doesn't get
+    # closed by the loop body, so flush it here.
+    if current_iter_had_prunes:
+        iterations_pruned += 1
 
     return {
         "pruned_count": pruned_count,
         "chars_saved": chars_saved,
-        "iterations_pruned": len(iterations_with_pruning),
+        "iterations_pruned": iterations_pruned,
     }
 
 

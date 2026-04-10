@@ -523,7 +523,14 @@ async def lifespan(application: FastAPI):
                         config_files=_dc_info["config_files"],
                     )
                     _enabled = False
-                    if _dc_info["enabled_setting"]:
+                    _enabled_callable = _dc_info.get("enabled_callable")
+                    if _enabled_callable is not None:
+                        try:
+                            _enabled = bool(_enabled_callable())
+                        except Exception:
+                            logger.exception("enabled_callable failed for %s", _int_id)
+                            _enabled = False
+                    elif _dc_info["enabled_setting"]:
                         _default = _dc_info.get("enabled_default", "false")
                         _val = _get_int_setting(_int_id, _dc_info["enabled_setting"], _default)
                         _enabled = _val.lower() in ("true", "1", "yes")
