@@ -357,3 +357,70 @@ class TestConsumeStream:
         assert msg.content == "Hello"
         # Usage should be None since the usage chunk never arrived
         assert msg.usage is None
+
+
+class TestToolCallNameDedup:
+    """Regression: Gemini's OpenAI-compat endpoint sends the full tool name
+    in every streaming chunk. Concatenating across chunks would produce
+    `manage_bot_skillmanage_bot_skillmanage_bot_skill...` which Gemini then
+    rejects with a 400 on the next call (502 to the client).
+
+    Tests hit `StreamAccumulator.feed()` directly so we don't depend on the
+    LiteLLM / anthropic adapter import chain.
+    """
+
+    def _make_tc_delta(self, idx, tc_id, name, arguments):
+        tc = MagicMock()
+        tc.index = idx
+        tc.id = tc_id
+        tc.function = MagicMock()
+        tc.function.name = name
+        tc.function.arguments = arguments
+        return tc
+
+    def _feed_chunks(self, chunks):
+        from app.agent.llm import StreamAccumulator
+        acc = StreamAccumulator()
+        for c in chunks:
+            acc.feed(c)
+        return acc
+
+    def test_gemini_repeated_name_deduped(self):
+        """Every chunk carrying the same full name should not concatenate."""
+        tc1 = self._make_tc_delta(0, "tc_1", "manage_bot_skill", "")
+        tc2 = self._make_tc_delta(0, None, "manage_bot_skill", '{"action":')
+        tc3 = self._make_tc_delta(0, None, "manage_bot_skill", '"list"}')
+
+        chunks = [
+            _make_chunk(tool_calls=[tc1]),
+            _make_chunk(tool_calls=[tc2]),
+            _make_chunk(tool_calls=[tc3]),
+            _make_chunk(finish_reason="tool_calls"),
+        ]
+        acc = self._feed_chunks(chunks)
+        tool_calls = [acc._tool_calls[i] for i in sorted(acc._tool_calls)]
+        assert len(tool_calls) == 1
+        fn = tool_calls[0]["function"]
+        assert fn["name"] == "manage_bot_skill", (
+            f"name should not be concatenated, got: {fn['name']!r}"
+        )
+        assert fn["arguments"] == '{"action":"list"}'
+
+    def test_openai_name_in_first_chunk_only(self):
+        """OpenAI sends the name only in the first delta; subsequent chunks have empty name."""
+        tc1 = self._make_tc_delta(0, "tc_1", "get_weather", "")
+        tc2 = self._make_tc_delta(0, None, "", '{"city":')
+        tc3 = self._make_tc_delta(0, None, "", '"Boston"}')
+
+        chunks = [
+            _make_chunk(tool_calls=[tc1]),
+            _make_chunk(tool_calls=[tc2]),
+            _make_chunk(tool_calls=[tc3]),
+            _make_chunk(finish_reason="tool_calls"),
+        ]
+        acc = self._feed_chunks(chunks)
+        tool_calls = [acc._tool_calls[i] for i in sorted(acc._tool_calls)]
+        assert len(tool_calls) == 1
+        fn = tool_calls[0]["function"]
+        assert fn["name"] == "get_weather"
+        assert fn["arguments"] == '{"city":"Boston"}'

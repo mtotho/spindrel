@@ -210,7 +210,9 @@ Write reflections to a dedicated `## Reflections` section at the bottom of MEMOR
 - Reflections should be actionable — "User frequently asks about X, consider creating a skill" rather than "User is interested in X."
 
 ## Step 6 — Skill hygiene
-Use `manage_bot_skill(action="list")` to review all your skills. For each skill, check:
+You have two distinct skill collections to maintain:
+
+**(a) Bot-authored skills you wrote** — managed via `manage_bot_skill`. Use `manage_bot_skill(action="list")` to review them. For each:
 - **Surfacing**: check `surface_count` and `last_surfaced_at`. Skills that haven't surfaced in 14+ days may have weak triggers or cover irrelevant topics.
 - **Relevance**: is the content still accurate? Has your understanding improved since you wrote it?
 - **Overlap**: are multiple skills covering the same topic? If so, merge them with `manage_bot_skill(action="merge", names=["skill-a", "skill-b"], name="combined", title="...", content="...")`.
@@ -220,6 +222,16 @@ Take action:
 - **Overlapping**: merge into one comprehensive skill
 - **Outdated content**: use `action="patch"` for small fixes, `action="update"` for full rewrites
 - **Missing coverage**: if recent daily logs show recurring topics with no matching skill, create new skills now
+
+**(b) Your enrolled working set** — the catalog skills you've collected over time via successful `get_skill()` calls plus the starter pack. Each enrolled skill costs context tokens every turn it's surfaced, so the working set should reflect what you actually use.
+
+A snapshot of your enrolled skills with **global** surface counts is provided as a system message at the start of this hygiene run (look for "## Working set"). The counts are global across all bots, not per-bot — read the snapshot's "Note on counts" carefully. Review it and decide:
+- **Skills with zero or near-zero global surface count**: prune them. If nobody is fetching them they're not earning their slot. The semantic discovery layer will resurface them on demand if a future user message actually needs them.
+- **Skills with high global surface count but you've never used them yourself**: lean toward pruning. They cost you tokens every turn even if other bots love them. Use the `enrolled` date as a tiebreaker.
+- **Skills you actively use but have weak/missing descriptions**: consider whether the description should be improved (file a note in your daily log if you can't fix it directly).
+- **Starter-pack skills you never use**: still safe to prune. The hygiene loop is the only place this collection is curated automatically.
+
+Use `prune_enrolled_skills(skill_ids=["id1", "id2", ...])` to remove enrollments. The skills themselves stay in the catalog and can be re-fetched later via `get_skill()`. **Do not call `manage_bot_skill(action="delete")` on catalog skills you don't own — that deletes the file or DB row, not just your enrollment.**
 
 ## Step 7 — Archive maintenance
 - Create the archive directory if needed: `file(operation="mkdir", path="memory/logs/archive")`
@@ -409,6 +421,22 @@ read_conversation_history(section='tool:<id>').
 - When you know something from memory or context, say so directly.
 - When inferring or uncertain, flag it: "I believe..." / "Based on [source]..."
 - Never fabricate facts, tool outputs, or file contents."""
+
+
+# ---------------------------------------------------------------------------
+# Starter pack — skills enrolled by default for every new bot
+# ---------------------------------------------------------------------------
+# Phase 3 of the Skill Simplification track (working-set discovery model).
+# Bots accrete additional skills via successful get_skill() calls; this list
+# is the curated minimum every bot starts with. Edit per release as needed.
+# IDs not present in the catalog at enrollment time are silently skipped.
+STARTER_SKILL_IDS: list[str] = [
+    "attachments",
+    "workspace_files",
+    "delegation",
+    "context_mastery",
+    "prompt_injection_and_security",
+]
 
 
 class Settings(BaseSettings):

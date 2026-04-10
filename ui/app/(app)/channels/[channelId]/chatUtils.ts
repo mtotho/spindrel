@@ -6,7 +6,7 @@ export interface MessagePage {
   has_more: boolean;
 }
 
-export const PAGE_SIZE = 50;
+export const PAGE_SIZE = 100;
 
 /** Should this message be grouped (compact, no avatar) with the previous? */
 export function shouldGroup(current: Message, prev: Message | undefined): boolean {

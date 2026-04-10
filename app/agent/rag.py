@@ -1,6 +1,6 @@
 import logging
 
-from sqlalchemy import func, select, text as sa_text
+from sqlalchemy import select, text as sa_text
 
 from app.agent.embeddings import embed_text
 from app.config import settings
@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 async def _bm25_search(
     query: str,
-    skill_ids: list[str] | None = None,
     sources: list[str] | None = None,
     top_k: int | None = None,
 ) -> list[tuple[str, str, float]]:
@@ -33,10 +32,6 @@ async def _bm25_search(
             if sources:
                 source_filter = "source = ANY(:sources)"
                 params = {"q": query, "sources": sources}
-            elif skill_ids:
-                skill_sources = [f"skill:{sid}" for sid in skill_ids]
-                source_filter = "source = ANY(:sources)"
-                params = {"q": query, "sources": skill_sources}
             else:
                 source_filter = "source LIKE 'skill:%'"
                 params = {"q": query}
@@ -57,159 +52,6 @@ async def _bm25_search(
     except Exception:
         logger.debug("BM25 search failed (expected on SQLite), falling back to vector-only", exc_info=True)
         return []
-
-
-async def retrieve_context(
-    query: str,
-    skill_ids: list[str] | None = None,
-    similarity_threshold: float | None = None,
-    sources: list[str] | None = None,
-) -> tuple[list[tuple[str, str]], float]:
-    """Retrieve relevant skill chunks via pgvector cosine similarity search,
-    optionally fused with BM25 results via Reciprocal Rank Fusion.
-
-    Returns (chunks, best_similarity) where each chunk is (content, source).
-
-    If skill_ids is provided, only search those skills (source = "skill:{id}").
-    If sources is provided, filter by exact source values (overrides skill_ids).
-    If neither, search all skill documents.
-    If similarity_threshold is provided, use it instead of RAG_SIMILARITY_THRESHOLD.
-    """
-    threshold = similarity_threshold if similarity_threshold is not None else settings.RAG_SIMILARITY_THRESHOLD
-
-    try:
-        query_embedding = await embed_text(query)
-    except Exception:
-        logger.exception("Failed to embed query for retrieval")
-        return [], 0.0
-
-    from app.agent.vector_ops import halfvec_cosine_distance
-    distance_expr = halfvec_cosine_distance(Document.embedding, query_embedding)
-
-    # Fetch more results when hybrid search will fuse them
-    vector_limit = settings.RAG_TOP_K
-    if settings.HYBRID_SEARCH_ENABLED:
-        vector_limit = settings.RAG_TOP_K * 2
-
-    if sources:
-        # Use explicit source list
-        stmt = (
-            select(Document.content, Document.source, distance_expr.label("distance"))
-            .where(Document.source.in_(sources))
-            .order_by(distance_expr)
-            .limit(vector_limit)
-        )
-    else:
-        stmt = (
-            select(Document.content, Document.source, distance_expr.label("distance"))
-            .where(Document.source.like("skill:%"))
-            .order_by(distance_expr)
-            .limit(vector_limit)
-        )
-
-        if skill_ids:
-            skill_sources = [f"skill:{sid}" for sid in skill_ids]
-            stmt = stmt.where(Document.source.in_(skill_sources))
-
-    try:
-        async with async_session() as db:
-            result = await db.execute(stmt)
-            vector_rows = result.all()
-    except Exception:
-        logger.exception("Failed to query vector store")
-        return [], 0.0
-
-    if not vector_rows:
-        logger.info("Skill retrieval: no documents found for query: %s...", query[:80])
-        return [], 0.0
-
-    # Try hybrid search (BM25 + RRF fusion)
-    if settings.HYBRID_SEARCH_ENABLED:
-        bm25_rows = await _bm25_search(query, skill_ids=skill_ids, sources=sources, top_k=settings.RAG_TOP_K)
-        if bm25_rows:
-            return _fuse_results(vector_rows, bm25_rows, threshold, query)
-
-    # Vector-only path
-    best_distance = vector_rows[0][2]
-    best_similarity = 1.0 - best_distance
-    logger.info(
-        "Skill retrieval: best_similarity=%.3f threshold=%.3f query=%s...",
-        best_similarity, threshold, query[:60],
-    )
-
-    chunks = []
-    for content, source, distance in vector_rows:
-        similarity = 1.0 - distance
-        if similarity >= threshold:
-            chunks.append((content, source))
-            logger.debug("  chunk (sim=%.3f, src=%s): %s...", similarity, source, content[:80])
-        else:
-            break
-
-    chunks = chunks[:settings.RAG_TOP_K]
-
-    if chunks:
-        logger.info("Retrieved %d skill chunk(s)", len(chunks))
-    else:
-        logger.info("No chunks above threshold (best was %.3f, need %.3f)",
-                     best_similarity, threshold)
-
-    return chunks, best_similarity
-
-
-def _fuse_results(
-    vector_rows: list,
-    bm25_rows: list[tuple[str, str, float]],
-    threshold: float,
-    query: str,
-) -> tuple[list[tuple[str, str]], float]:
-    """Fuse vector and BM25 results using Reciprocal Rank Fusion."""
-    from app.agent.hybrid_search import reciprocal_rank_fusion
-
-    k = settings.HYBRID_SEARCH_RRF_K
-
-    # Build ranked lists as (content, source) tuples
-    vector_list = [(content, source) for content, source, distance in vector_rows]
-    bm25_list = [(content, source) for content, source, rank in bm25_rows]
-
-    # RRF fusion
-    fused = reciprocal_rank_fusion(vector_list, bm25_list, k=k)
-
-    # Build a lookup of vector similarities for threshold checking
-    vector_sims = {(content, source): 1.0 - distance for content, source, distance in vector_rows}
-    bm25_set = {(content, source) for content, source, _ in bm25_rows}
-
-    best_similarity = max(vector_sims.values()) if vector_sims else 0.0
-
-    chunks = []
-    bm25_only_count = 0
-    _max_bm25_only = settings.RAG_TOP_K // 2  # cap keyword-only results
-    for (item, rrf_score) in fused:
-        content, source = item
-        vec_sim = vector_sims.get((content, source))
-
-        if vec_sim is not None and vec_sim >= threshold:
-            # Has a vector match above threshold — include
-            chunks.append((content, source))
-        elif vec_sim is None and (content, source) in bm25_set:
-            # BM25-only match (no vector match) — include as keyword hit, capped
-            if bm25_only_count < _max_bm25_only:
-                chunks.append((content, source))
-                bm25_only_count += 1
-        elif vec_sim is not None and vec_sim < threshold and (content, source) in bm25_set:
-            # Below vector threshold but matched keywords — include
-            chunks.append((content, source))
-        # else: below threshold and no BM25 match — skip
-
-        if len(chunks) >= settings.RAG_TOP_K:
-            break
-
-    logger.info(
-        "Hybrid retrieval: %d vector + %d BM25 → %d fused chunks (threshold=%.3f, query=%s...)",
-        len(vector_rows), len(bm25_rows), len(chunks), threshold, query[:60],
-    )
-
-    return chunks, best_similarity
 
 
 # ---------------------------------------------------------------------------

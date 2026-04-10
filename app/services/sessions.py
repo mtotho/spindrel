@@ -427,6 +427,8 @@ async def persist_turn(
     first_user = pre_user_msg_id is None  # only track first user if not pre-persisted
     first_user_msg_id: uuid.UUID | None = pre_user_msg_id
     last_assistant_msg_id: uuid.UUID | None = None
+    # Track records for per-row SSE publish after commit + attachment linking
+    persisted_records: list[Message] = []
     for i, msg in enumerate(new_messages):
         # Attach msg_metadata to the first user message in the turn
         meta = {}
@@ -476,6 +478,7 @@ async def persist_turn(
             created_at=now + timedelta(microseconds=i),
         )
         db.add(record)
+        persisted_records.append(record)
         if first_user_msg_id is None and msg.get("role") == "user":
             first_user_msg_id = record.id
         if msg.get("role") == "assistant":
@@ -487,11 +490,6 @@ async def persist_turn(
         .values(last_active=now)
     )
     await db.commit()
-
-    # Notify channel event subscribers (e.g. web UI SSE)
-    if channel_id:
-        from app.services.channel_events import publish as _publish_event
-        _publish_event(channel_id, "new_message")
 
     # Link orphaned attachments to the correct message in this turn.
     # User-uploaded attachments (posted_by IS NULL) → first user message.
@@ -537,6 +535,32 @@ async def persist_turn(
             logger.exception(
                 "Failed to link orphan attachments in channel %s (user_msg=%s, asst_msg=%s)",
                 channel_id, first_user_msg_id, last_assistant_msg_id,
+            )
+
+    # Ship each persisted row through the channel events bus, with
+    # attachments eagerly loaded so subscribers receive a complete payload.
+    # One event per row — clients filter (tool/empty rows) on their side.
+    if channel_id and persisted_records:
+        try:
+            record_ids = [r.id for r in persisted_records]
+            fresh_rows = (await db.execute(
+                select(Message)
+                .options(selectinload(Message.attachments))
+                .where(Message.id.in_(record_ids))
+                .order_by(Message.created_at)
+            )).scalars().all()
+            from app.services.channel_events import publish_message as _publish_message
+            for row in fresh_rows:
+                try:
+                    _publish_message(channel_id, row)
+                except Exception:
+                    logger.warning(
+                        "Failed to publish persisted message %s for channel %s",
+                        row.id, channel_id, exc_info=True,
+                    )
+        except Exception:
+            logger.exception(
+                "Failed to publish persist_turn rows for channel %s", channel_id,
             )
 
     return first_user_msg_id
@@ -648,8 +672,9 @@ async def store_passive_message(
         .values(last_active=now)
     )
     await db.commit()
+    await db.refresh(record)
 
-    # Notify channel event subscribers
+    # Notify channel event subscribers with the persisted row
     _notify_id = channel_id
     if not _notify_id:
         # Fallback: look up channel_id from session
@@ -657,8 +682,8 @@ async def store_passive_message(
         if _sess:
             _notify_id = _sess.channel_id
     if _notify_id:
-        from app.services.channel_events import publish as _publish_event
-        _publish_event(_notify_id, "new_message")
+        from app.services.channel_events import publish_message as _publish_message
+        _publish_message(_notify_id, record)
 
 
 def _sanitize_tool_messages(messages: list[dict]) -> list[dict]:

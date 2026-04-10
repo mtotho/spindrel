@@ -121,7 +121,7 @@ export function usePendingApprovalCount() {
     queryKey: ["approvals", undefined, "pending"],
     queryFn: () =>
       apiFetch<ToolApproval[]>("/api/v1/approvals?status=pending&limit=50"),
-    refetchInterval: 10_000,
+    refetchInterval: 30_000,
     select: (data) => data.length,
   });
 }

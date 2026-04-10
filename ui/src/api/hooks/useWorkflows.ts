@@ -93,7 +93,7 @@ export function useActiveWorkflowRuns() {
     refetchInterval: (query) => {
       const runs = query.state.data;
       if (runs && runs.length > 0) return 3000;
-      return 5000; // Poll frequently to catch newly started runs quickly
+      return 15000; // Idle poll — global HUD only needs to surface new runs eventually
     },
   });
 }
@@ -230,7 +230,8 @@ export function useChannelWorkflowRuns(channelId?: string) {
     refetchInterval: (query) => {
       const runs = query.state.data;
       if (runs && runs.length > 0) return 3000;
-      return 10000; // Poll to catch workflow runs started by background processes
+      return 30000; // Idle poll — workflow_executor publishes channel SSE events
+                    // for newly-posted messages, so this is a slow safety net.
     },
   });
 }

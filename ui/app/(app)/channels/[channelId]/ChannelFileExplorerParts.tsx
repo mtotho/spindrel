@@ -29,6 +29,11 @@ export function stripSlashes(p: string): string {
   return p.replace(/^\/+/, "").replace(/\/+$/, "");
 }
 
+// Custom DataTransfer mime used to mark in-app file drags. The OS-file upload
+// path checks `dataTransfer.types.includes("Files")`, so this lets us route
+// in-app moves and OS uploads through the same drop targets without collision.
+export const DRAG_MIME = "application/x-spindrel-move-path";
+
 // ---------------------------------------------------------------------------
 // IN CONTEXT card — pinned active section
 // ---------------------------------------------------------------------------
@@ -512,6 +517,7 @@ export function TreeFolderRow({
   fullPath,
   onNavigate,
   onContextMenu,
+  onMoveDrop,
   focused,
 }: {
   name: string;
@@ -521,11 +527,45 @@ export function TreeFolderRow({
   fullPath: string;
   onNavigate: (p: string) => void;
   onContextMenu?: (e: any) => void;
+  /** Called when an in-app file drag (mime DRAG_MIME) is dropped on this row. */
+  onMoveDrop?: (sourcePath: string) => void;
   focused?: boolean;
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const label = displayLabel || name;
+
+  // Drop-target handlers — only react to our custom in-app mime so we don't
+  // hijack OS-file drops (those keep flowing to the explorer's upload path).
+  const dropProps = Platform.OS === "web" && onMoveDrop ? {
+    onDragOver: (e: any) => {
+      if (e.dataTransfer?.types?.includes(DRAG_MIME)) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = "move";
+        if (!dragOver) setDragOver(true);
+      }
+    },
+    onDragLeave: (e: any) => {
+      // HTML5 dragleave fires whenever the cursor crosses from the row into
+      // one of its child elements (icon, text, chevron), which would flicker
+      // the highlight off. Only clear when the cursor truly leaves the row —
+      // i.e. relatedTarget is not a descendant of currentTarget.
+      const next = e.relatedTarget as Node | null;
+      if (next && e.currentTarget.contains(next)) return;
+      setDragOver(false);
+    },
+    onDrop: (e: any) => {
+      const src = e.dataTransfer?.getData(DRAG_MIME);
+      if (!src) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOver(false);
+      onMoveDrop(src);
+    },
+  } : {};
+
   return (
     <Pressable
       onPress={() => onNavigate(fullPath)}
@@ -538,15 +578,24 @@ export function TreeFolderRow({
         paddingLeft: 12,
         paddingRight: 8,
         gap: 6,
-        backgroundColor: hovered || focused ? `${t.text}08` : "transparent",
-        outline: focused ? `1px dotted ${t.textDim}` : "none",
+        backgroundColor: dragOver
+          ? `${t.accent}25`
+          : hovered || focused
+            ? `${t.text}08`
+            : "transparent",
+        outline: dragOver
+          ? `1px solid ${t.accent}`
+          : focused
+            ? `1px dotted ${t.textDim}`
+            : "none",
         outlineOffset: -1,
         cursor: "pointer",
       } as any}
       {...(Platform.OS === "web" && onContextMenu ? { onContextMenu } as any : {})}
       {...(Platform.OS === "web" && displayLabel ? { title: name } as any : {})}
+      {...(dropProps as any)}
     >
-      <Folder size={13} color="#dcb67a" />
+      <Folder size={13} color={dragOver ? t.accent : "#dcb67a"} />
       <Text
         style={{
           flex: 1,
@@ -574,6 +623,7 @@ export function TreeFileRow({
   onSelect,
   onContextMenu,
   onDelete,
+  draggable = true,
 }: {
   name: string;
   fullPath: string;
@@ -584,15 +634,32 @@ export function TreeFileRow({
   onSelect: () => void;
   onContextMenu?: (e: any) => void;
   onDelete: () => void;
+  /** When true (default on web), the row can be dragged onto a folder row to move it. */
+  draggable?: boolean;
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   const icon = name === "MEMORY.md" || fullPath.endsWith("/archive")
     ? getArchiveIcon(t.textDim)
     : getFileIcon(name, null, t.textDim);
   const sizeStr = formatSize(size);
   const modified = formatRelativeTime(modifiedAt);
+
+  // Drag-source handlers — sets the custom mime so folder drop targets pick
+  // it up. We avoid setting "Files" so OS upload handlers stay quiet.
+  const dragProps = Platform.OS === "web" && draggable ? {
+    draggable: true,
+    onDragStart: (e: any) => {
+      try {
+        e.dataTransfer.setData(DRAG_MIME, fullPath);
+        e.dataTransfer.effectAllowed = "move";
+      } catch {}
+      setDragging(true);
+    },
+    onDragEnd: () => setDragging(false),
+  } : {};
 
   return (
     <Pressable
@@ -613,9 +680,11 @@ export function TreeFileRow({
             : "transparent",
         outline: focused && !selected ? `1px dotted ${t.textDim}` : "none",
         outlineOffset: -1,
-        cursor: "pointer",
+        cursor: dragging ? "grabbing" : "pointer",
+        opacity: dragging ? 0.5 : 1,
       } as any}
       {...(Platform.OS === "web" && onContextMenu ? { onContextMenu } as any : {})}
+      {...(dragProps as any)}
     >
       {icon}
       <Text

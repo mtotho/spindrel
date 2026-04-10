@@ -221,10 +221,13 @@ async def chat(
         )
         db.add(_user_record)
         await db.commit()
+        await db.refresh(_user_record)
         _pre_user_msg_id = _user_record.id
-        # Notify other UI clients viewing this channel
-        from app.services.channel_events import publish as _publish_event
-        _publish_event(channel_id, "new_message")
+        # Ship the persisted row through the channel events bus so subscribers
+        # can append to local state without a DB refetch.
+        if channel_id:
+            from app.services.channel_events import publish_message as _publish_message
+            _publish_message(channel_id, _user_record)
     except Exception:
         logger.warning("Failed to pre-persist user message for session %s", session_id, exc_info=True)
         await db.rollback()
@@ -576,14 +579,16 @@ async def chat_stream(
 
         await db.commit()
         await db.refresh(queued_task)
+        await db.refresh(user_msg)
         _task_id = str(queued_task.id)
         logger.info(
             "Session %s busy — queued message as task %s", session_id, _task_id
         )
 
-        # Notify other UI clients viewing this channel
-        from app.services.channel_events import publish as _publish_event
-        _publish_event(channel_id, "new_message")
+        # Ship the queued user message row through the channel events bus.
+        if channel_id:
+            from app.services.channel_events import publish_message as _publish_message
+            _publish_message(channel_id, user_msg)
 
         async def _queued_stream():
             yield f"data: {json.dumps({'type': 'queued', 'session_id': str(session_id), 'task_id': _task_id})}\n\n"
@@ -657,9 +662,11 @@ async def chat_stream(
                     )
                     _early_db.add(_user_record)
                     await _early_db.commit()
+                    await _early_db.refresh(_user_record)
                     _pre_user_msg_id = _user_record.id
-                    from app.services.channel_events import publish as _publish_event
-                    _publish_event(channel_id, "new_message")
+                    if channel_id:
+                        from app.services.channel_events import publish_message as _publish_message
+                        _publish_message(channel_id, _user_record)
             except Exception:
                 logger.warning("Failed to pre-persist user message for session %s", session_id, exc_info=True)
 

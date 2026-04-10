@@ -1092,12 +1092,22 @@ async def get_session_status(
 @router.get("/{channel_id}/events")
 async def channel_events(
     channel_id: uuid.UUID,
+    since: int | None = None,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("channels:read")),
 ):
-    """SSE stream of channel events (new messages from any source).
+    """SSE stream of channel events.
 
-    Clients receive lightweight notifications and refetch from DB.
+    Events carry a per-channel monotonic `seq` number. Clients can
+    reconnect with `?since=<last_seq>` to replay any events they missed
+    while disconnected. If the replay buffer no longer covers `since`,
+    a `replay_lapsed` sentinel is emitted first so the client knows to
+    refetch history from REST and resume from the new seq.
+
+    `new_message` and `message_updated` events ship the full Message row
+    in their payload — clients can append to local state without a DB
+    refetch.
+
     Keepalive comments sent every 15s to prevent connection drops.
     """
     channel = await db.get(Channel, channel_id)
@@ -1110,7 +1120,7 @@ async def channel_events(
 
     async def _event_stream():
         shutdown = get_shutdown_event()
-        async_gen = subscribe(channel_id)
+        async_gen = subscribe(channel_id, since=since)
         pending = asyncio.ensure_future(async_gen.__anext__())
         try:
             while not shutdown.is_set():
@@ -1121,6 +1131,7 @@ async def channel_events(
                     payload = {
                         "type": event.event_type,
                         "channel_id": str(event.channel_id),
+                        "seq": event.seq,
                         "ts": event.timestamp.isoformat(),
                         **(event.metadata or {}),
                     }

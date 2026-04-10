@@ -5,7 +5,6 @@ import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { useChatStream, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
 import { useChannelEvents } from "@/src/api/hooks/useChannelEvents";
-import { useChannelWorkflowRuns } from "@/src/api/hooks/useWorkflows";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
 import { apiFetch } from "@/src/api/client";
 import { extractDisplayText } from "@/src/components/chat/MessageBubble";
@@ -202,18 +201,11 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     }
   }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient, startStreaming]);
 
-  // Refetch messages when background workflow runs change (heartbeats, scheduled tasks
-  // post lifecycle messages that wouldn't otherwise be picked up by SSE).
-  const { data: channelWorkflowRuns } = useChannelWorkflowRuns(channelId);
-  const prevRunsRef = useRef<string>("");
-  useEffect(() => {
-    if (!channelId || !channelWorkflowRuns) return;
-    const sig = channelWorkflowRuns.map((r) => `${r.id}:${r.status}`).join(",");
-    if (prevRunsRef.current && prevRunsRef.current !== sig) {
-      queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-    }
-    prevRunsRef.current = sig;
-  }, [channelId, channelWorkflowRuns, queryClient]);
+  // Workflow-posted lifecycle messages (heartbeats, scheduled tasks) are picked up
+  // via the channel_events SSE `new_message` payload — workflow_executor publishes
+  // it after committing the message. We do NOT poll workflow-runs to drive a
+  // session-messages invalidation here: that produced a full N-page refetch on
+  // every status change, redundant with the SSE path.
 
   // ---- Per-channel pending buffers so concurrent streams don't mix deltas ----
   const pendingTextRef = useRef<Record<string, string>>({});
@@ -291,13 +283,12 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         setMessages(qCh, msgs.filter((m) => m.id !== optimisticMsgId));
       }
       // SSE dropped but server likely still processed the message.
-      // Refetch with backoff — persist_turn may still be running (or may never
-      // complete if the server process died). Multiple attempts give it time.
-      for (const delay of [2000, 5000, 12000]) {
-        setTimeout(() => {
-          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-        }, delay);
-      }
+      // One delayed refetch — persist_turn typically commits within a couple
+      // seconds. Each invalidate refetches every loaded page, so chains of
+      // backoff retries are expensive on long conversations.
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+      }, 3000);
     },
     onComplete: () => {
       if (channelId) {

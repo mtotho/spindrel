@@ -765,3 +765,58 @@ async def radarr_quality_profile_update(
     except Exception as e:
         logger.exception("radarr_quality_profile_update failed")
         return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "radarr_indexers",
+        "description": (
+            "List indexers configured in Radarr (synced from Prowlarr). "
+            "Shows enabled status and any failures. Use this to confirm indexers "
+            "are actually present in Radarr, not just configured in Prowlarr."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+})
+async def radarr_indexers() -> str:
+    if not settings.RADARR_URL:
+        return error("RADARR_URL is not configured")
+    try:
+        data = await _get("/api/v3/indexer")
+        statuses = {}
+        try:
+            status_data = await _get("/api/v3/indexerstatus")
+            for s in status_data:
+                statuses[s.get("indexerId")] = s
+        except Exception:
+            pass
+
+        indexers = []
+        for idx in data:
+            idx_id = idx.get("id")
+            status = statuses.get(idx_id, {})
+            entry: dict = {
+                "id": idx_id,
+                "name": sanitize(idx.get("name", "")),
+                "protocol": idx.get("protocol", ""),
+                "enabled": idx.get("enableRss", False) or idx.get("enableAutomaticSearch", False) or idx.get("enableInteractiveSearch", False),
+                "priority": idx.get("priority", 25),
+            }
+            if status:
+                if status.get("disabledTill"):
+                    entry["disabled_till"] = status["disabledTill"]
+                if status.get("mostRecentFailure"):
+                    entry["last_failure"] = status["mostRecentFailure"]
+            indexers.append(entry)
+        return json.dumps({"count": len(indexers), "indexers": indexers})
+    except httpx.HTTPStatusError as e:
+        return error(f"Radarr API error: {e}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Radarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("radarr_indexers failed")
+        return error(str(e))

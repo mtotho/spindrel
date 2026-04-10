@@ -151,10 +151,20 @@ async def _get_integration_skill_ids(integration_type: str) -> list[str]:
 
 
 def invalidate_skill_auto_enroll_cache() -> None:
-    """Clear auto-enrollment caches after file sync."""
+    """Clear all skill enrollment caches after file sync.
+
+    Phase 3 working set: clears the legacy core/integration helper caches AND
+    the per-bot enrollment cache so a fresh skill catalog rebuild is picked up
+    on the next turn.
+    """
     global _core_skill_cache
     _core_skill_cache = None
     _integration_skill_cache.clear()
+    try:
+        from app.services.skill_enrollment import invalidate_enrolled_cache
+        invalidate_enrolled_cache()
+    except Exception:
+        logger.debug("Failed to invalidate enrollment cache", exc_info=True)
 
 
 def _render_channel_workspace_prompt(
@@ -986,48 +996,44 @@ async def assemble_context(
     except Exception:
         logger.warning("Failed to build capability index", exc_info=True)
 
-    # --- auto-discover bot-authored skills (source_type="tool") ---
+    # --- skill enrollment loading (Phase 3 working set model) ---
+    #
+    # Replaces three former per-turn blocks (bot-authored discovery, core
+    # auto-enrollment, integration auto-enrollment) with a single load from
+    # `bot_skill_enrollment`. The table is the source of truth for "what
+    # skills does this bot know about".
+    #
+    # Bot-authored skills are still discovered every turn (they appear/dis-
+    # appear with file edits) but the discovery now writes a persistent
+    # enrollment row instead of merging into the per-turn bot.skills list
+    # directly. The merge happens via the enrolled-list load below.
     _ch_skills_disabled = set(getattr(_ch_row, "skills_disabled", None) or []) if _ch_row else set()
     if bot.id:
+        from app.services.skill_enrollment import (
+            enroll_many as _enroll_many,
+            get_enrolled_skill_ids as _get_enrolled_skill_ids,
+        )
+
+        # Discover bot-authored skills, persist any new ones as 'authored'
         try:
             _bot_skill_ids = await _get_bot_authored_skill_ids(bot.id)
             if _bot_skill_ids:
-                _prev = len(bot.skills)
-                bot = _merge_skills(bot, _bot_skill_ids, _ch_skills_disabled)
-                if len(bot.skills) > _prev:
-                    yield {"type": "bot_authored_skills", "count": len(bot.skills) - _prev}
+                _new = await _enroll_many(bot.id, _bot_skill_ids, source="authored")
+                if _new:
+                    yield {"type": "bot_authored_skills_enrolled", "count": _new}
         except Exception:
             logger.warning("Failed to auto-discover bot-authored skills for %s", bot.id, exc_info=True)
 
-    # --- auto-enroll core skills (on_demand for all bots) ---
-    try:
-        _core_ids = await _get_core_skill_ids()
-        if _core_ids:
-            _prev = len(bot.skills)
-            bot = _merge_skills(bot, _core_ids, _ch_skills_disabled)
-            if len(bot.skills) > _prev:
-                yield {"type": "core_skills_enrolled", "count": len(bot.skills) - _prev}
-    except Exception:
-        logger.warning("Failed to auto-enroll core skills", exc_info=True)
-
-    # --- auto-enroll integration skills from activated integrations ---
-    if _ch_row is not None:
+        # Load the bot's full enrolled working set in one query
         try:
-            _activated_types = [
-                ci.integration_type
-                for ci in (getattr(_ch_row, "integrations", None) or [])
-                if getattr(ci, "activated", False)
-            ]
-            if _activated_types:
-                _all_int_ids: list[str] = []
-                for _itype in _activated_types:
-                    _all_int_ids.extend(await _get_integration_skill_ids(_itype))
+            _enrolled_ids = await _get_enrolled_skill_ids(bot.id)
+            if _enrolled_ids:
                 _prev = len(bot.skills)
-                bot = _merge_skills(bot, _all_int_ids, _ch_skills_disabled)
+                bot = _merge_skills(bot, _enrolled_ids, _ch_skills_disabled)
                 if len(bot.skills) > _prev:
-                    yield {"type": "integration_skills_enrolled", "count": len(bot.skills) - _prev}
+                    yield {"type": "enrolled_skills", "count": len(bot.skills) - _prev}
         except Exception:
-            logger.warning("Failed to auto-enroll integration skills", exc_info=True)
+            logger.warning("Failed to load enrolled skills for %s", bot.id, exc_info=True)
 
     # --- memory scheme: file injection ---
     # NOTE: memory-scheme TOOL injection (search_memory, file, etc.) is handled
@@ -1161,70 +1167,124 @@ async def assemble_context(
                            + "\n\n---\n\n".join(_eph_chunks),
             })
 
-    # --- skills (all on-demand: RAG-filtered index, agent uses get_skill()) ---
-    if bot.skills:
+    # --- skills (Phase 3 working set + semantic discovery layer) ---
+    #
+    # Two layers, each gated independently so a fresh bot with no enrollments
+    # still gets discovery (chicken-and-egg fix):
+    #   1. Working set — flat list of enrolled skills. Skipped if bot has none.
+    #   2. Discovery — semantic retrieval over UNENROLLED catalog skills.
+    #      Always fires when there's a user_message, so a bot whose starter-pack
+    #      enrollment failed (or that hasn't been backfilled yet) can still
+    #      discover skills the normal way.
+    #
+    # Each section runs in its own try/except so a failure in one (e.g. the
+    # SQLite test path with no schema) doesn't kill the other or hang the
+    # event loop on teardown.
+    _enrolled_rows: list = []
+    _suggestion_rows: list = []
+    _enrolled_ids: list[str] = []
+
+    if bot.id:
         from app.agent.rag import retrieve_skill_index as _retrieve_skill_index
         from sqlalchemy import select as _sa_select
         from app.db.engine import async_session as _async_session
         from app.db.models import Skill as _SkillRow
-        _skill_ids = [s.id for s in bot.skills]
 
-        # Semantic retrieval: top-K most relevant skills for this message
-        _relevant: list[dict] | None = None  # None = RAG didn't run, [] = ran but no matches
+        def _fmt_skill_line(r) -> str:
+            parts = [f"- {r.id}: {r.name}"]
+            if r.description:
+                parts.append(f" — {r.description}")
+            if r.triggers:
+                parts.append(f" [{', '.join(r.triggers)}]")
+            return "".join(parts)
+
+        # Working set: load metadata for already-enrolled skills.
+        if bot.skills:
+            _enrolled_ids = [s.id for s in bot.skills]
+            try:
+                async with _async_session() as _db:
+                    _enrolled_rows = (await _db.execute(
+                        _sa_select(_SkillRow.id, _SkillRow.name, _SkillRow.description, _SkillRow.triggers)
+                        .where(_SkillRow.id.in_(_enrolled_ids))
+                    )).all()
+            except Exception:
+                logger.warning("Skill working-set load failed", exc_info=True)
+                _enrolled_rows = []
+
+            if _enrolled_rows:
+                _working_lines = "\n".join(_fmt_skill_line(r) for r in _enrolled_rows)
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "Your enrolled skills — call get_skill(skill_id=\"<id>\") for full content:\n"
+                        + _working_lines
+                    ),
+                })
+
+        # Discovery layer: semantic retrieval over UNENROLLED catalog skills.
+        # Runs even when bot.skills is empty so a fresh / unbackfilled bot can
+        # still find skills. Whole block is wrapped so a missing-table error
+        # in test environments degrades gracefully without leaking the session.
         if user_message:
             try:
-                _relevant = await _retrieve_skill_index(user_message, _skill_ids)
+                async with _async_session() as _db:
+                    _catalog_q = _sa_select(_SkillRow.id).where(
+                        ~_SkillRow.id.like("bots/%") | _SkillRow.id.like(f"bots/{bot.id}/%")
+                    )
+                    _catalog_ids = list((await _db.execute(_catalog_q)).scalars().all())
+
+                _enrolled_set = set(_enrolled_ids)
+                _candidate_ids = [sid for sid in _catalog_ids if sid not in _enrolled_set]
+
+                if _candidate_ids:
+                    _suggestions = await _retrieve_skill_index(user_message, _candidate_ids)
+                    if _suggestions:
+                        _suggestion_ids = [s["skill_id"] for s in _suggestions]
+                        async with _async_session() as _db:
+                            _suggestion_rows = (await _db.execute(
+                                _sa_select(_SkillRow.id, _SkillRow.name, _SkillRow.description, _SkillRow.triggers)
+                                .where(_SkillRow.id.in_(_suggestion_ids))
+                            )).all()
             except Exception:
-                logger.warning("Skill index retrieval failed, falling back to full index", exc_info=True)
-                _relevant = None
+                logger.warning("Skill discovery layer failed", exc_info=True)
+                _suggestion_rows = []
 
-        # Fetch metadata for relevant skills, or all if RAG didn't run
-        _fetch_ids = [r["skill_id"] for r in _relevant] if _relevant else (_skill_ids if _relevant is None else [])
-        _rows = []
-        if _fetch_ids:
-            async with _async_session() as _db:
-                _rows = (await _db.execute(
-                    _sa_select(_SkillRow.id, _SkillRow.name, _SkillRow.description, _SkillRow.triggers)
-                    .where(_SkillRow.id.in_(_fetch_ids))
-                )).all()
+            if _suggestion_rows:
+                _disc_lines = "\n".join(_fmt_skill_line(r) for r in _suggestion_rows)
+                # Label depends on whether the bot has any enrollments yet.
+                _disc_header = (
+                    "Skills you can fetch via get_skill(skill_id=\"<id>\") "
+                    "(your working set is empty — first successful fetch enrolls them):"
+                    if not _enrolled_rows else
+                    "Other skills you can fetch via get_skill(skill_id=\"<id>\") "
+                    "(not yet in your working set; first successful fetch enrolls them):"
+                )
+                messages.append({
+                    "role": "system",
+                    "content": _disc_header + "\n" + _disc_lines,
+                })
 
-        if _rows:
-            def _fmt_od(r) -> str:
-                parts = [f"- {r.id}: {r.name}"]
-                if r.description:
-                    parts.append(f" — {r.description}")
-                if r.triggers:
-                    parts.append(f" [{', '.join(r.triggers)}]")
-                return "".join(parts)
-            _index_lines = "\n".join(_fmt_od(r) for r in _rows)
-            _suffix = ""
-            if _relevant and len(_relevant) < len(_skill_ids):
-                _remaining = len(_skill_ids) - len(_relevant)
-                _suffix = f"\n({_remaining} more skills available — call get_skill_list() to browse all)"
-            messages.append({
-                "role": "system",
-                "content": (
-                    f"Available skills — call get_skill(skill_id=\"<id>\") to retrieve full content:\n{_index_lines}{_suffix}"
-                ),
-            })
-        elif _skill_ids:
-            # RAG returned nothing — inject minimal fallback
-            messages.append({
-                "role": "system",
-                "content": f"You have {len(_skill_ids)} skills available — call get_skill_list() to browse them.",
-            })
-
-        yield {"type": "skill_index", "count": len(_rows), "total": len(_skill_ids)}
-        if correlation_id is not None:
-            asyncio.create_task(_record_trace_event(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-                event_type="skill_index",
-                count=len(_rows),
-                data={"skill_ids": [r.id for r in _rows], "total": len(_skill_ids)},
-            ))
+        if _enrolled_rows or _suggestion_rows:
+            yield {
+                "type": "skill_index",
+                "count": len(_enrolled_rows),
+                "suggestions": len(_suggestion_rows),
+                "total": len(_enrolled_ids),
+            }
+            if correlation_id is not None:
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    bot_id=bot.id,
+                    client_id=client_id,
+                    event_type="skill_index",
+                    count=len(_enrolled_rows),
+                    data={
+                        "enrolled_ids": [r.id for r in _enrolled_rows],
+                        "suggested_ids": [r.id for r in _suggestion_rows],
+                        "total_enrolled": len(_enrolled_ids),
+                    },
+                ))
 
     # --- API access tools (for bots with scoped API keys) ---
     if bot.api_permissions:

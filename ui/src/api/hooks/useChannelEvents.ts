@@ -272,13 +272,14 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
         }
 
         const latestCh = useChatStore.getState().getChannel(chId);
-        if (latestCh.memberStreams[streamId]) {
+        const wasTracked = !!latestCh.memberStreams[streamId];
+        if (wasTracked) {
           useChatStore.getState().finishMemberStream(chId, streamId);
+          // Refetch only when this tab was observing a member stream — local
+          // tab streams are handled by useChatStream.onComplete in useChannelChat
+          // (otherwise both fire and we double-refetch every page on every send).
+          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         }
-        // Always refetch — even if we didn't track this stream (e.g. stream_end
-        // arrived without stream_start due to reconnection), the bot's message
-        // is now persisted in the DB.
-        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         return;
       }
     }

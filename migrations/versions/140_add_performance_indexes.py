@@ -1,7 +1,7 @@
 """Add performance indexes on high-traffic foreign keys and query patterns.
 
 - messages.session_id: heavily queried by heartbeat and message loading
-- documents.source: queried by retrieve_context()
+- documents.source: queried by retrieve_skill_index() / fetch_skill_chunks_by_id()
 - tool_embeddings.server_name: queried during MCP tool indexing
 - tasks(status, run_at): used by task worker recovery and polling
 

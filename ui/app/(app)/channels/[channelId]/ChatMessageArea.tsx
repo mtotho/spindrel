@@ -36,6 +36,7 @@ export interface ChatMessageAreaProps {
   botId?: string;
   isLoading: boolean;
   isFetchingNextPage: boolean;
+  hasNextPage?: boolean;
   handleLoadMore: () => void;
   isProcessing?: boolean;
   t: ReturnType<typeof useThemeTokens>;
@@ -52,6 +53,7 @@ export function ChatMessageArea({
   botId,
   isLoading,
   isFetchingNextPage,
+  hasNextPage,
   handleLoadMore,
   isProcessing,
   t,
@@ -117,7 +119,8 @@ export function ChatMessageArea({
     }
 
     // Re-check sentinel visibility — if content still doesn't fill the
-    // viewport, load another page.
+    // viewport, load another page. Short delay so chained pagination feels
+    // continuous rather than waiting on a half-second tick between pages.
     if (recheckRef.current) clearTimeout(recheckRef.current);
     recheckRef.current = setTimeout(() => {
       const sentinel = sentinelRef.current;
@@ -128,7 +131,7 @@ export function ChatMessageArea({
       if (sentinelRect.bottom >= rootRect.top - 200 && sentinelRect.top <= rootRect.bottom) {
         handleLoadMoreRef.current();
       }
-    }, 500);
+    }, 80);
     return () => { if (recheckRef.current) clearTimeout(recheckRef.current); };
   }, [isFetchingNextPage]);
 
@@ -145,19 +148,40 @@ export function ChatMessageArea({
     return () => el.removeEventListener("scroll", onScroll);
   }, [isAtBottom]);
 
-  // Auto-scroll to bottom when new content arrives (if already at bottom)
+  // Auto-scroll to bottom when new content arrives (if already at bottom).
+  // Triggers on message-list growth and on streaming-content updates so the
+  // user follows the bot's response without losing position.
   useEffect(() => {
     const el = scrollRef.current;
     if (el && atBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  });
+  }, [
+    invertedData.length,
+    chatState.streamingContent,
+    chatState.thinkingContent,
+    chatState.isStreaming,
+    isProcessing,
+  ]);
 
   // Initial scroll to bottom on mount
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, []);
+
+  // After page 1 (or any subsequent page) lands, if the loaded content still
+  // doesn't fill the viewport, request the next page. The IntersectionObserver
+  // alone doesn't catch this reliably: it's set up at mount with empty content,
+  // and small chats may never trigger a sentinel transition once page 1 paints.
+  useEffect(() => {
+    if (!hasNextPage || isFetchingNextPage) return;
+    const root = scrollRef.current;
+    if (!root) return;
+    if (root.scrollHeight <= root.clientHeight + 200) {
+      handleLoadMoreRef.current();
+    }
+  }, [invertedData.length, hasNextPage, isFetchingNextPage]);
 
   const doScrollToBottom = useCallback(() => {
     const el = scrollRef.current;

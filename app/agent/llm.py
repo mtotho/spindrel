@@ -841,7 +841,14 @@ class StreamAccumulator:
                     tc["id"] = tc_delta.id
                 if tc_delta.function:
                     if tc_delta.function.name:
-                        tc["function"]["name"] += tc_delta.function.name
+                        # OpenAI sends the tool name only in the first delta; subsequent
+                        # chunks stream only arguments. Gemini's OpenAI-compat endpoint
+                        # sends the full name in every chunk — concatenating would produce
+                        # `manage_bot_skillmanage_bot_skillmanage_bot_skill...`. Names are
+                        # atomic across providers, so take the first non-empty one and
+                        # ignore further repeats.
+                        if not tc["function"]["name"]:
+                            tc["function"]["name"] = tc_delta.function.name
                     if tc_delta.function.arguments:
                         tc["function"]["arguments"] += tc_delta.function.arguments
 

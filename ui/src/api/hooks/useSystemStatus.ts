@@ -10,7 +10,7 @@ export function useSystemStatus() {
   return useQuery({
     queryKey: ["system-status"],
     queryFn: () => apiFetch<SystemStatus>("/api/v1/admin/status"),
-    refetchInterval: 10_000,
-    staleTime: 5_000,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
   });
 }

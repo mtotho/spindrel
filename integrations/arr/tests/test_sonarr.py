@@ -9,6 +9,7 @@ import pytest
 from integrations.arr.tools.sonarr import (
     sonarr_calendar,
     sonarr_command,
+    sonarr_indexers,
     sonarr_quality_profile_update,
     sonarr_quality_profiles,
     sonarr_queue,
@@ -539,4 +540,36 @@ async def test_quality_profile_update_bad_cutoff():
 async def test_quality_profiles_not_configured(monkeypatch):
     monkeypatch.setenv("SONARR_URL", "")
     result = json.loads(await sonarr_quality_profiles())
+    assert result["error"] == "SONARR_URL is not configured"
+
+
+# ---------------------------------------------------------------------------
+# sonarr_indexers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_indexers_list():
+    indexer_data = [
+        {"id": 1, "name": "EZTV", "protocol": "torrent", "enableRss": True, "priority": 25},
+        {"id": 2, "name": "NZBgeek", "protocol": "usenet", "enableAutomaticSearch": True, "priority": 10},
+    ]
+    status_data = [
+        {"indexerId": 1, "disabledTill": "2026-04-11T00:00:00Z", "mostRecentFailure": "2026-04-10T22:00:00Z"},
+    ]
+    with patch(f"{MODULE}._get", new_callable=AsyncMock) as mock_get:
+        mock_get.side_effect = [indexer_data, status_data]
+        result = json.loads(await sonarr_indexers())
+
+    assert result["count"] == 2
+    assert result["indexers"][0]["name"] == "EZTV"
+    assert result["indexers"][0]["enabled"] is True
+    assert result["indexers"][0]["disabled_till"] == "2026-04-11T00:00:00Z"
+    assert result["indexers"][1]["name"] == "NZBgeek"
+
+
+@pytest.mark.asyncio
+async def test_indexers_not_configured(monkeypatch):
+    monkeypatch.setenv("SONARR_URL", "")
+    result = json.loads(await sonarr_indexers())
     assert result["error"] == "SONARR_URL is not configured"

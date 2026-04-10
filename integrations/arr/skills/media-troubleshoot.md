@@ -129,13 +129,14 @@ When `sonarr_releases` or `radarr_releases` returns 0 results, or all results ar
 
 **Step-by-step diagnosis:**
 1. **Search Prowlarr directly**: `prowlarr_search(query="Show S01E05")` — this searches ALL indexers. If Prowlarr finds results but Sonarr doesn't, the indexer isn't synced to Sonarr properly.
-2. **Check indexer health**: `prowlarr_health()` — look for warnings about unavailable indexers.
-3. **List indexers**: `prowlarr_indexers()` — check for:
+2. **Check what's synced to Sonarr/Radarr**: `sonarr_indexers()` / `radarr_indexers()` — confirms which indexers are actually present in the arr app, not just configured in Prowlarr. If Prowlarr lists 8 indexers but Sonarr only has 3, the sync is broken.
+3. **Check indexer health**: `prowlarr_health()` — look for warnings about unavailable indexers.
+4. **List Prowlarr indexers**: `prowlarr_indexers()` — check for:
    - `enabled: false` → indexer is disabled, may need re-enabling
    - `disabled_till` set → temporarily disabled due to failures (will auto-recover)
    - `escalation_level` > 0 → indexer has been failing repeatedly
-4. **Test failing indexers**: `prowlarr_indexers(action="test", indexer_id=X)` — confirms whether the indexer is actually reachable.
-5. **Check app sync**: `prowlarr_apps()` — verify Sonarr/Radarr are connected with `sync_level: "fullSync"`.
+5. **Test failing indexers**: `prowlarr_indexers(action="test", indexer_id=X)` — confirms whether the indexer is actually reachable.
+6. **Check app sync**: `prowlarr_apps()` — verify Sonarr/Radarr are connected with `sync_level: "fullSync"`.
 
 **Common causes and fixes:**
 - **Indexer temporarily disabled** (rate limiting) — check `disabled_till`, it'll auto-recover. If urgent, re-enable: `prowlarr_indexer_manage(action="update", indexer_id=X, enabled=true)`

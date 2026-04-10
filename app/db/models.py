@@ -987,6 +987,33 @@ class Skill(Base):
 
 
 
+class BotSkillEnrollment(Base):
+    """Per-bot persistent skill working set.
+
+    Each row is a (bot, skill) enrollment. Replaces per-turn ephemeral auto-enrollment.
+    See Phase 3 Working Set Design.
+    """
+    __tablename__ = "bot_skill_enrollment"
+
+    bot_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("bots.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    skill_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("skills.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    # source: 'starter' | 'fetched' | 'manual' | 'migration' | 'authored'
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
+    enrolled_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
 class PromptTemplate(Base):
     __tablename__ = "prompt_templates"
 

@@ -5,6 +5,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { useSkills } from "@/src/api/hooks/useSkills";
 import { AdvancedSection } from "@/src/components/shared/SettingsControls";
 import type { BotConfig, BotEditorData, SkillOption } from "@/src/types/api";
+import { EnrolledSkillsPanel } from "./EnrolledSkillsPanel";
 
 function SourceBadge({ type }: { type: string }) {
   const t = useThemeTokens();
@@ -155,6 +156,10 @@ export function SkillsSection({
         Skills are shared reference documents available to all bots via <code style={{ fontSize: 10 }}>get_skill()</code>.
         Capability prompts tell bots which skills to fetch when needed.
       </div>
+
+      {draft.id && (
+        <EnrolledSkillsPanel botId={draft.id} catalogSkills={editorData.all_skills} />
+      )}
 
       <div style={{ fontSize: 11, color: t.textDim }}>
         <span style={{ color: t.textMuted, fontWeight: 500 }}>{totalCount}</span> skills available

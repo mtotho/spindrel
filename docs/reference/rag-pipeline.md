@@ -16,7 +16,6 @@ Three independent content sources feed the pipeline:
 
 | Source | Table | Indexed from | Retrieval function |
 |--------|-------|-------------|-------------------|
-| **Skills** (chunks) | `documents` | `skills/*.md`, DB, capabilities | `retrieve_context()` in `rag.py` |
 | **Skills** (index) | `documents` | `skills/*.md`, DB, capabilities | `retrieve_skill_index()` in `rag.py` |
 | **Filesystem** | `filesystem_chunks` | Workspace dirs, indexed paths | `retrieve_filesystem_context()` in `fs_indexer.py` |
 | **Tools** | `tool_embeddings` | Local tools, MCP servers | `retrieve_tools()` in `tools.py` |
@@ -184,19 +183,6 @@ Default `k = 60` (configurable: `HYBRID_SEARCH_RRF_K`). Higher k gives more weig
 
 ### Skill Retrieval
 
-Two retrieval modes for skills:
-
-**Chunk retrieval** — `retrieve_context()` in `app/agent/rag.py`:
-
-1. Embed query
-2. Vector search on `documents` table (filtered by skill sources)
-3. BM25 search (if hybrid enabled)
-4. RRF fusion
-5. Threshold filter (default: 0.3)
-6. Return top `RAG_TOP_K` (default: 5) chunks with content and source
-
-Used for bot-authored skills (RAG mode).
-
 **Index retrieval** — `retrieve_skill_index()` in `app/agent/rag.py`:
 
 1. Embed query (reuses per-request cache — free if tool retrieval already ran)
@@ -277,7 +263,7 @@ After context assembly, a post-processing step scores all RAG-injected chunks an
 
 `assemble_context()` in `app/agent/context_assembly.py` orchestrates how retrieved content enters the LLM's context window. RAG-related steps (simplified from the full 15-step pipeline):
 
-1. **Skills injection** — Pinned skills: full content always injected. RAG skills: top-K chunks from `retrieve_context()`, plus trigger keyword boost for skills whose `triggers` match the user message but weren't surfaced by cosine (fetches top chunk via `fetch_skill_chunks_by_id()`). On-demand skills: semantically filtered index via `retrieve_skill_index()` (top-K relevant skills, not all enrolled), bot fetches full content via `get_skill()` or browses all via `get_skill_list()`.
+1. **Skills injection** — Enrolled skills are surfaced via `retrieve_skill_index()` as a semantically filtered index (top-K relevant skill IDs, not all enrolled). The bot fetches full content on demand via `get_skill()`, browses all available via `get_skill_list()`, or — for `@skill:name` tags — pulls full chunks via `fetch_skill_chunks_by_id()`.
 2. **Workspace filesystem RAG** — Top-K chunks from `retrieve_filesystem_context()`, injected as a system message with file headers.
 3. **Tool retrieval** — Top-K tools from `retrieve_tools()`, passed in the `tools` parameter of the LLM call.
 
@@ -386,8 +372,7 @@ Index entries are 16-bit float (50% storage reduction). Column data stays float3
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `RAG_TOP_K` | `5` | Max skill chunks returned (chunk-level retrieval) |
-| `RAG_SIMILARITY_THRESHOLD` | `0.3` | Min cosine similarity (chunk-level retrieval) |
+| `RAG_TOP_K` | `5` | BM25 fetch depth used by `_bm25_search()` (boosts skill index hits) |
 | `SKILL_INDEX_RETRIEVAL_TOP_K` | `8` | Max skills in on-demand index per turn |
 | `SKILL_INDEX_RETRIEVAL_THRESHOLD` | `0.35` | Min cosine similarity for index retrieval |
 

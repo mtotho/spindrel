@@ -20,6 +20,7 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 - `sonarr_history(series_id, episode_id=None, limit=30)` — grab/import/failure events with error messages. Use to see why imports failed.
 - `sonarr_queue_manage(queue_ids, blocklist=False, remove_from_client=True)` — remove items from Sonarr queue. Optionally blocklist bad release and/or remove torrent from qBittorrent.
 - `sonarr_series_update(series_id, quality_profile_id=None, monitored=None, series_type=None)` — change a series' quality profile, monitored status, or type. Get series_id from `sonarr_series()`, profile IDs from `sonarr_quality_profiles()`.
+- `sonarr_indexers()` — list indexers synced to Sonarr from Prowlarr (confirms what's actually present, not just what Prowlarr has)
 - `sonarr_quality_profiles(profile_id=None)` — list all quality profiles or view one in detail (allowed qualities, cutoff, upgrade settings)
 - `sonarr_quality_profile_update(profile_id, upgrade_allowed=None, cutoff_quality=None, enable_qualities=None, disable_qualities=None)` — modify quality profile itself: enable/disable qualities by name, change cutoff target, toggle upgrades
 
@@ -31,6 +32,7 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 - `radarr_history(movie_id, limit=30)` — grab/import/failure events with error messages
 - `radarr_queue_manage(queue_ids, blocklist=False, remove_from_client=True)` — remove items from Radarr queue (same as sonarr_queue_manage)
 - `radarr_movie_update(movie_id, quality_profile_id=None, monitored=None, minimum_availability=None)` — change a movie's quality profile, monitored status, or availability. Get movie_id from `radarr_movies()`, profile IDs from `radarr_quality_profiles()`.
+- `radarr_indexers()` — list indexers synced to Radarr from Prowlarr (confirms what's actually present)
 - `radarr_quality_profiles(profile_id=None)` — list all quality profiles or view one in detail
 - `radarr_quality_profile_update(profile_id, upgrade_allowed=None, cutoff_quality=None, enable_qualities=None, disable_qualities=None)` — modify quality profile itself
 

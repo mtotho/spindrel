@@ -15,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Channel, Message, Plan, PlanItem, Session, TraceEvent
 from app.dependencies import get_db, require_scopes
+from app.schemas.messages import AttachmentBrief, MessageOut
 from app.services.compaction import run_compaction_forced
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -29,60 +30,6 @@ class SessionSummary(BaseModel):
     last_active: datetime
 
     model_config = {"from_attributes": True}
-
-
-class AttachmentBrief(BaseModel):
-    id: uuid.UUID
-    type: str
-    filename: str
-    mime_type: str
-    size_bytes: int
-    description: Optional[str] = None
-    has_file_data: bool = False
-
-    model_config = {"from_attributes": True}
-
-    @classmethod
-    def from_orm(cls, att: Attachment) -> "AttachmentBrief":
-        return cls(
-            id=att.id,
-            type=att.type,
-            filename=att.filename,
-            mime_type=att.mime_type,
-            size_bytes=att.size_bytes,
-            description=att.description,
-            has_file_data=att.file_data is not None,
-        )
-
-
-class MessageOut(BaseModel):
-    id: uuid.UUID
-    session_id: uuid.UUID
-    role: str
-    content: Optional[str] = None
-    tool_calls: Optional[list] = None
-    tool_call_id: Optional[str] = None
-    correlation_id: Optional[uuid.UUID] = None
-    created_at: datetime
-    metadata: dict = {}
-    attachments: list[AttachmentBrief] = []
-
-    model_config = {"from_attributes": True}
-
-    @classmethod
-    def from_orm(cls, msg: "Message") -> "MessageOut":
-        return cls(
-            id=msg.id,
-            session_id=msg.session_id,
-            role=msg.role,
-            content=msg.content,
-            tool_calls=msg.tool_calls,
-            tool_call_id=msg.tool_call_id,
-            correlation_id=msg.correlation_id,
-            created_at=msg.created_at,
-            metadata=msg.metadata_ or {},
-            attachments=[AttachmentBrief.from_orm(a) for a in (msg.attachments or [])],
-        )
 
 
 class SessionDetail(BaseModel):

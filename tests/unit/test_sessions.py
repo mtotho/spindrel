@@ -203,6 +203,10 @@ class TestStorePassiveMessage:
 
         db = AsyncMock()
         db.add = MagicMock()
+        # Make the session lookup return None so we don't try to publish
+        # to a mocked channel id (publish_message would attempt to serialize
+        # the record via MessageOut, which fails on the AsyncMock attributes).
+        db.get.return_value = None
         session_id = uuid.uuid4()
         metadata = {"passive": True}
 

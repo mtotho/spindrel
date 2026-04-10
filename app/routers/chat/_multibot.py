@@ -334,9 +334,12 @@ async def _run_member_bot_reply(
                 pre_user_msg_id=_skip_user,
             )
 
-        # Notify UI that streaming ended (after persist so data is committed)
+        # Notify UI that streaming ended (after persist so data is committed).
+        # The new_message events for the persisted rows are emitted by
+        # `persist_turn` itself — no separate publish here. The previous
+        # explicit `_publish_event(..., "new_message")` was a double-publish
+        # that worked only because invalidation was idempotent.
         _publish_event(channel_id, "stream_end", {"stream_id": _sid})
-        _publish_event(channel_id, "new_message")
 
         # Mirror to integration
         if response_text:

@@ -32,6 +32,7 @@ import { View, Text, Pressable, ActivityIndicator, ScrollView, Platform } from "
 import { X, Plus, FolderPlus, Search, Upload, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import {
   useChannels,
   useDeleteChannelWorkspaceFile,
@@ -131,6 +132,7 @@ export function ChannelFileExplorer({
 }: ChannelFileExplorerProps) {
   const t = useThemeTokens();
   const queryClient = useQueryClient();
+  const { confirm, ConfirmDialogSlot } = useConfirm();
 
   // Bot info — needed to compute the memory path target
   const { data: bot } = useBot(botId);
@@ -347,10 +349,37 @@ export function ChannelFileExplorer({
   }, [currentPath, mkdirWorkspace, refetchTree]);
 
   const deleteEntry = useCallback((name: string, path: string, isDir: boolean) => {
-    if (!confirm(`Delete ${isDir ? "folder" : "file"} "${name}"?`)) return;
+    if (!window.confirm(`Delete ${isDir ? "folder" : "file"} "${name}"?`)) return;
     const stripped = stripSlashes(path);
     deleteWorkspace.mutate(stripped, { onSuccess: () => refetchTree() });
   }, [deleteWorkspace, refetchTree]);
+
+  // Drag-and-drop move: triggered when a tree file is dropped onto a tree
+  // folder. Prompts the user with a confirmation showing src → dst before
+  // calling the workspace move endpoint. The backend's move_path treats an
+  // existing-directory dst as "move inside that dir" so we just pass the
+  // folder path as dst.
+  const handleMoveDrop = useCallback(async (srcPath: string, dstFolderPath: string) => {
+    const src = stripSlashes(srcPath);
+    const dst = stripSlashes(dstFolderPath);
+    if (!src || !dst) return;
+    // No-op: dragged onto its own parent dir
+    const srcParent = src.includes("/") ? src.substring(0, src.lastIndexOf("/")) : "";
+    if (srcParent === dst) return;
+    // No-op: same path (defensive)
+    if (src === dst) return;
+    const basename = src.includes("/") ? src.substring(src.lastIndexOf("/") + 1) : src;
+    const dstLabel = dst || "/";
+    const ok = await confirm(
+      `Move "${basename}" into ${dstLabel}/ ?`,
+      { title: "Move file", confirmLabel: "Move", variant: "warning" },
+    );
+    if (!ok) return;
+    moveWorkspace.mutate(
+      { src, dst },
+      { onSuccess: () => refreshAll() },
+    );
+  }, [confirm, moveWorkspace, refreshAll]);
 
   // IN CONTEXT card actions (channel API)
   const archiveActiveFile = useCallback((f: ChannelWorkspaceFile) => {
@@ -358,7 +387,7 @@ export function ChannelFileExplorer({
     moveChannel.mutate({ old_path: f.path, new_path: `archive/${basename}` });
   }, [moveChannel]);
   const deleteActiveFile = useCallback((f: ChannelWorkspaceFile) => {
-    if (!confirm(`Delete ${f.name}?`)) return;
+    if (!window.confirm(`Delete ${f.name}?`)) return;
     deleteChannel.mutate(f.path);
   }, [deleteChannel]);
 
@@ -366,6 +395,7 @@ export function ChannelFileExplorer({
 
   const openFileContextMenu = useCallback((e: any, entry: { name: string; path: string }) => {
     e.preventDefault();
+    e.stopPropagation();
     const stripped = stripSlashes(entry.path);
     const items: ContextMenuItem[] = [
       { label: "Open", action: () => { onSelectFile(stripped); setContextMenu(null); } },
@@ -382,7 +412,7 @@ export function ChannelFileExplorer({
           label: "Move to Active",
           separator: true,
           action: () => {
-            if (confirm(`Move "${basename}" to Active?\n\nActive files are injected into context every turn.`)) {
+            if (window.confirm(`Move "${basename}" to Active?\n\nActive files are injected into context every turn.`)) {
               moveChannel.mutate({ old_path: channelRel, new_path: basename });
             }
             setContextMenu(null);
@@ -415,10 +445,29 @@ export function ChannelFileExplorer({
 
   const openFolderContextMenu = useCallback((e: any, entry: { name: string; path: string }) => {
     e.preventDefault();
+    e.stopPropagation();
     const stripped = stripSlashes(entry.path);
     const items: ContextMenuItem[] = [
       { label: "Open", action: () => { setCurrentPath(`/${stripped}`); setContextMenu(null); } },
-      { label: "Copy path", action: () => { navigator.clipboard?.writeText(stripped); setContextMenu(null); } },
+      {
+        label: "New file inside",
+        action: () => {
+          // Navigate into the folder first so the inline new-item row renders
+          // in the right context — the user sees exactly where the file lands.
+          setCurrentPath(`/${stripped}`);
+          setNewItem("file");
+          setContextMenu(null);
+        },
+      },
+      {
+        label: "New folder inside",
+        action: () => {
+          setCurrentPath(`/${stripped}`);
+          setNewItem("folder");
+          setContextMenu(null);
+        },
+      },
+      { label: "Copy path", separator: true, action: () => { navigator.clipboard?.writeText(stripped); setContextMenu(null); } },
       {
         label: "Delete",
         danger: true,
@@ -431,6 +480,20 @@ export function ChannelFileExplorer({
     ];
     setContextMenu({ x: e.clientX, y: e.clientY, items });
   }, [deleteEntry, setCurrentPath]);
+
+  // Background context menu (right-click on empty tree area)
+  const openBackgroundContextMenu = useCallback((e: any) => {
+    // Don't fire when right-click hit a row (those have their own handlers
+    // that already preventDefault before bubbling here).
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    const items: ContextMenuItem[] = [
+      { label: "New file", action: () => { setNewItem("file"); setContextMenu(null); } },
+      { label: "New folder", action: () => { setNewItem("folder"); setContextMenu(null); } },
+      { label: "Refresh", separator: true, action: () => { refreshAll(); setContextMenu(null); } },
+    ];
+    setContextMenu({ x: e.clientX, y: e.clientY, items });
+  }, [refreshAll]);
 
   const isMutating =
     writeWorkspace.isPending ||
@@ -614,7 +677,10 @@ export function ChannelFileExplorer({
       />
 
       {/* Tree */}
-      <ScrollView style={{ flex: 1 }}>
+      <ScrollView
+        style={{ flex: 1 }}
+        {...(Platform.OS === "web" ? { onContextMenu: openBackgroundContextMenu } as any : {})}
+      >
         {treeLoading ? (
           <ActivityIndicator color={t.accent} style={{ padding: 16 }} />
         ) : (
@@ -644,6 +710,7 @@ export function ChannelFileExplorer({
                   fullPath={"/" + stripSlashes(entry.path)}
                   onNavigate={setCurrentPath}
                   onContextMenu={(e) => openFolderContextMenu(e, entry)}
+                  onMoveDrop={(srcPath) => handleMoveDrop(srcPath, entry.path)}
                 />
               );
             })}
@@ -729,6 +796,9 @@ export function ChannelFileExplorer({
           onClose={() => setContextMenu(null)}
         />
       )}
+
+      {/* Move-confirmation modal (rendered via portal — see useConfirm). */}
+      <ConfirmDialogSlot />
     </View>
   );
 }

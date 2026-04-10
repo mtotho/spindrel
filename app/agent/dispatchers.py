@@ -126,17 +126,19 @@ class _InternalDispatcher:
                         "InternalDispatcher: session %s not found for task %s", session_id, task.id
                     )
                     return
-                db.add(Message(
+                record = Message(
                     session_id=session_id,
                     role="user",
                     content=f"[Task {task.id} completed]\n\n{result}",
                     created_at=datetime.now(timezone.utc),
-                ))
+                )
+                db.add(record)
                 await db.commit()
-                # Notify channel event subscribers
+                await db.refresh(record)
+                # Notify channel event subscribers with the persisted row
                 if session.channel_id:
-                    from app.services.channel_events import publish as _publish_event
-                    _publish_event(session.channel_id, "new_message")
+                    from app.services.channel_events import publish_message
+                    publish_message(session.channel_id, record)
         except Exception:
             logger.exception("InternalDispatcher.deliver failed for task %s", task.id)
 

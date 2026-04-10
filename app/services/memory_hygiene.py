@@ -117,6 +117,58 @@ async def _has_activity_since(bot_id: str, since: datetime, db: AsyncSession) ->
 # Task creation
 # ---------------------------------------------------------------------------
 
+async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
+    """Build a markdown snapshot of the bot's enrolled working set with surface counts.
+
+    Injected into the hygiene prompt so the agent has the data it needs to
+    decide what to prune via prune_enrolled_skills().
+    """
+    from app.db.models import BotSkillEnrollment, Skill as SkillRow
+
+    rows = (await db.execute(
+        select(
+            BotSkillEnrollment.skill_id,
+            BotSkillEnrollment.source,
+            BotSkillEnrollment.enrolled_at,
+            SkillRow.name,
+            SkillRow.surface_count,
+            SkillRow.last_surfaced_at,
+        )
+        .join(SkillRow, SkillRow.id == BotSkillEnrollment.skill_id)
+        .where(BotSkillEnrollment.bot_id == bot_id)
+        .order_by(SkillRow.surface_count.asc())
+    )).all()
+
+    if not rows:
+        return "## Working set\n\n_(no enrolled skills — nothing to prune)_"
+
+    lines = [
+        "## Working set",
+        "",
+        f"You have {len(rows)} enrolled skill(s). Listed by global surface count, lowest first:",
+        "",
+        "**Note on counts**: `global surfaced` and `global last` are tracked across "
+        "**all bots** in the catalog, not just you. Per-bot counts are not tracked yet. "
+        "Treat low global counts as a strong prune signal; high global counts are ambiguous "
+        "(the skill may be popular elsewhere even if you've never used it). Use the `enrolled` "
+        "date as a tiebreaker — old enrollments you don't recognize are good prune candidates.",
+        "",
+    ]
+    for r in rows:
+        last = r.last_surfaced_at.date().isoformat() if r.last_surfaced_at else "never"
+        enrolled = r.enrolled_at.date().isoformat() if r.enrolled_at else "?"
+        lines.append(
+            f"- `{r.skill_id}` ({r.name}) — global surfaced {r.surface_count}x, "
+            f"global last {last}, enrolled {enrolled}, source={r.source}"
+        )
+    lines.append("")
+    lines.append(
+        "To remove unused enrollments: `prune_enrolled_skills(skill_ids=[...])`. "
+        "The skills stay in the catalog and can be re-fetched later via `get_skill()`."
+    )
+    return "\n".join(lines)
+
+
 async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: bool = True) -> uuid.UUID:
     """Create a memory_hygiene task for the given bot. Returns the task ID.
 
@@ -128,6 +180,14 @@ async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: boo
         raise ValueError(f"Bot not found: {bot_id}")
 
     prompt = resolve_prompt(bot_row)
+
+    # Phase 3 working set: append a live snapshot of enrolled skills with surface
+    # counts so the hygiene agent can make pruning decisions on actual data.
+    try:
+        snapshot = await _build_working_set_snapshot(bot_id, db)
+        prompt = f"{prompt}\n\n{snapshot}"
+    except Exception:
+        logger.warning("Failed to build working-set snapshot for hygiene of %s", bot_id, exc_info=True)
 
     # Build execution_config with model overrides if set
     exec_cfg: dict | None = None

@@ -26,6 +26,7 @@ local_tools:
   - sonarr_history
   - sonarr_queue_manage
   - sonarr_series_update
+  - sonarr_indexers
   - sonarr_quality_profiles
   - sonarr_quality_profile_update
   - radarr_movies
@@ -35,6 +36,7 @@ local_tools:
   - radarr_history
   - radarr_queue_manage
   - radarr_movie_update
+  - radarr_indexers
   - radarr_quality_profiles
   - radarr_quality_profile_update
   - qbit_torrents
@@ -108,6 +110,7 @@ system_prompt_fragment: |
   | `sonarr_history` | Grab/import/failure events with error messages |
   | `sonarr_queue_manage` | Remove queue items, blocklist bad releases, remove from qBit |
   | `sonarr_series_update` | Change a series' quality profile, monitored status, or series type |
+  | `sonarr_indexers` | List indexers synced to Sonarr from Prowlarr — confirms what's actually available |
   | `sonarr_quality_profiles` | List/view quality profiles — allowed qualities, cutoff, upgrade settings |
   | `sonarr_quality_profile_update` | Enable/disable qualities, change cutoff target, toggle upgrades |
   | `radarr_movies` | List movies or search TMDB; filter missing/wanted |
@@ -116,6 +119,7 @@ system_prompt_fragment: |
   | `radarr_history` | Grab/import/failure events for movies |
   | `radarr_queue_manage` | Remove queue items, blocklist, remove from qBit |
   | `radarr_movie_update` | Change a movie's quality profile, monitored status, or minimum availability |
+  | `radarr_indexers` | List indexers synced to Radarr from Prowlarr — confirms what's actually available |
   | `radarr_quality_profiles` | List/view quality profiles — allowed qualities, cutoff, upgrade settings |
   | `radarr_quality_profile_update` | Enable/disable qualities, change cutoff target, toggle upgrades |
   | `qbit_torrents` | List torrents; filters: stalled, downloading, etc. |

@@ -8,6 +8,7 @@ import pytest
 
 from integrations.arr.tools.radarr import (
     radarr_command,
+    radarr_indexers,
     radarr_movie_update,
     radarr_movies,
     radarr_quality_profile_update,
@@ -430,4 +431,30 @@ async def test_quality_profile_update():
 async def test_quality_profiles_not_configured(monkeypatch):
     monkeypatch.setenv("RADARR_URL", "")
     result = json.loads(await radarr_quality_profiles())
+    assert result["error"] == "RADARR_URL is not configured"
+
+
+# ---------------------------------------------------------------------------
+# radarr_indexers
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_indexers_list():
+    indexer_data = [
+        {"id": 1, "name": "YTS", "protocol": "torrent", "enableRss": True, "priority": 25},
+    ]
+    with patch(f"{MODULE}._get", new_callable=AsyncMock) as mock_get:
+        mock_get.side_effect = [indexer_data, []]
+        result = json.loads(await radarr_indexers())
+
+    assert result["count"] == 1
+    assert result["indexers"][0]["name"] == "YTS"
+    assert result["indexers"][0]["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_indexers_not_configured(monkeypatch):
+    monkeypatch.setenv("RADARR_URL", "")
+    result = json.loads(await radarr_indexers())
     assert result["error"] == "RADARR_URL is not configured"

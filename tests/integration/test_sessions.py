@@ -225,6 +225,120 @@ class TestStorePassiveMessage:
 
 
 # ---------------------------------------------------------------------------
+# Channel-events integration: per-row publish from persist_turn
+# ---------------------------------------------------------------------------
+
+
+class TestPersistTurnChannelEvents:
+    """persist_turn should publish one channel event per persisted row,
+    with the serialized Message in the payload."""
+
+    @pytest.mark.asyncio
+    async def test_publishes_one_event_per_persisted_row(self, db_session, bot):
+        from app.db.models import Channel
+        from app.services import channel_events
+        from app.services.sessions import persist_turn
+
+        # Set up a channel + session
+        channel_id = uuid.uuid4()
+        sid = uuid.uuid4()
+        channel = Channel(
+            id=channel_id, name="test-channel-1", client_id="test:c1", bot_id=bot.id,
+            active_session_id=sid,
+        )
+        db_session.add(channel)
+        session = Session(id=sid, client_id="test:c1", bot_id=bot.id, channel_id=channel_id)
+        db_session.add(session)
+        await db_session.commit()
+
+        # Reset bus state for the channel to start clean
+        channel_events.reset_channel_state(channel_id)
+
+        messages = [
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi back"},
+        ]
+
+        await persist_turn(
+            db_session, sid, bot, messages, from_index=0, channel_id=channel_id,
+        )
+
+        # Two events should be in the replay buffer (one per row)
+        buf = list(channel_events._replay_buffer.get(channel_id, ()))
+        new_msg_events = [e for e in buf if e.event_type == "new_message"]
+        assert len(new_msg_events) == 2
+
+        # First event = user, second = assistant
+        first = new_msg_events[0].metadata["message"]
+        second = new_msg_events[1].metadata["message"]
+        assert first["role"] == "user"
+        assert first["content"] == "hello"
+        assert second["role"] == "assistant"
+        assert second["content"] == "hi back"
+
+        # Sequence numbers must be monotonic
+        assert new_msg_events[0].seq < new_msg_events[1].seq
+
+        # Cleanup
+        channel_events.reset_channel_state(channel_id)
+
+    @pytest.mark.asyncio
+    async def test_skips_publish_when_no_channel_id(self, db_session, bot):
+        """Without a channel_id, persist_turn must not publish anything."""
+        from app.services import channel_events
+        from app.services.sessions import persist_turn
+
+        sid = uuid.uuid4()
+        session = Session(id=sid, client_id="c", bot_id=bot.id)
+        db_session.add(session)
+        await db_session.commit()
+
+        # Snapshot all current channel ids in the bus
+        before = set(channel_events._replay_buffer.keys())
+
+        await persist_turn(
+            db_session, sid, bot,
+            [{"role": "user", "content": "x"}, {"role": "assistant", "content": "y"}],
+            from_index=0,
+        )
+
+        after = set(channel_events._replay_buffer.keys())
+        assert before == after  # no new channels in the buffer
+
+    @pytest.mark.asyncio
+    async def test_passive_message_publishes_row(self, db_session, bot):
+        from app.db.models import Channel
+        from app.services import channel_events
+        from app.services.sessions import store_passive_message
+
+        channel_id = uuid.uuid4()
+        sid = uuid.uuid4()
+        channel = Channel(
+            id=channel_id, name="test-channel-2", client_id="test:c2", bot_id=bot.id,
+            active_session_id=sid,
+        )
+        db_session.add(channel)
+        session = Session(id=sid, client_id="test:c2", bot_id=bot.id, channel_id=channel_id)
+        db_session.add(session)
+        await db_session.commit()
+
+        channel_events.reset_channel_state(channel_id)
+
+        await store_passive_message(
+            db_session, sid, "ambient", {"passive": True}, channel_id=channel_id,
+        )
+
+        buf = list(channel_events._replay_buffer.get(channel_id, ()))
+        new_msg_events = [e for e in buf if e.event_type == "new_message"]
+        assert len(new_msg_events) == 1
+        body = new_msg_events[0].metadata["message"]
+        assert body["content"] == "ambient"
+        assert body["metadata"] == {"passive": True}
+
+        channel_events.reset_channel_state(channel_id)
+
+
+# ---------------------------------------------------------------------------
 # _content_for_db
 # ---------------------------------------------------------------------------
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -733,6 +733,14 @@ async def admin_bot_create(
     if persona_content_val:
         await write_persona(data.id, persona_content_val)
 
+    # Phase 3 working set: enroll starter pack so the new bot has a baseline
+    # of skills to work from on its first turn. Idempotent and safe to retry.
+    try:
+        from app.services.skill_enrollment import enroll_starter_pack
+        await enroll_starter_pack(data.id)
+    except Exception:
+        logger.warning("Failed to enroll starter pack for new bot %s", data.id, exc_info=True)
+
     await reload_bots()
 
     bot = get_bot(data.id)
@@ -1242,4 +1250,109 @@ async def admin_bot_sandbox_recreate(
 
     return {"status": "ok", "message": f"Sandbox for '{bot_id}' destroyed. Will be recreated on next use."}
 
+
+# ---------------------------------------------------------------------------
+# Enrolled skills (Phase 3 working set)
+# ---------------------------------------------------------------------------
+
+class EnrolledSkillOut(BaseModel):
+    skill_id: str
+    name: str
+    description: Optional[str] = None
+    source: str
+    enrolled_at: datetime
+    surface_count: int
+    last_surfaced_at: Optional[datetime] = None
+
+
+EnrollmentSource = Literal["starter", "fetched", "manual", "migration", "authored"]
+
+
+class EnrollSkillIn(BaseModel):
+    skill_id: str
+    source: EnrollmentSource = "manual"
+
+
+@router.get("/bots/{bot_id}/enrolled-skills", response_model=list[EnrolledSkillOut])
+async def admin_bot_enrolled_skills_list(
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:read")),
+):
+    """List the bot's enrolled working set with metadata for the bot UI."""
+    from app.db.models import BotSkillEnrollment
+
+    bot_row = await db.get(BotRow, bot_id)
+    if not bot_row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    rows = (await db.execute(
+        select(
+            BotSkillEnrollment.skill_id,
+            BotSkillEnrollment.source,
+            BotSkillEnrollment.enrolled_at,
+            SkillRow.name,
+            SkillRow.description,
+            SkillRow.surface_count,
+            SkillRow.last_surfaced_at,
+        )
+        .join(SkillRow, SkillRow.id == BotSkillEnrollment.skill_id)
+        .where(BotSkillEnrollment.bot_id == bot_id)
+        .order_by(BotSkillEnrollment.enrolled_at.desc())
+    )).all()
+
+    return [
+        EnrolledSkillOut(
+            skill_id=r.skill_id,
+            name=r.name,
+            description=r.description,
+            source=r.source,
+            enrolled_at=r.enrolled_at,
+            surface_count=r.surface_count,
+            last_surfaced_at=r.last_surfaced_at,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/bots/{bot_id}/enrolled-skills", status_code=201)
+async def admin_bot_enrolled_skill_add(
+    bot_id: str,
+    body: EnrollSkillIn = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:write")),
+):
+    """Manually enroll a skill in the bot's working set."""
+    from app.services.skill_enrollment import enroll
+
+    bot_row = await db.get(BotRow, bot_id)
+    if not bot_row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    skill_row = await db.get(SkillRow, body.skill_id)
+    if not skill_row:
+        raise HTTPException(status_code=404, detail=f"Skill not found: {body.skill_id}")
+
+    inserted = await enroll(bot_id, body.skill_id, source=body.source or "manual")
+    return {"status": "ok", "skill_id": body.skill_id, "inserted": inserted}
+
+
+@router.delete("/bots/{bot_id}/enrolled-skills/{skill_id}", status_code=204)
+async def admin_bot_enrolled_skill_remove(
+    bot_id: str,
+    skill_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:write")),
+):
+    """Remove a skill from the bot's enrolled working set."""
+    from app.services.skill_enrollment import unenroll
+
+    bot_row = await db.get(BotRow, bot_id)
+    if not bot_row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    deleted = await unenroll(bot_id, skill_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Enrollment not found: {bot_id}/{skill_id}")
+    return None
 
