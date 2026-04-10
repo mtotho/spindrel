@@ -198,7 +198,6 @@ async def test_carapace_resolve(client: E2EClient) -> None:
         assert resp.status_code == 200
         data = resp.json()
         assert "local_tools" in data
-        assert "skills" in data
         assert "resolved_ids" in data
         assert cid in data["resolved_ids"]
     finally:
@@ -275,7 +274,7 @@ async def test_carapace_out_fields_complete(client: E2EClient) -> None:
         data = resp.json()
 
         required_fields = [
-            "id", "name", "description", "skills", "local_tools",
+            "id", "name", "description", "local_tools",
             "mcp_tools", "pinned_tools", "system_prompt_fragment",
             "includes", "delegates", "tags", "source_type",
             "created_at", "updated_at",

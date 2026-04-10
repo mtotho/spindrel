@@ -1340,7 +1340,7 @@ async def admin_bot_enrolled_skill_add(
     return {"status": "ok", "skill_id": body.skill_id, "inserted": inserted}
 
 
-@router.delete("/bots/{bot_id}/enrolled-skills/{skill_id}", status_code=204)
+@router.delete("/bots/{bot_id}/enrolled-skills/{skill_id:path}", status_code=204)
 async def admin_bot_enrolled_skill_remove(
     bot_id: str,
     skill_id: str,

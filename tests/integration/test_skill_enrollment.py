@@ -291,6 +291,28 @@ class TestEnrolledSkillsEndpoints:
         invalidate_enrolled_cache()
         assert await get_enrolled_skill_ids("bot10") == []
 
+    async def test_delete_skill_id_with_slashes(self, client, patched_session, db_session):
+        """Skill IDs like ``carapaces/orchestrator/foo`` contain slashes.
+
+        Regression: the DELETE route used ``{skill_id}`` instead of
+        ``{skill_id:path}``, so removing any slashed enrollment 404'd.
+        """
+        from app.services.skill_enrollment import enroll, get_enrolled_skill_ids, invalidate_enrolled_cache
+
+        slashed_id = "carapaces/orchestrator/workspace-delegation"
+        await _create_bot(db_session, "bot11")
+        await _create_skill(db_session, slashed_id)
+        await enroll("bot11", slashed_id, source="manual")
+        invalidate_enrolled_cache()
+
+        resp = await client.delete(
+            f"/api/v1/admin/bots/bot11/enrolled-skills/{slashed_id}",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 204, resp.text
+        invalidate_enrolled_cache()
+        assert await get_enrolled_skill_ids("bot11") == []
+
 
 # ---------------------------------------------------------------------------
 # Cascade on bot delete
