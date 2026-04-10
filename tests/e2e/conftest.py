@@ -53,6 +53,7 @@ class _ResultCollector:
     def __init__(self) -> None:
         self.results: list[dict] = []
         self.start_time = time.monotonic()
+        self.start_utc = datetime.now(timezone.utc)
 
     def add(self, nodeid: str, outcome: str, duration: float = 0.0) -> None:
         # nodeid looks like "tests/e2e/scenarios/test_foo.py::test_bar[param]"

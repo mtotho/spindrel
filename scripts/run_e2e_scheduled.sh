@@ -4,6 +4,9 @@
 # Tiered JSON results written by conftest.py pytest hooks.
 # Exits 0 on success, 1 on failure (for cron error mail).
 #
+# By default targets the dedicated E2E instance (port 18000).
+# Logs always go to ~/logs/e2e/ regardless of which instance is targeted.
+#
 # Usage:
 #   ./scripts/run_e2e_scheduled.sh           # run and log
 #   ./scripts/run_e2e_scheduled.sh --quiet   # suppress stdout (cron default)
@@ -19,14 +22,19 @@ LATEST_LINK="$LOG_DIR/latest.log"
 
 mkdir -p "$LOG_DIR"
 
-# Load .env for API key
+# Default to E2E instance for API key
+E2E_INSTANCE_DIR="${E2E_INSTANCE_DIR:-$HOME/spindrel-e2e}"
+if [[ -z "${E2E_API_KEY:-}" ]] && [[ -f "$E2E_INSTANCE_DIR/.env" ]]; then
+    E2E_API_KEY=$(grep '^API_KEY=' "$E2E_INSTANCE_DIR/.env" | cut -d= -f2)
+fi
+# Fallback to main instance .env
 if [[ -z "${E2E_API_KEY:-}" ]] && [[ -f "$PROJECT_ROOT/.env" ]]; then
     E2E_API_KEY=$(grep '^API_KEY=' "$PROJECT_ROOT/.env" | cut -d= -f2)
 fi
 
 export E2E_MODE="external"
 export E2E_HOST="${E2E_HOST:-localhost}"
-export E2E_PORT="${E2E_PORT:-8000}"
+export E2E_PORT="${E2E_PORT:-18000}"
 export E2E_API_KEY="${E2E_API_KEY:?API key required}"
 export E2E_BOT_ID="${E2E_BOT_ID:-e2e}"
 export E2E_DEFAULT_MODEL="${E2E_DEFAULT_MODEL:-gemini/gemini-2.5-flash-lite}"

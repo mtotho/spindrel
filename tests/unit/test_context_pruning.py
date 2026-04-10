@@ -362,14 +362,29 @@ class TestRetrievalPointers:
 
         assert messages[2]["_tool_record_id"] == record_id
 
-    def test_recent_turns_untouched_with_record_id(self):
-        """Kept turns should not be pruned even if they have _tool_record_id."""
+    def test_recent_turns_with_record_id_still_pruned(self):
+        """Kept turns with _tool_record_id should still be pruned (retrievable)."""
         record_id = "abc12345-1234-1234-1234-123456789abc"
         original_content = _long_content(500)
         messages = [
             _make_user_msg("q1"),
             _make_assistant_msg("", [_make_tool_call("tc1", "search")]),
             {**_make_tool_result("tc1", original_content), "_tool_record_id": record_id},
+            _make_assistant_msg("a1"),
+        ]
+        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+
+        assert stats["pruned_count"] == 1
+        assert "read_conversation_history" in messages[2]["content"]
+        assert record_id in messages[2]["content"]
+
+    def test_recent_turns_without_record_id_untouched(self):
+        """Kept turns without _tool_record_id should NOT be pruned."""
+        original_content = _long_content(500)
+        messages = [
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "search")]),
+            _make_tool_result("tc1", original_content),
             _make_assistant_msg("a1"),
         ]
         stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)

@@ -58,30 +58,36 @@ def prune_tool_results(
     # --- build tool_call_id → tool_name map from assistant messages ---
     tool_name_map = _build_tool_name_map(conv_msgs)
 
-    # --- prune older turns ---
-    turns_to_prune = turns[: max(0, len(turns) - keep_full_turns)]
+    # --- determine which turns are "old" vs "kept" ---
+    old_turn_count = max(0, len(turns) - keep_full_turns)
 
     pruned_count = 0
     chars_saved = 0
     turns_pruned = 0
 
-    for turn_msgs in turns_to_prune:
+    for turn_idx, turn_msgs in enumerate(turns):
+        is_kept_turn = turn_idx >= old_turn_count
         turn_had_pruning = False
         for msg in turn_msgs:
             if msg.get("role") != "tool":
                 continue
             content = msg.get("content", "")
             if not isinstance(content, str):
-                # Some tool results may be structured (list of content blocks).
-                # Stringify for length check; replace with marker string.
                 content = str(content)
             if len(content) < min_content_length:
+                continue
+
+            record_id = msg.get("_tool_record_id")
+
+            # In kept turns, only replace tool results that have a retrieval
+            # pointer (the full output is stored in DB). Tool results without
+            # a record_id are kept verbatim in recent turns.
+            if is_kept_turn and not record_id:
                 continue
 
             tool_call_id = msg.get("tool_call_id", "")
             tool_name = tool_name_map.get(tool_call_id, "unknown")
             original_length = len(content)
-            record_id = msg.get("_tool_record_id")
             if record_id:
                 marker = (
                     f"[Tool output from {tool_name} ({original_length:,} chars)"

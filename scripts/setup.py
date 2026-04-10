@@ -200,6 +200,90 @@ def write_seed_file(provider: dict, base_url: str, api_key: str) -> None:
 
 # ── Main wizard ─────────────────────────────────────────────────────────────
 
+def main_headless() -> None:
+    """Non-interactive setup — all config from environment variables."""
+    env = os.environ.get
+
+    if ENV_FILE.exists() and env("SPINDREL_OVERWRITE", "") != "1":
+        print(".env already exists. Set SPINDREL_OVERWRITE=1 to replace.")
+        sys.exit(1)
+
+    env_config: dict[str, str] = {}
+
+    # Deploy mode
+    deploy = env("SPINDREL_DEPLOY_MODE", "docker")
+    if deploy == "docker":
+        db_url = env("SPINDREL_DB_URL", "postgresql+asyncpg://agent:agent@postgres:5432/agentdb")
+    else:
+        db_url = env("SPINDREL_DB_URL", "postgresql+asyncpg://agent:agent@localhost:5432/agentdb")
+    env_config["DATABASE_URL"] = db_url
+
+    # Provider
+    provider_id = env("SPINDREL_PROVIDER", "skip")
+    if provider_id != "skip":
+        provider = next((p for p in PROVIDERS if p["id"] == provider_id), None)
+        if not provider:
+            print(f"Unknown provider: {provider_id}")
+            print(f"Valid: {', '.join(p['id'] for p in PROVIDERS)}")
+            sys.exit(1)
+
+        # Base URL
+        base_url = env("SPINDREL_LLM_BASE_URL", "")
+        if not base_url:
+            if deploy == "docker" and "base_url_docker" in provider:
+                base_url = provider["base_url_docker"]
+            else:
+                base_url = provider.get("base_url", provider.get("base_url_default", ""))
+
+        # API key
+        api_key = env("SPINDREL_LLM_API_KEY", "")
+        if provider.get("ask_api_key") is True and not api_key:
+            print(f"Error: SPINDREL_LLM_API_KEY required for {provider['label']}")
+            sys.exit(1)
+
+        # Model — use env, or first preset, or require it
+        model = env("SPINDREL_MODEL", "")
+        if not model:
+            models = provider.get("models", [])
+            if models:
+                model = models[0]
+            else:
+                print("Error: SPINDREL_MODEL required for this provider (no presets)")
+                sys.exit(1)
+
+        env_config["DEFAULT_MODEL"] = model
+        env_config["LLM_BASE_URL"] = base_url
+        if api_key:
+            env_config["LLM_API_KEY"] = api_key
+
+        write_seed_file(provider, base_url, api_key)
+        print(f"  Provider: {provider['label']}, Model: {model}")
+
+    # Web search
+    web_mode = env("SPINDREL_WEB_SEARCH", "ddgs")
+    if web_mode == "searxng":
+        env_config["WEB_SEARCH_MODE"] = "searxng"
+        env_config["WEB_SEARCH_CONTAINERS"] = "true"
+    elif web_mode == "searxng-external":
+        env_config["WEB_SEARCH_MODE"] = "searxng"
+        searxng_url = env("SPINDREL_SEARXNG_URL", "http://localhost:8080")
+        env_config["SEARXNG_URL"] = searxng_url
+    elif web_mode != "none":
+        env_config["WEB_SEARCH_MODE"] = web_mode
+
+    # API key
+    api_key_val = env("SPINDREL_API_KEY", "")
+    if not api_key_val:
+        api_key_val = generate_api_key()
+    env_config["API_KEY"] = api_key_val
+
+    # Write .env
+    write_env_file(env_config)
+    print(f"  .env written to {ENV_FILE}")
+    print(f"  API Key: {api_key_val[:20]}...")
+    print(f"  Web Search: {web_mode}")
+
+
 def main() -> None:
     print()
 
@@ -532,4 +616,7 @@ def _install_cli() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    if HEADLESS:
+        main_headless()
+    else:
+        main()

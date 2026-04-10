@@ -101,7 +101,12 @@ if [ ! -d "$SETUP_VENV" ]; then
         python3 -m venv "$SETUP_VENV" --without-pip
         "$SETUP_VENV/bin/python" -m ensurepip --upgrade -q
     }
-    "$SETUP_VENV/bin/python" -m pip install -q questionary pyyaml
+    # questionary only needed for interactive mode
+    if [ "${SPINDREL_HEADLESS:-}" != "1" ]; then
+        "$SETUP_VENV/bin/python" -m pip install -q questionary pyyaml
+    else
+        "$SETUP_VENV/bin/python" -m pip install -q pyyaml
+    fi
 fi
 
 # ── Run Python wizard ──────────────────────────────────────────────────────
