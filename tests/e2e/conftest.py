@@ -123,6 +123,42 @@ class _ResultCollector:
             "total_failed": total_failed,
         }
 
+    def fetch_usage(self, config: E2EConfig) -> dict | None:
+        """Query the server's usage API for cost/token totals since run start."""
+        import httpx
+
+        after = self.start_utc.strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            resp = httpx.get(
+                f"{config.base_url}/api/v1/admin/usage/summary",
+                params={"after": after},
+                headers={"Authorization": f"Bearer {config.api_key}"},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                logger.warning("Usage API returned %s", resp.status_code)
+                return None
+            data = resp.json()
+            return {
+                "total_calls": data.get("total_calls", 0),
+                "total_tokens": data.get("total_tokens", 0),
+                "prompt_tokens": data.get("total_prompt_tokens", 0),
+                "completion_tokens": data.get("total_completion_tokens", 0),
+                "cost_usd": data.get("total_cost"),
+                "by_model": [
+                    {
+                        "model": m.get("label"),
+                        "calls": m.get("calls", 0),
+                        "tokens": m.get("total_tokens", 0),
+                        "cost_usd": m.get("cost"),
+                    }
+                    for m in data.get("cost_by_model", [])
+                ],
+            }
+        except Exception:
+            logger.warning("Failed to fetch usage data", exc_info=True)
+            return None
+
 
 # Session-level collector instance
 _collector = _ResultCollector()
@@ -234,6 +270,12 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     try:
         config = E2EConfig.from_env()
         summary = _collector.build_summary(config)
+
+        # Fetch cost/token usage from the server
+        usage = _collector.fetch_usage(config)
+        if usage:
+            summary["usage"] = usage
+
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
         # Always write to ~/logs/e2e/

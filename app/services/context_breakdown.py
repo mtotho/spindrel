@@ -107,7 +107,9 @@ async def compute_context_breakdown(
     from app.agent.bots import get_bot
     from app.agent.persona import get_persona
 
-    channel = await db.get(Channel, channel_id)
+    import uuid as _uuid
+    _ch_pk = _uuid.UUID(channel_id) if isinstance(channel_id, str) else channel_id
+    channel = await db.get(Channel, _ch_pk)
     if not channel:
         raise ValueError(f"Channel not found: {channel_id}")
 
@@ -435,77 +437,44 @@ async def compute_context_breakdown(
                 description=desc,
             ))
 
-        # Context pruning savings estimate
-        # Actual pruning only replaces tool results in turns OUTSIDE the
-        # keep_turns window, so we must find the boundary and only count
-        # tool messages before it.
+        # Context pruning savings estimate.
+        # Tool results with a stored record_id are replaced with retrieval
+        # pointers regardless of turn position.  Old results without a
+        # record_id are pruned only in turns outside the keep_turns window.
+        # Rather than re-implementing the full turn-splitting logic here,
+        # we count all tool messages >= min_length as eligible — this is
+        # accurate for new messages (all have record IDs) and slightly
+        # overestimates for legacy messages in kept turns.
         _pruning_on = _resolve_setting(
             getattr(channel, "context_pruning", None),
             getattr(bot, "context_pruning", None),
             settings.CONTEXT_PRUNING_ENABLED, "context_pruning",
         ).value
         if _pruning_on and chars_since_watermark > 0:
-            _keep = _resolve_setting(
-                getattr(channel, "context_pruning_keep_turns", None),
-                getattr(bot, "context_pruning_keep_turns", None),
-                settings.CONTEXT_PRUNING_KEEP_TURNS, "context_pruning_keep_turns",
-            ).value
             _min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
             _watermark_clause = Message.created_at > watermark_msg.created_at if (session and session.summary_message_id and watermark_msg) else True
 
-            # Count user turns to determine how many are prunable
-            _total_user_turns = user_msgs_since_watermark
-            if _total_user_turns is None:
-                _total_user_turns = (await db.execute(
-                    select(func.count()).where(
-                        Message.session_id == channel.active_session_id,
-                        Message.role == "user",
-                    )
-                )).scalar_one()
-
-            _turns_to_prune = max(0, _total_user_turns - _keep)
-
-            if _turns_to_prune > 0:
-                # Find the first KEPT turn's user message timestamp.
-                # Tool messages created before this are in pruneable turns.
-                _prune_boundary = None
-                if _keep > 0:
-                    _prune_boundary = (await db.execute(
-                        select(Message.created_at).where(
-                            Message.session_id == channel.active_session_id,
-                            _watermark_clause,
-                            Message.role == "user",
-                        ).order_by(Message.created_at.desc())
-                        .offset(_keep - 1).limit(1)
-                    )).scalar_one_or_none()
-
-                # Build the query for eligible tool messages
-                _tool_where = [
+            _tool_msg_stats = (await db.execute(
+                select(
+                    func.count(),
+                    func.coalesce(func.sum(func.length(Message.content)), 0),
+                ).where(
                     Message.session_id == channel.active_session_id,
                     _watermark_clause,
                     Message.role == "tool",
                     func.length(Message.content) >= _min_len,
-                ]
-                if _prune_boundary is not None:
-                    _tool_where.append(Message.created_at < _prune_boundary)
-                # else: _keep == 0 → all turns pruned, no boundary needed
-
-                _tool_msg_stats = (await db.execute(
-                    select(
-                        func.count(),
-                        func.coalesce(func.sum(func.length(Message.content)), 0),
-                    ).where(*_tool_where)
-                )).one()
-                _tool_count, _tool_chars = _tool_msg_stats
-                if _tool_count > 0:
-                    _marker_chars = _tool_count * 50
-                    _est_savings = max(0, _tool_chars - _marker_chars)
-                    categories.append(ContextCategory(
-                        key="context_pruning", label="Context Pruning (savings)",
-                        chars=-_est_savings,
-                        tokens_approx=0, percentage=0, category="conversation",
-                        description=f"~{_tool_count} tool results eligible for pruning (keeping last {_keep} turns intact)",
-                    ))
+                )
+            )).one()
+            _tool_count, _tool_chars = _tool_msg_stats
+            if _tool_count > 0:
+                _marker_chars = _tool_count * 120  # retrieval pointer markers are ~120 chars
+                _est_savings = max(0, _tool_chars - _marker_chars)
+                categories.append(ContextCategory(
+                    key="context_pruning", label="Context Pruning (savings)",
+                    chars=-_est_savings,
+                    tokens_approx=0, percentage=0, category="conversation",
+                    description=f"~{_tool_count} tool results replaced with retrieval pointers",
+                ))
 
     # -----------------------------------------------------------------------
     # 4. Compaction state

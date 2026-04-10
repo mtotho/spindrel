@@ -34,7 +34,41 @@ def _compile_jsonb_sqlite(type_, compiler, **kw):
 
 @compiles(PG_UUID, "sqlite")
 def _compile_uuid_sqlite(type_, compiler, **kw):
-    return "CHAR(32)"
+    return "CHAR(36)"
+
+
+# SQLite doesn't have native UUID support.  Register bind/result processors
+# so uuid.UUID objects survive the round-trip through CHAR(36) columns.
+import uuid as _uuid_mod
+
+_orig_bind = PG_UUID.bind_processor
+
+def _patched_bind_processor(self, dialect):
+    if dialect.name == "sqlite":
+        def process(value):
+            if value is None:
+                return value
+            if isinstance(value, _uuid_mod.UUID):
+                return str(value)
+            return value
+        return process
+    return _orig_bind(self, dialect)
+
+_orig_result = PG_UUID.result_processor
+
+def _patched_result_processor(self, dialect, coltype):
+    if dialect.name == "sqlite":
+        def process(value):
+            if value is None:
+                return value
+            if isinstance(value, _uuid_mod.UUID):
+                return value
+            return _uuid_mod.UUID(str(value))
+        return process
+    return _orig_result(self, dialect, coltype)
+
+PG_UUID.bind_processor = _patched_bind_processor
+PG_UUID.result_processor = _patched_result_processor
 
 
 @compiles(PG_TSVECTOR, "sqlite")
