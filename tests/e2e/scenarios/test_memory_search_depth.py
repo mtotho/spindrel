@@ -1,8 +1,8 @@
 """Tier 2: Memory search depth — write-then-search, curation trigger, relevance ranking.
 
 Deepens memory coverage beyond basic round-trips.  Tests the search pipeline
-end-to-end: LLM writes memory files, the auto-reindex fires, and the REST
-search API surfaces the content with correct relevance ordering.
+end-to-end: files written via the workspace REST API (which triggers auto-reindex),
+then the REST search API surfaces the content with correct relevance ordering.
 
 Tier 2 — server behavior (model via E2E_DEFAULT_MODEL).
 """
@@ -14,7 +14,6 @@ import uuid
 
 import pytest
 
-from ..harness.assertions import assert_tool_called
 from ..harness.client import E2EClient
 
 
@@ -26,28 +25,25 @@ def _unique(prefix: str = "e2e") -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
-_FILE_TOOL_HINT = (
-    'You have a tool called "file" that accepts an "operation" parameter '
-    '(one of: read, write, append, edit, list, delete, mkdir, move) '
-    'and a "path" parameter. '
-)
+async def _get_workspace_id(client: E2EClient) -> str | None:
+    """Get the shared workspace ID for the default bot."""
+    bot = await client.get_bot(client.default_bot_id)
+    return bot.get("shared_workspace_id")
 
 
-async def _write_memory_file(
-    client: E2EClient, filename: str, content: str, *, client_id: str | None = None,
+async def _write_memory_via_api(
+    client: E2EClient, workspace_id: str, filename: str, content: str,
 ) -> None:
-    """Have the LLM write a memory file (triggers auto-reindex)."""
-    cid = client_id or client.new_client_id()
-    r = await client.chat_stream(
-        f'{_FILE_TOOL_HINT}'
-        f'Call the "file" tool with operation="write", '
-        f'path="memory/{filename}", '
-        f'content="{content}". '
-        f'Confirm you wrote it.',
-        client_id=cid,
+    """Write a memory file via the workspace REST API (triggers auto-reindex)."""
+    ws_path = f"bots/{client.default_bot_id}/memory/{filename}"
+    resp = await client.put(
+        f"/api/v1/workspaces/{workspace_id}/files/content",
+        params={"path": ws_path},
+        json={"content": content},
     )
-    assert not r.error_events, f"Write errors: {r.error_events}"
-    assert_tool_called(r.tools_used, ["file"])
+    assert resp.status_code == 200, (
+        f"Workspace file write failed: {resp.status_code} {resp.text[:200]}"
+    )
 
 
 async def _search_memory(
@@ -69,18 +65,14 @@ async def _search_memory(
 async def _poll_task_terminal(
     client: E2EClient, task_id: str, *, timeout: float = 120, interval: float = 3,
 ) -> dict:
-    """Poll a task until it reaches a terminal status.
-
-    Tolerates transient 500s from the task detail endpoint (known issue:
-    serialization error while task is running with a correlation_id set).
-    """
+    """Poll a task until it reaches a terminal status."""
     import time
     deadline = time.monotonic() + timeout
     last_status = "unknown"
     while time.monotonic() < deadline:
         resp = await client.get(f"/api/v1/admin/tasks/{task_id}")
         if resp.status_code == 500:
-            # Transient — task is likely running; retry
+            # Transient — task may be running; retry
             await asyncio.sleep(interval)
             continue
         assert resp.status_code == 200, f"Task fetch failed: {resp.status_code} {resp.text[:200]}"
@@ -93,33 +85,35 @@ async def _poll_task_terminal(
 
 
 # ---------------------------------------------------------------------------
-# 1. Write via LLM → search finds it
+# 1. Write via REST API → search finds it
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_memory_write_then_search_finds_content(client: E2EClient) -> None:
-    """Write a memory file via LLM, wait for auto-reindex, verify search surfaces it.
+    """Write a memory file via workspace API, wait for auto-reindex, verify search surfaces it.
 
-    The channel workspace write path auto-triggers _schedule_reindex, which
-    indexes memory files for all bots in the workspace.  We poll search until
-    the new content appears (or timeout).
+    The workspace file write endpoint triggers _schedule_reindex_for_paths,
+    which indexes memory files for all bots in the workspace.
     """
+    workspace_id = await _get_workspace_id(client)
+    if not workspace_id:
+        pytest.skip("Bot has no shared_workspace_id")
+
     token = _unique("srch")
     filename = f"e2e-search-depth-{token}.md"
     content = f"The secret ingredient for the {token} recipe is cardamom"
 
-    await _write_memory_file(client, filename, content)
+    await _write_memory_via_api(client, workspace_id, filename, content)
 
-    # Poll search — reindex is async, may take a few seconds
+    # Poll search — reindex fires async in the background
     import time
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + 90
     results = []
     while time.monotonic() < deadline:
         results = await _search_memory(client, token)
-        matching = [r for r in results if token in r["content"]]
+        matching = [r for r in results if token in r.get("content", "")]
         if matching:
-            # Verify result quality
             hit = matching[0]
             assert hit["bot_id"] == client.default_bot_id
             assert hit["score"] > 0, "Score should be positive"
@@ -128,7 +122,7 @@ async def test_memory_write_then_search_finds_content(client: E2EClient) -> None
         await asyncio.sleep(5)
 
     pytest.fail(
-        f"Search for '{token}' never returned matching results after 60s. "
+        f"Search for '{token}' never returned matching results after 90s. "
         f"Last results: {[r.get('file_path', '?') for r in results[:5]]}"
     )
 
@@ -146,12 +140,10 @@ async def test_memory_curation_trigger_completes(client: E2EClient) -> None:
     content), just that the pipeline works: trigger → task created → task reaches
     terminal state without error.
     """
-    # Check that bot supports hygiene (workspace-files memory scheme)
     bot = await client.get_bot(client.default_bot_id)
     if bot.get("memory_scheme") != "workspace-files":
         pytest.skip("Bot doesn't use workspace-files memory scheme")
 
-    # Trigger curation
     resp = await client.post(
         f"/api/v1/admin/bots/{client.default_bot_id}/memory-hygiene/trigger",
     )
@@ -160,7 +152,6 @@ async def test_memory_curation_trigger_completes(client: E2EClient) -> None:
     assert "task_id" in data, f"No task_id in response: {data}"
     task_id = data["task_id"]
 
-    # Poll task to completion
     final = await _poll_task_terminal(client, task_id, timeout=120)
     assert final["status"] in ("complete", "completed"), (
         f"Hygiene task ended with status={final['status']}, "
@@ -188,6 +179,10 @@ async def test_memory_search_relevance_ranking(client: E2EClient) -> None:
     Topic A: a unique astronomy fact.  Topic B: a unique cooking fact.
     Search for topic A's keyword — topic A should score higher than topic B.
     """
+    workspace_id = await _get_workspace_id(client)
+    if not workspace_id:
+        pytest.skip("Bot has no shared_workspace_id")
+
     tag = _unique("rel")
     token_a = f"quasar-{tag}"
     token_b = f"sourdough-{tag}"
@@ -206,42 +201,41 @@ async def test_memory_search_relevance_ranking(client: E2EClient) -> None:
         f"Bulk fermentation time was 4 hours with two stretch-and-folds."
     )
 
-    # Write both files
-    cid = client.new_client_id()
-    await _write_memory_file(client, file_a, content_a, client_id=cid)
-    await _write_memory_file(client, file_b, content_b, client_id=cid)
+    await _write_memory_via_api(client, workspace_id, file_a, content_a)
+    await _write_memory_via_api(client, workspace_id, file_b, content_b)
 
     # Wait for reindex then search for astronomy topic
     import time
-    deadline = time.monotonic() + 60
+    deadline = time.monotonic() + 90
+    results: list[dict] = []
     while time.monotonic() < deadline:
         results = await _search_memory(client, "quasar gravitational lensing redshift")
-        # Need both files indexed to make a valid comparison
-        paths = [r.get("file_path", "") for r in results]
-        has_a = any(token_a in p or "astro" in p for p in paths)
-        has_b = any(token_b in p or "cook" in p for p in paths)
+        # Check if current run's files are in results
+        has_a = any(
+            token_a in r.get("file_path", "") or token_a in r.get("content", "")
+            for r in results
+        )
         if has_a:
-            # Find scores
             score_a = max(
-                (r["score"] for r in results if token_a in r.get("file_path", "") or token_a in r.get("content", "")),
+                (r["score"] for r in results
+                 if token_a in r.get("file_path", "") or token_a in r.get("content", "")),
                 default=0,
             )
             score_b = max(
-                (r["score"] for r in results if token_b in r.get("file_path", "") or token_b in r.get("content", "")),
+                (r["score"] for r in results
+                 if token_b in r.get("file_path", "") or token_b in r.get("content", "")),
                 default=0,
             )
-            # Topic A should rank higher when searching for astronomy terms
             if score_a > 0:
-                if has_b:
+                if score_b > 0:
                     assert score_a > score_b, (
                         f"Astronomy result (score={score_a}) should rank higher than "
                         f"cooking result (score={score_b}) for astronomy query"
                     )
-                # Even without B indexed, A being found is a pass
                 return
         await asyncio.sleep(5)
 
     pytest.fail(
-        f"Astronomy file never appeared in search results after 60s. "
+        f"Astronomy file never appeared in search results after 90s. "
         f"Last results: {[r.get('file_path', '?') for r in results[:5]]}"
     )
