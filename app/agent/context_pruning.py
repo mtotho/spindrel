@@ -15,6 +15,15 @@ logger = logging.getLogger(__name__)
 _BEGIN_MARKER = "--- BEGIN RECENT CONVERSATION HISTORY ---"
 _END_MARKER = "--- END RECENT CONVERSATION HISTORY ---"
 
+# Tool names whose output is reference material (skills, runbooks) that
+# the bot needs to keep referring back to across multiple turns.  Tool
+# dispatch sets ``_no_prune=True`` on the resulting tool message so the
+# pruner skips it.  Pruning is the consumer; the loop is the producer.
+STICKY_TOOL_NAMES: frozenset[str] = frozenset({
+    "get_skill",
+    "get_skill_list",
+})
+
 
 def prune_tool_results(
     messages: list[dict],
@@ -22,10 +31,20 @@ def prune_tool_results(
 ) -> dict:
     """Replace tool-result content with compact markers.
 
-    All tool results from previous turns are pruned — the LLM already
-    consumed them in the turn they were produced.  If a `_tool_record_id`
-    is present on the message, the marker includes a retrieval pointer
-    so the bot can fetch the full output via `read_conversation_history`.
+    All tool results in the conversation region are pruned — the LLM already
+    consumed them in the turn they were produced.  This is safe because
+    pruning only runs at ``assemble_context`` time (start of a new user
+    turn), before the agent loop produces any tool results for the
+    in-progress turn — so we are never replacing data the model is
+    actively working with.
+
+    If a ``_tool_record_id`` is present on the message, the marker
+    includes a retrieval pointer so the bot can fetch the full output
+    via ``read_conversation_history``.
+
+    Messages with ``_no_prune: True`` are always kept verbatim — used
+    for reference-style tool output (skills, runbooks) that the bot
+    needs to keep referring back to across multiple turns.
 
     Parameters
     ----------
@@ -64,6 +83,10 @@ def prune_tool_results(
         turn_had_pruning = False
         for msg in turn_msgs:
             if msg.get("role") != "tool":
+                continue
+            # Sticky tool results (skills, runbooks) are reference material
+            # the bot keeps referring back to — never prune them.
+            if msg.get("_no_prune"):
                 continue
             content = msg.get("content", "")
             if not isinstance(content, str):

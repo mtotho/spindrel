@@ -467,7 +467,18 @@ async def compute_context_breakdown(
             )).one()
             _tool_count, _tool_chars = _tool_msg_stats
             if _tool_count > 0:
-                _marker_chars = _tool_count * 120  # retrieval pointer markers are ~120 chars
+                # Compute marker length from a representative sample so the
+                # estimate stays in sync if the marker format in
+                # context_pruning.py changes.  New messages get retrieval
+                # pointers (~140 chars); legacy messages get dead markers
+                # (~45 chars).  We use the retrieval pointer length as the
+                # conservative (smaller) savings estimate.
+                _sample_marker = (
+                    f"[Tool output from generic_tool (10,000 chars)"
+                    f" — use read_conversation_history(section='tool:00000000-0000-0000-0000-000000000000')"
+                    f" to retrieve]"
+                )
+                _marker_chars = _tool_count * len(_sample_marker)
                 _est_savings = max(0, _tool_chars - _marker_chars)
                 categories.append(ContextCategory(
                     key="context_pruning", label="Context Pruning (savings)",

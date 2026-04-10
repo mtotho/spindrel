@@ -15,6 +15,7 @@ from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context
 from app.services import session_locks
 from app.agent.context_assembly import AssemblyResult, assemble_context
+from app.agent.context_pruning import STICKY_TOOL_NAMES
 from app.agent.message_utils import (
     _event_with_compaction_tag,
     _extract_client_actions,
@@ -913,6 +914,8 @@ async def run_agent_tool_loop(
                     }
                     if tc_result.record_id is not None:
                         _tool_msg["_tool_record_id"] = str(tc_result.record_id)
+                    if name in STICKY_TOOL_NAMES:
+                        _tool_msg["_no_prune"] = True
                     messages.append(_tool_msg)
                     yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
@@ -1052,6 +1055,8 @@ async def run_agent_tool_loop(
                     }
                     if tc_result.record_id is not None:
                         _tool_msg["_tool_record_id"] = str(tc_result.record_id)
+                    if name in STICKY_TOOL_NAMES:
+                        _tool_msg["_no_prune"] = True
                     messages.append(_tool_msg)
                     yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 

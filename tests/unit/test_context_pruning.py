@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from app.agent.context_pruning import prune_tool_results
+from app.agent.context_pruning import STICKY_TOOL_NAMES, prune_tool_results
 
 
 # ---------------------------------------------------------------------------
@@ -366,6 +366,79 @@ class TestRetrievalPointers:
         assert stats["pruned_count"] == 1
         assert messages[2]["content"].startswith("[Tool result pruned")
         assert "read_conversation_history" not in messages[2]["content"]
+
+    def test_sticky_tool_result_not_pruned(self):
+        """Tool results with _no_prune=True should never be pruned, regardless of size."""
+        skill_content = "# How to deploy\n\n" + ("step " * 200)
+        messages = [
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "get_skill")]),
+            {**_make_tool_result("tc1", skill_content), "_no_prune": True},
+            _make_assistant_msg("following the skill"),
+            _make_user_msg("q2"),
+            _make_assistant_msg("done"),
+        ]
+        stats = prune_tool_results(messages, min_content_length=200)
+
+        assert stats["pruned_count"] == 0
+        # Skill content unchanged
+        assert messages[2]["content"] == skill_content
+        assert messages[2]["_no_prune"] is True
+
+    def test_sticky_flag_with_record_id_still_skipped(self):
+        """Sticky flag wins even when a record_id is present."""
+        skill_content = "skill body " * 100
+        messages = [
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "get_skill")]),
+            {
+                **_make_tool_result("tc1", skill_content),
+                "_no_prune": True,
+                "_tool_record_id": "abc12345-1234-1234-1234-123456789abc",
+            },
+            _make_assistant_msg("done"),
+            _make_user_msg("q2"),
+            _make_assistant_msg("final"),
+        ]
+        stats = prune_tool_results(messages, min_content_length=200)
+
+        assert stats["pruned_count"] == 0
+        assert messages[2]["content"] == skill_content
+
+    def test_mixed_sticky_and_normal_tool_results(self):
+        """Sticky tool results stay; non-sticky tool results in same conversation are pruned."""
+        skill_content = "# Runbook\n\n" + ("instructions " * 100)
+        normal_content = _long_content(500)
+        messages = [
+            # Turn 1: skill fetch (sticky)
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "get_skill")]),
+            {**_make_tool_result("tc1", skill_content), "_no_prune": True},
+            _make_assistant_msg("ok"),
+            # Turn 2: regular tool call (not sticky)
+            _make_user_msg("q2"),
+            _make_assistant_msg("", [_make_tool_call("tc2", "web_search")]),
+            _make_tool_result("tc2", normal_content),
+            _make_assistant_msg("done"),
+            # Turn 3 (recent)
+            _make_user_msg("q3"),
+            _make_assistant_msg("final"),
+        ]
+        stats = prune_tool_results(messages, min_content_length=200)
+
+        # Only the non-sticky one is pruned
+        assert stats["pruned_count"] == 1
+        assert stats["turns_pruned"] == 1
+        # Skill content untouched
+        assert messages[2]["content"] == skill_content
+        # web_search result replaced with marker
+        assert messages[6]["content"].startswith("[Tool result pruned")
+        assert "web_search" in messages[6]["content"]
+
+    def test_sticky_tool_names_constant_includes_skill_tools(self):
+        """The exported constant must include both skill tool names."""
+        assert "get_skill" in STICKY_TOOL_NAMES
+        assert "get_skill_list" in STICKY_TOOL_NAMES
 
     def test_mixed_record_id_and_no_record_id(self):
         """Messages with and without record IDs should get appropriate markers."""

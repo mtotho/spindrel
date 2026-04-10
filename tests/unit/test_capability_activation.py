@@ -495,6 +495,10 @@ def _gate_patches(
     mock_settings = MagicMock()
     mock_settings.CAPABILITY_APPROVAL = capability_approval
     mock_settings.TOOL_POLICY_ENABLED = policy_enabled
+    # Numeric attributes referenced after the gate; comparing MagicMocks raises TypeError.
+    mock_settings.TOOL_RESULT_HARD_CAP = 0
+    mock_settings.CONTEXT_PRUNING_MIN_LENGTH = 200
+    mock_settings.KNOWLEDGE_SIMILARITY_THRESHOLD = 0.5
 
     bot_cfg = SimpleNamespace(carapaces=bot_carapaces or [])
     cap_data = _MOCK_REGISTRY.get("code-review")

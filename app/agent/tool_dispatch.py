@@ -346,7 +346,6 @@ async def dispatch_tool_call(
 
     # Hard-cap: truncate very large results before they enter the context window.
     # Full result is stored in DB (below) so the bot can retrieve on demand.
-    from app.config import settings
     _hard_cap = settings.TOOL_RESULT_HARD_CAP
     if _hard_cap and len(result_for_llm) > _hard_cap:
         result_for_llm = (
