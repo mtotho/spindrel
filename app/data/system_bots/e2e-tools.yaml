@@ -1,6 +1,6 @@
 id: e2e-tools
 name: "E2E Tool Grounding Bot"
-model: "gemini/gemini-2.5-flash-lite"
+model: "gemini-2.5-flash-lite"
 system_prompt: |
   You are a test bot with access to several tools. Always use the appropriate tool
   when one is available. Be concise. Respond in plain text.

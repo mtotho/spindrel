@@ -640,6 +640,7 @@ class BotCreateIn(BaseModel):
     client_tools: Optional[list[str]] = None
     pinned_tools: Optional[list[str]] = None
     skills: Optional[list[dict]] = None
+    carapaces: Optional[list[str]] = None
     tool_retrieval: Optional[bool] = True
     tool_discovery: Optional[bool] = True
     tool_similarity_threshold: Optional[float] = None
