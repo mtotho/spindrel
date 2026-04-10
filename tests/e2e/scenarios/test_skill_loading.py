@@ -242,46 +242,11 @@ async def test_bot_with_skills_gets_skill_tools_injected(client: E2EClient) -> N
 
 
 # ---------------------------------------------------------------------------
-# 4. Capability with skills resolves correctly
+# 4. (Removed) "Capability with skills resolves correctly"
+# Capabilities no longer carry a `skills` field — skills flow exclusively
+# through the per-bot working set (see Track - Skill Simplification Phase 1.5).
+# The fragment-as-index pattern replaces the legacy `skills:` block.
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_capability_with_skills_resolves(client: E2EClient) -> None:
-    """A capability that references skills returns them in the resolve endpoint."""
-    sid = _skill_id()
-    cid = _cap_id()
-    try:
-        # Create skill
-        await client.post(
-            _ADMIN_SKILLS,
-            json={"id": sid, "name": "Resolve Test Skill", "content": "# Test"},
-        )
-
-        # Create capability referencing the skill
-        resp = await client.post(
-            _ADMIN_CARAPACES,
-            json={
-                "id": cid,
-                "name": "E2E Resolve Test",
-                "description": "Tests skill resolution",
-                "skills": [{"id": sid, "mode": "on_demand"}],
-                "tags": ["e2e-testing"],
-            },
-        )
-        assert resp.status_code == 201
-
-        # Resolve should show the skill
-        resp = await client.get(f"{_ADMIN_CARAPACES}/{cid}/resolve")
-        assert resp.status_code == 200
-        data = resp.json()
-        skill_ids = [s["id"] if isinstance(s, dict) else s for s in data.get("skills", [])]
-        assert sid in skill_ids, (
-            f"Resolved capability should include skill '{sid}'. Got: {skill_ids}"
-        )
-    finally:
-        await client.delete(f"{_ADMIN_CARAPACES}/{cid}")
-        await client.delete(f"{_ADMIN_SKILLS}/{sid}")
 
 
 # ---------------------------------------------------------------------------
