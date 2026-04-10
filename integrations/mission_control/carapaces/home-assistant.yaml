@@ -13,10 +13,6 @@ tags: [smart-home, home-assistant, automation, iot, lighting, climate]
 #   - Community ha-mcp (ha_* tools — 92+ tools, full HA API coverage)
 # The prompt fragment handles both tool naming conventions.
 
-skills:
-  - id: integrations/mission_control/home-assistant
-    mode: on_demand
-
 local_tools:
   - create_task_card
   - move_task_card

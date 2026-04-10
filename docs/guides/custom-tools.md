@@ -265,14 +265,18 @@ name: Home Assistant
 description: Smart home monitoring and control via Home Assistant
 system_prompt_fragment: |
   You have expertise in smart home automation. When the user asks about
-  lights, thermostats, sensors, or home automation routines, use the
-  smart-home skill for detailed guidance.
-skills:
-  - id: smart-home
-    mode: on_demand
+  lights, thermostats, sensors, or home automation routines, follow the
+  Deep Knowledge table.
+
+  ### Deep Knowledge
+  | When you need... | Fetch this skill |
+  |---|---|
+  | Smart-home device control patterns, routines, troubleshooting | `get_skill('smart-home')` |
 ```
 
-**`my-tools/carapaces/home-assistant/skills/smart-home.md`** — The skill content loaded by the capability.
+The carapace has no `skills:` field. Skills live in the catalog; bots fetch them via `get_skill('id')`, the first successful fetch auto-enrolls the skill into the bot's working set, and from there it's persistent. Point at skills from the system_prompt_fragment's Deep Knowledge table.
+
+**`my-tools/carapaces/home-assistant/skills/smart-home.md`** — The catalog skill the fragment points at.
 
 ```markdown
 # Smart Home Automation

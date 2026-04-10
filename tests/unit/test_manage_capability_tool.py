@@ -11,7 +11,6 @@ def _make_row(
     id: str = "test-carapace",
     name: str = "Test",
     description: str = "A description",
-    skills=None,
     local_tools=None,
     mcp_tools=None,
     pinned_tools=None,
@@ -25,7 +24,6 @@ def _make_row(
     row.id = id
     row.name = name
     row.description = description
-    row.skills = skills or [{"id": "testing", "mode": "pinned"}]
     row.local_tools = local_tools or ["exec_command", "file"]
     row.mcp_tools = mcp_tools or ["homeassistant"]
     row.pinned_tools = pinned_tools or ["exec_command"]
@@ -42,11 +40,10 @@ class TestUpdatePreservesUnsetFields:
 
     @pytest.mark.asyncio
     async def test_update_name_only_preserves_other_fields(self):
-        """Updating only the name should NOT clear skills, tools, etc."""
+        """Updating only the name should NOT clear tools, fragment, etc."""
         from app.tools.local.carapaces import manage_capability
 
         row = _make_row()
-        original_skills = list(row.skills)
         original_local_tools = list(row.local_tools)
         original_mcp_tools = list(row.mcp_tools)
         original_pinned_tools = list(row.pinned_tools)
@@ -73,7 +70,6 @@ class TestUpdatePreservesUnsetFields:
         # Name should be updated
         assert row.name == "New Name"
         # All other fields should be PRESERVED (not wiped)
-        assert row.skills == original_skills
         assert row.local_tools == original_local_tools
         assert row.mcp_tools == original_mcp_tools
         assert row.pinned_tools == original_pinned_tools
@@ -84,11 +80,10 @@ class TestUpdatePreservesUnsetFields:
 
     @pytest.mark.asyncio
     async def test_update_description_only(self):
-        """Updating description should not touch tools or skills."""
+        """Updating description should not touch tools."""
         from app.tools.local.carapaces import manage_capability
 
         row = _make_row()
-        original_skills = list(row.skills)
         original_local_tools = list(row.local_tools)
 
         mock_db = AsyncMock()
@@ -109,35 +104,7 @@ class TestUpdatePreservesUnsetFields:
         parsed = json.loads(result)
         assert parsed["ok"] is True
         assert row.description == "New desc"
-        assert row.skills == original_skills
         assert row.local_tools == original_local_tools
-
-    @pytest.mark.asyncio
-    async def test_update_skills_explicitly_clears(self):
-        """Passing skills="" explicitly should clear skills to []."""
-        from app.tools.local.carapaces import manage_capability
-
-        row = _make_row()
-        assert row.skills != []  # pre-condition
-
-        mock_db = AsyncMock()
-        mock_db.get = AsyncMock(return_value=row)
-        mock_db.commit = AsyncMock()
-
-        mock_session = AsyncMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_session.__aexit__ = AsyncMock(return_value=False)
-
-        with patch("app.db.engine.async_session", return_value=mock_session):
-            with patch("app.agent.carapaces.reload_carapaces", new_callable=AsyncMock):
-                result = await manage_capability(
-                    action="update", id="test-carapace",
-                    skills="",  # explicitly clear
-                )
-
-        parsed = json.loads(result)
-        assert parsed["ok"] is True
-        assert row.skills == []
 
     @pytest.mark.asyncio
     async def test_update_rejects_file_managed(self):

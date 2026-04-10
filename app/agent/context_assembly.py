@@ -884,10 +884,9 @@ async def assemble_context(
     if _carapace_ids:
         from app.agent.carapaces import resolve_carapaces as _resolve_carapaces
         _resolved_c = _resolve_carapaces(_carapace_ids)
-        # Merge skills (deduplicate by id)
-        _existing_skill_ids = {s.id for s in bot.skills}
-        _new_skills = [s for s in _resolved_c.skills if s.id not in _existing_skill_ids]
-        # Merge tools (deduplicate)
+        # Merge tools (deduplicate). Carapaces no longer carry skills — skills
+        # live in the per-bot working set; carapace fragments surface them via
+        # get_skill() pointers in their Deep Knowledge tables.
         _existing_tools = set(bot.local_tools)
         _new_local = [t for t in _resolved_c.local_tools if t not in _existing_tools]
         _existing_mcp = set(bot.mcp_servers)
@@ -908,23 +907,16 @@ async def assemble_context(
         if _ch_row is not None:
             _ch_tools_disabled = set(getattr(_ch_row, "local_tools_disabled", None) or [])
             _ch_mcp_disabled = set(getattr(_ch_row, "mcp_servers_disabled", None) or [])
-            _ch_skills_disabled = set(getattr(_ch_row, "skills_disabled", None) or [])
             if _ch_tools_disabled:
                 _new_local = [t for t in _new_local if t not in _ch_tools_disabled]
             if _ch_mcp_disabled:
                 _new_mcp = [t for t in _new_mcp if t not in _ch_mcp_disabled]
-            if _ch_skills_disabled:
-                _new_skills = [s for s in _new_skills if s.id not in _ch_skills_disabled]
         bot = _dc_replace(
             bot,
-            skills=list(bot.skills) + _new_skills,
             local_tools=list(bot.local_tools) + _new_local,
             mcp_servers=list(bot.mcp_servers) + _new_mcp,
             pinned_tools=list(bot.pinned_tools) + _new_pinned,
         )
-        # Publish resolved skill IDs so get_skill can authorize carapace-injected skills
-        from app.agent.context import current_resolved_skill_ids
-        current_resolved_skill_ids.set({s.id for s in bot.skills})
 
         # Inject system prompt fragments
         if _resolved_c.system_prompt_fragments:

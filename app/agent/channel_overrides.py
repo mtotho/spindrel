@@ -91,7 +91,8 @@ def _resolve_skills(
     - extras: add new skills from global pool
     - disabled: remove skills by id
     """
-    # Start with bot skills (already includes workspace DB skills)
+    # Start with bot skills (per-bot YAML/DB rows; workspace-level skill pinning
+    # was removed in Phase 4 — bots now self-curate via the working set).
     result_map = {s.id: s for s in bot_skills}
     # Merge channel extras (new skills from global pool)
     if extras:

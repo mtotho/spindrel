@@ -46,17 +46,6 @@ def build_embed_text(carapace: dict) -> str:
         excerpt = fragment[:500]
         parts.append(f"Expertise: {excerpt}")
 
-    skills = carapace.get("skills") or []
-    if skills:
-        skill_names = []
-        for s in skills:
-            if isinstance(s, dict):
-                skill_names.append(s.get("id", ""))
-            elif isinstance(s, str):
-                skill_names.append(s)
-        if skill_names:
-            parts.append(f"Skills: {', '.join(skill_names)}")
-
     tags = carapace.get("tags") or []
     if tags:
         parts.append(f"Tags: {', '.join(tags)}")

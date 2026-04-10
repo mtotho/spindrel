@@ -27,6 +27,32 @@ async def _create_workspace(client, **overrides) -> dict:
     return resp.json()
 
 
+async def _add_bot_to_workspace(
+    db_session,
+    ws_id: str,
+    bot_id: str,
+    *,
+    role: str = "member",
+    cwd_override: str | None = None,
+    write_access: list[str] | None = None,
+) -> None:
+    """Insert a SharedWorkspaceBot row directly.
+
+    The POST endpoint is retired (single-workspace mode); production membership
+    is owned by the bootstrap loop. Tests that need a workspace-bot row should
+    create it directly, the same way `ensure_all_bots_enrolled` does at startup.
+    """
+    swb = SharedWorkspaceBot(
+        workspace_id=uuid.UUID(ws_id),
+        bot_id=bot_id,
+        role=role,
+        cwd_override=cwd_override,
+        write_access=write_access or [],
+    )
+    db_session.add(swb)
+    await db_session.commit()
+
+
 # ---------------------------------------------------------------------------
 # POST /api/v1/workspaces
 # ---------------------------------------------------------------------------
@@ -302,62 +328,56 @@ class TestContainerControls:
 
 
 # ---------------------------------------------------------------------------
-# Bot management — add/update/remove
+# Bot management — POST/DELETE retired (single-workspace mode), PUT still works
 # ---------------------------------------------------------------------------
 
 class TestBotManagement:
-    async def test_add_bot(self, client, db_session):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service") as mock_svc:
-            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-                created = await _create_workspace(client)
-                ws_id = created["id"]
-                resp = await client.post(
-                    f"/api/v1/workspaces/{ws_id}/bots",
-                    json={"bot_id": "test-bot", "role": "member"},
-                    headers=AUTH_HEADERS,
-                )
-        assert resp.status_code == 201
-        body = resp.json()
-        assert len(body["bots"]) == 1
-        assert body["bots"][0]["bot_id"] == "test-bot"
-        assert body["bots"][0]["role"] == "member"
-
-    async def test_add_bot_as_orchestrator(self, client, db_session):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service") as mock_svc:
-            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-                created = await _create_workspace(client)
-                ws_id = created["id"]
-                resp = await client.post(
-                    f"/api/v1/workspaces/{ws_id}/bots",
-                    json={"bot_id": "test-bot", "role": "orchestrator"},
-                    headers=AUTH_HEADERS,
-                )
-        assert resp.status_code == 201
-        assert resp.json()["bots"][0]["role"] == "orchestrator"
-
-    async def test_add_bot_workspace_not_found(self, client):
+    async def test_add_bot_returns_410(self, client, db_session):
+        """Single-workspace mode: bot membership is owned by the bootstrap loop,
+        the POST endpoint is retired."""
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            created = await _create_workspace(client)
+            ws_id = created["id"]
         resp = await client.post(
-            f"/api/v1/workspaces/{uuid.uuid4()}/bots",
-            json={"bot_id": "test-bot"},
+            f"/api/v1/workspaces/{ws_id}/bots",
+            json={"bot_id": "test-bot", "role": "member"},
             headers=AUTH_HEADERS,
         )
-        assert resp.status_code == 404
+        assert resp.status_code == 410
+        assert "single-workspace" in resp.json()["detail"].lower()
+
+    async def test_remove_bot_returns_410(self, client, db_session):
+        """DELETE endpoint is retired for the same reason as POST."""
+        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
+            created = await _create_workspace(client)
+            ws_id = created["id"]
+        await _add_bot_to_workspace(db_session, ws_id, "test-bot")
+        resp = await client.delete(
+            f"/api/v1/workspaces/{ws_id}/bots/test-bot",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 410
+        # Verify the membership row is still there — the 410 must not have
+        # been wired to a side-effecting body.
+        resp = await client.get(
+            f"/api/v1/workspaces/{ws_id}", headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        assert len(resp.json()["bots"]) == 1
 
     async def test_update_bot_role(self, client, db_session):
+        """PUT continues to work for updating role/cwd_override/write_access on
+        existing memberships — only join/leave is retired, not config edits."""
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-                created = await _create_workspace(client)
-                ws_id = created["id"]
-                await client.post(
-                    f"/api/v1/workspaces/{ws_id}/bots",
-                    json={"bot_id": "test-bot", "role": "member"},
-                    headers=AUTH_HEADERS,
-                )
-                resp = await client.put(
-                    f"/api/v1/workspaces/{ws_id}/bots/test-bot",
-                    json={"role": "orchestrator"},
-                    headers=AUTH_HEADERS,
-                )
+            created = await _create_workspace(client)
+            ws_id = created["id"]
+        await _add_bot_to_workspace(db_session, ws_id, "test-bot", role="member")
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            resp = await client.put(
+                f"/api/v1/workspaces/{ws_id}/bots/test-bot",
+                json={"role": "orchestrator"},
+                headers=AUTH_HEADERS,
+            )
         assert resp.status_code == 200
         assert resp.json()["role"] == "orchestrator"
 
@@ -369,40 +389,6 @@ class TestBotManagement:
             resp = await client.put(
                 f"/api/v1/workspaces/{ws_id}/bots/nonexistent",
                 json={"role": "orchestrator"},
-                headers=AUTH_HEADERS,
-            )
-        assert resp.status_code == 404
-
-    async def test_remove_bot(self, client, db_session):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-                created = await _create_workspace(client)
-                ws_id = created["id"]
-                await client.post(
-                    f"/api/v1/workspaces/{ws_id}/bots",
-                    json={"bot_id": "test-bot"},
-                    headers=AUTH_HEADERS,
-                )
-                resp = await client.delete(
-                    f"/api/v1/workspaces/{ws_id}/bots/test-bot",
-                    headers=AUTH_HEADERS,
-                )
-        assert resp.status_code == 204
-
-        # Verify bot is removed
-        resp = await client.get(
-            f"/api/v1/workspaces/{ws_id}", headers=AUTH_HEADERS,
-        )
-        assert resp.status_code == 200
-        assert len(resp.json()["bots"]) == 0
-
-    async def test_remove_bot_not_in_workspace(self, client):
-        with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            created = await _create_workspace(client)
-        ws_id = created["id"]
-        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-            resp = await client.delete(
-                f"/api/v1/workspaces/{ws_id}/bots/nonexistent",
                 headers=AUTH_HEADERS,
             )
         assert resp.status_code == 404
@@ -534,15 +520,9 @@ class TestGetWorkspaceIndexing:
         from app.agent.bots import BotConfig, WorkspaceConfig, WorkspaceIndexingConfig
 
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-                created = await _create_workspace(client)
-                ws_id = created["id"]
-                # Add bot to workspace
-                await client.post(
-                    f"/api/v1/workspaces/{ws_id}/bots",
-                    json={"bot_id": "test-bot", "role": "member"},
-                    headers=AUTH_HEADERS,
-                )
+            created = await _create_workspace(client)
+            ws_id = created["id"]
+        await _add_bot_to_workspace(db_session, ws_id, "test-bot", role="member")
 
         # Patch list_bots to return a bot with workspace config
         test_bot = BotConfig(
@@ -580,16 +560,11 @@ class TestGetWorkspaceIndexing:
 
 class TestUpdateBotIndexing:
     async def _setup_workspace_with_bot(self, client, db_session):
-        """Create workspace and add a bot, return ws_id."""
+        """Create workspace and add a bot directly via the DB, return ws_id."""
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-                created = await _create_workspace(client)
-                ws_id = created["id"]
-                await client.post(
-                    f"/api/v1/workspaces/{ws_id}/bots",
-                    json={"bot_id": "test-bot", "role": "member"},
-                    headers=AUTH_HEADERS,
-                )
+            created = await _create_workspace(client)
+            ws_id = created["id"]
+        await _add_bot_to_workspace(db_session, ws_id, "test-bot", role="member")
         # Need a Bot row for the update to work
         from app.db.models import Bot as BotRow
         bot_row = BotRow(
@@ -693,14 +668,9 @@ class TestWorkspaceBotConfig:
     async def _setup_workspace_with_bot(self, client, db_session):
         """Create workspace, add a bot row + workspace membership, return ws_id."""
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-                created = await _create_workspace(client)
-                ws_id = created["id"]
-                await client.post(
-                    f"/api/v1/workspaces/{ws_id}/bots",
-                    json={"bot_id": "cfg-bot", "role": "member"},
-                    headers=AUTH_HEADERS,
-                )
+            created = await _create_workspace(client)
+            ws_id = created["id"]
+        await _add_bot_to_workspace(db_session, ws_id, "cfg-bot", role="member")
         from app.db.models import Bot as BotRow
         bot_row = BotRow(
             id="cfg-bot",
@@ -811,20 +781,16 @@ class TestWorkspaceBotConfig:
     async def test_update_only_role_no_bot_row_needed(self, client, db_session):
         """Updating only workspace membership fields doesn't touch bots table."""
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-                created = await _create_workspace(client)
-                ws_id = created["id"]
-                await client.post(
-                    f"/api/v1/workspaces/{ws_id}/bots",
-                    json={"bot_id": "role-bot", "role": "member"},
-                    headers=AUTH_HEADERS,
-                )
-                # No BotRow created — should still work for role-only update
-                resp = await client.put(
-                    f"/api/v1/workspaces/{ws_id}/bots/role-bot",
-                    json={"role": "orchestrator"},
-                    headers=AUTH_HEADERS,
-                )
+            created = await _create_workspace(client)
+            ws_id = created["id"]
+        await _add_bot_to_workspace(db_session, ws_id, "role-bot", role="member")
+        # No BotRow created — should still work for role-only update
+        with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
+            resp = await client.put(
+                f"/api/v1/workspaces/{ws_id}/bots/role-bot",
+                json={"role": "orchestrator"},
+                headers=AUTH_HEADERS,
+            )
         assert resp.status_code == 200
         assert resp.json()["role"] == "orchestrator"
 
@@ -848,14 +814,9 @@ class TestReindexWorkspace:
     async def _setup_workspace_with_bot(self, client, db_session, *, memory_scheme=None, indexing_enabled=True, segments=None):
         """Create workspace + add a bot to it."""
         with patch("app.routers.api_v1_workspaces.shared_workspace_service"):
-            with patch("app.routers.api_v1_workspaces.reload_bots", new_callable=AsyncMock):
-                created = await _create_workspace(client)
-                ws_id = created["id"]
-                await client.post(
-                    f"/api/v1/workspaces/{ws_id}/bots",
-                    json={"bot_id": "test-bot", "role": "member"},
-                    headers=AUTH_HEADERS,
-                )
+            created = await _create_workspace(client)
+            ws_id = created["id"]
+        await _add_bot_to_workspace(db_session, ws_id, "test-bot", role="member")
         return ws_id
 
     async def test_reindex_not_found(self, client):

@@ -1,7 +1,7 @@
 ---
 name: Workspace Member
-description: Operating inside a shared workspace container — environment, permissions, write protection, cross-bot coordination
-triggers: workspace member, shared workspace, container, workspace bot, /workspace/bots, write protection
+description: Operating inside your container environment — filesystem layout, permissions, write protection, cross-bot coordination
+triggers: workspace, container, /workspace/bots, write protection, shared filesystem
 category: workspace
 ---
 
@@ -9,7 +9,9 @@ category: workspace
 
 ## Core Principle
 
-You are a specialist working inside a shared workspace. Your orchestrator assigns you tasks, provides context in shared directories, and synthesizes your output. Focus on your domain work within your own directory — read shared resources, produce clear output, and report results where expected.
+Every bot has a container environment: a shared Docker workspace with your own working directory under `/workspace/bots/{your_bot_id}/`. Your memory, prompts, and work output live there. Other bots' directories are usually readable but not writable. Shared resources (specs, datasets, base prompts) live under `/workspace/common/`. This skill is the reference for navigating that environment effectively.
+
+You may sometimes be coordinating with an orchestrator that puts specs in `/workspace/common/` and reads your output from your directory — but most of the time you're just a bot doing work, and the container is the place where it happens.
 
 ---
 
@@ -21,7 +23,7 @@ You are a specialist working inside a shared workspace. Your orchestrator assign
 - **Other bots**: `/workspace/bots/{other_bot_id}/` (readable, usually not writable)
 - **Container tools**: Python 3.12, Node.js 22, git, curl, jq, ripgrep, fd, tree, sqlite3
 - **Python packages**: httpx, requests, pyyaml, toml, jinja2, beautifulsoup4, lxml, pandas, markdown, python-dotenv
-- **Env vars**: `AGENT_SERVER_URL`, `AGENT_SERVER_API_KEY` (auto-injected, scoped to your permissions)
+- **Server interaction**: use the `call_api` / `list_api_endpoints` tools — they run in-process with your scoped key, no shell hop required.
 
 ### Filesystem Layout
 
@@ -62,14 +64,13 @@ The workspace may have protected paths (e.g., `/workspace/common/`). If you try 
 
 ## Discovering Your Permissions
 
-Your scoped API key determines what endpoints you can call. **Always check on first run:**
+Your scoped API key determines what server endpoints you can call. To see what's available, use the in-process tools:
 
-```sh
-agent discover              # Quick list — shows endpoints and your scopes
-agent docs                  # Full API reference filtered to what your key allows
-```
+- `list_api_endpoints()` — list every endpoint your key permits, with method/path/description.
+- `list_api_endpoints(scope="channels")` — narrow by scope prefix (e.g. `channels`, `tasks`, `documents`).
+- `call_api(method, path, body)` — invoke any allowed endpoint. Body is a JSON string.
 
-For the full agent CLI reference (commands, examples, common operations), see the **agent_cli** skill — it's auto-enrolled when you join a shared workspace.
+These tools share the same scoped key as the rest of your tooling, so you don't need to handle auth headers or shell-escape JSON. Run `list_api_endpoints` once at the start of a new task to learn what's reachable.
 
 ---
 
@@ -81,13 +82,13 @@ A **channel** is a persistent conversation container. You are always operating w
 - Per-channel **settings** (model overrides, tool overrides, compaction config, heartbeats)
 - Optional **indexed directories** — folders in the channel workspace indexed for RAG code search
 
-Other channels exist for your bot and for other bots. You can interact with them via the API:
+Other channels exist for your bot and for other bots. You can interact with them via the API tools:
 
-```sh
-agent channels                                    # List channels
-agent api GET /api/v1/channels/{id}/config        # Get channel settings
-agent api POST /api/v1/channels/{id}/messages \
-  '{"content":"message","run_agent":true}'         # Inject message + trigger processing
+```python
+call_api("GET", "/api/v1/channels")                              # List channels
+call_api("GET", "/api/v1/channels/{id}/config")                  # Get channel settings
+call_api("POST", "/api/v1/channels/{id}/messages",
+         body='{"content":"message","run_agent":true}')          # Inject + trigger processing
 ```
 
 Use `list_channels` and `search_channel_workspace` to discover and search across channel workspaces. If the user references another project or channel, these tools help you find relevant content without needing to know the channel ID upfront.
@@ -126,7 +127,7 @@ For file editing safety patterns and the `file` tool reference, see the **worksp
 |---|---|---|
 | Writing to `/workspace/common/` | Usually write-protected for members | Write to your own dir; let orchestrator know the path |
 | Writing to another bot's directory | May be protected; disrupts their workspace | Write to your own dir |
-| Not checking `agent discover` first | You may lack scopes, causing silent 403s | Run `agent discover` before making API calls |
+| Not checking `list_api_endpoints` first | You may lack scopes, causing silent 403s | Call `list_api_endpoints()` once before issuing requests in a new context |
 | Working outside your bot directory | Other bots may overwrite your files | Default to `/workspace/bots/{your_bot_id}/` |
 | Not reading `/workspace/common/` | Orchestrator placed context there for you | Always check shared resources before starting work |
 
@@ -136,17 +137,16 @@ For file editing safety patterns and the `file` tool reference, see the **worksp
 
 Before starting work:
 
-- [ ] `agent discover` — confirm your scopes and available endpoints
+- [ ] `list_api_endpoints()` — confirm your scopes and available endpoints
 - [ ] Check `/workspace/common/` for shared resources, specs, datasets
 - [ ] Working in your directory: `/workspace/bots/{your_bot_id}/`
-- [ ] Environment set: `env | grep AGENT` confirms `AGENT_SERVER_URL` and `AGENT_SERVER_API_KEY`
 
 During work:
 
 - [ ] Write output where the orchestrator expects it (your dir, or as instructed)
 - [ ] Use `search_workspace` for finding relevant workspace content
-- [ ] JSON bodies properly escaped (use `jq` for complex content)
-- [ ] Polling async tasks at 5s+ intervals, or use `agent tasks wait`
+- [ ] Reach the server via `call_api` rather than shelling out — your scoped key is already wired in
+- [ ] For long-running work, prefer `schedule_task` and poll with `get_task_result` (5s+ intervals)
 
 After completion:
 

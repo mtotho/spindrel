@@ -11,7 +11,6 @@ class CarapaceOut(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
-    skills: list = []
     local_tools: list[str] = []
     mcp_tools: list[str] = []
     pinned_tools: list[str] = []
@@ -31,7 +30,6 @@ class CarapaceCreateIn(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
-    skills: list = []
     local_tools: list[str] = []
     mcp_tools: list[str] = []
     pinned_tools: list[str] = []
@@ -44,7 +42,6 @@ class CarapaceCreateIn(BaseModel):
 class CarapaceUpdateIn(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    skills: Optional[list] = None
     local_tools: Optional[list[str]] = None
     mcp_tools: Optional[list[str]] = None
     pinned_tools: Optional[list[str]] = None

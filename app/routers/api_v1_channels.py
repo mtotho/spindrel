@@ -1274,7 +1274,6 @@ class AvailableIntegrationOut(BaseModel):
     activated: bool
     carapaces: list[str] = []
     tools: list[str] = []
-    skill_count: int = 0
     has_system_prompt: bool = False
     version: Optional[str] = None
     includes: list[str] = []
@@ -1552,11 +1551,9 @@ async def list_available_integrations(
         carapace_ids = manifest.get("carapaces", [])
         resolved = resolve_carapaces(carapace_ids) if carapace_ids else None
         tool_names: list[str] = []
-        skill_count = 0
         has_system_prompt = False
         if resolved:
             tool_names = list(resolved.local_tools)
-            skill_count = len(resolved.skills)
             has_system_prompt = len(resolved.system_prompt_fragments) > 0
 
         ci_row = ci_rows.get(itype)
@@ -1569,7 +1566,6 @@ async def list_available_integrations(
             activated=itype in ci_rows,
             carapaces=carapace_ids,
             tools=tool_names,
-            skill_count=skill_count,
             has_system_prompt=has_system_prompt,
             version=manifest.get("version"),
             includes=manifest.get("includes", []),

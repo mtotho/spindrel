@@ -1,7 +1,6 @@
 """Unit tests for carapace resolution, cycle detection, and merge logic."""
 import pytest
 
-from app.agent.bots import SkillConfig
 from app.agent.carapaces import (
     ResolvedCarapace,
     _registry,
@@ -20,18 +19,23 @@ def clear_registry():
 def _make_carapace(
     id: str,
     *,
-    skills=None,
     local_tools=None,
     mcp_tools=None,
     pinned_tools=None,
     system_prompt_fragment=None,
     includes=None,
+    legacy_skills=None,
 ):
-    return {
+    """Build a carapace dict for the in-memory registry.
+
+    `legacy_skills` lets a test inject a `skills` field that mimics what an
+    old YAML file or pre-migration DB row might still carry, to verify the
+    runtime ignores it.
+    """
+    d = {
         "id": id,
         "name": id,
         "description": None,
-        "skills": skills or [],
         "local_tools": local_tools or [],
         "mcp_tools": mcp_tools or [],
         "pinned_tools": pinned_tools or [],
@@ -42,27 +46,25 @@ def _make_carapace(
         "source_type": "manual",
         "content_hash": None,
     }
+    if legacy_skills is not None:
+        d["skills"] = legacy_skills
+    return d
 
 
 class TestResolveCarapaces:
     def test_empty_ids(self):
         result = resolve_carapaces([])
-        assert result.skills == []
         assert result.local_tools == []
         assert result.system_prompt_fragments == []
 
     def test_single_carapace(self):
         _registry["qa"] = _make_carapace(
             "qa",
-            skills=[{"id": "testing", "mode": "pinned"}],
             local_tools=["exec_command", "file"],
             pinned_tools=["exec_command"],
             system_prompt_fragment="Be a QA expert.",
         )
         result = resolve_carapaces(["qa"])
-        assert len(result.skills) == 1
-        assert result.skills[0].id == "testing"
-        assert result.skills[0].mode == "pinned"
         assert result.local_tools == ["exec_command", "file"]
         assert result.pinned_tools == ["exec_command"]
         assert result.system_prompt_fragments == ["Be a QA expert."]
@@ -71,19 +73,39 @@ class TestResolveCarapaces:
         _registry["a"] = _make_carapace(
             "a",
             local_tools=["exec_command", "file"],
-            skills=[{"id": "s1", "mode": "pinned"}],
         )
         _registry["b"] = _make_carapace(
             "b",
             local_tools=["file", "web_search"],
-            skills=[{"id": "s1", "mode": "on_demand"}, {"id": "s2", "mode": "pinned"}],
         )
         result = resolve_carapaces(["a", "b"])
         # exec_command, file from a; web_search from b (file deduped)
         assert result.local_tools == ["exec_command", "file", "web_search"]
-        # s1 from a (first seen); s2 from b
-        assert [s.id for s in result.skills] == ["s1", "s2"]
-        assert result.skills[0].mode == "pinned"  # from a, first seen
+
+    def test_legacy_skills_field_silently_ignored(self):
+        """A carapace dict with a leftover `skills` field (e.g. from a pre-187
+        DB row or a third-party YAML still on the old pattern) must load and
+        resolve without crashing, and the field must NOT influence the
+        resolved tools or fragments. Skills live in the per-bot working set;
+        carapaces no longer carry them."""
+        _registry["legacy"] = _make_carapace(
+            "legacy",
+            local_tools=["file"],
+            system_prompt_fragment="Legacy fragment.",
+            legacy_skills=[
+                {"id": "ghost-skill-1", "mode": "on_demand"},
+                {"id": "ghost-skill-2", "mode": "pinned"},
+                "ghost-skill-3",  # also tolerate the bare-string form
+            ],
+        )
+        result = resolve_carapaces(["legacy"])
+        assert isinstance(result, ResolvedCarapace)
+        assert not hasattr(result, "skills"), (
+            "ResolvedCarapace must not expose a skills field — skills live "
+            "in the per-bot working set, not on resolved carapaces"
+        )
+        assert result.local_tools == ["file"]
+        assert result.system_prompt_fragments == ["Legacy fragment."]
 
     def test_composition_via_includes(self):
         _registry["base"] = _make_carapace(
@@ -125,15 +147,7 @@ class TestResolveCarapaces:
 
     def test_missing_carapace(self):
         result = resolve_carapaces(["nonexistent"])
-        assert result.skills == []
         assert result.local_tools == []
-
-    def test_skill_string_entry(self):
-        _registry["c"] = _make_carapace("c", skills=["my-skill"])
-        result = resolve_carapaces(["c"])
-        assert len(result.skills) == 1
-        assert result.skills[0].id == "my-skill"
-        assert result.skills[0].mode == "on_demand"
 
     def test_mcp_tools(self):
         _registry["c"] = _make_carapace("c", mcp_tools=["homeassistant", "github"])

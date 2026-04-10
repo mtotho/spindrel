@@ -92,7 +92,6 @@ export interface CapabilityPreviewData {
   id: string;
   name: string;
   description?: string | null;
-  skills: { id: string; mode?: string }[];
   local_tools: string[];
   mcp_tools: string[];
   pinned_tools: string[];
@@ -129,9 +128,6 @@ export function CapabilityPreview({ data }: { data: CapabilityPreviewData }) {
         {totalTools > 0 && (
           <Stat label="tools" value={totalTools} />
         )}
-        {data.skills.length > 0 && (
-          <Stat label="skills" value={data.skills.length} />
-        )}
         {data.includes.length > 0 && (
           <Stat label="includes" value={data.includes.length} />
         )}
@@ -157,26 +153,6 @@ export function CapabilityPreview({ data }: { data: CapabilityPreviewData }) {
               <span style={{ fontSize: 9, color: t.textDim }}>
                 +{totalTools - 8} more
               </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Skills list */}
-      {data.skills.length > 0 && (
-        <div>
-          <div style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>
-            Skills
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {data.skills.slice(0, 5).map((s) => (
-              <span key={s.id} style={{ fontSize: 10, color: t.accent }}>
-                {s.id}
-                {s.mode && <span style={{ fontSize: 8, color: t.textDim, marginLeft: 4 }}>{s.mode}</span>}
-              </span>
-            ))}
-            {data.skills.length > 5 && (
-              <span style={{ fontSize: 9, color: t.textDim }}>+{data.skills.length - 5} more</span>
             )}
           </div>
         </div>

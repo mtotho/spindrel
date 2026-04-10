@@ -12,7 +12,6 @@ import type { SkillOption } from "@/src/types/api";
 
 const SOURCE_LABELS: Record<string, { label: string; bg: string; fg: string }> = {
   starter: { label: "starter", bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
-  auto: { label: "auto", bg: "rgba(20,184,166,0.15)", fg: "#0d9488" },
   fetched: { label: "fetched", bg: "rgba(16,185,129,0.15)", fg: "#059669" },
   manual: { label: "manual", bg: "rgba(168,85,247,0.15)", fg: "#9333ea" },
   migration: { label: "migration", bg: "rgba(148,163,184,0.15)", fg: "#64748b" },
@@ -86,7 +85,7 @@ export function EnrolledSkillsPanel({
     return groups;
   }, [filtered]);
 
-  const sourceOrder = ["starter", "auto", "manual", "fetched", "authored", "migration"];
+  const sourceOrder = ["starter", "manual", "fetched", "authored", "migration"];
   const orderedGroups = sourceOrder
     .map((src) => [src, grouped[src]] as const)
     .filter(([, list]) => list && list.length > 0);

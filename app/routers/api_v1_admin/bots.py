@@ -512,7 +512,6 @@ class BotUpdateIn(BaseModel):
     memory_hygiene_model_provider_id: Optional[str] = None
     memory_hygiene_target_hour: Optional[int] = None
     carapaces: Optional[list[str]] = None
-    workspace_only: Optional[bool] = None
     system_prompt_workspace_file: Optional[bool] = None
     system_prompt_write_protected: Optional[bool] = None
 
@@ -1269,7 +1268,7 @@ class EnrolledSkillOut(BaseModel):
     last_surfaced_at: Optional[datetime] = None
 
 
-EnrollmentSource = Literal["starter", "fetched", "manual", "migration", "authored", "auto"]
+EnrollmentSource = Literal["starter", "fetched", "manual", "migration", "authored"]
 
 
 class EnrollSkillIn(BaseModel):

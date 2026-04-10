@@ -60,7 +60,7 @@ Memory files are auto-indexed and injected each turn. For safe write patterns (a
 | When you need... | Fetch this skill |
 |---|---|
 | Delegation (agent + Claude Code), orchestration patterns, when to use which | `get_skill('carapaces/orchestrator/workspace-delegation')` |
-| Server API reference, permissions, scopes, `agent` CLI, file/task operations | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
+| Server API reference, permissions, scopes, `call_api` / `list_api_endpoints`, file/task operations | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
 | Channels, memory patterns, base template, common mistakes | `get_skill('carapaces/orchestrator/workspace-management')` |
 | Optimize workflow, convert agent→tool/exec, analyze runs, compile to script | `get_skill('carapaces/orchestrator/workflow-compiler')` |
 | Create custom integration, scaffold→reload flow, SETUP manifest, tool patterns | `get_skill('carapaces/orchestrator/integration-builder')` |

@@ -37,7 +37,6 @@ function CarapacePill({ id, t }: { id: string; t: any }) {
 function InjectionSummaryLine({ ig }: { ig: ActivatableIntegration }) {
   const parts: string[] = [];
   if (ig.tools.length > 0) parts.push(`${ig.tools.length} tools`);
-  if (ig.skill_count > 0) parts.push(`${ig.skill_count} skills`);
   if (ig.has_system_prompt) parts.push("system prompt");
   if (parts.length === 0) return null;
   const carapaceLabel = ig.carapaces.length > 0
@@ -52,12 +51,11 @@ function InjectionSummaryLine({ ig }: { ig: ActivatableIntegration }) {
 }
 
 function InjectionDetails({ ig, t }: { ig: ActivatableIntegration; t: any }) {
-  if (ig.tools.length === 0 && ig.skill_count === 0 && !ig.has_system_prompt && ig.carapaces.length === 0) return null;
+  if (ig.tools.length === 0 && !ig.has_system_prompt && ig.carapaces.length === 0) return null;
 
   // Compact single-line summary for the injection metadata
   const meta: string[] = [];
   if (ig.tools.length > 0) meta.push(`${ig.tools.length} tools`);
-  if (ig.skill_count > 0) meta.push(`${ig.skill_count} skills`);
   if (ig.has_system_prompt) meta.push("system prompt");
 
   return (
@@ -165,7 +163,7 @@ export function ActivationCard({
               {ig.description}
             </div>
           )}
-          {!ig.activated && (ig.tools.length > 0 || ig.skill_count > 0) && (
+          {!ig.activated && ig.tools.length > 0 && (
             <div style={{ fontSize: 11, color: t.textMuted, marginTop: 3, fontStyle: "italic" }}>
               <InjectionSummaryLine ig={ig} />
             </div>

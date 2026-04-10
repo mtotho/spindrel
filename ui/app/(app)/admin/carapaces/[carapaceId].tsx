@@ -19,7 +19,7 @@ import {
 import { CarapaceHelpModal } from "./CarapaceHelpModal";
 import { Section, FormRow } from "@/src/components/shared/FormControls";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
-import type { Carapace, SkillConfig } from "@/src/types/api";
+import type { Carapace } from "@/src/types/api";
 
 // ---------------------------------------------------------------------------
 // Page
@@ -44,7 +44,6 @@ export default function CarapaceDetailPage() {
     id: "",
     name: "",
     description: "",
-    skills: [],
     local_tools: [],
     mcp_tools: [],
     pinned_tools: [],
@@ -62,7 +61,6 @@ export default function CarapaceDetailPage() {
         id: existing.id,
         name: existing.name,
         description: existing.description || "",
-        skills: existing.skills || [],
         local_tools: existing.local_tools || [],
         mcp_tools: existing.mcp_tools || [],
         pinned_tools: existing.pinned_tools || [],
@@ -85,7 +83,6 @@ export default function CarapaceDetailPage() {
           id: draft.id || "",
           name: draft.name || "",
           description: draft.description || undefined,
-          skills: draft.skills || [],
           local_tools: draft.local_tools || [],
           mcp_tools: draft.mcp_tools || [],
           pinned_tools: draft.pinned_tools || [],
@@ -98,7 +95,6 @@ export default function CarapaceDetailPage() {
         await updateMut.mutateAsync({
           name: draft.name,
           description: draft.description || undefined,
-          skills: draft.skills,
           local_tools: draft.local_tools,
           mcp_tools: draft.mcp_tools,
           pinned_tools: draft.pinned_tools,
@@ -324,28 +320,12 @@ export default function CarapaceDetailPage() {
           </div>
         </Section>
 
-        {/* ─── Capabilities ─────────────────────────────── */}
+        {/* ─── Tools ────────────────────────────────────── */}
         <Section
-          title="Tools & Skills"
-          description="Tools and skills the bot gains when this capability is active"
+          title="Tools"
+          description="Tools the bot gains when this capability is active. Skills are not declared on capabilities — point at them from the system prompt fragment via get_skill('id')."
         >
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <FormRow
-              label="Skills"
-              description="Comma-separated skill IDs. Prefix with * for pinned mode (always injected). Default is on_demand (bot fetches when needed)."
-            >
-              <input
-                value={skillsToString(draft.skills || [])}
-                onChange={(e) => update({ skills: parseSkillsString(e.target.value) })}
-                placeholder="e.g. *workspace-orchestrator, channel-workspace"
-                disabled={isFileBased}
-                style={inputStyle}
-                onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
-                onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
-              />
-              <SkillPreview skills={draft.skills || []} t={t} />
-            </FormRow>
-
             <FormRow
               label="Local Tools"
               description="Python tools added to the bot's toolbox — e.g. exec_command, file, web_search."
@@ -553,9 +533,6 @@ export default function CarapaceDetailPage() {
                 <ResolvedRow label="Pinned" t={t}>
                   <TagPreview items={resolved.pinned_tools} t={t} color="warning" />
                 </ResolvedRow>
-                <ResolvedRow label="Skills" t={t}>
-                  <SkillPreview skills={resolved.skills} t={t} />
-                </ResolvedRow>
                 <ResolvedRow label="Fragments" t={t}>
                   <span style={{ fontSize: 11, color: t.textMuted }}>
                     {resolved.system_prompt_fragments.length} fragment
@@ -698,36 +675,6 @@ function TagPreview({
   );
 }
 
-function SkillPreview({ skills, t }: { skills: SkillConfig[]; t: ThemeTokens }) {
-  if (skills.length === 0) return null;
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-      {skills.map((s) => {
-        const isPinned = s.mode === "pinned";
-        return (
-          <span
-            key={s.id}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 11,
-              color: isPinned ? t.accent : t.purple,
-              background: isPinned ? t.accentSubtle : t.purpleSubtle,
-              border: `1px solid ${isPinned ? t.accentBorder : t.purpleBorder}`,
-              borderRadius: 4,
-              padding: "1px 6px",
-            }}
-          >
-            {s.id}
-            <span style={{ fontSize: 9, color: t.textDim }}>{s.mode || "on_demand"}</span>
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
@@ -764,25 +711,3 @@ function makeTextareaStyle(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Skill string parsing
-// ---------------------------------------------------------------------------
-
-function skillsToString(skills: SkillConfig[]): string {
-  return skills
-    .map((s) => (s.mode === "pinned" ? `*${s.id}` : s.id))
-    .join(", ");
-}
-
-function parseSkillsString(input: string): SkillConfig[] {
-  return input
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((s) => {
-      if (s.startsWith("*")) {
-        return { id: s.slice(1), mode: "pinned" };
-      }
-      return { id: s, mode: "on_demand" };
-    });
-}

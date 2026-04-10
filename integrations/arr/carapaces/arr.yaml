@@ -5,16 +5,6 @@ description: >-
   downloads (qBittorrent), streaming (Jellyfin), requests (Jellyseerr), subtitles (Bazarr).
 tags: [media, sonarr, radarr, prowlarr, jellyfin, qbittorrent, jellyseerr]
 
-skills:
-  - id: integrations/arr/media_management
-    mode: on_demand
-  - id: integrations/arr/download-monitoring
-    mode: on_demand
-  - id: integrations/arr/media-troubleshoot
-    mode: on_demand
-  - id: integrations/arr/media-request
-    mode: on_demand
-
 local_tools:
   - sonarr_calendar
   - sonarr_series

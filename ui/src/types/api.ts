@@ -81,7 +81,6 @@ export interface BotConfig {
   memory_hygiene_model_provider_id?: string | null;
   memory_hygiene_target_hour?: number | null;
   carapaces?: string[];
-  workspace_only?: boolean;
   system_prompt_workspace_file?: boolean;
   system_prompt_write_protected?: boolean;
   source_type?: string;  // "system"|"file"|"manual"
@@ -93,7 +92,6 @@ export interface Carapace {
   id: string;
   name: string;
   description?: string | null;
-  skills: SkillConfig[];
   local_tools: string[];
   mcp_tools: string[];
   pinned_tools: string[];
@@ -331,7 +329,6 @@ export interface ActivatableIntegration {
   activated: boolean;
   carapaces: string[];
   tools: string[];
-  skill_count: number;
   has_system_prompt: boolean;
   version?: string | null;
   includes: string[];

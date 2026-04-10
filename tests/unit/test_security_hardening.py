@@ -160,7 +160,8 @@ class TestCarapaceToolRestriction:
         assert "delegates" in result["error"]
 
     def test_create_without_tools_passes_validation(self):
-        """Creating a carapace with only skills/description should pass the tool-restriction check.
+        """Creating a carapace with only description/system_prompt_fragment should
+        pass the tool-restriction check.
 
         We test the validation logic directly rather than calling the full function,
         since the full function needs a DB session.

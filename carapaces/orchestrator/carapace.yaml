@@ -177,7 +177,7 @@ system_prompt_fragment: |
   | When you need... | Fetch this skill |
   |---|---|
   | Delegation patterns, Claude Code usage, fan-out/pipeline workflows | `get_skill('carapaces/orchestrator/workspace-delegation')` |
-  | Server API endpoints, permissions, scopes, `agent` CLI | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
+  | Server API endpoints, permissions, scopes, `call_api` / `list_api_endpoints` | `get_skill('carapaces/orchestrator/workspace-api-reference')` |
   | Channels, memory patterns, base template, checklists | `get_skill('carapaces/orchestrator/workspace-management')` |
   | Designing new carapaces (fragment-as-index architecture) | `get_skill('carapaces/orchestrator/carapace-architect')` |
   | Cost optimization, model tier selection for delegation | `get_skill('carapaces/orchestrator/model-efficiency')` |

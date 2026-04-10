@@ -2256,11 +2256,9 @@ async def list_activatable_integrations_global(
         carapace_ids = manifest.get("carapaces", [])
         resolved = resolve_carapaces(carapace_ids) if carapace_ids else None
         tool_names: list[str] = []
-        skill_count = 0
         has_system_prompt = False
         if resolved:
             tool_names = list(resolved.local_tools)
-            skill_count = len(resolved.skills)
             has_system_prompt = len(resolved.system_prompt_fragments) > 0
 
         result.append({
@@ -2270,7 +2268,6 @@ async def list_activatable_integrations_global(
             "activated": False,
             "carapaces": carapace_ids,
             "tools": tool_names,
-            "skill_count": skill_count,
             "has_system_prompt": has_system_prompt,
             "version": manifest.get("version"),
             "includes": manifest.get("includes", []),

@@ -99,7 +99,6 @@ def test_available_integrations_includes_version():
         activated=True,
         carapaces=["mission-control"],
         tools=["create_task_card"],
-        skill_count=5,
         has_system_prompt=True,
         version="1.0",
     )

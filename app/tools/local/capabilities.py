@@ -109,7 +109,6 @@ async def activate_capability(id: str, reason: str = "") -> str:
 
     # Build response with the fragment for immediate use
     fragment = carapace.get("system_prompt_fragment", "")
-    skills = carapace.get("skills", [])
     tools = carapace.get("local_tools", [])
 
     result = {
@@ -118,7 +117,7 @@ async def activate_capability(id: str, reason: str = "") -> str:
         "name": carapace.get("name", carapace_id),
         "message": (
             f"Capability '{carapace.get('name', carapace_id)}' activated for this session. "
-            "Full tools and skills will be available on the next turn."
+            "Full tools will be available on the next turn."
         ),
     }
 
@@ -126,12 +125,9 @@ async def activate_capability(id: str, reason: str = "") -> str:
     if fragment:
         result["instructions"] = fragment
 
-    # Inform about tools/skills that will be available next turn
+    # Inform about tools that will be available next turn
     if tools:
         result["tools_next_turn"] = tools
-    if skills:
-        skill_ids = [s["id"] if isinstance(s, dict) else s for s in skills]
-        result["skills_next_turn"] = skill_ids
 
     if reason:
         logger.info("Capability '%s' activated by %s: %s", carapace_id, bot_id or "unknown", reason)

@@ -715,13 +715,6 @@ async def run_task(task: Task) -> None:
                 _c_tool_schemas = get_local_tool_schemas(_resolved_c.local_tools) or []
                 if _c_tool_schemas:
                     _ecfg_injected_tools = (_ecfg_injected_tools or []) + _c_tool_schemas
-            # Merge resolved carapace skills into ephemeral skills
-            if _resolved_c.skills:
-                from app.agent.context import set_ephemeral_skills, current_ephemeral_skills
-                _existing = list(current_ephemeral_skills.get() or [])
-                _new_skill_ids = [s.id for s in _resolved_c.skills]
-                _merged = list(dict.fromkeys(_existing + _new_skill_ids))
-                set_ephemeral_skills(_merged)
             # Prepend system prompt fragments to preamble
             if _resolved_c.system_prompt_fragments:
                 _c_prompt = "\n\n".join(_resolved_c.system_prompt_fragments)

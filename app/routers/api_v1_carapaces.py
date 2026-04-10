@@ -73,7 +73,6 @@ async def create_carapace(
         id=cid,
         name=body.name.strip(),
         description=body.description,
-        skills=body.skills,
         local_tools=body.local_tools,
         mcp_tools=body.mcp_tools,
         pinned_tools=body.pinned_tools,
@@ -111,8 +110,6 @@ async def update_carapace(
         row.name = body.name.strip()
     if body.description is not None:
         row.description = body.description
-    if body.skills is not None:
-        row.skills = body.skills
     if body.local_tools is not None:
         row.local_tools = body.local_tools
     if body.mcp_tools is not None:

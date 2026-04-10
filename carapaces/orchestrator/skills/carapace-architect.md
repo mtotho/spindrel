@@ -3,87 +3,90 @@ name: Carapace Architect
 description: >
   Guide for designing effective carapaces — composable expertise bundles that give bots
   instant domain knowledge. Load when creating, refactoring, or reasoning about carapace
-  design: skill organization, system_prompt_fragment writing, tool selection, composition
-  via includes, or when a bot needs to become an expert at something new.
+  design: system_prompt_fragment writing, tool selection, composition via includes, or
+  when a bot needs to become an expert at something new.
 ---
 
 # Carapace Architecture
 
-A carapace turns a generic bot into a domain expert. The key insight: **the system_prompt_fragment is an index, not an encyclopedia.** It's a concise routing layer that tells the bot what it knows and where to find depth.
+A carapace turns a generic bot into a domain expert. The key insight: **the system_prompt_fragment is an index, not an encyclopedia.** It's a concise routing layer that tells the bot what its workflow is, which tools to reach for, and which skills to fetch when it needs depth.
 
-## The Index Pattern
+## What a carapace bundles
 
 ```
-system_prompt_fragment (always in context)
+system_prompt_fragment (always in context when active)
   ├── "You are an expert at X. Your workflow is: 1, 2, 3"
-  ├── "For Y details, call get_skill('deep-guide-y')"
-  ├── "For Z reference, call get_skill('reference-z')"
-  └── "Use tool_a for ..., tool_b for ..."
+  ├── A Deep Knowledge table — "for Y, get_skill('id-y')"
+  └── A Tool Quick Reference table — "use tool_a for ..., tool_b for ..."
 
-skills (on_demand = indexed but not loaded until requested)
-  ├── deep-guide-y.md    ← 500+ lines of detailed procedures
-  ├── reference-z.md     ← lookup tables, API docs, recipes
-  └── ...
+local_tools / pinned_tools / mcp_tools
+  └── Tools the bot gains while this carapace is active
 
-pinned skills (always in context — use sparingly)
-  └── core-context.md    ← only if the bot literally needs it every turn
-
-tools (wired up and ready)
-  ├── tool_a              ← pinned (always offered to LLM)
-  └── tool_b, tool_c      ← available via tool RAG
+includes
+  └── Other carapaces whose fragments + tools merge in
 ```
+
+**Skills are NOT a carapace concept.** A carapace does not declare a `skills:` field. Skills live in the per-bot working set (`bot_skill_enrollment`) and are surfaced two ways:
+
+1. **The semantic discovery layer** — every turn, the agent loop runs the user's message through skill embeddings and surfaces the top-K unenrolled catalog skills as a system message. If the query is about your domain, the relevant skills will be there for the bot to fetch.
+2. **Your fragment's Deep Knowledge table** — the always-injected, always-visible safety net. It tells the bot exactly which `get_skill('id')` to call for each scenario, regardless of whether semantic discovery surfaced it.
+
+When the bot calls `get_skill('id')` and it succeeds, that skill is **auto-promoted into the bot's working set** (`source="fetched"`). On the next turn it appears in the always-visible flat list. The hygiene loop later prunes skills the bot stops using. This is the entire enrollment lifecycle — carapaces don't need to pre-populate it.
+
+## The fragment as index
 
 The system_prompt_fragment should be **50-150 lines**. It defines:
+
 1. **Identity** — what this expert does, in one paragraph
 2. **Workflow** — the step-by-step protocol (numbered, concrete)
-3. **Skill pointers** — explicit `get_skill('id')` callouts for each deep-knowledge area
-4. **Tool guidance** — when to use which tool, in a quick reference table
-5. **Key rules** — 3-5 non-negotiable behavioral rules
+3. **Scenario routing** — a "user says X → do Y" table that maps queries to tool calls or skill fetches
+4. **Tool quick reference** — when to use which tool
+5. **Deep Knowledge table** — the canonical `get_skill('id')` index for every deep procedure or reference doc the bot might need
+6. **Key rules** — 3-5 non-negotiable behavioral rules
 
-Everything else goes in on_demand skills that the bot fetches when needed.
+Everything else lives in the catalog as a regular skill. The bot fetches it when the workflow says to.
 
-## Why This Works
+## Why this works
 
-- **Context budget**: The system_prompt_fragment is injected every turn. At 50-150 lines it costs ~200-600 tokens. On_demand skills only load when relevant — a 400-line guide costs 0 tokens until called.
-- **Routing over dumping**: The bot sees the index, recognizes when it needs depth, and fetches it. This mirrors how humans use reference material — you don't memorize the manual, you know where to look.
-- **Composability**: Small, focused fragments compose cleanly via `includes`. Two 100-line fragments merge better than two 500-line walls of text.
+- **Context budget**: The fragment is injected every turn. At 50-150 lines it costs ~200-600 tokens. Skills only load when fetched — a 400-line guide costs 0 tokens until called.
+- **Routing over dumping**: The bot sees the index, recognizes when it needs depth, and fetches it. Mirrors how humans use reference material — you don't memorize the manual, you know where to look.
+- **Composability**: Small focused fragments compose cleanly via `includes`. Two 100-line fragments merge better than two 500-line walls of text.
+- **Single enrollment surface**: Skills the bot has used live in `bot_skill_enrollment`. Skills it hasn't yet used surface via discovery. Carapaces don't fight either flow — they augment the discovery side with explicit pointers in the fragment.
 
-## Worked Example: The Orchestrator Carapace
+## Worked example: the orchestrator carapace
 
-The orchestrator carapace itself follows this pattern. Its fragment is ~50 lines — identity, workflow, delegation summary, and an index table. Its deep knowledge lives in on_demand skills organized in its subfolder:
+The orchestrator's fragment is ~50 lines — identity, workflow, delegation summary, and a Deep Knowledge index. Its skills live in its subfolder:
 
 ```
 carapaces/orchestrator/
-├── carapace.yaml                              # includes: [mission-control]
+├── carapace.yaml                              # includes: [mission-control], local_tools, system_prompt_fragment
 └── skills/
-    ├── workspace-orchestrator.md   (pinned)   # Concise core: environment, filesystem, key capabilities
-    ├── workspace-delegation.md     (on_demand) # Delegation patterns, Claude Code reference
-    ├── workspace-api-reference.md  (on_demand) # Server API endpoints, permissions, agent CLI
-    ├── workspace-management.md     (on_demand) # Channels, memory patterns, base template
-    ├── carapace-architect.md       (on_demand) # This file — carapace design guide
-    └── model-efficiency.md         (on_demand) # Cost optimization, tier selection
+    ├── workspace-orchestrator.md              # Concise core: environment, filesystem, key capabilities
+    ├── workspace-delegation.md                # Delegation patterns, Claude Code reference
+    ├── workspace-api-reference.md             # Server API endpoints, permissions, call_api/list_api_endpoints
+    ├── workspace-management.md                # Channels, memory patterns, base template
+    ├── carapace-architect.md                  # This file — carapace design guide
+    └── model-efficiency.md                    # Cost optimization, tier selection
 
 integrations/mission_control/
 ├── carapaces/mission-control.yaml             # Task boards, planning, projects, feeds, integrations
 └── skills/
-    ├── mission_control.md          (on_demand) # Kanban board format, status.md
-    ├── planning.md                 (on_demand) # Plan workflow — draft, approve, execute
-    ├── project-management.md       (on_demand) # Cross-channel portfolio tracking
-    ├── content_feeds.md            (on_demand) # Email/RSS feed content in data/
-    └── integration-builder.md      (on_demand) # Connecting external services
+    ├── mission_control.md
+    ├── planning.md
+    ├── project-management.md
+    ├── content_feeds.md
+    └── integration-builder.md
 ```
 
-The fragment's index table maps scenarios to skills. Mission control skills come via `includes: [mission-control]` — the MC carapace's fragment and skills merge into the orchestrator's context automatically.
+The orchestrator's fragment Deep Knowledge table maps scenarios to `get_skill()` calls for each of these. When the orchestrator needs to make an API call, it fetches `workspace-api-reference` (~130 lines) — once. From then on, it's in the bot's working set; no fetch needed next time.
 
-The bot sees ~600 tokens of orchestrator routing + ~200 tokens of MC routing every turn. When it needs to make an API call, it fetches the API reference (~130 lines). When it needs to set up an integration, it fetches integration-builder (~440 lines). The deep knowledge is there but costs nothing until needed.
+Mission control skills come via `includes: [mission-control]`. The MC carapace's fragment merges into the orchestrator's context automatically, so the MC fragment's Deep Knowledge table is also visible to the orchestrator. The MC skills become reachable through the same fetch-and-promote loop.
 
-**The subfolder IS the carapace package.** Skills that belong to a carapace live in its subfolder. They're discovered by ID path (`carapaces/orchestrator/workspace-delegation`), registered in the carapace.yaml skills list, and pointed to from the fragment's index table. Everything related stays together.
+**The subfolder IS the carapace package.** Skills that belong to a carapace live in its subfolder for organization. They're just normal catalog skills — discovered, embedded, and available to any bot. The carapace doesn't "own" them; the fragment just *points* at them.
 
-**Composition via `includes`** keeps ownership clear. The orchestrator doesn't own project management skills — mission-control does. The orchestrator just includes mission-control, gaining access to all its skills and fragment. When mission-control adds new skills, the orchestrator automatically gets them.
+## Designing a carapace — step by step
 
-## Designing a Carapace — Step by Step
-
-### 1. Define the Expertise Boundary
+### 1. Define the expertise boundary
 
 One carapace = one area of expertise. Ask: "What does this expert do that a general bot can't?"
 
@@ -96,7 +99,7 @@ Bad boundaries (too broad):
 - "Software engineering" — that's multiple carapaces
 - "Everything about the project" — that's a bot's system prompt, not a carapace
 
-### 2. Write the System Prompt Fragment
+### 2. Write the system prompt fragment
 
 Start with this skeleton:
 
@@ -110,9 +113,10 @@ You are [one sentence identity].
 2. [Second step]
 3. ...
 
-### Deep Knowledge
-- **[Topic A]**: Call `get_skill('[skill-id-a]')` for [what it contains]
-- **[Topic B]**: Call `get_skill('[skill-id-b]')` for [what it contains]
+### Scenario Routing
+| User says... | What to do |
+|---|---|
+| "[example query]" | → [tool call or `get_skill('id')`] |
 
 ### Tool Quick Reference
 | Tool | When to Use |
@@ -120,58 +124,73 @@ You are [one sentence identity].
 | `tool_a` | [scenario] |
 | `tool_b` | [scenario] |
 
+### Deep Knowledge
+| When you need... | Fetch this skill |
+|---|---|
+| [topic A] | `get_skill('[skill-id-a]')` |
+| [topic B] | `get_skill('[skill-id-b]')` |
+
 ### Key Rules
 - [Rule 1]
 - [Rule 2]
 - [Rule 3]
 ```
 
-**The skill pointers are critical.** Without them, the bot won't know the deep knowledge exists. The on_demand index shows skill names and descriptions, but the system_prompt_fragment is where you tell the bot *when* and *why* to fetch each one.
+**The Deep Knowledge table is your safety net.** Semantic discovery may or may not surface a borderline-relevant skill on any given turn. The table ensures the bot can always fetch what it needs, regardless of discovery noise.
 
-### 3. Write the Skills
+### 3. Write the skills (as normal catalog entries)
 
-Each skill is a standalone markdown document. Think of them as chapters the bot pulls off the shelf when needed.
+Skills are standalone markdown documents with frontmatter. They live in the catalog, not on the carapace. Every skill should have:
 
-**Skill modes:**
-| Mode | Injection | Cost | Use For |
-|------|-----------|------|---------|
-| `pinned` | Every turn, full content | High | Core context the bot needs on literally every message (rare — most things don't qualify) |
-| `on_demand` | Index entry only; full content via `get_skill()` | Zero until fetched | Reference material, detailed procedures, recipes, API docs |
-| `rag` | Semantic match against user message | Variable | Background knowledge that should surface when topically relevant |
+```markdown
+---
+name: Human-readable name
+description: One-line description used by the discovery embedding
+triggers: comma, separated, keywords
+category: core | integration | bot
+---
 
-**Default to `on_demand`.** Only use `pinned` for context that's needed on >80% of turns. Only use `rag` when the bot shouldn't need to explicitly decide to fetch it.
+# Content...
+```
 
-### 4. Select Tools
+The bot finds them three ways:
+1. Discovery layer surfaces the top-K unenrolled skills semantically each turn
+2. The fragment's Deep Knowledge table tells the bot exactly which to fetch
+3. The bot can also call `get_skill_list()` to enumerate everything
+
+A skill becomes "enrolled" the first time the bot calls `get_skill()` on it. From then on it's in the always-visible working-set flat list.
+
+### 4. Select tools
 
 ```yaml
 local_tools:          # Available for tool RAG matching
   - file              # Read/write/edit workspace files (preferred for most bots)
   - web_search
-  - exec_command      # Shell access (orchestrators, workspace bots with containers)
+  - exec_command      # Shell access (orchestrators or any bot needing shell capabilities)
 
 pinned_tools:         # Always offered to the LLM (bypass tool RAG)
   - file              # Only pin tools the workflow depends on every turn
 ```
 
-**`file` is the default file tool** for most bots — it reads, writes, and edits workspace files without shell access. Only use `exec_command` for bots that need shell capabilities (orchestrators, workspace container bots, sandbox profiles). Pin sparingly — every pinned tool consumes context tokens on every turn.
+**`file` is the default file tool** for most bots — it reads, writes, and edits workspace files without shell access. Only use `exec_command` for bots that need shell capabilities. Pin sparingly — every pinned tool consumes context tokens on every turn.
 
-### 5. Compose via Includes
+### 5. Compose via includes
 
 Build on existing carapaces instead of duplicating:
 
 ```yaml
 includes:
-  - code-review      # Gets all of code-review's skills, tools, and fragment
+  - code-review      # Gets all of code-review's tools and fragment
 ```
 
-The included carapace's `system_prompt_fragment` is concatenated after yours. Its skills and tools merge into yours. Resolution is depth-first with cycle detection (max 5 levels).
+The included carapace's `system_prompt_fragment` is concatenated after yours. Its tools merge into yours. Resolution is depth-first with cycle detection (max 5 levels).
 
 **Composition tips:**
 - Include for shared foundations (code-review includes in qa, bug-fix includes in code-review)
-- Don't include carapaces just for one skill — reference the skill directly instead
+- Don't include carapaces just for one fragment line — write the line yourself
 - Keep the include chain shallow (2-3 levels max in practice)
 
-## Creating a Carapace
+## Creating a carapace
 
 Use the `manage_capability` tool:
 
@@ -180,7 +199,6 @@ manage_capability(
   action="create",
   id="bug-triage",
   name="Bug Triage Expert",
-  skills='[{"id": "debugging-guide", "mode": "on_demand"}, {"id": "test-patterns", "mode": "on_demand"}]',
   local_tools="file,web_search,exec_command",
   pinned_tools="file",
   system_prompt_fragment="## Bug Triage Protocol\n\n..."
@@ -194,12 +212,6 @@ id: bug-triage
 name: Bug Triage Expert
 description: Systematic debugging and bug resolution
 tags: [debugging, qa]
-
-skills:
-  - id: debugging-guide
-    mode: on_demand
-  - id: test-patterns
-    mode: on_demand
 
 local_tools:
   - file
@@ -223,8 +235,10 @@ system_prompt_fragment: |
   6. Verify the test passes and no regressions
 
   ### Deep Knowledge
-  - **Debugging techniques**: Call `get_skill('debugging-guide')` for systematic isolation methods, logging strategies, and common root cause patterns
-  - **Test patterns**: Call `get_skill('test-patterns')` for test-first methodology, edge case identification, and coverage strategies
+  | When you need... | Fetch this skill |
+  |---|---|
+  | Systematic isolation methods, logging strategies, root cause patterns | `get_skill('debugging-guide')` |
+  | Test-first methodology, edge cases, coverage strategies | `get_skill('test-patterns')` |
 
   ### Key Rules
   - Never fix without reproducing first
@@ -232,18 +246,20 @@ system_prompt_fragment: |
   - Minimal fix — don't refactor adjacent code
 ```
 
-## Anti-Patterns
+Notice: **no `skills:` field**. The bot will fetch `debugging-guide` and `test-patterns` from the catalog the first time the workflow demands them, and they'll auto-enroll into the working set from that point on.
 
-| Anti-Pattern | Why It Fails | Fix |
+## Anti-patterns
+
+| Anti-pattern | Why it fails | Fix |
 |---|---|---|
-| 500-line system_prompt_fragment | Burns context budget every turn; bot ignores most of it | Move depth to on_demand skills, keep fragment as index |
-| No skill pointers in fragment | Bot doesn't know deep knowledge exists; never calls `get_skill` | Add explicit "call `get_skill('x')` for ..." lines |
-| Everything pinned | Massive context, slow responses, high cost | Default to on_demand; pin only what's needed every turn |
+| `skills:` field on the carapace | Dead — the field is no longer read at runtime | Delete it; add a Deep Knowledge table to the fragment instead |
+| 500-line system_prompt_fragment | Burns context budget every turn; bot ignores most of it | Move depth to catalog skills, keep fragment as index |
+| Fragment with no Deep Knowledge table | Bot relies entirely on discovery; borderline-relevant skills won't be reached | Add explicit `get_skill('id')` lines for every procedure the workflow depends on |
+| Fragment dumping skill content inline | Wastes tokens on every turn for content the bot needs once | Keep the procedure in a skill; reference it from the fragment |
 | Carapace per project | Wrong abstraction — projects are channels, not expertise | Use channel workspace + channel prompt for project context |
-| Duplicating skills across carapaces | Drift, maintenance burden | Use `includes` or reference shared skills by ID |
-| Vague system_prompt_fragment | "You are helpful and knowledgeable" — useless | Concrete workflow steps, specific tool/skill references |
+| Vague fragment ("You are helpful and knowledgeable") | Useless — no behavior change | Concrete workflow steps, specific tool and skill references |
 
-## Applying Carapaces
+## Applying carapaces
 
 Three ways to activate a carapace:
 
@@ -252,5 +268,3 @@ Three ways to activate a carapace:
 | Bot config: `carapaces: [qa]` | All channels for this bot | Bot IS this expert |
 | Channel override: `carapaces_extra: [qa]` | One channel only | Temporary or channel-specific expertise |
 | Delegation: `execution_config.carapaces: ["qa"]` | Single task | One-off delegated task needs expertise |
-
-Remove via `carapaces_disabled: [qa]` on the channel to suppress a bot-level carapace for specific channels.

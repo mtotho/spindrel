@@ -83,7 +83,7 @@ The admin UI offers one-click presets for common use cases:
 |--------|----------|------------|
 | **Messaging Integration** | Slack, Discord, etc. | `chat`, `bots:read`, `channels:read/write`, `channels.config:read/write`, `sessions:read/write`, `todos:read`, `llm:completions` |
 | **Chat Client** | Custom chat frontends | `chat`, `bots:read`, `channels:read/write`, `sessions:read`, `attachments:read/write` |
-| **Workspace Bot** | Bots in containers | `chat`, `bots:read`, `channels:read/write`, `tasks:read/write`, `documents:read/write`, `todos:read/write`, `workspaces.files:read/write`, `attachments:read/write`, `carapaces:read/write`, `tools:read/execute` |
+| **Container Bot** | Bots in their container environment | `chat`, `bots:read`, `channels:read/write`, `tasks:read/write`, `documents:read/write`, `todos:read/write`, `workspaces.files:read/write`, `attachments:read/write`, `carapaces:read/write`, `tools:read/execute` |
 | **Read-Only Monitor** | Dashboards | `bots:read`, `channels:read`, `sessions:read`, `tasks:read`, `todos:read`, `attachments:read`, `logs:read` |
 | **Mission Control** | MC dashboard | `bots:read`, `channels:read`, `sessions:read`, `tasks:read/write`, `todos:read/write`, `workspaces:read`, `workspaces.files:read/write`, `attachments:read`, `logs:read`, `mission_control:read/write`, `carapaces:read` |
 

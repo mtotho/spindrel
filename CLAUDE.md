@@ -45,3 +45,4 @@ alembic upgrade head                    # migrations (auto on startup)
 - Bot YAML seeds DB, then UI edits — YAML is not user-facing config
 - `memory_scheme: "workspace-files"` and `history_mode: "file"` are the only active options
 - DB `memories` and `bot_knowledge` tables are DEPRECATED — do not use
+- **Single-workspace mode**: every bot is a permanent member of the default workspace via `ensure_all_bots_enrolled` (`app/services/workspace_bootstrap.py`). There is no "non-workspace bot" — the workspace is the container environment, not a property of the bot. The `POST`/`DELETE` workspace-bot endpoints are 410'd; membership is owned by the bootstrap loop.

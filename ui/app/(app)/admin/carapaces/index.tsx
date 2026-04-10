@@ -290,11 +290,6 @@ function CarapaceCard({ carapace: c, t }: { carapace: Carapace; t: ThemeTokens }
                   {c.local_tools.length} tool{c.local_tools.length !== 1 ? "s" : ""}
                 </Text>
               )}
-              {c.skills.length > 0 && (
-                <Text style={{ color: t.textDim, fontSize: 11 }}>
-                  {c.skills.length} skill{c.skills.length !== 1 ? "s" : ""}
-                </Text>
-              )}
               {c.includes.length > 0 && (
                 <Text style={{ color: t.textDim, fontSize: 11 }}>
                   includes: {c.includes.join(", ")}

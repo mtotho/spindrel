@@ -331,6 +331,7 @@ export default function ChannelSettingsScreen() {
                   />
                 )}
                 <button
+                  ref={(el) => { tabButtonRefs.current[tb.key] = el; }}
                   onClick={() => setTab(tb.key)}
                   style={{
                     position: "relative",
@@ -370,6 +371,35 @@ export default function ChannelSettingsScreen() {
             );
           })}
         </div>
+        {/* Edge fades — only visible when there are off-screen tabs in that direction. */}
+        {tabOverflow.left && (
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 1,
+              width: 24,
+              pointerEvents: "none",
+              background: `linear-gradient(to right, ${t.surface}, ${t.surface}00)`,
+            }}
+          />
+        )}
+        {tabOverflow.right && (
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              right: 0,
+              top: 0,
+              bottom: 1,
+              width: 24,
+              pointerEvents: "none",
+              background: `linear-gradient(to left, ${t.surface}, ${t.surface}00)`,
+            }}
+          />
+        )}
       </View>
 
       {/* Tab content */}

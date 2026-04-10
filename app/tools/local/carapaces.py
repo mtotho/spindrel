@@ -14,9 +14,12 @@ logger = logging.getLogger(__name__)
     "function": {
         "name": "manage_capability",
         "description": (
-            "Create, update, list, or inspect capabilities (composable skill+tool bundles). "
-            "A capability bundles skills, tools, pinned tools, and behavioral instructions "
-            "into a reusable configuration that can be applied to any bot or sub-agent."
+            "Create, update, list, or inspect capabilities (composable tool + prompt-fragment bundles). "
+            "A capability bundles tools, pinned tools, and a behavioral system_prompt_fragment "
+            "into a reusable configuration that can be applied to any bot or sub-agent. "
+            "Skills are NOT a capability concept — point at them from the system_prompt_fragment "
+            "via get_skill('id') in a Deep Knowledge table; the per-bot working set + on-fetch "
+            "promotion handles enrollment automatically."
         ),
         "parameters": {
             "type": "object",
@@ -38,10 +41,6 @@ logger = logging.getLogger(__name__)
                     "type": "string",
                     "description": "Short description of the capability.",
                 },
-                "skills": {
-                    "type": "string",
-                    "description": 'JSON array of skill configs, e.g. \'[{"id": "testing"}]\'.',
-                },
                 "local_tools": {
                     "type": "string",
                     "description": "Comma-separated tool names, e.g. 'exec_command,file,web_search'.",
@@ -60,7 +59,11 @@ logger = logging.getLogger(__name__)
                 },
                 "system_prompt_fragment": {
                     "type": "string",
-                    "description": "Behavioral instructions injected when this capability is active.",
+                    "description": (
+                        "Behavioral instructions injected when this capability is active. "
+                        "Use a Deep Knowledge table with get_skill('id') pointers to surface "
+                        "skills the bot should fetch for deeper procedures."
+                    ),
                 },
                 "delegates": {
                     "type": "string",
@@ -84,7 +87,6 @@ async def manage_capability(
     id: str = "",
     name: str = "",
     description: str | None = None,
-    skills: str | None = None,
     local_tools: str | None = None,
     pinned_tools: str | None = None,
     mcp_tools: str | None = None,
@@ -99,15 +101,6 @@ async def manage_capability(
 
     def _csv(s: str) -> list[str]:
         return [x.strip() for x in s.split(",") if x.strip()] if s else []
-
-    def _parse_skills(s: str) -> list:
-        if not s:
-            return []
-        try:
-            return json.loads(s)
-        except json.JSONDecodeError:
-            # Treat as comma-separated skill IDs
-            return [{"id": x.strip(), "mode": "on_demand"} for x in s.split(",") if x.strip()]
 
     def _parse_delegates(s: str) -> list:
         if not s:
@@ -132,7 +125,6 @@ async def manage_capability(
                 "tags": c.get("tags", []),
                 "includes": c.get("includes", []),
                 "tool_count": len(c.get("local_tools", [])),
-                "skill_count": len(c.get("skills", [])),
             })
         return json.dumps({"carapaces": summary})
 
@@ -165,7 +157,6 @@ async def manage_capability(
                 id=cid,
                 name=name.strip(),
                 description=description or None,
-                skills=_parse_skills(skills or ""),
                 local_tools=[],
                 mcp_tools=[],
                 pinned_tools=[],
@@ -215,8 +206,6 @@ async def manage_capability(
                 row.name = name.strip()
             if description is not None:
                 row.description = description or None
-            if skills is not None:
-                row.skills = _parse_skills(skills)
             if local_tools is not None:
                 row.local_tools = _csv(local_tools)
             if mcp_tools is not None:

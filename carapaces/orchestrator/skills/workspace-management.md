@@ -23,36 +23,27 @@ A single bot can have many channels (different users, different projects). When 
 - **Search across channels** with `list_channels` + `search_channel_workspace`
 - **Configure per-channel** settings (model, tools, indexed directories) via the config API
 
-```sh
-agent channels                                       # List all channels
-agent api POST /api/v1/channels \
-  '{"bot_id":"researcher","name":"Auth Research"}'   # Create a channel
-agent api PATCH /api/v1/channels/{id}/config \
-  '{"channel_workspace_enabled":true}'               # Enable channel workspace
+```python
+call_api("GET", "/api/v1/channels")                              # List all channels
+call_api("POST", "/api/v1/channels",
+         body='{"bot_id":"researcher","name":"Auth Research"}')  # Create a channel
+call_api("PATCH", "/api/v1/channels/{id}/config",
+         body='{"channel_workspace_enabled":true}')              # Enable channel workspace
 ```
 
 Channels are the primary unit of project context. When users mention "projects" or "conversations", they typically mean channels.
 
 ### Channel Workspace Scoping
 
-Channels have a `workspace_id` field that ties them to a shared workspace. This is set automatically when a channel is created for a bot that belongs to a workspace, and cascades when bots are added/removed from workspaces.
+The server runs in single-workspace mode: every bot is a permanent member of the default workspace, and channels belong to a workspace through their bot. There is no "workspace bot" vs "non-workspace bot" distinction — all bots have a container environment.
 
-When managing multiple workspaces:
+- **workspace_id on channels**: Each channel tracks the workspace its bot belongs to. The UI uses this to filter the channel list. New channels inherit the bot's workspace automatically.
+- **Orchestrator is global**: The orchestrator channel (`orchestrator:home`) always appears regardless of any workspace filter. It's the entry point for all system management.
 
-- **workspace_id**: Each channel tracks which workspace it belongs to. The UI uses this to filter the channel list by workspace.
-- **workspace_only bots**: Bots with `workspace_only: true` are hidden from the global channel view — they only appear when their workspace is selected. Use this for bots that are internal to a specific workspace and shouldn't clutter the main view.
-- **Orchestrator is global**: The orchestrator channel (`orchestrator:home`) always appears regardless of workspace filter. It's the entry point for all system management.
-
-To assign a channel to a workspace:
+To assign a channel to a workspace explicitly (rare — usually inherited from the bot):
 
 ```
 manage_channel(action="configure", channel_id="...", config={"workspace_id": "<workspace-uuid>"})
-```
-
-To mark a bot as workspace-only:
-
-```
-manage_bot(action="update", bot_id="my-bot", config={"workspace_only": true})
 ```
 
 ---
@@ -170,7 +161,7 @@ To replace a secret value, delete then re-create (avoids partial update confusio
 
 Before starting a workflow:
 
-- [ ] `agent discover` — confirm your scopes cover needed operations
+- [ ] `list_api_endpoints()` — confirm your scopes cover needed operations
 - [ ] Workspace structure exists (`/workspace/common/`, bot dirs)
 - [ ] Shared resources placed in `/workspace/common/` before delegating
 - [ ] Each delegation prompt is self-contained (bot has no access to your conversation)
@@ -180,7 +171,7 @@ Before starting a workflow:
 
 During execution:
 
-- [ ] Monitor task status via `agent tasks` or wait for callbacks
+- [ ] Monitor task status via `list_tasks` / `get_task_result` or wait for callbacks
 - [ ] Check member bot output files before synthesizing
 - [ ] Use `search_bot_memory` to verify what bots have learned
 - [ ] Handle failures gracefully — retry Claude Code with refined prompts, re-delegate as needed

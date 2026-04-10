@@ -452,6 +452,9 @@ STARTER_SKILL_IDS: list[str] = [
     "context_mastery",
     "prompt_injection_and_security",
     "skill_authoring",
+    "workspace_member",
+    "channel_workspaces",
+    "docker_stacks",
 ]
 
 

@@ -3,10 +3,6 @@ name: Google Workspace
 description: Access Google Drive, Gmail, Calendar, Sheets, Docs, and more via the GWS CLI
 tags: [google, drive, gmail, calendar, sheets, docs, workspace]
 
-skills:
-  - id: integrations/google_workspace/google-workspace
-    mode: on_demand
-
 local_tools:
   - gws
 

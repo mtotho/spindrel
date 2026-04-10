@@ -1,22 +1,26 @@
 ---
 name: Workspace API Reference
 description: >
-  Server API endpoints, agent CLI usage, permissions and scopes reference. Load when
-  making API calls from the workspace container, checking permissions, using the agent
-  CLI, or performing file/task/workspace operations via the API.
+  Server API endpoints, permissions, and scopes reference for workspace orchestration.
+  Load when calling server endpoints, checking your scopes, or performing
+  workspace/file/task/channel operations via the API.
 ---
 
 # Server API Reference
 
-All paths relative to `AGENT_SERVER_URL`. Use `agent api` or `agent-api` for authenticated requests.
+You reach the agent server through two in-process tools:
+
+- **`list_api_endpoints(scope=...)`** — discover what your scoped API key permits.
+- **`call_api(method, path, body)`** — invoke any allowed endpoint. Body is a JSON string.
+
+These run inside the agent loop with your scoped key already wired in — no shell, no auth headers, no manual JSON escaping. Always start with `list_api_endpoints()` in a new context to see what's reachable, then call.
 
 ## Discovering Your Permissions
 
-Your API key determines what server endpoints you can call. Always check on first run:
-
-```sh
-agent discover              # Quick list of available endpoints
-agent docs                  # Full API reference filtered to your scopes
+```python
+list_api_endpoints()                        # Everything your key allows
+list_api_endpoints(scope="channels")        # Narrow by scope prefix
+list_api_endpoints(scope="workspaces")      # e.g. workspace management
 ```
 
 ### Common Scopes for Orchestrators
@@ -28,95 +32,85 @@ Orchestrators often need additional scopes:
 - `workspaces:write` — start/stop/recreate containers, manage bot membership (implies `workspaces:read` and `workspaces.files:*`)
 - `bots:write` — modify bot configs (system prompts, skills, tools)
 
-If `agent discover` shows you lack a needed scope, inform the user — you cannot escalate your own permissions.
-
-### API Docs Injection (api_reference skill)
-
-If API docs injection is enabled on your bot config, you automatically get an `api_reference` entry in your skill index. Modes:
-- **on_demand**: Short hint injected; call `get_skill("api_reference")` when needed
-- **rag**: Full docs injected when your message mentions API-related keywords
-- **pinned**: Full docs always in context (~1K tokens)
+If `list_api_endpoints` doesn't show an endpoint you expected, you lack the scope — inform the user, you cannot escalate your own permissions.
 
 ---
 
 ## Workspace Management
 
-```sh
-# Get workspace details (includes bots list in response)
-agent api GET /api/v1/workspaces/{ws_id}
+```python
+# Workspace details (includes bots list in response)
+call_api("GET", "/api/v1/workspaces/{ws_id}")
 
 # Container status
-agent api GET /api/v1/workspaces/{ws_id}/status
+call_api("GET", "/api/v1/workspaces/{ws_id}/status")
 
 # Container logs (last 300 lines)
-agent api GET /api/v1/workspaces/{ws_id}/logs?tail=300
+call_api("GET", "/api/v1/workspaces/{ws_id}/logs?tail=300")
 
-# List channels belonging to workspace bots
-agent api GET /api/v1/workspaces/{ws_id}/channels
+# Channels belonging to bots in the workspace
+call_api("GET", "/api/v1/workspaces/{ws_id}/channels")
 ```
 
-## Bot Membership (add/update/remove bots in workspace)
+## Bot Membership (read/update only)
 
-```sh
+The server runs in single-workspace mode: every bot is a permanent member of the default workspace, auto-enrolled at server startup. The `POST` and `DELETE` membership endpoints return `410 Gone` — don't call them. Only the read and update endpoints are usable.
+
+```python
 # Get specific bot's workspace config
-agent api GET /api/v1/workspaces/{ws_id}/bots/{bot_id}
+call_api("GET", "/api/v1/workspaces/{ws_id}/bots/{bot_id}")
 
-# Add bot to workspace
-agent api POST /api/v1/workspaces/{ws_id}/bots \
-  '{"bot_id":"my-bot","workspace_dir":"/workspace/my-bot"}'
-
-# Update bot workspace config (dir, indexing overrides)
-agent api PUT /api/v1/workspaces/{ws_id}/bots/{bot_id} \
-  '{"workspace_dir":"/workspace/my-bot","indexing":{"enabled":true}}'
-
-# Remove bot from workspace
-agent api DELETE /api/v1/workspaces/{ws_id}/bots/{bot_id}
+# Update bot workspace config (role, cwd_override, write_access, system_prompt, ...)
+call_api("PUT", "/api/v1/workspaces/{ws_id}/bots/{bot_id}",
+         body='{"role":"member","write_access":["/workspace/common/specs"]}')
 ```
 
 ## Indexing
 
-```sh
+```python
 # Trigger full reindex (file content + embeddings)
-agent api POST /api/v1/workspaces/{ws_id}/reindex
+call_api("POST", "/api/v1/workspaces/{ws_id}/reindex")
 
 # Get full indexing config (global, workspace-level, per-bot)
-agent api GET /api/v1/workspaces/{ws_id}/indexing
+call_api("GET", "/api/v1/workspaces/{ws_id}/indexing")
 
 # Update per-bot indexing overrides
-agent api PUT /api/v1/workspaces/{ws_id}/bots/{bot_id}/indexing \
-  '{"enabled":true,"extensions":[".py",".md",".ts"]}'
+call_api("PUT", "/api/v1/workspaces/{ws_id}/bots/{bot_id}/indexing",
+         body='{"enabled":true,"extensions":[".py",".md",".ts"]}')
 ```
 
 ## File Operations (via API — alternative to exec_command)
 
-```sh
+```python
 # Browse files
-agent api GET /api/v1/workspaces/{ws_id}/files?path=/workspace/common
+call_api("GET", "/api/v1/workspaces/{ws_id}/files?path=/workspace/common")
 
 # Read file
-agent api GET /api/v1/workspaces/{ws_id}/files/content?path=/workspace/common/spec.md
+call_api("GET", "/api/v1/workspaces/{ws_id}/files/content?path=/workspace/common/spec.md")
 
 # Write file
-agent api PUT /api/v1/workspaces/{ws_id}/files/content?path=/workspace/common/spec.md \
-  '{"content":"# Project Spec\n..."}'
+call_api("PUT", "/api/v1/workspaces/{ws_id}/files/content?path=/workspace/common/spec.md",
+         body='{"content":"# Project Spec\\n..."}')
 ```
 
 ## Channel Management
 
-```sh
-# List channels for workspace bots
-agent api GET /api/v1/workspaces/{ws_id}/channels
+```python
+# List channels for bots in the workspace
+call_api("GET", "/api/v1/workspaces/{ws_id}/channels")
 
 # Inject message into a bot's channel (triggers processing)
-agent api POST /api/v1/channels/{channel_id}/messages \
-  '{"content":"New instructions","run_agent":true}'
-# Returns {"task_id":"..."} — poll with: agent tasks wait <task_id>
+call_api("POST", "/api/v1/channels/{channel_id}/messages",
+         body='{"content":"New instructions","run_agent":true}')
+# Returns {"task_id":"..."} — track via list_tasks / get_task_result.
 ```
 
 ## Task Monitoring
 
-```sh
-agent tasks                       # List all tasks
-agent tasks get <task_id>         # Get status + result
-agent tasks wait <task_id>        # Block until complete/failed (polls every 5s)
-```
+Use the dedicated task tools rather than raw API calls when possible — they handle parsing and pagination:
+
+- `list_tasks()` — list active and recent tasks
+- `get_task_result(task_id)` — fetch status and output for a specific task
+- `cancel_task(task_id)` — cancel a running task
+
+For polling, call `get_task_result` at 5s+ intervals until status is `complete` or `failed`.

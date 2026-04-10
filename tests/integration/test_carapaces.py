@@ -14,7 +14,6 @@ async def test_carapace_crud(client):
             "id": "test-qa",
             "name": "QA Expert",
             "description": "Full QA workflow",
-            "skills": [{"id": "testing", "mode": "pinned"}],
             "local_tools": ["exec_command", "file"],
             "pinned_tools": ["exec_command"],
             "tags": ["testing"],
@@ -26,7 +25,6 @@ async def test_carapace_crud(client):
     data = resp.json()
     assert data["id"] == "test-qa"
     assert data["name"] == "QA Expert"
-    assert len(data["skills"]) == 1
     assert data["local_tools"] == ["exec_command", "file"]
 
     # List

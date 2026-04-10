@@ -12,7 +12,7 @@ import { useBot } from "../../api/hooks/useBots";
 import { useChannel, useChannelEffectiveTools, useChannelConfigOverhead } from "../../api/hooks/useChannels";
 import type { ContextEstimate } from "../../api/hooks/useChannels";
 import { useCarapaces } from "../../api/hooks/useCarapaces";
-import { buildSkillCarapaceMap, buildToolCarapaceMap } from "../../utils/carapaceMapping";
+import { buildToolCarapaceMap } from "../../utils/carapaceMapping";
 
 interface Props {
   botId: string;
@@ -90,11 +90,6 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
     : effective;
 
   // Provenance maps
-  const skillCapMap = useMemo(() => {
-    if (!allCarapaces || !displayTools?.carapaces) return new Map();
-    return buildSkillCarapaceMap(allCarapaces, displayTools.carapaces);
-  }, [allCarapaces, displayTools]);
-
   const toolCapMap = useMemo(() => {
     if (!allCarapaces || !displayTools?.carapaces) return new Map();
     return buildToolCarapaceMap(allCarapaces, displayTools.carapaces);
@@ -278,26 +273,17 @@ function BotInfoPanelContent({ botId, channelId, onClose, contextBudget }: Props
                 Skills ({displayTools.skills.length})
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {displayTools.skills.map((s) => {
-                  const capInfo = skillCapMap.get(s.id);
-                  const provenance = capInfo
-                      ? `via ${capInfo.carapaceName}`
-                      : "auto-enrolled";
-                  return (
-                    <div key={s.id} style={{
-                      display: "flex", alignItems: "center", gap: 6,
-                      padding: "2px 6px", borderRadius: 4,
-                      background: t.accentSubtle,
-                    }}>
-                      <span style={{ fontSize: 10, color: t.accent, fontWeight: 500 }}>
-                        {s.name || s.id}
-                      </span>
-                      <span style={{ fontSize: 8, color: t.textDim, marginLeft: "auto" }}>
-                        {provenance}
-                      </span>
-                    </div>
-                  );
-                })}
+                {displayTools.skills.map((s) => (
+                  <div key={s.id} style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "2px 6px", borderRadius: 4,
+                    background: t.accentSubtle,
+                  }}>
+                    <span style={{ fontSize: 10, color: t.accent, fontWeight: 500 }}>
+                      {s.name || s.id}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

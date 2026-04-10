@@ -177,7 +177,6 @@ async def dispatch_tool_call(
                             "name": _cap_name,
                             "description": _cap_desc,
                             "tools_count": len(_cap_data.get("local_tools") or []) if _cap_data else 0,
-                            "skills_count": len(_cap_data.get("skills") or []) if _cap_data else 0,
                         },
                     }
                     approval_id = await _create_approval_record(
@@ -569,7 +568,7 @@ async def _notify_approval_request(
                 text = (
                     f"✨ *Capability activation — {cap.get('name', tool_name)}*\n"
                     f"{cap.get('description', '')}\n"
-                    f"Provides: {cap.get('tools_count', 0)} tool(s), {cap.get('skills_count', 0)} skill(s)\n"
+                    f"Provides: {cap.get('tools_count', 0)} tool(s)\n"
                     f"Bot: `{bot_id}`\n"
                     f"Approval ID: `{approval_id}`\n"
                     f"Use `POST /api/v1/approvals/{approval_id}/decide` to approve or deny."

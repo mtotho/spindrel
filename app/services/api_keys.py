@@ -356,8 +356,8 @@ SCOPE_PRESETS: dict[str, dict] = {
         "instructions": "Set as `AGENT_SERVER_API_KEY` in the client environment.",
     },
     "workspace_bot": {
-        "name": "Workspace Bot",
-        "description": "For bots in shared workspace containers — chat, files, tasks, documents, tools",
+        "name": "Container Bot",
+        "description": "For bots in their container environment — chat, files, tasks, documents, tools",
         "scopes": [
             "chat", "bots:read",
             "channels:read", "channels:write",
@@ -372,7 +372,7 @@ SCOPE_PRESETS: dict[str, dict] = {
         ],
         "instructions": (
             "Injected automatically when a bot has API permissions configured.\n"
-            "Use the `agent` CLI inside the workspace container."
+            "The bot reaches the server via the `call_api` and `list_api_endpoints` tools."
         ),
     },
     "read_only": {
@@ -478,12 +478,15 @@ def generate_api_docs(scopes: list[str] | None = None) -> str:
     lines = ["# Agent Server API Reference\n"]
     if scopes is not None:
         lines.append(f"**Your scopes:** {', '.join(scopes)}\n")
-    lines.append("All paths relative to `$AGENT_SERVER_URL`. Auth via `$AGENT_SERVER_API_KEY`.\n")
     lines.append(
-        "**IMPORTANT:** `agent-api` is a CLI command, NOT a tool. "
-        "Run it via `exec_command`: `exec_command(command=\"agent-api GET /path\")`.\n"
-        "Examples: `exec_command(command=\"agent-api GET /api/v1/channels\")`, "
-        "`exec_command(command='agent-api POST /chat {\"message\":\"hello\"}')`.\n"
+        "Call these endpoints with the `call_api` tool — it runs in-process with your "
+        "scoped key, so no auth headers or shell escaping. Use `list_api_endpoints` first "
+        "to discover what your scopes permit.\n"
+    )
+    lines.append(
+        "Examples:\n"
+        "- `call_api(method=\"GET\", path=\"/api/v1/channels\")`\n"
+        "- `call_api(method=\"POST\", path=\"/chat\", body='{\"message\":\"hello\"}')`\n"
     )
 
     for scope, eps in sorted(grouped.items()):

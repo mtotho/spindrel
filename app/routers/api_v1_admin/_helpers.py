@@ -109,7 +109,6 @@ def _bot_to_out(
         memory_hygiene_model=getattr(bot, "memory_hygiene_model", None),
         memory_hygiene_model_provider_id=getattr(bot, "memory_hygiene_model_provider_id", None),
         memory_hygiene_target_hour=getattr(bot, "memory_hygiene_target_hour", None),
-        workspace_only=getattr(bot, "workspace_only", False),
         system_prompt_workspace_file=getattr(bot, "system_prompt_workspace_file", False),
         system_prompt_write_protected=getattr(bot, "system_prompt_write_protected", False),
         source_type=getattr(bot, "source_type", "manual"),

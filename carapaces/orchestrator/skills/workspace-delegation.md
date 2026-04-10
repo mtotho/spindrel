@@ -138,4 +138,4 @@ For workflow design patterns:
 | Fire-and-forget without `notify_parent` | You lose track of completion and results | Default to `notify_parent=true` unless truly fire-and-forget |
 | Assuming member bots see your context | Each bot has its own session and memory | Explicitly pass context via prompt or shared files |
 | Ignoring Claude Code cost/turns | Claude Code runs accrue real API costs | Set `max_turns`, check `cost_usd` in results |
-| Polling tasks in tight loops | Wastes resources, may hit rate limits | Use `agent tasks wait` (5s interval) or `notify_parent=true` |
+| Polling tasks in tight loops | Wastes resources, may hit rate limits | Poll `get_task_result` at 5s+ intervals, or set `notify_parent=true` |

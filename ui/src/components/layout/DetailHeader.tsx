@@ -1,7 +1,7 @@
-import { useRouter } from "expo-router";
 import { useWindowDimensions } from "react-native";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useGoBack } from "@/src/hooks/useGoBack";
 
 interface DetailHeaderProps {
   parentLabel: string;
@@ -17,13 +17,14 @@ interface DetailHeaderProps {
 
 export function DetailHeader({ parentLabel, parentHref, title, subtitle, right, hideTitle, inline }: DetailHeaderProps) {
   const t = useThemeTokens();
-  const router = useRouter();
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
 
-  const navigateToParent = () => {
-    router.push(parentHref as any);
-  };
+  // Prefer in-app history (real "previous page") and fall back to the parent
+  // section root only when there's no stack to pop (direct page load, refresh,
+  // external link). The parentLabel/parentHref are still shown as a breadcrumb
+  // hint on desktop.
+  const navigateToParent = useGoBack(parentHref);
 
   return (
     <div style={{

@@ -5,10 +5,6 @@ description: >-
   commit history, branch comparison, and webhook-driven event handling.
 tags: [github, git, code-review, pull-requests, issues]
 
-skills:
-  - id: integrations/github/github
-    mode: on_demand
-
 local_tools:
   - github_get_pr
   - github_search_issues

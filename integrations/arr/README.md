@@ -79,11 +79,9 @@ local_tools:
   # Bazarr
   - bazarr_subtitles
 
-skills:
-  - id: integrations/arr/media_management
-    mode: on_demand
-  - id: integrations/arr/download-monitoring
-    mode: on_demand
+# Note: skills are NOT declared on the carapace. The system_prompt_fragment's
+# Deep Knowledge table points at them via get_skill('id') instead, and the
+# bot's working set auto-enrolls each one on first successful fetch.
 ```
 
 ## Tools

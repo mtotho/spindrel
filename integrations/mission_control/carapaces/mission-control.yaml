@@ -15,20 +15,6 @@ requires:
     - update_plan_step
     - update_plan_status
 
-skills:
-  # Task & project management
-  - id: integrations/mission_control/mission_control
-    mode: on_demand
-  - id: integrations/mission_control/planning
-    mode: on_demand
-  - id: integrations/mission_control/project-management
-    mode: on_demand
-  # External services & data
-  - id: integrations/mission_control/content_feeds
-    mode: on_demand
-  - id: integrations/mission_control/integration-builder
-    mode: on_demand
-
 local_tools:
   - create_task_card
   - move_task_card

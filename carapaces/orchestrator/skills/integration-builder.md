@@ -10,8 +10,8 @@ description: "Creating custom integrations: scaffold→reload flow, directory st
 | You need... | Create a... | Why |
 |---|---|---|
 | A new function the bot can call | Tool (`tools/*.py`) | Simplest unit. Just `@register` + function. |
-| Domain knowledge or behavioral instructions | Skill (`skills/*.md`) | Markdown, auto-synced, modes: pinned/rag/on_demand. |
-| A bundle of tools + skills + behavioral instructions | Carapace (`carapaces/*.yaml`) | Composable expertise. Apply to bots or channels. |
+| Domain knowledge or behavioral instructions | Skill (`skills/*.md`) | Markdown, auto-synced. Bots fetch via `get_skill('id')`; first fetch auto-promotes into the bot's working set. |
+| A bundle of tools + behavioral instructions | Carapace (`carapaces/*.yaml`) | Composable expertise: tools + system_prompt_fragment. Skills are referenced from the fragment via `get_skill('id')`, not declared on the carapace. Apply to bots or channels. |
 | External service webhooks, background process, dispatcher, sidebar nav | Integration | Full integration with router, tools, skills, carapaces. |
 
 **Rule of thumb:** If you need a router (webhook endpoints), a dispatcher (message delivery), or a background process — you need an integration. If you just need a tool or skill, create those directly.

@@ -5,10 +5,6 @@ description: >-
   detection alerts, camera status, and recording retrieval.
 tags: [security, cameras, nvr, frigate, detection]
 
-skills:
-  - id: integrations/frigate/frigate
-    mode: on_demand
-
 local_tools:
   - frigate_list_cameras
   - frigate_get_events

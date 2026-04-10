@@ -140,22 +140,6 @@ export function useWorkspaceLogs(workspaceId: string | undefined) {
 
 // Bot management
 
-export function useAddBotToWorkspace(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { bot_id: string; role?: string; cwd_override?: string }) =>
-      apiFetch<SharedWorkspace>(`/api/v1/workspaces/${workspaceId}/bots`, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });
-      qc.invalidateQueries({ queryKey: ["workspaces"] });
-      qc.invalidateQueries({ queryKey: ["bots"] });
-    },
-  });
-}
-
 export function useUpdateWorkspaceBot(workspaceId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -166,21 +150,6 @@ export function useUpdateWorkspaceBot(workspaceId: string) {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });
-      qc.invalidateQueries({ queryKey: ["bots"] });
-    },
-  });
-}
-
-export function useRemoveBotFromWorkspace(workspaceId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (botId: string) =>
-      apiFetch(`/api/v1/workspaces/${workspaceId}/bots/${botId}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["workspaces", workspaceId] });
-      qc.invalidateQueries({ queryKey: ["workspaces"] });
       qc.invalidateQueries({ queryKey: ["bots"] });
     },
   });

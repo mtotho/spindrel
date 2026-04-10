@@ -33,7 +33,6 @@ def clear_registry():
 def _make_carapace(
     id: str,
     *,
-    skills=None,
     local_tools=None,
     mcp_tools=None,
     pinned_tools=None,
@@ -45,7 +44,6 @@ def _make_carapace(
         "id": id,
         "name": id,
         "description": f"Description of {id}",
-        "skills": skills or [],
         "local_tools": local_tools or [],
         "mcp_tools": mcp_tools or [],
         "pinned_tools": pinned_tools or [],
@@ -496,7 +494,6 @@ class TestCarapaceToDict:
             id="test",
             name="Test",
             description="Test carapace",
-            skills=[],
             local_tools=[],
             mcp_tools=[],
             pinned_tools=[],
@@ -507,6 +504,8 @@ class TestCarapaceToDict:
         )
         d = _carapace_to_dict(row)
         assert d["delegates"] == [{"id": "qa", "type": "carapace", "description": "QA"}]
+        # The dict should not expose a `skills` key — skills are not a carapace concept
+        assert "skills" not in d
 
     def test_delegates_defaults_empty(self):
         from app.agent.carapaces import _carapace_to_dict
@@ -515,7 +514,6 @@ class TestCarapaceToDict:
         row = CarapaceRow(
             id="test",
             name="Test",
-            skills=[],
             local_tools=[],
             mcp_tools=[],
             pinned_tools=[],

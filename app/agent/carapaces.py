@@ -1,8 +1,11 @@
-"""Carapace registry — composable skill+tool bundles.
+"""Carapace registry — composable tool + prompt-fragment bundles.
 
 Carapaces are loaded from the DB at startup and resolved into existing
-primitives (skills, tools, pinned tools, system prompt fragments) at
-context assembly time.
+primitives (tools, pinned tools, system prompt fragments) at context
+assembly time. Skills are NOT a carapace concept — bots discover skills
+via the per-bot working set + semantic discovery layer + on-fetch
+promotion via `get_skill()`. A carapace's prompt fragment can point at
+skills via `get_skill('id')` calls in its Deep Knowledge table.
 """
 from __future__ import annotations
 
@@ -15,7 +18,6 @@ from pathlib import Path
 import yaml
 from sqlalchemy import select
 
-from app.agent.bots import SkillConfig, _parse_skill_entry
 from app.db.engine import async_session
 from app.db.models import Carapace as CarapaceRow
 
@@ -40,7 +42,6 @@ class DelegateEntry:
 @dataclass
 class ResolvedCarapace:
     """Flattened result of resolving one or more carapaces."""
-    skills: list[SkillConfig] = field(default_factory=list)
     local_tools: list[str] = field(default_factory=list)
     mcp_tools: list[str] = field(default_factory=list)
     pinned_tools: list[str] = field(default_factory=list)
@@ -53,7 +54,6 @@ def _carapace_to_dict(row: CarapaceRow) -> dict:
         "id": row.id,
         "name": row.name,
         "description": row.description,
-        "skills": row.skills or [],
         "local_tools": row.local_tools or [],
         "mcp_tools": row.mcp_tools or [],
         "pinned_tools": row.pinned_tools or [],
@@ -84,7 +84,6 @@ def resolve_carapaces(ids: list[str], *, max_depth: int = 5) -> ResolvedCarapace
     Handles recursive includes with cycle detection.
     """
     result = ResolvedCarapace()
-    _seen_skills: set[str] = set()
     _seen_tools: set[str] = set()
     _seen_mcp: set[str] = set()
     _seen_pinned: set[str] = set()
@@ -109,12 +108,9 @@ def resolve_carapaces(ids: list[str], *, max_depth: int = 5) -> ResolvedCarapace
         for inc_id in c.get("includes", []):
             _resolve(inc_id, visited, depth + 1)
 
-        # Merge skills (deduplicate by id)
-        for entry in c.get("skills", []):
-            sc = _parse_skill_entry(entry)
-            if sc.id not in _seen_skills:
-                _seen_skills.add(sc.id)
-                result.skills.append(sc)
+        # Note: any legacy `skills` field on a carapace dict is intentionally
+        # ignored. Skills live in the per-bot working set; carapace fragments
+        # surface them via Deep Knowledge tables that point at `get_skill()`.
 
         # Merge tools (deduplicate)
         for t in c.get("local_tools", []):
@@ -287,7 +283,6 @@ async def seed_carapaces_from_yaml() -> None:
                     id=cid,
                     name=data.get("name", cid),
                     description=data.get("description"),
-                    skills=data.get("skills", []),
                     local_tools=data.get("local_tools", []),
                     mcp_tools=data.get("mcp_tools", []),
                     pinned_tools=data.get("pinned_tools", []),
@@ -310,7 +305,6 @@ async def seed_carapaces_from_yaml() -> None:
             ):
                 existing.name = data.get("name", cid)
                 existing.description = data.get("description")
-                existing.skills = data.get("skills", [])
                 existing.local_tools = data.get("local_tools", [])
                 existing.mcp_tools = data.get("mcp_tools", [])
                 existing.pinned_tools = data.get("pinned_tools", [])

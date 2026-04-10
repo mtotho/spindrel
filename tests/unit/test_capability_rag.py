@@ -79,9 +79,10 @@ class TestBuildEmbedText:
         assert "Capability: Code Review" in text
         assert "Description: PR analysis" in text
         assert "Expertise: You are a code review expert" in text
-        assert "Skills: code-review-checklist" in text
         assert "Tags: development, review" in text
         assert "Tools: exec_command" in text
+        # Skills are not embedded — they're not a carapace concept
+        assert "Skills:" not in text
 
     def test_minimal_carapace(self):
         from app.agent.capability_rag import build_embed_text
@@ -92,11 +93,14 @@ class TestBuildEmbedText:
         assert "Description:" not in text
         assert "Skills:" not in text
 
-    def test_string_skills(self):
+    def test_legacy_skills_field_does_not_appear_in_embed(self):
+        """Carapace dicts may still carry a `skills` key from legacy data,
+        but it must not influence the embedding text."""
         from app.agent.capability_rag import build_embed_text
 
         text = build_embed_text(_MOCK_REGISTRY["bug-fix"])
-        assert "Skills: bug-fix-checklist" in text
+        assert "bug-fix-checklist" not in text
+        assert "Skills:" not in text
 
     def test_fragment_truncation(self):
         from app.agent.capability_rag import build_embed_text

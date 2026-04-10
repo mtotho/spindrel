@@ -20,7 +20,7 @@ import {
 } from "@/src/components/shared/ItemPreviewPopover";
 import type { ChannelSettings, Carapace } from "@/src/types/api";
 import { ActivationsSection } from "./integrations/ActivationsSection";
-import { buildSkillCarapaceMap, buildToolCarapaceMap } from "@/src/utils/carapaceMapping";
+import { buildToolCarapaceMap } from "@/src/utils/carapaceMapping";
 
 // ---------------------------------------------------------------------------
 // Provenance badge — color-coded by source
@@ -335,11 +335,6 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
   );
 
   // --- Provenance maps ---
-  const skillCapMap = useMemo(() => {
-    if (!allCarapaces || !effective?.carapaces) return new Map();
-    return buildSkillCarapaceMap(allCarapaces, effective.carapaces);
-  }, [allCarapaces, effective]);
-
   const toolCapMap = useMemo(() => {
     if (!allCarapaces || !effective?.carapaces) return new Map();
     return buildToolCarapaceMap(allCarapaces, effective.carapaces);
@@ -399,25 +394,18 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
   }, [effective, allCarapaces, settings]);
 
   // --- Resolved skills with provenance ---
+  // Skills now flow from the per-bot working set + on-fetch promotion;
+  // there is no carapace-mediated provenance to display here.
   const resolvedSkills = useMemo(() => {
     if (!effective) return [];
-    return effective.skills.map((s) => {
-      const capInfo = skillCapMap.get(s.id);
-      let source: ProvenanceSource = "auto";
-      let sourceDetail: string | undefined;
-      if (capInfo) {
-        source = "activation";
-        sourceDetail = capInfo.carapaceName;
-      }
-      return {
-        id: s.id,
-        name: s.name || s.id,
-        mode: s.mode,
-        source,
-        sourceDetail,
-      };
-    });
-  }, [effective, skillCapMap]);
+    return effective.skills.map((s) => ({
+      id: s.id,
+      name: s.name || s.id,
+      mode: s.mode,
+      source: "auto" as ProvenanceSource,
+      sourceDetail: undefined as string | undefined,
+    }));
+  }, [effective]);
 
   // --- Available capabilities (not currently active) ---
   const availableCapabilities = useMemo(() => {

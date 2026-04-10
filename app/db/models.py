@@ -863,7 +863,6 @@ class Bot(Base):
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     carapaces: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    workspace_only: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))  # "system"|"file"|"manual"
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
@@ -875,7 +874,6 @@ class Carapace(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    skills: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     local_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     mcp_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     pinned_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))

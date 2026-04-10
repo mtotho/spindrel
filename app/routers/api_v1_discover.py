@@ -32,7 +32,8 @@ async def discover(
     """Return available endpoints for the current key/user.
 
     With ?detail=true, returns a full markdown API reference filtered
-    by the key's scopes (used by agent CLI `agent docs`).
+    by the key's scopes. Bots normally reach this via the `list_api_endpoints`
+    and `call_api` tools rather than calling /discover directly.
     """
     scopes = auth.scopes if isinstance(auth, ApiKeyAuth) else None
 

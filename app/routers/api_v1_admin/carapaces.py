@@ -83,7 +83,6 @@ async def admin_create_carapace(
         id=cid,
         name=body.name.strip(),
         description=body.description,
-        skills=body.skills,
         local_tools=body.local_tools,
         mcp_tools=body.mcp_tools,
         pinned_tools=body.pinned_tools,
@@ -124,8 +123,6 @@ async def admin_update_carapace(
         row.name = body.name.strip()
     if body.description is not None:
         row.description = body.description
-    if body.skills is not None:
-        row.skills = body.skills
     if body.local_tools is not None:
         row.local_tools = body.local_tools
     if body.mcp_tools is not None:
@@ -306,8 +303,6 @@ async def admin_export_carapace(
         data["description"] = row.description
     if row.tags:
         data["tags"] = row.tags
-    if row.skills:
-        data["skills"] = row.skills
     if row.local_tools:
         data["local_tools"] = row.local_tools
     if row.mcp_tools:

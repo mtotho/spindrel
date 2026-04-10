@@ -30,7 +30,7 @@ export function PromptsTab({
         <div style={{ padding: "8px 0", fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
           <div style={{ fontWeight: 600, color: t.textMuted, marginBottom: 4 }}>File conventions:</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <span><code style={{ color: t.accent }}>common/prompts/base.md</code> {"\u2014"} replaces global base prompt for all workspace bots</span>
+            <span><code style={{ color: t.accent }}>common/prompts/base.md</code> {"\u2014"} replaces global base prompt for every bot</span>
             <span><code style={{ color: t.warningMuted }}>{"bots/<bot-id>/prompts/base.md"}</code> {"\u2014"} concatenated after common, resolved per bot at runtime</span>
           </div>
         </div>

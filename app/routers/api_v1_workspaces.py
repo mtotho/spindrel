@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, Form, Response
 from pydantic import BaseModel
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -177,13 +177,6 @@ class WorkspaceOut(BaseModel):
     bots: list[dict] = []
 
     model_config = {"from_attributes": True}
-
-
-class WorkspaceBotAdd(BaseModel):
-    bot_id: str
-    role: str = "member"
-    cwd_override: Optional[str] = None
-    write_access: list[str] = []
 
 
 class WorkspaceBotUpdate(BaseModel):
@@ -633,59 +626,22 @@ async def create_editor_session(
 
 # ── Bot management ──────────────────────────────────────────────
 
-@router.post("/{workspace_id}/bots", response_model=WorkspaceOut, status_code=201)
+@router.post("/{workspace_id}/bots", status_code=410)
 async def add_bot_to_workspace(
     workspace_id: str,
-    body: WorkspaceBotAdd,
-    db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("workspaces:write")),
 ):
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-    swb = SharedWorkspaceBot(
-        workspace_id=ws_id,
-        bot_id=body.bot_id,
-        role=body.role,
-        cwd_override=body.cwd_override,
-        write_access=body.write_access,
+    """Retired in single-workspace mode.
+
+    Bots are auto-enrolled into the default workspace by the bootstrap loop
+    (`ensure_all_bots_enrolled` in `app/services/workspace_bootstrap.py`)
+    and stay there for their lifetime. Membership is owned by the server,
+    not by the API.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail="Single-workspace mode: bots are permanent members of the default workspace. Membership is managed by the server bootstrap loop.",
     )
-    db.add(swb)
-    try:
-        await db.commit()
-    except Exception as exc:
-        raise HTTPException(400, f"Failed to add bot: {exc}")
-    shared_workspace_service.ensure_bot_dir(str(ws_id), body.bot_id)
-    # Cascade: set workspace_id on all existing channels for this bot
-    from sqlalchemy import update as sa_update
-    await db.execute(
-        sa_update(Channel)
-        .where(Channel.bot_id == body.bot_id, Channel.workspace_id.is_(None))
-        .values(workspace_id=ws_id)
-    )
-    await db.commit()
-    # Conditional starter pack: workspace bots get the workspace operating skills
-    # auto-enrolled. Failures are logged and swallowed — they shouldn't block
-    # workspace membership.
-    try:
-        from app.services.skill_enrollment import enroll_many
-        await enroll_many(
-            body.bot_id,
-            ["workspace_member", "channel_workspaces", "docker_stacks"],
-            source="auto",
-        )
-    except Exception as exc:
-        logger.warning(
-            "Failed to enroll workspace skills for bot %s in workspace %s: %s",
-            body.bot_id, ws_id, exc,
-        )
-    await reload_bots()
-    await db.refresh(ws)
-    sw_bots = (await db.execute(
-        select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
-    )).scalars().all()
-    return _ws_to_out(ws, sw_bots)
 
 
 @router.get("/{workspace_id}/bots/{bot_id}")
@@ -779,31 +735,21 @@ async def update_workspace_bot(
     return {"bot_id": bot_id, "role": swb.role, "cwd_override": swb.cwd_override, "write_access": swb.write_access or [], **bot_fields}
 
 
-@router.delete("/{workspace_id}/bots/{bot_id}", status_code=204)
+@router.delete("/{workspace_id}/bots/{bot_id}", status_code=410)
 async def remove_bot_from_workspace(
     workspace_id: str,
     bot_id: str,
-    db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("workspaces:write")),
 ):
-    ws_id = uuid.UUID(workspace_id)
-    result = await db.execute(
-        delete(SharedWorkspaceBot).where(
-            SharedWorkspaceBot.workspace_id == ws_id,
-            SharedWorkspaceBot.bot_id == bot_id,
-        )
+    """Retired in single-workspace mode.
+
+    See `add_bot_to_workspace` — membership is owned by the bootstrap loop
+    and any deletion would be reverted on next server start.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail="Single-workspace mode: bots are permanent members of the default workspace. Membership is managed by the server bootstrap loop.",
     )
-    if result.rowcount == 0:
-        raise HTTPException(404, "Bot not in workspace")
-    # Cascade: clear workspace_id on channels that pointed to this workspace
-    from sqlalchemy import update as sa_update
-    await db.execute(
-        sa_update(Channel)
-        .where(Channel.bot_id == bot_id, Channel.workspace_id == ws_id)
-        .values(workspace_id=None)
-    )
-    await db.commit()
-    await reload_bots()
 
 
 # ── Channels (batch-loaded) ─────────────────────────────────────

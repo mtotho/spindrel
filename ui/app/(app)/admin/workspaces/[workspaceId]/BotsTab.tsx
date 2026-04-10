@@ -1,7 +1,4 @@
-import { X } from "lucide-react";
-import {
-  useUpdateWorkspaceBot, useRemoveBotFromWorkspace,
-} from "@/src/api/hooks/useWorkspaces";
+import { useUpdateWorkspaceBot } from "@/src/api/hooks/useWorkspaces";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { Section } from "@/src/components/shared/FormControls";
 import type { WorkspaceBot } from "@/src/types/api";
@@ -16,12 +13,14 @@ export interface BotsTabProps {
 }
 
 // ---------------------------------------------------------------------------
-// Bots tab: shows auto-enrolled bots with role/write-access editing
+// Bots tab: shows auto-enrolled bots with role/write-access editing.
+// Single-workspace mode: every bot is a permanent member of the default
+// workspace via the bootstrap loop, so this tab does NOT expose add/remove
+// affordances. It only edits per-membership config (role, write_access).
 // ---------------------------------------------------------------------------
 export function BotsTab({ workspaceId, bots, writeProtectedPaths }: BotsTabProps) {
   const t = useThemeTokens();
   const updateBot = useUpdateWorkspaceBot(workspaceId);
-  const removeBot = useRemoveBotFromWorkspace(workspaceId);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -65,16 +64,6 @@ export function BotsTab({ workspaceId, bots, writeProtectedPaths }: BotsTabProps
                     <option value="member">Member</option>
                     <option value="orchestrator">Orchestrator</option>
                   </select>
-                  <button
-                    onClick={() => removeBot.mutate(b.bot_id)}
-                    disabled={removeBot.isPending}
-                    style={{
-                      background: "none", border: "none", cursor: "pointer",
-                      color: t.textDim, padding: 2, flexShrink: 0,
-                    }}
-                  >
-                    <X size={14} />
-                  </button>
                 </div>
                 {writeProtectedPaths.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4, paddingLeft: 2 }}>

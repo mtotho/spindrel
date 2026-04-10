@@ -107,7 +107,6 @@ class TestActivateCapabilityTool:
         assert "instructions" in result
         assert "code review expert" in result["instructions"]
         assert "tools_next_turn" in result
-        assert "skills_next_turn" in result
 
     @pytest.mark.asyncio
     async def test_activate_nonexistent(self):
@@ -595,7 +594,7 @@ class TestCapabilityApprovalGate:
         assert cap["name"] == "Code Review"
         assert cap["description"] == "PR analysis, best practices, security checks"
         assert cap["tools_count"] == 1  # ["exec_command"]
-        assert cap["skills_count"] == 1  # [{"id": "code-review-checklist", ...}]
+        assert "skills_count" not in cap  # skills are not a carapace concept
 
     @pytest.mark.asyncio
     async def test_approval_skipped_on_skip_policy(self):
@@ -639,4 +638,4 @@ class TestCapabilityApprovalGate:
         assert cap["id"] == "code-review"
         assert cap["name"] == "Code Review"
         assert cap["tools_count"] == 1
-        assert cap["skills_count"] == 1
+        assert "skills_count" not in cap

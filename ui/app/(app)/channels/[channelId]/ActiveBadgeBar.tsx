@@ -43,9 +43,8 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
   const templateId = settings?.workspace_schema_template_id;
   const template = templateId ? templates?.find((tpl) => tpl.id === templateId) : null;
 
-  // Tool/skill counts from activated integrations
+  // Tool counts from activated integrations
   const totalTools = activeIntegrations.reduce((sum, ig) => sum + (ig.tools?.length ?? 0), 0);
-  const totalSkills = activeIntegrations.reduce((sum, ig) => sum + (ig.skill_count ?? 0), 0);
 
   // Nothing to show? Don't render the bar
   const hasAnything = template || activeIntegrations.length > 0 || boundOnly.length > 0;
@@ -106,14 +105,6 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
           <Wrench size={10} color={t.textDim} />
           <span style={{ fontSize: 10, color: t.textDim }}>
             {totalTools}
-          </span>
-        </button>
-      )}
-      {totalSkills > 0 && (
-        <button onClick={() => nav("integrations")} style={pillStyle}>
-          <BookOpen size={10} color={t.textDim} />
-          <span style={{ fontSize: 10, color: t.textDim }}>
-            {totalSkills}
           </span>
         </button>
       )}
