@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
                 },
                 "skills": {
                     "type": "string",
-                    "description": 'JSON array of skill configs, e.g. \'[{"id": "testing", "mode": "pinned"}]\'.',
+                    "description": 'JSON array of skill configs, e.g. \'[{"id": "testing"}]\'.',
                 },
                 "local_tools": {
                     "type": "string",

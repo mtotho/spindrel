@@ -2078,19 +2078,9 @@ async def admin_channel_context_preview(
     except Exception:
         blocks.append({"label": "Date/Time", "role": "system", "content": "(timezone unavailable)"})
 
-    # --- Pinned skills ---
-    pinned_skills = [s for s in bot.skills if s.mode == "pinned"]
-    if pinned_skills:
-        ids = [s.id for s in pinned_skills]
-        rows = (await db.execute(select(SkillRow).where(SkillRow.id.in_(ids)))).scalars().all()
-        if rows:
-            content = "\n\n---\n\n".join(r.content for r in rows if r.content)
-            blocks.append({"label": f"Pinned Skills ({len(rows)})", "role": "system", "content": f"Pinned skill context:\n\n{content}"})
-
-    # --- On-demand skill index ---
-    od_skills = [s for s in bot.skills if s.mode == "on_demand"]
-    if od_skills:
-        ids = [s.id for s in od_skills]
+    # --- Skill index ---
+    if bot.skills:
+        ids = [s.id for s in bot.skills]
         rows = (await db.execute(select(SkillRow.id, SkillRow.name).where(SkillRow.id.in_(ids)))).all()
         if rows:
             index_lines = "\n".join(f"- {r.id}: {r.name}" for r in rows)

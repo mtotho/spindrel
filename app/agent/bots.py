@@ -42,12 +42,7 @@ class KnowledgeConfig:
 @dataclass
 class SkillConfig:
     id: str
-    mode: str = "on_demand"          # "on_demand" | "pinned"
-
-    def __post_init__(self):
-        # Backward compat: silently convert legacy "rag" mode to "on_demand"
-        if self.mode == "rag":
-            object.__setattr__(self, "mode", "on_demand")
+    mode: str = "on_demand"          # kept for backward compat parsing, ignored at runtime
 
 
 @dataclass

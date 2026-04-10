@@ -39,22 +39,6 @@ class ContextEstimateResult:
     disclaimer: str
 
 
-def _parse_skill_entries(raw_skills: list) -> tuple[list[dict], list[dict]]:
-    """Parse structured skill entries into (pinned, on_demand) lists of dicts."""
-    pinned, on_demand = [], []
-    for e in raw_skills:
-        if isinstance(e, str):
-            on_demand.append({"id": e, "mode": "on_demand"})
-        elif isinstance(e, dict):
-            mode = e.get("mode", "on_demand")
-            if mode == "pinned":
-                pinned.append(e)
-            else:
-                # "rag" and anything else → on_demand
-                on_demand.append(e)
-        else:
-            on_demand.append({"id": str(e), "mode": "on_demand"})
-    return pinned, on_demand
 
 
 async def _skill_index_chars(db, skill_ids: list[str]) -> tuple[int, int]:
@@ -72,18 +56,6 @@ async def _skill_index_chars(db, skill_ids: list[str]) -> tuple[int, int]:
     body = sum(len(f"- {r.id}: {r.name}\n") for r in rows)
     return header + body, len(rows)
 
-
-async def _pinned_skill_chars(db, skill_ids: list[str]) -> int:
-    """Return estimated chars for pinned skills (full content injected)."""
-    if not skill_ids:
-        return 0
-    result = await db.execute(
-        select(sa_func.sum(sa_func.length(SkillRow.content)))
-        .where(SkillRow.id.in_(skill_ids))
-    )
-    total = result.scalar() or 0
-    wrap = len("Pinned skill context:\n\n") + len("\n\n---\n\n") * max(0, len(skill_ids) - 1)
-    return wrap + total
 
 
 def _rag_retrieval_factor(tool_threshold: float) -> float:
@@ -189,20 +161,13 @@ async def estimate_bot_context(
         lines.append(EstimateLine("sys:persona", len("[PERSONA]\n") + len(persona_content), "injected in session bootstrap"))
 
     async with async_session() as db:
-        _pinned_s, _on_demand_s = _parse_skill_entries(skills_raw)
-
-        # Pinned skills: full content every turn
-        if _pinned_s:
-            _pinned_ids = [e["id"] for e in _pinned_s]
-            _p_chars = await _pinned_skill_chars(db, _pinned_ids)
-            if _p_chars:
-                lines.append(EstimateLine("sys:skill_pinned", _p_chars, f"{len(_pinned_ids)} pinned skill(s)"))
-
-        # On-demand skills: index only
-        _od_ids = [e["id"] for e in _on_demand_s]
-        sk_chars, sk_n = await _skill_index_chars(db, _od_ids)
+        # Skills (all on-demand): index only
+        _all_skill_ids = [
+            (e["id"] if isinstance(e, dict) else e) for e in skills_raw
+        ]
+        sk_chars, sk_n = await _skill_index_chars(db, _all_skill_ids)
         if sk_chars:
-            lines.append(EstimateLine("sys:skill_index", sk_chars, f"{sk_n} on-demand skill(s) listed"))
+            lines.append(EstimateLine("sys:skill_index", sk_chars, f"{sk_n} skill(s) listed"))
 
         # Tool schema sizes: local + client from live schemas; MCP from tool_embeddings
         by_name: dict[str, dict[str, Any]] = {}

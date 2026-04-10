@@ -1204,99 +1204,70 @@ async def assemble_context(
                            + "\n\n---\n\n".join(_eph_chunks),
             })
 
-    # --- skills ---
+    # --- skills (all on-demand: RAG-filtered index, agent uses get_skill()) ---
     if bot.skills:
-        _pinned_skills = [s for s in bot.skills if s.mode == "pinned"]
-        _on_demand_skills = [s for s in bot.skills if s.mode != "pinned"]
+        from app.agent.rag import retrieve_skill_index as _retrieve_skill_index
+        from sqlalchemy import select as _sa_select
+        from app.db.engine import async_session as _async_session
+        from app.db.models import Skill as _SkillRow
+        _skill_ids = [s.id for s in bot.skills]
 
-        # Pinned skills: inject full content every turn
-        if _pinned_skills:
-            _pinned_chunks: list[str] = []
-            for _ps in _pinned_skills:
-                _pinned_chunks.extend(await fetch_skill_chunks_by_id(_ps.id))
-            if _pinned_chunks:
-                _pinned_chars = sum(len(c) for c in _pinned_chunks)
-                _inject_chars["skill_pinned"] = _pinned_chars
-                messages.append({
-                    "role": "system",
-                    "content": "Pinned skill context:\n\n" + "\n\n---\n\n".join(_pinned_chunks),
-                })
-                yield {"type": "skill_pinned_context", "count": len(_pinned_chunks), "chars": _pinned_chars}
-                if correlation_id is not None:
-                    asyncio.create_task(_record_trace_event(
-                        correlation_id=correlation_id,
-                        session_id=session_id,
-                        bot_id=bot.id,
-                        client_id=client_id,
-                        event_type="skill_pinned_context",
-                        count=len(_pinned_chunks),
-                        data={"skill_ids": [s.id for s in _pinned_skills], "chars": _pinned_chars},
-                    ))
+        # Semantic retrieval: top-K most relevant skills for this message
+        _relevant: list[dict] | None = None  # None = RAG didn't run, [] = ran but no matches
+        if user_message:
+            try:
+                _relevant = await _retrieve_skill_index(user_message, _skill_ids)
+            except Exception:
+                logger.warning("Skill index retrieval failed, falling back to full index", exc_info=True)
+                _relevant = None
 
-        # On-demand skills: RAG-filtered index, agent uses get_skill()
-        if _on_demand_skills:
-            from app.agent.rag import retrieve_skill_index as _retrieve_skill_index
-            from sqlalchemy import select as _sa_select
-            from app.db.engine import async_session as _async_session
-            from app.db.models import Skill as _SkillRow
-            _od_ids = [s.id for s in _on_demand_skills]
+        # Fetch metadata for relevant skills, or all if RAG didn't run
+        _fetch_ids = [r["skill_id"] for r in _relevant] if _relevant else (_skill_ids if _relevant is None else [])
+        _rows = []
+        if _fetch_ids:
+            async with _async_session() as _db:
+                _rows = (await _db.execute(
+                    _sa_select(_SkillRow.id, _SkillRow.name, _SkillRow.description, _SkillRow.triggers)
+                    .where(_SkillRow.id.in_(_fetch_ids))
+                )).all()
 
-            # Semantic retrieval: top-K most relevant skills for this message
-            _relevant: list[dict] | None = None  # None = RAG didn't run, [] = ran but no matches
-            if user_message:
-                try:
-                    _relevant = await _retrieve_skill_index(user_message, _od_ids)
-                except Exception:
-                    logger.warning("Skill index retrieval failed, falling back to full index", exc_info=True)
-                    _relevant = None
+        if _rows:
+            def _fmt_od(r) -> str:
+                parts = [f"- {r.id}: {r.name}"]
+                if r.description:
+                    parts.append(f" — {r.description}")
+                if r.triggers:
+                    parts.append(f" [{', '.join(r.triggers)}]")
+                return "".join(parts)
+            _index_lines = "\n".join(_fmt_od(r) for r in _rows)
+            _suffix = ""
+            if _relevant and len(_relevant) < len(_skill_ids):
+                _remaining = len(_skill_ids) - len(_relevant)
+                _suffix = f"\n({_remaining} more skills available — call get_skill_list() to browse all)"
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"Available skills — call get_skill(skill_id=\"<id>\") to retrieve full content:\n{_index_lines}{_suffix}"
+                ),
+            })
+        elif _skill_ids:
+            # RAG returned nothing — inject minimal fallback
+            messages.append({
+                "role": "system",
+                "content": f"You have {len(_skill_ids)} skills available — call get_skill_list() to browse them.",
+            })
 
-            # Fetch metadata for relevant skills, or all if RAG didn't run
-            _fetch_ids = [r["skill_id"] for r in _relevant] if _relevant else (_od_ids if _relevant is None else [])
-            _rows = []
-            if _fetch_ids:
-                async with _async_session() as _db:
-                    _rows = (await _db.execute(
-                        _sa_select(_SkillRow.id, _SkillRow.name, _SkillRow.description, _SkillRow.triggers)
-                        .where(_SkillRow.id.in_(_fetch_ids))
-                    )).all()
-
-            if _rows:
-                def _fmt_od(r) -> str:
-                    parts = [f"- {r.id}: {r.name}"]
-                    if r.description:
-                        parts.append(f" — {r.description}")
-                    if r.triggers:
-                        parts.append(f" [{', '.join(r.triggers)}]")
-                    return "".join(parts)
-                _index_lines = "\n".join(_fmt_od(r) for r in _rows)
-                _suffix = ""
-                if _relevant and len(_relevant) < len(_od_ids):
-                    _remaining = len(_od_ids) - len(_relevant)
-                    _suffix = f"\n({_remaining} more skills available — call get_skill_list() to browse all)"
-                messages.append({
-                    "role": "system",
-                    "content": (
-                        f"Available skills — call get_skill(skill_id=\"<id>\") to retrieve full content:\n{_index_lines}{_suffix}"
-                    ),
-                })
-            elif _od_ids:
-                # RAG returned nothing — inject minimal fallback
-                messages.append({
-                    "role": "system",
-                    "content": f"You have {len(_od_ids)} skills available — call get_skill_list() to browse them.",
-                })
-
-            yield {"type": "skill_index", "count": len(_rows), "total": len(_od_ids)}
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="skill_index",
-                    count=len(_rows),
-                    data={"skill_ids": [r.id for r in _rows], "total": len(_od_ids)},
-                ))
+        yield {"type": "skill_index", "count": len(_rows), "total": len(_skill_ids)}
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="skill_index",
+                count=len(_rows),
+                data={"skill_ids": [r.id for r in _rows], "total": len(_skill_ids)},
+            ))
 
     # --- workspace skills ---
     if channel_id is not None:

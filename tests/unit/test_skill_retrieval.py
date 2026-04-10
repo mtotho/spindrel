@@ -113,36 +113,18 @@ class TestOnDemandSkillIndex:
 # ---------------------------------------------------------------------------
 
 
-class TestSkillConfigNormalization:
-    """Test that SkillConfig normalizes legacy 'rag' mode to 'on_demand'."""
-
-    def test_rag_mode_normalized_to_on_demand(self):
-        """mode='rag' should be silently converted to 'on_demand'."""
-        from app.agent.bots import SkillConfig
-
-        sc = SkillConfig(id="test-skill", mode="rag")
-        assert sc.mode == "on_demand"
-
-    def test_on_demand_mode_unchanged(self):
-        """mode='on_demand' should remain unchanged."""
-        from app.agent.bots import SkillConfig
-
-        sc = SkillConfig(id="test-skill", mode="on_demand")
-        assert sc.mode == "on_demand"
-
-    def test_pinned_mode_unchanged(self):
-        """mode='pinned' should remain unchanged."""
-        from app.agent.bots import SkillConfig
-
-        sc = SkillConfig(id="test-skill", mode="pinned")
-        assert sc.mode == "pinned"
+class TestSkillConfigBasic:
+    """SkillConfig stores id; mode is kept for backward compat but ignored at runtime."""
 
     def test_default_mode_is_on_demand(self):
-        """Default mode should be 'on_demand'."""
         from app.agent.bots import SkillConfig
-
         sc = SkillConfig(id="test-skill")
         assert sc.mode == "on_demand"
+
+    def test_id_stored(self):
+        from app.agent.bots import SkillConfig
+        sc = SkillConfig(id="my-skill")
+        assert sc.id == "my-skill"
 
 
 # ---------------------------------------------------------------------------

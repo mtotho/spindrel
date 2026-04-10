@@ -4,7 +4,6 @@ import json
 from app.services.context_estimate import (
     _clamp,
     _memory_knowledge_hit_factor,
-    _parse_skill_entries,
     _rag_retrieval_factor,
     _schema_json_chars,
 )
@@ -43,38 +42,6 @@ class TestClamp:
 
     def test_at_hi(self):
         assert _clamp(10.0, 0.0, 10.0) == 10.0
-
-
-# ---------------------------------------------------------------------------
-# _parse_skill_entries
-# ---------------------------------------------------------------------------
-
-class TestParseSkillEntries:
-    def test_strings_are_on_demand(self):
-        pinned, on_demand = _parse_skill_entries(["skill1", "skill2"])
-        assert len(on_demand) == 2
-        assert on_demand[0]["id"] == "skill1"
-        assert pinned == []
-
-    def test_pinned_dict(self):
-        pinned, on_demand = _parse_skill_entries([{"id": "s1", "mode": "pinned"}])
-        assert len(pinned) == 1
-        assert pinned[0]["mode"] == "pinned"
-
-    def test_rag_dict_falls_to_on_demand(self):
-        """Legacy rag mode entries should land in on_demand bucket."""
-        pinned, on_demand = _parse_skill_entries([{"id": "s1", "mode": "rag"}])
-        assert len(on_demand) == 1
-        assert pinned == []
-
-    def test_default_mode_on_demand(self):
-        pinned, on_demand = _parse_skill_entries([{"id": "s1"}])
-        assert len(on_demand) == 1
-
-    def test_non_string_non_dict(self):
-        pinned, on_demand = _parse_skill_entries([42])
-        assert len(on_demand) == 1
-        assert on_demand[0]["id"] == "42"
 
 
 # ---------------------------------------------------------------------------

@@ -228,26 +228,10 @@ async def compute_context_breakdown(
     # 2. Per-turn RAG (heuristic estimates)
     # -----------------------------------------------------------------------
 
-    # Skills
-    pinned_skills = [s for s in bot.skills if s.mode == "pinned"]
-    od_skills = [s for s in bot.skills if s.mode != "pinned"]
-
-    if pinned_skills:
+    # Skills (all on-demand)
+    if bot.skills:
         from app.db.models import Skill as SkillRow
-        ids = [s.id for s in pinned_skills]
-        total_len = (await db.execute(
-            select(func.sum(func.length(SkillRow.content))).where(SkillRow.id.in_(ids))
-        )).scalar() or 0
-        wrap = len("Pinned skill context:\n\n") + len("\n\n---\n\n") * max(0, len(ids) - 1)
-        categories.append(ContextCategory(
-            key="skills_pinned", label="Pinned Skills", chars=wrap + total_len,
-            tokens_approx=0, percentage=0, category="rag",
-            description=f"{len(ids)} pinned skill(s) injected in full every turn",
-        ))
-
-    if od_skills:
-        from app.db.models import Skill as SkillRow
-        ids = [s.id for s in od_skills]
+        ids = [s.id for s in bot.skills]
         rows = (await db.execute(
             select(SkillRow.id, SkillRow.name).where(SkillRow.id.in_(ids))
         )).all()
@@ -257,7 +241,7 @@ async def compute_context_breakdown(
             categories.append(ContextCategory(
                 key="skills_index", label="Skill Index", chars=hdr + body,
                 tokens_approx=0, percentage=0, category="rag",
-                description=f"{len(rows)} on-demand skill(s) listed by name",
+                description=f"{len(rows)} skill(s) listed by name",
             ))
 
     # Tool schemas (rough estimate)
