@@ -7,7 +7,7 @@ import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
-import { ArrowLeft, Check, ExternalLink, Zap, ChevronDown } from "lucide-react";
+import { ArrowLeft, Check, ExternalLink, Zap } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelSettings,
@@ -34,27 +34,23 @@ import { WorkflowsTab } from "./WorkflowsTab";
 import { ParticipantsTab } from "./ParticipantsTab";
 
 // ---------------------------------------------------------------------------
-// Tab definitions — ordered by importance / frequency of use.
-// Diagnostic tabs (Context, Tasks, Logs) pushed to the end.
+// Tab definitions — single flat list, all visible. A separator divides
+// primary settings from diagnostic/operational tabs.
 // ---------------------------------------------------------------------------
-const PRIMARY_TABS = [
+const ALL_TABS: { key: string; label: string; separator?: boolean }[] = [
   { key: "general", label: "General" },
   { key: "participants", label: "Participants" },
   { key: "workspace", label: "Workspace" },
-  { key: "heartbeat", label: "Heartbeat" },
-  { key: "history", label: "History" },
   { key: "capabilities", label: "Capabilities" },
   { key: "integrations", label: "Integrations" },
+  { key: "heartbeat", label: "Heartbeat" },
+  { key: "history", label: "History" },
   { key: "attachments", label: "Attachments" },
-];
-const ADVANCED_TABS = [
-  { key: "context", label: "Context" },
+  { key: "context", label: "Context", separator: true },
   { key: "workflows", label: "Workflows" },
   { key: "tasks", label: "Tasks" },
   { key: "logs", label: "Logs" },
 ];
-const ALL_TABS = [...PRIMARY_TABS, ...ADVANCED_TABS];
-const ADVANCED_KEYS = new Set(ADVANCED_TABS.map((t) => t.key));
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -80,24 +76,8 @@ export default function ChannelSettingsScreen() {
 
   const tabKeys = ALL_TABS.map((tab) => tab.key);
   const [tab, setTab] = useHashTab("general", tabKeys);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
-
-  const isAdvancedTab = ADVANCED_KEYS.has(tab);
-
-  // Close "More" dropdown on Escape
-  useEffect(() => {
-    if (!moreOpen) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMoreOpen(false);
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => {
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, [moreOpen]);
 
   useEffect(() => {
     if (settings) {
@@ -149,29 +129,36 @@ export default function ChannelSettingsScreen() {
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const formRef = useRef(form);
   formRef.current = form;
+  // Stable ref to mutation so the unmount cleanup doesn't fire on every render.
+  // (useMutation returns a new object each render, so depending on it directly
+  // would re-run the effect's cleanup constantly → infinite loop.)
+  const mutationRef = useRef(updateMutation);
+  mutationRef.current = updateMutation;
 
   const debouncedSave = useCallback(() => {
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
+      saveTimeoutRef.current = null;
       try {
-        await updateMutation.mutateAsync(formRef.current);
+        await mutationRef.current.mutateAsync(formRef.current);
         setSaved(true);
         setTimeout(() => setSaved(false), 2500);
       } catch {
         // Error state handled by updateMutation.isError
       }
     }, 800);
-  }, [updateMutation]);
+  }, []);
 
   // Flush pending save on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
-        updateMutation.mutate(formRef.current);
+        saveTimeoutRef.current = null;
+        mutationRef.current.mutate(formRef.current);
       }
     };
-  }, [updateMutation]);
+  }, []);
 
   const patch = useCallback(
     <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => {
@@ -257,137 +244,77 @@ export default function ChannelSettingsScreen() {
         </div>
       </div>
 
-      {/* Tabs — single row with overflow dropdown for advanced */}
-      <View style={{ flexShrink: 0 }} className="px-3 pt-2 pb-1">
-        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-          {/* Scrollable primary tabs */}
-          <div
-            style={{
-              display: "flex",
-              gap: 4,
-              overflowX: "auto",
-              WebkitOverflowScrolling: "touch",
-              scrollbarWidth: "none",
-              paddingBottom: 4,
-              scrollSnapType: "x mandatory",
-              flex: 1,
-              minWidth: 0,
-            }}
-            className="hide-scrollbar"
-          >
-            {PRIMARY_TABS.map((tb) => {
-              const isActive = tb.key === tab;
-              return (
+      {/* Tabs — single horizontally-scrollable row of underline tabs.
+          Subtle separator between primary and diagnostic groups.
+          No "More" dropdown — every tab is reachable in one place. */}
+      <View style={{ flexShrink: 0 }}>
+        <div
+          className="hide-scrollbar"
+          style={{
+            display: "flex",
+            alignItems: "stretch",
+            gap: 0,
+            overflowX: "auto",
+            WebkitOverflowScrolling: "touch",
+            scrollbarWidth: "none",
+            borderBottom: `1px solid ${t.surfaceBorder}`,
+            padding: `0 ${isMobile ? 8 : 12}px`,
+          }}
+        >
+          {ALL_TABS.map((tb) => {
+            const isActive = tb.key === tab;
+            return (
+              <div key={tb.key} style={{ display: "flex", alignItems: "stretch", flexShrink: 0 }}>
+                {tb.separator && (
+                  <div
+                    aria-hidden
+                    style={{
+                      width: 1,
+                      background: t.surfaceBorder,
+                      margin: "10px 8px",
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
                 <button
-                  key={tb.key}
                   onClick={() => setTab(tb.key)}
                   style={{
-                    padding: "6px 10px",
-                    fontSize: 12,
+                    position: "relative",
+                    padding: "12px 14px 11px",
+                    fontSize: 13,
                     fontWeight: isActive ? 600 : 500,
-                    border: "1px solid",
-                    borderColor: isActive ? t.accent : t.surfaceBorder,
-                    borderRadius: 6,
-                    background: isActive ? t.accent : "transparent",
-                    color: isActive ? "#fff" : t.textMuted,
+                    background: "transparent",
+                    border: "none",
+                    color: isActive ? t.text : t.textDim,
                     cursor: "pointer",
                     whiteSpace: "nowrap",
-                    transition: "all 0.15s",
-                    flexShrink: 0,
-                    scrollSnapAlign: "start",
-                    minHeight: 36,
+                    transition: "color 0.15s",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) e.currentTarget.style.color = t.textMuted;
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) e.currentTarget.style.color = t.textDim;
                   }}
                 >
                   {tb.label}
+                  {isActive && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        left: 10,
+                        right: 10,
+                        bottom: -1,
+                        height: 2,
+                        background: t.accent,
+                        borderRadius: "2px 2px 0 0",
+                      }}
+                    />
+                  )}
                 </button>
-              );
-            })}
-          </div>
-
-          {/* "More" dropdown — rendered via portal to avoid stacking context issues */}
-          <div style={{ flexShrink: 0, paddingBottom: 4 }}>
-            <button
-              ref={moreBtnRef as any}
-              onClick={() => setMoreOpen((v) => !v)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 3,
-                padding: "6px 10px",
-                fontSize: 12,
-                fontWeight: isAdvancedTab ? 600 : 500,
-                border: "1px solid",
-                borderColor: isAdvancedTab ? t.accent : t.surfaceBorder,
-                borderRadius: 6,
-                background: isAdvancedTab ? t.accent : "transparent",
-                color: isAdvancedTab ? "#fff" : t.textMuted,
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-                transition: "all 0.15s",
-                minHeight: 36,
-              }}
-            >
-              {isAdvancedTab ? ADVANCED_TABS.find((at) => at.key === tab)?.label : "More"}
-              <ChevronDown
-                size={10}
-                color={isAdvancedTab ? "#fff" : t.textMuted}
-                style={{ transform: moreOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s" } as any}
-              />
-            </button>
-            {moreOpen && typeof document !== "undefined" && (() => {
-              const ReactDOM = require("react-dom");
-              const rect = moreBtnRef.current?.getBoundingClientRect();
-              return ReactDOM.createPortal(
-                <>
-                  <div
-                    onClick={() => setMoreOpen(false)}
-                    style={{ position: "fixed", inset: 0, zIndex: 10010 }}
-                  />
-                  <div
-                    style={{
-                      position: "fixed",
-                      top: (rect?.bottom ?? 0) + 4,
-                      right: window.innerWidth - (rect?.right ?? 0),
-                      zIndex: 10011,
-                      background: t.surfaceRaised,
-                      border: `1px solid ${t.surfaceBorder}`,
-                      borderRadius: 8,
-                      padding: 4,
-                      minWidth: 140,
-                      boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
-                    }}
-                  >
-                    {ADVANCED_TABS.map((at) => (
-                      <button
-                        key={at.key}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setTab(at.key);
-                          setMoreOpen(false);
-                        }}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "8px 10px",
-                          fontSize: 12,
-                          fontWeight: at.key === tab ? 600 : 400,
-                          color: at.key === tab ? t.accent : t.text,
-                          background: "transparent",
-                          border: "none",
-                          borderRadius: 4,
-                          cursor: "pointer",
-                        }}
-                      >
-                        {at.label}
-                      </button>
-                    ))}
-                  </div>
-                </>,
-                document.body,
-              );
-            })()}
-          </div>
+              </div>
+            );
+          })}
         </div>
       </View>
 

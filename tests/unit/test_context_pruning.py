@@ -43,34 +43,32 @@ def _long_content(n: int = 500) -> str:
 # ---------------------------------------------------------------------------
 
 class TestBasicPruning:
-    def test_prunes_old_turns_keeps_recent(self):
-        """Tool results in old turns should be pruned; recent kept intact."""
+    def test_prunes_all_tool_results(self):
+        """All tool results from previous turns should be pruned."""
         messages = [
             _make_system_msg("system prompt"),
-            # Turn 1 (old)
+            # Turn 1
             _make_user_msg("turn 1"),
             _make_assistant_msg("thinking", [_make_tool_call("tc1", "web_search")]),
             _make_tool_result("tc1", _long_content(500)),
             _make_assistant_msg("answer 1"),
-            # Turn 2 (recent, keep_full_turns=1)
+            # Turn 2
             _make_user_msg("turn 2"),
             _make_assistant_msg("thinking", [_make_tool_call("tc2", "read_file")]),
             _make_tool_result("tc2", _long_content(500)),
             _make_assistant_msg("answer 2"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
 
-        assert stats["pruned_count"] == 1
+        assert stats["pruned_count"] == 2
         assert stats["chars_saved"] > 0
-        assert stats["turns_pruned"] == 1
+        assert stats["turns_pruned"] == 2
 
-        # Old tool result is replaced with marker
+        # Both tool results replaced with markers
         assert messages[3]["content"].startswith("[Tool result pruned")
         assert "web_search" in messages[3]["content"]
-        assert "500 chars" in messages[3]["content"]
-
-        # Recent tool result is intact
-        assert messages[7]["content"] == _long_content(500)
+        assert messages[7]["content"].startswith("[Tool result pruned")
+        assert "read_file" in messages[7]["content"]
 
     def test_short_results_not_pruned(self):
         """Tool results below min_content_length should never be pruned."""
@@ -82,7 +80,7 @@ class TestBasicPruning:
             _make_user_msg("turn 2"),
             _make_assistant_msg("answer"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
 
         assert stats["pruned_count"] == 0
         assert messages[2]["content"] == "OK"
@@ -96,7 +94,7 @@ class TestBasicPruning:
             _make_assistant_msg("done"),
         ]
         original = copy.deepcopy(messages)
-        prune_tool_results(messages, keep_full_turns=1, min_content_length=10)
+        prune_tool_results(messages, min_content_length=10)
 
         for orig, cur in zip(original, messages):
             if orig["role"] == "user":
@@ -110,7 +108,7 @@ class TestBasicPruning:
             _make_user_msg("hello"),
             _make_assistant_msg("done"),
         ]
-        prune_tool_results(messages, keep_full_turns=1, min_content_length=10)
+        prune_tool_results(messages, min_content_length=10)
         assert messages[0]["content"] == sys_content
 
     def test_assistant_text_never_touched(self):
@@ -122,7 +120,7 @@ class TestBasicPruning:
             _make_user_msg("q2"),
             _make_assistant_msg("done"),
         ]
-        prune_tool_results(messages, keep_full_turns=1, min_content_length=10)
+        prune_tool_results(messages, min_content_length=10)
         assert messages[1]["content"] == long_reply
 
 
@@ -132,7 +130,7 @@ class TestBasicPruning:
 
 class TestEdgeCases:
     def test_empty_messages(self):
-        stats = prune_tool_results([], keep_full_turns=3)
+        stats = prune_tool_results([])
         assert stats == {"pruned_count": 0, "chars_saved": 0, "turns_pruned": 0}
 
     def test_no_tool_calls(self):
@@ -145,44 +143,20 @@ class TestEdgeCases:
             _make_assistant_msg("goodbye"),
         ]
         original = copy.deepcopy(messages)
-        stats = prune_tool_results(messages, keep_full_turns=1)
+        stats = prune_tool_results(messages)
         assert stats["pruned_count"] == 0
         assert messages == original
 
-    def test_single_turn(self):
-        """Single turn should never be pruned (it's always 'recent')."""
+    def test_single_turn_tool_result_is_pruned(self):
+        """Even a single-turn tool result is pruned (no turn protection)."""
         messages = [
             _make_user_msg("hello"),
             _make_assistant_msg("", [_make_tool_call("tc1", "search")]),
             _make_tool_result("tc1", _long_content(1000)),
             _make_assistant_msg("found it"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1)
-        assert stats["pruned_count"] == 0
-
-    def test_keep_turns_zero_prunes_all(self):
-        """With keep_full_turns=0, all tool results should be pruned."""
-        messages = [
-            _make_user_msg("hello"),
-            _make_assistant_msg("", [_make_tool_call("tc1", "search")]),
-            _make_tool_result("tc1", _long_content(500)),
-            _make_assistant_msg("found it"),
-        ]
-        stats = prune_tool_results(messages, keep_full_turns=0, min_content_length=200)
+        stats = prune_tool_results(messages)
         assert stats["pruned_count"] == 1
-
-    def test_keep_turns_exceeds_total(self):
-        """If keep_full_turns > total turns, nothing should be pruned."""
-        messages = [
-            _make_user_msg("q1"),
-            _make_assistant_msg("", [_make_tool_call("tc1", "search")]),
-            _make_tool_result("tc1", _long_content(500)),
-            _make_assistant_msg("a1"),
-            _make_user_msg("q2"),
-            _make_assistant_msg("a2"),
-        ]
-        stats = prune_tool_results(messages, keep_full_turns=10, min_content_length=200)
-        assert stats["pruned_count"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +181,7 @@ class TestConversationMarkers:
             # Post-marker system messages (should not be touched)
             _make_system_msg("injected context " * 100),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
         assert stats["pruned_count"] == 1
         assert messages[4]["content"].startswith("[Tool result pruned")
         # System messages outside the region are untouched
@@ -242,7 +216,7 @@ class TestStats:
             _make_user_msg("q3"),
             _make_assistant_msg("a3"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
 
         assert stats["pruned_count"] == 3  # tc1, tc2, tc3
         assert stats["turns_pruned"] == 2  # turn 1 and turn 2
@@ -268,7 +242,7 @@ class TestStats:
             _make_user_msg("q2"),
             _make_assistant_msg("final"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
         assert stats["pruned_count"] == 2
         assert stats["turns_pruned"] == 1
 
@@ -289,7 +263,7 @@ class TestToolNameMap:
             _make_user_msg("q2"),
             _make_assistant_msg("final"),
         ]
-        prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        prune_tool_results(messages, min_content_length=200)
         assert "unknown" in messages[2]["content"]
 
     def test_tool_call_id_preserved(self):
@@ -302,7 +276,7 @@ class TestToolNameMap:
             _make_user_msg("q2"),
             _make_assistant_msg("final"),
         ]
-        prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        prune_tool_results(messages, min_content_length=200)
         assert messages[2]["tool_call_id"] == "tc1"
         assert messages[2]["role"] == "tool"
 
@@ -323,7 +297,7 @@ class TestRetrievalPointers:
             _make_user_msg("q2"),
             _make_assistant_msg("final"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
 
         assert stats["pruned_count"] == 1
         assert "read_conversation_history" in messages[2]["content"]
@@ -341,7 +315,7 @@ class TestRetrievalPointers:
             _make_user_msg("q2"),
             _make_assistant_msg("final"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
 
         assert stats["pruned_count"] == 1
         assert messages[2]["content"].startswith("[Tool result pruned")
@@ -358,7 +332,7 @@ class TestRetrievalPointers:
             _make_user_msg("q2"),
             _make_assistant_msg("final"),
         ]
-        prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        prune_tool_results(messages, min_content_length=200)
 
         assert messages[2]["_tool_record_id"] == record_id
 
@@ -372,14 +346,14 @@ class TestRetrievalPointers:
             {**_make_tool_result("tc1", original_content), "_tool_record_id": record_id},
             _make_assistant_msg("a1"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
 
         assert stats["pruned_count"] == 1
         assert "read_conversation_history" in messages[2]["content"]
         assert record_id in messages[2]["content"]
 
-    def test_recent_turns_without_record_id_untouched(self):
-        """Kept turns without _tool_record_id should NOT be pruned."""
+    def test_recent_turns_without_record_id_get_dead_marker(self):
+        """Tool results without _tool_record_id are pruned with dead marker."""
         original_content = _long_content(500)
         messages = [
             _make_user_msg("q1"),
@@ -387,10 +361,11 @@ class TestRetrievalPointers:
             _make_tool_result("tc1", original_content),
             _make_assistant_msg("a1"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
 
-        assert stats["pruned_count"] == 0
-        assert messages[2]["content"] == original_content
+        assert stats["pruned_count"] == 1
+        assert messages[2]["content"].startswith("[Tool result pruned")
+        assert "read_conversation_history" not in messages[2]["content"]
 
     def test_mixed_record_id_and_no_record_id(self):
         """Messages with and without record IDs should get appropriate markers."""
@@ -410,7 +385,7 @@ class TestRetrievalPointers:
             _make_user_msg("q3"),
             _make_assistant_msg("final"),
         ]
-        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+        stats = prune_tool_results(messages, min_content_length=200)
 
         assert stats["pruned_count"] == 2
         # Turn 1: retrieval pointer

@@ -783,24 +783,22 @@ async def assemble_context(
             logger.warning("Failed to load channel %s for context assembly, continuing without overrides", channel_id, exc_info=True)
 
     # --- context pruning (trim stale tool results) ---
+    # NOTE: context_pruning_keep_turns is a deprecated no-op — all tool
+    # results from previous turns are now pruned regardless. See vault
+    # Loose Ends.
     _pruning_enabled = settings.CONTEXT_PRUNING_ENABLED
-    _pruning_keep = settings.CONTEXT_PRUNING_KEEP_TURNS
     _pruning_min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
     # Bot-level override
     if bot.context_pruning is not None:
         _pruning_enabled = bot.context_pruning
-    if bot.context_pruning_keep_turns is not None:
-        _pruning_keep = bot.context_pruning_keep_turns
     # Channel-level override (highest priority)
     if _ch_row is not None:
         if getattr(_ch_row, "context_pruning", None) is not None:
             _pruning_enabled = _ch_row.context_pruning
-        if getattr(_ch_row, "context_pruning_keep_turns", None) is not None:
-            _pruning_keep = _ch_row.context_pruning_keep_turns
 
     if _pruning_enabled:
         from app.agent.context_pruning import prune_tool_results
-        _prune_stats = prune_tool_results(messages, keep_full_turns=_pruning_keep, min_content_length=_pruning_min_len)
+        _prune_stats = prune_tool_results(messages, min_content_length=_pruning_min_len)
         if _prune_stats["pruned_count"] > 0:
             _inject_chars["context_pruning_saved"] = -_prune_stats["chars_saved"]
             # Reduce budget to reflect actual post-pruning content
@@ -824,7 +822,6 @@ async def assemble_context(
                     data={
                         "chars_saved": _prune_stats["chars_saved"],
                         "turns_pruned": _prune_stats["turns_pruned"],
-                        "keep_turns": _pruning_keep,
                         "min_length": _pruning_min_len,
                     },
                 ))

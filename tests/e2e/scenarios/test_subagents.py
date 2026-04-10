@@ -39,7 +39,7 @@ async def _create_subagent_bot(client: E2EClient) -> str:
     await client.create_bot({
         "id": bot_id,
         "name": "E2E Sub-Agent Bot",
-        "model": "gemini/gemini-2.5-flash-lite",
+        "model": "gemini-2.5-flash-lite",
         "system_prompt": (
             "You are a test bot with access to sub-agents. "
             "When told to spawn sub-agents, use the spawn_subagents tool immediately "

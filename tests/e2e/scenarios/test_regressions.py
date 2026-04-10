@@ -32,7 +32,7 @@ async def test_regression_carapaces_update_not_dropped(client: E2EClient) -> Non
     bot_id = _test_bot_id()
     try:
         await client.create_bot(
-            {"id": bot_id, "name": "Regr carapaces", "model": "gemini/gemini-2.5-flash"}
+            {"id": bot_id, "name": "Regr carapaces", "model": "gemini-2.5-flash"}
         )
 
         # This was the exact operation that failed — UI sends carapaces via PATCH
@@ -63,7 +63,7 @@ async def test_regression_bot_out_has_carapaces(client: E2EClient) -> None:
     bot_id = _test_bot_id()
     try:
         created = await client.create_bot(
-            {"id": bot_id, "name": "Regr BotOut", "model": "gemini/gemini-2.5-flash"}
+            {"id": bot_id, "name": "Regr BotOut", "model": "gemini-2.5-flash"}
         )
         assert "carapaces" in created, "BotOut must include carapaces field"
         assert isinstance(created["carapaces"], list)
@@ -85,7 +85,7 @@ async def test_regression_partial_update_preserves_carapaces(
     bot_id = _test_bot_id()
     try:
         await client.create_bot(
-            {"id": bot_id, "name": "Partial", "model": "gemini/gemini-2.5-flash"}
+            {"id": bot_id, "name": "Partial", "model": "gemini-2.5-flash"}
         )
         await client.update_bot(bot_id, {"carapaces": ["e2e-testing"]})
 
@@ -110,7 +110,7 @@ async def test_regression_bot_default_memory_scheme(client: E2EClient) -> None:
     bot_id = _test_bot_id()
     try:
         created = await client.create_bot(
-            {"id": bot_id, "name": "Defaults", "model": "gemini/gemini-2.5-flash"}
+            {"id": bot_id, "name": "Defaults", "model": "gemini-2.5-flash"}
         )
         assert created.get("memory_scheme") == "workspace-files", (
             "memory_scheme must default to 'workspace-files'"
@@ -133,7 +133,7 @@ async def test_regression_bot_tools_persist_after_update(client: E2EClient) -> N
             {
                 "id": bot_id,
                 "name": "Tools persist",
-                "model": "gemini/gemini-2.5-flash-lite",
+                "model": "gemini-2.5-flash-lite",
                 "local_tools": ["get_current_time"],
             }
         )
@@ -160,7 +160,7 @@ async def test_regression_capability_activation_roundtrip(
     bot_id = _test_bot_id()
     try:
         await client.create_bot(
-            {"id": bot_id, "name": "Cap test", "model": "gemini/gemini-2.5-flash-lite"}
+            {"id": bot_id, "name": "Cap test", "model": "gemini-2.5-flash-lite"}
         )
 
         # Activate
@@ -193,7 +193,7 @@ async def test_regression_multiple_capabilities(client: E2EClient) -> None:
     bot_id = _test_bot_id()
     try:
         await client.create_bot(
-            {"id": bot_id, "name": "Multi cap", "model": "gemini/gemini-2.5-flash-lite"}
+            {"id": bot_id, "name": "Multi cap", "model": "gemini-2.5-flash-lite"}
         )
 
         caps = ["e2e-testing", "researcher"]

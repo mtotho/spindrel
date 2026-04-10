@@ -36,7 +36,7 @@ async def _create_activation_bot(client: E2EClient) -> str:
     await client.create_bot({
         "id": bot_id,
         "name": "E2E Activation Bot",
-        "model": "gemini/gemini-2.5-flash-lite",
+        "model": "gemini-2.5-flash-lite",
         "system_prompt": (
             "You are a test bot. You have tools available. "
             "When told to call a specific tool, call it immediately with the given arguments. "
@@ -209,7 +209,7 @@ async def test_bot_with_skills_gets_skill_tools_injected(client: E2EClient) -> N
         await client.create_bot({
             "id": bot_id,
             "name": "Skill Injection Test Bot",
-            "model": "gemini/gemini-2.5-flash-lite",
+            "model": "gemini-2.5-flash-lite",
             "system_prompt": "You are a test bot.",
             "skills": [{"id": sid, "mode": "on_demand"}],
             "tool_retrieval": False,
@@ -319,7 +319,7 @@ async def test_capability_skills_appear_in_context_after_assignment(client: E2EC
         await client.create_bot({
             "id": bot_id,
             "name": "Cap Skills Test Bot",
-            "model": "gemini/gemini-2.5-flash-lite",
+            "model": "gemini-2.5-flash-lite",
             "system_prompt": "You are a test bot.",
             "tool_retrieval": False,
             "persona": False,
@@ -562,7 +562,7 @@ async def test_get_skill_list_returns_bot_skills(client: E2EClient) -> None:
         await client.create_bot({
             "id": bot_id,
             "name": "Skill List Test Bot",
-            "model": "gemini/gemini-2.5-flash-lite",
+            "model": "gemini-2.5-flash-lite",
             "system_prompt": (
                 "You are a test bot. When asked to list skills, "
                 "call the get_skill_list tool immediately."
@@ -673,7 +673,7 @@ async def test_context_preview_includes_skill_index(client: E2EClient) -> None:
         await client.create_bot({
             "id": bot_id,
             "name": "Context Preview Test Bot",
-            "model": "gemini/gemini-2.5-flash-lite",
+            "model": "gemini-2.5-flash-lite",
             "system_prompt": "Test bot with skills.",
             "skills": [{"id": sid, "mode": "on_demand"}],
             "tool_retrieval": False,
@@ -814,7 +814,7 @@ async def test_orchestrator_fragment_has_environment_context(client: E2EClient) 
         await client.create_bot({
             "id": bot_id,
             "name": "Orchestrator Fragment Test",
-            "model": "gemini/gemini-2.5-flash-lite",
+            "model": "gemini-2.5-flash-lite",
             "system_prompt": "You are a test orchestrator.",
             "carapaces": ["orchestrator"],
             "tool_retrieval": False,
@@ -869,7 +869,7 @@ async def test_presenter_fetches_slides_skill_before_creating(client: E2EClient)
         await client.create_bot({
             "id": bot_id,
             "name": "Presenter Skill Test",
-            "model": "gemini/gemini-2.5-flash-lite",
+            "model": "gemini-2.5-flash-lite",
             "system_prompt": (
                 "You are a presentation bot. Follow your capability instructions exactly. "
                 "When asked to create a presentation, first load the required skill, "

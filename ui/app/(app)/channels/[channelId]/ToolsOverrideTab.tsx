@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import {
-  Check, Search, X, RotateCcw, Shield, Puzzle, Wrench, Server,
+  Check, Search, X, Shield, Puzzle, Wrench, Server,
   ChevronDown, ChevronRight, Plus,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -12,7 +12,6 @@ import {
 import { useBotEditorData } from "@/src/api/hooks/useBots";
 import { useCarapaces } from "@/src/api/hooks/useCarapaces";
 import { EmptyState } from "@/src/components/shared/FormControls";
-import { AdvancedSection } from "@/src/components/shared/SettingsControls";
 import {
   HoverPopover,
   CapabilityPreview,
@@ -20,8 +19,6 @@ import {
   ToolPreview,
 } from "@/src/components/shared/ItemPreviewPopover";
 import type { ChannelSettings, Carapace } from "@/src/types/api";
-import { EffectiveToolsList } from "./EffectiveToolsList";
-import { EffectiveSkillsList } from "./EffectiveSkillsList";
 import { ActivationsSection } from "./integrations/ActivationsSection";
 import { buildSkillCarapaceMap, buildToolCarapaceMap } from "@/src/utils/carapaceMapping";
 
@@ -81,11 +78,11 @@ function SectionLabel({ icon, label, count }: { icon: React.ReactNode; label: st
 // ---------------------------------------------------------------------------
 
 function ResolvedCapabilityRow({
-  id, name, source, sourceDetail, isDisabled, onToggle, carapaceData,
+  name, source, sourceDetail, onRemove, carapaceData,
 }: {
   id: string; name: string;
   source: ProvenanceSource; sourceDetail?: string;
-  isDisabled: boolean; onToggle: () => void;
+  onRemove?: () => void;
   carapaceData?: Carapace;
 }) {
   const t = useThemeTokens();
@@ -102,12 +99,10 @@ function ResolvedCapabilityRow({
     <div style={{
       display: "flex", alignItems: "center", gap: 8,
       padding: "6px 8px", borderRadius: 4,
-      background: isDisabled ? t.dangerSubtle : t.purpleSubtle,
-      border: `1px solid ${isDisabled ? t.dangerBorder : t.purpleBorder}`,
-      opacity: isDisabled ? 0.6 : 1,
-      transition: "opacity 0.15s, background 0.15s",
+      background: t.purpleSubtle,
+      border: `1px solid ${t.purpleBorder}`,
     }}>
-      <Shield size={11} color={isDisabled ? t.danger : t.purple} />
+      <Shield size={11} color={t.purple} />
       <div style={{ flex: 1 }}>
         {carapaceData ? (
           <HoverPopover content={<CapabilityPreview data={carapaceData} />}>
@@ -116,43 +111,47 @@ function ResolvedCapabilityRow({
         ) : nameEl}
       </div>
       <ProvenanceBadge source={source} detail={sourceDetail} />
-      <button
-        onClick={onToggle}
-        style={{
-          padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-          cursor: "pointer", border: "none", transition: "background 0.15s",
-          background: isDisabled ? t.dangerSubtle : "transparent",
-          color: isDisabled ? t.danger : t.textDim,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = isDisabled ? `${t.danger}20` : t.surfaceOverlay;
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = isDisabled ? t.dangerSubtle : "transparent";
-        }}
-        title={isDisabled ? "Re-enable this capability" : "Disable this capability for this channel"}
-      >
-        {isDisabled ? "Enable" : "Disable"}
-      </button>
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          title="Remove this capability from the channel"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 20, height: 20, borderRadius: 4,
+            cursor: "pointer", border: "none",
+            background: "transparent", color: t.textDim,
+            transition: "background 0.15s, color 0.15s",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = `${t.danger}15`;
+            e.currentTarget.style.color = t.danger;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+            e.currentTarget.style.color = t.textDim;
+          }}
+        >
+          <X size={11} />
+        </button>
+      )}
     </div>
   );
 }
 
 function ResolvedSkillRow({
-  id, name, source, sourceDetail, mode, isDisabled, onToggle,
+  id, name, source, sourceDetail, mode,
   skillPreview,
 }: {
   id: string; name: string; mode?: string;
   source: ProvenanceSource; sourceDetail?: string;
-  isDisabled: boolean; onToggle: () => void;
   skillPreview?: { id: string; name: string; description?: string | null; source_type?: string; chunk_count?: number };
 }) {
   const t = useThemeTokens();
   const nameEl = (
     <span style={{
-      fontSize: 11, color: isDisabled ? t.danger : t.accent, fontWeight: 500,
+      fontSize: 11, color: t.accent, fontWeight: 500,
       cursor: skillPreview ? "help" : undefined,
-      borderBottom: skillPreview ? `1px dashed ${isDisabled ? t.danger : t.accent}40` : undefined,
+      borderBottom: skillPreview ? `1px dashed ${t.accent}40` : undefined,
     }}>
       {name || id}
     </span>
@@ -161,10 +160,7 @@ function ResolvedSkillRow({
     <div style={{
       display: "flex", alignItems: "center", gap: 6,
       padding: "4px 8px", borderRadius: 4,
-      background: isDisabled ? t.dangerSubtle : t.accentSubtle,
-      border: `1px solid ${isDisabled ? t.dangerBorder : "transparent"}`,
-      opacity: isDisabled ? 0.6 : 1,
-      transition: "opacity 0.15s, background 0.15s",
+      background: t.accentSubtle,
     }}>
       <div style={{ flex: 1 }}>
         {skillPreview ? (
@@ -177,23 +173,6 @@ function ResolvedSkillRow({
         <span style={{ fontSize: 9, color: t.textDim, fontFamily: "monospace" }}>{mode}</span>
       )}
       <ProvenanceBadge source={source} detail={sourceDetail} />
-      <button
-        onClick={onToggle}
-        style={{
-          padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-          cursor: "pointer", border: "none", transition: "background 0.15s",
-          background: isDisabled ? t.dangerSubtle : "transparent",
-          color: isDisabled ? t.danger : t.textDim,
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.background = isDisabled ? `${t.danger}20` : t.surfaceOverlay;
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.background = isDisabled ? t.dangerSubtle : "transparent";
-        }}
-      >
-        {isDisabled ? "Enable" : "Disable"}
-      </button>
     </div>
   );
 }
@@ -342,65 +321,15 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
     [updateMutation],
   );
 
-  const handleResetAll = useCallback(() => {
-    if (!confirm("Reset all channel overrides? This will re-enable all disabled items and remove all extras.")) return;
-    save({
-      local_tools_disabled: null,
-      mcp_servers_disabled: null,
-      client_tools_disabled: null,
-      skills_disabled: null,
-      skills_extra: null,
-      carapaces_extra: null,
-      carapaces_disabled: null,
-    } as any);
-  }, [save]);
-
-  // --- Capability mutations ---
+  // --- Capability mutations (only carapaces_extra remains; channel-level
+  // add/remove is the only override that survives the simplification). ---
   const toggleCarapaceExtra = useCallback(
     (carapaceId: string) => {
       const current = settings?.carapaces_extra ?? [];
       const next = current.includes(carapaceId)
         ? current.filter((c) => c !== carapaceId)
         : [...current, carapaceId];
-      const updates: any = { carapaces_extra: next.length > 0 ? next : null };
-      if (!current.includes(carapaceId)) {
-        const disabled = settings?.carapaces_disabled ?? [];
-        if (disabled.includes(carapaceId)) {
-          const nextDisabled = disabled.filter((c) => c !== carapaceId);
-          updates.carapaces_disabled = nextDisabled.length > 0 ? nextDisabled : null;
-        }
-      }
-      save(updates);
-    },
-    [settings, save],
-  );
-
-  const toggleCarapaceDisabled = useCallback(
-    (carapaceId: string) => {
-      const current = settings?.carapaces_disabled ?? [];
-      const next = current.includes(carapaceId)
-        ? current.filter((c) => c !== carapaceId)
-        : [...current, carapaceId];
-      const updates: any = { carapaces_disabled: next.length > 0 ? next : null };
-      if (!current.includes(carapaceId)) {
-        const extra = settings?.carapaces_extra ?? [];
-        if (extra.includes(carapaceId)) {
-          const nextExtra = extra.filter((c) => c !== carapaceId);
-          updates.carapaces_extra = nextExtra.length > 0 ? nextExtra : null;
-        }
-      }
-      save(updates);
-    },
-    [settings, save],
-  );
-
-  const toggleSkillDisabled = useCallback(
-    (skillId: string) => {
-      const current = settings?.skills_disabled ?? [];
-      const next = current.includes(skillId)
-        ? current.filter((s) => s !== skillId)
-        : [...current, skillId];
-      save({ skills_disabled: next.length ? next : null } as any);
+      save({ carapaces_extra: next.length > 0 ? next : null } as any);
     },
     [settings, save],
   );
@@ -454,7 +383,6 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
   // --- Resolved capabilities with provenance ---
   const resolvedCapabilities = useMemo(() => {
     if (!effective || !allCarapaces) return [];
-    const disabled = new Set(settings?.carapaces_disabled ?? []);
     const extras = new Set(settings?.carapaces_extra ?? []);
     return effective.carapaces.map((id) => {
       const cap = allCarapaces.find((c) => c.id === id);
@@ -466,14 +394,13 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
         source = "activation";
         sourceDetail = rawSource.replace("activation:", "");
       } else if (extras.has(id)) source = "channel";
-      return { id, name: cap?.name || id, source, sourceDetail, isDisabled: disabled.has(id) };
+      return { id, name: cap?.name || id, source, sourceDetail };
     });
   }, [effective, allCarapaces, settings]);
 
   // --- Resolved skills with provenance ---
   const resolvedSkills = useMemo(() => {
     if (!effective) return [];
-    const disabled = new Set(settings?.skills_disabled ?? []);
     return effective.skills.map((s) => {
       const capInfo = skillCapMap.get(s.id);
       let source: ProvenanceSource = "auto";
@@ -488,23 +415,21 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
         mode: s.mode,
         source,
         sourceDetail,
-        isDisabled: disabled.has(s.id),
       };
     });
-  }, [effective, skillCapMap, settings]);
+  }, [effective, skillCapMap]);
 
-  // --- Available but inactive capabilities ---
+  // --- Available capabilities (not currently active) ---
   const availableCapabilities = useMemo(() => {
     if (!allCarapaces || !effective) return [];
     const activeSet = new Set(effective.carapaces);
-    const disabledSet = new Set(settings?.carapaces_disabled ?? []);
     const q = filter.toLowerCase();
     return allCarapaces.filter((c) => {
-      if (activeSet.has(c.id) && !disabledSet.has(c.id)) return false;
+      if (activeSet.has(c.id)) return false;
       if (q && !c.id.includes(q) && !c.name.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [allCarapaces, effective, settings, filter]);
+  }, [allCarapaces, effective, filter]);
 
   // --- Loading states ---
   if (editorLoading) {
@@ -514,21 +439,9 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
     return <EmptyState message="Loading..." />;
   }
 
-  const hasOverrides =
-    settings.local_tools_disabled != null ||
-    settings.mcp_servers_disabled != null ||
-    settings.client_tools_disabled != null ||
-    settings.skills_disabled != null ||
-    settings.skills_extra != null ||
-    settings.carapaces_extra != null ||
-    settings.carapaces_disabled != null;
-
-  const extras = new Set(settings.carapaces_extra ?? []);
-  const disabled = new Set(settings.carapaces_disabled ?? []);
-
   return (
     <>
-      {/* Top bar */}
+      {/* Top bar — resolved counts + save indicator */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         {effective && (
           <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>
@@ -540,21 +453,6 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
           <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.success, whiteSpace: "nowrap" }}>
             <Check size={12} /> Saved
           </span>
-        )}
-        {hasOverrides && (
-          <button
-            onClick={handleResetAll}
-            style={{
-              display: "flex", alignItems: "center", gap: 4, padding: "4px 10px",
-              borderRadius: 4, border: `1px solid ${t.surfaceBorder}`,
-              background: "transparent", color: t.textDim, cursor: "pointer",
-              fontSize: 11, whiteSpace: "nowrap", transition: "background 0.15s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceOverlay; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-          >
-            <RotateCcw size={10} /> Reset All
-          </button>
         )}
       </div>
 
@@ -571,7 +469,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
           <SectionLabel
             icon={<Shield size={12} color={t.purple} />}
             label="Capabilities"
-            count={resolvedCapabilities.filter((c) => !c.isDisabled).length}
+            count={resolvedCapabilities.length}
           />
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {resolvedCapabilities.map((cap) => (
@@ -581,8 +479,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
                 name={cap.name}
                 source={cap.source}
                 sourceDetail={cap.sourceDetail}
-                isDisabled={cap.isDisabled}
-                onToggle={() => toggleCarapaceDisabled(cap.id)}
+                onRemove={cap.source === "channel" ? () => toggleCarapaceExtra(cap.id) : undefined}
                 carapaceData={carapaceById.get(cap.id)}
               />
             ))}
@@ -612,7 +509,7 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
           <SectionLabel
             icon={<Puzzle size={12} color={t.accent} />}
             label="Skills"
-            count={resolvedSkills.filter((s) => !s.isDisabled).length}
+            count={resolvedSkills.length}
           />
           <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
             {resolvedSkills.map((skill) => (
@@ -623,8 +520,6 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
                 mode={skill.mode}
                 source={skill.source}
                 sourceDetail={skill.sourceDetail}
-                isDisabled={skill.isDisabled}
-                onToggle={() => toggleSkillDisabled(skill.id)}
                 skillPreview={allSkillsMap.get(skill.id)}
               />
             ))}
@@ -682,32 +577,15 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {availableCapabilities.map((c) => {
-              const isDisabledCap = disabled.has(c.id);
-              if (isDisabledCap) {
-                // Show as re-enableable
-                return (
-                  <ResolvedCapabilityRow
-                    key={c.id}
-                    id={c.id}
-                    name={c.name}
-                    source="bot"
-                    isDisabled={true}
-                    onToggle={() => toggleCarapaceDisabled(c.id)}
-                    carapaceData={c}
-                  />
-                );
-              }
-              return (
-                <AddCapabilityRow
-                  key={c.id}
-                  id={c.id}
-                  name={c.name}
-                  description={c.description ?? undefined}
-                  onAdd={() => toggleCarapaceExtra(c.id)}
-                />
-              );
-            })}
+            {availableCapabilities.map((c) => (
+              <AddCapabilityRow
+                key={c.id}
+                id={c.id}
+                name={c.name}
+                description={c.description ?? undefined}
+                onAdd={() => toggleCarapaceExtra(c.id)}
+              />
+            ))}
             {availableCapabilities.length === 0 && (
               <span style={{ fontSize: 11, color: t.textDim, fontStyle: "italic", padding: "8px 0" }}>
                 {filter ? "No matching capabilities." : "All capabilities are active."}
@@ -717,68 +595,6 @@ export function ToolsOverrideTab({ channelId, botId, workspaceEnabled }: { chann
         </div>
       </CollapsibleSection>
 
-      {/* ================================================================= */}
-      {/* ADVANCED — granular skill/tool overrides                          */}
-      {/* ================================================================= */}
-
-      <AdvancedSection title="Advanced Overrides">
-        <div style={{ paddingTop: 8 }}>
-          {/* Search filter for advanced */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-            <div style={{
-              display: "flex", alignItems: "center", gap: 6, flex: 1,
-              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 6, padding: "6px 10px",
-            }}>
-              <Search size={13} color={t.textDim} />
-              <input
-                type="text"
-                value={filter}
-                onChange={(e: any) => setFilter(e.target.value)}
-                placeholder="Filter skills & tools..."
-                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 12 }}
-              />
-              {filter && (
-                <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
-                  <X size={10} color={t.textDim} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Skills add/disable */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0 4px" }}>
-            <Puzzle size={12} color={t.textDim} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
-              Skills
-            </span>
-            <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
-          </div>
-          <EffectiveSkillsList
-            editorData={editorData}
-            settings={settings}
-            filter={filter}
-            onSave={save}
-            isWide={true}
-            skillFromCarapace={skillCapMap}
-          />
-
-          {/* Tool overrides */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 0 4px" }}>
-            <Wrench size={12} color={t.textDim} />
-            <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
-              Tool Overrides
-            </span>
-            <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
-          </div>
-          <EffectiveToolsList
-            editorData={editorData}
-            settings={settings}
-            filter={filter}
-            onSave={save}
-          />
-        </div>
-      </AdvancedSection>
     </>
   );
 }

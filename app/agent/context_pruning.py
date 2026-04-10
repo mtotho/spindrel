@@ -18,18 +18,19 @@ _END_MARKER = "--- END RECENT CONVERSATION HISTORY ---"
 
 def prune_tool_results(
     messages: list[dict],
-    keep_full_turns: int = 3,
     min_content_length: int = 200,
 ) -> dict:
-    """Replace old tool-result content with compact markers.
+    """Replace tool-result content with compact markers.
+
+    All tool results from previous turns are pruned — the LLM already
+    consumed them in the turn they were produced.  If a `_tool_record_id`
+    is present on the message, the marker includes a retrieval pointer
+    so the bot can fetch the full output via `read_conversation_history`.
 
     Parameters
     ----------
     messages : list[dict]
         The full message list (mutated in-place).
-    keep_full_turns : int
-        Number of most-recent turns (defined by ``user`` messages) whose tool
-        results are kept verbatim.
     min_content_length : int
         Tool results shorter than this are always kept (e.g. "OK", errors).
 
@@ -38,9 +39,6 @@ def prune_tool_results(
     dict
         ``{"pruned_count": int, "chars_saved": int, "turns_pruned": int}``
     """
-    if keep_full_turns < 0:
-        keep_full_turns = 0
-
     # --- locate conversation region ---
     conv_start, conv_end = _find_conversation_region(messages)
     if conv_start is None:
@@ -58,15 +56,11 @@ def prune_tool_results(
     # --- build tool_call_id → tool_name map from assistant messages ---
     tool_name_map = _build_tool_name_map(conv_msgs)
 
-    # --- determine which turns are "old" vs "kept" ---
-    old_turn_count = max(0, len(turns) - keep_full_turns)
-
     pruned_count = 0
     chars_saved = 0
     turns_pruned = 0
 
-    for turn_idx, turn_msgs in enumerate(turns):
-        is_kept_turn = turn_idx >= old_turn_count
+    for turn_msgs in turns:
         turn_had_pruning = False
         for msg in turn_msgs:
             if msg.get("role") != "tool":
@@ -78,13 +72,6 @@ def prune_tool_results(
                 continue
 
             record_id = msg.get("_tool_record_id")
-
-            # In kept turns, only replace tool results that have a retrieval
-            # pointer (the full output is stored in DB). Tool results without
-            # a record_id are kept verbatim in recent turns.
-            if is_kept_turn and not record_id:
-                continue
-
             tool_call_id = msg.get("tool_call_id", "")
             tool_name = tool_name_map.get(tool_call_id, "unknown")
             original_length = len(content)

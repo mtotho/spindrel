@@ -42,7 +42,7 @@ export E2E_HOST="${E2E_HOST:-localhost}"
 export E2E_PORT="${E2E_PORT:-$DEFAULT_PORT}"
 export E2E_API_KEY="${E2E_API_KEY:?API key required — set E2E_API_KEY or add API_KEY to target .env}"
 export E2E_BOT_ID="${E2E_BOT_ID:-e2e}"
-export E2E_DEFAULT_MODEL="${E2E_DEFAULT_MODEL:-gemini/gemini-2.5-flash-lite}"
+export E2E_DEFAULT_MODEL="${E2E_DEFAULT_MODEL:-gemini-2.5-flash-lite}"
 export E2E_REQUEST_TIMEOUT="${E2E_REQUEST_TIMEOUT:-120}"
 
 echo "=== E2E Live Server Tests ==="
