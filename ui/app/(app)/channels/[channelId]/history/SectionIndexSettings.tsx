@@ -41,7 +41,7 @@ export function SectionIndexSettings({ form, patch, channelId }: {
           <FormRow label="Index Sections" description="Recent sections injected into context each turn. 0 = disabled.">
             <TextInput
               value={count === 10 && form.section_index_count == null ? "" : count.toString()}
-              onChangeText={(v) => patch("section_index_count", v ? parseInt(v) || 0 : undefined)}
+              onChangeText={(v) => { const n = parseInt(v); patch("section_index_count", isNaN(n) ? undefined : n); }}
               placeholder="10"
               type="number"
             />

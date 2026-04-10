@@ -102,32 +102,36 @@ async def _put(path: str, payload: dict, timeout: float = 15.0):
     "function": {
         "name": "radarr_movies",
         "description": (
-            "List movies in Radarr (newest first) or search TMDB for new movies to add. "
-            "Without search: returns library movies sorted by recently added. "
-            "With search: searches TMDB for matching movies. "
-            "Filters: 'missing' (monitored, no file), 'wanted' (missing + monitored)."
+            "List movies in Radarr or search TMDB. "
+            "Use 'name' to find a movie in your library by name (fast, returns only matches). "
+            "Use 'search' to look up new movies on TMDB. "
+            "IMPORTANT: Use the internal 'id' (NOT tmdb_id) for radarr_command, radarr_movie_update, etc."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "search": {
                     "type": "string",
-                    "description": "Search term to look up on TMDB. Omit to list library.",
+                    "description": "Search TMDB for new movies. Returns tmdb_id + id (if in library).",
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Filter library movies by name (case-insensitive substring match). Much faster than listing all.",
                 },
                 "filter": {
                     "type": "string",
                     "enum": ["missing", "wanted"],
-                    "description": "Filter library results. Omit for all movies.",
+                    "description": "Filter library results by status.",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Max results for library listing (default 50). Use 0 for all.",
+                    "description": "Max results (default 50).",
                 },
             },
         },
     },
 })
-async def radarr_movies(search: str | None = None, filter: str | None = None, limit: int = 50) -> str:
+async def radarr_movies(search: str | None = None, name: str | None = None, filter: str | None = None, limit: int = 50) -> str:
     if not settings.RADARR_URL:
         return error("RADARR_URL is not configured")
     try:
@@ -139,9 +143,7 @@ async def radarr_movies(search: str | None = None, filter: str | None = None, li
                     "tmdb_id": m.get("tmdbId"),
                     "title": sanitize(m.get("title", "")),
                     "year": m.get("year"),
-                    "overview": sanitize(m.get("overview", ""), max_len=200),
                     "status": m.get("status"),
-                    "runtime": m.get("runtime"),
                 }
                 # Include internal Radarr ID if movie is already in library
                 if m.get("id"):
@@ -150,8 +152,13 @@ async def radarr_movies(search: str | None = None, filter: str | None = None, li
             return json.dumps({"count": len(results), "results": results})
         else:
             data = await _get("/api/v3/movie")
-            # Sort by added date, newest first
-            data.sort(key=lambda m: m.get("added", ""), reverse=True)
+            # Filter by name if provided
+            if name:
+                name_lower = name.lower()
+                data = [m for m in data if name_lower in (m.get("title") or "").lower()]
+            else:
+                # Sort by added date, newest first (only when not filtering by name)
+                data.sort(key=lambda m: m.get("added", ""), reverse=True)
             total = len(data)
             movies = []
             for m in data:
@@ -183,6 +190,76 @@ async def radarr_movies(search: str | None = None, filter: str | None = None, li
         return error(f"Cannot connect to Radarr at {_base_url()}")
     except Exception as e:
         logger.exception("radarr_movies failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "radarr_movie_update",
+        "description": (
+            "Update a movie in Radarr — change quality profile, monitored status, "
+            "or minimum availability. Use radarr_movies() first to get the movie internal ID "
+            "and radarr_quality_profiles() to get valid profile IDs."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "movie_id": {
+                    "type": "integer",
+                    "description": "Internal Radarr movie ID (the 'id' field, NOT tmdb_id).",
+                },
+                "quality_profile_id": {
+                    "type": "integer",
+                    "description": "Quality profile ID to assign (from radarr_quality_profiles).",
+                },
+                "monitored": {
+                    "type": "boolean",
+                    "description": "Whether the movie is monitored.",
+                },
+                "minimum_availability": {
+                    "type": "string",
+                    "enum": ["announced", "inCinemas", "released", "tba"],
+                    "description": "When to start searching for the movie.",
+                },
+            },
+            "required": ["movie_id"],
+        },
+    },
+})
+async def radarr_movie_update(
+    movie_id: int,
+    quality_profile_id: int | None = None,
+    monitored: bool | None = None,
+    minimum_availability: str | None = None,
+) -> str:
+    if not settings.RADARR_URL:
+        return error("RADARR_URL is not configured")
+    try:
+        movie = await _get(f"/api/v3/movie/{movie_id}")
+
+        if quality_profile_id is not None:
+            movie["qualityProfileId"] = quality_profile_id
+        if monitored is not None:
+            movie["monitored"] = monitored
+        if minimum_availability is not None:
+            movie["minimumAvailability"] = minimum_availability
+
+        result = await _put(f"/api/v3/movie/{movie_id}", movie)
+        return json.dumps({
+            "status": "ok",
+            "id": result.get("id"),
+            "title": sanitize(result.get("title", "")),
+            "quality_profile_id": result.get("qualityProfileId"),
+            "monitored": result.get("monitored"),
+            "minimum_availability": result.get("minimumAvailability"),
+        })
+    except httpx.HTTPStatusError as e:
+        return error(f"Radarr API error: {e}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Radarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("radarr_movie_update failed")
         return error(str(e))
 
 
@@ -276,20 +353,19 @@ async def radarr_queue() -> str:
                 "queue_id": rec.get("id"),
                 "movie": sanitize(movie.get("title", "Unknown")),
                 "movie_id": movie.get("id"),
-                "year": movie.get("year"),
                 "quality": rec.get("quality", {}).get("quality", {}).get("name", ""),
                 "size_mb": size_mb,
-                "remaining_mb": remaining_mb,
                 "status": rec.get("status", ""),
-                "tracked_status": rec.get("trackedDownloadStatus", ""),
                 "progress_pct": progress,
-                "eta": rec.get("estimatedCompletionTime", ""),
             }
+            tracked = rec.get("trackedDownloadStatus", "")
+            if tracked and tracked != "ok":
+                item["tracked_status"] = tracked
             status_messages = rec.get("statusMessages", [])
             if status_messages:
                 item["errors"] = [
-                    sanitize(msg.get("title", ""), max_len=200)
-                    for msg in status_messages[:3]
+                    sanitize(msg.get("title", ""), max_len=150)
+                    for msg in status_messages[:2]
                 ]
             items.append(item)
         return json.dumps({"count": len(items), "items": items})
@@ -365,19 +441,19 @@ async def radarr_releases(
         releases = []
         for r in data[:15]:
             size_bytes = r.get("size", 0) or 0
-            releases.append({
-                "title": sanitize(r.get("title", ""), max_len=200),
+            entry: dict = {
+                "title": sanitize(r.get("title", ""), max_len=120),
                 "size_mb": round(size_bytes / 1_048_576, 1),
                 "seeders": r.get("seeders", 0),
-                "leechers": r.get("leechers", 0),
                 "quality": r.get("quality", {}).get("quality", {}).get("name", ""),
                 "guid": r.get("guid", ""),
                 "indexer_id": r.get("indexerId", 0),
                 "indexer": r.get("indexer", ""),
-                "age_days": r.get("ageMinutes", 0) // 1440 if r.get("ageMinutes") else 0,
-                "rejected": bool(r.get("rejections")),
-                "rejection_reasons": r.get("rejections", [])[:3],
-            })
+            }
+            rejections = r.get("rejections", [])
+            if rejections:
+                entry["rejected"] = True
+            releases.append(entry)
         return json.dumps({"count": len(releases), "releases": releases})
     except httpx.HTTPStatusError as e:
         return error(f"Radarr API error: HTTP {e.response.status_code}")

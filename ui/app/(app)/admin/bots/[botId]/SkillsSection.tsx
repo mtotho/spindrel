@@ -48,15 +48,19 @@ type GroupedItem =
   | { type: "header"; key: string; label: string; count: number }
   | { type: "skill"; key: string; skill: SkillOption };
 
-function groupSkills(skills: SkillOption[]): GroupedItem[] {
-  const botAuthored: SkillOption[] = [];
+function groupSkills(skills: SkillOption[], botId?: string): GroupedItem[] {
+  const ownBotAuthored: SkillOption[] = [];
   const core: SkillOption[] = [];
   const integrationMap = new Map<string, SkillOption[]>();
 
   for (const s of skills) {
     const sourceType = s.source_type || "manual";
+    // Hide other bots' private skills entirely
+    if (s.id.startsWith("bots/") && botId && !s.id.startsWith(`bots/${botId}/`)) {
+      continue;
+    }
     if (sourceType === "tool") {
-      botAuthored.push(s);
+      ownBotAuthored.push(s);
     } else if (sourceType === "integration") {
       const name = s.id.match(/^integrations\/([^/]+)\//)?.[1] ?? "other";
       const list = integrationMap.get(name);
@@ -68,11 +72,6 @@ function groupSkills(skills: SkillOption[]): GroupedItem[] {
 
   const items: GroupedItem[] = [];
 
-  if (botAuthored.length > 0) {
-    items.push({ type: "header", key: "bot-authored", label: "Bot Authored", count: botAuthored.length });
-    for (const s of botAuthored) items.push({ type: "skill", key: s.id, skill: s });
-  }
-
   if (core.length > 0) {
     items.push({ type: "header", key: "core", label: "Core", count: core.length });
     for (const s of core) items.push({ type: "skill", key: s.id, skill: s });
@@ -83,6 +82,11 @@ function groupSkills(skills: SkillOption[]): GroupedItem[] {
     const list = integrationMap.get(k)!;
     items.push({ type: "header", key: `int-${k}`, label: fmtIntName(k), count: list.length });
     for (const s of list) items.push({ type: "skill", key: s.id, skill: s });
+  }
+
+  if (ownBotAuthored.length > 0) {
+    items.push({ type: "header", key: "bot-authored", label: "Self-Authored", count: ownBotAuthored.length });
+    for (const s of ownBotAuthored) items.push({ type: "skill", key: s.id, skill: s });
   }
 
   return items;
@@ -136,10 +140,12 @@ export function SkillsSection({
           s.name.toLowerCase().includes(filter.toLowerCase()) ||
           (s.description || "").toLowerCase().includes(filter.toLowerCase()))
       : editorData.all_skills;
-    return groupSkills(list);
-  }, [editorData.all_skills, filter]);
+    return groupSkills(list, draft.id);
+  }, [editorData.all_skills, filter, draft.id]);
 
-  const totalCount = editorData.all_skills.filter((s) => s.source_type !== "tool").length;
+  const totalCount = editorData.all_skills.filter((s) =>
+    s.source_type !== "tool" && !(s.id.startsWith("bots/") && draft.id && !s.id.startsWith(`bots/${draft.id}/`))
+  ).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

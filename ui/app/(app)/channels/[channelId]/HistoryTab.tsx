@@ -72,7 +72,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
               <FormRow label="Interval (user turns)" description="Compaction triggers after this many user messages. Lower = more frequent archival.">
                 <TextInput
                   value={form.compaction_interval?.toString() ?? ""}
-                  onChangeText={(v) => patch("compaction_interval", v ? parseInt(v) || undefined : undefined)}
+                  onChangeText={(v) => { const n = parseInt(v); patch("compaction_interval", isNaN(n) ? undefined : n); }}
                   placeholder="recommended (20)"
                   type="number"
                 />
@@ -82,7 +82,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
               <FormRow label="Keep Turns" description="Recent turns always kept verbatim — never archived.">
                 <TextInput
                   value={form.compaction_keep_turns?.toString() ?? ""}
-                  onChangeText={(v) => patch("compaction_keep_turns", v ? parseInt(v) || undefined : undefined)}
+                  onChangeText={(v) => { const n = parseInt(v); patch("compaction_keep_turns", isNaN(n) ? undefined : n); }}
                   placeholder="recommended (6)"
                   type="number"
                 />
@@ -219,7 +219,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                   <FormRow label="Interval (user turns)" description="Compaction triggers after this many user messages accumulate. Lower = more frequent, tighter context. Default: 30.">
                     <TextInput
                       value={form.compaction_interval?.toString() ?? ""}
-                      onChangeText={(v) => patch("compaction_interval", v ? parseInt(v) || undefined : undefined)}
+                      onChangeText={(v) => { const n = parseInt(v); patch("compaction_interval", isNaN(n) ? undefined : n); }}
                       placeholder="default (30)"
                       type="number"
                     />
@@ -229,7 +229,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                   <FormRow label="Keep Turns" description="Recent turns always kept verbatim — never summarized. Higher = more immediate context but less room for RAG/tools. Default: 10.">
                     <TextInput
                       value={form.compaction_keep_turns?.toString() ?? ""}
-                      onChangeText={(v) => patch("compaction_keep_turns", v ? parseInt(v) || undefined : undefined)}
+                      onChangeText={(v) => { const n = parseInt(v); patch("compaction_keep_turns", isNaN(n) ? undefined : n); }}
                       placeholder="default (10)"
                       type="number"
                     />

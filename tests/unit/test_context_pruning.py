@@ -1,4 +1,4 @@
-"""Unit tests for app.agent.context_pruning."""
+"""Unit tests for app.agent.context_pruning and tool result hard cap."""
 
 import copy
 
@@ -305,3 +305,102 @@ class TestToolNameMap:
         prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
         assert messages[2]["tool_call_id"] == "tc1"
         assert messages[2]["role"] == "tool"
+
+
+# ---------------------------------------------------------------------------
+# Retrieval pointers
+# ---------------------------------------------------------------------------
+
+class TestRetrievalPointers:
+    def test_record_id_produces_retrieval_pointer(self):
+        """Tool results with _tool_record_id should get a retrieval pointer."""
+        record_id = "abc12345-1234-1234-1234-123456789abc"
+        messages = [
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "web_search")]),
+            {**_make_tool_result("tc1", _long_content(500)), "_tool_record_id": record_id},
+            _make_assistant_msg("a1"),
+            _make_user_msg("q2"),
+            _make_assistant_msg("final"),
+        ]
+        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+
+        assert stats["pruned_count"] == 1
+        assert "read_conversation_history" in messages[2]["content"]
+        assert record_id in messages[2]["content"]
+        assert "web_search" in messages[2]["content"]
+        assert "500" in messages[2]["content"]
+
+    def test_no_record_id_produces_dead_marker(self):
+        """Tool results without _tool_record_id should get the old dead marker."""
+        messages = [
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "web_search")]),
+            _make_tool_result("tc1", _long_content(500)),
+            _make_assistant_msg("a1"),
+            _make_user_msg("q2"),
+            _make_assistant_msg("final"),
+        ]
+        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+
+        assert stats["pruned_count"] == 1
+        assert messages[2]["content"].startswith("[Tool result pruned")
+        assert "read_conversation_history" not in messages[2]["content"]
+
+    def test_record_id_preserved_after_pruning(self):
+        """_tool_record_id key should survive pruning (stays on the message dict)."""
+        record_id = "abc12345-1234-1234-1234-123456789abc"
+        messages = [
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "search")]),
+            {**_make_tool_result("tc1", _long_content(500)), "_tool_record_id": record_id},
+            _make_assistant_msg("a1"),
+            _make_user_msg("q2"),
+            _make_assistant_msg("final"),
+        ]
+        prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+
+        assert messages[2]["_tool_record_id"] == record_id
+
+    def test_recent_turns_untouched_with_record_id(self):
+        """Kept turns should not be pruned even if they have _tool_record_id."""
+        record_id = "abc12345-1234-1234-1234-123456789abc"
+        original_content = _long_content(500)
+        messages = [
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "search")]),
+            {**_make_tool_result("tc1", original_content), "_tool_record_id": record_id},
+            _make_assistant_msg("a1"),
+        ]
+        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+
+        assert stats["pruned_count"] == 0
+        assert messages[2]["content"] == original_content
+
+    def test_mixed_record_id_and_no_record_id(self):
+        """Messages with and without record IDs should get appropriate markers."""
+        record_id = "abc12345-1234-1234-1234-123456789abc"
+        messages = [
+            # Turn 1: has record_id
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "search")]),
+            {**_make_tool_result("tc1", _long_content(500)), "_tool_record_id": record_id},
+            _make_assistant_msg("a1"),
+            # Turn 2: no record_id
+            _make_user_msg("q2"),
+            _make_assistant_msg("", [_make_tool_call("tc2", "legacy_tool")]),
+            _make_tool_result("tc2", _long_content(500)),
+            _make_assistant_msg("a2"),
+            # Turn 3: recent (kept)
+            _make_user_msg("q3"),
+            _make_assistant_msg("final"),
+        ]
+        stats = prune_tool_results(messages, keep_full_turns=1, min_content_length=200)
+
+        assert stats["pruned_count"] == 2
+        # Turn 1: retrieval pointer
+        assert "read_conversation_history" in messages[2]["content"]
+        assert record_id in messages[2]["content"]
+        # Turn 2: dead marker
+        assert messages[6]["content"].startswith("[Tool result pruned")
+        assert "read_conversation_history" not in messages[6]["content"]

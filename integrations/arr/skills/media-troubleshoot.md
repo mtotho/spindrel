@@ -29,8 +29,8 @@ If no results, try shorter/simpler variations of the title.
 ## Step 2: Check the Download Chain
 
 ### 2a. Is it tracked?
-- TV: `sonarr_series()` (no search param) — lists library series with internal `id`. Find the title by scanning results.
-- Movie: `radarr_movies()` (no search param) — lists library movies with internal `id`. Find the title by scanning results.
+- TV: `sonarr_series(filter="TITLE")` — finds matching library series by name with internal `id`.
+- Movie: `radarr_movies(name="TITLE")` — finds matching library movies by name with internal `id`.
 - If media type is unclear, check both
 - **Save the internal `id` field** — this is the series_id/movie_id needed for ALL subsequent tool calls. Do NOT use tvdb_id or tmdb_id.
 

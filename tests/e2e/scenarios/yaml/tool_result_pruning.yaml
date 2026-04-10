@@ -1,0 +1,25 @@
+scenarios:
+  - name: multi_turn_tools_survive_pruning
+    description: "Multiple tool-heavy turns work correctly with context pruning active"
+    bot_id: e2e-tools
+    tags: [multi-turn, context-pruning]
+    channel: shared
+    steps:
+      - message: "What time is it right now? Use your time tool."
+        stream: true
+        assertions:
+          - tool_called: [get_current_time, get_current_local_time]
+          - response_not_empty: true
+          - no_errors: true
+      - message: "Now search the web for 'OpenAI GPT-4 release date'."
+        stream: true
+        assertions:
+          - tool_called: [web_search]
+          - response_not_empty: true
+          - no_errors: true
+      - message: "Summarize what you found in the search without using any tools."
+        stream: true
+        assertions:
+          - no_tools_called: true
+          - response_not_empty: true
+          - no_errors: true

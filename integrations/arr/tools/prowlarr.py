@@ -236,18 +236,12 @@ async def prowlarr_search(
         for r in data[:limit]:
             size_bytes = r.get("size", 0) or 0
             results.append({
-                "title": sanitize(r.get("title", ""), max_len=200),
+                "title": sanitize(r.get("title", ""), max_len=120),
                 "size_mb": round(size_bytes / 1_048_576, 1),
                 "seeders": r.get("seeders", 0),
-                "leechers": r.get("leechers", 0),
                 "indexer": sanitize(r.get("indexer", "")),
                 "indexer_id": r.get("indexerId", 0),
-                "protocol": r.get("protocol", ""),
-                "age_days": r.get("age", 0),
                 "guid": r.get("guid", ""),
-                "categories": [
-                    c.get("name", "") for c in (r.get("categories") or [])[:3]
-                ],
             })
         return json.dumps({"count": len(results), "total_found": len(data), "results": results})
     except httpx.HTTPStatusError as e:
@@ -401,28 +395,22 @@ async def prowlarr_indexer_schemas(search: str | None = None) -> str:
             name = s.get("name", "")
             if search and search.lower() not in name.lower():
                 continue
-            # Extract required fields info
-            fields = []
+            # Extract only required field names (not full objects)
+            required_fields = []
             for f in s.get("fields", []):
                 if f.get("name") == "definitionFile":
-                    continue  # internal field
-                fields.append({
-                    "name": f.get("name", ""),
-                    "label": f.get("label", ""),
-                    "type": f.get("type", ""),
-                    "required": not f.get("advanced", False),
-                    "value": f.get("value"),
-                })
-            schemas.append({
+                    continue
+                if not f.get("advanced", False):
+                    required_fields.append(f.get("name", ""))
+            entry: dict = {
                 "definition_name": s.get("definitionName", ""),
                 "name": sanitize(name),
-                "implementation": s.get("implementation", ""),
                 "protocol": s.get("protocol", ""),
                 "privacy": s.get("privacy", ""),
-                "supports_rss": s.get("supportsRss", False),
-                "supports_search": s.get("supportsSearch", False),
-                "fields": fields,
-            })
+            }
+            if required_fields:
+                entry["required_fields"] = required_fields
+            schemas.append(entry)
         return json.dumps({"count": len(schemas), "schemas": schemas})
     except httpx.HTTPStatusError as e:
         return error(f"Prowlarr API error: {e}")

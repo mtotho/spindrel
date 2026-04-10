@@ -350,7 +350,7 @@ export function WorkspaceDefaultsEditor({ workspaceId }: { workspaceId: string }
             <input
               type="number"
               value={topK ?? globalDefaults.top_k ?? 8}
-              onChange={(e) => { setTopK(parseInt(e.target.value) || null); markDirty(); }}
+              onChange={(e) => { const n = parseInt(e.target.value); setTopK(isNaN(n) ? null : n); markDirty(); }}
               min={1} max={50}
               style={{
                 background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
@@ -371,7 +371,7 @@ export function WorkspaceDefaultsEditor({ workspaceId }: { workspaceId: string }
             <input
               type="number"
               value={cooldown ?? globalDefaults.cooldown_seconds ?? 300}
-              onChange={(e) => { setCooldown(parseInt(e.target.value) || null); markDirty(); }}
+              onChange={(e) => { const n = parseInt(e.target.value); setCooldown(isNaN(n) ? null : n); markDirty(); }}
               min={0} max={3600}
               style={{
                 background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,

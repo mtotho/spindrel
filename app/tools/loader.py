@@ -95,11 +95,11 @@ def _scan_integration_tools(base_dir: Path, *, is_external: bool = False) -> Non
         if not intg_tools_dir.is_dir():
             continue
         integration_id = intg_tools_dir.parent.name
-        # Skip globally disabled integrations
+        # Skip disabled or unconfigured integrations
         try:
-            from app.services.integration_settings import is_disabled
-            if is_disabled(integration_id):
-                logger.info("Skipping tools for disabled integration: %s", integration_id)
+            from app.services.integration_settings import is_active
+            if not is_active(integration_id):
+                logger.info("Skipping tools for inactive integration: %s", integration_id)
                 continue
         except Exception:
             pass

@@ -30,6 +30,7 @@ class ToolCallResult:
     result: str = ""
     result_for_llm: str = ""
     was_summarized: bool = False
+    record_id: uuid.UUID | None = None
     embedded_client_action: dict | None = None
     injected_images: list[dict] | None = None  # [{"mime_type": str, "base64": str}]
     tool_event: dict[str, Any] = field(default_factory=dict)
@@ -343,6 +344,16 @@ async def dispatch_tool_call(
             arguments_summary=_args_summary,
         )
 
+    # Hard-cap: truncate very large results before they enter the context window.
+    # Full result is stored in DB (below) so the bot can retrieve on demand.
+    from app.config import settings
+    _hard_cap = settings.TOOL_RESULT_HARD_CAP
+    if _hard_cap and len(result_for_llm) > _hard_cap:
+        result_for_llm = (
+            result_for_llm[:_hard_cap]
+            + f"\n\n[Truncated at {_hard_cap:,} chars — full output stored]"
+        )
+
     # Summarize if needed
     _orig_len = len(result_for_llm)
     _was_summarized = False
@@ -353,10 +364,13 @@ async def dispatch_tool_call(
         and len(result_for_llm) > summarize_threshold
     )
 
-    # Pre-generate tool call ID so we can reference it in the retrieval hint
-    _tc_record_id = uuid.uuid4() if _will_summarize else None
+    # Pre-generate tool call ID so we can reference it in the retrieval hint.
+    # Store full result for any result large enough to be pruned later, so the
+    # retrieval pointer in subsequent turns actually works.
+    _store_full = _will_summarize or _orig_len > settings.CONTEXT_PRUNING_MIN_LENGTH
+    _tc_record_id = uuid.uuid4() if _store_full else None
 
-    # Record tool call (store full result when summarization will occur)
+    # Record tool call (store full result so retrieval pointers work)
     safe_create_task(_record_tool_call(
         id=_tc_record_id,
         session_id=session_id,
@@ -371,7 +385,7 @@ async def dispatch_tool_call(
         error=_tc_error,
         duration_ms=_tc_duration,
         correlation_id=correlation_id,
-        store_full_result=_will_summarize,
+        store_full_result=_store_full,
     ))
 
     if _will_summarize:
@@ -405,6 +419,7 @@ async def dispatch_tool_call(
 
     result_obj.result_for_llm = result_for_llm
     result_obj.was_summarized = _was_summarized
+    result_obj.record_id = _tc_record_id
 
     result_preview = result_for_llm[:200] + "..." if len(result_for_llm) > 200 else result_for_llm
     logger.debug("Tool result [%s]: %s", name, result_preview)

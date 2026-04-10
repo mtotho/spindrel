@@ -906,11 +906,14 @@ async def run_agent_tool_loop(
                     if tc_result.injected_images:
                         _iteration_injected_images.extend(tc_result.injected_images)
 
-                    messages.append({
+                    _tool_msg: dict = {
                         "role": "tool",
                         "tool_call_id": tc["id"],
                         "content": tc_result.result_for_llm,
-                    })
+                    }
+                    if tc_result.record_id is not None:
+                        _tool_msg["_tool_record_id"] = str(tc_result.record_id)
+                    messages.append(_tool_msg)
                     yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
                     # Fire after_tool_call lifecycle hook (fire-and-forget)
@@ -1042,11 +1045,14 @@ async def run_agent_tool_loop(
                     if tc_result.injected_images:
                         _iteration_injected_images.extend(tc_result.injected_images)
 
-                    messages.append({
+                    _tool_msg: dict = {
                         "role": "tool",
                         "tool_call_id": tc["id"],
                         "content": tc_result.result_for_llm,
-                    })
+                    }
+                    if tc_result.record_id is not None:
+                        _tool_msg["_tool_record_id"] = str(tc_result.record_id)
+                    messages.append(_tool_msg)
                     yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
                     # Fire after_tool_call lifecycle hook (fire-and-forget)

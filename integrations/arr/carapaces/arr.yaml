@@ -25,6 +25,7 @@ local_tools:
   - sonarr_episodes
   - sonarr_history
   - sonarr_queue_manage
+  - sonarr_series_update
   - sonarr_quality_profiles
   - sonarr_quality_profile_update
   - radarr_movies
@@ -33,6 +34,7 @@ local_tools:
   - radarr_releases
   - radarr_history
   - radarr_queue_manage
+  - radarr_movie_update
   - radarr_quality_profiles
   - radarr_quality_profile_update
   - qbit_torrents
@@ -105,6 +107,7 @@ system_prompt_fragment: |
   | `sonarr_command` | Trigger series/episode/missing searches |
   | `sonarr_history` | Grab/import/failure events with error messages |
   | `sonarr_queue_manage` | Remove queue items, blocklist bad releases, remove from qBit |
+  | `sonarr_series_update` | Change a series' quality profile, monitored status, or series type |
   | `sonarr_quality_profiles` | List/view quality profiles — allowed qualities, cutoff, upgrade settings |
   | `sonarr_quality_profile_update` | Enable/disable qualities, change cutoff target, toggle upgrades |
   | `radarr_movies` | List movies or search TMDB; filter missing/wanted |
@@ -112,6 +115,7 @@ system_prompt_fragment: |
   | `radarr_releases` | Browse/grab specific releases for a movie |
   | `radarr_history` | Grab/import/failure events for movies |
   | `radarr_queue_manage` | Remove queue items, blocklist, remove from qBit |
+  | `radarr_movie_update` | Change a movie's quality profile, monitored status, or minimum availability |
   | `radarr_quality_profiles` | List/view quality profiles — allowed qualities, cutoff, upgrade settings |
   | `radarr_quality_profile_update` | Enable/disable qualities, change cutoff target, toggle upgrades |
   | `qbit_torrents` | List torrents; filters: stalled, downloading, etc. |
@@ -124,11 +128,12 @@ system_prompt_fragment: |
   | `prowlarr_apps` | List connected apps (Sonarr/Radarr) and sync status |
   | `prowlarr_health` | System health check — indexer issues, sync problems, warnings |
 
-  ### Pagination
+  ### Pagination & Filtering
 
+  - **Always filter by name** when looking for a specific item: `sonarr_series(filter="Criminal Minds")` / `radarr_movies(name="Inception")` — returns only matches, much smaller output
   - `jellyseerr_requests(skip=20, limit=20)` — page 2 of requests; check `page.has_more`
   - `jellyseerr_search(query="...", page=2)` — page 2 of search; check `page.total_pages`
-  - `sonarr_series(limit=100)` / `radarr_movies(limit=100)` — larger pages
+  - `sonarr_series(limit=100)` / `radarr_movies(limit=100)` — larger pages when listing all
 
   ### Title Matching
 
@@ -137,8 +142,8 @@ system_prompt_fragment: |
 
   ### Key Rules
 
-  - **ID types matter**: `sonarr_series()` (no search) returns the internal `id`. `sonarr_series(search=...)` returns `tvdb_id` AND `id` (if in library). ALL other sonarr_* tools need the internal `id`, NOT tvdb_id. Same for Radarr: use `id`, not `tmdb_id`.
-  - **Episode workflow**: series `id` → `sonarr_episodes(series_id=ID)` → episode `id` → `sonarr_releases(episode_id=EP_ID)`
+  - **ID types matter**: `sonarr_series(filter="name")` returns matching library series with internal `id`. ALL other sonarr_* tools need the internal `id`, NOT tvdb_id. Same for Radarr: `radarr_movies(name="name")` returns `id`, not `tmdb_id`.
+  - **Episode workflow**: `sonarr_series(filter="name")` → series `id` → `sonarr_episodes(series_id=ID, season=N)` → episode `id` → `sonarr_releases(episode_id=EP_ID)`
   - Always check Jellyfin FIRST before searching Sonarr/Radarr or requesting
   - Check Jellyseerr status before creating duplicate requests
   - When requesting: confirm the match with the user (title + year) before submitting

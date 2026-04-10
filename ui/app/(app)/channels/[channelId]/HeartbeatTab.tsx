@@ -467,7 +467,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 <FormRow label="Max run time (seconds)">
                   <TextInput
                     value={hbForm.max_run_seconds?.toString() ?? ""}
-                    onChangeText={(v) => setHbForm((f: any) => ({ ...f, max_run_seconds: v ? parseInt(v) || null : null }))}
+                    onChangeText={(v) => { const n = parseInt(v); setHbForm((f: any) => ({ ...f, max_run_seconds: isNaN(n) ? null : n })); }}
                     placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
                     type="number"
                   />
@@ -475,7 +475,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
                   <TextInput
                     value={hbForm.previous_result_max_chars?.toString() ?? ""}
-                    onChangeText={(v) => setHbForm((f: any) => ({ ...f, previous_result_max_chars: v ? parseInt(v) || null : null }))}
+                    onChangeText={(v) => { const n = parseInt(v); setHbForm((f: any) => ({ ...f, previous_result_max_chars: isNaN(n) ? null : n })); }}
                     placeholder={`${data?.default_previous_result_chars ?? 500} (global default)`}
                     type="number"
                   />

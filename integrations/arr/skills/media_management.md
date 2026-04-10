@@ -11,26 +11,28 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 
 ### Sonarr (TV Shows)
 - `sonarr_calendar(days_ahead=7)` — upcoming episodes for next N days, with download status
-- `sonarr_series(search=None, limit=50)` — list monitored series (newest first) or search TVDB
+- `sonarr_series(search=None, filter=None, limit=50)` — list library series or search TVDB. Use `filter="Criminal Minds"` to find a series by name (fast, returns only matches). Use `search` for TVDB lookup.
 - `sonarr_wanted(limit=20)` — missing episodes (paged, newest airdate first)
-- `sonarr_queue()` — items in download queue with progress, quality, ETA, queue_id, tracked_status, and error messages
+- `sonarr_queue()` — items in download queue with progress, quality, size. `tracked_status` and `errors` only included when there's a problem.
 - `sonarr_command(action, series_id=None, episode_ids=None)` — trigger searches: SeriesSearch (needs series_id), EpisodeSearch (needs episode_ids), MissingEpisodeSearch (no params)
 - `sonarr_releases(action, episode_id=None, guid=None, indexer_id=None)` — action="search" to browse releases (sorted by seeders, top 15); action="grab" to download (needs guid + indexer_id). Release search uses 60s timeout.
-- `sonarr_episodes(series_id, season=None)` — episode details: hasFile, episodeFileId, monitored, file path/quality/size. Essential for diagnosing phantom file references.
+- `sonarr_episodes(series_id, season=None)` — episode details: id, hasFile, monitored. File quality/size only included when hasFile=true. Use season param to limit output.
 - `sonarr_history(series_id, episode_id=None, limit=30)` — grab/import/failure events with error messages. Use to see why imports failed.
 - `sonarr_queue_manage(queue_ids, blocklist=False, remove_from_client=True)` — remove items from Sonarr queue. Optionally blocklist bad release and/or remove torrent from qBittorrent.
+- `sonarr_series_update(series_id, quality_profile_id=None, monitored=None, series_type=None)` — change a series' quality profile, monitored status, or type. Get series_id from `sonarr_series()`, profile IDs from `sonarr_quality_profiles()`.
 - `sonarr_quality_profiles(profile_id=None)` — list all quality profiles or view one in detail (allowed qualities, cutoff, upgrade settings)
-- `sonarr_quality_profile_update(profile_id, upgrade_allowed=None, cutoff_quality=None, enable_qualities=None, disable_qualities=None)` — modify quality profile: enable/disable qualities by name, change cutoff target, toggle upgrades
+- `sonarr_quality_profile_update(profile_id, upgrade_allowed=None, cutoff_quality=None, enable_qualities=None, disable_qualities=None)` — modify quality profile itself: enable/disable qualities by name, change cutoff target, toggle upgrades
 
 ### Radarr (Movies)
-- `radarr_movies(search=None, filter=None)` — list library (newest first) or search TMDB; filter: "missing" (no file), "wanted" (missing + monitored)
+- `radarr_movies(search=None, name=None, filter=None, limit=50)` — list library movies or search TMDB. Use `name="Inception"` to find a movie by name (fast, returns only matches). Use `search` for TMDB lookup. `filter`: "missing", "wanted".
 - `radarr_command(action, movie_ids=None)` — trigger searches: MoviesSearch (needs movie_ids), MissingMoviesSearch (no params)
-- `radarr_queue()` — items in download queue with progress, quality, ETA, queue_id, tracked_status, and error messages
+- `radarr_queue()` — items in download queue with progress, quality, size. `tracked_status` and `errors` only included when there's a problem.
 - `radarr_releases(action, movie_id=None, guid=None, indexer_id=None)` — same as sonarr_releases but for movies
 - `radarr_history(movie_id, limit=30)` — grab/import/failure events with error messages
 - `radarr_queue_manage(queue_ids, blocklist=False, remove_from_client=True)` — remove items from Radarr queue (same as sonarr_queue_manage)
+- `radarr_movie_update(movie_id, quality_profile_id=None, monitored=None, minimum_availability=None)` — change a movie's quality profile, monitored status, or availability. Get movie_id from `radarr_movies()`, profile IDs from `radarr_quality_profiles()`.
 - `radarr_quality_profiles(profile_id=None)` — list all quality profiles or view one in detail
-- `radarr_quality_profile_update(profile_id, upgrade_allowed=None, cutoff_quality=None, enable_qualities=None, disable_qualities=None)` — modify quality profile
+- `radarr_quality_profile_update(profile_id, upgrade_allowed=None, cutoff_quality=None, enable_qualities=None, disable_qualities=None)` — modify quality profile itself
 
 ### qBittorrent (Downloads)
 - `qbit_torrents(filter="all", limit=50)` — list torrents with speeds; filters: all, downloading, seeding, completed, paused, active, stalled
@@ -62,7 +64,8 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 
 - `jellyseerr_requests(skip=20, limit=20)` — page 2; check `page.has_more`
 - `jellyseerr_search(query="...", page=2)` — page 2; check `page.total_pages`
-- `sonarr_series(limit=100)` / `radarr_movies(limit=100)` — larger pages
+- `sonarr_series(filter="name")` / `radarr_movies(name="name")` — find specific items without listing all
+- `sonarr_series(limit=100)` / `radarr_movies(limit=100)` — larger pages when listing all
 
 ## Key Workflows
 
@@ -97,7 +100,7 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 3. Look for: `downloadFailed` events, missing `downloadFolderImported` after `grabbed`, phantom file references
 
 ### Browse and grab specific releases
-1. Get internal IDs: `sonarr_series()` → find series `id` (NOT tvdb_id)
+1. Get internal IDs: `sonarr_series(filter="Show Name")` → find series `id` (NOT tvdb_id)
 2. Get episode ID: `sonarr_episodes(series_id=X, season=N)` → find episode `id`
 3. Browse: `sonarr_releases(action="search", episode_id=EP_ID)` or `radarr_releases(action="search", movie_id=MOVIE_ID)`
 4. Evaluate: quality (1080p preferred), seeders ≥10, size 1-4 GB for TV, rejection status
@@ -116,11 +119,18 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 4. `prowlarr_indexers(action="test", indexer_id=X)` — test specific indexer connectivity
 
 ### Manage quality profiles
-1. `sonarr_quality_profiles()` / `radarr_quality_profiles()` — list all profiles with allowed qualities and cutoff
-2. To enable 4K: `sonarr_quality_profile_update(profile_id=1, enable_qualities=["Bluray-2160p", "WEBDL-2160p"], cutoff_quality="Bluray-2160p")`
-3. To disable SD: `sonarr_quality_profile_update(profile_id=1, disable_qualities=["SDTV", "DVD"])`
-4. To allow upgrades: `sonarr_quality_profile_update(profile_id=1, upgrade_allowed=True)`
-5. Quality names must match exactly — use `*_quality_profiles(profile_id=X)` to see valid names
+**View profiles**: `sonarr_quality_profiles()` / `radarr_quality_profiles()` — list all with allowed qualities and cutoff
+**Modify a profile's qualities**:
+- Enable 4K: `sonarr_quality_profile_update(profile_id=1, enable_qualities=["Bluray-2160p", "WEBDL-2160p"], cutoff_quality="Bluray-2160p")`
+- Disable SD: `sonarr_quality_profile_update(profile_id=1, disable_qualities=["SDTV", "DVD"])`
+- Allow upgrades: `sonarr_quality_profile_update(profile_id=1, upgrade_allowed=True)`
+- Quality names must match exactly — use `*_quality_profiles(profile_id=X)` to see valid names
+
+**Assign a profile to a series/movie** (different from modifying the profile itself):
+1. `sonarr_quality_profiles()` — find the target profile ID
+2. `sonarr_series_update(series_id=224, quality_profile_id=6)` — assign it
+3. `sonarr_command(action="SeriesSearch", series_id=224)` — trigger re-search under new profile
+- For movies: `radarr_movie_update(movie_id=X, quality_profile_id=Y)`
 
 ### Find something to watch
 1. `jellyfin_library(action="recent")` — see latest additions
@@ -132,7 +142,7 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), inde
 2. `bazarr_subtitles(action="search")` — trigger search for all wanted
 
 ## Common Patterns
-- **ID lookups**: Use `sonarr_series()` (no search) to get internal series `id` (NOT tvdb_id). Use `radarr_movies()` (no search) for internal movie `id` (NOT tmdb_id). Search mode returns `id` only if the item is already in your library.
+- **ID lookups**: Use `sonarr_series(filter="name")` to find a series by name and get its internal `id` (NOT tvdb_id). Use `radarr_movies(name="name")` for movies (NOT tmdb_id). Always filter by name instead of listing all — saves tokens.
 - **Torrent hashes**: Get from `qbit_torrents` results, pass to `qbit_manage`
 - **TMDB IDs**: Get from `jellyseerr_search`, pass to `jellyseerr_manage(action="request")`
 - **Release GUIDs**: Get from `*_releases(action="search")`, pass to `*_releases(action="grab")`

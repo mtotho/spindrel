@@ -156,6 +156,10 @@ async def set_integration_disabled(integration_id: str, body: DisabledBody, _aut
             integration_id, len(loaded),
         )
 
+    # 5) Refresh MCP servers — respects the new active state
+    from app.services.mcp_servers import load_mcp_servers
+    await load_mcp_servers()
+
     return {"integration_id": integration_id, "disabled": body.disabled}
 
 
@@ -239,6 +243,10 @@ async def update_integration_settings(
                 logger.info("Auto-provisioned API key for integration %s", integration_id)
             except Exception:
                 logger.warning("Failed to auto-provision API key for %s", integration_id, exc_info=True)
+
+    # Refresh MCP servers — configuration change may activate/deactivate servers
+    from app.services.mcp_servers import load_mcp_servers
+    await load_mcp_servers()
 
     return {"applied": applied}
 

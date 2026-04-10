@@ -175,9 +175,9 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
     "function": {
         "name": "sonarr_series",
         "description": (
-            "List monitored series in Sonarr (newest first) or search TVDB for new series to add. "
-            "Without search: returns library series with internal 'id' sorted by recently added. "
-            "With search: searches TVDB — results include 'id' (internal Sonarr ID) if already in library. "
+            "List monitored series in Sonarr or search TVDB. "
+            "Use 'filter' to find a series in your library by name (fast, returns only matches). "
+            "Use 'search' to look up new series on TVDB. "
             "IMPORTANT: Use the internal 'id' (NOT tvdb_id) for sonarr_episodes, sonarr_command, etc."
         ),
         "parameters": {
@@ -185,17 +185,21 @@ async def sonarr_calendar(days_ahead: int = 7) -> str:
             "properties": {
                 "search": {
                     "type": "string",
-                    "description": "Search term to look up on TVDB. Omit to list monitored series.",
+                    "description": "Search TVDB for new series to add. Returns tvdb_id + id (if in library).",
+                },
+                "filter": {
+                    "type": "string",
+                    "description": "Filter library series by name (case-insensitive substring match). Much faster than listing all.",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Max results for library listing (default 50). Use 0 for all.",
+                    "description": "Max results for library listing (default 50).",
                 },
             },
         },
     },
 })
-async def sonarr_series(search: str | None = None, limit: int = 50) -> str:
+async def sonarr_series(search: str | None = None, filter: str | None = None, limit: int = 50) -> str:
     if not settings.SONARR_URL:
         return error("SONARR_URL is not configured")
     try:
@@ -207,19 +211,22 @@ async def sonarr_series(search: str | None = None, limit: int = 50) -> str:
                     "tvdb_id": s.get("tvdbId"),
                     "title": sanitize(s.get("title", "")),
                     "year": s.get("year"),
-                    "overview": sanitize(s.get("overview", ""), max_len=200),
                     "status": s.get("status"),
                     "season_count": s.get("statistics", {}).get("seasonCount", 0),
                 }
-                # Include internal Sonarr ID if series is already in library
                 if s.get("id"):
                     entry["id"] = s["id"]
                 results.append(entry)
             return json.dumps({"count": len(results), "results": results})
         else:
             data = await _get("/api/v3/series")
-            # Sort by added date, newest first
-            data.sort(key=lambda s: s.get("added", ""), reverse=True)
+            # Filter by name if provided
+            if filter:
+                filter_lower = filter.lower()
+                data = [s for s in data if filter_lower in (s.get("title") or "").lower()]
+            else:
+                # Sort by added date, newest first (only when not filtering)
+                data.sort(key=lambda s: s.get("added", ""), reverse=True)
             total = len(data)
             if limit > 0:
                 data = data[:limit]
@@ -247,6 +254,77 @@ async def sonarr_series(search: str | None = None, limit: int = 50) -> str:
         return error(f"Cannot connect to Sonarr at {_base_url()}")
     except Exception as e:
         logger.exception("sonarr_series failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "sonarr_series_update",
+        "description": (
+            "Update a series in Sonarr — change quality profile, monitored status, "
+            "series type, or path. Use sonarr_series() first to get the series internal ID "
+            "and sonarr_quality_profiles() to get valid profile IDs."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "series_id": {
+                    "type": "integer",
+                    "description": "Internal Sonarr series ID (the 'id' field, NOT tvdb_id).",
+                },
+                "quality_profile_id": {
+                    "type": "integer",
+                    "description": "Quality profile ID to assign (from sonarr_quality_profiles).",
+                },
+                "monitored": {
+                    "type": "boolean",
+                    "description": "Whether the series is monitored.",
+                },
+                "series_type": {
+                    "type": "string",
+                    "enum": ["standard", "daily", "anime"],
+                    "description": "Series type.",
+                },
+            },
+            "required": ["series_id"],
+        },
+    },
+})
+async def sonarr_series_update(
+    series_id: int,
+    quality_profile_id: int | None = None,
+    monitored: bool | None = None,
+    series_type: str | None = None,
+) -> str:
+    if not settings.SONARR_URL:
+        return error("SONARR_URL is not configured")
+    try:
+        # Get current series data (PUT requires the full object)
+        series = await _get(f"/api/v3/series/{series_id}")
+
+        if quality_profile_id is not None:
+            series["qualityProfileId"] = quality_profile_id
+        if monitored is not None:
+            series["monitored"] = monitored
+        if series_type is not None:
+            series["seriesType"] = series_type
+
+        result = await _put(f"/api/v3/series/{series_id}", series)
+        return json.dumps({
+            "status": "ok",
+            "id": result.get("id"),
+            "title": sanitize(result.get("title", "")),
+            "quality_profile_id": result.get("qualityProfileId"),
+            "monitored": result.get("monitored"),
+            "series_type": result.get("seriesType"),
+        })
+    except httpx.HTTPStatusError as e:
+        return error(f"Sonarr API error: {e}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Sonarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("sonarr_series_update failed")
         return error(str(e))
 
 
@@ -345,18 +423,18 @@ async def sonarr_queue() -> str:
                 "episode_id": episode.get("id"),
                 "quality": rec.get("quality", {}).get("quality", {}).get("name", ""),
                 "size_mb": size_mb,
-                "remaining_mb": remaining_mb,
                 "status": rec.get("status", ""),
-                "tracked_status": rec.get("trackedDownloadStatus", ""),
                 "progress_pct": progress,
-                "eta": rec.get("estimatedCompletionTime", ""),
             }
-            # Include error messages for failed/warning items
+            # Only include tracked_status and errors when there's a problem
+            tracked = rec.get("trackedDownloadStatus", "")
+            if tracked and tracked != "ok":
+                item["tracked_status"] = tracked
             status_messages = rec.get("statusMessages", [])
             if status_messages:
                 item["errors"] = [
-                    sanitize(msg.get("title", ""), max_len=200)
-                    for msg in status_messages[:3]
+                    sanitize(msg.get("title", ""), max_len=150)
+                    for msg in status_messages[:2]
                 ]
             items.append(item)
         return json.dumps({"count": len(items), "items": items})
@@ -500,19 +578,19 @@ async def sonarr_releases(
         releases = []
         for r in data[:15]:
             size_bytes = r.get("size", 0) or 0
-            releases.append({
-                "title": sanitize(r.get("title", ""), max_len=200),
+            entry: dict = {
+                "title": sanitize(r.get("title", ""), max_len=120),
                 "size_mb": round(size_bytes / 1_048_576, 1),
                 "seeders": r.get("seeders", 0),
-                "leechers": r.get("leechers", 0),
                 "quality": r.get("quality", {}).get("quality", {}).get("name", ""),
                 "guid": r.get("guid", ""),
                 "indexer_id": r.get("indexerId", 0),
                 "indexer": r.get("indexer", ""),
-                "age_days": r.get("ageMinutes", 0) // 1440 if r.get("ageMinutes") else 0,
-                "rejected": bool(r.get("rejections")),
-                "rejection_reasons": r.get("rejections", [])[:3],
-            })
+            }
+            rejections = r.get("rejections", [])
+            if rejections:
+                entry["rejected"] = True
+            releases.append(entry)
         return json.dumps({"count": len(releases), "releases": releases})
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
@@ -558,20 +636,21 @@ async def sonarr_episodes(series_id: int, season: int | None = None) -> str:
         data = await _get("/api/v3/episode", params=params)
         episodes = []
         for ep in data:
-            ep_file = ep.get("episodeFile", {}) or {}
-            episodes.append({
+            has_file = ep.get("hasFile", False)
+            entry: dict = {
                 "id": ep.get("id"),
                 "season": ep.get("seasonNumber"),
                 "episode": ep.get("episodeNumber"),
-                "title": sanitize(ep.get("title", "")),
-                "air_date": ep.get("airDateUtc", "")[:10],
-                "has_file": ep.get("hasFile", False),
-                "episode_file_id": ep.get("episodeFileId", 0),
+                "title": sanitize(ep.get("title", ""), max_len=60),
+                "has_file": has_file,
                 "monitored": ep.get("monitored", False),
-                "file_path": ep_file.get("relativePath", ""),
-                "file_quality": ep_file.get("quality", {}).get("quality", {}).get("name", ""),
-                "file_size_mb": round((ep_file.get("size", 0) or 0) / 1_048_576, 1),
-            })
+            }
+            # Only include file details when a file exists
+            if has_file:
+                ep_file = ep.get("episodeFile", {}) or {}
+                entry["file_quality"] = ep_file.get("quality", {}).get("quality", {}).get("name", "")
+                entry["file_size_mb"] = round((ep_file.get("size", 0) or 0) / 1_048_576, 1)
+            episodes.append(entry)
         return json.dumps({"count": len(episodes), "episodes": episodes})
     except httpx.HTTPStatusError as e:
         return error(f"Sonarr API error: {e}")
@@ -640,22 +719,15 @@ async def sonarr_history(
             evt_data = rec.get("data", {}) or {}
             event: dict = {
                 "event_type": rec.get("eventType", ""),
-                "date": rec.get("date", ""),
-                "episode_id": rec.get("episodeId") or episode.get("id"),
+                "date": (rec.get("date") or "")[:19],  # trim timezone
                 "season": episode.get("seasonNumber") or evt_data.get("seasonNumber"),
                 "episode": episode.get("episodeNumber") or evt_data.get("episodeNumber"),
                 "quality": rec.get("quality", {}).get("quality", {}).get("name", ""),
-                "source_title": sanitize(rec.get("sourceTitle", ""), max_len=200),
+                "source_title": sanitize(rec.get("sourceTitle", ""), max_len=100),
             }
-            # Include relevant data fields based on event type
             evt_type = rec.get("eventType", "")
             if evt_type == "downloadFailed":
-                event["error_message"] = sanitize(evt_data.get("message", ""), max_len=300)
-            if evt_type == "downloadFolderImported":
-                event["imported_path"] = evt_data.get("importedPath", "")
-                event["dropped_path"] = evt_data.get("droppedPath", "")
-            if evt_type == "episodeFileDeleted":
-                event["reason"] = evt_data.get("reason", "")
+                event["error_message"] = sanitize(evt_data.get("message", ""), max_len=150)
             events.append(event)
         return json.dumps({"count": len(events), "events": events})
     except httpx.HTTPStatusError as e:

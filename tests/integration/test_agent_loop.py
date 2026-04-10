@@ -267,6 +267,125 @@ class TestSummarizeToolResult:
 
 
 # ---------------------------------------------------------------------------
+# Hard cap / record_id tests
+# ---------------------------------------------------------------------------
+
+class TestToolResultHardCap:
+    """Test that tool results exceeding the hard cap are truncated."""
+
+    @pytest.mark.asyncio
+    async def test_hard_cap_truncates_large_result(self):
+        """Results exceeding TOOL_RESULT_HARD_CAP should be truncated."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+
+        big_result = "x" * 10_000
+
+        with (
+            patch("app.config.settings") as mock_settings,
+            patch("app.agent.tool_dispatch.is_client_tool", return_value=False),
+            patch("app.agent.tool_dispatch.is_local_tool", return_value=True),
+            patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False),
+            patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value=big_result),
+            patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=None),
+            patch("app.agent.tool_dispatch.safe_create_task"),
+            patch("app.tools.registry.get_tool_safety_tier", return_value="safe"),
+        ):
+            mock_settings.TOOL_RESULT_HARD_CAP = 1_000
+            mock_settings.CONTEXT_PRUNING_MIN_LENGTH = 200
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+            mock_settings.CAPABILITY_APPROVAL = "disabled"
+
+            result = await dispatch_tool_call(
+                name="big_tool", args="{}", tool_call_id="tc1",
+                bot_id="test-bot", bot_memory=None,
+                session_id=None, client_id=None, correlation_id=None,
+                channel_id=None, iteration=1, provider_id=None,
+                summarize_enabled=False, summarize_threshold=99999,
+                summarize_model="test", summarize_max_tokens=300,
+                summarize_exclude=set(), compaction=False,
+            )
+
+        # result_for_llm should be truncated
+        assert len(result.result_for_llm) < len(big_result)
+        assert "Truncated at 1,000 chars" in result.result_for_llm
+        assert result.result_for_llm.startswith("x" * 1_000)
+        # record_id should be set (result > CONTEXT_PRUNING_MIN_LENGTH)
+        assert result.record_id is not None
+
+    @pytest.mark.asyncio
+    async def test_small_result_not_capped(self):
+        """Results below TOOL_RESULT_HARD_CAP should not be truncated."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+
+        small_result = "x" * 500
+
+        with (
+            patch("app.config.settings") as mock_settings,
+            patch("app.agent.tool_dispatch.is_client_tool", return_value=False),
+            patch("app.agent.tool_dispatch.is_local_tool", return_value=True),
+            patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False),
+            patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value=small_result),
+            patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=None),
+            patch("app.agent.tool_dispatch.safe_create_task"),
+            patch("app.tools.registry.get_tool_safety_tier", return_value="safe"),
+        ):
+            mock_settings.TOOL_RESULT_HARD_CAP = 1_000
+            mock_settings.CONTEXT_PRUNING_MIN_LENGTH = 200
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+            mock_settings.CAPABILITY_APPROVAL = "disabled"
+
+            result = await dispatch_tool_call(
+                name="small_tool", args="{}", tool_call_id="tc1",
+                bot_id="test-bot", bot_memory=None,
+                session_id=None, client_id=None, correlation_id=None,
+                channel_id=None, iteration=1, provider_id=None,
+                summarize_enabled=False, summarize_threshold=99999,
+                summarize_model="test", summarize_max_tokens=300,
+                summarize_exclude=set(), compaction=False,
+            )
+
+        assert result.result_for_llm == small_result
+        assert "Truncated" not in result.result_for_llm
+        # record_id should still be set (500 > 200 min_length)
+        assert result.record_id is not None
+
+    @pytest.mark.asyncio
+    async def test_tiny_result_no_record_id(self):
+        """Results below CONTEXT_PRUNING_MIN_LENGTH should not get a record_id."""
+        from app.agent.tool_dispatch import dispatch_tool_call
+
+        tiny_result = "OK"
+
+        with (
+            patch("app.config.settings") as mock_settings,
+            patch("app.agent.tool_dispatch.is_client_tool", return_value=False),
+            patch("app.agent.tool_dispatch.is_local_tool", return_value=True),
+            patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False),
+            patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value=tiny_result),
+            patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=None),
+            patch("app.agent.tool_dispatch.safe_create_task"),
+            patch("app.tools.registry.get_tool_safety_tier", return_value="safe"),
+        ):
+            mock_settings.TOOL_RESULT_HARD_CAP = 50_000
+            mock_settings.CONTEXT_PRUNING_MIN_LENGTH = 200
+            mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+            mock_settings.CAPABILITY_APPROVAL = "disabled"
+
+            result = await dispatch_tool_call(
+                name="tiny_tool", args="{}", tool_call_id="tc1",
+                bot_id="test-bot", bot_memory=None,
+                session_id=None, client_id=None, correlation_id=None,
+                channel_id=None, iteration=1, provider_id=None,
+                summarize_enabled=False, summarize_threshold=99999,
+                summarize_model="test", summarize_max_tokens=300,
+                summarize_exclude=set(), compaction=False,
+            )
+
+        assert result.result_for_llm == tiny_result
+        assert result.record_id is None
+
+
+# ---------------------------------------------------------------------------
 # run_agent_tool_loop tests
 # ---------------------------------------------------------------------------
 

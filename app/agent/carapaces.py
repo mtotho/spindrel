@@ -213,11 +213,17 @@ def collect_carapace_files() -> list[tuple[Path, str, str]]:
                 items.append((carapace_yaml, sub_dir.name, "file"))
 
     # integrations/*/carapaces/*.yaml
+    # Skip inactive (disabled or unconfigured) integrations
+    try:
+        from app.services.integration_settings import inactive_integration_ids
+        _inactive = inactive_integration_ids()
+    except Exception:
+        _inactive = set()
     for base_dir in _integration_dirs():
         if not base_dir.is_dir():
             continue
         for intg_dir in sorted(base_dir.iterdir()):
-            if not intg_dir.is_dir():
+            if not intg_dir.is_dir() or intg_dir.name in _inactive:
                 continue
             intg_carapaces = intg_dir / "carapaces"
             if intg_carapaces.is_dir():
@@ -230,7 +236,7 @@ def collect_carapace_files() -> list[tuple[Path, str, str]]:
         if not base_dir.is_dir():
             continue
         for intg_dir in sorted(base_dir.iterdir()):
-            if not intg_dir.is_dir():
+            if not intg_dir.is_dir() or intg_dir.name in _inactive:
                 continue
             intg_carapaces = intg_dir / "carapaces"
             if intg_carapaces.is_dir():

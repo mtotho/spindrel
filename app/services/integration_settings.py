@@ -183,6 +183,58 @@ def is_disabled(integration_id: str) -> bool:
     return _cache.get((integration_id, "_disabled"), "").lower() in ("true", "1", "yes")
 
 
+def is_configured(integration_id: str) -> bool:
+    """Check if all required settings for an integration are set.
+
+    Returns True if the integration has no required settings or all are populated.
+    Uses the manifest cache to determine which settings are required.
+    """
+    from app.services.integration_manifests import get_manifest
+
+    manifest = get_manifest(integration_id)
+    if not manifest:
+        return True  # no manifest → legacy integration, assume configured
+
+    settings_spec = manifest.get("settings", [])
+    if not settings_spec:
+        return True  # no settings declared → nothing to configure
+
+    for setting in settings_spec:
+        if not setting.get("required"):
+            continue
+        key = setting.get("key", "")
+        if not get_value(integration_id, key):
+            return False
+
+    return True
+
+
+def is_active(integration_id: str) -> bool:
+    """Check if an integration is both enabled and fully configured.
+
+    An integration is active when it is not disabled AND all required
+    settings have values.  Use this to gate tool loading, MCP server
+    registration, and other runtime behavior.
+    """
+    if is_disabled(integration_id):
+        return False
+    return is_configured(integration_id)
+
+
+def inactive_integration_ids() -> set[str]:
+    """Return the set of integration IDs that are disabled or unconfigured.
+
+    Useful for batch-filtering integration content during file collection.
+    """
+    from app.services.integration_manifests import get_all_manifests
+
+    result: set[str] = set()
+    for integration_id in get_all_manifests():
+        if not is_active(integration_id):
+            result.add(integration_id)
+    return result
+
+
 async def set_disabled(integration_id: str, disabled: bool) -> None:
     """Persist the _disabled flag to DB and update cache."""
     from app.db.engine import async_session

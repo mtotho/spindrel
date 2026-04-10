@@ -7,20 +7,40 @@ everything else — bot creation, integrations, workspace config.
 
 Run via setup.sh or directly:
     python scripts/setup.py
+
+Headless mode (no prompts — all config from env vars):
+    SPINDREL_HEADLESS=1 python scripts/setup.py
+
+Headless env vars:
+    SPINDREL_DEPLOY_MODE   docker|local        (default: docker)
+    SPINDREL_PROVIDER      ollama|openai|anthropic|gemini|openrouter|litellm|custom|skip
+    SPINDREL_LLM_BASE_URL  Provider base URL   (auto-set for known providers)
+    SPINDREL_LLM_API_KEY   Provider API key
+    SPINDREL_MODEL         Model name           (default per provider)
+    SPINDREL_WEB_SEARCH    searxng|searxng-external|ddgs|none  (default: ddgs)
+    SPINDREL_SEARXNG_URL   SearXNG URL          (for searxng-external)
+    SPINDREL_API_KEY       Server API key       (auto-generated if not set)
+    SPINDREL_DB_URL        Database URL         (auto-set for docker mode)
+    SPINDREL_PORT          Server port          (default: 8000, used in DB URL for local)
+    SPINDREL_OVERWRITE     1 to overwrite existing .env without asking
 """
 from __future__ import annotations
 
+import argparse
 import os
 import secrets
 import sys
 from pathlib import Path
 
-try:
-    import questionary
-    from questionary import Style
-except ImportError:
-    print("Error: questionary not installed. Run via setup.sh or: pip install questionary")
-    sys.exit(1)
+HEADLESS = os.environ.get("SPINDREL_HEADLESS", "") == "1"
+
+if not HEADLESS:
+    try:
+        import questionary
+        from questionary import Style
+    except ImportError:
+        print("Error: questionary not installed. Run via setup.sh or: pip install questionary")
+        sys.exit(1)
 
 try:
     import yaml

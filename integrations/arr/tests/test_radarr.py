@@ -8,6 +8,7 @@ import pytest
 
 from integrations.arr.tools.radarr import (
     radarr_command,
+    radarr_movie_update,
     radarr_movies,
     radarr_quality_profile_update,
     radarr_quality_profiles,
@@ -71,7 +72,6 @@ async def test_movies_search_success():
 
     assert result["count"] == 1
     assert result["results"][0]["tmdb_id"] == 27205
-    assert result["results"][0]["runtime"] == 148
     assert "id" not in result["results"][0]  # not in library
     mock_get.assert_awaited_once_with("/api/v3/movie/lookup", params={"term": "inception"})
 
@@ -289,9 +289,9 @@ async def test_releases_search_success():
 
     assert result["count"] == 1
     assert result["releases"][0]["seeders"] == 100
-    assert result["releases"][0]["age_days"] == 5
+    assert "rejected" not in result["releases"][0]  # empty rejections → no key
     mock_get.assert_awaited_once_with(
-        "/api/v3/release", params={"movieId": 42}, timeout=30.0
+        "/api/v3/release", params={"movieId": 42}, timeout=60.0
     )
 
 
@@ -352,6 +352,30 @@ async def test_releases_connect_error():
     ):
         result = json.loads(await radarr_releases(action="search", movie_id=1))
     assert "Cannot connect to Radarr" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# radarr_movie_update
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_movie_update_quality_profile():
+    current = {"id": 42, "title": "Inception", "qualityProfileId": 1, "monitored": True, "minimumAvailability": "released"}
+    updated = {**current, "qualityProfileId": 3}
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=current):
+        with patch(f"{MODULE}._put", new_callable=AsyncMock, return_value=updated):
+            result = json.loads(await radarr_movie_update(movie_id=42, quality_profile_id=3))
+
+    assert result["status"] == "ok"
+    assert result["quality_profile_id"] == 3
+
+
+@pytest.mark.asyncio
+async def test_movie_update_not_configured(monkeypatch):
+    monkeypatch.setenv("RADARR_URL", "")
+    result = json.loads(await radarr_movie_update(movie_id=1))
+    assert result["error"] == "RADARR_URL is not configured"
 
 
 # ---------------------------------------------------------------------------

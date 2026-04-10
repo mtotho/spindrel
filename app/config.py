@@ -694,6 +694,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     TOOL_RESULT_SUMMARIZE_MODEL: str = ""             # empty = use bot's current model
     TOOL_RESULT_SUMMARIZE_MAX_TOKENS: int = 300       # max tokens for summary output
     TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS: Annotated[list[str], NoDecode] = ["get_skill"]
+    TOOL_RESULT_HARD_CAP: int = 50_000              # max chars per tool result sent to LLM (0 = no cap)
 
     # RAG injection limits (chars per item before joining; prevents context bloat)
     KNOWLEDGE_MAX_INJECT_CHARS: int = 8000   # per knowledge doc injected into context

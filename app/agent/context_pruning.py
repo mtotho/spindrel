@@ -81,7 +81,15 @@ def prune_tool_results(
             tool_call_id = msg.get("tool_call_id", "")
             tool_name = tool_name_map.get(tool_call_id, "unknown")
             original_length = len(content)
-            marker = f"[Tool result pruned — {tool_name}: {original_length} chars]"
+            record_id = msg.get("_tool_record_id")
+            if record_id:
+                marker = (
+                    f"[Tool output from {tool_name} ({original_length:,} chars)"
+                    f" — use read_conversation_history(section='tool:{record_id}')"
+                    f" to retrieve]"
+                )
+            else:
+                marker = f"[Tool result pruned — {tool_name}: {original_length} chars]"
             msg["content"] = marker
             pruned_count += 1
             chars_saved += original_length - len(marker)

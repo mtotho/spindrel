@@ -148,12 +148,18 @@ def _collect_skill_files() -> list[tuple[Path, str, str]]:
                     items.append((p, skill_id, SOURCE_FILE))
 
     # integrations/*/skills/*.md and packages/*/skills/*.md (in-repo + external)
+    # Skip inactive (disabled or unconfigured) integrations
+    try:
+        from app.services.integration_settings import inactive_integration_ids
+        _inactive = inactive_integration_ids()
+    except Exception:
+        _inactive = set()
     for base_dir in _integration_dirs():
         if not base_dir.is_dir():
             continue
         prefix = base_dir.name  # "integrations", "packages", or external dir name
         for intg_dir in sorted(base_dir.iterdir()):
-            if not intg_dir.is_dir():
+            if not intg_dir.is_dir() or intg_dir.name in _inactive:
                 continue
             intg_skills = intg_dir / "skills"
             if intg_skills.is_dir():
@@ -178,7 +184,7 @@ def _collect_skill_files() -> list[tuple[Path, str, str]]:
         if not base_dir.is_dir():
             continue
         for intg_dir in sorted(base_dir.iterdir()):
-            if not intg_dir.is_dir():
+            if not intg_dir.is_dir() or intg_dir.name in _inactive:
                 continue
             intg_carapaces = intg_dir / "carapaces"
             if not intg_carapaces.is_dir():
@@ -219,11 +225,16 @@ def _collect_knowledge_files() -> list[tuple[Path, str, str | None, str]]:
                     items.append((p, p.stem, bot_dir.name, SOURCE_FILE))
 
     # integrations/*/knowledge/*.md (in-repo + external)
+    try:
+        from app.services.integration_settings import inactive_integration_ids
+        _inactive_k = inactive_integration_ids()
+    except Exception:
+        _inactive_k = set()
     for integrations_dir in _integration_dirs():
         if not integrations_dir.is_dir():
             continue
         for intg_dir in sorted(integrations_dir.iterdir()):
-            if not intg_dir.is_dir():
+            if not intg_dir.is_dir() or intg_dir.name in _inactive_k:
                 continue
             intg_knowledge = intg_dir / "knowledge"
             if intg_knowledge.is_dir():
@@ -247,11 +258,16 @@ def _collect_prompt_template_files() -> list[tuple[Path, str, str]]:
         for p in sorted(prompts_dir.glob("**/*.md")):
             items.append((p, p.stem, SOURCE_FILE))
     # integrations/*/prompts/**/*.md (in-repo + external, recursive)
+    try:
+        from app.services.integration_settings import inactive_integration_ids
+        _inactive_pt = inactive_integration_ids()
+    except Exception:
+        _inactive_pt = set()
     for base_dir in _integration_dirs():
         if not base_dir.is_dir():
             continue
         for intg_dir in sorted(base_dir.iterdir()):
-            if not intg_dir.is_dir():
+            if not intg_dir.is_dir() or intg_dir.name in _inactive_pt:
                 continue
             intg_prompts = intg_dir / "prompts"
             if intg_prompts.is_dir():

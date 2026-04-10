@@ -439,6 +439,9 @@ async def persist_turn(
         # Carry forward tools_used from the agent loop into message metadata
         if msg.get("_tools_used"):
             meta = {**meta, "tools_used": msg["_tools_used"]}
+        # Carry forward tool record ID for retrieval-pointer pruning
+        if msg.get("_tool_record_id"):
+            meta = {**meta, "tool_record_id": msg["_tool_record_id"]}
         # Extract delegation info from delegate_to_agent tool calls
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             _delegations = []
@@ -821,6 +824,9 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
         d["tool_calls"] = msg.tool_calls
     if msg.tool_call_id is not None:
         d["tool_call_id"] = msg.tool_call_id
+    # Restore tool record ID for retrieval-pointer pruning across sessions
+    if msg.metadata_ and msg.metadata_.get("tool_record_id"):
+        d["_tool_record_id"] = msg.metadata_["tool_record_id"]
     # Store metadata in a private key so _load_messages can split passive/active;
     # _strip_metadata_keys removes it before returning to the LLM.
     if msg.metadata_:

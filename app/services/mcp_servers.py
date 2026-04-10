@@ -12,10 +12,14 @@ logger = logging.getLogger(__name__)
 
 
 async def load_mcp_servers() -> None:
-    """Load all enabled MCP servers from DB into the in-memory _servers dict."""
+    """Load all enabled MCP servers from DB into the in-memory _servers dict.
+
+    Skips MCP servers whose parent integration is disabled or unconfigured.
+    """
     from app.db.engine import async_session
     from app.db.models import MCPServer
     from app.services.encryption import decrypt
+    from app.services.integration_settings import is_active
 
     _servers.clear()
 
@@ -25,6 +29,16 @@ async def load_mcp_servers() -> None:
         ).scalars().all()
 
     for row in rows:
+        # Skip MCP servers from inactive parent integrations
+        if row.source and row.source.startswith("integration:"):
+            parent_id = row.source.removeprefix("integration:")
+            if not is_active(parent_id):
+                logger.debug(
+                    "Skipping MCP server '%s' — parent integration '%s' is not active",
+                    row.id, parent_id,
+                )
+                continue
+
         api_key = decrypt(row.api_key) if row.api_key else ""
         _servers[row.id] = MCPServerConfig(
             name=row.id,

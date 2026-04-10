@@ -978,9 +978,16 @@ def _prepare_call_params(
     client = get_llm_client(provider_id)
     filtered = filter_model_params(model, model_params or {})
 
-    eff_msgs = messages
+    # Strip internal _-prefixed keys (e.g. _tool_record_id, _tools_used)
+    # before sending to the LLM API — some providers reject unknown fields.
+    eff_msgs = [
+        {k: v for k, v in m.items() if not k.startswith("_")}
+        if any(k.startswith("_") for k in m)
+        else m
+        for m in messages
+    ]
     if requires_system_message_folding(model):
-        eff_msgs = _fold_system_messages(messages)
+        eff_msgs = _fold_system_messages(eff_msgs)
     else:
         # Apply prompt cache breakpoints for Anthropic/Claude models.
         # Mutually exclusive with folding — folded models don't support

@@ -307,10 +307,11 @@ async def test_schemas_list_success():
 
     assert result["count"] == 2
     assert result["schemas"][0]["definition_name"] == "thepiratebay"
-    # definitionFile should be filtered out
-    field_names = [f["name"] for f in result["schemas"][0]["fields"]]
-    assert "definitionFile" not in field_names
-    assert "baseUrl" in field_names
+    # required_fields should contain baseUrl but not definitionFile
+    assert "baseUrl" in result["schemas"][0]["required_fields"]
+    assert "definitionFile" not in result["schemas"][0].get("required_fields", [])
+    # apiKey should be in second schema's required_fields
+    assert "apiKey" in result["schemas"][1]["required_fields"]
 
 
 @pytest.mark.asyncio

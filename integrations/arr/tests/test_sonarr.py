@@ -14,6 +14,7 @@ from integrations.arr.tools.sonarr import (
     sonarr_queue,
     sonarr_releases,
     sonarr_series,
+    sonarr_series_update,
     sonarr_wanted,
 )
 
@@ -428,6 +429,31 @@ async def test_releases_connect_error():
     ):
         result = json.loads(await sonarr_releases(action="search", series_id=1))
     assert "Cannot connect to Sonarr" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# sonarr_series_update
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_series_update_quality_profile():
+    current = {"id": 224, "title": "Criminal Minds", "qualityProfileId": 1, "monitored": True, "seriesType": "standard"}
+    updated = {**current, "qualityProfileId": 6}
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=current):
+        with patch(f"{MODULE}._put", new_callable=AsyncMock, return_value=updated):
+            result = json.loads(await sonarr_series_update(series_id=224, quality_profile_id=6))
+
+    assert result["status"] == "ok"
+    assert result["quality_profile_id"] == 6
+    assert result["title"] == "Criminal Minds"
+
+
+@pytest.mark.asyncio
+async def test_series_update_not_configured(monkeypatch):
+    monkeypatch.setenv("SONARR_URL", "")
+    result = json.loads(await sonarr_series_update(series_id=1))
+    assert result["error"] == "SONARR_URL is not configured"
 
 
 # ---------------------------------------------------------------------------
