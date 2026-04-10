@@ -27,25 +27,21 @@ OPENAI_PROVIDER_ID = "openai"
 OPENAI_MODEL = "gpt-5-nano"
 
 
-@pytest.fixture(scope="module")
-async def openai_provider_available(client: E2EClient) -> str:
-    """Skip the whole module if the openai provider isn't registered on this instance."""
+@pytest.fixture
+async def openai_bot(client: E2EClient):
+    """Temporary bot pinned to gpt-5-nano on the real OpenAI provider.
+
+    Skips the test if the openai provider is not registered on this instance —
+    register it via POST /api/v1/admin/providers to enable these tests.
+    """
     resp = await client.get(f"/api/v1/admin/providers/{OPENAI_PROVIDER_ID}")
     if resp.status_code == 404:
-        pytest.skip(
-            f"Provider '{OPENAI_PROVIDER_ID}' not configured on this instance — "
-            "register it via POST /api/v1/admin/providers to enable these tests."
-        )
+        pytest.skip(f"Provider '{OPENAI_PROVIDER_ID}' not configured on this instance")
     resp.raise_for_status()
-    return OPENAI_PROVIDER_ID
 
-
-@pytest.fixture
-async def openai_bot(client: E2EClient, openai_provider_available: str):
-    """Temporary bot pinned to gpt-5-nano on the real OpenAI provider."""
     bot_id = await client.create_temp_bot(
         model=OPENAI_MODEL,
-        provider_id=openai_provider_available,
+        provider_id=OPENAI_PROVIDER_ID,
         tools=["get_current_time"],
         system_prompt="You are a test bot. Reply tersely. Follow instructions exactly.",
     )
