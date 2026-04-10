@@ -145,7 +145,6 @@ class WorkspaceUpdate(BaseModel):
     workspace_base_prompt_enabled: Optional[bool] = None
     indexing_config: Optional[dict] = None
     write_protected_paths: Optional[list[str]] = None
-    skills: Optional[list[dict]] = None
 
 
 class WorkspaceOut(BaseModel):
@@ -167,7 +166,6 @@ class WorkspaceOut(BaseModel):
     editor_enabled: bool = False
     editor_port: Optional[int] = None
     write_protected_paths: list[str] = []
-    skills: list[dict] = []
     container_id: Optional[str]
     container_name: Optional[str]
     status: str
@@ -266,7 +264,6 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         editor_enabled=ws.editor_enabled,
         editor_port=ws.editor_port,
         write_protected_paths=ws.write_protected_paths or [],
-        skills=ws.skills or [],
         container_id=ws.container_id,
         container_name=ws.container_name,
         status=ws.status,
@@ -668,6 +665,21 @@ async def add_bot_to_workspace(
         .values(workspace_id=ws_id)
     )
     await db.commit()
+    # Conditional starter pack: workspace bots get the workspace operating skills
+    # auto-enrolled. Failures are logged and swallowed — they shouldn't block
+    # workspace membership.
+    try:
+        from app.services.skill_enrollment import enroll_many
+        await enroll_many(
+            body.bot_id,
+            ["workspace_member", "channel_workspaces", "docker_stacks"],
+            source="auto",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to enroll workspace skills for bot %s in workspace %s: %s",
+            body.bot_id, ws_id, exc,
+        )
     await reload_bots()
     await db.refresh(ws)
     sw_bots = (await db.execute(

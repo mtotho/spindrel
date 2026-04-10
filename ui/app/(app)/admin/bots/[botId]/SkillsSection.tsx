@@ -26,6 +26,20 @@ function SourceBadge({ type }: { type: string }) {
   );
 }
 
+function StarterBadge() {
+  return (
+    <span
+      title="Auto-enrolled into every new bot's working set"
+      style={{
+        padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600,
+        background: "rgba(59,130,246,0.15)", color: "#2563eb",
+      }}
+    >
+      starter
+    </span>
+  );
+}
+
 function fmtIntName(key: string): string {
   const special: Record<string, string> = { arr: "ARR", github: "GitHub" };
   if (special[key]) return special[key];
@@ -144,6 +158,11 @@ export function SkillsSection({
     return groupSkills(list, draft.id);
   }, [editorData.all_skills, filter, draft.id]);
 
+  const starterIds = useMemo(
+    () => new Set(editorData.starter_skill_ids ?? []),
+    [editorData.starter_skill_ids],
+  );
+
   const totalCount = editorData.all_skills.filter((s) =>
     s.source_type !== "tool" && !(s.id.startsWith("bots/") && draft.id && !s.id.startsWith(`bots/${draft.id}/`))
   ).length;
@@ -209,6 +228,7 @@ export function SkillsSection({
                         <span style={{ fontSize: 12, fontWeight: 500, color: t.text }}>{skill.name}</span>
                         <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>{skill.id}</span>
                         {sourceType !== "integration" && !isBotAuthored && <SourceBadge type={sourceType} />}
+                        {starterIds.has(skill.id) && <StarterBadge />}
                       </div>
                       {cleanedDesc && (
                         <div style={{ fontSize: 10, color: t.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

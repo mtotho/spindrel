@@ -1,170 +1,170 @@
 ---
 name: Context Mastery
-description: Advanced context window management, reference file authoring, and research delegation patterns
-triggers: context window, reference file, cold start, tier management, hot warm cold, archive content, research delegation
+description: The four persistence tiers (auto-injected, reference files, bot-authored skills, fleet skills), how they relate, and how to move content between them
+triggers: context window, persistence, where does this go, memory vs skill, reference file, working set, four tiers, hot warm cold, archive content
 category: core
 ---
 
-# Context Mastery — Extended Patterns
+# Context Mastery — The Four Persistence Tiers
 
-Your base memory instructions define the temperature tiers (hot/warm/cold) and
-self-improvement basics. This skill provides the detailed HOW — concrete patterns
-for managing content, authoring reference files, and delegating efficiently.
+You operate against a fleet-wide platform with **four distinct persistence layers**. Knowing which tier a piece of information belongs to is the single highest-leverage skill you can develop.
 
 ---
 
-## Your Context Map
+## The Four Tiers
 
-### Auto-Injected Every Turn (Token Cost)
+| Tier | Where | Cost | Discovery | Scope |
+|---|---|---|---|---|
+| **1. Auto-injected** | `MEMORY.md`, today's log, channel workspace `*.md` | Tokens every turn | Always present | Per-bot, per-channel |
+| **2. Reference files** | `memory/reference/*.md` | Free until fetched | Directory listing visible; you fetch by name | Bot-private |
+| **3. Bot-authored skills** | `bots/{your_id}/...` via `manage_bot_skill` | Free until surfaced | RAG-indexed, semantic discovery | Fleet-visible (you own the namespace) |
+| **4. Fleet skills** | `skills/*.md` (operator-curated) | Free until enrolled | Working set (always-injected) + discovery layer (semantic) | Fleet-shared |
+
+**The decision tree:**
+
+```
+Is this information...
+├── Operational state for THIS channel? → Tier 1 (workspace file)
+├── Cross-session persistent for ME alone? → Tier 1 (MEMORY.md) or Tier 2 (reference)
+├── A reusable pattern the FLEET would benefit from? → Tier 3 (author a skill)
+└── Already published as fleet documentation? → Tier 4 (it's there, get_skill if needed)
+```
+
+When in doubt: **Tier 3.** Skills are RAG-indexed, so even if you guess wrong about whether others need them, the discovery layer will only surface them when relevant.
+
+---
+
+## How Discovery Works (Phase 3 — the working set)
+
+The skill system has TWO injection paths working together:
+
+1. **Working set** — your persistent enrolled skills (the starter pack plus anything you've fetched, authored, or been manually assigned). Always present in your context as a flat list. Bounded — the hygiene loop prunes stale ones.
+
+2. **Discovery layer** — semantic retrieval over the *unenrolled* catalog. Each turn, the user's message is matched against skill triggers and the top candidates surface as suggestions. If you `get_skill()` one of them, it gets promoted into your working set automatically.
+
+This is why `manage_bot_skill` matters so much. Every skill you author enters the discovery pool. Future bots in unrelated channels will find it the moment a user phrases a relevant question.
+
+---
+
+## Tier 1 — Auto-Injected (Always Costs Tokens)
+
+These are present in your context every turn. Treat them as expensive real estate.
 
 | Source | What |
 |---|---|
 | `memory/MEMORY.md` | Persistent cross-session memory |
 | `memory/logs/{today}.md` | Today's activity log |
-| `memory/logs/{yesterday}.md` | Yesterday's activity log |
-| `memory/reference/` | **Directory listing only** — not file contents |
-| Channel workspace root `*.md` | Active operational state (if workspace enabled) |
-| Pinned skills | Always present in full |
+| `memory/logs/{yesterday}.md` | Yesterday's log |
+| Channel workspace root `*.md` | Active operational state for this channel |
+| Working set skills | Flat list of enrolled skills |
 
-### Available On Demand (Free Until Fetched)
+**Budget tips:**
+- One concern per workspace file — small focused files compress better
+- Split at ~100 lines or archive
+- Channel workspace files cost the most — every root `.md` is injected every turn
 
-| Source | How to Access |
-|---|---|
-| `memory/reference/*.md` contents | `file(read, "memory/reference/topic.md")` or `get_memory_file("topic")` |
-| `archive/` files | `search_channel_archive(query)` |
-| `data/` files | `search_channel_workspace(query)` |
-| On-demand skills | `get_skill("skill-id")` (index shown in context) |
+## Tier 2 — Reference Files (Bot-Private)
 
----
+`memory/reference/*.md` is your personal scratch space. The directory **listing** is visible in your context (so you know what exists), but file contents are NOT injected — you fetch them by name when relevant.
 
-## Moving Content Between Tiers
+**When to use:**
+- Personal context only YOU need (specific client preferences, session-spanning notes)
+- Things you don't want polluting the fleet catalog
+- Drafts before deciding whether to promote to a skill
 
-### Hot -> Warm (topic no longer actively changing)
-```
-file(read, "active-topic.md")
-file(write, "memory/reference/topic-name.md", content)
-file(delete, "active-topic.md")
-file(edit, "memory/MEMORY.md", find="...", replace="...-> see reference/topic-name.md")
-```
-
-### Warm -> Hot (reference topic becomes active again)
-```
-file(read, "memory/reference/topic-name.md")
-file(write, "active-topic.md", content)
-```
-
-### Hot -> Cold (concern fully resolved)
-```
-file(read, "resolved-item.md")
-file(write, "archive/resolved-item.md", content)
-file(delete, "resolved-item.md")
-file(append, "archive_index.md", "| resolved-item.md | 2026-03-31 | Summary |\n")
-```
-
-### Context Budget Tips
-
-- **One concern per workspace file** — small focused files are cheaper than one giant file
-- **Split at ~100 lines** — archive old sections or split into focused files
-- **Archive after 3+ sessions unused** — you can always search it back
-- **Channel workspace files cost the most** — every root `.md` is injected every turn
-
----
-
-## Authoring Reference Files (Pseudo-Skills)
-
-Your `memory/reference/` directory is your personal skill library. Write files that
-your future self can fetch and immediately use — like on-demand skills you author yourself.
+**Anti-pattern:** Treating reference files as "cheap skills". They're not. They have no RAG, no triggers, no fleet visibility. If a future bot might need it, author a skill instead.
 
 ### Template
-
 ```markdown
 # Topic Name
 
 ## When to Use This
-- Trigger conditions / situations where this is relevant
+- Trigger conditions
 
 ## Quick Reference
 | Situation | Action |
 |---|---|
 | X happens | Do Y |
-| Z appears | Check A, then B |
 
 ## Detailed Process
 Step-by-step when the quick reference isn't enough.
-
-## Lessons Learned
-- What worked, what didn't, edge cases discovered
 ```
 
-### What Makes a Good Reference File
+## Tier 3 — Bot-Authored Skills (Fleet-Visible)
 
-| Quality | Good | Bad |
-|---|---|---|
-| Scope | One topic per file | Catch-all dump of everything |
-| Format | Headers, tables, actionable steps | Wall of prose |
-| Content | "When X, do Y" patterns | Abstract theory |
-| Maintenance | Updated when you learn more | Written once, never touched |
+Use `manage_bot_skill(action="create", ...)` to author. See the **skill_authoring** skill (you have it auto-enrolled) for the full schema and trigger-writing guidance.
 
-### What to Capture
+**The key insight:** authoring a skill is the only way to make a learned pattern auto-surface for future bots. Reference files do not. MEMORY.md does not. Workspace files do not. Only RAG-indexed skills.
 
-| Discovery | Where |
-|---|---|
-| Solution to a recurring problem | `memory/reference/solutions-{topic}.md` |
-| Domain knowledge you researched | `memory/reference/{domain}.md` |
-| Process that worked well | `memory/reference/processes.md` |
-| Tool trick or usage pattern | `memory/reference/tool-patterns.md` |
-| User preferences (brief) | `memory/MEMORY.md` — one line, not a file |
-| Decision rationale | Daily log + MEMORY.md pointer |
+## Tier 4 — Fleet Skills (Operator-Curated)
+
+The catalog under `skills/` (this file is one of them). You don't author these — operators do. But you can fetch them via `get_skill("skill_id")`, and successful fetches automatically promote the skill into your working set (Phase 3 enrollment).
+
+The discovery layer's job is to surface the right ones when you need them.
 
 ---
 
-## Research Delegation
+## Moving Content Between Tiers
 
-When you need to gather information from many sources, don't burn your context on raw
-data. Use `schedule_task` with a cheap model for the gathering, then analyze the results
-yourself.
+Sometimes a piece of information starts in one tier and needs to graduate.
 
-**Note**: This is different from `delegate_to_agent` (bot-to-bot collaboration covered
-in your base instructions). Use `schedule_task` specifically for cost-effective research
-subtasks where you control the model.
+### Tier 1 → Tier 2 (active topic going dormant)
+```
+file(read, "active-topic.md")
+file(write, "memory/reference/topic-name.md", content)
+file(delete, "active-topic.md")
+file(edit, "memory/MEMORY.md", find="...", replace="...→ see reference/topic-name.md")
+```
+
+### Tier 2 → Tier 3 (private learning that the fleet should benefit from)
+Read your reference file, then call `manage_bot_skill(action="create", ...)`. Delete the reference file once the skill exists.
+
+### Tier 1 → Cold (concern fully resolved)
+```
+file(read, "resolved-item.md")
+file(write, "archive/resolved-item.md", content)
+file(delete, "resolved-item.md")
+file(append, "archive_index.md", "| resolved-item.md | 2026-04-10 | Summary |\n")
+```
+
+Archived files are searchable via `search_channel_archive(query)` — gone from your turn-by-turn cost, retrievable on demand.
+
+---
+
+## Research Delegation (when gathering would burn your context)
+
+When you need to gather information from many sources, don't burn your context on raw data. Use `schedule_task` with a cheap model for the gathering, then analyze the results yourself.
+
+**Different from `delegate_to_agent`** (bot-to-bot collaboration) — `schedule_task` is for cost-effective research subtasks where you control the model.
 
 ### Pattern: Workspace/Archive Search
-
 ```python
 schedule_task(
     prompt="Search the channel workspace and archive for all mentions of [topic]. "
            "Compile a summary with: key findings, relevant dates, and source file paths.",
-    execution_config={
-        "model_override": "gemini/gemini-2.5-flash",
-    }
+    execution_config={"model_override": "gemini/gemini-2.5-flash"},
 )
 ```
 
 ### Pattern: Multi-File Digest
-
 ```python
 schedule_task(
     prompt="Read these workspace files and extract [specific data]: "
            "file1.md, file2.md, file3.md. Return a structured summary.",
-    execution_config={
-        "model_override": "gemini/gemini-2.5-flash",
-    }
+    execution_config={"model_override": "gemini/gemini-2.5-flash"},
 )
 ```
 
 ### Pattern: Web Research
-
 ```python
 schedule_task(
-    prompt="Research [topic] using web_search. Find 3-5 authoritative sources "
-           "(prefer .edu, established publications). Summarize key findings with URLs.",
-    execution_config={
-        "model_override": "gemini/gemini-2.5-flash",
-    }
+    prompt="Research [topic] using web_search. Find 3-5 authoritative sources. "
+           "Summarize key findings with URLs.",
+    execution_config={"model_override": "gemini/gemini-2.5-flash"},
 )
 ```
 
-### When to Self-Handle vs Delegate
+### Self-Handle vs Delegate
 
 | Situation | Self | Delegate |
 |---|---|---|
@@ -172,11 +172,10 @@ schedule_task(
 | Searching across many files/channels | — | Yes |
 | Synthesizing complex analysis | Yes | — |
 | Gathering raw data for analysis | — | Yes (gather cheap, analyze yourself) |
-| Routine status checks | — | Yes |
 | Single web search | Yes | — |
 | Multi-source research compilation | — | Yes |
 
-**Key insight**: Delegate the gathering, keep the thinking.
+**Key insight:** Delegate the gathering, keep the thinking.
 
 ---
 
@@ -186,9 +185,8 @@ When you start a new session with no prior messages:
 
 1. **Orient** — MEMORY.md is already injected; scan it for cross-session context
 2. **Check reference listing** — see what's in `memory/reference/` (titles are visible)
-3. **Fetch what's relevant** — if today's topic relates to a reference file, load it early
-4. **Check active workspace** — review any channel workspace `.md` files for current state
+3. **Scan working set** — your enrolled skills list shows what you have at hand
+4. **Fetch what's relevant** — if today's topic relates to a reference file or unenrolled skill, load it
 5. **Greet with context** — show the user you remember what's going on
 
-Fetch reference files as topics come up, not preemptively. The directory listing tells
-you what exists — that's enough to know what to fetch when needed.
+Fetch lazily, not preemptively. The directory listing and skill index tell you what exists — that's enough to know what to fetch when needed.

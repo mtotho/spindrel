@@ -10,6 +10,7 @@ Source values stored on each row:
   - 'manual'    — added by a human via the bot UI
   - 'migration' — backfilled for an existing bot when Phase 3 first ran
   - 'authored'  — bot-authored skill discovered via file_sync
+  - 'auto'      — conditional auto-enrollment (e.g. when a bot joins a shared workspace)
 """
 from __future__ import annotations
 

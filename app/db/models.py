@@ -941,7 +941,6 @@ class SharedWorkspace(Base):
     editor_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     editor_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     write_protected_paths: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    skills: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     bots: Mapped[list["SharedWorkspaceBot"]] = relationship("SharedWorkspaceBot", back_populates="workspace", cascade="all, delete-orphan")

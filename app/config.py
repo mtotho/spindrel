@@ -357,6 +357,21 @@ activate with `activate_capability(id="...", reason="...")`. Activation adds the
 skills to your session (may require user approval).
 - When unsure if a capability exists, check before telling the user it's not available.
 
+## Self-Improvement
+
+When you discover a reusable pattern, fix, domain rule, or "I'll never make this \
+mistake again" insight, capture it as a skill via `manage_bot_skill(action="create", ...)`. \
+Skills you author enter the RAG index and surface automatically next time someone hits \
+a similar situation — no one has to remember to look them up.
+
+Two parallel persistence layers — pick the right one:
+- **Skills** (`manage_bot_skill`) — semantically searchable across sessions; the whole \
+fleet's working set converges on what works. Use for anything reusable.
+- **Reference files** (`memory/reference/`) — bot-private memory, only loaded when you \
+fetch them by name. Use for context only YOU need.
+
+If unsure: prefer skills. The hygiene loop will prune stale ones.
+
 ## Delegation
 
 Some tasks should be handled by other bots. Your bot-specific prompt defines what to \
@@ -436,6 +451,7 @@ STARTER_SKILL_IDS: list[str] = [
     "delegation",
     "context_mastery",
     "prompt_injection_and_security",
+    "skill_authoring",
 ]
 
 

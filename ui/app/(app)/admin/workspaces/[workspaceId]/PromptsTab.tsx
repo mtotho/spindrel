@@ -1,37 +1,27 @@
 import { useThemeTokens } from "@/src/theme/tokens";
 import { FormRow, Toggle, Section } from "@/src/components/shared/FormControls";
-import { WorkspaceSkills } from "./WorkspaceSkills";
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
-export interface SkillsTabProps {
+export interface PromptsTabProps {
   workspaceId: string;
   isNew: boolean;
   basePromptEnabled: boolean;
   setBasePromptEnabled: (v: boolean) => void;
-  dbSkills: { id: string; mode?: string }[];
-  setDbSkills: (v: { id: string; mode?: string }[]) => void;
 }
 
 // ---------------------------------------------------------------------------
-// Skills tab
+// Prompts tab — workspace-level prompt and persona file overrides
 // ---------------------------------------------------------------------------
-export function SkillsTab({
+export function PromptsTab({
   basePromptEnabled,
   setBasePromptEnabled,
-  dbSkills,
-  setDbSkills,
-}: SkillsTabProps) {
+}: PromptsTabProps) {
   const t = useThemeTokens();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* DB Skills */}
-      <Section title="DB Skills" description="Assign global skills from the skills table to all bots in this workspace.">
-        <WorkspaceSkills skills={dbSkills} onChange={setDbSkills} />
-      </Section>
-
       {/* Workspace Base Prompt */}
       <Section title="Workspace Base Prompt" description="Override the global base prompt with a workspace-level prompt file.">
         <FormRow label="Enable workspace base prompt override">

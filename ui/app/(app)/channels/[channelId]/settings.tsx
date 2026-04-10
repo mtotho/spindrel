@@ -79,6 +79,56 @@ export default function ChannelSettingsScreen() {
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
 
+  // Tab bar horizontal scroll: translate vertical wheel → horizontal,
+  // track edge overflow for fade indicators, and keep the active tab visible.
+  const tabBarRef = useRef<HTMLDivElement | null>(null);
+  const tabButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [tabOverflow, setTabOverflow] = useState({ left: false, right: false });
+
+  const updateTabOverflow = useCallback(() => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    const left = el.scrollLeft > 1;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setTabOverflow((prev) => (prev.left === left && prev.right === right ? prev : { left, right }));
+  }, []);
+
+  useEffect(() => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    updateTabOverflow();
+    el.addEventListener("scroll", updateTabOverflow, { passive: true });
+    const ro = new ResizeObserver(updateTabOverflow);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", updateTabOverflow);
+      ro.disconnect();
+    };
+  }, [updateTabOverflow]);
+
+  // Translate vertical mouse-wheel into horizontal scroll so desktop users
+  // with a regular mouse can reach off-screen tabs.
+  useEffect(() => {
+    const el = tabBarRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      // Only intercept when there's actually horizontal overflow and the
+      // user is using a vertical wheel (deltaY dominant, deltaX ~0).
+      if (el.scrollWidth <= el.clientWidth) return;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // Keep the active tab in view whenever it changes (e.g. via hash navigation).
+  useEffect(() => {
+    const btn = tabButtonRefs.current[tab];
+    if (btn) btn.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [tab]);
+
   useEffect(() => {
     if (settings) {
       setForm({
@@ -245,9 +295,12 @@ export default function ChannelSettingsScreen() {
 
       {/* Tabs — single horizontally-scrollable row of underline tabs.
           Subtle separator between primary and diagnostic groups.
-          No "More" dropdown — every tab is reachable in one place. */}
-      <View style={{ flexShrink: 0, width: "100%", minWidth: 0 }}>
+          No "More" dropdown — every tab is reachable in one place.
+          Vertical mouse wheel is translated into horizontal scroll, and
+          edge fades indicate when more tabs are off-screen. */}
+      <View style={{ flexShrink: 0, width: "100%", minWidth: 0, position: "relative" }}>
         <div
+          ref={tabBarRef}
           className="hide-scrollbar"
           style={{
             display: "flex",

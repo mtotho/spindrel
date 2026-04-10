@@ -251,6 +251,7 @@ export interface BotEditorData {
   model_param_definitions: ModelParamDefinition[];
   model_param_support: Record<string, string[]>;
   resolved_preview?: ResolvedPreview | null;
+  starter_skill_ids?: string[];
 }
 
 // Integration binding
@@ -685,7 +686,6 @@ export interface SharedWorkspace {
   editor_enabled: boolean;
   editor_port?: number | null;
   write_protected_paths?: string[];
-  skills?: { id: string; mode?: string }[];
   container_id?: string | null;
   container_name?: string | null;
   status: string;
@@ -712,7 +712,6 @@ export interface WorkspaceCreate {
   startup_script?: string;
   workspace_base_prompt_enabled?: boolean;
   write_protected_paths?: string[];
-  skills?: { id: string; mode?: string }[];
   created_by_user_id?: string;
 }
 
@@ -731,7 +730,6 @@ export interface WorkspaceUpdate {
   startup_script?: string;
   workspace_base_prompt_enabled?: boolean;
   write_protected_paths?: string[];
-  skills?: { id: string; mode?: string }[];
   indexing_config?: Record<string, any>;
 }
 

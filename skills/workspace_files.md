@@ -2,7 +2,7 @@
 name: Workspace Files
 description: Guide for using the file tool vs exec_command for reading, writing, and editing files
 triggers: file tool, read file, write file, append, edit file, exec_command, workspace files
-category: workspace
+category: core
 ---
 
 # Workspace Files — `file` Tool Guide

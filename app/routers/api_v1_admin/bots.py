@@ -132,6 +132,7 @@ class BotEditorDataOut(BaseModel):
     model_param_definitions: list[dict] = []
     model_param_support: dict[str, list[str]] = {}
     resolved_preview: ResolvedPreview | None = None
+    starter_skill_ids: list[str] = []
 
 
 @router.get("/bots/{bot_id}/editor-data")
@@ -218,6 +219,8 @@ async def admin_bot_editor_data(
         except Exception:
             logger.warning("Failed to build resolved preview", exc_info=True)
 
+    from app.config import STARTER_SKILL_IDS
+
     return BotEditorDataOut(
         bot=bot_out,
         tool_groups=[ToolGroupOut(**g) for g in tool_groups],
@@ -229,6 +232,7 @@ async def admin_bot_editor_data(
         model_param_definitions=PARAM_DEFINITIONS,
         model_param_support={k: sorted(v) for k, v in MODEL_PARAM_SUPPORT.items()},
         resolved_preview=resolved_preview,
+        starter_skill_ids=list(STARTER_SKILL_IDS),
     )
 
 
@@ -1265,7 +1269,7 @@ class EnrolledSkillOut(BaseModel):
     last_surfaced_at: Optional[datetime] = None
 
 
-EnrollmentSource = Literal["starter", "fetched", "manual", "migration", "authored"]
+EnrollmentSource = Literal["starter", "fetched", "manual", "migration", "authored", "auto"]
 
 
 class EnrollSkillIn(BaseModel):

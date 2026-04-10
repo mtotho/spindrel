@@ -21,7 +21,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 // Tab components
 import { DockerTab } from "./DockerTab";
 import { BotsTab } from "./BotsTab";
-import { SkillsTab } from "./SkillsTab";
+import { PromptsTab } from "./PromptsTab";
 import { FilesTab } from "./FilesTab";
 import { IndexingTab } from "./IndexingTab";
 import { EditorTab } from "./EditorTab";
@@ -180,7 +180,7 @@ const TABS = [
   { key: "overview", label: "Overview" },
   { key: "docker", label: "Docker" },
   { key: "bots", label: "Bots" },
-  { key: "skills", label: "Skills" },
+  { key: "prompts", label: "Prompts" },
   { key: "files", label: "Files" },
   { key: "indexing", label: "Indexing" },
   { key: "editor", label: "Editor" },
@@ -189,7 +189,7 @@ const TABS = [
 const NEW_TABS = [
   { key: "overview", label: "Overview" },
   { key: "docker", label: "Docker" },
-  { key: "skills", label: "Skills" },
+  { key: "prompts", label: "Prompts" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -228,7 +228,6 @@ export default function WorkspaceDetailScreen() {
   const [startupScript, setStartupScript] = useState("/workspace/startup.sh");
   const [basePromptEnabled, setBasePromptEnabled] = useState(true);
   const [writeProtectedPaths, setWriteProtectedPaths] = useState<string[]>([]);
-  const [dbSkills, setDbSkills] = useState<{ id: string; mode?: string }[]>([]);
   const [initialized, setInitialized] = useState(isNew);
 
   if (workspace && !initialized) {
@@ -252,7 +251,6 @@ export default function WorkspaceDetailScreen() {
     setStartupScript(workspace.startup_script ?? "/workspace/startup.sh");
     setBasePromptEnabled(workspace.workspace_base_prompt_enabled ?? true);
     setWriteProtectedPaths(workspace.write_protected_paths || []);
-    setDbSkills(workspace.skills || []);
     setInitialized(true);
   }
 
@@ -279,7 +277,6 @@ export default function WorkspaceDetailScreen() {
         startup_script: startupScript || undefined,
         workspace_base_prompt_enabled: basePromptEnabled,
         write_protected_paths: writeProtectedPaths,
-        skills: dbSkills.length ? dbSkills : undefined,
       });
       goBack();
     } else {
@@ -301,14 +298,13 @@ export default function WorkspaceDetailScreen() {
         startup_script: startupScript || undefined,
         workspace_base_prompt_enabled: basePromptEnabled,
         write_protected_paths: writeProtectedPaths,
-        skills: dbSkills,
       });
       // Update snapshot so dirty tracking resets
       savedSnapshot.current = currentSnapshot;
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2000);
     }
-  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, basePromptEnabled, writeProtectedPaths, dbSkills, createMut, updateMut, goBack]);
+  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, basePromptEnabled, writeProtectedPaths, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!workspaceId || !confirm("Delete this workspace? The container and data will be removed.")) return;
@@ -319,8 +315,8 @@ export default function WorkspaceDetailScreen() {
   // -- Dirty tracking: compare current form state to last-saved snapshot --
   const savedSnapshot = useRef<string>("");
   const currentSnapshot = useMemo(() =>
-    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, basePromptEnabled, writeProtectedPaths, dbSkills }),
-    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, basePromptEnabled, writeProtectedPaths, dbSkills],
+    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, basePromptEnabled, writeProtectedPaths }),
+    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, basePromptEnabled, writeProtectedPaths],
   );
   // Set snapshot after initialization from server data
   useEffect(() => {
@@ -554,15 +550,13 @@ export default function WorkspaceDetailScreen() {
           />
         )}
 
-        {/* ---- Skills Tab ---- */}
-        {activeTab === "skills" && (
-          <SkillsTab
+        {/* ---- Prompts Tab ---- */}
+        {activeTab === "prompts" && (
+          <PromptsTab
             workspaceId={workspaceId!}
             isNew={isNew}
             basePromptEnabled={basePromptEnabled}
             setBasePromptEnabled={setBasePromptEnabled}
-            dbSkills={dbSkills}
-            setDbSkills={setDbSkills}
           />
         )}
 

@@ -40,7 +40,6 @@ _RAG_PREFIXES: list[tuple[str, str]] = [
 _EXCLUDED_PREFIXES: list[str] = [
     "Pinned skill context",
     "Pinned knowledge (always available)",
-    "Workspace pinned skills",
     "Tagged skill context",
     "Tagged knowledge",
     "Your persistent memory (memory/MEMORY.md",

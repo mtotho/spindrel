@@ -66,14 +66,6 @@ class TestIdentifyRagMessages:
         result = _identify_rag_messages(messages)
         assert len(result) == 0
 
-    def test_workspace_pinned_skills_excluded(self):
-        """Workspace pinned skills are never reranked — should be excluded."""
-        messages = [
-            {"role": "system", "content": "Workspace pinned skills:\n\nws_skill_1\n\n---\n\nws_skill_2"},
-        ]
-        result = _identify_rag_messages(messages)
-        assert len(result) == 0
-
     def test_memory(self):
         messages = [
             {"role": "system", "content": "Relevant memories from past conversations (automatically recalled):\n\nmem1\n\n---\n\nmem2"},
@@ -130,11 +122,10 @@ class TestIdentifyRagMessages:
         assert sources == {"knowledge", "memory", "filesystem"}
 
     def test_multiple_pinned_types_all_excluded(self):
-        """All three pinned prefix types should be excluded from reranking."""
+        """Both pinned prefix types should be excluded from reranking."""
         messages = [
             {"role": "system", "content": "Pinned skill context:\n\nskill"},
             {"role": "system", "content": "Pinned knowledge (always available):\n\nknowledge"},
-            {"role": "system", "content": "Workspace pinned skills:\n\nws_skill"},
         ]
         result = _identify_rag_messages(messages)
         assert len(result) == 0

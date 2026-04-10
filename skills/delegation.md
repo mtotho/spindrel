@@ -57,6 +57,8 @@ spawn_subagents(agents=[
 
 Use when you need a specific bot to do its job and post the result publicly.
 
+**Important — deferred Task semantics:** `delegate_to_agent` creates a deferred Task. Your stream completes BEFORE the child bot runs. You will not see the child's output as an inline tool return — it lands in the channel as a separate message later. If your response depends on the child's output, plan for an asynchronous reply (e.g., end your turn, let the child post, react on the next user turn).
+
 **When to use:**
 - Task needs a specialized bot (image generation, QA review, writing)
 - Result should appear in the channel under that bot's identity

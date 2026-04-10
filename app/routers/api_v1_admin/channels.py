@@ -744,23 +744,6 @@ async def admin_channel_effective_tools(
 
     bot = get_bot(channel.bot_id)
 
-    # Merge workspace DB skills into bot.skills (mirrors context_assembly.py)
-    try:
-        from app.agent.bots import _parse_skill_entry
-        from app.db.models import SharedWorkspace as _SW
-        import dataclasses
-        _ws_row = await db.get(_SW, uuid.UUID(bot.shared_workspace_id))
-        if _ws_row and _ws_row.skills:
-            _bot_skill_ids = {s.id for s in bot.skills}
-            _ws_skills = [
-                _parse_skill_entry(e) for e in _ws_row.skills
-                if (e["id"] if isinstance(e, dict) else e) not in _bot_skill_ids
-            ]
-            if _ws_skills:
-                bot = dataclasses.replace(bot, skills=list(bot.skills) + _ws_skills)
-    except Exception:
-        pass  # non-fatal — fall back to bot YAML skills only
-
     # Build carapace provenance before resolving (tracks where each came from)
     _carapace_sources: dict[str, str] = {}
     for cid in bot.carapaces:
