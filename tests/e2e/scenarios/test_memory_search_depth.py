@@ -69,17 +69,27 @@ async def _search_memory(
 async def _poll_task_terminal(
     client: E2EClient, task_id: str, *, timeout: float = 120, interval: float = 3,
 ) -> dict:
-    """Poll a task until it reaches a terminal status."""
+    """Poll a task until it reaches a terminal status.
+
+    Tolerates transient 500s from the task detail endpoint (known issue:
+    serialization error while task is running with a correlation_id set).
+    """
     import time
     deadline = time.monotonic() + timeout
+    last_status = "unknown"
     while time.monotonic() < deadline:
         resp = await client.get(f"/api/v1/admin/tasks/{task_id}")
-        assert resp.status_code == 200, f"Task fetch failed: {resp.status_code}"
+        if resp.status_code == 500:
+            # Transient — task is likely running; retry
+            await asyncio.sleep(interval)
+            continue
+        assert resp.status_code == 200, f"Task fetch failed: {resp.status_code} {resp.text[:200]}"
         data = resp.json()
-        if data["status"] in ("complete", "completed", "failed", "error", "cancelled"):
+        last_status = data["status"]
+        if last_status in ("complete", "completed", "failed", "error", "cancelled"):
             return data
         await asyncio.sleep(interval)
-    raise TimeoutError(f"Task {task_id} did not complete within {timeout}s — last status: {data['status']}")
+    raise TimeoutError(f"Task {task_id} did not complete within {timeout}s — last status: {last_status}")
 
 
 # ---------------------------------------------------------------------------
