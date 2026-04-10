@@ -102,9 +102,11 @@ export function InContextCard({
     );
   };
 
-  if (isLoading && activeFiles.length === 0) {
-    return null;
-  }
+  // Note: we intentionally render the card even on first load (no early return).
+  // Hiding it during the initial fetch makes the entire affordance disappear,
+  // so the user can't see the "Add active file" button until the network
+  // round-trip completes. Render the chrome immediately and let the body show
+  // a placeholder while loading.
 
   return (
     <View
@@ -182,7 +184,7 @@ export function InContextCard({
               paddingVertical: 4,
             }}
           >
-            No active files yet
+            {isLoading ? "Loading…" : "No active files yet"}
           </Text>
         )}
         {activeFiles.map((f) => (

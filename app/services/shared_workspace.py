@@ -556,6 +556,16 @@ class SharedWorkspaceService:
             raise SharedWorkspaceError("Binary file — cannot display")
         return {"path": path, "content": content, "size": size, "modified_at": stat.st_mtime}
 
+    def read_file_bytes(self, workspace_id: str, path: str) -> bytes:
+        """Read raw file bytes from workspace (for images, PDFs, etc.)."""
+        target = self._resolve_path(workspace_id, path)
+        if target is None:
+            raise SharedWorkspaceError("Path escapes workspace root")
+        if not os.path.isfile(target):
+            raise SharedWorkspaceError("Not a file or does not exist")
+        with open(target, "rb") as f:
+            return f.read()
+
     def write_file(self, workspace_id: str, path: str, content: str) -> dict:
         """Write content to a file in the workspace. Creates parent dirs if needed."""
         target = self._resolve_path(workspace_id, path)

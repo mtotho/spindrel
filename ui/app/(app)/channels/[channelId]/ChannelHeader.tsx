@@ -267,32 +267,33 @@ export function ChannelHeader({
           </View>
         )}
       </View>
-      {workspaceEnabled && workspaceId && (
-        <>
+      {/* Explorer toggle: available whenever the channel resolves to a workspace
+          (mirrors the web path — even if channel-level workspace is disabled,
+          the explorer can still show bot memory and other workspace files). */}
+      {workspaceId && (
+        <Pressable
+          onPress={toggleExplorer}
+          className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
+          style={{
+            width: 36,
+            height: 36,
+            backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent",
+            borderRadius: 6,
+          }}
+        >
+          <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
+        </Pressable>
+      )}
+      {workspaceEnabled && workspaceId && !isMobile && (
+        <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
           <Pressable
-            onPress={toggleExplorer}
+            onPress={onBrowseWorkspace}
             className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-            style={{
-              width: 36,
-              height: 36,
-              backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent",
-              borderRadius: 6,
-            }}
+            style={{ width: 36, height: 36 }}
           >
-            <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
+            <FolderOpen size={16} color={t.textDim} />
           </Pressable>
-          {!isMobile && (
-            <Link href={`/admin/workspaces/${workspaceId}/files` as any} asChild>
-              <Pressable
-                onPress={onBrowseWorkspace}
-                className="items-center justify-center rounded-md hover:bg-surface-overlay active:bg-surface-overlay"
-                style={{ width: 36, height: 36 }}
-              >
-                <FolderOpen size={16} color={t.textDim} />
-              </Pressable>
-            </Link>
-          )}
-        </>
+        </Link>
       )}
       {channelId && (
         <Link href={`/channels/${channelId}/settings` as any} asChild>

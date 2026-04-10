@@ -25,12 +25,10 @@ interface ChannelFileViewerProps {
   /** Workspace id is required when filePath references files outside the channel scope. */
   workspaceId?: string;
   /**
-   * File path. Two formats are accepted:
-   *   - Channel-relative: "README.md", "archive/old.md" (legacy callers)
-   *   - Workspace-relative: "channels/{channelId}/README.md", "bots/{botId}/memory/notes.md"
-   * When the path lives inside the channel scope, channel endpoints are used so
-   * the channel's RAG re-index hooks fire on save. Otherwise the workspace
-   * endpoints are used.
+   * Workspace-relative file path, e.g. "channels/{channelId}/README.md" or
+   * "bots/{botId}/memory/notes.md". When the path lives inside the channel
+   * scope, channel endpoints are used so the channel's RAG re-index hooks
+   * fire on save. Otherwise the workspace endpoints are used.
    */
   filePath: string;
   onBack: () => void;
@@ -48,15 +46,8 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
   // Workspace-relative path inside the channel → use channel endpoints (preserves re-indexing).
   // Anything else → use workspace endpoints.
   const channelPrefix = `channels/${channelId}/`;
-  const isChannelScoped = filePath === channelPrefix || filePath.startsWith(channelPrefix);
-  const channelRelPath = isChannelScoped
-    ? filePath.slice(channelPrefix.length)
-    : (!filePath.includes("/") || (!filePath.startsWith("bots/") && !filePath.startsWith("users/") && !filePath.startsWith("memory/") && !filePath.startsWith("common/") && !filePath.startsWith("channels/")))
-      // Bare relative path (legacy callers passing channel-relative)
-      ? filePath
-      : null;
-
-  const useChannelEndpoint = channelRelPath !== null;
+  const useChannelEndpoint = filePath.startsWith(channelPrefix);
+  const channelRelPath = useChannelEndpoint ? filePath.slice(channelPrefix.length) : null;
 
   // Channel hooks (only enabled when scope matches)
   const channelContent = useChannelWorkspaceFileContent(
@@ -79,7 +70,9 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
 
   const { serverUrl } = useAuthStore();
 
-  // For image files, fetch raw bytes and create a blob URL
+  // For image files, fetch raw bytes and create a blob URL.
+  // Route to channel or workspace raw endpoint based on scope, mirroring the
+  // text-content path detection above so re-indexing hooks stay consistent.
   const [imageBlobUrl, setImageBlobUrl] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
   useEffect(() => {
@@ -87,7 +80,12 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
     let revoke: string | null = null;
     setImageLoading(true);
     const token = getAuthToken();
-    const url = `${serverUrl}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(filePath)}`;
+    const url = useChannelEndpoint
+      ? `${serverUrl}/api/v1/channels/${channelId}/workspace/files/raw?path=${encodeURIComponent(channelRelPath!)}`
+      : workspaceId
+        ? `${serverUrl}/api/v1/workspaces/${workspaceId}/files/raw?path=${encodeURIComponent(filePath)}`
+        : null;
+    if (!url) { setImageLoading(false); return; }
     fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
       .then((res) => { if (!res.ok) throw new Error("fetch failed"); return res.blob(); })
       .then((blob) => {
@@ -97,7 +95,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
       .catch(() => setImageBlobUrl(null))
       .finally(() => setImageLoading(false));
     return () => { if (revoke) URL.revokeObjectURL(revoke); };
-  }, [isImage, serverUrl, channelId, filePath]);
+  }, [isImage, serverUrl, channelId, workspaceId, useChannelEndpoint, channelRelPath, filePath]);
 
   const [editContent, setEditContent] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -123,8 +121,9 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
 
   const handleSave = useCallback(() => {
     if (!isDirty || !editContent) return;
+    const writePath = useChannelEndpoint ? channelRelPath! : filePath;
     writeMutation.mutate(
-      { path: filePath, content: editContent },
+      { path: writePath, content: editContent },
       {
         onSuccess: () => {
           setSavedAt(new Date().toLocaleTimeString());
@@ -133,7 +132,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
         },
       },
     );
-  }, [filePath, editContent, isDirty, writeMutation, refetch]);
+  }, [filePath, useChannelEndpoint, channelRelPath, editContent, isDirty, writeMutation, refetch]);
 
   // Keyboard shortcut: Ctrl/Cmd+S to save
   useEffect(() => {

@@ -30,6 +30,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { View, Text, Pressable, ActivityIndicator, ScrollView, Platform } from "react-native";
 import { X, Plus, FolderPlus, Search, Upload, RefreshCw } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useDeleteChannelWorkspaceFile,
@@ -128,6 +129,7 @@ export function ChannelFileExplorer({
   fullWidth = false,
 }: ChannelFileExplorerProps) {
   const t = useThemeTokens();
+  const queryClient = useQueryClient();
 
   // Bot info — needed to compute the memory path target
   const { data: bot } = useBot(botId);
@@ -173,6 +175,13 @@ export function ChannelFileExplorer({
     workspaceId,
     dirForApi(currentPath),
   );
+
+  // Combined refresh: tree + IN CONTEXT card. The card subscribes to a separate
+  // channel-scoped query, so a tree-only refetch leaves it stale.
+  const refreshAll = useCallback(() => {
+    refetchTree();
+    queryClient.invalidateQueries({ queryKey: ["channel-workspace-files", channelId] });
+  }, [refetchTree, queryClient, channelId]);
 
   // Mutations on the workspace
   const writeWorkspace = useWriteWorkspaceFile(workspaceId ?? "");
@@ -486,7 +495,7 @@ export function ChannelFileExplorer({
           <FolderPlus size={13} color={t.textDim} />
         </Pressable>
         <Pressable
-          onPress={() => refetchTree()}
+          onPress={refreshAll}
           style={({ hovered }: any) => ({
             padding: 5,
             borderRadius: 3,

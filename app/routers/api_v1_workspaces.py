@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, Form
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, Form, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -969,6 +969,38 @@ async def read_workspace_file(
         raise HTTPException(403, f"Permission denied: {path}")
     except OSError as exc:
         raise HTTPException(400, f"OS error: {exc}")
+
+
+_RAW_MIME_MAP = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp",
+    ".ico": "image/x-icon", ".bmp": "image/bmp", ".pdf": "application/pdf",
+}
+
+
+@router.get("/{workspace_id}/files/raw")
+async def read_workspace_file_raw(
+    workspace_id: str,
+    path: str = Query(..., description="File path inside the workspace"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("workspaces.files:read")),
+):
+    """Serve a workspace file as raw bytes (for images, PDFs, etc.)."""
+    import os as _os
+    ws = await db.get(SharedWorkspace, uuid.UUID(workspace_id))
+    if not ws:
+        raise HTTPException(404)
+    try:
+        data = shared_workspace_service.read_file_bytes(workspace_id, path)
+    except SharedWorkspaceError as exc:
+        raise HTTPException(404, str(exc))
+    except PermissionError:
+        raise HTTPException(403, f"Permission denied: {path}")
+    except OSError as exc:
+        raise HTTPException(400, f"OS error: {exc}")
+    ext = _os.path.splitext(path)[1].lower()
+    mime = _RAW_MIME_MAP.get(ext, "application/octet-stream")
+    return Response(content=data, media_type=mime, headers={"Cache-Control": "private, max-age=300"})
 
 
 @router.put("/{workspace_id}/files/content")
