@@ -50,6 +50,7 @@ nav:
     - Lifecycle Webhooks: guides/webhooks.md
     - Agent Client: guides/clients.md
     - Delegation: guides/delegation.md
+    - Sub-Agents: guides/subagents.md
     - Secrets & Redaction: guides/secrets.md
     - Content Ingestion: guides/ingestion.md
     - Chat History: guides/chat-history.md

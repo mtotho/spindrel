@@ -34,6 +34,7 @@ import {
   HardDrive,
   Code2,
   CornerDownLeft,
+  Brain,
 } from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useBots } from "../../api/hooks/useBots";
@@ -108,6 +109,7 @@ interface ScoredItem {
 // ---------------------------------------------------------------------------
 
 const ADMIN_ITEMS: PaletteItem[] = [
+  // -- Configure --
   { id: "nav-bots", label: "Bots", href: "/admin/bots", icon: Bot, category: "Configure" },
   { id: "nav-integrations", label: "Integrations", href: "/admin/integrations", icon: Plug, category: "Configure" },
   { id: "nav-providers", label: "Providers", href: "/admin/providers", icon: Server, category: "Configure" },
@@ -118,21 +120,60 @@ const ADMIN_ITEMS: PaletteItem[] = [
   { id: "nav-templates", label: "Templates", href: "/admin/prompt-templates", icon: FileText, category: "Configure" },
   { id: "nav-attachments", label: "Attachments", href: "/admin/attachments", icon: Paperclip, category: "Configure" },
   { id: "nav-docker", label: "Docker Stacks", href: "/admin/docker-stacks", icon: Boxes, category: "Configure" },
+  // -- Automate --
+  { id: "nav-learning", label: "Learning Center", href: "/admin/learning", icon: Brain, category: "Automate" },
+  { id: "nav-learning-overview", label: "Learning: Overview", hint: "Learning Center", href: "/admin/learning#Overview", icon: Brain, category: "Automate" },
+  { id: "nav-learning-dreaming", label: "Learning: Dreaming", hint: "Learning Center", href: "/admin/learning#Dreaming", icon: Brain, category: "Automate" },
+  { id: "nav-learning-skills", label: "Learning: Skills", hint: "Learning Center", href: "/admin/learning#Skills", icon: Brain, category: "Automate" },
   { id: "nav-tasks", label: "Tasks", href: "/admin/tasks", icon: ClipboardList, category: "Automate" },
   { id: "nav-workflows", label: "Workflows", href: "/admin/workflows", icon: Zap, category: "Automate" },
+  // -- Security --
   { id: "nav-secrets", label: "Secrets", href: "/admin/secret-values", icon: Lock, category: "Security" },
   { id: "nav-policies", label: "Policies", href: "/admin/tool-policies", icon: Shield, category: "Security" },
   { id: "nav-approvals", label: "Approvals", href: "/admin/approvals", icon: ShieldCheck, category: "Security" },
+  // -- Developer --
   { id: "nav-apikeys", label: "API Keys", href: "/admin/api-keys", icon: Key, category: "Developer" },
   { id: "nav-webhooks", label: "Webhooks", href: "/admin/webhooks", icon: Webhook, category: "Developer" },
   { id: "nav-apidocs", label: "API Docs", href: "/admin/api-docs", icon: FileCode, category: "Developer" },
+  // -- Monitor --
   { id: "nav-usage", label: "Usage", href: "/admin/usage", icon: BarChart3, category: "Monitor" },
+  { id: "nav-usage-overview", label: "Usage: Overview", hint: "Usage", href: "/admin/usage#Overview", icon: BarChart3, category: "Monitor" },
+  { id: "nav-usage-forecast", label: "Usage: Forecast", hint: "Usage", href: "/admin/usage#Forecast", icon: BarChart3, category: "Monitor" },
+  { id: "nav-usage-logs", label: "Usage: Logs", hint: "Usage", href: "/admin/usage#Logs", icon: BarChart3, category: "Monitor" },
+  { id: "nav-usage-charts", label: "Usage: Charts", hint: "Usage", href: "/admin/usage#Charts", icon: BarChart3, category: "Monitor" },
+  { id: "nav-usage-limits", label: "Usage: Limits", hint: "Usage", href: "/admin/usage#Limits", icon: BarChart3, category: "Monitor" },
+  { id: "nav-usage-alerts", label: "Usage: Alerts", hint: "Usage", href: "/admin/usage#Alerts", icon: BarChart3, category: "Monitor" },
   { id: "nav-toolcalls", label: "Tool Calls", href: "/admin/tool-calls", icon: Activity, category: "Monitor" },
   { id: "nav-users", label: "Users", href: "/admin/users", icon: Users, category: "Monitor" },
   { id: "nav-logs", label: "Logs", href: "/admin/logs", icon: ScrollText, category: "Monitor" },
+  { id: "nav-logs-traces", label: "Logs: Traces", hint: "Logs", href: "/admin/logs/traces", icon: ScrollText, category: "Monitor" },
+  { id: "nav-logs-server", label: "Logs: Server", hint: "Logs", href: "/admin/logs/server", icon: ScrollText, category: "Monitor" },
+  { id: "nav-logs-fallbacks", label: "Logs: Fallbacks", hint: "Logs", href: "/admin/logs/fallbacks", icon: ScrollText, category: "Monitor" },
   { id: "nav-diagnostics", label: "Diagnostics", href: "/admin/diagnostics", icon: HardDrive, category: "Monitor" },
   { id: "nav-config", label: "Config State", href: "/admin/config-state", icon: Code2, category: "Monitor" },
-  { id: "nav-settings", label: "Settings", href: "/settings", icon: Settings, category: "Monitor" },
+  // -- Settings (top-level + sub-pages) --
+  { id: "nav-settings", label: "Settings", href: "/settings", icon: Settings, category: "Settings" },
+  { id: "nav-settings-global", label: "Settings: Global", hint: "Settings", href: "/settings#Global", icon: Settings, category: "Settings" },
+  { id: "nav-settings-system", label: "Settings: System", hint: "Settings", href: "/settings#System", icon: Settings, category: "Settings" },
+  { id: "nav-settings-paths", label: "Settings: Paths", hint: "Settings", href: "/settings#Paths", icon: Settings, category: "Settings" },
+  { id: "nav-settings-general", label: "Settings: General", hint: "Settings", href: "/settings#General", icon: Settings, category: "Settings" },
+  { id: "nav-settings-agent", label: "Settings: Agent", hint: "Settings", href: "/settings#Agent", icon: Settings, category: "Settings" },
+  { id: "nav-settings-chat-history", label: "Settings: Chat History", hint: "Settings", href: "/settings#Chat History", icon: Settings, category: "Settings" },
+  { id: "nav-settings-embeddings", label: "Settings: Embeddings & RAG", hint: "Settings", href: "/settings#Embeddings & RAG", icon: Settings, category: "Settings" },
+  { id: "nav-settings-reranking", label: "Settings: RAG Re-ranking", hint: "Settings", href: "/settings#RAG Re-ranking", icon: Settings, category: "Settings" },
+  { id: "nav-settings-attachments", label: "Settings: Attachments", hint: "Settings", href: "/settings#Attachments", icon: Settings, category: "Settings" },
+  { id: "nav-settings-dreaming", label: "Settings: Dreaming", hint: "Settings", href: "/settings#Memory Hygiene", icon: Settings, category: "Settings" },
+  { id: "nav-settings-heartbeat", label: "Settings: Heartbeat", hint: "Settings", href: "/settings#Heartbeat", icon: Settings, category: "Settings" },
+  { id: "nav-settings-tool-summarization", label: "Settings: Tool Summarization", hint: "Settings", href: "/settings#Tool Summarization", icon: Settings, category: "Settings" },
+  { id: "nav-settings-tool-policies", label: "Settings: Tool Policies", hint: "Settings", href: "/settings#Tool Policies", icon: Settings, category: "Settings" },
+  { id: "nav-settings-image-gen", label: "Settings: Image Generation", hint: "Settings", href: "/settings#Image Generation", icon: Settings, category: "Settings" },
+  { id: "nav-settings-stt", label: "Settings: Speech-to-Text", hint: "Settings", href: "/settings#Speech-to-Text", icon: Settings, category: "Settings" },
+  { id: "nav-settings-prompt-gen", label: "Settings: Prompt Generation", hint: "Settings", href: "/settings#Prompt Generation", icon: Settings, category: "Settings" },
+  { id: "nav-settings-docker", label: "Settings: Docker Stacks", hint: "Settings", href: "/settings#Docker Stacks", icon: Settings, category: "Settings" },
+  { id: "nav-settings-rate-limiting", label: "Settings: API Rate Limiting", hint: "Settings", href: "/settings#API Rate Limiting", icon: Settings, category: "Settings" },
+  { id: "nav-settings-security", label: "Settings: Security", hint: "Settings", href: "/settings#Security", icon: Settings, category: "Settings" },
+  { id: "nav-settings-data-retention", label: "Settings: Data Retention", hint: "Settings", href: "/settings#Data Retention", icon: Settings, category: "Settings" },
+  { id: "nav-settings-backup", label: "Settings: Backup", hint: "Settings", href: "/settings#Backup", icon: Settings, category: "Settings" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -353,7 +394,18 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     (href: string) => {
       onClose();
       closeMobileSidebar();
-      router.push(href as any);
+      const hashIdx = href.indexOf("#");
+      if (hashIdx >= 0) {
+        const path = href.slice(0, hashIdx);
+        const hash = href.slice(hashIdx);
+        // Navigate to the path first, then set the hash so useHashTab picks it up
+        router.push(path as any);
+        requestAnimationFrame(() => {
+          window.location.hash = hash;
+        });
+      } else {
+        router.push(href as any);
+      }
     },
     [onClose, closeMobileSidebar, router],
   );

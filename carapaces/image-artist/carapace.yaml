@@ -6,10 +6,6 @@ description: >-
   compare versions, and deliver polished results. Apply to any vision-capable bot.
 tags: [image, creative, visual]
 
-skills:
-  - id: carapaces/image-artist/image-editing
-    mode: on_demand
-
 local_tools:
   - generate_image
   - list_attachments

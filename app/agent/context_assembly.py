@@ -1512,12 +1512,11 @@ async def assemble_context(
         if "get_tool_info" not in by_name:
             for _gti in get_local_tool_schemas(["get_tool_info"]):
                 by_name[_gti["function"]["name"]] = _gti
-        # Auto-inject get_skill + get_skill_list when bot has skills
-        if bot.skills:
-            for _sk_name in ("get_skill", "get_skill_list"):
-                if _sk_name not in by_name:
-                    for _sk_schema in get_local_tool_schemas([_sk_name]):
-                        by_name[_sk_schema["function"]["name"]] = _sk_schema
+        # Auto-inject get_skill + get_skill_list — skills are shared documents any bot can access
+        for _sk_name in ("get_skill", "get_skill_list"):
+            if _sk_name not in by_name:
+                for _sk_schema in get_local_tool_schemas([_sk_name]):
+                    by_name[_sk_schema["function"]["name"]] = _sk_schema
         _authorized_names = set(by_name.keys())
         th = (
             bot.tool_similarity_threshold

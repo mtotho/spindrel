@@ -156,7 +156,7 @@ function GeneralAdvancedSection({
             <FormRow label="Max iterations">
               <TextInput
                 value={form.max_iterations?.toString() ?? ""}
-                onChangeText={(v) => patch("max_iterations", v ? parseInt(v) || undefined : undefined)}
+                onChangeText={(v) => { const n = parseInt(v); patch("max_iterations", isNaN(n) ? undefined : n); }}
                 placeholder="default"
                 type="number"
               />
@@ -166,7 +166,7 @@ function GeneralAdvancedSection({
             <FormRow label="Max task run time (seconds)">
               <TextInput
                 value={form.task_max_run_seconds?.toString() ?? ""}
-                onChangeText={(v) => patch("task_max_run_seconds", v ? parseInt(v) || undefined : undefined)}
+                onChangeText={(v) => { const n = parseInt(v); patch("task_max_run_seconds", isNaN(n) ? undefined : n); }}
                 placeholder="1200 (default)"
                 type="number"
               />

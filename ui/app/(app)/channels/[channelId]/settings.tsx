@@ -110,6 +110,7 @@ export default function ChannelSettingsScreen() {
         workspace_rag: settings.workspace_rag,
         thinking_display: settings.thinking_display,
         max_iterations: settings.max_iterations,
+        task_max_run_seconds: settings.task_max_run_seconds,
         context_compaction: settings.context_compaction,
         compaction_interval: settings.compaction_interval,
         compaction_keep_turns: settings.compaction_keep_turns,

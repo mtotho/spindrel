@@ -54,10 +54,9 @@ def apply_auto_injections(eff: EffectiveTools, bot: BotConfig) -> EffectiveTools
     if getattr(bot, "tool_retrieval", False):
         _inject("get_tool_info")
 
-    # Skills
-    if eff.skills:
-        _inject("get_skill")
-        _inject("get_skill_list")
+    # Skills — shared documents, always available
+    _inject("get_skill")
+    _inject("get_skill_list")
 
     # History mode
     if getattr(bot, "history_mode", None) == "file":

@@ -6,10 +6,6 @@ description: >-
   analysis, data cleaning, and formatted reports.
 tags: [data, analysis, reporting, csv, statistics]
 
-skills:
-  - id: carapaces/data-analyst/data-analysis
-    mode: on_demand
-
 local_tools:
   - exec_command
   - file

@@ -797,3 +797,106 @@ async def test_full_skill_discovery_pipeline(client: E2EClient) -> None:
         await client.delete_bot(bot_id)
         await client.delete(f"{_ADMIN_CARAPACES}/{cid}")
         await client.delete(f"{_ADMIN_SKILLS}/{sid}")
+
+
+# ---------------------------------------------------------------------------
+# 13. Orchestrator fragment contains environment context (pinned→fragment migration)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_fragment_has_environment_context(client: E2EClient) -> None:
+    """After migrating workspace-orchestrator from pinned skill to inline fragment,
+    the orchestrator capability's context preview should include environment/filesystem
+    content that was previously injected as a pinned skill."""
+    bot_id = f"e2e-tmp-{uuid.uuid4().hex[:8]}"
+    try:
+        await client.create_bot({
+            "id": bot_id,
+            "name": "Orchestrator Fragment Test",
+            "model": "gemini/gemini-2.5-flash-lite",
+            "system_prompt": "You are a test orchestrator.",
+            "carapaces": ["orchestrator"],
+            "tool_retrieval": False,
+            "persona": False,
+            "context_compaction": False,
+        })
+
+        # Chat to create channel
+        cid = client.new_client_id("e2e-orch-frag")
+        await client.chat("Hello.", bot_id=bot_id, client_id=cid)
+        channel_id = await _find_channel_for_bot(client, bot_id)
+
+        # Context preview should contain environment content from the fragment
+        resp = await client.get(f"{_ADMIN_CHANNELS}/{channel_id}/context-preview")
+        assert resp.status_code == 200
+        blocks = resp.json()["blocks"]
+        all_content = " ".join(b["content"] for b in blocks).lower()
+
+        # These are key phrases from the workspace-orchestrator content
+        # that should now be in the fragment, not in a separate pinned skill block
+        assert "/workspace/bots/" in all_content, (
+            "Fragment should include filesystem layout with /workspace/bots/"
+        )
+        assert "search_bot_memory" in all_content, (
+            "Fragment should include orchestrator-only capabilities (search_bot_memory)"
+        )
+        assert "container tools" in all_content or "python 3.12" in all_content, (
+            "Fragment should include container environment info"
+        )
+
+        # There should be NO pinned skill block — the content is inline in the fragment
+        labels = [b["label"].lower() for b in blocks]
+        assert not any("pinned skill" in label for label in labels), (
+            f"Should not have a separate pinned skill block after migration. Labels: {labels}"
+        )
+    finally:
+        await client.delete_bot(bot_id)
+
+
+# ---------------------------------------------------------------------------
+# 14. Presenter bot fetches slides skill via get_skill (behavioral)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_presenter_fetches_slides_skill_before_creating(client: E2EClient) -> None:
+    """A bot with the presenter capability should call get_skill to load the
+    Marp reference before creating slides, since the skill is now on-demand
+    with a strong nudge in the fragment."""
+    bot_id = f"e2e-tmp-{uuid.uuid4().hex[:8]}"
+    try:
+        await client.create_bot({
+            "id": bot_id,
+            "name": "Presenter Skill Test",
+            "model": "gemini/gemini-2.5-flash-lite",
+            "system_prompt": (
+                "You are a presentation bot. Follow your capability instructions exactly. "
+                "When asked to create a presentation, first load the required skill, "
+                "then use create_slides."
+            ),
+            "carapaces": ["presenter"],
+            "local_tools": ["get_skill", "get_skill_list", "create_slides"],
+            "tool_retrieval": False,
+            "persona": False,
+            "context_compaction": False,
+        })
+
+        cid = client.new_client_id("e2e-presenter")
+        result = await asyncio.wait_for(
+            client.chat_stream(
+                "Create a simple 3-slide presentation about testing best practices.",
+                bot_id=bot_id,
+                client_id=cid,
+            ),
+            timeout=_LLM_TIMEOUT,
+        )
+        assert not result.error_events, f"Errors: {result.error_events}"
+
+        # The bot should have called get_skill for the slides reference
+        assert "get_skill" in result.tools_used, (
+            f"Presenter should call get_skill for Marp reference before creating slides. "
+            f"Tools used: {result.tools_used}. Response: {result.response_text[:300]}"
+        )
+    finally:
+        await client.delete_bot(bot_id)

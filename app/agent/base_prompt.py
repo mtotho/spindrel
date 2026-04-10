@@ -33,7 +33,7 @@ def render_base_prompt(bot) -> str | None:
     if _cached_template is None:
         return None
 
-    has_skills = bool(getattr(bot, "skills", None))
+    has_skills = True  # skills are shared documents, always available to all bots
     has_memory = False  # DB memory deprecated
     has_knowledge = False  # DB knowledge deprecated
     has_delegation = bool(getattr(bot, "delegate_bots", None))
@@ -41,7 +41,7 @@ def render_base_prompt(bot) -> str | None:
 
     variables = defaultdict(str, {
         "bot_name": getattr(bot, "name", "Assistant"),
-        "skills_section": "\n- **Skills**: You can retrieve skill documents with get_skill for specialized knowledge. Use get_skill_list() to browse all available skills." if has_skills else "",
+        "skills_section": "\n- **Skills**: Skill documents contain detailed procedures and reference material. Call `get_skill(skill_id)` to load a skill before attempting tasks it covers. Use `get_skill_list()` to see all available skills — check it when you're unsure how to proceed." if has_skills else "",
         "memory_section": "\n- **Memory**: You have persistent memory across conversations. Relevant memories are automatically recalled." if has_memory else "",
         "knowledge_section": "\n- **Knowledge**: You can read and write knowledge documents for long-term reference." if has_knowledge else "",
         "delegation_section": "\n- **Delegation**: You can delegate tasks to other bots via delegate_to_agent or @bot-id mentions." if has_delegation else "",

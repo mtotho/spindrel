@@ -317,15 +317,14 @@ async def run_agent_tool_loop(
         mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
         client_schemas = get_client_tool_schemas(bot.client_tools)
         all_tools = local_schemas + mcp_schemas + client_schemas
-        # Auto-inject get_skill + get_skill_list when bot has skills configured
-        if bot.skills:
-            _existing_names = {t.get("function", {}).get("name") for t in all_tools}
-            _skill_tools_to_add = [
-                n for n in ("get_skill", "get_skill_list")
-                if n not in _existing_names
-            ]
-            if _skill_tools_to_add:
-                all_tools = all_tools + get_local_tool_schemas(_skill_tools_to_add)
+        # Auto-inject get_skill + get_skill_list — skills are shared documents any bot can access
+        _existing_names = {t.get("function", {}).get("name") for t in all_tools}
+        _skill_tools_to_add = [
+            n for n in ("get_skill", "get_skill_list")
+            if n not in _existing_names
+        ]
+        if _skill_tools_to_add:
+            all_tools = all_tools + get_local_tool_schemas(_skill_tools_to_add)
         # Merge dynamically injected tools (e.g. heartbeat_post_to_thread)
         from app.agent.context import current_injected_tools
         _injected = current_injected_tools.get()

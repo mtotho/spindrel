@@ -98,23 +98,23 @@ class TestToolRetrievalInjection:
 
 
 class TestSkillToolInjection:
-    """Bots with skills get get_skill and get_skill_list."""
+    """get_skill and get_skill_list are always injected (skills are shared docs)."""
 
-    def test_injects_skill_tools(self):
-        bot = _bot(skills=[])  # bot config doesn't matter — eff.skills does
-        eff = _eff(skills=[SkillConfig(id="testing", mode="pinned")])
+    def test_injects_skill_tools_with_skills(self):
+        bot = _bot(skills=[])
+        eff = _eff(skills=[SkillConfig(id="testing", mode="on_demand")])
         result = apply_auto_injections(eff, bot)
 
         assert "get_skill" in result.local_tools
         assert "get_skill_list" in result.local_tools
 
-    def test_no_injection_without_skills(self):
+    def test_injects_skill_tools_without_skills(self):
         bot = _bot()
         eff = _eff(skills=[])
         result = apply_auto_injections(eff, bot)
 
-        assert "get_skill" not in result.local_tools
-        assert "get_skill_list" not in result.local_tools
+        assert "get_skill" in result.local_tools
+        assert "get_skill_list" in result.local_tools
 
 
 class TestHistoryModeInjection:

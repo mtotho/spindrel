@@ -45,14 +45,14 @@ async def _get(path: str, params: dict | None = None, timeout: float = 15.0):
         )
 
 
-async def _post(path: str, payload: dict, timeout: float = 15.0):
+async def _post(path: str, payload: dict, params: dict | None = None, timeout: float = 15.0):
     url_err = validate_url(settings.PROWLARR_URL, "Prowlarr")
     if url_err:
         raise ValueError(url_err)
     url = f"{_base_url()}{path}"
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.post(url, headers=_headers(), json=payload, timeout=timeout)
+            resp = await client.post(url, headers=_headers(), json=payload, params=params, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
     except httpx.HTTPStatusError as e:
@@ -433,14 +433,14 @@ async def prowlarr_indexer_schemas(search: str | None = None) -> str:
         return error(str(e))
 
 
-async def _put(path: str, payload: dict, timeout: float = 15.0):
+async def _put(path: str, payload: dict, params: dict | None = None, timeout: float = 15.0):
     url_err = validate_url(settings.PROWLARR_URL, "Prowlarr")
     if url_err:
         raise ValueError(url_err)
     url = f"{_base_url()}{path}"
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.put(url, headers=_headers(), json=payload, timeout=timeout)
+            resp = await client.put(url, headers=_headers(), json=payload, params=params, timeout=timeout)
             resp.raise_for_status()
             return resp.json()
     except httpx.HTTPStatusError as e:
@@ -583,7 +583,8 @@ async def prowlarr_indexer_manage(
                     if field.get("name") in field_values:
                         field["value"] = field_values[field["name"]]
 
-            result = await _post("/api/v1/indexer", schema)
+            # force_save bypasses validation (e.g. Cloudflare errors on add)
+            result = await _post("/api/v1/indexer", schema, params={"forceSave": "true"})
             return json.dumps({
                 "status": "ok",
                 "indexer_id": result.get("id"),
@@ -601,12 +602,15 @@ async def prowlarr_indexer_manage(
                 current["name"] = name
             current["enable"] = enabled
             current["priority"] = priority
+            if tags is not None:
+                current["tags"] = tags
             if field_values:
                 for field in current.get("fields", []):
                     if field.get("name") in field_values:
                         field["value"] = field_values[field["name"]]
 
-            result = await _put(f"/api/v1/indexer/{indexer_id}", current)
+            # force_save bypasses validation (e.g. Cloudflare errors on update)
+            result = await _put(f"/api/v1/indexer/{indexer_id}", current, params={"forceSave": "true"})
             return json.dumps({
                 "status": "ok",
                 "indexer_id": result.get("id"),

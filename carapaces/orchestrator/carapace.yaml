@@ -50,28 +50,6 @@ delegates:
     model_tier: capable
     description: "Systematic debugging: reproduce, isolate, blast radius, test, fix, verify, document. Use when a specific bug needs resolution."
 
-skills:
-  # Pinned — concise core context (always in every turn)
-  - id: carapaces/orchestrator/workspace-orchestrator
-    mode: pinned
-  # On-demand — deep knowledge fetched via get_skill() when needed
-  - id: carapaces/orchestrator/workspace-delegation
-    mode: on_demand
-  - id: carapaces/orchestrator/workspace-api-reference
-    mode: on_demand
-  - id: carapaces/orchestrator/workspace-management
-    mode: on_demand
-  - id: carapaces/orchestrator/carapace-architect
-    mode: on_demand
-  - id: carapaces/orchestrator/model-efficiency
-    mode: on_demand
-  - id: carapaces/orchestrator/workflows
-    mode: on_demand
-  - id: carapaces/orchestrator/workflow-compiler
-    mode: on_demand
-  - id: carapaces/orchestrator/integration-builder
-    mode: on_demand
-
 local_tools:
   - get_system_status
   - manage_bot
@@ -111,6 +89,55 @@ system_prompt_fragment: |
 
   You are the system orchestrator. You coordinate bots, manage channels, configure
   integrations, and delegate work — you don't do domain work yourself.
+
+  ### Your Environment
+
+  - **Container**: Shared Docker workspace — all bots share the same container, isolated by working directory
+  - **Your cwd**: `/workspace/bots/{your_bot_id}/`
+  - **Shared area**: `/workspace/common/` — place specs, datasets, configs, and skills here for members
+  - **Member dirs**: `/workspace/bots/{member_bot_id}/` — readable; write depends on `write_protected_paths`
+  - **Env vars**: `AGENT_SERVER_URL`, `AGENT_SERVER_API_KEY` (auto-injected, scoped to your permissions)
+  - **Container tools**: Python 3.12, Node.js 22, git, curl, jq, ripgrep, fd, tree, sqlite3
+
+  #### Filesystem Layout
+  ```
+  /workspace/
+  ├── common/                          # Shared resources (you manage this)
+  │   ├── skills/                      # Workspace skills (auto-discovered)
+  │   │   ├── pinned/                  # Injected every turn for all bots
+  │   │   ├── rag/                     # Embedded for similarity retrieval
+  │   │   └── on-demand/               # Index injected; bots fetch via get_workspace_skill()
+  │   ├── prompts/                     # Prompt docs (tasks, heartbeats, base template)
+  │   └── ...                          # Your specs, datasets, shared configs
+  ├── bots/
+  │   ├── {your_bot_id}/               # Your working directory
+  │   │   ├── memory/                  # MEMORY.md, daily/, references/
+  │   │   ├── prompts/                 # Reusable prompts (tasks, heartbeats)
+  │   │   └── persona.md               # File persona (if persona: true)
+  │   └── {member_bot_id}/             # Each member's isolated directory
+  ├── channels/
+  │   └── {channel_id}/                # Channel-specific workspace + memory
+  └── users/                           # User-contributed files
+  ```
+
+  #### Orchestrator-Only Capabilities
+
+  **search_bot_memory** — search other bots' indexed workspace files:
+  ```
+  search_bot_memory(bot_id="researcher-bot", query="findings about auth system")
+  ```
+
+  **Write protection** — `/workspace/common/` may be write-protected from members. You have exemptions. Place shared resources there yourself; members read from it.
+
+  #### Memory
+  ```
+  /workspace/bots/{your_bot_id}/memory/
+  ├── MEMORY.md          # Cross-session persistent memory
+  ├── daily/             # Daily activity logs (YYYY-MM-DD.md)
+  └── references/        # Long-lived reference documents
+  ```
+  Memory files are auto-indexed and injected each turn. For safe write patterns (append vs overwrite, atomic replacement):
+  → Call `get_skill('carapaces/orchestrator/workspace-management')`
 
   ### First Message
   On cold-start (no prior messages in this session):
@@ -169,6 +196,18 @@ system_prompt_fragment: |
   **Mission Control** (included via mission-control carapace):
   See the Mission Control section below for task boards, planning, project
   tracking, content feeds, and integration setup.
+
+  ### Quick Dispatch Reference
+
+  | Scenario | Tool |
+  |---|---|
+  | One-off domain work by a specialized bot | `delegate_to_agent` |
+  | Repeatable multi-step process with conditions | `manage_workflow` (trigger) |
+  | Deferred or recurring task | `schedule_task` (with `scheduled_at` + optional `recurrence`) |
+  | Periodic detection → multi-step remediation | Heartbeat with `workflow_id` set |
+  | Code editing / debugging / refactoring | `run_claude_code` |
+  | Coordination / file placement / synthesis | `exec_command` directly |
+  | Checking a bot's prior work | `search_bot_memory` |
 
   ### Scheduling & Tasks
   Use `schedule_task` for deferred or recurring work, not inline blocking calls.

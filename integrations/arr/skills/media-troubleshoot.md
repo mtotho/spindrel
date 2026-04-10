@@ -159,7 +159,7 @@ When `sonarr_releases` or `radarr_releases` returns 0 results, or all results ar
 
 | Definition name | Best for | Needs FlareSolverr? | Notes |
 |---|---|---|---|
-| `eztv` | TV shows | No | Excellent for current + older TV |
+| `eztv` | TV shows | Yes (Cloudflare) | Excellent for current + older TV |
 | `thepiratebay` | TV + Movies | No | Massive catalog, good for older content |
 | `1337x` | TV + Movies | Yes (Cloudflare) | Very popular, broad coverage |
 | `limetorrents` | TV + Movies | No | Decent coverage, multiple mirrors |
@@ -168,10 +168,13 @@ When `sonarr_releases` or `radarr_releases` returns 0 results, or all results ar
 | `torrentdownloads` | TV + Movies | No | Aggregator |
 | `nyaasi` | Anime | No | Best for anime content |
 
-**FlareSolverr setup** (for Cloudflare-protected indexers like 1337x, KickassTorrents):
-1. `prowlarr_tags()` — find the FlareSolverr tag ID (e.g. `{"id": 1, "label": "flaresolverr"}`)
-2. When adding a Cloudflare-protected indexer, pass the tag: `prowlarr_indexer_manage(action="add", definition_name="1337x", app_profile_id=1, tags=[1])`
-3. Without the FlareSolverr tag, these indexers will fail with connection/timeout errors
+**IMPORTANT**: When an indexer needs FlareSolverr, you MUST include the tag in the initial `add` call. If you add without it, Prowlarr will fail validation on subsequent updates too. Always check `prowlarr_tags()` first to get the FlareSolverr tag ID.
+
+**FlareSolverr workflow** (for Cloudflare-protected indexers — EZTV, 1337x, KickassTorrents):
+1. **FIRST**: `prowlarr_tags()` — find the FlareSolverr tag ID (e.g. `{"id": 1, "label": "flaresolverr"}`)
+2. **Include the tag when adding**: `prowlarr_indexer_manage(action="add", definition_name="eztv", app_profile_id=1, tags=[1])`
+3. If you forgot the tag and the indexer was added without it, update with force: `prowlarr_indexer_manage(action="update", indexer_id=N, tags=[1])` — the tool uses `forceSave` to bypass validation errors
+4. Without the FlareSolverr tag, these indexers will fail with "blocked by CloudFlare Protection" errors
 
 **If none of these have the content**: use `web_search` to research which indexers/trackers carry the specific content you're looking for. Private trackers often have better coverage for niche or older content.
 

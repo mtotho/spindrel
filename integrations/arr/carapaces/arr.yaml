@@ -1,9 +1,9 @@
 id: arr
 name: Media Stack
 description: >-
-  Home media management — TV shows (Sonarr), movies (Radarr), downloads (qBittorrent),
-  streaming (Jellyfin), requests (Jellyseerr), subtitles (Bazarr).
-tags: [media, sonarr, radarr, jellyfin, qbittorrent, jellyseerr]
+  Home media management — TV shows (Sonarr), movies (Radarr), indexers (Prowlarr),
+  downloads (qBittorrent), streaming (Jellyfin), requests (Jellyseerr), subtitles (Bazarr).
+tags: [media, sonarr, radarr, prowlarr, jellyfin, qbittorrent, jellyseerr]
 
 skills:
   - id: integrations/arr/media_management
@@ -64,15 +64,15 @@ system_prompt_fragment: |
   | "Is X available?" / "Do we have X?" | → Quick check: `jellyfin_library(action="search")` |
   | "Why isn't X on?" / "X is missing" | → `get_skill('integrations/arr/media-troubleshoot')` then follow the procedure step by step |
   | "Make sure X is on" / "Can you get X?" | → `get_skill('integrations/arr/media-request')` — covers check + request if needed |
-  | "Search for X episode" / "Find S01E05" / "Grab the best release for X" | → `sonarr_series()` (get internal `id`) → `sonarr_episodes(series_id=ID, season=N)` (get episode `id`) → `sonarr_releases(action="search", episode_id=EP_ID)` → evaluate & grab best |
+  | "Search for X episode" / "Find S01E05" / "Grab the best release for X" | → `get_skill('integrations/arr/media_management')` — see "Browse and grab specific releases" workflow |
   | "What's downloading?" | → `sonarr_queue()` + `radarr_queue()` + `qbit_torrents(filter="downloading")` |
   | "Fix stuck downloads" / "Something stalled" | → `get_skill('integrations/arr/download-monitoring')` — covers stalled detection, bad grabs, import failures |
   | "Why won't X import?" / "Download stuck" | → `get_skill('integrations/arr/media-troubleshoot')` — classifies as STALLED/BAD_GRAB/IMPORT_ISSUE/PHANTOM_FILE and fixes |
   | "What's new?" / "Recent additions" | → `jellyfin_library(action="recent")` |
   | "Show pending requests" | → `jellyseerr_requests(filter="pending")` |
-  | "No releases found" / "No indexers" / "Indexer issues" | → `prowlarr_health()` + `prowlarr_indexers()` → check for disabled/failing indexers → test failing ones → `prowlarr_search(query="...")` to verify search works |
-  | "Check indexers" / "Why can't Sonarr find X?" | → `prowlarr_search(query="X")` to see which indexers have results + `prowlarr_indexers()` to see health |
-  | "Add an indexer" / "Set up X indexer" | → `prowlarr_indexer_schemas(search="X")` → `prowlarr_indexer_manage(action="add", definition_name="...", app_profile_id=1)` → `prowlarr_indexers(action="test", indexer_id=N)` to verify |
+  | "No releases found" / "No indexers" / "Indexer issues" | → `get_skill('integrations/arr/media-troubleshoot')` — see NO_RELEASES diagnosis with full indexer diagnostics |
+  | "Check indexers" / "Why can't Sonarr find X?" | → `get_skill('integrations/arr/media-troubleshoot')` — see NO_RELEASES section |
+  | "Add an indexer" / "Set up X indexer" | → `get_skill('integrations/arr/media_management')` — see "Add new indexers" workflow |
 
   ### Quality Preferences
 
@@ -142,7 +142,7 @@ system_prompt_fragment: |
 
   | When you need... | Fetch this skill |
   |---|---|
-  | Full tool reference, all parameters, ID lookups | `get_skill('integrations/arr/media_management')` |
-  | Heartbeat monitoring, stuck detection, torrent selection | `get_skill('integrations/arr/download-monitoring')` |
+  | Full tool reference, all parameters, ID lookups, indexer setup | `get_skill('integrations/arr/media_management')` |
+  | Heartbeat monitoring, stuck detection, torrent selection, indexer health | `get_skill('integrations/arr/download-monitoring')` |
   | Step-by-step media request procedure | `get_skill('integrations/arr/media-request')` |
-  | Step-by-step troubleshooting procedure | `get_skill('integrations/arr/media-troubleshoot')` |
+  | Troubleshooting, indexer diagnostics, known-good indexers, FlareSolverr | `get_skill('integrations/arr/media-troubleshoot')` |
