@@ -337,6 +337,42 @@ async def prowlarr_health() -> str:
 @register({
     "type": "function",
     "function": {
+        "name": "prowlarr_tags",
+        "description": (
+            "List Prowlarr tags. Tags link indexers to indexer proxies like FlareSolverr. "
+            "Use this to find the tag ID for FlareSolverr before adding indexers that need it "
+            "(e.g. 1337x, KickassTorrents — sites behind Cloudflare protection)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+})
+async def prowlarr_tags() -> str:
+    if not settings.PROWLARR_URL:
+        return error("PROWLARR_URL is not configured")
+    try:
+        data = await _get("/api/v1/tag")
+        tags = []
+        for t in data:
+            tags.append({
+                "id": t.get("id"),
+                "label": sanitize(t.get("label", "")),
+            })
+        return json.dumps({"count": len(tags), "tags": tags})
+    except httpx.HTTPStatusError as e:
+        return error(f"Prowlarr API error: {e}")
+    except httpx.ConnectError:
+        return error(f"Cannot connect to Prowlarr at {_base_url()}")
+    except Exception as e:
+        logger.exception("prowlarr_tags failed")
+        return error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
         "name": "prowlarr_indexer_schemas",
         "description": (
             "Browse available indexer types that can be added to Prowlarr. "
@@ -483,6 +519,15 @@ async def _delete(path: str, timeout: float = 15.0):
                     "type": "integer",
                     "description": "Indexer priority 1-50, lower = higher priority (default 25).",
                 },
+                "app_profile_id": {
+                    "type": "integer",
+                    "description": "App profile ID that controls which apps (Sonarr/Radarr) this indexer syncs to. Default 1 (standard). Required for add.",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Tag IDs to assign (e.g. FlareSolverr proxy tag). Get IDs from prowlarr_tags. Empty array if none needed.",
+                },
                 "field_values": {
                     "type": "object",
                     "description": "Configuration field values as key-value pairs (e.g. {\"apiKey\": \"abc123\", \"baseUrl\": \"https://...\"}). Field names come from prowlarr_indexer_schemas.",
@@ -499,6 +544,8 @@ async def prowlarr_indexer_manage(
     name: str | None = None,
     enabled: bool = True,
     priority: int = 25,
+    app_profile_id: int = 1,
+    tags: list[int] | None = None,
     field_values: dict[str, Any] | None = None,
 ) -> str:
     if not settings.PROWLARR_URL:
@@ -527,7 +574,8 @@ async def prowlarr_indexer_manage(
             schema["name"] = name or schema.get("name", definition_name)
             schema["enable"] = enabled
             schema["priority"] = priority
-            schema["tags"] = []  # Required for adding enabled indexers
+            schema["appProfileId"] = app_profile_id
+            schema["tags"] = tags if tags is not None else []
 
             # Apply field values
             if field_values:

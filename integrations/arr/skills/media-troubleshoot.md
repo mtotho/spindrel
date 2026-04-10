@@ -147,11 +147,33 @@ When `sonarr_releases` or `radarr_releases` returns 0 results, or all results ar
 
 **Adding new indexers** (when current ones don't have the content):
 1. `prowlarr_indexer_schemas(search="...")` — browse available indexer types by name
-2. Review which ones are public (no account needed) vs private (requires registration)
-3. For public indexers: `prowlarr_indexer_manage(action="add", definition_name="thepiratebay")` — most work with defaults
-4. For private indexers: user will need to provide API key or credentials
-5. After adding: `prowlarr_indexers(action="test", indexer_id=N)` to verify it works
-6. Prowlarr auto-syncs new indexers to Sonarr/Radarr if app sync is configured
+2. Review which ones are public (no account needed) vs private (requires registration/API key)
+3. Add the indexer — `app_profile_id` is **required** (default 1 = standard profile):
+   - Public indexers (no credentials): `prowlarr_indexer_manage(action="add", definition_name="eztv", app_profile_id=1)`
+   - Public with custom base URL: `prowlarr_indexer_manage(action="add", definition_name="thepiratebay", app_profile_id=1, field_values={"baseUrl": "https://..."})`
+   - Private indexers (need API key): `prowlarr_indexer_manage(action="add", definition_name="nzbgeek", app_profile_id=1, field_values={"apiKey": "user-provided-key"})`
+4. After adding: `prowlarr_indexers(action="test", indexer_id=N)` to verify connectivity
+5. Prowlarr auto-syncs new indexers to Sonarr/Radarr if app sync is configured (`prowlarr_apps()` to verify)
+
+**Known good public indexers:**
+
+| Definition name | Best for | Needs FlareSolverr? | Notes |
+|---|---|---|---|
+| `eztv` | TV shows | No | Excellent for current + older TV |
+| `thepiratebay` | TV + Movies | No | Massive catalog, good for older content |
+| `1337x` | TV + Movies | Yes (Cloudflare) | Very popular, broad coverage |
+| `limetorrents` | TV + Movies | No | Decent coverage, multiple mirrors |
+| `kickasstorrents` | TV + Movies | Yes (Cloudflare) | Good alternative to 1337x |
+| `yts` | Movies only | No | Best for movies, small file sizes |
+| `torrentdownloads` | TV + Movies | No | Aggregator |
+| `nyaasi` | Anime | No | Best for anime content |
+
+**FlareSolverr setup** (for Cloudflare-protected indexers like 1337x, KickassTorrents):
+1. `prowlarr_tags()` — find the FlareSolverr tag ID (e.g. `{"id": 1, "label": "flaresolverr"}`)
+2. When adding a Cloudflare-protected indexer, pass the tag: `prowlarr_indexer_manage(action="add", definition_name="1337x", app_profile_id=1, tags=[1])`
+3. Without the FlareSolverr tag, these indexers will fail with connection/timeout errors
+
+**If none of these have the content**: use `web_search` to research which indexers/trackers carry the specific content you're looking for. Private trackers often have better coverage for niche or older content.
 
 ### IMPORT_ISSUE — Diagnose why import failed, then fix
 First check `sonarr_queue()` / `radarr_queue()` — read the `errors[]` field carefully:

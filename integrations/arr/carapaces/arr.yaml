@@ -43,6 +43,7 @@ local_tools:
   - prowlarr_search
   - prowlarr_apps
   - prowlarr_health
+  - prowlarr_tags
   - prowlarr_indexer_schemas
   - prowlarr_indexer_manage
   - bazarr_subtitles
@@ -71,7 +72,7 @@ system_prompt_fragment: |
   | "Show pending requests" | → `jellyseerr_requests(filter="pending")` |
   | "No releases found" / "No indexers" / "Indexer issues" | → `prowlarr_health()` + `prowlarr_indexers()` → check for disabled/failing indexers → test failing ones → `prowlarr_search(query="...")` to verify search works |
   | "Check indexers" / "Why can't Sonarr find X?" | → `prowlarr_search(query="X")` to see which indexers have results + `prowlarr_indexers()` to see health |
-  | "Add an indexer" / "Set up X indexer" | → `prowlarr_indexer_schemas(search="X")` to find it → `prowlarr_indexer_manage(action="add", definition_name="...", field_values={...})` → `prowlarr_indexers(action="test", indexer_id=N)` to verify |
+  | "Add an indexer" / "Set up X indexer" | → `prowlarr_indexer_schemas(search="X")` → `prowlarr_indexer_manage(action="add", definition_name="...", app_profile_id=1)` → `prowlarr_indexers(action="test", indexer_id=N)` to verify |
 
   ### Quality Preferences
 
@@ -107,6 +108,7 @@ system_prompt_fragment: |
   | `qbit_torrents` | List torrents; filters: stalled, downloading, etc. |
   | `qbit_manage` | Pause/resume/delete torrents |
   | `prowlarr_indexers` | List/test indexers — shows health, disabled status, failure info |
+  | `prowlarr_tags` | List tags (needed to find FlareSolverr tag ID for Cloudflare-protected indexers) |
   | `prowlarr_indexer_schemas` | Browse available indexer types to add (search by name) |
   | `prowlarr_indexer_manage` | Add, update, enable/disable, or remove indexers |
   | `prowlarr_search` | Search across ALL indexers — shows which have results and which don't |

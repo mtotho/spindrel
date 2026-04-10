@@ -1,11 +1,11 @@
 ---
 name: Media Management
-description: ARR media stack tools — Sonarr, Radarr, qBittorrent, Jellyfin, Jellyseerr, Bazarr
+description: ARR media stack tools — Sonarr, Radarr, Prowlarr, qBittorrent, Jellyfin, Jellyseerr, Bazarr
 ---
 # SKILL: Media Management (ARR Stack)
 
 ## Overview
-Full control over the home media stack: TV shows (Sonarr), movies (Radarr), downloads (qBittorrent), streaming (Jellyfin), media requests (Jellyseerr), and subtitles (Bazarr). All tools make direct API calls — no cached data.
+Full control over the home media stack: TV shows (Sonarr), movies (Radarr), indexers (Prowlarr), downloads (qBittorrent), streaming (Jellyfin), media requests (Jellyseerr), and subtitles (Bazarr). All tools make direct API calls — no cached data.
 
 ## Tools by Service
 
@@ -41,6 +41,15 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 - `jellyseerr_requests(filter="all", limit=20, skip=0, sort="added")` — list requests; filters: all, pending, approved, processing, available, unavailable, failed; sort: added (newest first) or modified (recently updated)
 - `jellyseerr_search(query, page=1)` — search TMDB (20 results/page); results include `status` if already requested/available
 - `jellyseerr_manage(action, request_id=None, media_id=None, media_type=None, seasons=None)` — actions: approve (needs request_id), decline (needs request_id), request (needs media_id + media_type; optional seasons for TV)
+
+### Prowlarr (Indexers)
+- `prowlarr_indexers(action="list", indexer_id=None)` — list all indexers with health/failure info; action="test" + indexer_id to test one; action="test_all" to test all
+- `prowlarr_indexer_schemas(search=None)` — browse available indexer types to add (filter by name)
+- `prowlarr_indexer_manage(action, indexer_id=None, definition_name=None, app_profile_id=1, tags=None, field_values=None)` — add/update/delete indexers. `app_profile_id` is **required** for add (default 1 = standard). `tags` for linking to FlareSolverr proxy. `field_values` for config like API keys.
+- `prowlarr_tags()` — list tags (find FlareSolverr tag ID for Cloudflare-protected indexers like 1337x)
+- `prowlarr_search(query, type="search", limit=20, indexer_ids=None)` — search across ALL indexers; shows which indexers found results. type: "search" (general), "tvsearch" (TV), "movie"
+- `prowlarr_apps()` — list connected apps (Sonarr/Radarr) and sync status
+- `prowlarr_health()` — system health check: indexer issues, sync problems, warnings
 
 ### Bazarr (Subtitles)
 - `bazarr_subtitles(action="wanted", media_type="episodes", limit=20)` — actions: wanted (missing subs), search (trigger search), status (system health)
@@ -84,9 +93,23 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 3. Look for: `downloadFailed` events, missing `downloadFolderImported` after `grabbed`, phantom file references
 
 ### Browse and grab specific releases
-1. `sonarr_releases(action="search", series_id=123)` or `radarr_releases(action="search", movie_id=456)`
-2. Evaluate: quality (1080p preferred), seeders, size, rejection status
-3. `sonarr_releases(action="grab", guid="...", indexer_id=1)` or `radarr_releases(action="grab", ...)`
+1. Get internal IDs: `sonarr_series()` → find series `id` (NOT tvdb_id)
+2. Get episode ID: `sonarr_episodes(series_id=X, season=N)` → find episode `id`
+3. Browse: `sonarr_releases(action="search", episode_id=EP_ID)` or `radarr_releases(action="search", movie_id=MOVIE_ID)`
+4. Evaluate: quality (1080p preferred), seeders ≥10, size 1-4 GB for TV, rejection status
+5. Grab: `sonarr_releases(action="grab", guid="...", indexer_id=N)` or `radarr_releases(action="grab", ...)`
+
+### Add new indexers
+1. `prowlarr_indexer_schemas(search="eztv")` — find the indexer definition
+2. `prowlarr_indexer_manage(action="add", definition_name="eztv", app_profile_id=1)` — add it (public indexers usually need no extra config)
+3. `prowlarr_indexers(action="test", indexer_id=N)` — verify it works
+4. Prowlarr auto-syncs to Sonarr/Radarr via app profiles
+
+### Troubleshoot indexers
+1. `prowlarr_health()` — check for system-level warnings
+2. `prowlarr_indexers()` — see which are enabled/disabled/failing
+3. `prowlarr_search(query="Show S01E05")` — test search across all indexers
+4. `prowlarr_indexers(action="test", indexer_id=X)` — test specific indexer connectivity
 
 ### Find something to watch
 1. `jellyfin_library(action="recent")` — see latest additions
@@ -98,7 +121,7 @@ Full control over the home media stack: TV shows (Sonarr), movies (Radarr), down
 2. `bazarr_subtitles(action="search")` — trigger search for all wanted
 
 ## Common Patterns
-- **ID lookups**: Use `sonarr_series` to get series IDs, `radarr_movies` for movie IDs
+- **ID lookups**: Use `sonarr_series()` (no search) to get internal series `id` (NOT tvdb_id). Use `radarr_movies()` (no search) for internal movie `id` (NOT tmdb_id). Search mode returns `id` only if the item is already in your library.
 - **Torrent hashes**: Get from `qbit_torrents` results, pass to `qbit_manage`
 - **TMDB IDs**: Get from `jellyseerr_search`, pass to `jellyseerr_manage(action="request")`
 - **Release GUIDs**: Get from `*_releases(action="search")`, pass to `*_releases(action="grab")`

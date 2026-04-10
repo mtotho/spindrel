@@ -191,9 +191,11 @@ async def run_subagent(
     parent_ctx = snapshot_agent_context()
     final_response = ""
     try:
+        # Use parent bot ID in context so tools that call get_bot() find a real bot.
+        # The sub-agent's BotConfig is only used for the tool loop config.
         set_agent_context(
             session_id=parent_session_id,
-            bot_id=subagent_bot.id,
+            bot_id=parent_bot_id or "default",
             channel_id=channel_id,
             dispatch_type=None,  # No dispatch — results stay inline
             dispatch_config=None,

@@ -89,7 +89,10 @@ radarr_movies(filter="wanted")       → missing movies
 ```
 
 If items have been wanted for a long time, consider triggering a manual search.
-If manual search also returns nothing, check indexer health (Step 4) and consider adding more indexers.
+If manual search also returns nothing, check indexer health (Step 4) and consider adding more indexers:
+- `prowlarr_indexer_schemas(search="...")` to browse available types
+- `prowlarr_indexer_manage(action="add", definition_name="eztv", app_profile_id=1)` to add
+- `prowlarr_indexers(action="test", indexer_id=N)` to verify
 
 ### 6. Update Workspace (if enabled)
 Update MEDIA.md with current state (see workspace tracking below).

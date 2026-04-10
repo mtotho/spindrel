@@ -13,6 +13,7 @@ from integrations.arr.tools.prowlarr import (
     prowlarr_indexer_schemas,
     prowlarr_indexers,
     prowlarr_search,
+    prowlarr_tags,
 )
 
 MODULE = "integrations.arr.tools.prowlarr"
@@ -241,6 +242,32 @@ async def test_health_not_configured(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# prowlarr_tags
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tags_success():
+    api_data = [
+        {"id": 1, "label": "flaresolverr"},
+        {"id": 2, "label": "movies-only"},
+    ]
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=api_data):
+        result = json.loads(await prowlarr_tags())
+
+    assert result["count"] == 2
+    assert result["tags"][0]["id"] == 1
+    assert result["tags"][0]["label"] == "flaresolverr"
+
+
+@pytest.mark.asyncio
+async def test_tags_not_configured(monkeypatch):
+    monkeypatch.setenv("PROWLARR_URL", "")
+    result = json.loads(await prowlarr_tags())
+    assert result["error"] == "PROWLARR_URL is not configured"
+
+
+# ---------------------------------------------------------------------------
 # prowlarr_indexer_schemas
 # ---------------------------------------------------------------------------
 
@@ -333,6 +360,31 @@ async def test_manage_add_success():
     base_url_field = next(f for f in posted["fields"] if f["name"] == "baseUrl")
     assert base_url_field["value"] == "https://tpb.example.com"
     assert posted["tags"] == []  # Required for adding enabled indexers
+    assert posted["appProfileId"] == 1  # Default app profile
+
+
+@pytest.mark.asyncio
+async def test_manage_add_with_tags():
+    schema_data = [
+        {
+            "definitionName": "1337x",
+            "name": "1337x",
+            "implementation": "Cardigann",
+            "fields": [],
+        },
+    ]
+    created = {"id": 7, "name": "1337x"}
+    with patch(f"{MODULE}._get", new_callable=AsyncMock, return_value=schema_data):
+        with patch(f"{MODULE}._post", new_callable=AsyncMock, return_value=created) as mock_post:
+            result = json.loads(await prowlarr_indexer_manage(
+                action="add",
+                definition_name="1337x",
+                tags=[1],  # FlareSolverr tag
+            ))
+
+    assert result["status"] == "ok"
+    posted = mock_post.call_args[0][1]
+    assert posted["tags"] == [1]
 
 
 @pytest.mark.asyncio
