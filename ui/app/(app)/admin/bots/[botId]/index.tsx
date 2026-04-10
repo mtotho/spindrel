@@ -400,46 +400,6 @@ export default function BotEditorScreen() {
             <div>
               <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12 }}>Skills</div>
               <SkillsSection editorData={editorData} draft={draft} update={update} onNavigateToLearning={() => setActiveSection("learning")} />
-              {editorData.workspace_skills && editorData.workspace_skills.length > 0 && (
-                <div style={{ marginTop: 20 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: "#9333ea" }}>Workspace Skills</span>
-                    <span style={{ fontSize: 10, color: t.textDim, background: "rgba(168,85,247,0.12)", padding: "2px 8px", borderRadius: 4 }}>
-                      auto-injected
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8 }}>
-                    These skills come from the workspace filesystem and are automatically injected into this bot's context.
-                    Manage them by adding/removing <code style={{ color: t.textMuted }}>.md</code> files in the workspace <code style={{ color: t.textMuted }}>common/skills/</code> or <code style={{ color: t.textMuted }}>bots/{"{bot_id}"}/skills/</code> directories.
-                  </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
-                    {editorData.workspace_skills.map((ws) => (
-                      <div key={ws.skill_id} style={{
-                        padding: 8, borderRadius: 6,
-                        background: "rgba(168,85,247,0.04)",
-                        border: "1px solid #2d1f4e",
-                      }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 12, fontWeight: 500, color: "#9333ea" }}>{ws.name}</span>
-                          <span style={{
-                            fontSize: 9, padding: "1px 6px", borderRadius: 3,
-                            background: "rgba(168,85,247,0.15)", color: "#a78bfa",
-                          }}>{ws.mode}</span>
-                          {ws.bot_id && (
-                            <span style={{ fontSize: 9, color: t.textDim, fontFamily: "monospace" }}>bot: {ws.bot_id}</span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 10, color: t.textDim, marginTop: 2, fontFamily: "monospace" }}>
-                          {ws.source_path}
-                        </div>
-                        <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
-                          {ws.chunk_count} chunks {ws.workspace_name && <span>· {ws.workspace_name}</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
               {draft.api_permissions && draft.api_permissions.length > 0 && (
                 <div style={{ marginTop: 20 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>

@@ -6,6 +6,10 @@ import {
   useChannelWorkspaceFileContent,
   useWriteChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
+import {
+  useWorkspaceFileContent,
+  useWriteWorkspaceFile,
+} from "@/src/api/hooks/useWorkspaces";
 import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 import { CodeEditor } from "./CodeEditor";
 
@@ -18,6 +22,16 @@ function isImageFile(path: string): boolean {
 
 interface ChannelFileViewerProps {
   channelId: string;
+  /** Workspace id is required when filePath references files outside the channel scope. */
+  workspaceId?: string;
+  /**
+   * File path. Two formats are accepted:
+   *   - Channel-relative: "README.md", "archive/old.md" (legacy callers)
+   *   - Workspace-relative: "channels/{channelId}/README.md", "bots/{botId}/memory/notes.md"
+   * When the path lives inside the channel scope, channel endpoints are used so
+   * the channel's RAG re-index hooks fire on save. Otherwise the workspace
+   * endpoints are used.
+   */
   filePath: string;
   onBack: () => void;
   splitMode?: boolean;
@@ -26,11 +40,43 @@ interface ChannelFileViewerProps {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
-export function ChannelFileViewer({ channelId, filePath, onBack, splitMode, onToggleSplit, onDirtyChange }: ChannelFileViewerProps) {
+export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, splitMode, onToggleSplit, onDirtyChange }: ChannelFileViewerProps) {
   const t = useThemeTokens();
   const isImage = isImageFile(filePath);
-  const { data, isLoading, refetch } = useChannelWorkspaceFileContent(channelId, isImage ? null : filePath);
-  const writeMutation = useWriteChannelWorkspaceFile(channelId);
+
+  // Decide which API to use based on path scope.
+  // Workspace-relative path inside the channel → use channel endpoints (preserves re-indexing).
+  // Anything else → use workspace endpoints.
+  const channelPrefix = `channels/${channelId}/`;
+  const isChannelScoped = filePath === channelPrefix || filePath.startsWith(channelPrefix);
+  const channelRelPath = isChannelScoped
+    ? filePath.slice(channelPrefix.length)
+    : (!filePath.includes("/") || (!filePath.startsWith("bots/") && !filePath.startsWith("users/") && !filePath.startsWith("memory/") && !filePath.startsWith("common/") && !filePath.startsWith("channels/")))
+      // Bare relative path (legacy callers passing channel-relative)
+      ? filePath
+      : null;
+
+  const useChannelEndpoint = channelRelPath !== null;
+
+  // Channel hooks (only enabled when scope matches)
+  const channelContent = useChannelWorkspaceFileContent(
+    useChannelEndpoint ? channelId : undefined,
+    useChannelEndpoint && !isImage ? channelRelPath : null,
+  );
+  const channelWrite = useWriteChannelWorkspaceFile(channelId);
+
+  // Workspace hooks (only enabled when scope is outside the channel)
+  const workspaceContent = useWorkspaceFileContent(
+    !useChannelEndpoint ? workspaceId : undefined,
+    !useChannelEndpoint && !isImage ? filePath : null,
+  );
+  const workspaceWrite = useWriteWorkspaceFile(workspaceId ?? "");
+
+  const data = useChannelEndpoint ? channelContent.data : workspaceContent.data;
+  const isLoading = useChannelEndpoint ? channelContent.isLoading : workspaceContent.isLoading;
+  const refetch = useChannelEndpoint ? channelContent.refetch : workspaceContent.refetch;
+  const writeMutation = useChannelEndpoint ? channelWrite : workspaceWrite;
+
   const { serverUrl } = useAuthStore();
 
   // For image files, fetch raw bytes and create a blob URL

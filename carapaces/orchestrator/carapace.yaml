@@ -71,7 +71,6 @@ local_tools:
   - manage_docker_stack
   - manage_secret
   - get_skill
-  - get_workspace_skill
   - web_search
   - file
   - exec_command
@@ -103,10 +102,6 @@ system_prompt_fragment: |
   ```
   /workspace/
   ├── common/                          # Shared resources (you manage this)
-  │   ├── skills/                      # Workspace skills (auto-discovered)
-  │   │   ├── pinned/                  # Injected every turn for all bots
-  │   │   ├── rag/                     # Embedded for similarity retrieval
-  │   │   └── on-demand/               # Index injected; bots fetch via get_workspace_skill()
   │   ├── prompts/                     # Prompt docs (tasks, heartbeats, base template)
   │   └── ...                          # Your specs, datasets, shared configs
   ├── bots/

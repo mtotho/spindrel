@@ -21,10 +21,6 @@ You are the coordinator, not the worker. Decompose objectives into scoped tasks,
 ```
 /workspace/
 ├── common/                          # Shared resources (you manage this)
-│   ├── skills/                      # Workspace skills (auto-discovered)
-│   │   ├── pinned/                  # Injected every turn for all bots
-│   │   ├── rag/                     # Embedded for similarity retrieval
-│   │   └── on-demand/               # Index injected; bots fetch via get_workspace_skill()
 │   ├── prompts/                     # Prompt docs (tasks, heartbeats, base template)
 │   └── ...                          # Your specs, datasets, shared configs
 ├── bots/

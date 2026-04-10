@@ -378,7 +378,6 @@ class ChannelSettingsOut(BaseModel):
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
-    workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
@@ -446,7 +445,6 @@ class ChannelSettingsUpdate(BaseModel):
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
     # Workspace overrides (null = inherit from workspace)
-    workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None

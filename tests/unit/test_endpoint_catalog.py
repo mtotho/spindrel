@@ -90,10 +90,6 @@ class TestWorkspaceEndpointsCoverage:
 
     def test_workspace_reindex(self, catalog_paths):
         assert ("POST", "/api/v1/workspaces/{workspace_id}/reindex") in catalog_paths
-        assert ("POST", "/api/v1/workspaces/{workspace_id}/reindex-skills") in catalog_paths
-
-    def test_workspace_skills(self, catalog_paths):
-        assert ("GET", "/api/v1/workspaces/{workspace_id}/skills") in catalog_paths
 
     def test_workspace_file_ops(self, catalog_paths):
         assert ("POST", "/api/v1/workspaces/{workspace_id}/files/mkdir") in catalog_paths

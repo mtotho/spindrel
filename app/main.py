@@ -456,11 +456,10 @@ async def lifespan(application: FastAPI):
             except Exception:
                 logger.warning("Failed to auto-start shared workspace %s", _sw.name)
     # Start shared workspace watchers (fast — no embedding)
-    _sw_watch_targets: list[tuple[str, str, bool]] = []
-    for _sw in _sw_rows:
-        _sw_watch_targets.append(
-            (str(_sw.id), shared_workspace_service.get_host_root(str(_sw.id)), bool(_sw.workspace_skills_enabled))
-        )
+    _sw_watch_targets: list[tuple[str, str]] = [
+        (str(_sw.id), shared_workspace_service.get_host_root(str(_sw.id)))
+        for _sw in _sw_rows
+    ]
     if _sw_watch_targets:
         from app.agent.fs_watcher import start_shared_workspace_watchers
         _workers.append(safe_create_task(start_shared_workspace_watchers(_sw_watch_targets), name="sw_watchers"))
@@ -473,9 +472,6 @@ async def lifespan(application: FastAPI):
     # indexes and reconcile container state.  Content-hash checks skip unchanged
     # items, so steady-state restarts finish quickly.
     # ---------------------------------------------------------------------------
-    _sw_ids_for_skill_embed = [
-        str(_sw.id) for _sw in _sw_rows if _sw.workspace_skills_enabled
-    ]
 
     async def _background_warmup() -> None:
         import time as _time
@@ -493,18 +489,9 @@ async def lifespan(application: FastAPI):
             from app.agent.capability_rag import index_capabilities
             await index_capabilities()
 
-        async def _embed_ws_skills():
-            from app.services.workspace_skills import embed_workspace_skills as _embed
-            for ws_id in _sw_ids_for_skill_embed:
-                try:
-                    await _embed(ws_id)
-                except Exception:
-                    logger.warning("Failed to embed workspace skills for %s", ws_id)
-
         await asyncio.gather(
             _index_tools(),
             _index_caps(),
-            _embed_ws_skills(),
             return_exceptions=True,
         )
 

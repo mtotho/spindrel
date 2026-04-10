@@ -72,28 +72,7 @@ async def diagnostics_indexing(
         "knowledge_files_on_disk": len(knowledge_files),
     }
 
-    # --- 3. Workspace skills ---
-    ws_rows = (await db.execute(select(SharedWorkspace))).scalars().all()
-    ws_skills_info = []
-    for ws in ws_rows:
-        ws_doc_count = (await db.execute(
-            select(func.count()).select_from(Document)
-            .where(Document.source.like(f"workspace_skill:{ws.id}:%"))
-        )).scalar_one()
-        ws_distinct_sources = (await db.execute(
-            select(func.count(func.distinct(Document.source)))
-            .where(Document.source.like(f"workspace_skill:{ws.id}:%"))
-        )).scalar_one()
-        ws_skills_info.append({
-            "workspace_id": str(ws.id),
-            "workspace_name": ws.name,
-            "skills_enabled": bool(ws.workspace_skills_enabled),
-            "document_chunks": ws_doc_count,
-            "distinct_skills": ws_distinct_sources,
-        })
-    result["systems"]["workspace_skills"] = ws_skills_info
-
-    # --- 4. Filesystem indexing (per bot) ---
+    # --- 3. Filesystem indexing (per bot) ---
     from app.agent.bots import list_bots, get_bot
     from app.services.workspace import workspace_service
     from app.services.memory_scheme import get_memory_rel_path, get_memory_index_prefix
@@ -258,7 +237,7 @@ async def diagnostics_reindex(
     from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
     reindex_op = progress.start("reindex", "Full reindex")
-    results = {"filesystem": [], "workspace_skills": []}
+    results: dict = {"filesystem": []}
 
     try:
         # Re-index filesystem chunks
@@ -341,22 +320,6 @@ async def diagnostics_reindex(
                 except Exception as e:
                     results["filesystem"].append({
                         "bot_id": bot.id, "source": "memory-only", "error": str(e),
-                    })
-
-        # Re-embed workspace skills
-        from app.db.models import SharedWorkspace as SW
-        ws_rows = (await db.execute(select(SW).where(SW.workspace_skills_enabled == True))).scalars().all()  # noqa: E712
-        if ws_rows:
-            from app.services.workspace_skills import embed_workspace_skills
-            for ws in ws_rows:
-                try:
-                    stats = await embed_workspace_skills(str(ws.id))
-                    results["workspace_skills"].append({
-                        "workspace": ws.name, **stats,
-                    })
-                except Exception as e:
-                    results["workspace_skills"].append({
-                        "workspace": ws.name, "error": str(e),
                     })
 
         progress.complete(reindex_op, message="Reindex complete")

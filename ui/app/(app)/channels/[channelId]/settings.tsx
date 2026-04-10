@@ -112,7 +112,6 @@ export default function ChannelSettingsScreen() {
         channel_prompt: settings.channel_prompt,
         channel_prompt_workspace_file_path: settings.channel_prompt_workspace_file_path,
         channel_prompt_workspace_id: settings.channel_prompt_workspace_id,
-        workspace_skills_enabled: settings.workspace_skills_enabled,
         workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
         channel_workspace_enabled: settings.channel_workspace_enabled,
         workspace_schema_template_id: settings.workspace_schema_template_id,
@@ -247,7 +246,7 @@ export default function ChannelSettingsScreen() {
       {/* Tabs — single horizontally-scrollable row of underline tabs.
           Subtle separator between primary and diagnostic groups.
           No "More" dropdown — every tab is reachable in one place. */}
-      <View style={{ flexShrink: 0 }}>
+      <View style={{ flexShrink: 0, width: "100%", minWidth: 0 }}>
         <div
           className="hide-scrollbar"
           style={{
@@ -259,6 +258,8 @@ export default function ChannelSettingsScreen() {
             scrollbarWidth: "none",
             borderBottom: `1px solid ${t.surfaceBorder}`,
             padding: `0 ${isMobile ? 8 : 12}px`,
+            maxWidth: "100%",
+            minWidth: 0,
           }}
         >
           {ALL_TABS.map((tb) => {

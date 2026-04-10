@@ -293,6 +293,7 @@ class TestToolResultHardCap:
             mock_settings.TOOL_RESULT_HARD_CAP = 1_000
             mock_settings.CONTEXT_PRUNING_MIN_LENGTH = 200
             mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+            mock_settings.IN_LOOP_PRUNING_ENABLED = False
             mock_settings.CAPABILITY_APPROVAL = "disabled"
 
             result = await dispatch_tool_call(
@@ -332,6 +333,7 @@ class TestToolResultHardCap:
             mock_settings.TOOL_RESULT_HARD_CAP = 1_000
             mock_settings.CONTEXT_PRUNING_MIN_LENGTH = 200
             mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+            mock_settings.IN_LOOP_PRUNING_ENABLED = False
             mock_settings.CAPABILITY_APPROVAL = "disabled"
 
             result = await dispatch_tool_call(
@@ -369,6 +371,7 @@ class TestToolResultHardCap:
             mock_settings.TOOL_RESULT_HARD_CAP = 50_000
             mock_settings.CONTEXT_PRUNING_MIN_LENGTH = 200
             mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+            mock_settings.IN_LOOP_PRUNING_ENABLED = False
             mock_settings.CAPABILITY_APPROVAL = "disabled"
 
             result = await dispatch_tool_call(
@@ -477,6 +480,7 @@ class TestRunAgentToolLoop:
             mock_settings.TOOL_RESULT_SUMMARIZE_MODEL = ""
             mock_settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS = 500
             mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
+            mock_settings.IN_LOOP_PRUNING_ENABLED = False
 
             from app.agent.loop import run_agent_tool_loop
             messages = [{"role": "user", "content": "loop forever"}]

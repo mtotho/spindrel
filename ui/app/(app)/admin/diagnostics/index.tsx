@@ -143,49 +143,11 @@ function StatBox({ label, value, warn }: { label: string; value: number; warn?: 
   );
 }
 
-function WorkspaceSkillsSection({ data }: { data: Array<{ workspace_id: string; workspace_name: string; skills_enabled: boolean; document_chunks: number; distinct_skills: number }> }) {
-  const t = useThemeTokens();
-  if (data.length === 0) {
-    return (
-      <div style={{ padding: 16, fontSize: 12, color: t.textDim, textAlign: "center" }}>
-        No shared workspaces configured.
-      </div>
-    );
-  }
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {data.map((ws) => (
-        <div key={ws.workspace_id} style={{
-          padding: "12px 16px", background: t.inputBg, borderRadius: 8,
-          border: `1px solid ${ws.skills_enabled && ws.document_chunks === 0 ? t.dangerBorder : t.surfaceRaised}`,
-          display: "flex", alignItems: "center", gap: 12,
-        }}>
-          <BookOpen size={14} color={t.textMuted} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>{ws.workspace_name}</span>
-          <span style={{
-            padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-            background: ws.skills_enabled ? t.successSubtle : "rgba(100,100,100,0.15)",
-            color: ws.skills_enabled ? t.success : t.textDim,
-          }}>
-            {ws.skills_enabled ? "enabled" : "disabled"}
-          </span>
-          <span style={{ fontSize: 12, color: t.textMuted, fontFamily: "monospace" }}>
-            {ws.distinct_skills} skills / {ws.document_chunks} chunks
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function ReindexResultBanner({ result, onDismiss }: { result: ReindexResult; onDismiss: () => void }) {
   const t = useThemeTokens();
   const fsErrors = result.filesystem.filter((f) => f.error);
-  const wsErrors = result.workspace_skills.filter((w) => w.error);
-  const hasErrors = fsErrors.length > 0 || wsErrors.length > 0;
+  const hasErrors = fsErrors.length > 0;
   const totalIndexed = result.filesystem.reduce((sum, f) => sum + (f.indexed || 0), 0);
-  const totalSkills = result.workspace_skills.reduce((sum, w) => sum + (w.embedded || 0), 0);
-  const orphansDeleted = result.workspace_skills.reduce((sum, w) => sum + (w.orphans_deleted || 0), 0);
 
   return (
     <div style={{
@@ -196,9 +158,7 @@ function ReindexResultBanner({ result, onDismiss }: { result: ReindexResult; onD
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ color: hasErrors ? t.danger : t.success }}>
-          <strong>Reindex complete:</strong> {totalIndexed} files indexed,
-          {" "}{totalSkills} workspace skills embedded
-          {orphansDeleted > 0 && `, ${orphansDeleted} orphans cleaned`}
+          <strong>Reindex complete:</strong> {totalIndexed} files indexed
           {result.filesystem.map((f, i) => (
             <div key={i} style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>
               {f.bot_id}: {f.error
@@ -332,14 +292,6 @@ export default function DiagnosticsScreen() {
                 </div>
               </div>
             )}
-
-            {/* Workspace Skills */}
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
-                Workspace Skills
-              </div>
-              <WorkspaceSkillsSection data={data.systems.workspace_skills} />
-            </div>
 
             {/* File-sourced skills */}
             <div>

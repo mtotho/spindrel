@@ -17,14 +17,6 @@ export interface FileSkillsDiag {
   knowledge_files_on_disk: number;
 }
 
-export interface WorkspaceSkillDiag {
-  workspace_id: string;
-  workspace_name: string;
-  skills_enabled: boolean;
-  document_chunks: number;
-  distinct_skills: number;
-}
-
 export interface FsIndexDiag {
   bot_id: string;
   workspace_root: string;
@@ -47,7 +39,6 @@ export interface IndexingDiagnostics {
   systems: {
     embedding: EmbeddingHealth;
     file_skills: FileSkillsDiag;
-    workspace_skills: WorkspaceSkillDiag[];
     filesystem_indexing: FsIndexDiag[];
   };
 }
@@ -61,15 +52,6 @@ export interface ReindexResult {
     skipped?: number;
     removed?: number;
     errors?: number;
-    error?: string;
-  }>;
-  workspace_skills: Array<{
-    workspace: string;
-    total?: number;
-    embedded?: number;
-    unchanged?: number;
-    errors?: number;
-    orphans_deleted?: number;
     error?: string;
   }>;
 }

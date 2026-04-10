@@ -30,7 +30,6 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 # All functions use content-hash checks so they're cheap no-ops
 # when nothing actually changed.
 
-_SKILL_PATH_SEGMENTS = ("skills/",)
 _MEMORY_PATH_SEGMENTS = ("memory/",)
 
 
@@ -43,18 +42,15 @@ def _schedule_reindex_for_paths(workspace_id: str, *paths: str) -> None:
     """Fire-and-forget background re-index for affected subsystems.
 
     Inspects the paths to decide which indexes need refreshing:
-    - skills/  → embed_workspace_skills (discovers mode from directory)
     - memory/  → index_memory_for_bot (all bots in this workspace)
     - anything → index_directory for filesystem chunks (all bots)
     """
-    touches_skills = any(_path_touches(p, _SKILL_PATH_SEGMENTS) for p in paths)
     touches_memory = any(_path_touches(p, _MEMORY_PATH_SEGMENTS) for p in paths)
 
     # Always reindex filesystem chunks — the file watcher might not catch
     # UI-driven mutations since they happen on the host path directly.
     asyncio.create_task(_background_reindex(
         workspace_id,
-        reindex_skills=touches_skills,
         reindex_memory=touches_memory,
         reindex_filesystem=True,
     ))
@@ -63,17 +59,11 @@ def _schedule_reindex_for_paths(workspace_id: str, *paths: str) -> None:
 async def _background_reindex(
     workspace_id: str,
     *,
-    reindex_skills: bool = False,
     reindex_memory: bool = False,
     reindex_filesystem: bool = False,
 ) -> None:
     """Run the appropriate re-index passes in the background."""
     try:
-        if reindex_skills:
-            from app.services.workspace_skills import embed_workspace_skills
-            stats = await embed_workspace_skills(workspace_id)
-            logger.info("Auto reindex skills for ws %s: %s", workspace_id[:8], stats)
-
         if reindex_memory or reindex_filesystem:
             from app.db.engine import async_session
             from app.services.workspace_indexing import resolve_indexing, get_all_roots
@@ -152,7 +142,6 @@ class WorkspaceUpdate(BaseModel):
     docker_user: Optional[str] = None
     read_only_root: Optional[bool] = None
     startup_script: Optional[str] = None
-    workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     indexing_config: Optional[dict] = None
     write_protected_paths: Optional[list[str]] = None
@@ -173,7 +162,6 @@ class WorkspaceOut(BaseModel):
     docker_user: Optional[str]
     read_only_root: bool
     startup_script: Optional[str]
-    workspace_skills_enabled: bool = True
     workspace_base_prompt_enabled: bool = True
     indexing_config: Optional[dict] = None
     editor_enabled: bool = False
@@ -273,7 +261,6 @@ def _ws_to_out(ws: SharedWorkspace, sw_bots: list[SharedWorkspaceBot] | None = N
         docker_user=ws.docker_user,
         read_only_root=ws.read_only_root,
         startup_script=ws.startup_script,
-        workspace_skills_enabled=ws.workspace_skills_enabled,
         workspace_base_prompt_enabled=ws.workspace_base_prompt_enabled,
         indexing_config=ws.indexing_config,
         editor_enabled=ws.editor_enabled,
@@ -1248,40 +1235,6 @@ async def reindex_workspace(
             results.setdefault(swb.bot_id, {})["indexing_error"] = str(exc)
 
     return {"results": results}
-
-
-@router.post("/{workspace_id}/reindex-skills")
-async def reindex_workspace_skills(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:write")),
-):
-    """Re-discover and re-embed workspace skill .md files."""
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-
-    from app.services.workspace_skills import embed_workspace_skills
-    stats = await embed_workspace_skills(workspace_id)
-    return stats
-
-
-@router.get("/{workspace_id}/skills")
-async def list_workspace_skills(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    _auth=Depends(require_scopes("workspaces:read")),
-):
-    """List discovered workspace skill files with metadata."""
-    ws_id = uuid.UUID(workspace_id)
-    ws = await db.get(SharedWorkspace, ws_id)
-    if not ws:
-        raise HTTPException(404, "Workspace not found")
-
-    from app.services.workspace_skills import list_workspace_skill_files
-    skills = await list_workspace_skill_files(workspace_id)
-    return {"skills": skills}
 
 
 # ── Indexing visibility + per-bot override ────────────────────────

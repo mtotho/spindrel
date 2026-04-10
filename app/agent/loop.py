@@ -15,7 +15,7 @@ from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context
 from app.services import session_locks
 from app.agent.context_assembly import AssemblyResult, assemble_context
-from app.agent.context_pruning import STICKY_TOOL_NAMES
+from app.agent.context_pruning import STICKY_TOOL_NAMES, prune_in_loop_tool_results
 from app.agent.message_utils import (
     _event_with_compaction_tag,
     _extract_client_actions,
@@ -422,6 +422,46 @@ async def run_agent_tool_loop(
             logger.debug("--- Iteration %d ---", iteration + 1)
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
 
+            # In-loop pruning: trim tool results from older iterations within
+            # this turn. Runs from iteration 2 onwards (needs at least one
+            # complete prior iteration to have something to prune).
+            if iteration > 0 and settings.IN_LOOP_PRUNING_ENABLED:
+                _in_loop_stats = prune_in_loop_tool_results(
+                    messages,
+                    keep_iterations=settings.IN_LOOP_PRUNING_KEEP_ITERATIONS,
+                    min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
+                )
+                if _in_loop_stats["pruned_count"] > 0:
+                    logger.info(
+                        "In-loop pruning: %d tool results pruned (saved %d chars) at iter %d",
+                        _in_loop_stats["pruned_count"],
+                        _in_loop_stats["chars_saved"],
+                        iteration + 1,
+                    )
+                    yield _event_with_compaction_tag({
+                        "type": "context_pruning",
+                        "pruned_count": _in_loop_stats["pruned_count"],
+                        "chars_saved": _in_loop_stats["chars_saved"],
+                        "iterations_pruned": _in_loop_stats["iterations_pruned"],
+                        "scope": "in_loop",
+                    }, compaction)
+                    if correlation_id is not None:
+                        safe_create_task(_record_trace_event(
+                            correlation_id=correlation_id,
+                            session_id=session_id,
+                            bot_id=bot.id,
+                            client_id=client_id,
+                            event_type="context_pruning",
+                            count=_in_loop_stats["pruned_count"],
+                            data={
+                                "scope": "in_loop",
+                                "chars_saved": _in_loop_stats["chars_saved"],
+                                "iterations_pruned": _in_loop_stats["iterations_pruned"],
+                                "iteration": iteration + 1,
+                                "keep_iterations": settings.IN_LOOP_PRUNING_KEEP_ITERATIONS,
+                            },
+                        ))
+
             # Context breakdown trace (first iteration only — avoids O(n) scan every iteration)
             if correlation_id is not None and iteration == 0:
                 _breakdown: dict[str, dict] = {}
@@ -493,6 +533,24 @@ async def run_agent_tool_loop(
                 if isinstance(item, AccumulatedMessage):
                     accumulated_msg = item
                 else:
+                    # Persist retry / fallback events to the trace so admins
+                    # can see when the LLM call had to back off and retry.
+                    # Without this, 529s and rate-limit retries are invisible
+                    # in the trace UI even though they're happening.
+                    if isinstance(item, dict) and correlation_id is not None:
+                        _ev_type = item.get("type")
+                        if _ev_type in ("llm_retry", "llm_fallback", "llm_cooldown_skip"):
+                            safe_create_task(_record_trace_event(
+                                correlation_id=correlation_id,
+                                session_id=session_id,
+                                bot_id=bot.id,
+                                client_id=client_id,
+                                event_type=_ev_type,
+                                data={
+                                    **{k: v for k, v in item.items() if k != "type"},
+                                    "iteration": iteration + 1,
+                                },
+                            ))
                     yield _event_with_compaction_tag(item, compaction)
                 # Check cancel during LLM streaming/retries
                 if session_id and session_locks.is_cancel_requested(session_id):

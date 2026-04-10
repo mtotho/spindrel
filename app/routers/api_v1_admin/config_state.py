@@ -323,7 +323,6 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "docker_user": row.get("docker_user"),
                 "read_only_root": row.get("read_only_root", False),
                 "startup_script": row.get("startup_script"),
-                "workspace_skills_enabled": row.get("workspace_skills_enabled", True),
                 "workspace_base_prompt_enabled": row.get("workspace_base_prompt_enabled", True),
                 "indexing_config": row.get("indexing_config"),
             }
@@ -384,7 +383,6 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "client_tools_disabled": row.get("client_tools_disabled"),
                 "skills_disabled": row.get("skills_disabled"),
                 "skills_extra": row.get("skills_extra"),
-                "workspace_skills_enabled": row.get("workspace_skills_enabled"),
                 "workspace_base_prompt_enabled": row.get("workspace_base_prompt_enabled"),
                 "history_mode": row.get("history_mode"),
                 "trigger_heartbeat_before_compaction": row.get("trigger_heartbeat_before_compaction"),

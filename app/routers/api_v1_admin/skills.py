@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Document, SharedWorkspace, Skill as SkillRow
+from app.db.models import Document, Skill as SkillRow
 from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
@@ -116,61 +116,6 @@ async def admin_list_skills(
         )
         for s in skills
     ]
-
-    # Include workspace skills from documents table (only when not filtering
-    # to a specific non-workspace source_type)
-    if source_type and source_type != "workspace":
-        return result
-
-    ws_skill_rows = (await db.execute(
-        select(
-            Document.metadata_["skill_id"].as_string().label("skill_id"),
-            Document.metadata_["skill_name"].as_string().label("skill_name"),
-            Document.metadata_["workspace_id"].as_string().label("workspace_id"),
-            Document.metadata_["mode"].as_string().label("mode"),
-            Document.metadata_["bot_id"].as_string().label("bot_id"),
-            Document.metadata_["source_path"].as_string().label("source_path"),
-            func.count().label("chunk_count"),
-        )
-        .where(Document.source.like("workspace_skill:%"))
-        .group_by("skill_id", "skill_name", "workspace_id", "mode", "bot_id", "source_path")
-        .order_by("skill_name")
-    )).all()
-
-    if ws_skill_rows:
-        # Batch-fetch workspace names
-        ws_id_strs = list({r.workspace_id for r in ws_skill_rows if r.workspace_id})
-        ws_names: dict[str, str] = {}
-        if ws_id_strs:
-            import uuid as _uuid
-            ws_uuids = []
-            for s in ws_id_strs:
-                try:
-                    ws_uuids.append(_uuid.UUID(s))
-                except ValueError:
-                    pass
-            if ws_uuids:
-                ws_rows = (await db.execute(
-                    select(SharedWorkspace.id, SharedWorkspace.name)
-                    .where(SharedWorkspace.id.in_(ws_uuids))
-                )).all()
-                ws_names = {str(r.id): r.name for r in ws_rows}
-
-        now = datetime.now(timezone.utc)
-        for r in ws_skill_rows:
-            result.append(SkillOut(
-                id=r.skill_id,
-                name=r.skill_name or r.skill_id,
-                source_type="workspace",
-                source_path=r.source_path,
-                chunk_count=r.chunk_count,
-                created_at=now,
-                updated_at=now,
-                workspace_id=r.workspace_id,
-                workspace_name=ws_names.get(r.workspace_id, r.workspace_id),
-                mode=r.mode,
-                bot_id=r.bot_id,
-            ))
 
     return result
 
@@ -294,23 +239,7 @@ async def admin_file_sync(
     _auth: str = Depends(require_scopes("skills:write")),
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger a full file sync for skills, knowledge, and workspace skills."""
+    """Trigger a full file sync for skills and knowledge."""
     from app.services.file_sync import sync_all_files
     result = await sync_all_files()
-
-    # Also re-embed workspace skills (with orphan cleanup)
-    ws_stats: list[dict] = []
-    from app.db.models import SharedWorkspace as SW
-    ws_rows = (await db.execute(
-        select(SW).where(SW.workspace_skills_enabled == True)  # noqa: E712
-    )).scalars().all()
-    if ws_rows:
-        from app.services.workspace_skills import embed_workspace_skills
-        for ws in ws_rows:
-            try:
-                stats = await embed_workspace_skills(str(ws.id))
-                ws_stats.append({"workspace": ws.name, **stats})
-            except Exception:
-                ws_stats.append({"workspace": ws.name, "error": True})
-
-    return {"ok": True, **result, "workspace_skills": ws_stats}
+    return {"ok": True, **result}

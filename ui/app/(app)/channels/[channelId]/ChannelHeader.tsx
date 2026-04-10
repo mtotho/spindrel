@@ -131,16 +131,24 @@ export function ChannelHeader({
             </div>
           )}
         </div>
+        {/* Explorer toggle: available whenever the channel resolves to a workspace
+            (even if channel-level workspace is disabled — the explorer can still
+            show bot memory and other workspace files). */}
+        {workspaceId && !isMobile && (
+          <button
+            className="header-icon-btn"
+            style={{ width: 36, height: 36, backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent" }}
+            onClick={toggleExplorer}
+            title={explorerOpen ? "Hide file explorer" : "Show file explorer"}
+          >
+            <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
+          </button>
+        )}
+        {/* Browse workspace + VS Code editor: still gated on channel workspace
+            being enabled (those open the live editor session, which only makes
+            sense when the channel actually owns workspace files). */}
         {workspaceEnabled && workspaceId && !isMobile && (
           <>
-            <button
-              className="header-icon-btn"
-              style={{ width: 36, height: 36, backgroundColor: explorerOpen ? t.surfaceOverlay : "transparent" }}
-              onClick={toggleExplorer}
-              title={explorerOpen ? "Hide file explorer" : "Show file explorer"}
-            >
-              <PanelLeft size={16} color={explorerOpen ? t.accent : t.textDim} />
-            </button>
             <button
               className="header-icon-btn"
               style={{ width: 36, height: 36 }}

@@ -33,6 +33,10 @@ interface FileBrowserState {
 
   // Channel file explorer (chat sidebar)
   channelExplorerWidth: number;
+  // Per-channel remembered last-visited path inside the channel explorer.
+  // In-memory only (intentionally not persisted) — resets on reload.
+  channelExplorerPaths: Record<string, string>;
+  setChannelExplorerPath: (channelId: string, path: string) => void;
 
   // Actions — split
   toggleSplit: () => void;
@@ -83,6 +87,10 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
   expandedDirs: {} as DirMap,
   treeWidth: 220,
   channelExplorerWidth: 260,
+  channelExplorerPaths: {},
+
+  setChannelExplorerPath: (channelId, path) =>
+    set((s) => ({ channelExplorerPaths: { ...s.channelExplorerPaths, [channelId]: path } })),
 
   toggleTree: () => set((s) => ({ treeVisible: !s.treeVisible })),
   showTree: () => set({ treeVisible: true }),
@@ -207,5 +215,6 @@ export const useFileBrowserStore = create<FileBrowserState>()((set, get) => ({
       expandedDirs: {} as DirMap,
       treeWidth: 220,
       channelExplorerWidth: 260,
+      channelExplorerPaths: {},
     }),
 }));

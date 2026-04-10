@@ -215,17 +215,6 @@ export interface SkillOption {
   source_type?: string;
 }
 
-export interface WorkspaceSkill {
-  skill_id: string;
-  name: string;
-  mode: string;
-  source_path: string;
-  bot_id?: string | null;
-  workspace_id: string;
-  workspace_name?: string;
-  chunk_count: number;
-}
-
 export interface ModelParamDefinition {
   name: string;
   label: string;
@@ -257,7 +246,6 @@ export interface BotEditorData {
   mcp_servers: string[];
   client_tools: string[];
   all_skills: SkillOption[];
-  workspace_skills: WorkspaceSkill[];
   all_bots: { id: string; name: string }[];
   all_sandbox_profiles: { name: string; description?: string }[];
   model_param_definitions: ModelParamDefinition[];
@@ -458,7 +446,6 @@ export interface ChannelSettings {
   skills_disabled?: string[] | null;
   skills_extra?: { id: string; mode?: string }[] | null;
   // Workspace overrides
-  workspace_skills_enabled?: boolean | null;
   workspace_base_prompt_enabled?: boolean | null;
   // Channel workspace
   channel_workspace_enabled?: boolean | null;
@@ -694,7 +681,6 @@ export interface SharedWorkspace {
   docker_user?: string | null;
   read_only_root: boolean;
   startup_script?: string | null;
-  workspace_skills_enabled: boolean;
   workspace_base_prompt_enabled: boolean;
   editor_enabled: boolean;
   editor_port?: number | null;
@@ -724,7 +710,6 @@ export interface WorkspaceCreate {
   docker_user?: string;
   read_only_root?: boolean;
   startup_script?: string;
-  workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
   write_protected_paths?: string[];
   skills?: { id: string; mode?: string }[];
@@ -744,7 +729,6 @@ export interface WorkspaceUpdate {
   docker_user?: string;
   read_only_root?: boolean;
   startup_script?: string;
-  workspace_skills_enabled?: boolean;
   workspace_base_prompt_enabled?: boolean;
   write_protected_paths?: string[];
   skills?: { id: string; mode?: string }[];

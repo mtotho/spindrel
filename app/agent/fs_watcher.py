@@ -6,7 +6,7 @@ import logging
 import time
 from pathlib import Path, PurePosixPath
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 logger = logging.getLogger(__name__)
 
@@ -187,12 +187,11 @@ async def start_watchers(bots: list) -> None:
 
 
 async def _watch_shared_workspace(
-    workspace_id: str, host_root: str, skills_enabled: bool,
+    workspace_id: str, host_root: str,
 ) -> None:
     """Watch an entire shared workspace directory for file changes.
 
-    On changes, re-indexes filesystem chunks for each bot in the workspace
-    and re-embeds skills if skills_enabled.
+    On changes, re-indexes filesystem chunks for each bot in the workspace.
     """
     try:
         import watchfiles
@@ -264,34 +263,25 @@ async def _watch_shared_workspace(
                             await index_memory_for_bot(bot, force=True)
                         except Exception:
                             logger.exception("Shared workspace watcher: memory index failed for bot %s", bot.id)
-
-                # Re-embed skills
-                if skills_enabled:
-                    from app.services.workspace_skills import embed_workspace_skills
-                    try:
-                        stats = await embed_workspace_skills(workspace_id)
-                        logger.info("Shared workspace watcher: skills re-embedded: %s", stats)
-                    except Exception:
-                        logger.exception("Shared workspace watcher: skill embed failed for %s", workspace_id)
     except asyncio.CancelledError:
         pass
     logger.info("Shared workspace watcher stopped: %s", host_root)
 
 
 async def start_shared_workspace_watchers(
-    workspaces: list[tuple[str, str, bool]],
+    workspaces: list[tuple[str, str]],
 ) -> None:
     """Start watchers for shared workspace directories.
 
     Args:
-        workspaces: list of (workspace_id, host_root, skills_enabled) tuples
+        workspaces: list of (workspace_id, host_root) tuples
     """
     global _stop_event, _watcher_tasks
     if _stop_event is None:
         _stop_event = asyncio.Event()
-    for workspace_id, host_root, skills_enabled in workspaces:
+    for workspace_id, host_root in workspaces:
         task = asyncio.create_task(
-            _watch_shared_workspace(workspace_id, host_root, skills_enabled),
+            _watch_shared_workspace(workspace_id, host_root),
             name=f"shared_ws_watcher:{workspace_id}",
         )
         _watcher_tasks.append(task)
@@ -353,24 +343,6 @@ async def periodic_reindex_worker() -> None:
                             )
                         except Exception:
                             logger.exception("Periodic reindex: failed for bot %s root %s", bot.id, root)
-
-            # Workspace skills — re-discover modes and clean orphans.
-            # Uses content_hash checks so no embedding API calls are wasted.
-            try:
-                from app.db.engine import async_session
-                from app.db.models import SharedWorkspace as SW
-                from app.services.workspace_skills import embed_workspace_skills
-                async with async_session() as db:
-                    ws_rows = (await db.execute(
-                        select(SW.id).where(SW.workspace_skills_enabled == True)  # noqa: E712
-                    )).scalars().all()
-                for ws_id in ws_rows:
-                    try:
-                        await embed_workspace_skills(str(ws_id))
-                    except Exception:
-                        logger.exception("Periodic reindex: workspace skills failed for ws %s", ws_id)
-            except Exception:
-                logger.exception("Periodic reindex: workspace skills pass failed")
 
             logger.info("Periodic reindex pass complete")
         except Exception:

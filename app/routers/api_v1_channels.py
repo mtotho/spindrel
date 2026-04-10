@@ -212,7 +212,6 @@ class ChannelConfigOut(BaseModel):
     client_tools_disabled: Optional[list[str]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
-    workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
@@ -276,7 +275,6 @@ class ChannelConfigUpdate(BaseModel):
     client_tools_disabled: Optional[list[str]] = None
     skills_disabled: Optional[list[str]] = None
     skills_extra: Optional[list[dict]] = None
-    workspace_skills_enabled: Optional[bool] = None
     workspace_base_prompt_enabled: Optional[bool] = None
     channel_workspace_enabled: Optional[bool] = None
     workspace_schema_template_id: Optional[uuid.UUID] = None
@@ -709,7 +707,6 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "client_tools_disabled": channel.client_tools_disabled,
         "skills_disabled": channel.skills_disabled,
         "skills_extra": channel.skills_extra,
-        "workspace_skills_enabled": channel.workspace_skills_enabled,
         "workspace_base_prompt_enabled": channel.workspace_base_prompt_enabled,
         "channel_workspace_enabled": channel.channel_workspace_enabled,
         "workspace_schema_template_id": channel.workspace_schema_template_id,

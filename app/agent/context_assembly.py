@@ -654,48 +654,6 @@ async def _inject_workspace_rag(
             })
 
 
-async def _inject_workspace_skills(
-    messages: list[dict],
-    workspace_id: str,
-    bot_id: str,
-    user_message: str,
-    inject_chars: dict[str, int],
-) -> AsyncGenerator[dict[str, Any], None]:
-    """Inject workspace skills (pinned/on-demand) into messages.
-
-    Extracted for testability — called from assemble_context when workspace
-    skills are enabled.
-    """
-    from app.services.workspace_skills import get_workspace_skills_for_bot
-
-    ws_skills = await get_workspace_skills_for_bot(workspace_id, bot_id)
-
-    # Pinned workspace skills: inject full content
-    if ws_skills["pinned"]:
-        content = "\n\n---\n\n".join(s.content for s in ws_skills["pinned"])
-        chars = len(content)
-        inject_chars["ws_skill_pinned"] = chars
-        messages.append({
-            "role": "system",
-            "content": f"Workspace pinned skills:\n\n{content}",
-        })
-        yield {"type": "ws_skill_pinned_context", "count": len(ws_skills["pinned"]), "chars": chars}
-
-    # On-demand workspace skills: inject index
-    if ws_skills["on_demand"]:
-        od_lines = "\n".join(
-            f"- {s.skill_id}: {s.display_name} ({s.source_path})"
-            for s in ws_skills["on_demand"]
-        )
-        messages.append({
-            "role": "system",
-            "content": (
-                f"Available workspace skills — call get_workspace_skill(skill_path=\"<path>\") to retrieve full content:\n{od_lines}"
-            ),
-        })
-        yield {"type": "ws_skill_index", "count": len(ws_skills["on_demand"])}
-
-
 async def assemble_context(
     messages: list[dict],
     bot: BotConfig,
@@ -1265,33 +1223,6 @@ async def assemble_context(
                 count=len(_rows),
                 data={"skill_ids": [r.id for r in _rows], "total": len(_skill_ids)},
             ))
-
-    # --- workspace skills ---
-    if channel_id is not None:
-        from sqlalchemy import select as _ws_select
-        from app.db.engine import async_session as _ws_async_session
-        from app.db.models import Channel as _WsChannel, SharedWorkspace as _WsSharedWorkspace, SharedWorkspaceBot as _WsSWBot
-        _ws_skills_enabled = False
-        async with _ws_async_session() as _wsdb:
-            _ws_ch = await _wsdb.get(_WsChannel, channel_id)
-            if _ws_ch is not None:
-                if _ws_ch.workspace_skills_enabled is not None:
-                    _ws_skills_enabled = _ws_ch.workspace_skills_enabled
-                else:
-                    _ws_swb = (await _wsdb.execute(
-                        _ws_select(_WsSWBot)
-                        .where(_WsSWBot.bot_id == bot.id)
-                    )).scalar_one_or_none()
-                    if _ws_swb:
-                        _ws_row = await _wsdb.get(_WsSharedWorkspace, _ws_swb.workspace_id)
-                        if _ws_row:
-                            _ws_skills_enabled = _ws_row.workspace_skills_enabled
-
-        if _ws_skills_enabled:
-            async for evt in _inject_workspace_skills(
-                messages, bot.shared_workspace_id, bot.id, user_message, _inject_chars,
-            ):
-                yield evt
 
     # --- API access tools (for bots with scoped API keys) ---
     if bot.api_permissions:

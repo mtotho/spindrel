@@ -28,10 +28,6 @@ You are a specialist working inside a shared workspace. Your orchestrator assign
 ```
 /workspace/
 ├── common/                          # Shared resources (read-only for members typically)
-│   ├── skills/                      # Workspace skills (auto-discovered)
-│   │   ├── pinned/                  # Always in your context
-│   │   ├── rag/                     # Retrieved by similarity
-│   │   └── on-demand/               # Index in context; fetch with get_workspace_skill()
 │   ├── prompts/
 │   │   └── base.md                  # Workspace base prompt (applies to all bots)
 │   └── ...                          # Specs, datasets, shared configs
@@ -41,10 +37,6 @@ You are a specialist working inside a shared workspace. Your orchestrator assign
 │   │   │   ├── MEMORY.md            # Persistent cross-session memory
 │   │   │   ├── daily/               # Daily activity logs
 │   │   │   └── references/          # Long-lived reference documents
-│   │   ├── skills/                  # Your bot-specific skills
-│   │   │   ├── pinned/
-│   │   │   ├── rag/
-│   │   │   └── on-demand/
 │   │   ├── prompts/
 │   │   │   └── base.md              # Your bot-specific prompt layer
 │   │   └── ...                      # Your work output
@@ -145,38 +137,6 @@ agent api POST /api/v1/channels/{id}/messages \
 ```
 
 Use `list_channels` and `search_channel_workspace` to discover and search across channel workspaces. If the user references another project or channel, these tools help you find relevant content without needing to know the channel ID upfront.
-
----
-
-## Workspace Skills
-
-Skills placed in workspace skill directories are automatically available to you.
-
-### Pinned Skills
-Always injected into your context. No action needed — you already have them.
-
-### RAG Skills
-Retrieved by similarity to your current conversation. Automatic — no action needed.
-
-### On-Demand Skills
-An index of available skills is injected. Fetch full content when needed:
-
-```
-get_workspace_skill(skill_path="common/skills/on-demand/api-patterns.md")
-```
-
-Valid paths must end in `.md`, contain `/skills/`, and be under `common/skills/` or `bots/{your_bot_id}/skills/`.
-
-### Your Own Skills
-You can create bot-specific skills in your directory:
-
-```sh
-mkdir -p /workspace/bots/{your_bot_id}/skills/on-demand
-cat > /workspace/bots/{your_bot_id}/skills/on-demand/my-reference.md << 'EOF'
-# My Reference
-...domain knowledge...
-EOF
-```
 
 ---
 
@@ -371,7 +331,6 @@ agent api GET /api/v1/attachments/{id}/file > output.bin
 | Forgetting `jq -Rs` for file content | Raw newlines break JSON bodies | Always escape content: `cat file | jq -Rs .` |
 | Working outside your bot directory | Other bots may overwrite your files | Default to `/workspace/bots/{your_bot_id}/` |
 | Not reading `/workspace/common/` | Orchestrator placed context there for you | Always check shared resources before starting work |
-| Ignoring workspace skills index | On-demand skills have useful reference material | Call `get_workspace_skill()` when you see relevant entries |
 
 ---
 
@@ -388,7 +347,6 @@ During work:
 
 - [ ] Write output where the orchestrator expects it (your dir, or as instructed)
 - [ ] Use `search_workspace` for finding relevant workspace content
-- [ ] Use `get_workspace_skill()` for on-demand skill content
 - [ ] JSON bodies properly escaped (use `jq` for complex content)
 - [ ] Polling async tasks at 5s+ intervals, or use `agent tasks wait`
 

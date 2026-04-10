@@ -226,7 +226,6 @@ export default function WorkspaceDetailScreen() {
   const [dockerUser, setDockerUser] = useState("");
   const [readOnlyRoot, setReadOnlyRoot] = useState(false);
   const [startupScript, setStartupScript] = useState("/workspace/startup.sh");
-  const [skillsEnabled, setSkillsEnabled] = useState(true);
   const [basePromptEnabled, setBasePromptEnabled] = useState(true);
   const [writeProtectedPaths, setWriteProtectedPaths] = useState<string[]>([]);
   const [dbSkills, setDbSkills] = useState<{ id: string; mode?: string }[]>([]);
@@ -251,7 +250,6 @@ export default function WorkspaceDetailScreen() {
     setDockerUser(workspace.docker_user || "");
     setReadOnlyRoot(workspace.read_only_root || false);
     setStartupScript(workspace.startup_script ?? "/workspace/startup.sh");
-    setSkillsEnabled(workspace.workspace_skills_enabled ?? true);
     setBasePromptEnabled(workspace.workspace_base_prompt_enabled ?? true);
     setWriteProtectedPaths(workspace.write_protected_paths || []);
     setDbSkills(workspace.skills || []);
@@ -279,7 +277,6 @@ export default function WorkspaceDetailScreen() {
         docker_user: dockerUser || undefined,
         read_only_root: readOnlyRoot,
         startup_script: startupScript || undefined,
-        workspace_skills_enabled: skillsEnabled,
         workspace_base_prompt_enabled: basePromptEnabled,
         write_protected_paths: writeProtectedPaths,
         skills: dbSkills.length ? dbSkills : undefined,
@@ -302,7 +299,6 @@ export default function WorkspaceDetailScreen() {
         docker_user: dockerUser || undefined,
         read_only_root: readOnlyRoot,
         startup_script: startupScript || undefined,
-        workspace_skills_enabled: skillsEnabled,
         workspace_base_prompt_enabled: basePromptEnabled,
         write_protected_paths: writeProtectedPaths,
         skills: dbSkills,
@@ -312,7 +308,7 @@ export default function WorkspaceDetailScreen() {
       setJustSaved(true);
       setTimeout(() => setJustSaved(false), 2000);
     }
-  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths, dbSkills, createMut, updateMut, goBack]);
+  }, [isNew, name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, basePromptEnabled, writeProtectedPaths, dbSkills, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!workspaceId || !confirm("Delete this workspace? The container and data will be removed.")) return;
@@ -323,8 +319,8 @@ export default function WorkspaceDetailScreen() {
   // -- Dirty tracking: compare current form state to last-saved snapshot --
   const savedSnapshot = useRef<string>("");
   const currentSnapshot = useMemo(() =>
-    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths, dbSkills }),
-    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, skillsEnabled, basePromptEnabled, writeProtectedPaths, dbSkills],
+    JSON.stringify({ name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, basePromptEnabled, writeProtectedPaths, dbSkills }),
+    [name, description, image, network, env, ports, mounts, cpus, memoryLimit, dockerUser, readOnlyRoot, startupScript, basePromptEnabled, writeProtectedPaths, dbSkills],
   );
   // Set snapshot after initialization from server data
   useEffect(() => {
@@ -563,8 +559,6 @@ export default function WorkspaceDetailScreen() {
           <SkillsTab
             workspaceId={workspaceId!}
             isNew={isNew}
-            skillsEnabled={skillsEnabled}
-            setSkillsEnabled={setSkillsEnabled}
             basePromptEnabled={basePromptEnabled}
             setBasePromptEnabled={setBasePromptEnabled}
             dbSkills={dbSkills}

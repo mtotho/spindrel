@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 from app.agent.bots import get_bot, list_bots
 from app.db.models import (
     Bot as BotRow,
-    Document,
     SandboxProfile,
     SharedWorkspace,
     SharedWorkspaceBot,
@@ -108,17 +107,6 @@ class SkillOptionOut(BaseModel):
     source_type: str = "manual"
 
 
-class WorkspaceSkillOut(BaseModel):
-    skill_id: str
-    name: str
-    mode: str  # pinned | rag | on_demand
-    source_path: str
-    bot_id: Optional[str] = None  # None = common skill
-    workspace_id: str
-    workspace_name: Optional[str] = None
-    chunk_count: int = 0
-
-
 class ResolvedToolEntry(BaseModel):
     name: str
     source: str  # "bot", "carapace:<id>", "memory_scheme"
@@ -139,7 +127,6 @@ class BotEditorDataOut(BaseModel):
     mcp_servers: list[str] = []
     client_tools: list[str] = []
     all_skills: list[SkillOptionOut] = []
-    workspace_skills: list[WorkspaceSkillOut] = []
     all_bots: list[dict] = []
     all_sandbox_profiles: list[dict] = []
     model_param_definitions: list[dict] = []
@@ -223,47 +210,6 @@ async def admin_bot_editor_data(
 
     from app.agent.model_params import MODEL_PARAM_SUPPORT, PARAM_DEFINITIONS
 
-    # Fetch workspace skills for this bot (if it belongs to a workspace)
-    ws_skills_out: list[WorkspaceSkillOut] = []
-    if not is_new:
-        ws_id = getattr(bot, "shared_workspace_id", None)
-        if ws_id:  # Always true for enrolled bots
-            ws_skill_rows = (await db.execute(
-                select(
-                    Document.metadata_["skill_id"].as_string().label("skill_id"),
-                    Document.metadata_["skill_name"].as_string().label("skill_name"),
-                    Document.metadata_["workspace_id"].as_string().label("workspace_id"),
-                    Document.metadata_["mode"].as_string().label("mode"),
-                    Document.metadata_["bot_id"].as_string().label("bot_id"),
-                    Document.metadata_["source_path"].as_string().label("source_path"),
-                    func.count().label("chunk_count"),
-                )
-                .where(
-                    Document.source.like(f"workspace_skill:{ws_id}:%"),
-                    # Common skills (bot_id is null) OR this bot's skills
-                    (Document.metadata_["bot_id"].as_string().is_(None))
-                    | (Document.metadata_["bot_id"].as_string() == bot_id),
-                )
-                .group_by("skill_id", "skill_name", "workspace_id", "mode", "bot_id", "source_path")
-                .order_by("skill_name")
-            )).all()
-            # Fetch workspace name
-            import uuid as _uuid
-            _ws_pk = _uuid.UUID(ws_id) if isinstance(ws_id, str) else ws_id
-            ws_row = await db.get(SharedWorkspace, _ws_pk)
-            ws_name = ws_row.name if ws_row else ws_id
-            for r in ws_skill_rows:
-                ws_skills_out.append(WorkspaceSkillOut(
-                    skill_id=r.skill_id,
-                    name=r.skill_name or r.skill_id,
-                    mode=r.mode or "pinned",
-                    source_path=r.source_path or "",
-                    bot_id=r.bot_id,
-                    workspace_id=ws_id,
-                    workspace_name=ws_name,
-                    chunk_count=r.chunk_count,
-                ))
-
     # Resolve preview (full tool picture at bot level)
     resolved_preview = None
     if not is_new:
@@ -278,7 +224,6 @@ async def admin_bot_editor_data(
         mcp_servers=mcp_servers,
         client_tools=client_tools,
         all_skills=all_skills,
-        workspace_skills=ws_skills_out,
         all_bots=all_bots_out,
         all_sandbox_profiles=sandbox_profiles,
         model_param_definitions=PARAM_DEFINITIONS,
@@ -323,7 +268,6 @@ PACK_METADATA: dict[str, dict] = {
     "summarize_channel":    {"label": "Summarize Channel",    "group": "Channels"},
     # Workspace
     "workspace":        {"label": "Workspace Search",  "group": "Workspace"},
-    "workspace_skills": {"label": "Workspace Skills",  "group": "Workspace"},
     "file_ops":         {"label": "File Operations",   "group": "Workspace"},
     # Agent
     "delegation":   {"label": "Delegation",     "group": "Agent"},

@@ -683,6 +683,12 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     CONTEXT_PRUNING_KEEP_TURNS: int = 3
     CONTEXT_PRUNING_MIN_LENGTH: int = 200
 
+    # In-loop pruning (trim old tool results between iterations within a single turn).
+    # Prevents one long-running agent run from accumulating 16+ tool results in
+    # context. Only the most recent ``KEEP_ITERATIONS`` rounds stay verbatim.
+    IN_LOOP_PRUNING_ENABLED: bool = True
+    IN_LOOP_PRUNING_KEEP_ITERATIONS: int = 1
+
     # Context budgeting (prevent exceeding model context window)
     CONTEXT_BUDGET_ENABLED: bool = True
     CONTEXT_BUDGET_RESERVE_RATIO: float = 0.15       # fraction of context window reserved for output + overhead

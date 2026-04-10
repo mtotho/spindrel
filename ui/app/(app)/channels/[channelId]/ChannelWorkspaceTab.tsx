@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View, Text, Pressable, ActivityIndicator } from "react-native";
 import {
-  ExternalLink, Code, Plus, X, RefreshCw, FolderSearch, RotateCw,
+  ExternalLink, Code, Plus, X, RefreshCw, FolderSearch,
 } from "lucide-react";
 import { Link } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
@@ -474,42 +474,6 @@ export function ChannelWorkspaceTab({
             {/* Shared workspace overrides — only when bot has a workspace */}
             {hasSharedWorkspace && (
               <Section title="Shared Workspace Overrides" description="Override workspace-level settings for this channel. These control features inherited from the bot's shared workspace.">
-                <FormRow label="Workspace skills" description="Skill .md files from the workspace filesystem, injected into context by mode (pinned/on-demand).">
-                  <SelectInput
-                    value={form.workspace_skills_enabled === null || form.workspace_skills_enabled === undefined ? "inherit" : form.workspace_skills_enabled ? "on" : "off"}
-                    options={[
-                      { label: "Inherit from workspace", value: "inherit" },
-                      { label: "Enabled", value: "on" },
-                      { label: "Disabled", value: "off" },
-                    ]}
-                    onChange={(v) => patch("workspace_skills_enabled" as any, v === "inherit" ? null : v === "on")}
-                  />
-                </FormRow>
-                {sharedWorkspaceId && (
-                  <div style={{ marginTop: 4 }}>
-                    <button
-                      onClick={async () => {
-                        try {
-                          const data = await apiFetch<{ embedded?: number; unchanged?: number; errors?: number }>(
-                            `/api/v1/workspaces/${sharedWorkspaceId}/reindex-skills`,
-                            { method: "POST" },
-                          );
-                          alert(`Reindexed: ${data.embedded || 0} embedded, ${data.unchanged || 0} unchanged, ${data.errors || 0} errors`);
-                        } catch (e) {
-                          alert("Failed to reindex skills");
-                        }
-                      }}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 4,
-                        padding: "5px 12px", fontSize: 11, fontWeight: 600,
-                        border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-                        background: "transparent", color: t.textMuted, cursor: "pointer",
-                      }}
-                    >
-                      <RotateCw size={11} /> Reindex Skills
-                    </button>
-                  </div>
-                )}
                 <FormRow label="Workspace base prompt" description="common/prompts/base.md from the workspace replaces the global base prompt. Per-bot additions concatenated after.">
                   <SelectInput
                     value={form.workspace_base_prompt_enabled === null || form.workspace_base_prompt_enabled === undefined ? "inherit" : form.workspace_base_prompt_enabled ? "on" : "off"}

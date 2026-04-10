@@ -253,7 +253,6 @@ async def assemble_config_state(db) -> dict:
             "client_tools_disabled": ch.client_tools_disabled,
             "skills_disabled": ch.skills_disabled,
             "skills_extra": ch.skills_extra,
-            "workspace_skills_enabled": ch.workspace_skills_enabled,
             "workspace_base_prompt_enabled": ch.workspace_base_prompt_enabled,
             "history_mode": ch.history_mode,
             "trigger_heartbeat_before_compaction": ch.trigger_heartbeat_before_compaction,
@@ -296,7 +295,6 @@ async def assemble_config_state(db) -> dict:
             "read_only_root": ws.read_only_root,
             "status": ws.status,
             "startup_script": ws.startup_script,
-            "workspace_skills_enabled": ws.workspace_skills_enabled,
             "workspace_base_prompt_enabled": ws.workspace_base_prompt_enabled,
             "indexing_config": ws.indexing_config,
             "bots": [

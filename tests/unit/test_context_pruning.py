@@ -4,7 +4,11 @@ import copy
 
 import pytest
 
-from app.agent.context_pruning import STICKY_TOOL_NAMES, prune_tool_results
+from app.agent.context_pruning import (
+    STICKY_TOOL_NAMES,
+    prune_in_loop_tool_results,
+    prune_tool_results,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -467,3 +471,191 @@ class TestRetrievalPointers:
         # Turn 2: dead marker
         assert messages[6]["content"].startswith("[Tool result pruned")
         assert "read_conversation_history" not in messages[6]["content"]
+
+
+# ---------------------------------------------------------------------------
+# In-loop pruning (between iterations within a single turn)
+# ---------------------------------------------------------------------------
+
+def _build_iter_turn(num_iterations: int, content_size: int = 500) -> list[dict]:
+    """Build a single-turn message list with N iterations of tool calls.
+
+    Layout:
+        user
+        assistant(tool_calls=[tc_iter1])
+        tool(tc_iter1)
+        assistant(tool_calls=[tc_iter2])
+        tool(tc_iter2)
+        ...
+    """
+    msgs: list[dict] = [_make_user_msg("do everything")]
+    for i in range(1, num_iterations + 1):
+        tc_id = f"tc{i}"
+        msgs.append(_make_assistant_msg("", [_make_tool_call(tc_id, f"tool_{i}")]))
+        msgs.append(_make_tool_result(tc_id, _long_content(content_size)))
+    return msgs
+
+
+class TestInLoopPruning:
+    def test_prunes_older_iterations_keeps_latest(self):
+        """With keep_iterations=1, all iterations except the latest get pruned."""
+        messages = _build_iter_turn(num_iterations=4)
+        # Layout: user | (asst, tool) x4   → indexes 0 | 1,2 | 3,4 | 5,6 | 7,8
+        stats = prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+
+        assert stats["pruned_count"] == 3  # iterations 1, 2, 3 pruned; 4 kept
+        assert stats["iterations_pruned"] == 3
+        # Iter 1, 2, 3 tool results pruned
+        assert "older iteration" in messages[2]["content"]
+        assert "older iteration" in messages[4]["content"]
+        assert "older iteration" in messages[6]["content"]
+        # Iter 4 (latest) verbatim
+        assert messages[8]["content"] == _long_content(500)
+
+    def test_keep_iterations_two(self):
+        """With keep_iterations=2, the last two iterations are protected."""
+        messages = _build_iter_turn(num_iterations=4)
+        stats = prune_in_loop_tool_results(messages, keep_iterations=2, min_content_length=200)
+
+        assert stats["pruned_count"] == 2  # iter 1 + 2 pruned
+        # Iter 3 + 4 verbatim
+        assert messages[6]["content"] == _long_content(500)
+        assert messages[8]["content"] == _long_content(500)
+
+    def test_no_pruning_when_only_one_iteration(self):
+        """A single iteration's results must never be pruned (LLM still consuming them)."""
+        messages = _build_iter_turn(num_iterations=1)
+        stats = prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+
+        assert stats["pruned_count"] == 0
+        assert messages[2]["content"] == _long_content(500)
+
+    def test_keep_iterations_clamped_to_minimum_one(self):
+        """keep_iterations=0 is clamped to 1 — never prune the most recent iteration."""
+        messages = _build_iter_turn(num_iterations=2)
+        stats = prune_in_loop_tool_results(messages, keep_iterations=0, min_content_length=200)
+
+        # Acts like keep_iterations=1: iter 1 pruned, iter 2 kept
+        assert stats["pruned_count"] == 1
+        assert "older iteration" in messages[2]["content"]
+        assert messages[4]["content"] == _long_content(500)
+
+    def test_idempotent_after_first_prune(self):
+        """Running prune twice should not double-prune (markers are short, below threshold)."""
+        messages = _build_iter_turn(num_iterations=3)
+        stats1 = prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+        stats2 = prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+
+        assert stats1["pruned_count"] == 2
+        assert stats2["pruned_count"] == 0  # nothing left to prune
+
+    def test_short_results_skipped(self):
+        """Tool results below min_content_length are not pruned."""
+        messages = [
+            _make_user_msg("q"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "echo")]),
+            _make_tool_result("tc1", "ok"),
+            _make_assistant_msg("", [_make_tool_call("tc2", "search")]),
+            _make_tool_result("tc2", _long_content(500)),
+            _make_assistant_msg("", [_make_tool_call("tc3", "save")]),
+            _make_tool_result("tc3", "saved"),
+        ]
+        stats = prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+
+        # Only tc2 (long content from older iteration) gets pruned
+        assert stats["pruned_count"] == 1
+        assert messages[2]["content"] == "ok"
+        assert "older iteration" in messages[4]["content"]
+        assert messages[6]["content"] == "saved"
+
+    def test_sticky_tool_results_protected(self):
+        """_no_prune=True is honored — sticky skill results stay verbatim across iterations."""
+        skill_content = "# Runbook\n\n" + ("step " * 200)
+        messages = [
+            _make_user_msg("q"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "get_skill")]),
+            {**_make_tool_result("tc1", skill_content), "_no_prune": True},
+            _make_assistant_msg("", [_make_tool_call("tc2", "search")]),
+            _make_tool_result("tc2", _long_content(500)),
+            _make_assistant_msg("", [_make_tool_call("tc3", "fetch")]),
+            _make_tool_result("tc3", _long_content(500)),
+        ]
+        stats = prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+
+        # Skill (iter 1) preserved despite being old; iter 2 pruned; iter 3 kept (latest)
+        assert stats["pruned_count"] == 1
+        assert messages[2]["content"] == skill_content
+        assert "older iteration" in messages[4]["content"]
+        assert messages[6]["content"] == _long_content(500)
+
+    def test_user_and_assistant_text_untouched(self):
+        """Only tool results are mutated."""
+        messages = [
+            _make_user_msg("important question " * 50),
+            _make_assistant_msg("thinking out loud " * 50, [_make_tool_call("tc1", "search")]),
+            _make_tool_result("tc1", _long_content(500)),
+            _make_assistant_msg("more thinking " * 50, [_make_tool_call("tc2", "fetch")]),
+            _make_tool_result("tc2", _long_content(500)),
+        ]
+        original_user = messages[0]["content"]
+        original_asst1 = messages[1]["content"]
+        original_asst2 = messages[3]["content"]
+        prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+
+        assert messages[0]["content"] == original_user
+        assert messages[1]["content"] == original_asst1
+        assert messages[3]["content"] == original_asst2
+
+    def test_record_id_produces_retrieval_pointer(self):
+        """When _tool_record_id is present, the marker contains a retrieval pointer."""
+        record_id = "abc12345-1234-1234-1234-123456789abc"
+        messages = [
+            _make_user_msg("q"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "web_search")]),
+            {**_make_tool_result("tc1", _long_content(500)), "_tool_record_id": record_id},
+            _make_assistant_msg("", [_make_tool_call("tc2", "fetch")]),
+            _make_tool_result("tc2", _long_content(500)),
+        ]
+        prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+
+        assert "read_conversation_history" in messages[2]["content"]
+        assert record_id in messages[2]["content"]
+        assert "web_search" in messages[2]["content"]
+
+    def test_empty_messages(self):
+        stats = prune_in_loop_tool_results([], keep_iterations=1)
+        assert stats == {"pruned_count": 0, "chars_saved": 0, "iterations_pruned": 0}
+
+    def test_no_tool_calls_at_all(self):
+        """A turn with no tool calls is a no-op."""
+        messages = [
+            _make_user_msg("hi"),
+            _make_assistant_msg("hello"),
+        ]
+        original = copy.deepcopy(messages)
+        stats = prune_in_loop_tool_results(messages, keep_iterations=1)
+        assert stats["pruned_count"] == 0
+        assert messages == original
+
+    def test_multiple_tool_calls_same_iteration(self):
+        """Parallel tool calls in one iteration share that iteration's protection."""
+        messages = [
+            _make_user_msg("q"),
+            # Iteration 1: two parallel tool calls
+            _make_assistant_msg("", [
+                _make_tool_call("tc1a", "search"),
+                _make_tool_call("tc1b", "fetch"),
+            ]),
+            _make_tool_result("tc1a", _long_content(500)),
+            _make_tool_result("tc1b", _long_content(500)),
+            # Iteration 2: single tool call
+            _make_assistant_msg("", [_make_tool_call("tc2", "save")]),
+            _make_tool_result("tc2", _long_content(500)),
+        ]
+        stats = prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+
+        # Both iter 1 results pruned; iter 2 kept
+        assert stats["pruned_count"] == 2
+        assert "older iteration" in messages[2]["content"]
+        assert "older iteration" in messages[3]["content"]
+        assert messages[5]["content"] == _long_content(500)

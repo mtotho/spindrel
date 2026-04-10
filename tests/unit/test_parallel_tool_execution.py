@@ -110,6 +110,9 @@ def _default_mock_settings(**overrides):
         TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS=[],
         PARALLEL_TOOL_EXECUTION=True,
         PARALLEL_TOOL_MAX_CONCURRENT=10,
+        IN_LOOP_PRUNING_ENABLED=False,
+        IN_LOOP_PRUNING_KEEP_ITERATIONS=1,
+        CONTEXT_PRUNING_MIN_LENGTH=200,
     )
     defaults.update(overrides)
     for k, v in defaults.items():

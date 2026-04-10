@@ -225,7 +225,10 @@ export default function ChatScreen() {
     fileDirtyRef.current = false;
   }, [channelId]);
 
-  const showExplorer = workspaceEnabled && !!workspaceId && explorerOpen;
+  // Explorer is available whenever the channel resolves to a workspace.
+  // (Channel-workspace-enabled is no longer required — the explorer falls back
+  // to bot memory when the channel itself has no workspace dir.)
+  const showExplorer = !!workspaceId && explorerOpen;
   const showFileViewer = activeFile !== null;
   const isMobile = columns === "single";
 
@@ -413,6 +416,10 @@ export default function ChatScreen() {
         showExplorer && !showFileViewer ? (
           <ChannelFileExplorer
             channelId={channelId!}
+            botId={channel?.bot_id}
+            workspaceId={workspaceId ?? undefined}
+            channelDisplayName={channel?.display_name}
+            channelWorkspaceEnabled={!!workspaceEnabled}
             activeFile={activeFile}
             onSelectFile={handleSelectFile}
             onClose={handleCloseExplorer}
@@ -421,6 +428,7 @@ export default function ChatScreen() {
         ) : showFileViewer ? (
           <ChannelFileViewer
             channelId={channelId!}
+            workspaceId={workspaceId ?? undefined}
             filePath={activeFile!}
             onBack={handleMobileBack}
             onDirtyChange={handleDirtyChange}
@@ -469,6 +477,10 @@ export default function ChatScreen() {
             <>
               <ChannelFileExplorer
                 channelId={channelId}
+                botId={channel?.bot_id}
+                workspaceId={workspaceId ?? undefined}
+                channelDisplayName={channel?.display_name}
+                channelWorkspaceEnabled={!!workspaceEnabled}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
                 onClose={handleCloseExplorer}
@@ -520,6 +532,7 @@ export default function ChatScreen() {
             }}>
               <ChannelFileViewer
                 channelId={channelId}
+                workspaceId={workspaceId ?? undefined}
                 filePath={activeFile!}
                 onBack={handleCloseFile}
                 splitMode={splitMode}
