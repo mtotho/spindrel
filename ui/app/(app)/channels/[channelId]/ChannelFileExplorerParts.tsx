@@ -415,20 +415,28 @@ export function Breadcrumb({
   path,
   channelId,
   channelDisplayName,
+  channelNameMap,
   onNavigate,
 }: {
   path: string;
   channelId: string;
   channelDisplayName: string | null | undefined;
+  /** Optional id→display_name lookup so any channel UUID in the breadcrumb
+   *  (not just the current channel) renders as a friendly name. */
+  channelNameMap?: Record<string, string> | null;
   onNavigate: (p: string) => void;
 }) {
   const t = useThemeTokens();
   const segments = path === "/" ? [] : stripSlashes(path).split("/");
 
-  // Replace channel UUID segments with display name
+  // Replace channel UUID segments with display name. Lookup order:
+  //   1. channelNameMap[seg]   — works for any channel
+  //   2. channelDisplayName    — fallback for the current channel
   const labelFor = (seg: string, i: number) => {
-    if (i > 0 && segments[i - 1] === "channels" && seg === channelId && channelDisplayName) {
-      return channelDisplayName;
+    if (i > 0 && segments[i - 1] === "channels") {
+      const mapped = channelNameMap?.[seg];
+      if (mapped) return mapped;
+      if (seg === channelId && channelDisplayName) return channelDisplayName;
     }
     return seg;
   };
@@ -500,12 +508,16 @@ export function Breadcrumb({
 
 export function TreeFolderRow({
   name,
+  displayLabel,
   fullPath,
   onNavigate,
   onContextMenu,
   focused,
 }: {
   name: string;
+  /** Optional friendly label (e.g. channel display_name from .channel_info).
+   *  When set, shown instead of `name`; the raw `name` becomes a tooltip. */
+  displayLabel?: string | null;
   fullPath: string;
   onNavigate: (p: string) => void;
   onContextMenu?: (e: any) => void;
@@ -513,6 +525,7 @@ export function TreeFolderRow({
 }) {
   const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
+  const label = displayLabel || name;
   return (
     <Pressable
       onPress={() => onNavigate(fullPath)}
@@ -531,6 +544,7 @@ export function TreeFolderRow({
         cursor: "pointer",
       } as any}
       {...(Platform.OS === "web" && onContextMenu ? { onContextMenu } as any : {})}
+      {...(Platform.OS === "web" && displayLabel ? { title: name } as any : {})}
     >
       <Folder size={13} color="#dcb67a" />
       <Text
@@ -543,7 +557,7 @@ export function TreeFolderRow({
         }}
         numberOfLines={1}
       >
-        {name}
+        {label}
       </Text>
       <ChevronRight size={11} color={t.textDim} />
     </Pressable>

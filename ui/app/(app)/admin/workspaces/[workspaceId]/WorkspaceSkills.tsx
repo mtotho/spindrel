@@ -58,7 +58,7 @@ export function WorkspaceSkills({
   const { width } = useWindowDimensions();
   const isWide = width >= 768;
 
-  const globalSkills = (allSkills || []).filter((s) => s.source_type !== "workspace");
+  const globalSkills = allSkills || [];
   const isSelected = (id: string) => skills.some((s) => s.id === id);
   const getEntry = (id: string) => skills.find((s) => s.id === id);
 

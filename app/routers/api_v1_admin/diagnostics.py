@@ -203,11 +203,6 @@ async def diagnostics_indexing(
             )
         if not fi["root_exists"]:
             issues.append(f"Bot {fi['bot_id']}: workspace root does not exist: {fi['workspace_root']}")
-    if not ws_skills_info:
-        issues.append("No shared workspaces configured")
-    for ws in ws_skills_info:
-        if ws["skills_enabled"] and ws["document_chunks"] == 0:
-            issues.append(f"Workspace '{ws['workspace_name']}': skills enabled but 0 chunks indexed")
 
     result["issues"] = issues
     result["healthy"] = len(issues) == 0
@@ -229,7 +224,7 @@ async def diagnostics_reindex(
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("admin")),
 ):
-    """Force re-index ALL filesystem directories and workspace skills."""
+    """Force re-index ALL filesystem directories."""
     from app.agent.bots import list_bots
     from app.agent.fs_indexer import index_directory
     from app.services import progress

@@ -14,7 +14,6 @@ function SourceBadge({ type, detail }: { type: string; detail?: string }) {
     file: { bg: t.accentSubtle, fg: t.accent, label: "file" },
     integration: { bg: "rgba(249,115,22,0.15)", fg: "#ea580c", label: "integration" },
     manual: { bg: t.surfaceOverlay, fg: t.textMuted, label: "manual" },
-    workspace: { bg: t.purpleSubtle, fg: t.purple, label: "workspace" },
     tool: { bg: "rgba(16,185,129,0.15)", fg: "#059669", label: "bot-authored" },
   };
   const c = cfg[type] || cfg.manual;
@@ -130,28 +129,23 @@ function CategoryBadge({ category }: { category: string }) {
 
 function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () => void; isWide: boolean }) {
   const t = useThemeTokens();
-  const isWs = skill.source_type === "workspace";
   const isBotAuthored = skill.source_type === "tool";
-  const wsDetail = isWs
-    ? `${skill.workspace_name || "workspace"}${skill.bot_id ? ` / ${skill.bot_id}` : ""} (${skill.mode})`
-    : isBotAuthored && skill.bot_id
-      ? `authored by ${skill.bot_id}`
-      : undefined;
-  const description = isWs
-    ? `${skill.source_path}${skill.mode ? ` \u2022 ${skill.mode}` : ""}`
-    : skill.description
-      || (skill.content || "").split("\n").find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("---"))?.trim()
-      || "";
+  const wsDetail = isBotAuthored && skill.bot_id
+    ? `authored by ${skill.bot_id}`
+    : undefined;
+  const description = skill.description
+    || (skill.content || "").split("\n").find((l) => l.trim() && !l.startsWith("#") && !l.startsWith("---"))?.trim()
+    || "";
 
   if (!isWide) {
     // Mobile: card layout
     return (
       <button
-        onClick={isWs ? undefined : onPress}
+        onClick={onPress}
         style={{
           display: "flex", flexDirection: "column", gap: 6,
           padding: "12px 16px", background: t.inputBg, borderRadius: 8,
-          border: `1px solid ${isWs ? t.purpleBorder : t.surfaceBorder}`, cursor: isWs ? "default" : "pointer", textAlign: "left",
+          border: `1px solid ${t.surfaceBorder}`, cursor: "pointer", textAlign: "left",
           width: "100%",
         }}
       >
@@ -166,9 +160,6 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
           <span style={{ fontFamily: "monospace" }}>{skill.id}</span>
           <span>{skill.chunk_count} chunks</span>
           <SurfacingBadge count={skill.surface_count} lastAt={skill.last_surfaced_at} />
-          {isWs && skill.workspace_name && (
-            <span style={{ color: t.purple }}>{skill.workspace_name}</span>
-          )}
           {isBotAuthored && skill.bot_id && (
             <span style={{ color: "#059669" }}>{skill.bot_id}</span>
           )}
@@ -185,18 +176,18 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
   // Desktop: table row
   return (
     <button
-      onClick={isWs ? undefined : onPress}
+      onClick={onPress}
       style={{
         display: "grid", gridTemplateColumns: "140px 1fr 90px 60px 60px 100px",
         alignItems: "center", gap: 12,
         padding: "10px 16px", background: "transparent",
         border: "none",
-        borderBottom: `1px solid ${isWs ? t.purpleBorder : t.surfaceBorder}`,
-        cursor: isWs ? "default" : "pointer",
+        borderBottom: `1px solid ${t.surfaceBorder}`,
+        cursor: "pointer",
         textAlign: "left", width: "100%",
       }}
-      onMouseEnter={(e) => { if (!isWs) e.currentTarget.style.background = t.inputBg; }}
-      onMouseLeave={(e) => { if (!isWs) e.currentTarget.style.background = "transparent"; }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = t.inputBg; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
     >
       <span style={{ fontSize: 11, fontFamily: "monospace", color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {skill.id}
@@ -207,9 +198,6 @@ function SkillRow({ skill, onPress, isWide }: { skill: SkillItem; onPress: () =>
             {skill.name}
           </span>
           {skill.category && <CategoryBadge category={skill.category} />}
-          {isWs && skill.workspace_name && (
-            <span style={{ fontSize: 10, color: t.purple, whiteSpace: "nowrap" }}>{skill.workspace_name}</span>
-          )}
           {isBotAuthored && skill.bot_id && (
             <span style={{ fontSize: 10, color: "#059669", whiteSpace: "nowrap" }}>{skill.bot_id}</span>
           )}
@@ -297,14 +285,12 @@ export default function SkillsScreen() {
 
     const manual: SkillItem[] = [];
     const botAuthored: SkillItem[] = [];
-    const workspace: SkillItem[] = [];
     const core: SkillItem[] = [];
     const integrationMap = new Map<string, SkillItem[]>();
 
     for (const s of filteredSkills) {
       if (s.source_type === "tool") botAuthored.push(s);
       else if (s.source_type === "manual") manual.push(s);
-      else if (s.source_type === "workspace") workspace.push(s);
       else if (s.source_type === "integration") {
         const name = s.id.match(/^integrations\/([^/]+)\//)?.[1] ?? "other";
         const list = integrationMap.get(name);
@@ -325,7 +311,6 @@ export default function SkillsScreen() {
 
     addGroup("bot-authored", "Bot-Authored", botAuthored);
     addGroup("manual", "User Added", manual);
-    addGroup("workspace", "Workspace", workspace);
     addGroup("core", "Core", core);
 
     const intKeys = [...integrationMap.keys()].sort();

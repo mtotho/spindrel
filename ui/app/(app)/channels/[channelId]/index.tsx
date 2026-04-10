@@ -418,7 +418,7 @@ export default function ChatScreen() {
             channelId={channelId!}
             botId={channel?.bot_id}
             workspaceId={workspaceId ?? undefined}
-            channelDisplayName={channel?.display_name}
+            channelDisplayName={channel?.display_name || channel?.name}
             channelWorkspaceEnabled={!!workspaceEnabled}
             activeFile={activeFile}
             onSelectFile={handleSelectFile}
@@ -479,7 +479,7 @@ export default function ChatScreen() {
                 channelId={channelId}
                 botId={channel?.bot_id}
                 workspaceId={workspaceId ?? undefined}
-                channelDisplayName={channel?.display_name}
+                channelDisplayName={channel?.display_name || channel?.name}
                 channelWorkspaceEnabled={!!workspaceEnabled}
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}

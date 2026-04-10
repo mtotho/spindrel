@@ -15,10 +15,6 @@ export interface SkillItem {
   updated_at: string;
   last_surfaced_at?: string | null;
   surface_count: number;
-  // Workspace skill fields (only set when source_type === "workspace")
-  workspace_id?: string | null;
-  workspace_name?: string | null;
-  mode?: string | null;
   bot_id?: string | null;
 }
 

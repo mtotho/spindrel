@@ -92,7 +92,7 @@ async def retrieve_context(
         vector_limit = settings.RAG_TOP_K * 2
 
     if sources:
-        # Use explicit source list (for workspace skills, etc.)
+        # Use explicit source list
         stmt = (
             select(Document.content, Document.source, distance_expr.label("distance"))
             .where(Document.source.in_(sources))

@@ -73,17 +73,11 @@ agent api PUT /api/v1/workspaces/{ws_id}/bots/{bot_id} \
 agent api DELETE /api/v1/workspaces/{ws_id}/bots/{bot_id}
 ```
 
-## Skills & Indexing
+## Indexing
 
 ```sh
-# List discovered workspace skill files
-agent api GET /api/v1/workspaces/{ws_id}/skills
-
 # Trigger full reindex (file content + embeddings)
 agent api POST /api/v1/workspaces/{ws_id}/reindex
-
-# Re-discover and re-embed workspace skills only
-agent api POST /api/v1/workspaces/{ws_id}/reindex-skills
 
 # Get full indexing config (global, workspace-level, per-bot)
 agent api GET /api/v1/workspaces/{ws_id}/indexing

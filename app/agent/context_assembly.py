@@ -1560,6 +1560,32 @@ async def assemble_context(
             "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
         })
 
+    # --- bot system_prompt reinforcement (recency bias) ---
+    # bot.system_prompt is already included in messages[0] via _effective_system_prompt,
+    # but buried under GLOBAL_BASE_PROMPT + base_prompt + memory_scheme_prompt (~12KB of
+    # framework text). Gemini Flash and other models drown out small instructions when
+    # buried in the middle of a large system prompt. Repeating it as the LAST system
+    # message — after the "Everything above is context" marker, immediately before the
+    # user message — gives the bot's actual instructions recency bias so they're
+    # actually followed. Position-sensitive: must be after the marker, not before.
+    _bot_sys_prompt = bot.system_prompt or ""
+    if getattr(bot, "system_prompt_workspace_file", False):
+        try:
+            from app.services.prompt_resolution import resolve_workspace_file_prompt
+            _ws_prompt = resolve_workspace_file_prompt(
+                bot.shared_workspace_id,
+                f"bots/{bot.id}/system_prompt.md",
+                "",
+            )
+            if _ws_prompt:
+                _bot_sys_prompt = _ws_prompt
+        except Exception:
+            pass
+    if _bot_sys_prompt.strip():
+        _reinforce = f"## Your Role (these are your active instructions — follow them)\n\n{_bot_sys_prompt.rstrip()}"
+        messages.append({"role": "system", "content": _reinforce})
+        _inject_chars["bot_system_prompt_reinforce"] = len(_reinforce)
+
     # --- user message (audio or text) ---
     if native_audio:
         messages.append({

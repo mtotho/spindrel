@@ -59,7 +59,7 @@ carapaces/orchestrator/
     ├── workspace-orchestrator.md   (pinned)   # Concise core: environment, filesystem, key capabilities
     ├── workspace-delegation.md     (on_demand) # Delegation patterns, Claude Code reference
     ├── workspace-api-reference.md  (on_demand) # Server API endpoints, permissions, agent CLI
-    ├── workspace-management.md     (on_demand) # Channels, memory patterns, workspace skills
+    ├── workspace-management.md     (on_demand) # Channels, memory patterns, base template
     ├── carapace-architect.md       (on_demand) # This file — carapace design guide
     └── model-efficiency.md         (on_demand) # Cost optimization, tier selection
 
@@ -94,7 +94,7 @@ Good boundaries:
 
 Bad boundaries (too broad):
 - "Software engineering" — that's multiple carapaces
-- "Everything about the project" — put that in workspace skills
+- "Everything about the project" — that's a bot's system prompt, not a carapace
 
 ### 2. Write the System Prompt Fragment
 

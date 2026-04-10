@@ -33,6 +33,7 @@ import { X, Plus, FolderPlus, Search, Upload, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
+  useChannels,
   useDeleteChannelWorkspaceFile,
   useMoveChannelWorkspaceFile,
   type ChannelWorkspaceFile,
@@ -134,6 +135,19 @@ export function ChannelFileExplorer({
   // Bot info — needed to compute the memory path target
   const { data: bot } = useBot(botId);
   const sharedWorkspace = !!bot?.shared_workspace_id;
+
+  // Channel id→display_name map for substituting GUIDs in breadcrumbs.
+  // useChannels() is cached app-wide (used by Sidebar/CommandPalette), so this
+  // is essentially free here.
+  const { data: allChannels } = useChannels();
+  const channelNameMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const c of allChannels ?? []) {
+      const label = c.display_name || c.name;
+      if (label) map[c.id] = label;
+    }
+    return map;
+  }, [allChannels]);
   const memoryTarget = botId ? getMemoryPath(botId, sharedWorkspace) : null;
   const channelTarget = channelWorkspaceEnabled ? `/channels/${channelId}` : null;
 
@@ -595,6 +609,7 @@ export function ChannelFileExplorer({
         path={currentPath}
         channelId={channelId}
         channelDisplayName={channelDisplayName}
+        channelNameMap={channelNameMap}
         onNavigate={setCurrentPath}
       />
 
@@ -614,15 +629,24 @@ export function ChannelFileExplorer({
                 onCancel={() => setNewItem(null)}
               />
             )}
-            {folders.map((entry) => (
-              <TreeFolderRow
-                key={entry.path}
-                name={entry.name}
-                fullPath={"/" + stripSlashes(entry.path)}
-                onNavigate={setCurrentPath}
-                onContextMenu={(e) => openFolderContextMenu(e, entry)}
-              />
-            ))}
+            {folders.map((entry) => {
+              // Prefer the backend-supplied display_name (read from .channel_info
+              // for any folder that has one). Fall back to the channel-name map
+              // for channel UUID dirs whose .channel_info hasn't been written.
+              const displayLabel =
+                entry.display_name ||
+                (channelNameMap[entry.name] ?? null);
+              return (
+                <TreeFolderRow
+                  key={entry.path}
+                  name={entry.name}
+                  displayLabel={displayLabel}
+                  fullPath={"/" + stripSlashes(entry.path)}
+                  onNavigate={setCurrentPath}
+                  onContextMenu={(e) => openFolderContextMenu(e, entry)}
+                />
+              );
+            })}
             {files.map((entry, i) => (
               <TreeFileRow
                 key={entry.path}

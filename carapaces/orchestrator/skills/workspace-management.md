@@ -1,10 +1,9 @@
 ---
 name: Workspace Management
 description: >
-  Channels, workspace skills, memory write patterns, base template overrides, and
-  operational checklists. Load when managing channels, writing workspace skills,
-  updating memory files, configuring workspace prompts, or reviewing operational
-  procedures and common mistakes.
+  Channels, memory write patterns, base template overrides, and operational
+  checklists. Load when managing channels, updating memory files, configuring
+  workspace prompts, or reviewing operational procedures and common mistakes.
 ---
 
 # Workspace Management
@@ -113,55 +112,6 @@ p.write_text(content)
 
 ---
 
-## Workspace Skills Management
-
-You control what knowledge is available to all bots by placing `.md` files in the skills directories.
-
-### Creating a Workspace Skill
-
-```sh
-# Pinned (always in context for all bots)
-cat > /workspace/common/skills/pinned/project-conventions.md << 'EOF'
-# Project Conventions
-- Use TypeScript strict mode
-- All API responses follow the envelope pattern: {data, error, meta}
-- Tests go in __tests__/ adjacent to source
-EOF
-
-# On-demand (bots see an index entry; fetch full content when needed)
-cat > /workspace/common/skills/on-demand/api-patterns.md << 'EOF'
-# API Patterns
-...detailed reference material...
-EOF
-
-# RAG (embedded for similarity search)
-cat > /workspace/common/skills/rag/domain-glossary.md << 'EOF'
-# Domain Glossary
-...terms and definitions...
-EOF
-```
-
-### Bot-Specific Skills
-
-Place skills in `/workspace/bots/{bot_id}/skills/` for per-bot knowledge:
-
-```sh
-mkdir -p /workspace/bots/researcher-bot/skills/on-demand
-cat > /workspace/bots/researcher-bot/skills/on-demand/research-methods.md << 'EOF'
-...
-EOF
-```
-
-### Re-embedding After Changes
-
-After modifying workspace skills, trigger re-indexing:
-
-```sh
-agent api POST /api/v1/workspaces/{ws_id}/reindex-skills
-```
-
----
-
 ## Workspace Base Template (`base.md`)
 
 Only relevant if **workspace base prompt override** is turned **on** in workspace (or channel) settings. Then `common/prompts/base.md` supplies the workspace-wide base **template layer** (and `bots/<bot-id>/prompts/base.md` may be concatenated after it). It does **not** replace the bot's main system prompt, `GLOBAL_BASE_PROMPT`, memory scheme text, or other system layers — only that one base template slot. When the toggle is **off**, the `prompts/` tree is still useful for tasks, heartbeats, and manual references.
@@ -227,7 +177,6 @@ Before starting a workflow:
 - [ ] `notify_parent=true` set for tasks you need to track
 - [ ] Claude Code tasks have appropriate `working_directory` set
 - [ ] Write-protected paths won't block your operations (check `write_access`)
-- [ ] Workspace skills re-indexed after changes (`reindex-skills`)
 
 During execution:
 

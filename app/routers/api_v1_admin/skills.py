@@ -34,10 +34,6 @@ class SkillOut(BaseModel):
     updated_at: datetime
     last_surfaced_at: Optional[datetime] = None
     surface_count: int = 0
-    # Workspace skill fields (only set when source_type == "workspace")
-    workspace_id: Optional[str] = None
-    workspace_name: Optional[str] = None
-    mode: Optional[str] = None
     bot_id: Optional[str] = None
 
     model_config = {"from_attributes": True}

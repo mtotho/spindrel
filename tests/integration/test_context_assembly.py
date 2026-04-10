@@ -772,13 +772,80 @@ class TestMessageOrdering:
         assert messages[-1]["role"] == "user"
         assert messages[-1]["content"] == "final message"
 
-        # Second-to-last should be the current-turn marker
+        # Second-to-last should be the bot system_prompt reinforcement
+        # (positioned after the marker, immediately before the user, for recency bias)
         assert messages[-2]["role"] == "system"
-        assert "CURRENT message follows" in messages[-2]["content"]
+        assert "Your Role" in messages[-2]["content"]
+        assert bot.system_prompt in messages[-2]["content"]
+
+        # Third-to-last should be the current-turn marker
+        assert messages[-3]["role"] == "system"
+        assert "CURRENT message follows" in messages[-3]["content"]
 
         # All other messages should be system
         for m in messages[:-1]:
             assert m["role"] == "system"
+
+    @pytest.mark.asyncio
+    async def test_bot_system_prompt_reinforced_at_end(self, engine):
+        """Regression: bot.system_prompt must be reinforced as the last system message
+        before the user turn, so models with strong base prompts (Gemini Flash etc.)
+        actually follow per-bot instructions instead of drowning them out under the
+        framework prompt + memory scheme + skill index that's bundled into messages[0].
+
+        Found 2026-04-10: 4 multibot tests failed because Sparrow/Cockatoo/etc.
+        responded as generic Gemini despite having distinctive system_prompts.
+        Position-sensitive: must come AFTER the "Everything above is context" marker,
+        not before it.
+        """
+        bot = _make_bot(
+            id="reinforce-bot",
+            name="Reinforce",
+            system_prompt="You are Reinforce. Your secret is BANANARAMA.",
+        )
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+        ):
+            await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="say your secret",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+            ))
+
+        # The reinforcement must be the last system message, immediately before the user
+        assert messages[-1]["role"] == "user"
+        assert messages[-2]["role"] == "system"
+        assert "Your Role" in messages[-2]["content"]
+        assert "BANANARAMA" in messages[-2]["content"]
+
+        # And the marker must come BEFORE the reinforcement (not after — the model
+        # treats the marker as the boundary between context and the live turn, so
+        # the reinforcement needs to live on the live-turn side).
+        marker_idx = next(
+            i for i, m in enumerate(messages)
+            if m.get("role") == "system" and "CURRENT message follows" in (m.get("content") or "")
+        )
+        reinforce_idx = len(messages) - 2
+        assert marker_idx < reinforce_idx, (
+            f"Marker at {marker_idx} must come before reinforcement at {reinforce_idx}"
+        )
 
 
 class TestContextBudget:

@@ -66,9 +66,11 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "SECTION_RETENTION_MODE": {"group": "Chat History", "label": "Section Retention", "description": "How long to keep archived sections", "type": "string", "options": ["forever", "count", "days"]},
     "SECTION_RETENTION_VALUE": {"group": "Chat History", "label": "Retention Value", "description": "Sections to keep (count mode) or days to retain (days mode)", "type": "int", "min": 1, "max": 10000},
     # --- Context Pruning ---
-    "CONTEXT_PRUNING_ENABLED": {"group": "Chat History", "label": "Context Pruning", "description": "Trim old tool results from context at assembly time", "type": "bool"},
-    "CONTEXT_PRUNING_KEEP_TURNS": {"group": "Chat History", "label": "Pruning Keep Turns", "description": "Recent turns whose tool results are kept intact", "type": "int", "min": 0, "max": 50},
-    "CONTEXT_PRUNING_MIN_LENGTH": {"group": "Chat History", "label": "Pruning Min Length", "description": "Tool results shorter than this are never pruned", "type": "int", "min": 0, "max": 10000},
+    "CONTEXT_PRUNING_ENABLED": {"group": "Chat History", "label": "Context Pruning", "description": "Trim old tool results from context at the start of each new user turn", "type": "bool"},
+    "CONTEXT_PRUNING_KEEP_TURNS": {"group": "Chat History", "label": "Pruning Keep Turns", "description": "(NO-OP — kept for backwards compatibility) Recent turns whose tool results are kept intact", "type": "int", "min": 0, "max": 50, "ui_hidden": True},
+    "CONTEXT_PRUNING_MIN_LENGTH": {"group": "Chat History", "label": "Pruning Min Length", "description": "Tool results shorter than this are never pruned (applies to both turn-boundary and in-loop pruning)", "type": "int", "min": 0, "max": 10000},
+    "IN_LOOP_PRUNING_ENABLED": {"group": "Chat History", "label": "In-Loop Pruning", "description": "Trim old tool results between iterations within a single agent run. Prevents long tool-call chains from accumulating context. Pruned results stay retrievable via read_conversation_history.", "type": "bool"},
+    "IN_LOOP_PRUNING_KEEP_ITERATIONS": {"group": "Chat History", "label": "In-Loop Keep Iterations", "description": "How many of the most recent iterations stay verbatim. 1 = aggressive (only the last round of tool results is kept), 2-3 = more conservative. Older iterations get a retrieval-pointer marker.", "type": "int", "min": 1, "max": 10},
     # --- Embeddings & RAG ---
     "EMBEDDING_MODEL": {"group": "Embeddings & RAG", "label": "Embedding Model", "description": "Model for text embeddings (use local/ prefix for local ONNX models, e.g. local/BAAI/bge-small-en-v1.5)", "type": "string", "widget": "embedding_model"},
     "RAG_TOP_K": {"group": "Embeddings & RAG", "label": "RAG Top-K", "description": "Number of RAG results to return", "type": "int", "min": 1, "max": 50},
