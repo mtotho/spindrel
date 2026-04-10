@@ -1673,7 +1673,7 @@ async def admin_channel_sections(
             "last_viewed_at": s.last_viewed_at.isoformat() if s.last_viewed_at else None,
             "tags": s.tags or [],
             "file_exists": fe,
-            "has_transcript": s.transcript is not None,
+            "has_transcript": bool(s.transcript_path),
         })
 
     # Coverage stats
