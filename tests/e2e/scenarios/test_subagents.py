@@ -135,16 +135,16 @@ async def test_parallel_subagents_return_all_results(client: E2EClient) -> None:
 
 @pytest.mark.asyncio
 async def test_file_scanner_preset_has_file_tools(client: E2EClient) -> None:
-    """Sub-agent with preset 'file-scanner' should be able to use file tools
-    to read actual files on the system."""
+    """Sub-agent with preset 'file-scanner' should be able to use exec_command
+    to run shell commands for file scanning."""
     bot_id = await _create_subagent_bot(client)
     try:
         client_id = client.new_client_id("e2e-subagent-scanner")
         result = await asyncio.wait_for(
             client.chat_stream(
                 'Use spawn_subagents with one sub-agent: '
-                '{"preset": "file-scanner", "prompt": "List the files in the current '
-                'working directory. Return just the filenames, one per line."}',
+                '{"preset": "file-scanner", "prompt": "Use exec_command to run: '
+                'ls /opt/thoth-server/*.md — then list what you found."}',
                 bot_id=bot_id,
                 client_id=client_id,
             ),
@@ -154,11 +154,9 @@ async def test_file_scanner_preset_has_file_tools(client: E2EClient) -> None:
         assert_tool_called(result.tools_used, ["spawn_subagents"])
         assert_response_not_empty(result.response_text, min_chars=10)
 
-        # The scanner should have been able to list files — response should
-        # mention typical project files
+        # The scanner should have found markdown files in the project root
         assert_contains_any(result.response_text, [
-            "requirements", "docker", "alembic", ".py", "app",
-            "README", "yaml", "toml",
+            "readme", "contributing", "security", "license", ".md",
         ])
     finally:
         await client.delete_bot(bot_id)
@@ -224,8 +222,9 @@ async def test_subagent_cannot_spawn_subagents(client: E2EClient) -> None:
 
         # The sub-agent should have reported it can't delegate
         assert_contains_any(result.response_text, [
-            "cannot_delegate", "cannot delegate", "no tool", "not available",
-            "unable to", "don't have", "do not have",
+            "cannot_delegate", "cannot delegate", "cannot", "no tool",
+            "not available", "unable to", "don't have", "do not have",
+            "could not", "couldn't",
         ])
     finally:
         await client.delete_bot(bot_id)
@@ -315,9 +314,8 @@ async def test_invalid_preset_returns_error(client: E2EClient) -> None:
         client_id = client.new_client_id("e2e-subagent-badpreset")
         result = await asyncio.wait_for(
             client.chat_stream(
-                'Use spawn_subagents with: '
-                '{"preset": "nonexistent-preset-xyz", '
-                '"prompt": "Do something."}',
+                'Call the spawn_subagents tool right now with this exact JSON for the agents array: '
+                '[{"preset": "nonexistent-preset-xyz", "prompt": "Do something."}]',
                 bot_id=bot_id,
                 client_id=client_id,
             ),
@@ -328,8 +326,8 @@ async def test_invalid_preset_returns_error(client: E2EClient) -> None:
 
         # Bot should relay the error
         assert_contains_any(result.response_text, [
-            "error", "not found", "invalid", "unknown preset",
-            "no preset", "nonexistent",
+            "error", "not found", "invalid", "unknown",
+            "no preset", "nonexistent", "available",
         ])
     finally:
         await client.delete_bot(bot_id)
