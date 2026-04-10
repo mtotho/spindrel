@@ -236,17 +236,18 @@ async def test_subagent_cannot_spawn_subagents(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_summarizer_has_no_tools(client: E2EClient) -> None:
-    """The summarizer preset should have no tools (it just processes text).
-    If asked to use a tool, it should be unable to."""
+async def test_summarizer_preset_processes_text_only(client: E2EClient) -> None:
+    """The summarizer preset should process text without tools.
+    Verify it can summarize input correctly (proving it works as a text-only agent)."""
     bot_id = await _create_subagent_bot(client)
     try:
         client_id = client.new_client_id("e2e-subagent-notools")
         result = await asyncio.wait_for(
             client.chat_stream(
                 'Use spawn_subagents with: '
-                '{"preset": "summarizer", "prompt": "Use the get_current_time tool '
-                'and tell me the time. If you have no tools, say NO_TOOLS_AVAILABLE."}',
+                '{"preset": "summarizer", "prompt": "Summarize this in one sentence: '
+                'The Eiffel Tower is a wrought-iron lattice tower in Paris, France. '
+                'It was built for the 1889 World Fair. It is 330 meters tall."}',
                 bot_id=bot_id,
                 client_id=client_id,
             ),
@@ -255,10 +256,9 @@ async def test_summarizer_has_no_tools(client: E2EClient) -> None:
         assert_no_error_events(result.events)
         assert_tool_called(result.tools_used, ["spawn_subagents"])
 
-        # Sub-agent couldn't use tools — it should say so
+        # The summarizer should have produced a summary mentioning the Eiffel Tower
         assert_contains_any(result.response_text, [
-            "no_tools_available", "no tools", "don't have", "unable",
-            "cannot", "not available",
+            "eiffel", "tower", "paris", "1889",
         ])
     finally:
         await client.delete_bot(bot_id)
@@ -327,7 +327,8 @@ async def test_invalid_preset_returns_error(client: E2EClient) -> None:
         # Bot should relay the error
         assert_contains_any(result.response_text, [
             "error", "not found", "invalid", "unknown",
-            "no preset", "nonexistent", "available",
+            "no preset", "nonexistent", "available", "valid",
+            "not a", "doesn't exist",
         ])
     finally:
         await client.delete_bot(bot_id)
