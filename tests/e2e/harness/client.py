@@ -267,7 +267,7 @@ class E2EClient:
             "persona": False,
         }
         if provider_id:
-            bot_data["provider_id"] = provider_id
+            bot_data["model_provider_id"] = provider_id
         await self.create_bot(bot_data)
         return bot_id
 

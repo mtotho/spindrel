@@ -64,6 +64,7 @@ cd "$PROJECT_ROOT"
         tests/e2e/scenarios/test_search_indexing.py \
         tests/e2e/scenarios/test_tool_policies.py \
         tests/e2e/scenarios/test_memory_behavior.py \
+        tests/e2e/scenarios/test_openai_native_smoke.py \
         -v --tb=short 2>&1
 
     EXIT_CODE=$?
