@@ -51,7 +51,7 @@ class TaskDetailOut(BaseModel):
     dispatch_config: Optional[dict] = None
     callback_config: Optional[dict] = None
     execution_config: Optional[dict] = None
-    correlation_id: Optional[str] = None
+    correlation_id: Optional[uuid.UUID] = None
     delegation_session_id: Optional[uuid.UUID] = None
     # Surfaced from execution_config/callback_config for convenience
     model_override: Optional[str] = None
@@ -303,7 +303,7 @@ async def admin_get_task(
     corr_map = await _heartbeat_correlation_ids(db, [task])
     cid = corr_map.get(task.id)
     if cid:
-        out.correlation_id = str(cid)
+        out.correlation_id = cid
     # Look up delegation child session if this task created one
     if task.task_type == "delegation":
         del_session = (await db.execute(
