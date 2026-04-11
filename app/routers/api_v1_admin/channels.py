@@ -2039,6 +2039,25 @@ async def admin_channel_context_preview(
     if bot.system_prompt:
         blocks.append({"label": "Bot System Prompt", "role": "system", "content": bot.system_prompt.rstrip()})
 
+    # --- Carapace fragments ---
+    # The runtime context assembly injects each resolved carapace's
+    # system_prompt_fragment into the system message stream
+    # (see app/agent/context_assembly.py:921-928). This preview endpoint
+    # mirrors that behavior so the UI and tests can see the same content.
+    if bot.carapaces:
+        try:
+            from app.agent.carapaces import resolve_carapaces as _resolve_caps
+            _resolved = _resolve_caps(list(bot.carapaces))
+            if _resolved.system_prompt_fragments:
+                _frag_text = "\n\n".join(_resolved.system_prompt_fragments)
+                blocks.append({
+                    "label": f"Carapace Fragments ({len(_resolved.system_prompt_fragments)})",
+                    "role": "system",
+                    "content": _frag_text,
+                })
+        except Exception:
+            logger.warning("context-preview: failed to resolve carapaces for bot %s", bot.id, exc_info=True)
+
     # Memory guidelines — deprecated (DB memory no longer in use)
 
     # --- Persona ---
