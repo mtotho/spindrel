@@ -25,6 +25,8 @@ SETUP = {
         # Bazarr
         {"key": "BAZARR_URL", "required": False, "description": "Bazarr base URL (e.g. http://192.168.1.x:6767)"},
         {"key": "BAZARR_API_KEY", "required": False, "description": "Bazarr API key (Settings → General)", "secret": True},
+        # FlareSolverr (Cloudflare bypass for indexers — no auth)
+        {"key": "FLARESOLVERR_URL", "required": False, "description": "FlareSolverr base URL (e.g. http://192.168.1.x:8191) — used to diagnose Cloudflare-protected indexer failures"},
     ],
     "activation": {
         "carapaces": ["arr"],
