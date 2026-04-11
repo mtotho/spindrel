@@ -28,6 +28,7 @@ COPY app/ app/
 COPY integrations/ integrations/
 COPY packages/ packages/
 COPY prompts/ prompts/
+COPY carapaces/ carapaces/
 COPY alembic.ini .
 COPY migrations/ migrations/
 

@@ -31,6 +31,8 @@ alembic upgrade head                    # migrations (auto on startup)
 - **Split UI files at 1000 lines** — extract into sibling files
 - **No integration-specific code in `app/`** — must live in `integrations/{name}/`
 - **Production runs in Docker** — debug by reading code, not querying DB
+- **Don't band-aid — keep the broader vision.** If the user reports one symptom, don't fix it by ripping out a canonical / standard pattern and replacing it with an imperative workaround. Diagnose the root cause and match the fix to best practice. A bug in `flex: column-reverse` chat scroll should not become "scroll with JS"; a bug in React Query caching should not become "bypass the cache"; a bug in CSS grid should not become "use absolute positioning". User frustration means the band-aid isn't holding — it does NOT mean apply another band-aid faster. Assume senior-engineer scrutiny on every line.
+- **Chat scroll: use `flex-direction: column-reverse` on the OUTER container with messages in a normal-flow inner div.** The browser natively pins the visual bottom — no `scrollTop = scrollHeight` effects, no `ResizeObserver` pin logic, no image-load races. Selection works because the inner wrapper's DOM order matches its visual order. Do NOT reintroduce imperative scroll anchoring. See `ui/app/(app)/channels/[channelId]/ChatMessageArea.tsx`.
 
 ## DB Gotchas
 

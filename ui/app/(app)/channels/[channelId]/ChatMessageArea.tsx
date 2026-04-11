@@ -43,7 +43,28 @@ export interface ChatMessageAreaProps {
 }
 
 // ---------------------------------------------------------------------------
-// Web: normal column layout with JS scroll anchoring (proper text selection)
+// Web chat scroll container.
+//
+// Layout strategy: `flex-direction: column-reverse` on the OUTER scroll
+// container (DOM-first child == visual bottom), but the messages live inside
+// a normal-flow inner div so their DOM order matches their visual order.
+// This is the canonical "best of both worlds" chat pattern:
+//
+//   1. The browser natively pins scroll position to the visual bottom —
+//      scrollTop === 0 always means "at the newest message", no JS required.
+//      New messages, streaming chunks, and late-loading images all stay
+//      pinned without any manual scrollTop math.
+//   2. Older-page prepend requires no scroll-preservation hack — growing the
+//      content above the visual bottom simply extends the scroll range
+//      upward; visible content does not jump.
+//   3. Native text selection works because the messages live in DOM order
+//      inside a normal-flow wrapper (the reversal affects only the scroll
+//      container's immediate children, not the message list).
+//
+// Do NOT reintroduce imperative `scrollTop = scrollHeight` effects — they
+// race with image loads, streaming reflows, and prepend adjustments, and
+// that race is what the "starts scrolled up, then jumps down" and
+// "stays stuck up" bugs were. See vault: Track - UI Polish, April 10 session.
 // ---------------------------------------------------------------------------
 
 export function ChatMessageArea({
@@ -61,14 +82,6 @@ export function ChatMessageArea({
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [showFab, setShowFab] = useState(false);
-  const atBottomRef = useRef(true);
-  const prevScrollHeightRef = useRef(0);
-
-  const isAtBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return true;
-    return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-  }, []);
 
   // Stable ref for load-more callback
   const handleLoadMoreRef = useRef(handleLoadMore);
@@ -92,100 +105,38 @@ export function ChatMessageArea({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // After a page finishes loading, preserve scroll position (older content
-  // prepended at top) and re-check sentinel visibility.
-  const recheckRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevFetchingRef = useRef(false);
-  useEffect(() => {
-    const wasFetching = prevFetchingRef.current;
-    prevFetchingRef.current = isFetchingNextPage;
-
-    // Fetch starting: snapshot scrollHeight so we can adjust after prepend
-    if (isFetchingNextPage && !wasFetching) {
-      const el = scrollRef.current;
-      if (el) prevScrollHeightRef.current = el.scrollHeight;
-      return;
-    }
-    if (isFetchingNextPage) return;
-
-    // Page just finished loading (true→false transition).
-    if (!wasFetching) return;
-
-    // Adjust scrollTop to keep current content in place after prepend
-    const el = scrollRef.current;
-    if (el) {
-      const delta = el.scrollHeight - prevScrollHeightRef.current;
-      if (delta > 0) el.scrollTop += delta;
-    }
-
-    // Re-check sentinel visibility — if content still doesn't fill the
-    // viewport, load another page. Short delay so chained pagination feels
-    // continuous rather than waiting on a half-second tick between pages.
-    if (recheckRef.current) clearTimeout(recheckRef.current);
-    recheckRef.current = setTimeout(() => {
-      const sentinel = sentinelRef.current;
-      const root = scrollRef.current;
-      if (!sentinel || !root) return;
-      const rootRect = root.getBoundingClientRect();
-      const sentinelRect = sentinel.getBoundingClientRect();
-      if (sentinelRect.bottom >= rootRect.top - 200 && sentinelRect.top <= rootRect.bottom) {
-        handleLoadMoreRef.current();
-      }
-    }, 80);
-    return () => { if (recheckRef.current) clearTimeout(recheckRef.current); };
-  }, [isFetchingNextPage]);
-
-  // Track scroll position for FAB visibility + at-bottom state
+  // FAB visibility. In column-reverse, scrollTop is 0 at the visual bottom
+  // and becomes negative as the user scrolls up (Chrome/Firefox + Safari
+  // 16+). Treat "within 100px of the bottom" as at-bottom.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = () => {
-      const bottom = isAtBottom();
-      atBottomRef.current = bottom;
-      setShowFab(!bottom);
+      setShowFab(Math.abs(el.scrollTop) > 100);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, [isAtBottom]);
-
-  // Auto-scroll to bottom when new content arrives (if already at bottom).
-  // Triggers on message-list growth and on streaming-content updates so the
-  // user follows the bot's response without losing position.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el && atBottomRef.current) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [
-    invertedData.length,
-    chatState.streamingContent,
-    chatState.thinkingContent,
-    chatState.isStreaming,
-    isProcessing,
-  ]);
-
-  // Initial scroll to bottom on mount
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
   }, []);
 
-  // After page 1 (or any subsequent page) lands, if the loaded content still
-  // doesn't fill the viewport, request the next page. The IntersectionObserver
-  // alone doesn't catch this reliably: it's set up at mount with empty content,
-  // and small chats may never trigger a sentinel transition once page 1 paints.
+  // IntersectionObserver does not always re-fire if the sentinel was already
+  // intersecting when an entry landed (short threads where page 1 doesn't
+  // fill the viewport). After each page settles, re-check the sentinel and
+  // request another page if it's still visible.
   useEffect(() => {
     if (!hasNextPage || isFetchingNextPage) return;
     const root = scrollRef.current;
-    if (!root) return;
-    if (root.scrollHeight <= root.clientHeight + 200) {
+    const sentinel = sentinelRef.current;
+    if (!root || !sentinel) return;
+    const rootRect = root.getBoundingClientRect();
+    const sentinelRect = sentinel.getBoundingClientRect();
+    if (sentinelRect.bottom >= rootRect.top - 200 && sentinelRect.top <= rootRect.bottom) {
       handleLoadMoreRef.current();
     }
   }, [invertedData.length, hasNextPage, isFetchingNextPage]);
 
   const doScrollToBottom = useCallback(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    if (el) el.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
   const streamingBotName = chatState.respondingBotName ?? undefined;
@@ -213,13 +164,7 @@ export function ChatMessageArea({
     />
   ));
 
-  const hasIndicators = primaryIndicator || memberIndicators.length > 0;
-  const indicators = hasIndicators ? (
-    <>
-      {memberIndicators}
-      {primaryIndicator}
-    </>
-  ) : null;
+  const hasIndicators = !!primaryIndicator || memberIndicators.length > 0;
 
   return (
     <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
@@ -228,25 +173,30 @@ export function ChatMessageArea({
         className="chat-scroll-web"
         style={{
           display: "flex",
-          flexDirection: "column",
+          flexDirection: "column-reverse",
           overflowY: "auto",
           height: "100%",
           paddingTop: 8,
           paddingBottom: 8,
         }}
       >
-        {/* Top of DOM = visual top — sentinel for loading older pages */}
-        <div ref={sentinelRef} style={{ minHeight: 1, flexShrink: 0, overflowAnchor: "none" }}>
-          {isFetchingNextPage && (
-            <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
-              <div className="chat-spinner" />
-            </div>
-          )}
-        </div>
+        {/* DOM first == visual BOTTOM — streaming / processing indicators.
+            Wrap in a single div so the reverse order of memberIndicators +
+            primaryIndicator is determined by normal DOM flow inside, not by
+            the outer reverse. */}
+        {hasIndicators && (
+          <div>
+            {memberIndicators}
+            {primaryIndicator}
+          </div>
+        )}
 
-        {/* Empty / loading state */}
-        {invertedData.length === 0 && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 0", flex: 1 }}>
+        {/* Messages in chronological DOM order inside a normal-flow div.
+            Native selection works because DOM order matches visual order
+            within this wrapper; the reverse only applies to the outer
+            container's children. */}
+        {invertedData.length === 0 ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 20px", flex: 1 }}>
             {isLoading ? (
               <div className="chat-spinner" />
             ) : (
@@ -255,23 +205,28 @@ export function ChatMessageArea({
               </span>
             )}
           </div>
+        ) : (
+          <div>
+            {Array.from({ length: invertedData.length }, (_, i) => {
+              const chronIdx = invertedData.length - 1 - i;
+              const item = invertedData[chronIdx];
+              return (
+                <div key={item.id} style={{ userSelect: "text" }}>
+                  {renderMessage({ item, index: chronIdx })}
+                </div>
+              );
+            })}
+          </div>
         )}
 
-        {/* Messages in chronological order (oldest first).
-            invertedData is newest-first, so iterate in reverse.
-            renderMessage expects the index into invertedData. */}
-        {invertedData.map((_unused, i) => {
-          const chronIdx = invertedData.length - 1 - i;
-          const item = invertedData[chronIdx];
-          return (
-            <div key={item.id} style={{ userSelect: "text" }}>
-              {renderMessage({ item, index: chronIdx })}
+        {/* DOM last == visual TOP — sentinel for loading older pages. */}
+        <div ref={sentinelRef} style={{ minHeight: 1, flexShrink: 0 }}>
+          {isFetchingNextPage && (
+            <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}>
+              <div className="chat-spinner" />
             </div>
-          );
-        })}
-
-        {/* Bottom of DOM = visual bottom — streaming indicators */}
-        {indicators}
+          )}
+        </div>
       </div>
 
       {showFab && (

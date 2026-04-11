@@ -128,13 +128,11 @@ textarea::placeholder {
 
 /* ── Chat ───────────────────────────────────────────────── */
 
-/* Web chat scroll — column-reverse container for proper text selection */
+/* Web chat scroll — column-reverse on the outer container pins the visual
+   bottom natively. Messages live inside a normal-flow wrapper so DOM order
+   matches visual order (native text selection works). See ChatMessageArea.tsx. */
 .chat-scroll-web {
-  overflow-anchor: none;      /* MUST be none in column-reverse: "auto" anchors to old
-                                 messages on page load, scrolling the user UP instead of
-                                 staying pinned to the bottom.  We handle pinning manually
-                                 via the auto-scroll effect in WebChatList. */
-  scroll-behavior: auto;      /* instant scroll on content changes, smooth via JS */
+  scroll-behavior: auto;           /* instant on programmatic scroll; the FAB uses smooth inline */
   overscroll-behavior-y: contain;  /* prevent pull-to-refresh on mobile web */
 }
 
