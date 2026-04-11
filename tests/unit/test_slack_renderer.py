@@ -190,19 +190,35 @@ def _turn_ended_event(
     )
 
 
-def _new_message_event(role: str = "assistant", content: str = "hi") -> ChannelEvent:
-    cid = uuid.uuid4()
+def _new_message_event(
+    role: str = "assistant",
+    content: str = "hi",
+    *,
+    channel_id: uuid.UUID | None = None,
+    msg_id: uuid.UUID | None = None,
+    actor: ActorRef | None = None,
+) -> ChannelEvent:
+    cid = channel_id if channel_id is not None else uuid.uuid4()
+    if actor is None:
+        if role == "user":
+            actor = ActorRef.user("test-user", display_name="Alice")
+        elif role == "tool":
+            actor = ActorRef(kind="tool", id="test-tool", display_name=None, avatar=None)
+        elif role == "system":
+            actor = ActorRef.system("system")
+        else:
+            actor = ActorRef.bot("test-bot")
     return ChannelEvent(
         channel_id=cid,
         kind=ChannelEventKind.NEW_MESSAGE,
         payload=MessagePayload(
             message=DomainMessage(
-                id=uuid.uuid4(),
+                id=msg_id if msg_id is not None else uuid.uuid4(),
                 session_id=uuid.uuid4(),
                 role=role,
                 content=content,
                 created_at=datetime.now(timezone.utc),
-                actor=ActorRef.bot("test-bot"),
+                actor=actor,
                 channel_id=cid,
             ),
         ),
@@ -540,6 +556,103 @@ class TestNewMessage:
         assert call["url"] == "https://slack.com/api/chat.postMessage"
         assert call["body"]["channel"] == "C123"
         assert call["body"]["username"] == "Test Bot"
+
+    async def test_skips_tool_role(self, fake_http):
+        """Regression: file_ops.write returns `{"ok": true, "bytes": N}` as
+        a tool-role message. Without the role filter that raw JSON was
+        being posted to Slack as a user-visible chat message under the
+        bare Slack App name (no bot_attribution override)."""
+        fake_http.set_response({"ok": True, "ts": "1700000002.1"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        receipt = await renderer.render(
+            _new_message_event(role="tool", content='{"ok": true, "bytes": 1181}'),
+            target,
+        )
+
+        assert receipt.success is True
+        assert receipt.skip_reason is not None
+        assert len(fake_http.calls) == 0
+
+    async def test_skips_system_role(self, fake_http):
+        fake_http.set_response({"ok": True, "ts": "1700000002.2"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        receipt = await renderer.render(
+            _new_message_event(role="system", content="[datetime] …"),
+            target,
+        )
+
+        assert receipt.skip_reason is not None
+        assert len(fake_http.calls) == 0
+
+    async def test_skips_assistant_during_active_turn(self, fake_http):
+        """Regression: persist_turn publishes NEW_MESSAGE for the
+        assistant reply, but TURN_ENDED's streaming chat.update has
+        already delivered that reply via the placeholder ts. Posting
+        NEW_MESSAGE too creates a second copy of every bot reply — the
+        symptom the user saw as permanent duplicates in Slack."""
+        fake_http.set_response({"ok": True, "ts": "1700000002.3"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        # Simulate an active turn on this channel (TURN_STARTED has run
+        # and created a render context, TURN_ENDED has not yet run).
+        turn_id = uuid.uuid4()
+        slack_render_contexts.get_or_create("C123", str(turn_id), bot_id="test-bot")
+
+        receipt = await renderer.render(_new_message_event(role="assistant"), target)
+
+        assert receipt.skip_reason is not None
+        assert len(fake_http.calls) == 0
+
+    async def test_workflow_assistant_still_posts(self, fake_http):
+        """Assistant messages published outside any active turn context
+        (e.g. from ``workflow_executor.py``) are sideband messages with
+        no TURN_ENDED to deliver them — NEW_MESSAGE must still reach
+        Slack for the workflow UI to render."""
+        fake_http.set_response({"ok": True, "ts": "1700000002.4"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        # No render context — no active turn.
+        assert not slack_render_contexts.has_active_turn("C123")
+
+        receipt = await renderer.render(
+            _new_message_event(role="assistant", content="workflow step 1 done"),
+            target,
+        )
+
+        assert receipt.success is True
+        assert len(fake_http.calls) == 1
+
+    async def test_dedupes_same_message_id_across_paths(self, fake_http):
+        """Regression: NEW_MESSAGE is delivered via both the outbox
+        drainer AND IntegrationDispatcherTask.subscribe_all(). The same
+        event reaches render() twice with the same message.id. The
+        second call must be a no-op or every cross-integration message
+        posts twice."""
+        fake_http.set_response({"ok": True, "ts": "1700000002.5"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        # Same message id, two delivery attempts.
+        msg_id = uuid.uuid4()
+        cid = uuid.uuid4()
+        ev = _new_message_event(
+            role="user", content="hi from web", channel_id=cid, msg_id=msg_id,
+        )
+
+        r1 = await renderer.render(ev, target)
+        r2 = await renderer.render(ev, target)
+
+        assert r1.success is True
+        assert r1.skip_reason is None
+        assert r2.success is True  # skipped receipts are success=True
+        assert r2.skip_reason is not None
+        assert len(fake_http.calls) == 1  # only the first delivery hit the API
 
 
 # ---------------------------------------------------------------------------

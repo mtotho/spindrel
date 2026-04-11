@@ -33,6 +33,7 @@ import asyncio
 import logging
 import time
 import uuid
+from collections import deque
 from typing import ClassVar
 
 import httpx
@@ -63,6 +64,13 @@ logger = logging.getLogger(__name__)
 _http = httpx.AsyncClient(timeout=30.0)
 
 
+_RECENT_POSTED_CAP = 1024
+"""LRU cap for the per-renderer `_posted_message_ids` dedup buffer. Sized
+to comfortably cover a burst of a few hundred cross-integration mirror
+messages without evicting entries before their twin arrives via the other
+delivery path."""
+
+
 class SlackRenderer:
     """Channel renderer for Slack delivery.
 
@@ -88,6 +96,30 @@ class SlackRenderer:
         Capability.DISPLAY_NAMES,
         Capability.MENTIONS,
     })
+
+    def __init__(self) -> None:
+        # Bounded LRU of message ids we've already posted via
+        # ``_handle_new_message``. NEW_MESSAGE events are delivered via
+        # BOTH ``outbox_drainer`` (durable) and
+        # ``IntegrationDispatcherTask.subscribe_all()`` (ephemeral),
+        # so the same event reaches this renderer twice. Dedup by
+        # ``msg.id`` ensures we only chat.postMessage once regardless
+        # of which delivery path wins the race. The ``deque`` is the
+        # FIFO eviction queue; the ``set`` is the O(1) membership probe.
+        self._posted_order: deque[uuid.UUID] = deque(maxlen=_RECENT_POSTED_CAP)
+        self._posted_set: set[uuid.UUID] = set()
+
+    def _remember_posted(self, msg_id: uuid.UUID) -> None:
+        if msg_id in self._posted_set:
+            return
+        if len(self._posted_order) == _RECENT_POSTED_CAP:
+            evicted = self._posted_order[0]
+            self._posted_set.discard(evicted)
+        self._posted_order.append(msg_id)
+        self._posted_set.add(msg_id)
+
+    def _already_posted(self, msg_id: uuid.UUID) -> bool:
+        return msg_id in self._posted_set
 
     async def render(
         self,
@@ -326,6 +358,38 @@ class SlackRenderer:
         if msg is None:
             return DeliveryReceipt.skipped("new_message without message payload")
 
+        # Internal roles are never user-facing. Without this filter the
+        # renderer happily serializes raw tool-result JSON (e.g.
+        # ``{"ok": true, "bytes": 1181}`` from file_ops.write) into a
+        # Slack message, attributed to the bare Slack App name because
+        # there's no bot actor to pass through ``bot_attribution``.
+        role = getattr(msg, "role", "") or ""
+        if role in ("tool", "system"):
+            return DeliveryReceipt.skipped(f"slack skips internal role={role}")
+
+        # Assistant messages that land on the bus during an active turn
+        # are the persisted form of the reply that TURN_ENDED has
+        # already delivered via the streaming ``chat.update`` path. Posting
+        # them again would duplicate every bot reply. Workflow-authored
+        # assistant messages (``workflow_executor.py``) arrive outside
+        # any turn context and are still posted. We also remember the
+        # id so a later NEW_MESSAGE redelivery via the other path
+        # (outbox drainer vs. subscribe_all) doesn't slip through.
+        if role == "assistant" and slack_render_contexts.has_active_turn(
+            target.channel_id
+        ):
+            self._remember_posted(msg.id)
+            return DeliveryReceipt.skipped(
+                "assistant new_message during active turn — TURN_ENDED handles"
+            )
+
+        # Cross-path dedup. NEW_MESSAGE is delivered via BOTH the outbox
+        # drainer and ``IntegrationDispatcherTask.subscribe_all()``, so
+        # the same message.id reaches render() twice. The first call
+        # wins, the second is a no-op.
+        if self._already_posted(msg.id):
+            return DeliveryReceipt.skipped("slack already posted message id")
+
         # Use the message's actor for display attribution. Bot
         # messages get bot_attribution; user messages get the user's
         # display name. The legacy mirror path used the same pattern.
@@ -337,6 +401,12 @@ class SlackRenderer:
             display_name = getattr(actor, "display_name", None)
             if display_name:
                 attrs["username"] = display_name
+
+        # Mark as posted BEFORE issuing the API call so a concurrent
+        # render of the same event (race between the two paths) short-
+        # circuits on the set membership check above instead of making
+        # a second duplicate post.
+        self._remember_posted(msg.id)
 
         text = getattr(msg, "content", "") or ""
         slack_text = markdown_to_slack_mrkdwn(text)

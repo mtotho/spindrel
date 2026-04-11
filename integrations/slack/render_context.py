@@ -105,6 +105,17 @@ class SlackRenderContextRegistry:
         if not entry.by_turn:
             del self._by_channel[slack_channel_id]
 
+    def has_active_turn(self, slack_channel_id: str) -> bool:
+        """Return True if any turn context currently exists for this channel.
+
+        Used by the NEW_MESSAGE handler to decide whether a bot-authored
+        message is part of an in-flight turn (delivered via TURN_ENDED's
+        streaming chat.update path) or a sideband message that needs to
+        be posted as a fresh chat.postMessage.
+        """
+        entry = self._by_channel.get(slack_channel_id)
+        return entry is not None and bool(entry.by_turn)
+
     def reset(self) -> None:
         """Test helper — wipe all state."""
         self._by_channel.clear()
