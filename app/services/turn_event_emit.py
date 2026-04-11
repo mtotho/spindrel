@@ -30,6 +30,8 @@ from app.domain.channel_events import ChannelEvent, ChannelEventKind
 from app.domain.payloads import (
     ApprovalRequestedPayload,
     ApprovalResolvedPayload,
+    ContextBudgetPayload,
+    MemorySchemeBootstrapPayload,
     TurnStreamTokenPayload,
     TurnStreamToolResultPayload,
     TurnStreamToolStartPayload,
@@ -160,6 +162,10 @@ async def emit_run_stream_events(
             )
 
         elif etype == "approval_resolved":
+            # `app/agent/loop.py:1049,1190` yields the legacy event with the
+            # old field name ``verdict``; the typed payload uses ``decision``.
+            # Translate on the way into the bus so downstream consumers see a
+            # consistent ``decision`` string.
             publish_typed(
                 channel_id,
                 ChannelEvent(
@@ -167,7 +173,52 @@ async def emit_run_stream_events(
                     kind=ChannelEventKind.APPROVAL_RESOLVED,
                     payload=ApprovalResolvedPayload(
                         approval_id=event.get("approval_id", ""),
-                        decision=event.get("decision", ""),
+                        decision=event.get("verdict") or event.get("decision") or "",
+                    ),
+                ),
+            )
+
+        elif etype == "context_budget":
+            # Untyped metadata event yielded by `app/agent/loop.py` after
+            # context assembly (~line 1522). Publishes a typed snapshot so
+            # the UI can render budget bars and E2E tests can assert on the
+            # stream. Pre-session-16 this was streamed via the legacy SSE
+            # long-poll; after Phase E removed that path, the event never
+            # reached subscribers without an explicit typed bridge.
+            try:
+                util = float(event.get("utilization") or 0)
+            except (TypeError, ValueError):
+                util = 0.0
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.CONTEXT_BUDGET,
+                    payload=ContextBudgetPayload(
+                        bot_id=bot_id,
+                        turn_id=turn_id,
+                        consumed_tokens=int(event.get("consumed_tokens") or 0),
+                        total_tokens=int(event.get("total_tokens") or 0),
+                        utilization=util,
+                        model=str(event.get("model") or ""),
+                    ),
+                ),
+            )
+
+        elif etype == "memory_scheme_bootstrap":
+            # Same story as context_budget — bridged onto the typed bus so
+            # the stream surfaces "memory bootstrap fired" for the UI +
+            # tests after Phase E killed the SSE long-poll forwarder.
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP,
+                    payload=MemorySchemeBootstrapPayload(
+                        bot_id=bot_id,
+                        turn_id=turn_id,
+                        scheme=str(event.get("scheme") or event.get("memory_scheme") or ""),
+                        files_loaded=int(event.get("files_loaded") or 0),
                     ),
                 ),
             )

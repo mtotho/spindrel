@@ -265,6 +265,38 @@ class ReplayLapsedPayload:
     reason: str = "client_lag"
 
 
+@dataclass(frozen=True)
+class ContextBudgetPayload:
+    """Payload for `context_budget` events — mid-turn context budget snapshot.
+
+    Emitted by `app/agent/loop.py` after context assembly so the UI (and
+    E2E tests) can surface how full the context window is for this turn.
+    """
+
+    bot_id: str
+    turn_id: uuid.UUID
+    consumed_tokens: int
+    total_tokens: int
+    utilization: float
+    model: str = ""
+
+
+@dataclass(frozen=True)
+class MemorySchemeBootstrapPayload:
+    """Payload for `memory_scheme_bootstrap` events.
+
+    Emitted when a workspace-files bot reads its memory index / bootstrap
+    block into context for a turn. Gives the UI a hook to show the user
+    "your bot just loaded its memory" and lets context-discovery tests
+    assert the bootstrap path fired.
+    """
+
+    bot_id: str
+    turn_id: uuid.UUID
+    scheme: str
+    files_loaded: int = 0
+
+
 # Discriminated union of all known payloads.
 ChannelEventPayload = (
     MessagePayload
@@ -283,4 +315,6 @@ ChannelEventPayload = (
     | ToolActivityPayload
     | ShutdownPayload
     | ReplayLapsedPayload
+    | ContextBudgetPayload
+    | MemorySchemeBootstrapPayload
 )

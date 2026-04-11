@@ -59,6 +59,82 @@ class TestContentForDb:
         assert parsed[1]["type"] == "text"
         assert "not available" in parsed[1]["text"]
 
+    def test_assistant_content_strips_leaked_attachment_hint(self):
+        """Regression: assistant turn content with the historical
+        enrichment-leak format gets sanitized before persistence so the
+        next turn's history doesn't re-feed it to the LLM.
+
+        This is the user-facing leak that survived the load-path fix:
+        once a bad turn was stored, the LLM kept reading its own past
+        output and reproducing the same arrow-and-paren format on every
+        subsequent assistant turn (observed live in conversation
+        ``de9bdd40-…`` after the load-path fix shipped).
+        """
+        from app.services.sessions import _content_for_db
+        leaked = (
+            "Here is a cartoon version of the image you provided.\n"
+            '[attached: generated.png — "A friendly black dog"]\n'
+            '→ To fetch full file, call: get_attachment("18231268-b76e-4c91-b3b4-e747444747ee")\n'
+            "(Use get_attachment tool to fetch full file/image if needed.)"
+        )
+        result = _content_for_db({"role": "assistant", "content": leaked})
+        assert "Here is a cartoon version" in result
+        assert "To fetch full file" not in result
+        assert "Use get_attachment tool" not in result
+        assert "[attached:" not in result
+
+    def test_user_content_unaffected_by_assistant_sanitizer(self):
+        """User messages may legitimately reference get_attachment in
+        their text (e.g. quoting a tool call back at the bot). The
+        sanitizer must not strip user content."""
+        from app.services.sessions import _content_for_db
+        text = (
+            'Why did you say "→ To fetch full file, call: get_attachment(...)"? '
+            "Stop pasting that."
+        )
+        result = _content_for_db({"role": "user", "content": text})
+        assert result == text
+
+
+class TestStripLeakedAttachmentHints:
+    def test_strips_three_line_leak_signature(self):
+        from app.services.sessions import _strip_leaked_attachment_hints
+        text = (
+            "Here is your cartoon.\n"
+            '[attached: generated.png — "desc"]\n'
+            '→ To fetch full file, call: get_attachment("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")\n'
+            "(Use get_attachment tool to fetch full file/image if needed.)"
+        )
+        out = _strip_leaked_attachment_hints(text)
+        assert out == "Here is your cartoon."
+
+    def test_strips_xml_attachment_tag(self):
+        from app.services.sessions import _strip_leaked_attachment_hints
+        text = (
+            "Look at the result.\n"
+            '<attachment id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" filename="x.png"/>'
+        )
+        out = _strip_leaked_attachment_hints(text)
+        assert "<attachment" not in out
+        assert "Look at the result." in out
+
+    def test_idempotent_on_clean_text(self):
+        from app.services.sessions import _strip_leaked_attachment_hints
+        text = "Just a normal reply, nothing special."
+        assert _strip_leaked_attachment_hints(text) == text
+
+    def test_unchanged_object_when_no_match(self):
+        """Common-case fast path: no match → returns the exact input."""
+        from app.services.sessions import _strip_leaked_attachment_hints
+        text = "ordinary"
+        # Identity not strictly required, but value equality is.
+        assert _strip_leaked_attachment_hints(text) == text
+
+    def test_handles_empty_and_none(self):
+        from app.services.sessions import _strip_leaked_attachment_hints
+        assert _strip_leaked_attachment_hints("") == ""
+        assert _strip_leaked_attachment_hints(None) is None  # type: ignore[arg-type]
+
 
 # ---------------------------------------------------------------------------
 # _redact_images_for_db

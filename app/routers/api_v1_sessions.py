@@ -218,6 +218,8 @@ async def inject_message(
         await _fanout(session, body.content, body.source)
 
     if body.run_agent:
+        # Forward the pre-persisted user message id so persist_turn skips it
+        # at the end of the agent loop. See app/agent/tasks.py _run_one_task.
         task = Task(
             bot_id=session.bot_id,
             client_id=session.client_id,
@@ -228,6 +230,7 @@ async def inject_message(
             task_type="api",
             dispatch_type=(session.dispatch_config or {}).get("type") or "none",
             dispatch_config=session.dispatch_config or {},
+            execution_config={"pre_user_msg_id": str(msg.id)},
             created_at=datetime.now(timezone.utc),
         )
         db.add(task)

@@ -26,8 +26,10 @@ from app.domain.payloads import (
     ApprovalResolvedPayload,
     AttachmentDeletedPayload,
     ChannelEventPayload,
+    ContextBudgetPayload,
     DeliveryFailedPayload,
     HeartbeatTickPayload,
+    MemorySchemeBootstrapPayload,
     MessagePayload,
     MessageUpdatedPayload,
     ReplayLapsedPayload,
@@ -59,6 +61,8 @@ class ChannelEventKind(StrEnum):
     TOOL_ACTIVITY = "tool_activity"
     SHUTDOWN = "shutdown"
     REPLAY_LAPSED = "replay_lapsed"
+    CONTEXT_BUDGET = "context_budget"
+    MEMORY_SCHEME_BOOTSTRAP = "memory_scheme_bootstrap"
 
     def required_capabilities(self) -> frozenset[Capability]:
         """The capability set a renderer must declare to receive this kind.
@@ -146,6 +150,8 @@ _KIND_PAYLOAD: dict[ChannelEventKind, type] = {
     ChannelEventKind.TOOL_ACTIVITY: ToolActivityPayload,
     ChannelEventKind.SHUTDOWN: ShutdownPayload,
     ChannelEventKind.REPLAY_LAPSED: ReplayLapsedPayload,
+    ChannelEventKind.CONTEXT_BUDGET: ContextBudgetPayload,
+    ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP: MemorySchemeBootstrapPayload,
 }
 
 

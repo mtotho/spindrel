@@ -251,6 +251,13 @@ class E2EClient:
                         legacy_events.append(("approval_request", dict(epayload)))
                     elif kind == "approval_resolved":
                         legacy_events.append(("approval_resolved", dict(epayload)))
+                    elif kind == "context_budget":
+                        # Metadata snapshot bridged by `turn_event_emit.py` —
+                        # surfaces the budget bar in the UI and lets
+                        # `test_stream_reports_context_injection` read it.
+                        legacy_events.append(("context_budget", dict(epayload)))
+                    elif kind == "memory_scheme_bootstrap":
+                        legacy_events.append(("memory_scheme_bootstrap", dict(epayload)))
                     elif kind == "delivery_failed":
                         legacy_events.append(("error", dict(epayload)))
                     elif kind == "new_message":

@@ -159,6 +159,13 @@ async def inject_message(
     task_id: uuid.UUID | None = None
     if run_agent:
         effective_dispatch = dispatch_config or session.dispatch_config or {}
+        # Forward the pre-persisted user message id so persist_turn skips it
+        # at the end of the agent loop. Without this, the channel ends up
+        # with two identical user rows (one from store_passive_message above,
+        # one from persist_turn after the agent runs). See app/agent/tasks.py
+        # _run_one_task for the consumer side.
+        _ecfg = dict(execution_config or {})
+        _ecfg["pre_user_msg_id"] = str(msg.id)
         task = Task(
             bot_id=session.bot_id,
             client_id=session.client_id,
@@ -169,7 +176,7 @@ async def inject_message(
             task_type="api",
             dispatch_type=effective_dispatch.get("type") or "none",
             dispatch_config=effective_dispatch,
-            execution_config=execution_config,
+            execution_config=_ecfg,
             created_at=datetime.now(timezone.utc),
         )
         db.add(task)

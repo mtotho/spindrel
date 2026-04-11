@@ -841,9 +841,33 @@ async def run_task(task: Task) -> None:
                             _task_meta["delegation_child_display"] = _child_bot.display_name or _child_bot.name
                         except Exception:
                             pass
+        # If the inbound path pre-persisted the user message via
+        # ``store_passive_message`` (the inject_message → Task flow used by
+        # BlueBubbles, GitHub, /api/v1/sessions/{id}/messages, and
+        # /api/v1/channels/{id}/messages), the message id rides on
+        # ``execution_config["pre_user_msg_id"]``. Forward it to persist_turn
+        # so the user message is not double-persisted (otherwise the channel
+        # ends up showing two ``[Me]: ...`` rows for one inbound message —
+        # the bug that surfaced via the BlueBubbles webhook in production).
+        _pre_user_msg_id_str = (task.execution_config or {}).get("pre_user_msg_id")
+        _pre_user_msg_id = None
+        if _pre_user_msg_id_str:
+            try:
+                _pre_user_msg_id = uuid.UUID(_pre_user_msg_id_str)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "task %s: invalid pre_user_msg_id %r in execution_config",
+                    task.id, _pre_user_msg_id_str,
+                )
         from app.services.sessions import persist_turn
         async with async_session() as db:
-            await persist_turn(db, session_id, bot, messages, messages_start, correlation_id=correlation_id, channel_id=task.channel_id, msg_metadata=_task_meta)
+            await persist_turn(
+                db, session_id, bot, messages, messages_start,
+                correlation_id=correlation_id,
+                channel_id=task.channel_id,
+                msg_metadata=_task_meta,
+                pre_user_msg_id=_pre_user_msg_id,
+            )
 
         # Dispatch result (including any generated images)
         # Prepend a visual indicator for Slack / other text-based dispatchers

@@ -136,7 +136,11 @@ class TestInjectMessageExecutionConfig:
 
         assert result["task_id"] is not None
         task = next(obj for obj in added_objects if hasattr(obj, "execution_config"))
-        assert task.execution_config == ecfg
+        # The caller's execution_config keys must survive intact alongside
+        # the pre_user_msg_id forwarding.
+        assert task.execution_config["system_preamble"] == "Review this PR"
+        assert task.execution_config["tools"] == ["github_get_pr"]
+        assert "pre_user_msg_id" in task.execution_config
 
     @pytest.mark.asyncio
     async def test_execution_config_none_by_default(self):
@@ -169,7 +173,10 @@ class TestInjectMessageExecutionConfig:
             )
 
         task = next(obj for obj in added_objects if hasattr(obj, "execution_config"))
-        assert task.execution_config is None
+        # Even with no caller-supplied execution_config, the pre_user_msg_id
+        # forwarding still creates a dict with that single key — required so
+        # _run_one_task can skip the pre-persisted user row in persist_turn.
+        assert task.execution_config == {"pre_user_msg_id": str(msg.id)}
 
     @pytest.mark.asyncio
     async def test_task_carries_session_channel_id(self):
@@ -214,6 +221,51 @@ class TestInjectMessageExecutionConfig:
 
         task = next(obj for obj in added_objects if hasattr(obj, "execution_config"))
         assert task.channel_id == channel_id
+
+    @pytest.mark.asyncio
+    async def test_pre_user_msg_id_stored_for_dedup_in_persist_turn(self):
+        """Regression: inject_message MUST stash the pre-persisted message id
+        in execution_config so ``_run_one_task`` can pass it to persist_turn.
+
+        Without this, ``persist_turn`` writes a SECOND identical user row
+        after the agent loop, and the channel ends up showing two
+        ``[Me]: Wonky`` messages for one inbound iMessage. Caught in
+        production via the BB webhook path.
+        """
+        from integrations.utils import inject_message
+
+        session_id = uuid.uuid4()
+        session = MagicMock()
+        session.bot_id = "test-bot"
+        session.client_id = "bb:chat-guid"
+        session.channel_id = uuid.uuid4()
+        session.dispatch_config = {"type": "bluebubbles"}
+
+        msg = MagicMock()
+        msg.id = uuid.uuid4()
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=session)
+        added_objects = []
+        db.add = lambda obj: added_objects.append(obj)
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+
+        mock_result = MagicMock()
+        mock_result.scalar_one.return_value = msg
+        db.execute = AsyncMock(return_value=mock_result)
+
+        with patch("integrations.utils.store_passive_message", new_callable=AsyncMock):
+            await inject_message(
+                session_id, "[Me]: Wonky", source="bluebubbles",
+                run_agent=True, notify=False, db=db,
+            )
+
+        task = next(obj for obj in added_objects if hasattr(obj, "execution_config"))
+        # pre_user_msg_id is the id of the message just persisted by
+        # store_passive_message — _run_one_task uses it to skip the first
+        # user message in persist_turn's new_messages slice.
+        assert task.execution_config["pre_user_msg_id"] == str(msg.id)
 
 
 # ---------------------------------------------------------------------------

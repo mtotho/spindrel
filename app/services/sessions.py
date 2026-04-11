@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import uuid
 from typing import Any
 from datetime import datetime, timedelta, timezone
@@ -124,8 +125,84 @@ def _redact_images_for_db(content: list[Any]) -> list[Any]:
     return out
 
 
+# Lines that match these patterns are stripped from assistant content
+# before persistence. They are the visible signature of the historical
+# enrichment leak: the LLM was copying ``[attached: …] / → To fetch
+# full file, call: get_attachment("…") / (Use get_attachment tool …)``
+# straight out of its own enriched conversation history into fresh
+# assistant turns. Stripping enrichment from the load path
+# (`_enrich_content_with_attachments`) only stops *new* leaks; once a
+# bad turn has been persisted, the LLM keeps reading its own past
+# output and reproducing the pattern. This sanitizer breaks that
+# feedback loop on write, and the same helper is used by the one-time
+# DB backfill to clean stored rows.
+_ATTACHMENT_HINT_LINE_PATTERNS = (
+    re.compile(r'^[ \t]*\[attached:[^\]]*\][ \t]*$', re.MULTILINE),
+    re.compile(
+        r'^[ \t]*→[ \t]*To fetch full file,[^\n]*$',
+        re.MULTILINE,
+    ),
+    re.compile(
+        r'^[ \t]*\(\s*Use get_attachment tool[^)]*\)[ \t]*$',
+        re.MULTILINE,
+    ),
+    # The post-fix XML tag form. Less copy-prone but defended against
+    # the same way for symmetry — if a future model starts echoing it,
+    # we don't want to bake it into history again.
+    re.compile(r'^[ \t]*<attachment\s+[^>]*/>[ \t]*$', re.MULTILINE),
+)
+
+
+def _strip_leaked_attachment_hints(text: str) -> str:
+    """Remove enrichment-hint lines that the LLM reproduced into its own output.
+
+    Idempotent. Returns the input untouched when no pattern matches so
+    the common case (clean LLM output) is a no-op. Collapses any
+    leftover triple+ blank lines that the strip can leave behind.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    cleaned = text
+    for pat in _ATTACHMENT_HINT_LINE_PATTERNS:
+        cleaned = pat.sub("", cleaned)
+    if cleaned == text:
+        return text
+    # Collapse runs of blank lines introduced by the strip and trim
+    # trailing whitespace so the persisted text doesn't acquire a
+    # ragged tail.
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.rstrip()
+
+
+def _sanitize_assistant_content_for_db(content: Any) -> Any:
+    """Apply ``_strip_leaked_attachment_hints`` to a message-content payload.
+
+    Handles both the plain-string and the multimodal-list shapes that
+    assistant messages can carry. Non-text parts (image_url, audio,
+    etc.) pass through unchanged.
+    """
+    if isinstance(content, str):
+        return _strip_leaked_attachment_hints(content)
+    if isinstance(content, list):
+        out: list = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                txt = part.get("text", "")
+                stripped = _strip_leaked_attachment_hints(txt)
+                if stripped != txt:
+                    part = {**part, "text": stripped}
+            out.append(part)
+        return out
+    return content
+
+
 def _content_for_db(msg: dict) -> str | dict | list | None:
     raw = msg.get("content")
+    # Sanitize assistant output before persistence so leaked enrichment
+    # hints don't get baked into history and re-fed to the LLM on the
+    # next turn. User / tool / system content passes through unchanged.
+    if msg.get("role") == "assistant":
+        raw = _sanitize_assistant_content_for_db(raw)
     if isinstance(raw, list):
         return json.dumps(_redact_images_for_db(raw))
     return raw

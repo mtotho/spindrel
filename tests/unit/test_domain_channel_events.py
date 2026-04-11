@@ -84,8 +84,18 @@ class TestKindPayloadPairing:
             ChannelEventKind.REPLAY_LAPSED: ReplayLapsedPayload(requested_since=0, oldest_available=10),
         }
         # Every kind except APPROVAL_RESOLVED should be covered. Add it.
-        from app.domain.payloads import ApprovalResolvedPayload
+        from app.domain.payloads import (
+            ApprovalResolvedPayload,
+            ContextBudgetPayload,
+            MemorySchemeBootstrapPayload,
+        )
         cases[ChannelEventKind.APPROVAL_RESOLVED] = ApprovalResolvedPayload(approval_id="a", decision="approved")
+        cases[ChannelEventKind.CONTEXT_BUDGET] = ContextBudgetPayload(
+            bot_id="x", turn_id=_tid, consumed_tokens=10, total_tokens=1000, utilization=0.01,
+        )
+        cases[ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP] = MemorySchemeBootstrapPayload(
+            bot_id="x", turn_id=_tid, scheme="workspace-files", files_loaded=3,
+        )
 
         for kind in ChannelEventKind:
             assert kind in cases, f"missing test case for {kind}"

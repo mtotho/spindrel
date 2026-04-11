@@ -829,6 +829,8 @@ async def inject_channel_message(
         if _settings.SYSTEM_PAUSED and _settings.SYSTEM_PAUSE_BEHAVIOR == "drop":
             raise HTTPException(status_code=503, detail="System is paused. Messages are being dropped.")
 
+        # Forward the pre-persisted user message id so persist_turn skips it
+        # at the end of the agent loop. See app/agent/tasks.py _run_one_task.
         task = Task(
             bot_id=channel.bot_id,
             client_id=channel.client_id,
@@ -839,6 +841,7 @@ async def inject_channel_message(
             task_type="api",
             dispatch_type=channel.integration or "none",
             dispatch_config=channel.dispatch_config or {},
+            execution_config={"pre_user_msg_id": str(msg.id)},
             created_at=datetime.now(timezone.utc),
         )
         db.add(task)

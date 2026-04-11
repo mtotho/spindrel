@@ -128,10 +128,12 @@ async def test_approval_flow_approve(client: E2EClient) -> None:
         assert "approval_request" in types, f"Expected approval_request in {types}"
         assert "approval_resolved" in types, f"Expected approval_resolved in {types}"
 
-        # Verify the approval_resolved has verdict=approved
+        # Verify the approval_resolved carries decision=approved. The bus
+        # payload (`ApprovalResolvedPayload.decision`) is the canonical name;
+        # the harness mirrors it verbatim into `event.data`.
         resolved = [e for e in result.events if e.type == "approval_resolved"]
         assert len(resolved) >= 1
-        assert resolved[0].data["verdict"] == "approved"
+        assert resolved[0].data["decision"] == "approved"
 
         # Tool should have run after approval
         assert "get_current_time" in result.tools_used
@@ -176,10 +178,11 @@ async def test_approval_flow_deny(client: E2EClient) -> None:
 
         result = await asyncio.wait_for(stream_task, timeout=90)
 
-        # Verify denial events
+        # Verify denial events (see note on decision/verdict field in
+        # test_approval_flow_approve above).
         resolved = [e for e in result.events if e.type == "approval_resolved"]
         assert len(resolved) >= 1
-        assert resolved[0].data["verdict"] == "denied"
+        assert resolved[0].data["decision"] == "denied"
 
         # Bot should still produce a response (explaining the denial)
         assert result.response_text, "Expected bot to respond after denial"
