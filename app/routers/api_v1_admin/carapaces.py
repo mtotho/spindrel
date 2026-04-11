@@ -170,7 +170,6 @@ async def admin_delete_carapace(
 
 class ResolvedCarapaceOut(BaseModel):
     """Flattened result of resolving a carapace + all its includes."""
-    skills: list[dict] = []
     local_tools: list[str] = []
     mcp_tools: list[str] = []
     pinned_tools: list[str] = []
@@ -209,7 +208,6 @@ async def admin_resolve_carapace(
     _walk(carapace_id, set())
 
     return ResolvedCarapaceOut(
-        skills=[{"id": s.id, "mode": s.mode} for s in resolved.skills],
         local_tools=resolved.local_tools,
         mcp_tools=resolved.mcp_tools,
         pinned_tools=resolved.pinned_tools,

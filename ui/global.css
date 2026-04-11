@@ -43,6 +43,18 @@ button, [role="button"], nav, a {
   user-select: none;
 }
 
+/* Re-enable selection on links *inside message content*. The rule above
+   disables selection on every <a> globally (a mobile-native-feel choice
+   for nav / buttons / sidebar links), but message content routinely
+   contains URLs in bot responses, and users need to be able to drag-select
+   through them. Without this override, selection breaks or "skips" any
+   time a message contains a link — which was the root cause of the
+   "cross-message text selection is glitchy" report, NOT column-reverse. */
+.chat-scroll-web a {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Prevent horizontal overflow */
 html, body {
   overflow: hidden;
