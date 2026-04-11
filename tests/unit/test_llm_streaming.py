@@ -424,3 +424,52 @@ class TestToolCallNameDedup:
         fn = tool_calls[0]["function"]
         assert fn["name"] == "get_weather"
         assert fn["arguments"] == '{"city":"Boston"}'
+
+
+class TestToolCallArgumentRepair:
+    """Regression: Gemini (via OpenAI-compat) occasionally streams malformed
+    tool-call arguments — e.g. two concatenated JSON objects
+    `{"action":"list"}{"id":"wf","action":"get"}`. Storing that raw in the
+    assistant message causes the next LLM call to 400 when the provider parses
+    history, which bubbles to a 502 on /chat.
+
+    `StreamAccumulator.build()` must repair malformed arguments before the
+    message is appended to history.
+    """
+
+    def _make_tc_delta(self, idx, tc_id, name, arguments):
+        tc = MagicMock()
+        tc.index = idx
+        tc.id = tc_id
+        tc.function = MagicMock()
+        tc.function.name = name
+        tc.function.arguments = arguments
+        return tc
+
+    def _build_with_args(self, args_str):
+        from app.agent.llm import StreamAccumulator
+        acc = StreamAccumulator()
+        tc = self._make_tc_delta(0, "tc_1", "manage_workflow", args_str)
+        acc.feed(_make_chunk(tool_calls=[tc]))
+        acc.feed(_make_chunk(finish_reason="tool_calls"))
+        return acc.build()
+
+    def test_valid_arguments_unchanged(self):
+        msg = self._build_with_args('{"action":"list"}')
+        assert msg.tool_calls[0]["function"]["arguments"] == '{"action":"list"}'
+
+    def test_concatenated_objects_repaired_to_first(self):
+        """The bug case: two JSON objects concatenated. Keep the first."""
+        msg = self._build_with_args('{"action":"list"}{"id":"wf","action":"get"}')
+        repaired = msg.tool_calls[0]["function"]["arguments"]
+        import json as _json
+        parsed = _json.loads(repaired)
+        assert parsed == {"action": "list"}
+
+    def test_totally_garbled_args_fall_back_to_empty_object(self):
+        msg = self._build_with_args("not json at all")
+        assert msg.tool_calls[0]["function"]["arguments"] == "{}"
+
+    def test_empty_arguments_become_empty_object(self):
+        msg = self._build_with_args("")
+        assert msg.tool_calls[0]["function"]["arguments"] == "{}"

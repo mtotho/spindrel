@@ -901,6 +901,37 @@ class StreamAccumulator:
             [self._tool_calls[i] for i in sorted(self._tool_calls)]
             if self._tool_calls else None
         )
+        # Normalize tool_call arguments — some providers (observed with Gemini
+        # via OpenAI-compat) occasionally stream malformed JSON like two
+        # concatenated objects `{"a":1}{"b":2}`. Storing that raw in history
+        # causes the next LLM call to fail with 400 when the provider parses
+        # the conversation. Repair to the first valid JSON object, or "{}".
+        if tool_calls:
+            for _tc in tool_calls:
+                _fn = _tc.get("function") or {}
+                _args_str = _fn.get("arguments") or ""
+                if not _args_str:
+                    _fn["arguments"] = "{}"
+                    continue
+                try:
+                    json.loads(_args_str)
+                except json.JSONDecodeError:
+                    try:
+                        _obj, _end = json.JSONDecoder().raw_decode(_args_str)
+                        logger.warning(
+                            "Tool %s: repaired malformed arguments (trailing %d bytes dropped): %r",
+                            _fn.get("name") or "?",
+                            len(_args_str) - _end,
+                            _args_str[:200],
+                        )
+                        _fn["arguments"] = json.dumps(_obj)
+                    except (json.JSONDecodeError, ValueError):
+                        logger.warning(
+                            "Tool %s: arguments unparseable, replacing with '{}': %r",
+                            _fn.get("name") or "?",
+                            _args_str[:200],
+                        )
+                        _fn["arguments"] = "{}"
         # Extract cached_tokens from usage details (provider-agnostic)
         cached_tokens = None
         if self._usage:
