@@ -24,14 +24,45 @@ router = APIRouter(prefix="/sessions", tags=["Sessions"])
 # ---------------------------------------------------------------------------
 
 async def _fanout(session: Session, text: str, source: str | None = None) -> None:
-    """Fan-out injected message to session's delivery targets via dispatcher registry."""
-    cfg = session.dispatch_config or {}
-    dispatch_type = cfg.get("type")
-    if not dispatch_type or dispatch_type == "none":
+    """Publish an injected message onto the channel-events bus.
+
+    Renderers consume the NEW_MESSAGE event and post to the integration.
+    The source label is attributed via ``ActorRef.system``. No-op when the
+    session has no channel.
+
+    Phase G of the Integration Delivery refactor will delete this helper
+    along with the BlueBubbles webhook unification.
+    """
+    if session.channel_id is None:
         return
-    from app.agent import dispatchers
-    label = f"[{source}] " if source else ""
-    await dispatchers.get(dispatch_type).post_message(cfg, f"{label}{text}")
+
+    from app.domain.actor import ActorRef
+    from app.domain.channel_events import ChannelEvent, ChannelEventKind
+    from app.domain.message import Message as DomainMessage
+    from app.domain.payloads import MessagePayload
+    from app.services.channel_events import publish_typed
+
+    actor = ActorRef.system(
+        id=source or "injected",
+        display_name=source or "Injected",
+    )
+    domain_msg = DomainMessage(
+        id=uuid.uuid4(),
+        session_id=session.id,
+        role="system",
+        content=text,
+        created_at=datetime.now(timezone.utc),
+        actor=actor,
+        channel_id=session.channel_id,
+    )
+    publish_typed(
+        session.channel_id,
+        ChannelEvent(
+            channel_id=session.channel_id,
+            kind=ChannelEventKind.NEW_MESSAGE,
+            payload=MessagePayload(message=domain_msg),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

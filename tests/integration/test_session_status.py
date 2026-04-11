@@ -182,10 +182,19 @@ class TestQueuedMessagePersistence:
 
     @pytest.fixture(autouse=True)
     def _mock_session_locks(self):
-        """Mock session locks so acquire returns False (session busy)."""
-        with patch("app.routers.chat._routes.session_locks") as mock:
-            mock.acquire.return_value = False
-            mock.is_active.return_value = True
+        """Force start_turn to raise SessionBusyError so the route takes
+        the queued-task fallback path.
+
+        Phase E moved the session_locks acquire from the route handler into
+        ``app/services/turns.py:start_turn``. Patch start_turn directly so
+        the route's ``except SessionBusyError:`` branch fires regardless of
+        the in-memory lock state.
+        """
+        from app.services.turns import SessionBusyError
+        with patch(
+            "app.routers.chat._routes.start_turn",
+            side_effect=SessionBusyError("forced busy"),
+        ) as mock:
             yield mock
 
     async def test_queued_message_persists_user_message(self, client, db_session):
@@ -201,8 +210,9 @@ class TestQueuedMessagePersistence:
             },
             headers=AUTH_HEADERS,
         )
-        assert resp.status_code == 200
-        assert "queued" in resp.text
+        assert resp.status_code == 202
+        body = resp.json()
+        assert body.get("queued") is True
 
         # Check that the user message was persisted
         from sqlalchemy import select
@@ -217,7 +227,7 @@ class TestQueuedMessagePersistence:
         assert len(user_messages) == 1
 
     async def test_queued_response_contains_task_id(self, client, db_session):
-        """The queued SSE event includes a task_id."""
+        """The queued 202 response carries a task_id and session_id."""
         channel, _ = await _create_channel_with_session(db_session)
 
         resp = await client.post(
@@ -229,14 +239,8 @@ class TestQueuedMessagePersistence:
             },
             headers=AUTH_HEADERS,
         )
-        assert resp.status_code == 200
-
-        for line in resp.text.strip().split("\n"):
-            if line.startswith("data:"):
-                data = json.loads(line[5:].strip())
-                if data.get("type") == "queued":
-                    assert "task_id" in data
-                    assert "session_id" in data
-                    break
-        else:
-            pytest.fail("No 'queued' event found in SSE response")
+        assert resp.status_code == 202
+        body = resp.json()
+        assert body.get("queued") is True
+        assert "task_id" in body
+        assert "session_id" in body

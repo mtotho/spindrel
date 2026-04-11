@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 async def run_claude_code_task(task) -> None:
     """Execute a claude_code task: run CLI in Docker container, store result, dispatch."""
-    from app.agent import dispatchers
     from app.agent.tasks import resolve_task_timeout
     from app.db.engine import async_session
     from app.db.models import Task
@@ -104,15 +103,16 @@ async def run_claude_code_task(task) -> None:
                 t.execution_config = merged_ecfg
                 await db.commit()
 
-        # Dispatch result to output channel
-        output_task = Task(
-            id=task.id,
-            bot_id=task.bot_id,
-            dispatch_type=output_dispatch_type,
-            dispatch_config=output_dispatch_config,
+        # Dispatch result to the configured output target via the
+        # renderer registry. Phase G replaced the legacy
+        # ``dispatchers.get(...).deliver(task, result)`` call with a
+        # direct render call: build a typed target from the task's
+        # dispatch_config, look up the renderer, fire a NEW_MESSAGE
+        # event. The bus + outbox aren't involved on this path because
+        # claude_code's task lifecycle is separate from the agent loop.
+        await _deliver_result_via_renderer(
+            task, output_dispatch_type, output_dispatch_config, result_text,
         )
-        dispatcher = dispatchers.get(output_dispatch_type)
-        await dispatcher.deliver(output_task, result_text)
 
         # Notify parent bot
         if cfg.get("notify_parent") and result_text:
@@ -156,15 +156,12 @@ async def run_claude_code_task(task) -> None:
                     t.error = str(exc)[:4000]
                     t.completed_at = datetime.now(timezone.utc)
                     await db.commit()
-            # Dispatch error to output channel
+            # Dispatch error to output channel via the renderer registry.
             try:
                 _err_text = f"[Error: Claude Code task failed: {str(exc)[:500]}]"
-                output_task = Task(
-                    id=task.id, bot_id=task.bot_id,
-                    dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
+                await _deliver_result_via_renderer(
+                    task, output_dispatch_type, output_dispatch_config, _err_text,
                 )
-                dispatcher = dispatchers.get(output_dispatch_type)
-                await dispatcher.deliver(output_task, _err_text)
             except Exception:
                 logger.warning("Failed to dispatch error for claude_code task %s", task.id)
 
@@ -225,3 +222,85 @@ async def _notify_parent(task, cfg, result, result_text, output_dispatch_type, o
         )
     except Exception:
         logger.exception("Failed to create parent callback task for claude_code task %s", task.id)
+
+
+async def _deliver_result_via_renderer(
+    task,
+    output_dispatch_type: str,
+    output_dispatch_config: dict,
+    text: str,
+) -> None:
+    """Deliver a claude_code task result through the renderer registry.
+
+    Replaces the legacy ``dispatchers.get(...).deliver(task, text)``
+    call. The path:
+
+    1. Build a typed ``DispatchTarget`` from the task's dispatch_config
+       via ``parse_dispatch_target`` (consults the target registry).
+    2. Look up the renderer for the integration_id.
+    3. Render a ``NEW_MESSAGE`` event with ``ActorRef.bot(task.bot_id)``
+       so the integration's renderer applies the right attribution.
+
+    The bus + outbox aren't involved on this path because claude_code
+    runs as a top-level Task, not inside the agent loop's persist_turn
+    flow. Failures are logged but not raised — matching the legacy
+    fire-and-forget semantics.
+    """
+    if not output_dispatch_type or output_dispatch_type == "none":
+        return  # caller polls task.result directly
+    try:
+        from datetime import datetime, timezone
+
+        from app.domain.actor import ActorRef
+        from app.domain.channel_events import (
+            ChannelEvent,
+            ChannelEventKind,
+        )
+        from app.domain.dispatch_target import parse_dispatch_target
+        from app.domain.message import Message as DomainMessage
+        from app.domain.payloads import MessagePayload
+        from app.integrations import renderer_registry
+
+        renderer = renderer_registry.get(output_dispatch_type)
+        if renderer is None:
+            logger.warning(
+                "claude_code task %s: no renderer for integration_type=%s",
+                task.id, output_dispatch_type,
+            )
+            return
+
+        try:
+            typed_target = parse_dispatch_target(
+                {"type": output_dispatch_type, **(output_dispatch_config or {})}
+            )
+        except ValueError:
+            logger.warning(
+                "claude_code task %s: invalid dispatch_config for %s",
+                task.id, output_dispatch_type, exc_info=True,
+            )
+            return
+
+        domain_msg = DomainMessage(
+            id=uuid.uuid4(),
+            session_id=task.session_id or uuid.UUID(int=0),
+            role="assistant",
+            content=text,
+            created_at=datetime.now(timezone.utc),
+            actor=ActorRef.bot(task.bot_id),
+            channel_id=getattr(task, "channel_id", None),
+        )
+        event = ChannelEvent(
+            channel_id=getattr(task, "channel_id", None) or uuid.UUID(int=0),
+            kind=ChannelEventKind.NEW_MESSAGE,
+            payload=MessagePayload(message=domain_msg),
+        )
+        receipt = await renderer.render(event, typed_target)
+        if not receipt.success:
+            logger.warning(
+                "claude_code task %s: renderer returned failure: %s",
+                task.id, receipt.error,
+            )
+    except Exception:
+        logger.exception(
+            "claude_code task %s: renderer dispatch raised", task.id,
+        )

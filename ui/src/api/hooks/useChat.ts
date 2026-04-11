@@ -1,9 +1,7 @@
-import { useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { apiFetch } from "../client";
-import type { ChatRequest, SSEEvent } from "../../types/api";
+import type { ChatRequest } from "../../types/api";
 
 interface CancelRequest {
   client_id: string;
@@ -35,92 +33,50 @@ export function useCancelChat() {
   });
 }
 
-interface UseChatStreamOptions {
-  onEvent: (event: SSEEvent) => void;
-  onError?: (error: Error) => void;
-  onComplete?: () => void;
+/** Response shape from POST /chat (202). */
+export interface ChatSubmitResponse {
+  session_id: string;
+  channel_id: string;
+  turn_id?: string;
+  queued?: boolean;
+  task_id?: string;
 }
 
-export function useChatStream(options: UseChatStreamOptions) {
-  // Per-channel abort controllers so concurrent streams on different channels
-  // don't interfere. Keyed by channel_id (falls back to client_id).
-  const abortsRef = useRef<Map<string, AbortController>>(new Map());
-
-  const mutation = useMutation({
-    mutationFn: async (request: ChatRequest) => {
-      const key = request.channel_id ?? request.client_id;
-
-      // Abort any previous stream for the SAME channel only
-      abortsRef.current.get(key)?.abort();
-
+/**
+ * Submit a chat turn. Returns the 202 acknowledgement; all streaming UI
+ * state is driven by the typed channel-events bus via `useChannelEvents`.
+ *
+ * The legacy `useChatStream` long-poll consumer is gone — POST /chat
+ * accepts the request and the worker publishes typed events on the bus.
+ */
+export function useSubmitChat() {
+  return useMutation({
+    mutationFn: async (request: ChatRequest): Promise<ChatSubmitResponse> => {
       const { serverUrl } = useAuthStore.getState();
       if (!serverUrl) throw new Error("Server not configured");
-
       const token = getAuthToken();
-      const ctrl = new AbortController();
-      abortsRef.current.set(key, ctrl);
-
-      try {
-        await fetchEventSource(`${serverUrl}/chat/stream`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: JSON.stringify(request),
-          signal: ctrl.signal,
-          onmessage(ev) {
-            if (!ev.data) return;
-            try {
-              const data = JSON.parse(ev.data);
-              // The server sends unnamed SSE events (just `data:` lines),
-              // so ev.event is always "message".  The actual event type is
-              // in data.type (e.g. "response", "tool_start", etc.).
-              options.onEvent({
-                event: (data.type ?? ev.event) as SSEEvent["event"],
-                data,
-              });
-            } catch {
-              // keepalive or non-JSON
-            }
-          },
-          onerror(err) {
-            // Don't report abort errors — they're intentional
-            if (ctrl.signal.aborted) throw err;
-            options.onError?.(err instanceof Error ? err : new Error(String(err)));
-            throw err; // stop retrying
-          },
-          onclose() {
-            abortsRef.current.delete(key);
-            // Don't fire onComplete for aborted streams
-            if (!ctrl.signal.aborted) {
-              options.onComplete?.();
-            }
-          },
-          openWhenHidden: true,
-        });
-      } catch (err) {
-        // Swallow abort errors — they're expected when a new stream replaces the old one
-        if (err && (err as any).name === "AbortError") return;
-        throw err;
-      } finally {
-        abortsRef.current.delete(key);
+      const res = await fetch(`${serverUrl}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(request),
+      });
+      if (!res.ok) {
+        // Surface the body if the server gave one (validation errors etc.).
+        let detail = `Submit failed: ${res.status}`;
+        try {
+          const body = await res.json();
+          if (body?.detail) detail = String(body.detail);
+        } catch {
+          // ignore
+        }
+        throw new Error(detail);
       }
+      return res.json();
     },
   });
-
-  return {
-    ...mutation,
-    abort: (channelId?: string) => {
-      if (channelId) {
-        abortsRef.current.get(channelId)?.abort();
-        abortsRef.current.delete(channelId);
-      } else {
-        for (const ctrl of abortsRef.current.values()) ctrl.abort();
-        abortsRef.current.clear();
-      }
-    },
-  };
 }
 
 interface SessionStatus {

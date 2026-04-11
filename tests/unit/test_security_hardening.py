@@ -328,22 +328,38 @@ class TestTaskCreationRateLimit:
 
 # ── 9. Webhook dispatcher SSRF check ──────────────────────────────────��────
 
-class TestWebhookDispatcherSSRF:
+class TestWebhookRendererSSRF:
     @pytest.mark.asyncio
     async def test_localhost_url_blocked(self):
-        """Webhook dispatcher should refuse to POST to localhost."""
-        from app.agent.dispatchers import _WebhookDispatcher
+        """The webhook renderer must refuse to POST to localhost.
 
-        dispatcher = _WebhookDispatcher()
-        task = MagicMock()
-        task.id = uuid.uuid4()
-        task.dispatch_config = {"url": "http://127.0.0.1:9999/evil"}
+        Phase G replaced ``_WebhookDispatcher`` with ``WebhookRenderer``
+        in ``app/integrations/core_renderers.py``. The SSRF defense
+        moved with it: ``resolve_and_pin`` resolves DNS once and refuses
+        private / link-local / loopback addresses.
+        """
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.dispatch_target import WebhookTarget
+        from app.domain.payloads import TurnEndedPayload
+        from app.integrations.core_renderers import WebhookRenderer
 
-        # Should not raise — just log and return
-        with patch("app.agent.dispatchers._http") as mock_http:
-            await dispatcher.deliver(task, "result text")
-            # The http.post should NOT have been called (SSRF blocked)
+        renderer = WebhookRenderer()
+        target = WebhookTarget(url="http://127.0.0.1:9999/evil")
+        event = ChannelEvent(
+            channel_id=uuid.uuid4(),
+            kind=ChannelEventKind.TURN_ENDED,
+            payload=TurnEndedPayload(
+                bot_id="test",
+                turn_id=uuid.uuid4(),
+                result="result text",
+                error=None,
+                client_actions=[],
+            ),
+        )
+        with patch("app.integrations.core_renderers._http") as mock_http:
+            receipt = await renderer.render(event, target)
             mock_http.post.assert_not_called()
+            assert receipt.success is False
 
 
 # ── 10. Startup script path validation ──────────────────────────────────────

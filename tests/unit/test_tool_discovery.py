@@ -560,3 +560,212 @@ class TestRetrieveToolsHybrid:
 
                     assert len(result) == 1
                     assert result[0]["function"]["name"] == "tool_a"
+
+
+# ---------------------------------------------------------------------------
+# get_tool_info activates the tool for the next iteration
+# ---------------------------------------------------------------------------
+#
+# Regression: previously, get_tool_info just returned the schema as JSON and
+# the tool remained absent from tools_param, making the "call get_tool_info
+# to load it" hint message a lie. The agent would look up ha_get_state, get
+# the schema back, then correctly report "I can inspect its schema, but I
+# don't have a direct callable handle." See the 2026-04-11 #8 trace.
+
+
+class TestGetToolInfoActivation:
+    """get_tool_info must append the looked-up schema to current_activated_tools
+    so the agent loop can merge it into tools_param on the next iteration."""
+
+    @pytest.mark.asyncio
+    async def test_local_tool_activates(self):
+        from app.agent.context import current_activated_tools
+        from app.tools.local.discovery import get_tool_info
+        from app.tools.registry import _tools
+
+        fake_schema = {
+            "type": "function",
+            "function": {
+                "name": "fake_local_tool",
+                "description": "fake",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        _tools["fake_local_tool"] = {"schema": fake_schema, "handler": None}
+        try:
+            activation_list: list[dict] = []
+            token = current_activated_tools.set(activation_list)
+            try:
+                result = await get_tool_info("fake_local_tool")
+            finally:
+                current_activated_tools.reset(token)
+
+            assert "fake_local_tool" in result
+            assert len(activation_list) == 1
+            assert activation_list[0]["function"]["name"] == "fake_local_tool"
+        finally:
+            _tools.pop("fake_local_tool", None)
+
+    @pytest.mark.asyncio
+    async def test_mcp_tool_activates_from_db(self):
+        from app.agent.context import current_activated_tools
+        from app.tools.local.discovery import get_tool_info
+
+        mcp_schema = {
+            "type": "function",
+            "function": {
+                "name": "ha_get_state",
+                "description": "Get HA entity state",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"entity_id": {"type": "string"}},
+                    "required": ["entity_id"],
+                },
+            },
+        }
+
+        class _Row:
+            server_name = "ha-mcp"
+            schema_ = mcp_schema
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = _Row()
+        mock_db.execute.return_value = mock_result
+
+        with patch("app.db.engine.async_session") as mock_session_ctx:
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            activation_list: list[dict] = []
+            token = current_activated_tools.set(activation_list)
+            try:
+                result = await get_tool_info("ha_get_state")
+            finally:
+                current_activated_tools.reset(token)
+
+        assert "ha_get_state" in result
+        assert "ha-mcp" in result
+        assert len(activation_list) == 1
+        assert activation_list[0]["function"]["name"] == "ha_get_state"
+
+    @pytest.mark.asyncio
+    async def test_not_found_does_not_activate(self):
+        from app.agent.context import current_activated_tools
+        from app.tools.local.discovery import get_tool_info
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute.return_value = mock_result
+
+        with patch("app.db.engine.async_session") as mock_session_ctx:
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            activation_list: list[dict] = []
+            token = current_activated_tools.set(activation_list)
+            try:
+                result = await get_tool_info("no_such_tool")
+            finally:
+                current_activated_tools.reset(token)
+
+        assert "error" in result
+        assert activation_list == []
+
+    @pytest.mark.asyncio
+    async def test_no_activation_context_does_not_error(self):
+        """When called outside the agent loop (no activation list set), get_tool_info
+        still returns the schema successfully. Keeps the tool usable from scripts, tests,
+        and admin endpoints that don't run inside run_agent_tool_loop."""
+        from app.agent.context import current_activated_tools
+        from app.tools.local.discovery import get_tool_info
+        from app.tools.registry import _tools
+
+        fake_schema = {
+            "type": "function",
+            "function": {
+                "name": "fake_no_ctx_tool",
+                "description": "fake",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        _tools["fake_no_ctx_tool"] = {"schema": fake_schema, "handler": None}
+        try:
+            token = current_activated_tools.set(None)
+            try:
+                result = await get_tool_info("fake_no_ctx_tool")
+            finally:
+                current_activated_tools.reset(token)
+            assert "fake_no_ctx_tool" in result
+        finally:
+            _tools.pop("fake_no_ctx_tool", None)
+
+    @pytest.mark.asyncio
+    async def test_duplicate_lookup_does_not_double_activate(self):
+        from app.agent.context import current_activated_tools
+        from app.tools.local.discovery import get_tool_info
+        from app.tools.registry import _tools
+
+        fake_schema = {
+            "type": "function",
+            "function": {
+                "name": "fake_dedup_tool",
+                "description": "fake",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        _tools["fake_dedup_tool"] = {"schema": fake_schema, "handler": None}
+        try:
+            activation_list: list[dict] = []
+            token = current_activated_tools.set(activation_list)
+            try:
+                await get_tool_info("fake_dedup_tool")
+                await get_tool_info("fake_dedup_tool")
+            finally:
+                current_activated_tools.reset(token)
+
+            assert len(activation_list) == 1
+        finally:
+            _tools.pop("fake_dedup_tool", None)
+
+    def test_snapshot_restore_preserves_activation_list(self):
+        """Delegation / sub-agent paths snapshot & restore agent ContextVars. The new
+        current_activated_tools ContextVar must participate so a parent bot's
+        post-delegation get_tool_info calls append to the parent's list (not the
+        dead child list left behind by the child run_agent_tool_loop).
+        """
+        from app.agent.context import (
+            AgentContextSnapshot,
+            current_activated_tools,
+            restore_agent_context,
+            snapshot_agent_context,
+        )
+
+        parent_list: list[dict] = [{"function": {"name": "parent_tool"}}]
+        parent_token = current_activated_tools.set(parent_list)
+        try:
+            # Parent has captured a snapshot before delegating
+            snap = snapshot_agent_context()
+            assert isinstance(snap, AgentContextSnapshot)
+            assert snap.activated_tools is parent_list
+
+            # Child run_agent_tool_loop overwrites with a new list
+            child_list: list[dict] = []
+            child_token = current_activated_tools.set(child_list)
+            try:
+                # Child activates a tool
+                child_list.append({"function": {"name": "child_tool"}})
+                assert current_activated_tools.get() is child_list
+            finally:
+                current_activated_tools.reset(child_token)
+
+            # Delegation layer restores parent context
+            restore_agent_context(snap)
+
+            # Parent's contextvar must point back at parent_list — NOT the child
+            assert current_activated_tools.get() is parent_list
+            # Parent's list is untouched by child activations
+            assert [t["function"]["name"] for t in parent_list] == ["parent_tool"]
+        finally:
+            current_activated_tools.reset(parent_token)

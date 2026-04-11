@@ -297,15 +297,14 @@ class TestRunTask:
              patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result), \
              patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(task.session_id, [{"role": "system", "content": "test"}])), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.agent.tasks.dispatchers") as mock_dispatchers:
+             patch("app.agent.tasks._publish_turn_ended") as mock_publish:
             mock_locks.acquire.return_value = True
-            mock_dispatchers.get.return_value = mock_dispatcher
 
             await run_task(task)
 
             # Task should be marked complete
             assert task.status == "complete" or db.commit.await_count >= 1
-            mock_dispatcher.deliver.assert_awaited_once()
+            mock_publish.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_concrete_task_does_not_reschedule(self):
@@ -332,10 +331,9 @@ class TestRunTask:
              patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result), \
              patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(task.session_id, [{"role": "system", "content": "test"}])), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.agent.tasks.dispatchers") as mock_dispatchers, \
+             patch("app.agent.tasks._publish_turn_ended"), \
              patch("app.agent.tasks._spawn_from_schedule", new_callable=AsyncMock) as mock_spawn:
             mock_locks.acquire.return_value = True
-            mock_dispatchers.get.return_value = mock_dispatcher
 
             await run_task(task)
 
@@ -448,9 +446,8 @@ class TestRunTask:
              patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result) as mock_run, \
              patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(task.session_id, [{"role": "system", "content": "test"}])), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.agent.tasks.dispatchers") as mock_dispatchers:
+             patch("app.agent.tasks._publish_turn_ended") as mock_publish:
             mock_locks.acquire.return_value = True
-            mock_dispatchers.get.return_value = mock_dispatcher
 
             await run_task(task)
 
@@ -484,9 +481,8 @@ class TestRunTask:
              patch("app.agent.loop.run", new_callable=AsyncMock, return_value=mock_run_result) as mock_run, \
              patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(task.session_id, [{"role": "system", "content": "test"}])), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.agent.tasks.dispatchers") as mock_dispatchers:
+             patch("app.agent.tasks._publish_turn_ended") as mock_publish:
             mock_locks.acquire.return_value = True
-            mock_dispatchers.get.return_value = mock_dispatcher
 
             await run_task(task)
 

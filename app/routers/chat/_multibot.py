@@ -14,7 +14,6 @@ from app.services.channel_throttle import is_throttled as _channel_throttled, re
 from app.services import session_locks
 
 from ._context import prepare_bot_context
-from ._mirror import _mirror_to_integration
 
 logger = logging.getLogger(__name__)
 
@@ -180,13 +179,12 @@ async def _trigger_member_bot_replies(
     if already_invoked:
         mentioned = [(bid, cfg) for bid, cfg in mentioned if bid not in already_invoked]
     for bot_id, member_config in mentioned:
-        stream_id = str(uuid.uuid4())
         task = asyncio.create_task(
             _run_member_bot_reply(
                 channel_id, session_id, bot_id, member_config,
                 responding_bot_id, _depth=_depth + 1,
                 messages_snapshot=messages_snapshot,
-                stream_id=stream_id,
+                turn_id=uuid.uuid4(),
             )
         )
         _background_tasks.add(task)
@@ -203,17 +201,25 @@ async def _run_member_bot_reply(
     *,
     _depth: int = 1,
     messages_snapshot: list[dict] | None = None,
-    stream_id: str | None = None,
+    turn_id: uuid.UUID | None = None,
     invocation_message: str = "",
 ) -> None:
     """Execute a member bot's reply after being @-mentioned or invoked.
 
     When *messages_snapshot* is provided the bot runs against that snapshot
     without acquiring the session lock — enabling parallel execution.
+
+    Publishes the same TURN_STARTED → (TURN_STREAM_*)* → TURN_ENDED typed
+    event sequence as the primary bot path. The bus is the only delivery
+    surface; renderers and the web UI demux concurrent member-bot turns
+    by ``turn_id``.
     """
     from app.db.engine import async_session as _async_session
     from app.db.models import Channel, Session
-    from app.services.channel_events import publish as _publish_event
+    from app.domain.channel_events import ChannelEvent, ChannelEventKind
+    from app.domain.payloads import TurnEndedPayload, TurnStartedPayload
+    from app.services.channel_events import publish_typed
+    from app.services.turn_event_emit import emit_run_stream_events
     from sqlalchemy import update as _sql_update
 
     # Anti-loop: channel throttle (uses module-level imports)
@@ -221,7 +227,7 @@ async def _run_member_bot_reply(
         logger.info("Member bot %s reply skipped: channel %s throttled", member_bot_id, channel_id)
         return
 
-    _sid = stream_id or str(uuid.uuid4())
+    _turn_id = turn_id or uuid.uuid4()
     _use_snapshot = messages_snapshot is not None
 
     if not _use_snapshot:
@@ -237,6 +243,7 @@ async def _run_member_bot_reply(
             return
 
     response_text = ""
+    _turn_error: str | None = None
     try:
         _record_channel_run(str(channel_id))
 
@@ -290,14 +297,22 @@ async def _run_member_bot_reply(
             channel_id=channel_id,
         )
 
-        # Stream the reply so the UI shows typing indicators for the member bot.
-        _publish_event(channel_id, "stream_start", {
-            "stream_id": _sid,
-            "responding_bot_id": member_bot_id,
-            "responding_bot_name": member_bot.name,
-        })
+        # Publish TURN_STARTED so renderers and the web UI can spin up a
+        # streaming slot for this member-bot turn (demuxed by turn_id).
+        publish_typed(
+            channel_id,
+            ChannelEvent(
+                channel_id=channel_id,
+                kind=ChannelEventKind.TURN_STARTED,
+                payload=TurnStartedPayload(
+                    bot_id=member_bot_id,
+                    turn_id=_turn_id,
+                    reason="member_mention",
+                ),
+            ),
+        )
 
-        async for event in _loop_mod.run_stream(
+        _run_stream_iter = _loop_mod.run_stream(
             ctx.messages, member_bot, prompt,
             session_id=session_id,
             client_id="member-mention",
@@ -305,14 +320,15 @@ async def _run_member_bot_reply(
             channel_id=channel_id,
             model_override=model_override,
             system_preamble=ctx.system_preamble,
+        )
+        async for event in emit_run_stream_events(
+            _run_stream_iter,
+            channel_id=channel_id,
+            bot_id=member_bot_id,
+            turn_id=_turn_id,
         ):
             if event.get("type") == "response":
                 response_text = event.get("text", "")
-            event_with_session = {**event, "session_id": str(session_id)}
-            _publish_event(channel_id, "stream_event", {
-                "stream_id": _sid,
-                "event": event_with_session,
-            })
 
         # Persist with metadata so UI knows this is a bot-triggered turn
         msg_metadata = {
@@ -334,21 +350,13 @@ async def _run_member_bot_reply(
                 pre_user_msg_id=_skip_user,
             )
 
-        # Notify UI that streaming ended (after persist so data is committed).
-        # The new_message events for the persisted rows are emitted by
+        # The NEW_MESSAGE events for the persisted rows are emitted by
         # `persist_turn` itself — no separate publish here. The previous
         # explicit `_publish_event(..., "new_message")` was a double-publish
         # that worked only because invalidation was idempotent.
-        _publish_event(channel_id, "stream_end", {"stream_id": _sid})
 
-        # Mirror to integration
-        if response_text:
-            async with _async_session() as db:
-                channel = await db.get(Channel, channel_id)
-            if channel:
-                await _mirror_to_integration(
-                    channel, response_text, bot_id=member_bot_id,
-                )
+        # Integration delivery flows through persist_turn → outbox → drainer
+        # → renderer; no direct mirror here.
 
         # Restore session bot_id to the channel's primary bot
         if not _use_snapshot:
@@ -363,15 +371,37 @@ async def _run_member_bot_reply(
                     await db.commit()
 
         logger.info(
-            "Member bot %s replied in channel %s (mentioned by %s, depth=%d, stream=%s)",
-            member_bot_id, channel_id, mentioning_bot_id, _depth, _sid,
+            "Member bot %s replied in channel %s (mentioned by %s, depth=%d, turn=%s)",
+            member_bot_id, channel_id, mentioning_bot_id, _depth, _turn_id,
         )
 
-    except Exception:
+    except Exception as exc:
         logger.exception("Member bot %s reply failed in channel %s", member_bot_id, channel_id)
-        # Ensure streaming ends even on error so UI doesn't stay in streaming state
-        _publish_event(channel_id, "stream_end", {"stream_id": _sid})
+        _turn_error = f"{type(exc).__name__}: {str(exc)[:500]}"
     finally:
+        # Always publish TURN_ENDED — subscribers (renderers + UI) rely on
+        # it to finalize their per-turn state. Carries `error` on failure
+        # paths so the UI can render a cancelled / errored state.
+        try:
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.TURN_ENDED,
+                    payload=TurnEndedPayload(
+                        bot_id=member_bot_id,
+                        turn_id=_turn_id,
+                        result=response_text or None,
+                        error=_turn_error or None,
+                    ),
+                ),
+            )
+        except Exception:
+            logger.warning(
+                "member-bot reply: failed to publish TURN_ENDED for turn %s",
+                _turn_id, exc_info=True,
+            )
+
         if not _use_snapshot:
             session_locks.release(session_id)
 

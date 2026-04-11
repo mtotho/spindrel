@@ -264,13 +264,20 @@ def _next_target_run(
     ``target_hour`` is 0-23 in the server's configured TIMEZONE.
 
     On bootstrap (after_run=False):
-        Find the next occurrence of target_hour that is in the future,
+        Find the next occurrence of target_hour that is strictly in the future,
         then add a deterministic stagger offset (0-59 min).
 
     After a completed run (after_run=True):
-        Find the next occurrence of target_hour that is >= now + interval_hours,
-        then add the stagger offset.  This ensures we never schedule sooner
-        than the configured interval while staying anchored to the target hour.
+        Find the next occurrence of target_hour that is strictly in the future,
+        then add ``(days_between - 1)`` days, where ``days_between`` is
+        ``interval_hours`` rounded to whole days (min 1).  Target-hour mode
+        inherently anchors to a daily (or multi-day) wall-clock cadence; the
+        interval is expressed by ``days_between``, not by a literal hour-count
+        floor.  Using a literal ``now + interval_hours`` floor caused a bug
+        where any run completing even a few minutes after the target hour was
+        pushed two cycles forward instead of one (the "today candidate" was
+        already behind, and "tomorrow candidate" fell short of the floor by
+        the run's own duration).
     """
     tz = ZoneInfo(settings.TIMEZONE)
     now_local = now_utc.astimezone(tz)
@@ -278,15 +285,15 @@ def _next_target_run(
     # Build candidate: today at target_hour in local time
     candidate = now_local.replace(hour=target_hour, minute=0, second=0, microsecond=0)
 
+    # Advance candidate to the next target_hour occurrence strictly after now.
+    while candidate <= now_local:
+        candidate += timedelta(days=1)
+
     if after_run:
-        # Must be >= now + interval
-        earliest = now_local + timedelta(hours=interval_hours)
-        while candidate < earliest:
-            candidate += timedelta(days=1)
-    else:
-        # Bootstrap: must be in the future
-        while candidate <= now_local:
-            candidate += timedelta(days=1)
+        # Multi-day intervals: round to whole days, min 1.  A 24h interval
+        # means "daily", a 48h interval means "every other day", etc.
+        days_between = max(1, round(interval_hours / 24))
+        candidate += timedelta(days=days_between - 1)
 
     # Convert to UTC, add deterministic stagger
     candidate_utc = candidate.astimezone(timezone.utc)
@@ -385,10 +392,36 @@ async def check_memory_hygiene() -> None:
                 if resolve_only_if_active(bot_row):
                     since = bot_row.last_hygiene_run_at or (now - timedelta(hours=interval))
                     if not await _has_activity_since(bot_row.id, since, db):
-                        # No activity — advance schedule without running
+                        # No activity — advance schedule without running, but
+                        # record a skipped Task row so the Learning Center's
+                        # Recent Runs panel surfaces the decision instead of
+                        # silently dropping the cycle.
+                        skip_reason = (
+                            f"No user messages across bot's channels since "
+                            f"{since.isoformat()}"
+                        )
+                        skip_task = Task(
+                            id=uuid.uuid4(),
+                            bot_id=bot_row.id,
+                            prompt="",
+                            title=f"Memory hygiene skipped: {bot_row.id}",
+                            task_type="memory_hygiene",
+                            status="skipped",
+                            run_at=now,
+                            completed_at=now,
+                            result=skip_reason,
+                            dispatch_type="none",
+                            channel_id=None,
+                            session_id=None,
+                            client_id=None,
+                        )
+                        db.add(skip_task)
                         bot_row.next_hygiene_run_at = _compute_next_run(bot_row, now, after_run=True)
                         await db.commit()
-                        logger.debug("Skipped hygiene for bot %s: no activity since %s", bot_row.id, since)
+                        logger.info(
+                            "Skipped hygiene for bot %s: no activity since %s",
+                            bot_row.id, since,
+                        )
                         continue
 
                 # Dedup: check if there's already a pending/running hygiene task

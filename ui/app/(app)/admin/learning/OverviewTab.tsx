@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useLearningOverview, type MemoryFileActivity } from "@/src/api/hooks/useLearningOverview";
-import { StatusBadge } from "@/src/components/shared/SettingsControls";
+import { DreamingBotTable } from "@/src/components/learning/DreamingBotTable";
 import { StatCard, fmtRelative } from "@/app/(app)/admin/bots/[botId]/LearningSection";
 
 function fmtRelativeFuture(iso: string | null | undefined): string {
@@ -142,109 +142,17 @@ export function OverviewTab() {
 
       {/* Two-column: Bot table + Memory Activity */}
       <div style={{ display: "flex", gap: 20, flexDirection: isMobile ? "column" : "row" }}>
-        {/* Left: Dreaming status table */}
+        {/* Left: Dreaming status table (read-only — manage in Dreaming tab) */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: t.text, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
             <Moon size={14} color="#8b5cf6" />
             Dreaming by Bot
+            <span style={{ fontSize: 10, color: t.textDim, fontWeight: 400, marginLeft: 4 }}>
+              (manage in Dreaming tab)
+            </span>
           </div>
 
-          {data.bots.length === 0 ? (
-            <div style={{
-              padding: 24, textAlign: "center", borderRadius: 8,
-              background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-            }}>
-              <Moon size={20} color={t.textDim} style={{ marginBottom: 8 }} />
-              <div style={{ fontSize: 12, color: t.textDim }}>
-                No bots with workspace-files memory. Enable memory on a bot to start dreaming.
-              </div>
-            </div>
-          ) : (
-            <div style={{ borderRadius: 8, border: `1px solid ${t.surfaceBorder}`, overflow: "hidden" }}>
-              {!isMobile && (
-                <div style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 70px 110px 80px 110px",
-                  gap: 8, padding: "8px 14px",
-                  background: t.surfaceOverlay,
-                  borderBottom: `1px solid ${t.surfaceBorder}`,
-                }}>
-                  {["Bot", "Status", "Last Run", "Result", "Next Run"].map((h) => (
-                    <span key={h} style={{ fontSize: 9, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                      {h}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {data.bots.map((bot) => (
-                <button
-                  key={bot.bot_id}
-                  onClick={() => router.push(`/admin/bots/${bot.bot_id}#memory` as any)}
-                  style={{
-                    display: isMobile ? "flex" : "grid",
-                    flexDirection: isMobile ? "column" : undefined,
-                    gridTemplateColumns: isMobile ? undefined : "1fr 70px 110px 80px 110px",
-                    gap: isMobile ? 4 : 8,
-                    padding: "10px 14px",
-                    background: "transparent",
-                    border: "none",
-                    borderBottom: `1px solid ${t.surfaceBorder}`,
-                    cursor: "pointer",
-                    textAlign: "left",
-                    width: "100%",
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = t.inputBg; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                >
-                  {isMobile ? (
-                    <>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 13, fontWeight: 500, color: t.text }}>{bot.bot_name}</span>
-                        {bot.enabled ? (
-                          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "rgba(16,185,129,0.12)", color: "#059669" }}>on</span>
-                        ) : (
-                          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: t.surfaceOverlay, color: t.textDim }}>off</span>
-                        )}
-                      </div>
-                      <div style={{ display: "flex", gap: 12, fontSize: 10, color: t.textDim }}>
-                        <span>Last: {fmtRelativeFuture(bot.last_run_at)}</span>
-                        {bot.last_task_status && (
-                          <StatusBadge
-                            label={bot.last_task_status}
-                            variant={bot.last_task_status === "complete" ? "success" : bot.last_task_status === "failed" ? "danger" : "neutral"}
-                          />
-                        )}
-                        <span>Next: {fmtRelativeFuture(bot.next_run_at)}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <span style={{ fontSize: 12, fontWeight: 500, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {bot.bot_name}
-                      </span>
-                      <span>
-                        {bot.enabled ? (
-                          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "rgba(16,185,129,0.12)", color: "#059669" }}>on</span>
-                        ) : (
-                          <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: t.surfaceOverlay, color: t.textDim }}>off</span>
-                        )}
-                      </span>
-                      <span style={{ fontSize: 11, color: t.textMuted }}>{fmtRelativeFuture(bot.last_run_at)}</span>
-                      <span>
-                        {bot.last_task_status && (
-                          <StatusBadge
-                            label={bot.last_task_status}
-                            variant={bot.last_task_status === "complete" ? "success" : bot.last_task_status === "failed" ? "danger" : "neutral"}
-                          />
-                        )}
-                      </span>
-                      <span style={{ fontSize: 11, color: t.textDim }}>{fmtRelativeFuture(bot.next_run_at)}</span>
-                    </>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
+          <DreamingBotTable bots={data.bots} mode="view" />
         </div>
 
         {/* Right: Memory Activity Feed */}

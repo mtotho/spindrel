@@ -1,4 +1,8 @@
-"""Tests for the in-memory channel event bus."""
+"""Tests for the in-memory channel event bus.
+
+The bus speaks `domain.channel_events.ChannelEvent` natively. There is no
+legacy envelope, no untyped publish, no `_typed_event` stash.
+"""
 import asyncio
 import uuid
 from types import SimpleNamespace
@@ -6,14 +10,22 @@ from datetime import datetime, timezone
 
 import pytest
 
+from app.domain.actor import ActorRef
+from app.domain.channel_events import ChannelEvent, ChannelEventKind
+from app.domain.message import Message
+from app.domain.payloads import (
+    MessagePayload,
+    ReplayLapsedPayload,
+    ShutdownPayload,
+    TurnStartedPayload,
+)
 from app.services.channel_events import (
-    ChannelEvent,
     QUEUE_MAX_SIZE,
     REPLAY_BUFFER_SIZE,
     current_seq,
-    publish,
     publish_message,
     publish_message_updated,
+    publish_typed,
     reset_channel_state,
     subscribe,
     subscriber_count,
@@ -22,13 +34,12 @@ from app.services.channel_events import (
     _subscribers,
 )
 
-# Ensure the constant is what we expect (stream relay needs ≥512)
+# Stream relay needs ≥512.
 assert QUEUE_MAX_SIZE == 512
 
 
 @pytest.fixture(autouse=True)
 def _clean_subscribers():
-    """Ensure global state is clean between tests."""
     _subscribers.clear()
     _next_seq.clear()
     _replay_buffer.clear()
@@ -42,13 +53,31 @@ def _cid() -> uuid.UUID:
     return uuid.uuid4()
 
 
+def _shutdown_event(channel_id: uuid.UUID) -> ChannelEvent:
+    return ChannelEvent(
+        channel_id=channel_id,
+        kind=ChannelEventKind.SHUTDOWN,
+        payload=ShutdownPayload(),
+    )
+
+
+def _turn_started_event(channel_id: uuid.UUID, bot_id: str = "b1") -> ChannelEvent:
+    return ChannelEvent(
+        channel_id=channel_id,
+        kind=ChannelEventKind.TURN_STARTED,
+        payload=TurnStartedPayload(bot_id=bot_id, turn_id=uuid.uuid4()),
+    )
+
+
 # ------------------------------------------------------------------
 # Basic publish / subscribe
 # ------------------------------------------------------------------
 
+
 class TestPublishNoSubscribers:
     def test_returns_zero(self):
-        assert publish(_cid(), "new_message") == 0
+        ch = _cid()
+        assert publish_typed(ch, _shutdown_event(ch)) == 0
 
 
 class TestSubscribeAndPublish:
@@ -60,21 +89,21 @@ class TestSubscribeAndPublish:
         async def _consume():
             async for ev in subscribe(ch):
                 received.append(ev)
-                break  # exit after first event
+                break
 
         task = asyncio.create_task(_consume())
-        await asyncio.sleep(0.01)  # let subscribe register
+        await asyncio.sleep(0.01)
 
         assert subscriber_count(ch) == 1
-        delivered = publish(ch, "new_message", {"foo": "bar"})
+        delivered = publish_typed(ch, _turn_started_event(ch))
         assert delivered == 1
 
         await asyncio.wait_for(task, timeout=1.0)
 
         assert len(received) == 1
-        assert received[0].event_type == "new_message"
+        assert received[0].kind is ChannelEventKind.TURN_STARTED
         assert received[0].channel_id == ch
-        assert received[0].metadata == {"foo": "bar"}
+        assert isinstance(received[0].payload, TurnStartedPayload)
 
 
 class TestSubscriberCleanup:
@@ -83,19 +112,17 @@ class TestSubscriberCleanup:
         ch = _cid()
 
         async def _consume():
-            async for ev in subscribe(ch):
+            async for _ev in subscribe(ch):
                 break
 
         task = asyncio.create_task(_consume())
         await asyncio.sleep(0.01)
         assert subscriber_count(ch) == 1
 
-        publish(ch, "new_message")
+        publish_typed(ch, _shutdown_event(ch))
         await asyncio.wait_for(task, timeout=1.0)
-        # Let the event loop process the generator's aclose()
         await asyncio.sleep(0.01)
 
-        # After the generator exits, subscriber should be cleaned up
         assert subscriber_count(ch) == 0
         assert ch not in _subscribers
 
@@ -115,15 +142,15 @@ class TestMultipleSubscribers:
         await asyncio.sleep(0.01)
 
         assert subscriber_count(ch) == 2
-        delivered = publish(ch, "new_message")
+        delivered = publish_typed(ch, _shutdown_event(ch))
         assert delivered == 2
 
         await asyncio.wait_for(asyncio.gather(*tasks), timeout=1.0)
 
         assert len(results[0]) == 1
         assert len(results[1]) == 1
-        assert results[0][0].event_type == "new_message"
-        assert results[1][0].event_type == "new_message"
+        assert results[0][0].kind is ChannelEventKind.SHUTDOWN
+        assert results[1][0].kind is ChannelEventKind.SHUTDOWN
 
 
 class TestChannelIsolation:
@@ -140,7 +167,6 @@ class TestChannelIsolation:
                 break
 
         async def _consume_ch2():
-            # This subscriber should never receive an event
             try:
                 async for ev in subscribe(ch2):
                     received_ch2.append(ev)
@@ -152,7 +178,7 @@ class TestChannelIsolation:
         t2 = asyncio.create_task(_consume_ch2())
         await asyncio.sleep(0.01)
 
-        publish(ch1, "new_message")
+        publish_typed(ch1, _shutdown_event(ch1))
         await asyncio.wait_for(t1, timeout=1.0)
 
         assert len(received_ch1) == 1
@@ -167,60 +193,71 @@ class TestChannelIsolation:
 
 class TestBackpressure:
     @pytest.mark.asyncio
-    async def test_full_queue_drops_event_without_blocking(self):
+    async def test_publish_returns_without_blocking_on_overflow(self):
+        """publish_typed must never block or raise even when a subscriber
+        is too slow. The dropped events get replaced with a single
+        replay_lapsed sentinel — see test_subscribe_yields_lapsed_sentinel."""
         ch = _cid()
 
-        # Register a subscriber but don't consume — let the queue fill up
-        gen = subscribe(ch)
-        # Start the generator to register the subscriber
-        task = asyncio.ensure_future(gen.__anext__())
-        await asyncio.sleep(0.01)
+        async def _stalled():
+            async for _ev in subscribe(ch):
+                await asyncio.sleep(60)
 
+        task = asyncio.create_task(_stalled())
+        await asyncio.sleep(0.01)
         assert subscriber_count(ch) == 1
 
-        # Fill the queue
-        for i in range(QUEUE_MAX_SIZE):
-            delivered = publish(ch, "new_message", {"i": i})
-            assert delivered == 1
+        for _ in range(QUEUE_MAX_SIZE * 2):
+            publish_typed(ch, _shutdown_event(ch))
 
-        # Next publish should drop (queue full) — must not block
-        delivered = publish(ch, "new_message", {"i": "overflow"})
-        assert delivered == 0
-
-        # Clean up
         task.cancel()
         try:
             await task
-        except (asyncio.CancelledError, StopAsyncIteration):
+        except asyncio.CancelledError:
             pass
-        await gen.aclose()
 
-
-class TestEventTypes:
     @pytest.mark.asyncio
-    async def test_different_event_types(self):
+    async def test_subscribe_yields_lapsed_sentinel_then_exits(self):
         ch = _cid()
         received: list[ChannelEvent] = []
+        consumer_done = asyncio.Event()
+        first_seen = asyncio.Event()
 
         async def _consume():
-            count = 0
-            async for ev in subscribe(ch):
-                received.append(ev)
-                count += 1
-                if count >= 2:
-                    break
+            try:
+                async for ev in subscribe(ch):
+                    received.append(ev)
+                    if not first_seen.is_set():
+                        first_seen.set()
+                        # Stall so the publisher can overflow our queue.
+                        await asyncio.sleep(0.5)
+            finally:
+                consumer_done.set()
 
         task = asyncio.create_task(_consume())
         await asyncio.sleep(0.01)
+        assert subscriber_count(ch) == 1
 
-        publish(ch, "new_message")
-        publish(ch, "session_reset")
+        publish_typed(ch, _shutdown_event(ch))
+        await asyncio.wait_for(first_seen.wait(), timeout=1.0)
 
-        await asyncio.wait_for(task, timeout=1.0)
+        for _ in range(QUEUE_MAX_SIZE + 50):
+            publish_typed(ch, _shutdown_event(ch))
 
-        assert len(received) == 2
-        assert received[0].event_type == "new_message"
-        assert received[1].event_type == "session_reset"
+        await asyncio.wait_for(consumer_done.wait(), timeout=2.0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        assert subscriber_count(ch) == 0
+        assert any(
+            ev.kind is ChannelEventKind.REPLAY_LAPSED
+            and isinstance(ev.payload, ReplayLapsedPayload)
+            and ev.payload.reason == "subscriber_overflow"
+            for ev in received
+        )
 
 
 # ------------------------------------------------------------------
@@ -232,18 +269,18 @@ class TestSequenceNumbers:
     def test_seq_starts_at_one_and_increments(self):
         ch = _cid()
         assert current_seq(ch) == 0
-        publish(ch, "new_message")
+        publish_typed(ch, _shutdown_event(ch))
         assert current_seq(ch) == 1
-        publish(ch, "new_message")
+        publish_typed(ch, _shutdown_event(ch))
         assert current_seq(ch) == 2
 
     def test_seq_is_monotonic_per_channel(self):
         ch1 = _cid()
         ch2 = _cid()
-        publish(ch1, "new_message")
-        publish(ch1, "new_message")
-        publish(ch2, "new_message")
-        publish(ch1, "new_message")
+        publish_typed(ch1, _shutdown_event(ch1))
+        publish_typed(ch1, _shutdown_event(ch1))
+        publish_typed(ch2, _shutdown_event(ch2))
+        publish_typed(ch1, _shutdown_event(ch1))
         assert current_seq(ch1) == 3
         assert current_seq(ch2) == 1
 
@@ -262,9 +299,9 @@ class TestSequenceNumbers:
 
         task = asyncio.create_task(_consume())
         await asyncio.sleep(0.01)
-        publish(ch, "new_message")
-        publish(ch, "new_message")
-        publish(ch, "new_message")
+        publish_typed(ch, _shutdown_event(ch))
+        publish_typed(ch, _shutdown_event(ch))
+        publish_typed(ch, _shutdown_event(ch))
         await asyncio.wait_for(task, timeout=1.0)
 
         assert [ev.seq for ev in received] == [1, 2, 3]
@@ -272,22 +309,18 @@ class TestSequenceNumbers:
 
 class TestReplayBuffer:
     def test_buffer_persists_after_subscribers_leave(self):
-        """Buffer must outlive subscribers so reconnects can replay."""
         ch = _cid()
-        publish(ch, "new_message", {"i": 1})
-        publish(ch, "new_message", {"i": 2})
-        # No subscribers were ever connected
+        publish_typed(ch, _shutdown_event(ch))
+        publish_typed(ch, _shutdown_event(ch))
         assert len(_replay_buffer[ch]) == 2
         assert current_seq(ch) == 2
 
     def test_buffer_evicts_oldest_at_max_size(self):
         ch = _cid()
-        # Publish more than the buffer can hold
-        for i in range(REPLAY_BUFFER_SIZE + 50):
-            publish(ch, "new_message", {"i": i})
+        for _ in range(REPLAY_BUFFER_SIZE + 50):
+            publish_typed(ch, _shutdown_event(ch))
         buf = _replay_buffer[ch]
         assert len(buf) == REPLAY_BUFFER_SIZE
-        # Oldest event should be the (50+1)-th publish (seq=51)
         assert buf[0].seq == 51
         assert buf[-1].seq == REPLAY_BUFFER_SIZE + 50
 
@@ -296,9 +329,8 @@ class TestReplayOnReconnect:
     @pytest.mark.asyncio
     async def test_replays_buffered_events_with_seq_greater_than_since(self):
         ch = _cid()
-        # Publish 5 events before any subscriber exists
-        for i in range(5):
-            publish(ch, "new_message", {"i": i})
+        for _ in range(5):
+            publish_typed(ch, _shutdown_event(ch))
 
         received: list[ChannelEvent] = []
 
@@ -310,15 +342,13 @@ class TestReplayOnReconnect:
 
         await asyncio.wait_for(_consume(), timeout=1.0)
 
-        # Should replay seq 3, 4, 5 (since=2 means "give me everything > 2")
         assert [ev.seq for ev in received] == [3, 4, 5]
 
     @pytest.mark.asyncio
     async def test_replay_then_tail_live(self):
         ch = _cid()
-        # 2 events before subscriber
-        publish(ch, "new_message", {"i": 1})
-        publish(ch, "new_message", {"i": 2})
+        publish_typed(ch, _shutdown_event(ch))
+        publish_typed(ch, _shutdown_event(ch))
 
         received: list[ChannelEvent] = []
         ready = asyncio.Event()
@@ -332,11 +362,9 @@ class TestReplayOnReconnect:
                     break
 
         task = asyncio.create_task(_consume())
-        # Wait for replay to complete
         await asyncio.wait_for(ready.wait(), timeout=1.0)
-        # Now publish 2 more live
-        publish(ch, "new_message", {"i": 3})
-        publish(ch, "new_message", {"i": 4})
+        publish_typed(ch, _shutdown_event(ch))
+        publish_typed(ch, _shutdown_event(ch))
         await asyncio.wait_for(task, timeout=1.0)
 
         assert [ev.seq for ev in received] == [1, 2, 3, 4]
@@ -344,10 +372,8 @@ class TestReplayOnReconnect:
     @pytest.mark.asyncio
     async def test_replay_lapsed_sentinel_when_buffer_too_old(self):
         ch = _cid()
-        # Fill buffer well past `since=5`
-        for i in range(REPLAY_BUFFER_SIZE + 20):
-            publish(ch, "new_message", {"i": i})
-        # Buffer's oldest seq is now 21, requested since is 5 → lapsed
+        for _ in range(REPLAY_BUFFER_SIZE + 20):
+            publish_typed(ch, _shutdown_event(ch))
         assert _replay_buffer[ch][0].seq == 21
 
         received: list[ChannelEvent] = []
@@ -359,48 +385,42 @@ class TestReplayOnReconnect:
                     break
 
         await asyncio.wait_for(_consume(), timeout=1.0)
-        # First event delivered should be the replay_lapsed sentinel
-        assert received[0].event_type == "replay_lapsed"
-        assert received[0].metadata["requested_since"] == 5
-        assert received[0].metadata["oldest_available"] == 21
+        first = received[0]
+        assert first.kind is ChannelEventKind.REPLAY_LAPSED
+        assert isinstance(first.payload, ReplayLapsedPayload)
+        assert first.payload.requested_since == 5
+        assert first.payload.oldest_available == 21
+        assert first.payload.reason == "client_lag"
 
     @pytest.mark.asyncio
     async def test_replay_no_events_when_since_is_current_seq(self):
         ch = _cid()
-        publish(ch, "new_message", {"i": 1})
-        publish(ch, "new_message", {"i": 2})
+        publish_typed(ch, _shutdown_event(ch))
+        publish_typed(ch, _shutdown_event(ch))
 
-        # since=2 means "up to date already" — no replay events expected
         received: list[ChannelEvent] = []
-        live_ready = asyncio.Event()
 
         async def _consume():
             async for ev in subscribe(ch, since=2):
                 received.append(ev)
-                live_ready.set()
                 break
 
         task = asyncio.create_task(_consume())
         await asyncio.sleep(0.05)
-        # Nothing replayed; live publish wakes the consumer
         assert received == []
-        publish(ch, "new_message", {"i": 3})
+        publish_typed(ch, _shutdown_event(ch))
         await asyncio.wait_for(task, timeout=1.0)
         assert len(received) == 1
         assert received[0].seq == 3
 
     @pytest.mark.asyncio
     async def test_replay_dedupes_against_live_events(self):
-        """An event published between buffer-snapshot and live-tail
-        registration would be in BOTH the replay buffer and the live queue.
-        The subscribe() implementation must dedupe by seq."""
         ch = _cid()
-        publish(ch, "new_message", {"i": 1})
+        publish_typed(ch, _shutdown_event(ch))
 
         received: list[ChannelEvent] = []
 
         async def _consume():
-            # Use since=0 so all events get replayed
             count = 0
             async for ev in subscribe(ch, since=0):
                 received.append(ev)
@@ -410,12 +430,10 @@ class TestReplayOnReconnect:
 
         task = asyncio.create_task(_consume())
         await asyncio.sleep(0.05)
-        # Now publish more events that go through the live queue
-        publish(ch, "new_message", {"i": 2})
-        publish(ch, "new_message", {"i": 3})
+        publish_typed(ch, _shutdown_event(ch))
+        publish_typed(ch, _shutdown_event(ch))
         await asyncio.wait_for(task, timeout=1.0)
 
-        # No duplicates by seq
         seqs = [ev.seq for ev in received]
         assert seqs == [1, 2, 3]
         assert len(seqs) == len(set(seqs))
@@ -427,7 +445,7 @@ class TestReplayOnReconnect:
 
 
 def _make_msg_row():
-    """Build a fake Message-like object that MessageOut.from_orm can serialize."""
+    """Build a fake Message-like ORM row that domain.Message.from_orm can read."""
     return SimpleNamespace(
         id=uuid.uuid4(),
         session_id=uuid.uuid4(),
@@ -444,7 +462,7 @@ def _make_msg_row():
 
 class TestPublishMessage:
     @pytest.mark.asyncio
-    async def test_publish_message_ships_serialized_row(self):
+    async def test_publish_message_ships_typed_message_payload(self):
         ch = _cid()
         msg = _make_msg_row()
         received: list[ChannelEvent] = []
@@ -461,17 +479,16 @@ class TestPublishMessage:
 
         assert len(received) == 1
         ev = received[0]
-        assert ev.event_type == "new_message"
-        assert "message" in ev.metadata
-        body = ev.metadata["message"]
-        assert body["id"] == str(msg.id)
-        assert body["role"] == "user"
-        assert body["content"] == "hello world"
-        assert body["metadata"] == {"foo": "bar"}
-        assert body["attachments"] == []
+        assert ev.kind is ChannelEventKind.NEW_MESSAGE
+        assert isinstance(ev.payload, MessagePayload)
+        assert isinstance(ev.payload.message, Message)
+        assert ev.payload.message.id == msg.id
+        assert ev.payload.message.role == "user"
+        assert ev.payload.message.content == "hello world"
+        assert ev.payload.message.metadata == {"foo": "bar"}
 
     @pytest.mark.asyncio
-    async def test_publish_message_updated_uses_message_updated_event_type(self):
+    async def test_publish_message_updated_uses_message_updated_kind(self):
         ch = _cid()
         msg = _make_msg_row()
         received: list[ChannelEvent] = []
@@ -486,15 +503,15 @@ class TestPublishMessage:
         publish_message_updated(ch, msg)
         await asyncio.wait_for(task, timeout=1.0)
 
-        assert received[0].event_type == "message_updated"
-        assert received[0].metadata["message"]["id"] == str(msg.id)
+        assert received[0].kind is ChannelEventKind.MESSAGE_UPDATED
+        assert received[0].payload.message.id == msg.id
 
 
 class TestResetChannelState:
     def test_reset_clears_seq_buffer_and_subscribers(self):
         ch = _cid()
-        publish(ch, "new_message")
-        publish(ch, "new_message")
+        publish_typed(ch, _shutdown_event(ch))
+        publish_typed(ch, _shutdown_event(ch))
         assert current_seq(ch) == 2
         assert len(_replay_buffer[ch]) == 2
 

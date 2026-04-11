@@ -1116,7 +1116,12 @@ async def channel_events(
 
     import asyncio
     import json
-    from app.services.channel_events import subscribe, get_shutdown_event
+    from app.domain.channel_events import ChannelEventKind
+    from app.services.channel_events import (
+        event_to_sse_dict,
+        get_shutdown_event,
+        subscribe,
+    )
 
     async def _event_stream():
         shutdown = get_shutdown_event()
@@ -1126,15 +1131,9 @@ async def channel_events(
             while not shutdown.is_set():
                 try:
                     event = await asyncio.wait_for(asyncio.shield(pending), timeout=15.0)
-                    if event.event_type == "shutdown":
+                    if event.kind is ChannelEventKind.SHUTDOWN:
                         break
-                    payload = {
-                        "type": event.event_type,
-                        "channel_id": str(event.channel_id),
-                        "seq": event.seq,
-                        "ts": event.timestamp.isoformat(),
-                        **(event.metadata or {}),
-                    }
+                    payload = event_to_sse_dict(event)
                     yield f"data: {json.dumps(payload)}\n\n"
                     pending = asyncio.ensure_future(async_gen.__anext__())
                 except asyncio.TimeoutError:

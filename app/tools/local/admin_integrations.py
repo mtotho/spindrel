@@ -10,7 +10,7 @@ from app.tools.registry import register
 logger = logging.getLogger(__name__)
 
 # Valid features that can be scaffolded
-_VALID_FEATURES = {"tools", "skills", "carapaces", "dispatcher", "hooks", "process", "workflows"}
+_VALID_FEATURES = {"tools", "skills", "carapaces", "hooks", "process", "workflows"}
 
 
 def _get_scaffold_dir() -> Path | None:
@@ -178,31 +178,15 @@ system_prompt_fragment: |
   You have {pretty_name} capabilities. Describe triggers and usage here.
 ''')
 
-    if "dispatcher" in features:
-        class_name = integration_id.replace("_", " ").title().replace(" ", "") + "Dispatcher"
-        (integration_dir / "dispatcher.py").write_text(f'''"""Dispatcher for {pretty_name} — delivers agent responses to external service."""
-from app.agent.dispatchers import register as register_dispatcher
-
-
-class {class_name}:
-    async def deliver(self, task, result: str, client_actions: list[dict] | None = None,
-                      extra_metadata: dict | None = None) -> None:
-        """Deliver a task result to the external service."""
-        # TODO: implement delivery logic
-        pass
-
-    async def post_message(self, dispatch_config: dict, text: str, *,
-                           bot_id: str | None = None, reply_in_thread: bool = True,
-                           username: str | None = None, icon_emoji: str | None = None,
-                           client_actions: list[dict] | None = None,
-                           extra_metadata: dict | None = None) -> bool:
-        """Post a message to the external service."""
-        # TODO: implement message posting
-        return False
-
-
-register_dispatcher("{integration_id}", {class_name}())
-''')
+    # Phase G removed the legacy dispatcher scaffolding. New
+    # integrations that need to deliver outbound messages should ship a
+    # ``renderer.py`` implementing the ``ChannelRenderer`` protocol from
+    # ``app.integrations.renderer``. The integration discovery loop in
+    # ``integrations/__init__.py:_load_single_integration`` auto-imports
+    # ``renderer.py`` so registration happens at startup with no
+    # ``app/main.py`` changes. See ``integrations/slack/renderer.py`` or
+    # ``integrations/bluebubbles/renderer.py`` as templates. Renderer
+    # scaffolding for this admin tool is a future-session follow-up.
 
     if "hooks" in features:
         (integration_dir / "hooks.py").write_text(f'''"""Hooks for {pretty_name} — lifecycle event handlers."""

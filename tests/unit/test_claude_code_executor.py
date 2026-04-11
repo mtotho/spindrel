@@ -58,27 +58,24 @@ class TestRunClaudeCodeTask:
         mock_db.get = AsyncMock(return_value=mock_task_row)
         mock_db.commit = AsyncMock()
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.deliver = AsyncMock()
-
         mock_settings = MagicMock()
         mock_settings.TIMEOUT = 1800
         mock_settings.MAX_RESUME_RETRIES = 1
 
         with patch("app.db.engine.async_session", return_value=mock_db), \
              patch("app.agent.tasks.resolve_task_timeout", return_value=300), \
-             patch("app.agent.dispatchers") as mock_dispatchers, \
+             patch("integrations.claude_code.executor._deliver_result_via_renderer",
+                   new_callable=AsyncMock) as mock_deliver, \
              patch("app.services.prompt_resolution.resolve_prompt", new_callable=AsyncMock, return_value="fix the bug"), \
              patch("integrations.claude_code.runner.run_in_container", new_callable=AsyncMock, return_value=mock_result), \
              patch("integrations.claude_code.config.settings", mock_settings):
-            mock_dispatchers.get.return_value = mock_dispatcher
 
             await run_claude_code_task(task)
 
         assert mock_task_row.status == "complete"
         assert mock_task_row.result is not None
         assert "All tests pass" in mock_task_row.result
-        mock_dispatcher.deliver.assert_called_once()
+        mock_deliver.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_error_with_resume_retry(self):
@@ -137,9 +134,6 @@ class TestRunClaudeCodeTask:
         mock_db.get = AsyncMock(return_value=mock_task_row)
         mock_db.commit = AsyncMock()
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.deliver = AsyncMock()
-
         mock_settings = MagicMock()
         mock_settings.TIMEOUT = 1800
         mock_settings.MAX_RESUME_RETRIES = 1
@@ -149,9 +143,9 @@ class TestRunClaudeCodeTask:
              patch("integrations.claude_code.runner.run_in_container", new_callable=AsyncMock,
                    side_effect=RuntimeError("still broken")), \
              patch("app.services.prompt_resolution.resolve_prompt", new_callable=AsyncMock, return_value="fix"), \
-             patch("app.agent.dispatchers") as mock_dispatchers, \
+             patch("integrations.claude_code.executor._deliver_result_via_renderer",
+                   new_callable=AsyncMock), \
              patch("integrations.claude_code.config.settings", mock_settings):
-            mock_dispatchers.get.return_value = mock_dispatcher
 
             await run_claude_code_task(task)
 
@@ -197,19 +191,16 @@ class TestRunClaudeCodeTask:
         mock_db.add = track_add
         mock_db.refresh = AsyncMock()
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.deliver = AsyncMock()
-
         mock_settings = MagicMock()
         mock_settings.TIMEOUT = 1800
 
         with patch("app.db.engine.async_session", return_value=mock_db), \
              patch("app.agent.tasks.resolve_task_timeout", return_value=300), \
-             patch("app.agent.dispatchers") as mock_dispatchers, \
+             patch("integrations.claude_code.executor._deliver_result_via_renderer",
+                   new_callable=AsyncMock), \
              patch("app.services.prompt_resolution.resolve_prompt", new_callable=AsyncMock, return_value="do it"), \
              patch("integrations.claude_code.runner.run_in_container", new_callable=AsyncMock, return_value=mock_result), \
              patch("integrations.claude_code.config.settings", mock_settings):
-            mock_dispatchers.get.return_value = mock_dispatcher
 
             await run_claude_code_task(task)
 

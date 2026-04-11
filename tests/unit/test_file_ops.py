@@ -18,12 +18,18 @@ from app.tools.local.file_ops import (
     _op_delete,
     _op_mkdir,
     _op_move,
+    _op_grep,
+    _op_glob,
+    _normalize_include,
     _whitespace_flex_pattern,
     _find_closest_hint,
     file as file_tool,
     MAX_CONTENT_BYTES,
     MAX_READ_LINES,
     DEFAULT_READ_LINES,
+    DEFAULT_GREP_MATCHES,
+    GREP_LINE_MAX_CHARS,
+    MAX_GREP_FILE_BYTES,
 )
 
 
@@ -796,6 +802,285 @@ class TestOpMove:
 
 
 # ---------------------------------------------------------------------------
+# Grep
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def grep_ws(tmp_path):
+    """Workspace seeded with a small tree for grep/glob tests."""
+    (tmp_path / "app.py").write_text(
+        "def handler():\n    return 'hello world'\n\ndef other():\n    pass\n"
+    )
+    (tmp_path / "README.md").write_text("# Project\n\nUses the `handler` function.\n")
+    sub = tmp_path / "src" / "pkg"
+    sub.mkdir(parents=True)
+    (sub / "deep.py").write_text("class Handler:\n    pass\n\ndef make_handler():\n    return Handler()\n")
+    (sub / "notes.md").write_text("deep notes here\n")
+    # Junk dirs — must be pruned
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\nhandler\n")
+    (tmp_path / "node_modules" / "pkg").mkdir(parents=True)
+    (tmp_path / "node_modules" / "pkg" / "index.js").write_text("function handler() {}\n")
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "cached.pyc").write_text("handler bytecode\n")
+    # Binary file — grep must skip
+    (tmp_path / "blob.bin").write_bytes(b"handler\x00\x00binary content\n")
+    return tmp_path
+
+
+class TestOpGrep:
+    def test_grep_literal_match(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws), "handler", None, str(grep_ws), None))
+        assert result["count"] >= 3
+        files = {m["file"] for m in result["matches"]}
+        assert "app.py" in files
+        assert "README.md" in files
+        # Recurses into src/pkg/
+        assert any(f.endswith("deep.py") for f in files)
+
+    def test_grep_regex(self, grep_ws):
+        # Match def-name pattern
+        result = json.loads(_op_grep(str(grep_ws), r"def \w+_handler", None, str(grep_ws), None))
+        assert result["count"] == 1
+        m = result["matches"][0]
+        assert m["file"].endswith("deep.py")
+        assert "make_handler" in m["text"]
+
+    def test_grep_returns_line_numbers(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws), "handler", None, str(grep_ws), None))
+        app_matches = [m for m in result["matches"] if m["file"] == "app.py"]
+        assert app_matches
+        assert app_matches[0]["line"] == 1
+
+    def test_grep_skips_junk_dirs(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws), "handler", None, str(grep_ws), None))
+        files = {m["file"] for m in result["matches"]}
+        # None of the junk-dir hits should appear
+        assert not any(".git" in f for f in files)
+        assert not any("node_modules" in f for f in files)
+        assert not any("__pycache__" in f for f in files)
+
+    def test_grep_skips_binary(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws), "handler", None, str(grep_ws), None))
+        assert not any("blob.bin" in m["file"] for m in result["matches"])
+
+    def test_grep_include_filter(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws), "handler", "*.py", str(grep_ws), None))
+        files = {m["file"] for m in result["matches"]}
+        assert all(f.endswith(".py") for f in files)
+        assert "README.md" not in files
+
+    def test_grep_single_file_root(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws / "app.py"), "handler", None, str(grep_ws), None))
+        assert result["count"] == 1
+        assert result["matches"][0]["file"] == "app.py"
+
+    def test_grep_no_matches(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws), "zzznevermatches", None, str(grep_ws), None))
+        assert result["count"] == 0
+        assert result["matches"] == []
+
+    def test_grep_invalid_regex(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws), "[unclosed", None, str(grep_ws), None))
+        assert "error" in result
+        assert "regex" in result["error"].lower()
+
+    def test_grep_missing_pattern(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws), None, None, str(grep_ws), None))
+        assert "error" in result
+        assert "pattern" in result["error"].lower()
+
+    def test_grep_nonexistent_path(self, grep_ws):
+        result = json.loads(_op_grep(str(grep_ws / "nope"), "handler", None, str(grep_ws), None))
+        assert "error" in result
+
+    def test_grep_limit_truncates(self, grep_ws):
+        # Seed a file with many matches
+        (grep_ws / "many.txt").write_text("\n".join(["hit"] * 50) + "\n")
+        result = json.loads(_op_grep(str(grep_ws / "many.txt"), "hit", None, str(grep_ws), 10))
+        assert result["count"] == 10
+        assert result["truncated"] is True
+
+    def test_grep_include_strips_recursive_prefix(self, grep_ws):
+        """Bots habitually write include='**/*.py' — treat it as '*.py'."""
+        result = json.loads(_op_grep(str(grep_ws), "handler", "**/*.py", str(grep_ws), None))
+        files = {m["file"] for m in result["matches"]}
+        assert files, "include='**/*.py' should match .py files, not zero results"
+        assert all(f.endswith(".py") for f in files)
+
+    def test_grep_limit_zero_returns_empty(self, grep_ws):
+        """limit=0 means 'I want no results' — don't coerce to DEFAULT."""
+        result = json.loads(_op_grep(str(grep_ws), "handler", None, str(grep_ws), 0))
+        assert result["count"] == 0
+        assert result["matches"] == []
+
+    def test_grep_skips_files_over_size_cap(self, grep_ws, monkeypatch):
+        """Huge files are skipped to protect context + runtime."""
+        huge = grep_ws / "huge.txt"
+        monkeypatch.setattr("app.tools.local.file_ops.MAX_GREP_FILE_BYTES", 100)
+        huge.write_text("handler " * 200)  # > 100 bytes
+        result = json.loads(_op_grep(str(grep_ws), "handler", None, str(grep_ws), None))
+        assert not any("huge.txt" in m["file"] for m in result["matches"])
+        assert result.get("files_skipped_large", 0) >= 1
+
+    def test_grep_symlink_escape_blocked(self, grep_ws, tmp_path_factory):
+        """A symlink inside the workspace pointing OUTSIDE must be ignored."""
+        # Use a factory-created dir so it's a genuine sibling of grep_ws.
+        elsewhere = tmp_path_factory.mktemp("outside")
+        secret = elsewhere / "outside_secret.txt"
+        secret.write_text("handler secret\n")
+        link = grep_ws / "link_to_outside.txt"
+        try:
+            os.symlink(str(secret), str(link))
+        except (OSError, NotImplementedError):
+            pytest.skip("Platform does not support symlinks")
+        result = json.loads(_op_grep(str(grep_ws), "handler", None, str(grep_ws), None))
+        assert not any("link_to_outside.txt" in m["file"] for m in result["matches"])
+        assert not any("outside_secret" in m.get("text", "") for m in result["matches"])
+
+    def test_grep_long_line_truncated(self, grep_ws):
+        long_line = "x" * (GREP_LINE_MAX_CHARS + 200) + "needle" + "y" * 100
+        (grep_ws / "wide.txt").write_text(long_line + "\n")
+        result = json.loads(_op_grep(str(grep_ws / "wide.txt"), "needle", None, str(grep_ws), None))
+        assert result["count"] == 1
+        # Text is capped; trailing ellipsis marker present
+        assert len(result["matches"][0]["text"]) <= GREP_LINE_MAX_CHARS + 1
+        assert result["matches"][0]["text"].endswith("…")
+
+
+# ---------------------------------------------------------------------------
+# Glob
+# ---------------------------------------------------------------------------
+
+
+class TestOpGlob:
+    def test_glob_recursive_py(self, grep_ws):
+        result = json.loads(_op_glob(str(grep_ws), "**/*.py", str(grep_ws), None))
+        paths = set(result["paths"])
+        assert "app.py" in paths
+        assert any(p.endswith("deep.py") for p in paths)
+
+    def test_glob_flat_pattern(self, grep_ws):
+        result = json.loads(_op_glob(str(grep_ws), "*.py", str(grep_ws), None))
+        assert "app.py" in result["paths"]
+        # Flat *.py shouldn't recurse
+        assert not any("deep.py" in p for p in result["paths"])
+
+    def test_glob_skips_junk_dirs(self, grep_ws):
+        result = json.loads(_op_glob(str(grep_ws), "**/*", str(grep_ws), None))
+        paths = result["paths"]
+        assert not any(".git" in p for p in paths)
+        assert not any("node_modules" in p for p in paths)
+        assert not any("__pycache__" in p for p in paths)
+
+    def test_glob_no_matches(self, grep_ws):
+        result = json.loads(_op_glob(str(grep_ws), "**/*.xyz", str(grep_ws), None))
+        assert result["count"] == 0
+        assert result["paths"] == []
+
+    def test_glob_sorted_by_mtime(self, grep_ws):
+        import time
+        (grep_ws / "old.py").write_text("old\n")
+        time.sleep(0.01)
+        (grep_ws / "new.py").write_text("new\n")
+        # Ensure mtimes differ enough
+        os.utime(grep_ws / "old.py", (1_600_000_000, 1_600_000_000))
+        os.utime(grep_ws / "new.py", (1_700_000_000, 1_700_000_000))
+        result = json.loads(_op_glob(str(grep_ws), "*.py", str(grep_ws), None))
+        paths = result["paths"]
+        assert paths.index("new.py") < paths.index("old.py")
+
+    def test_glob_missing_pattern(self, grep_ws):
+        result = json.loads(_op_glob(str(grep_ws), None, str(grep_ws), None))
+        assert "error" in result
+        assert "pattern" in result["error"].lower()
+
+    def test_glob_not_a_directory(self, grep_ws):
+        result = json.loads(_op_glob(str(grep_ws / "app.py"), "*.py", str(grep_ws), None))
+        assert "error" in result
+        assert "director" in result["error"].lower()
+
+    def test_glob_limit_truncates(self, grep_ws):
+        for i in range(20):
+            (grep_ws / f"gen_{i}.tmp").write_text(str(i))
+        result = json.loads(_op_glob(str(grep_ws), "gen_*.tmp", str(grep_ws), 5))
+        assert result["count"] == 5
+        assert result["truncated"] is True
+
+    def test_glob_limit_returns_newest_not_walk_order(self, grep_ws):
+        """limit=N must return the N most-recently-modified — not walk order.
+
+        Regression: previous impl broke on max_results *before* sorting by
+        mtime, so the returned set was the first N encountered in directory
+        order, then sorted among themselves.
+        """
+        # Create 10 files with interleaved mtimes.
+        # The "newest" 3 should be new_0, new_1, new_2 (distinctly newest).
+        for i in range(7):
+            p = grep_ws / f"old_{i}.tmp"
+            p.write_text("old")
+            os.utime(p, (1_600_000_000 + i, 1_600_000_000 + i))
+        newest_names = []
+        for i in range(3):
+            p = grep_ws / f"new_{i}.tmp"
+            p.write_text("new")
+            os.utime(p, (1_700_000_000 + i, 1_700_000_000 + i))
+            newest_names.append(p.name)
+
+        result = json.loads(_op_glob(str(grep_ws), "*.tmp", str(grep_ws), 3))
+        returned = set(result["paths"])
+        assert returned == set(newest_names), (
+            f"expected the 3 newest files, got {returned}"
+        )
+        assert result["truncated"] is True
+
+    def test_glob_limit_zero_returns_empty(self, grep_ws):
+        result = json.loads(_op_glob(str(grep_ws), "**/*.py", str(grep_ws), 0))
+        assert result["count"] == 0
+        assert result["paths"] == []
+
+    def test_glob_symlink_escape_blocked(self, grep_ws, tmp_path_factory):
+        """Glob must not return symlinks pointing outside the workspace."""
+        elsewhere = tmp_path_factory.mktemp("glob_outside")
+        outside = elsewhere / "outside.py"
+        outside.write_text("# outside\n")
+        link = grep_ws / "escape.py"
+        try:
+            os.symlink(str(outside), str(link))
+        except (OSError, NotImplementedError):
+            pytest.skip("Platform does not support symlinks")
+        result = json.loads(_op_glob(str(grep_ws), "*.py", str(grep_ws), None))
+        assert not any("escape.py" in p for p in result["paths"])
+
+
+# ---------------------------------------------------------------------------
+# _normalize_include
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeInclude:
+    def test_strips_recursive_prefix(self):
+        assert _normalize_include("**/*.py") == "*.py"
+
+    def test_strips_single_segment_prefix(self):
+        assert _normalize_include("*/test_*.py") == "test_*.py"
+
+    def test_strips_chained_prefixes(self):
+        assert _normalize_include("**/**/*.py") == "*.py"
+
+    def test_plain_basename_unchanged(self):
+        assert _normalize_include("*.py") == "*.py"
+        assert _normalize_include("test_*.md") == "test_*.md"
+
+    def test_none_passthrough(self):
+        assert _normalize_include(None) is None
+
+    def test_empty_passthrough(self):
+        assert _normalize_include("") == ""
+
+
+# ---------------------------------------------------------------------------
 # Integration: file() dispatch with mocked bot context
 # ---------------------------------------------------------------------------
 
@@ -899,6 +1184,28 @@ class TestFileTool:
         result = await file_tool(operation="foobar", path="hello.txt")
         parsed = json.loads(result)
         assert "error" in parsed
+
+    @pytest.mark.asyncio
+    async def test_grep_via_file_tool(self, mock_ctx):
+        ws, _ = mock_ctx
+        result = await file_tool(operation="grep", path=".", pattern="Hello")
+        parsed = json.loads(result)
+        assert parsed["count"] >= 1
+        assert any(m["file"] == "hello.txt" for m in parsed["matches"])
+
+    @pytest.mark.asyncio
+    async def test_grep_via_file_tool_missing_pattern(self, mock_ctx):
+        result = await file_tool(operation="grep", path=".")
+        parsed = json.loads(result)
+        assert "error" in parsed
+
+    @pytest.mark.asyncio
+    async def test_glob_via_file_tool(self, mock_ctx):
+        ws, _ = mock_ctx
+        result = await file_tool(operation="glob", path=".", pattern="**/*.md")
+        parsed = json.loads(result)
+        assert parsed["count"] >= 1
+        assert any(p.endswith("MEMORY.md") for p in parsed["paths"])
 
 
 # ---------------------------------------------------------------------------

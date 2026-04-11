@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 import openai
 from sqlalchemy import select
 
-from app.agent import dispatchers
 from app.agent.bots import get_bot
 from app.config import settings
 from app.db.engine import async_session
@@ -17,6 +16,49 @@ from app.db.models import Channel, Session, Task, TraceEvent
 from app.services import session_locks
 
 logger = logging.getLogger(__name__)
+
+
+def _publish_turn_ended(
+    task: Task,
+    *,
+    turn_id: uuid.UUID,
+    result: str | None,
+    error: str | None = None,
+    client_actions: list | None = None,
+    extra_metadata: dict | None = None,
+    kind_hint: str | None = None,
+) -> None:
+    """Publish a TURN_ENDED event for a task.
+
+    Tasks without a channel_id cannot reach a renderer; they are logged
+    and dropped. Every production code path attaches a channel_id when
+    creating a task — a missing one is a programming error.
+    """
+    channel_id = getattr(task, "channel_id", None)
+    if channel_id is None:
+        logger.warning("task %s has no channel_id, dropping TURN_ENDED publish", task.id)
+        return
+    from app.domain.channel_events import ChannelEvent, ChannelEventKind
+    from app.domain.payloads import TurnEndedPayload
+    from app.services.channel_events import publish_typed
+
+    publish_typed(
+        channel_id,
+        ChannelEvent(
+            channel_id=channel_id,
+            kind=ChannelEventKind.TURN_ENDED,
+            payload=TurnEndedPayload(
+                bot_id=task.bot_id,
+                turn_id=turn_id,
+                result=result,
+                error=error,
+                client_actions=list(client_actions or []),
+                extra_metadata=dict(extra_metadata or {}),
+                task_id=str(task.id),
+                kind_hint=kind_hint,
+            ),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +273,7 @@ async def run_exec_task(task: Task) -> None:
     """Execute a raw exec task: run command in sandbox, store result, dispatch."""
     logger.info("Running exec task %s", task.id)
     now = datetime.now(timezone.utc)
+    _turn_id = uuid.uuid4()
 
     async with async_session() as db:
         t = await db.get(Task, task.id)
@@ -334,11 +377,11 @@ async def run_exec_task(task: Task) -> None:
         output_task = Task(
             id=task.id,
             bot_id=task.bot_id,
+            channel_id=task.channel_id,
             dispatch_type=output_dispatch_type,
             dispatch_config=output_dispatch_config,
         )
-        dispatcher = dispatchers.get(output_dispatch_type)
-        await dispatcher.deliver(output_task, result_text)
+        _publish_turn_ended(output_task, turn_id=_turn_id, result=result_text)
 
         if cfg.get("notify_parent") and result_text:
             _parent_bot_id = cfg.get("parent_bot_id")
@@ -382,15 +425,18 @@ async def run_exec_task(task: Task) -> None:
                 await db.commit()
         await _fire_task_complete(task, "failed")
         try:
-            _err_text = f"[Error: Exec task timed out after {_exec_timeout}s]"
             output_task = Task(
-                id=task.id, bot_id=task.bot_id,
+                id=task.id, bot_id=task.bot_id, channel_id=task.channel_id,
                 dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
             )
-            dispatcher = dispatchers.get(output_dispatch_type)
-            await dispatcher.deliver(output_task, _err_text)
+            _publish_turn_ended(
+                output_task,
+                turn_id=_turn_id,
+                result=None,
+                error=f"Timed out after {_exec_timeout}s",
+            )
         except Exception:
-            logger.warning("Failed to dispatch timeout error for exec task %s", task.id)
+            logger.warning("Failed to publish timeout error for exec task %s", task.id)
 
     except Exception as exc:
         logger.exception("Exec task %s failed", task.id)
@@ -572,15 +618,34 @@ async def run_task(task: Task) -> None:
                 session_locks.release(task.session_id)
             return
 
-    # Notify the dispatcher that a queued task is starting (e.g. Slack posts
-    # a thinking placeholder).  Uses duck-typing — only dispatchers that
-    # implement notify_start are called.
-    dispatcher = dispatchers.get(task.dispatch_type)
-    if hasattr(dispatcher, "notify_start"):
+    # Per-task turn correlation. Threaded through TURN_STARTED and every
+    # TURN_ENDED publish (success, timeout, rate-limit, exception) so
+    # subscribers can demultiplex parallel turns by turn_id.
+    _turn_id = uuid.uuid4()
+
+    # Tell the bus a queued task is starting; renderers (Slack/Discord)
+    # post a "thinking…" placeholder when this fires.
+    if task.channel_id is not None:
         try:
-            await dispatcher.notify_start(task)
+            from app.domain.channel_events import ChannelEvent, ChannelEventKind
+            from app.domain.payloads import TurnStartedPayload
+            from app.services.channel_events import publish_typed
+
+            publish_typed(
+                task.channel_id,
+                ChannelEvent(
+                    channel_id=task.channel_id,
+                    kind=ChannelEventKind.TURN_STARTED,
+                    payload=TurnStartedPayload(
+                        bot_id=task.bot_id,
+                        turn_id=_turn_id,
+                        task_id=str(task.id),
+                        reason="queued_task_starting",
+                    ),
+                ),
+            )
         except Exception:
-            logger.debug("notify_start failed for task %s", task.id, exc_info=True)
+            logger.debug("publish TURN_STARTED failed for task %s", task.id, exc_info=True)
 
     _task_timeout = settings.TASK_MAX_RUN_SECONDS  # default; overridden below after channel loads
     try:
@@ -808,9 +873,13 @@ async def run_task(task: Task) -> None:
         # that were already dispatched by the child delegation task.
         _dispatch_actions = None if task.task_type == "callback" else run_result.client_actions
 
-        dispatcher = dispatchers.get(task.dispatch_type)
-        await dispatcher.deliver(task, _dispatch_text, client_actions=_dispatch_actions,
-                                 extra_metadata=_delegation_meta)
+        _publish_turn_ended(
+            task,
+            turn_id=_turn_id,
+            result=_dispatch_text,
+            client_actions=_dispatch_actions,
+            extra_metadata=_delegation_meta,
+        )
 
         _cb = task.callback_config or {}
 
@@ -917,12 +986,10 @@ async def run_task(task: Task) -> None:
                 await db.commit()
         await _record_timeout_event(task, correlation_id, _timeout_err)
         await _fire_task_complete(task, "failed")
-        _err_text = f"[Error: Task timed out after {_task_timeout}s]"
         try:
-            dispatcher = dispatchers.get(task.dispatch_type)
-            await dispatcher.deliver(task, _err_text)
+            _publish_turn_ended(task, turn_id=_turn_id, result=None, error=_timeout_err)
         except Exception:
-            logger.warning("Failed to dispatch timeout error for task %s", task.id)
+            logger.warning("Failed to publish timeout error for task %s", task.id)
 
     except openai.RateLimitError as exc:
         async with async_session() as db:
@@ -948,13 +1015,10 @@ async def run_task(task: Task) -> None:
                 await db.commit()
                 logger.error("Task %s failed after %d rate limit retries", task.id, t.retry_count)
                 await _fire_task_complete(task, "failed")
-                # Dispatch error to integration so the user sees it
-                _err_text = f"[Error: API rate limit exceeded after {t.retry_count} retries]"
                 try:
-                    dispatcher = dispatchers.get(task.dispatch_type)
-                    await dispatcher.deliver(task, _err_text)
+                    _publish_turn_ended(task, turn_id=_turn_id, result=None, error="rate_limited")
                 except Exception:
-                    logger.warning("Failed to dispatch rate limit error for task %s", task.id)
+                    logger.warning("Failed to publish rate limit error for task %s", task.id)
 
     except Exception as exc:
         logger.exception("Task %s failed", task.id)
@@ -966,13 +1030,10 @@ async def run_task(task: Task) -> None:
                 t.completed_at = datetime.now(timezone.utc)
                 await db.commit()
         await _fire_task_complete(task, "failed")
-        # Dispatch error to integration so the user sees it
-        _err_text = f"[Error: {type(exc).__name__}: {str(exc)[:500]}]"
         try:
-            dispatcher = dispatchers.get(task.dispatch_type)
-            await dispatcher.deliver(task, _err_text)
+            _publish_turn_ended(task, turn_id=_turn_id, result=None, error=str(exc)[:500])
         except Exception:
-            logger.warning("Failed to dispatch error for task %s", task.id)
+            logger.warning("Failed to publish error for task %s", task.id)
     finally:
         if _lock_acquired:
             session_locks.release(task.session_id)

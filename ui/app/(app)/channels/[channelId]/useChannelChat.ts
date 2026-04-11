@@ -3,7 +3,7 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
-import { useChatStream, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
+import { useSubmitChat, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
 import { useChannelEvents } from "@/src/api/hooks/useChannelEvents";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
 import { apiFetch } from "@/src/api/client";
@@ -67,13 +67,11 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   const chatState = useChatStore((s) => s.getChannel(channelId!));
   const setMessages = useChatStore((s) => s.setMessages);
   const addMessage = useChatStore((s) => s.addMessage);
-  const startStreaming = useChatStore((s) => s.startStreaming);
-  const handleSSEEvent = useChatStore((s) => s.handleSSEEvent);
-  const finishStreaming = useChatStore((s) => s.finishStreaming);
   const clearProcessing = useChatStore((s) => s.clearProcessing);
   const setError = useChatStore((s) => s.setError);
 
-  // Subscribe to real-time channel events (messages from integrations, other tabs, etc.)
+  // Subscribe to typed channel-events bus events. This is the SOLE source
+  // of streaming UI state — POST /chat just acknowledges the turn.
   useChannelEvents(channelId, channel?.bot_id);
 
   const [turnModelOverride, setTurnModelOverride] = useState<string | undefined>();
@@ -97,9 +95,10 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     optimisticMsgId: string;
   } | null>(null);
   const [isQueued, setIsQueued] = useState(false);
-  // Ref for checking active state inside async callbacks (avoids stale closures)
+  // Ref for checking active state inside async callbacks (avoids stale closures).
   const isActiveRef = useRef(false);
-  isActiveRef.current = chatState.isStreaming || chatState.isProcessing || Object.keys(chatState.memberStreams ?? {}).length > 0;
+  const turnsCount = Object.keys(chatState.turns).length;
+  isActiveRef.current = turnsCount > 0 || chatState.isProcessing;
 
   // ---- Message fetching ----
   const {
@@ -127,46 +126,48 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   });
 
   // Sync DB messages into the chat store when new page data arrives.
-  // IMPORTANT: Only depend on [channelId, pages] -- NOT streaming/processing state.
-  // Streaming state is checked as a guard inside, but must not be a trigger.
-  // If it were a dep, finishing a stream would re-run this effect with stale pages
-  // (the invalidateQueries refetch hasn't completed yet), overwriting the synthetic
-  // message that finishStreaming() just materialized.
+  // Suppressed while a turn is streaming so we don't clobber the synthetic
+  // streamingContent message before it's materialized.
   useEffect(() => {
-    if (channelId && pages && !chatState.isStreaming && !chatState.isProcessing) {
+    if (channelId && pages && turnsCount === 0 && !chatState.isProcessing) {
       const allMessages = [...pages.pages].reverse().flatMap((p) => p.messages)
         .filter((m) => {
           if (m.role !== "user" && m.role !== "assistant") return false;
           const meta = (m as any).metadata ?? {};
-          // Hide passive dispatch echoes (ambient messages bot didn't respond to)
-          // But show delegated child responses (they arrive as passive with delegated_by attribution)
           if (meta.passive && !meta.delegated_by) return false;
-          // Hide heartbeat trigger prompts (injected user messages), but keep bot responses
           if (m.role === "user" && meta.is_heartbeat) return false;
-          // Hide member-mention trigger prompts (bot-to-bot @-mention system messages)
           if (meta.hidden) return false;
-          // Hide assistant messages with no displayable content (tool-call-only messages)
-          // BUT keep messages that have attachments so download links are visible
           if (m.role === "assistant" && !extractDisplayText(m.content)
               && (!m.attachments || m.attachments.length === 0)) return false;
           return true;
         });
 
-      // Preserve synthetic messages from finishStreaming() that the DB doesn't
-      // have yet. This happens when SSE drops mid-stream — the client saw the
-      // response but persist_turn() may not have committed (or the process died).
-      // Without this, the refetch overwrites the store and the message vanishes.
+      // Preserve synthetic messages from finishTurn() when the DB doesn't
+      // yet have a corresponding assistant row. Two cases:
+      //   1. correlation_id match — happy path, drop the synthetic (DB
+      //      caught up).
+      //   2. no correlation_id match AND no recent DB assistant — likely
+      //      a persist failure or in-flight commit. Keep the synthetic so
+      //      the user doesn't lose visible content.
       const currentMessages = useChatStore.getState().channels[channelId]?.messages ?? [];
       const dbCorrelationIds = new Set(
         allMessages.map((m) => m.correlation_id).filter(Boolean)
       );
-      const syntheticToKeep = currentMessages.filter(
-        (m) =>
-          m.id.startsWith("msg-") &&
-          m.role === "assistant" &&
-          m.correlation_id &&
-          !dbCorrelationIds.has(m.correlation_id)
-      );
+      const newestDbAssistantTs = allMessages
+        .filter((m) => m.role === "assistant")
+        .reduce<string | null>(
+          (acc, m) => (acc === null || m.created_at > acc ? m.created_at : acc),
+          null,
+        );
+      const syntheticToKeep = currentMessages.filter((m) => {
+        if (!(m.id.startsWith("turn-") || m.id.startsWith("msg-"))) return false;
+        if (m.role !== "assistant") return false;
+        // Drop if DB has a row with the same correlation_id.
+        if (m.correlation_id && dbCorrelationIds.has(m.correlation_id)) return false;
+        // Drop if DB has a NEWER assistant row (the canonical one).
+        if (newestDbAssistantTs && m.created_at <= newestDbAssistantTs) return false;
+        return true;
+      });
 
       setMessages(channelId, [...allMessages, ...syntheticToKeep]);
     }
@@ -176,7 +177,30 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   // Poll session status while background processing is active
   const { data: sessionStatus } = useSessionStatus(channelId, chatState.isProcessing);
 
-  // When background processing completes, clear state and refetch messages
+  const submitChat = useSubmitChat();
+  const cancelChat = useCancelChat();
+  const lastRequestRef = useRef<Record<string, ChatRequest>>({});
+
+  // ---- Bus-driven queue advance ----
+  // When the channel's turn count drops to zero AND there's a queued
+  // request, fire it. This replaces the legacy `chatStream.onComplete`
+  // callback hook.
+  const prevTurnsCountRef = useRef(turnsCount);
+  useEffect(() => {
+    const wasActive = prevTurnsCountRef.current > 0;
+    const nowIdle = turnsCount === 0 && !chatState.isProcessing;
+    prevTurnsCountRef.current = turnsCount;
+
+    if (wasActive && nowIdle && queuedRequestRef.current) {
+      const queued = queuedRequestRef.current;
+      queuedRequestRef.current = null;
+      setIsQueued(false);
+      lastRequestRef.current[queued.channelId] = queued.request;
+      submitChat.mutate(queued.request);
+    }
+  }, [turnsCount, chatState.isProcessing, submitChat]);
+
+  // When background processing completes, clear state and refetch.
   useEffect(() => {
     if (
       chatState.isProcessing &&
@@ -186,199 +210,51 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     ) {
       if (channelId) clearProcessing(channelId);
       queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-
-      // Fire queued message now that processing is done
-      const queued = queuedRequestRef.current;
-      if (queued) {
-        queuedRequestRef.current = null;
-        setIsQueued(false);
-        setTimeout(() => {
-          startStreaming(queued.channelId);
-          lastRequestRef.current[queued.channelId] = queued.request;
-          chatStream.mutate(queued.request);
-        }, 50);
-      }
     }
-  }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient, startStreaming]);
-
-  // Workflow-posted lifecycle messages (heartbeats, scheduled tasks) are picked up
-  // via the channel_events SSE `new_message` payload — workflow_executor publishes
-  // it after committing the message. We do NOT poll workflow-runs to drive a
-  // session-messages invalidation here: that produced a full N-page refetch on
-  // every status change, redundant with the SSE path.
-
-  // ---- Per-channel pending buffers so concurrent streams don't mix deltas ----
-  const pendingTextRef = useRef<Record<string, string>>({});
-  const pendingThinkRef = useRef<Record<string, string>>({});
-  const rafRef = useRef<Record<string, number>>({});
-  const lastRequestRef = useRef<Record<string, ChatRequest>>({});
-
-  /** Flush buffered text/thinking deltas for a specific channel */
-  const flushChannel = useCallback((chId: string) => {
-    rafRef.current[chId] = 0;
-    const text = pendingTextRef.current[chId];
-    const think = pendingThinkRef.current[chId];
-    if (text) {
-      handleSSEEvent(chId, { event: "text_delta", data: { delta: text } });
-      pendingTextRef.current[chId] = "";
-    }
-    if (think) {
-      handleSSEEvent(chId, { event: "thinking", data: { delta: think } });
-      pendingThinkRef.current[chId] = "";
-    }
-  }, [handleSSEEvent]);
-
-  const cancelChat = useCancelChat();
-
-  const chatStream = useChatStream({
-    onEvent: (event) => {
-      if (!channelId) return;
-      // Batch text and thinking deltas -- flush at ~60fps instead of per-token
-      if (event.event === "text_delta") {
-        pendingTextRef.current[channelId] = (pendingTextRef.current[channelId] ?? "") + ((event.data as any).delta ?? "");
-        if (!rafRef.current[channelId]) {
-          const chId = channelId;
-          rafRef.current[chId] = requestAnimationFrame(() => flushChannel(chId));
-        }
-        return;
-      }
-      if (event.event === "thinking") {
-        pendingThinkRef.current[channelId] = (pendingThinkRef.current[channelId] ?? "") + ((event.data as any).delta ?? "");
-        if (!rafRef.current[channelId]) {
-          const chId = channelId;
-          rafRef.current[chId] = requestAnimationFrame(() => flushChannel(chId));
-        }
-        return;
-      }
-      // Flush pending text before processing other events (tool_start, response, etc.)
-      if (pendingTextRef.current[channelId] || pendingThinkRef.current[channelId]) {
-        cancelAnimationFrame(rafRef.current[channelId] || 0);
-        flushChannel(channelId);
-      }
-      handleSSEEvent(channelId, event);
-    },
-    onError: (error) => {
-      if (channelId) {
-        // Flush any pending text for this channel
-        if (pendingTextRef.current[channelId] || pendingThinkRef.current[channelId]) {
-          cancelAnimationFrame(rafRef.current[channelId] || 0);
-          flushChannel(channelId);
-        }
-        // Finish streaming first so any partial content is preserved in messages
-        finishStreaming(channelId);
-        // Also kill any active member streams (SSE died, they won't get stream_end)
-        const remaining = useChatStore.getState().getChannel(channelId).memberStreams;
-        for (const sid of Object.keys(remaining)) {
-          useChatStore.getState().finishMemberStream(channelId, sid);
-        }
-        setError(channelId, error.message);
-      }
-      // Clear queue on error — don't auto-send into an errored state.
-      // Also remove the optimistic user message so it doesn't sit orphaned.
-      if (queuedRequestRef.current) {
-        const { optimisticMsgId, channelId: qCh } = queuedRequestRef.current;
-        queuedRequestRef.current = null;
-        setIsQueued(false);
-        const msgs = useChatStore.getState().channels[qCh]?.messages ?? [];
-        setMessages(qCh, msgs.filter((m) => m.id !== optimisticMsgId));
-      }
-      // SSE dropped but server likely still processed the message.
-      // One delayed refetch — persist_turn typically commits within a couple
-      // seconds. Each invalidate refetches every loaded page, so chains of
-      // backoff retries are expensive on long conversations.
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-      }, 3000);
-    },
-    onComplete: () => {
-      if (channelId) {
-        // Flush any pending text for this channel
-        if (pendingTextRef.current[channelId] || pendingThinkRef.current[channelId]) {
-          cancelAnimationFrame(rafRef.current[channelId] || 0);
-          flushChannel(channelId);
-        }
-        // Only finishStreaming if we're still the local stream.
-        // If a member bot's stream_start already arrived (via useChannelEvents),
-        // isLocalStream was cleared and we're now observing — don't interrupt that.
-        const ch = useChatStore.getState().getChannel(channelId);
-        if (ch.isLocalStream) {
-          finishStreaming(channelId);
-        }
-
-        // Member bot safety-net polling is handled in useChannelEvents.ts
-        // (pending_member_stream handler with 3s/8s/15s refetch schedule).
-      }
-      // Refetch messages to get real DB records (with attachments, full metadata, etc.)
-      // persist_turn runs before the SSE connection closes, so data is ready.
-      queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-
-      // Auto-send queued message now that the stream is done
-      const queued = queuedRequestRef.current;
-      if (queued) {
-        queuedRequestRef.current = null;
-        setIsQueued(false);
-        setTimeout(() => {
-          startStreaming(queued.channelId);
-          lastRequestRef.current[queued.channelId] = queued.request;
-          chatStream.mutate(queued.request);
-        }, 50);
-      }
-    },
-  });
+  }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient]);
 
   const handleCancel = useCallback(() => {
     if (!channel || !channelId) return;
-    // Send server-side cancel (sets flag + cancels queued tasks)
+    // Server-side cancel — releases the session lock and the turn worker
+    // publishes TURN_ENDED(error="cancelled"), which useChannelEvents
+    // catches and runs finishTurn for us.
     cancelChat.mutate({
       client_id: channel.client_id ?? "",
       bot_id: channel.bot_id,
     });
-    // Abort local SSE for THIS channel immediately so UI is responsive
-    chatStream.abort(channelId);
-    // Flush pending RAF deltas so partial content isn't lost
-    if (pendingTextRef.current[channelId] || pendingThinkRef.current[channelId]) {
-      cancelAnimationFrame(rafRef.current[channelId] || 0);
-      flushChannel(channelId);
+    // Local fast-path cleanup so the UI flips back to idle immediately
+    // even before the bus event arrives.
+    const ch = useChatStore.getState().getChannel(channelId);
+    for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().finishTurn(channelId, turnId);
     }
-    // Materialize partial streaming content as a message, then clear streaming state
-    finishStreaming(channelId);
-    // Also kill any active member streams (user explicitly cancelled)
-    const remaining = useChatStore.getState().getChannel(channelId).memberStreams;
-    for (const sid of Object.keys(remaining)) {
-      useChatStore.getState().finishMemberStream(channelId, sid);
-    }
-    // Also clear any background processing state
     clearProcessing(channelId);
-    // Refetch messages to replace synthetic messages with clean DB data
     queryClient.invalidateQueries({ queryKey: ["session-messages"] });
 
-    // If there's a queued message, fire it now (user stopped the stream,
-    // so the queue should proceed immediately)
+    // If there's a queued message, fire it now.
     const queued = queuedRequestRef.current;
     if (queued) {
       queuedRequestRef.current = null;
       setIsQueued(false);
       setTimeout(() => {
-        startStreaming(queued.channelId);
         lastRequestRef.current[queued.channelId] = queued.request;
-        chatStream.mutate(queued.request);
+        submitChat.mutate(queued.request);
       }, 100);
     }
-  }, [channel, channelId, flushChannel, finishStreaming, clearProcessing, queryClient, startStreaming]);
+  }, [channel, channelId, cancelChat, clearProcessing, queryClient, submitChat]);
 
   const handleRetry = useCallback(() => {
     const req = channelId ? lastRequestRef.current[channelId] : undefined;
     if (!channelId || !req) return;
     setError(channelId, "");
-    startStreaming(channelId);
-    chatStream.mutate(req);
-  }, [channelId, setError, startStreaming]);
+    submitChat.mutate(req);
+  }, [channelId, setError, submitChat]);
 
   const doSend = useCallback(
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
 
-      // If viewing a file in non-split mode, auto-enable split so the user sees the response
+      // If viewing a file in non-split mode, auto-enable split.
       if (activeFile && !useUIStore.getState().fileExplorerSplit) {
         useUIStore.getState().toggleFileExplorerSplit();
       }
@@ -390,8 +266,6 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         content: text,
         created_at: new Date().toISOString(),
       });
-
-      startStreaming(channelId);
 
       let attachments: ChatAttachment[] | undefined;
       let file_metadata: ChatFileMetadata[] | undefined;
@@ -427,12 +301,12 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         ...(file_metadata?.length ? { file_metadata } : {}),
       };
       lastRequestRef.current[channelId] = request;
-      chatStream.mutate(request);
+      submitChat.mutate(request);
 
       setTurnModelOverride(undefined);
       setTurnProviderIdOverride(undefined);
     },
-    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride]
+    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride, addMessage, submitChat]
   );
 
   /** Queue a message to send after the current stream/processing finishes. */
@@ -440,12 +314,11 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
 
-      // If viewing a file in non-split mode, auto-enable split
       if (activeFile && !useUIStore.getState().fileExplorerSplit) {
         useUIStore.getState().toggleFileExplorerSplit();
       }
 
-      // If replacing an existing queued message, remove the old optimistic message
+      // If replacing an existing queued message, remove the old optimistic message.
       if (queuedRequestRef.current) {
         const oldId = queuedRequestRef.current.optimisticMsgId;
         const oldCh = queuedRequestRef.current.channelId;
@@ -453,7 +326,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         setMessages(oldCh, msgs.filter((m) => m.id !== oldId));
       }
 
-      // Add optimistic user message
+      // Add optimistic user message.
       const msgId = `msg-${Date.now()}`;
       addMessage(channelId, {
         id: msgId,
@@ -463,7 +336,6 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         created_at: new Date().toISOString(),
       });
 
-      // Build and store the request for later
       let attachments: ChatAttachment[] | undefined;
       let file_metadata: ChatFileMetadata[] | undefined;
       if (files && files.length > 0) {
@@ -511,7 +383,6 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
 
-      // Pre-flight secret check -- fail-open on error
       secretCheck.mutate(text, {
         onSuccess: (result) => {
           if (result.has_secrets) {
@@ -531,7 +402,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         },
       });
     },
-    [channelId, channel, doSend, queueMessage]
+    [channelId, channel, doSend, queueMessage, secretCheck]
   );
 
   const handleSendAudio = useCallback(
@@ -550,8 +421,6 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         created_at: new Date().toISOString(),
       });
 
-      startStreaming(channelId);
-
       const request: ChatRequest = {
         message: message || "",
         bot_id: channel.bot_id,
@@ -563,24 +432,21 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         ...(turnProviderIdOverride != null ? { model_provider_id_override: turnProviderIdOverride } : {}),
       };
       lastRequestRef.current[channelId] = request;
-      chatStream.mutate(request);
+      submitChat.mutate(request);
 
       setTurnModelOverride(undefined);
       setTurnProviderIdOverride(undefined);
     },
-    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride]
+    [channelId, channel, activeFile, turnModelOverride, turnProviderIdOverride, addMessage, submitChat]
   );
 
   /** Cancel + send immediately (bypasses queue). */
   const handleSendNow = useCallback(
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
-      // Clear any pending queue
       queuedRequestRef.current = null;
       setIsQueued(false);
-      // Cancel current stream, then send
       handleCancel();
-      // doSend adds message + starts new stream after cancel settles
       setTimeout(() => doSend(text, files), 50);
     },
     [channelId, channel, handleCancel, doSend],
@@ -592,12 +458,11 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     const { optimisticMsgId, channelId: qCh } = queuedRequestRef.current;
     queuedRequestRef.current = null;
     setIsQueued(false);
-    // Remove the optimistic user message
     const msgs = useChatStore.getState().channels[qCh]?.messages ?? [];
     setMessages(qCh, msgs.filter((m) => m.id !== optimisticMsgId));
   }, [setMessages]);
 
-  // Reset queue when channel changes
+  // Reset queue when channel changes.
   useEffect(() => {
     queuedRequestRef.current = null;
     setIsQueued(false);

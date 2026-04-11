@@ -152,6 +152,53 @@ def _extract_usage_extras(response: Any) -> dict[str, Any]:
     return extras
 
 
+_EMPTY_RESPONSE_GENERIC_FALLBACK = (
+    "I had trouble generating a response. Could you try again?"
+)
+
+
+def _synthesize_empty_response_fallback(
+    tool_calls_made: list[str],
+    messages: list[dict],
+) -> str:
+    """Build the user-facing text when both LLM iterations return 0 tokens.
+
+    When the model produces no text but the agent loop *did* execute tool
+    calls, the generic "I had trouble generating a response" string discards
+    real progress.  Surface the names of the tools that ran plus the most
+    recent tool result so the user (and assertions like delegation_basic)
+    can see what work was done.
+
+    When no tools ran, fall back to the generic message.
+    """
+    if not tool_calls_made:
+        return _EMPTY_RESPONSE_GENERIC_FALLBACK
+
+    # Dedupe preserving order
+    _seen = list(dict.fromkeys(tool_calls_made))
+    _tool_list = ", ".join(_seen)
+
+    # Find the most recent tool-result message with text content
+    _last_tool_text: str | None = None
+    for _m in reversed(messages):
+        if _m.get("role") != "tool":
+            continue
+        _content = _m.get("content")
+        if isinstance(_content, list):
+            # Some providers return content as a list of parts
+            _content = " ".join(
+                p.get("text", "") for p in _content
+                if isinstance(p, dict) and p.get("type") == "text"
+            )
+        if isinstance(_content, str) and _content.strip():
+            _last_tool_text = _content.strip()[:500]
+        break
+
+    if _last_tool_text:
+        return f"I completed {_tool_list}. Result: {_last_tool_text}"
+    return f"I completed {_tool_list} but couldn't generate a summary."
+
+
 def _finalize_response(
     text: str,
     *,
@@ -337,13 +384,23 @@ async def run_agent_tool_loop(
     tools_param = all_tools if all_tools else None
     tool_choice = "auto" if tools_param else None
 
-    # Build effective authorized tool set for dispatch enforcement
+    # Build effective authorized tool set for dispatch enforcement.
+    # Copy the caller-provided set so we can extend it with mid-loop
+    # get_tool_info activations without mutating the caller's state.
     if authorized_tool_names:
-        _effective_allowed = authorized_tool_names
+        _effective_allowed = set(authorized_tool_names)
     elif all_tools:
         _effective_allowed = {t["function"]["name"] for t in all_tools}
     else:
         _effective_allowed = None
+
+    # Initialize mid-loop activation list. get_tool_info appends schemas here
+    # when the LLM looks up a tool from the "available tools (not yet loaded)"
+    # hint; the iteration loop below merges new entries into tools_param so the
+    # tool becomes callable on the next LLM call.
+    from app.agent.context import current_activated_tools as _activated_ctx
+    _activated_list: list[dict] = []
+    _activated_ctx.set(_activated_list)
 
     logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
 
@@ -418,6 +475,40 @@ async def run_agent_tool_loop(
                 logger.info("Cancellation requested for session %s (before LLM call, iteration %d)", session_id, iteration + 1)
                 yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
                 return
+
+            # Merge any tools activated mid-loop by get_tool_info into tools_param
+            # so the LLM can actually invoke them on this iteration. Without this,
+            # the schema returned by get_tool_info is purely informational and the
+            # LLM has no way to call the tool it just looked up.
+            if _activated_list:
+                _existing_names = (
+                    {(t.get("function") or {}).get("name") for t in tools_param}
+                    if tools_param
+                    else set()
+                )
+                _new_activated = [
+                    t for t in _activated_list
+                    if (t.get("function") or {}).get("name") not in _existing_names
+                ]
+                if _new_activated:
+                    tools_param = (tools_param or []) + _new_activated
+                    tool_choice = "auto"
+                    # Expand the authorization set so dispatch accepts the
+                    # newly-activated names. For declared tools this is already
+                    # a superset; for fully-discovered tools (tool_discovery=True
+                    # misses that still resolve via direct DB lookup), this is
+                    # what grants dispatch permission.
+                    if _effective_allowed is not None:
+                        for _at in _new_activated:
+                            _an = (_at.get("function") or {}).get("name")
+                            if _an:
+                                _effective_allowed.add(_an)
+                    logger.info(
+                        "Iteration %d: merged %d tools activated via get_tool_info: %s",
+                        iteration + 1,
+                        len(_new_activated),
+                        [(t.get("function") or {}).get("name") for t in _new_activated],
+                    )
 
             logger.debug("--- Iteration %d ---", iteration + 1)
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
@@ -733,7 +824,9 @@ async def run_agent_tool_loop(
                             text = _redact_secrets(text)
                             if not text.strip():
                                 logger.warning("Forced-response retry also returned empty — using fallback.")
-                                text = "I had trouble generating a response. Could you try again?"
+                                text = _synthesize_empty_response_fallback(
+                                    tool_calls_made, messages
+                                )
                             _retry_msg = retry.choices[0].message.model_dump(exclude_none=True)
                             _retry_msg["content"] = text
                             messages.append(_retry_msg)
@@ -1618,17 +1711,17 @@ async def run(
             result.client_actions = event.get("client_actions", [])
         elif event["type"] == "transcript":
             result.transcript = event["text"]
-        elif event["type"] == "delegation_post" and dispatch_type and dispatch_config:
-            # Non-streaming context (task worker): deliver child bot's message via appropriate dispatcher.
+        elif event["type"] == "delegation_post" and channel_id is not None:
+            # Non-streaming context (task worker): publish child bot's
+            # message onto the channel-events bus. Renderers consume the
+            # NEW_MESSAGE event and post to the integration.
             from app.services.delegation import delegation_service as _ds
             try:
                 await _ds.post_child_response(
-                    dispatch_type=dispatch_type,
-                    dispatch_config=dispatch_config,
+                    channel_id=channel_id,
                     text=event.get("text", ""),
                     bot_id=event.get("bot_id") or "",
                     reply_in_thread=event.get("reply_in_thread", False),
-                    client_actions=event.get("client_actions", []),
                 )
             except Exception:
                 logger.warning("run(): delegation_post failed for bot %s", event.get("bot_id"))

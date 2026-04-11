@@ -1,7 +1,5 @@
 """HTTP calls to the agent server (chat, bots, sessions)."""
-import json
 import logging
-from collections.abc import AsyncGenerator
 
 import httpx
 
@@ -271,7 +269,7 @@ async def fetch_server_health() -> dict:
         return {"healthy": False, "issues": [f"Server unreachable: {e}"]}
 
 
-async def stream_chat(
+async def submit_chat(
     *,
     message: str,
     bot_id: str,
@@ -282,8 +280,14 @@ async def stream_chat(
     dispatch_type: str | None = None,
     dispatch_config: dict | None = None,
     msg_metadata: dict | None = None,
-) -> AsyncGenerator[dict, None]:
-    """Stream events from POST /chat/stream as an async generator of parsed dicts."""
+) -> dict:
+    """POST /chat → 202 ``{session_id, channel_id, turn_id, stream_id}``.
+
+    Phase F replacement for the legacy ``stream_chat`` SSE long-poll —
+    the Discord subprocess no longer drives the agent loop or posts
+    to Discord itself; the main-process ``DiscordRenderer`` consumes
+    the channel-events bus to deliver the response.
+    """
     payload: dict = {
         "message": message,
         "bot_id": bot_id,
@@ -301,22 +305,14 @@ async def stream_chat(
         payload["dispatch_config"] = dispatch_config
     if msg_metadata:
         payload["msg_metadata"] = msg_metadata
-    logger.info("stream_chat payload keys=%s file_metadata_count=%d", list(payload.keys()), len(payload.get("file_metadata", [])))
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as sc:
-        async with sc.stream(
-            "POST",
-            f"{AGENT_BASE_URL}/chat/stream",
-            json=payload,
-            headers={"Authorization": f"Bearer {API_KEY}"},
-        ) as r:
-            r.raise_for_status()
-            async for line in r.aiter_lines():
-                line = line.strip()
-                if not line or line.startswith(":"):
-                    continue  # skip keepalives and blank lines
-                if line.startswith("data: "):
-                    line = line[6:]  # strip SSE prefix
-                try:
-                    yield json.loads(line)
-                except json.JSONDecodeError:
-                    pass
+    logger.info(
+        "submit_chat payload keys=%s file_metadata_count=%d",
+        list(payload.keys()), len(payload.get("file_metadata", [])),
+    )
+    r = await http.post(
+        f"{AGENT_BASE_URL}/chat",
+        json=payload,
+        headers={"Authorization": f"Bearer {API_KEY}"},
+    )
+    r.raise_for_status()
+    return r.json()

@@ -83,6 +83,7 @@ Based on findings, classify as one of:
   - File landed in wrong directory
   - Permissions issue on import path
 - **PHANTOM_FILE** — Sonarr thinks it has the file (hasFile=true, queue completed) but the file is bad/missing/corrupt. Common with `.scr` releases or failed imports.
+- **FLARESOLVERR_DOWN** — `flaresolverr_health()` fails with "Cannot connect" or `flaresolverr_test_fetch()` returns an error. Cloudflare-protected indexers (1337x, EZTV, KickassTorrents) are dead until FS recovers. Try `flaresolverr_destroy_all_sessions()` first; if that doesn't help, the FS container needs a restart and indexer poking is pointless until then.
 
 **History chain analysis:** If you see `grabbed` in history but no `downloadFolderImported` or `downloadFailed` after it, the download is stuck somewhere between qBit and Sonarr — check qBit state.
 
@@ -172,7 +173,16 @@ When `sonarr_releases` or `radarr_releases` returns 0 results, or all results ar
 **IMPORTANT**: When an indexer needs FlareSolverr, you MUST include the tag in the initial `add` call. If you add without it, Prowlarr will fail validation on subsequent updates too. Always check `prowlarr_tags()` first to get the FlareSolverr tag ID.
 
 **FlareSolverr workflow** (for Cloudflare-protected indexers — EZTV, 1337x, KickassTorrents):
-1. **FIRST**: `prowlarr_tags()` — find the FlareSolverr tag ID (e.g. `{"id": 1, "label": "flaresolverr"}`)
+
+**Step 0 — Verify FlareSolverr is actually working** (do this BEFORE assuming the tag is the problem):
+1. `flaresolverr_health()` — confirms FS is reachable and reports its version + active session count.
+2. **If health fails with "Cannot connect"**: FS container is down. Stop touching indexers — diagnose as `FLARESOLVERR_DOWN` and tell the user to restart the container.
+3. **If health passes but Cloudflare-protected indexers still fail**: `flaresolverr_test_fetch(url="https://www.1337x.to/")` — proves whether challenge solving currently works end-to-end. Look for `solution_status: 200` and `cf_clearance: true`.
+4. **If `test_fetch` fails or returns an FS error message** (e.g. "Cloudflare challenge timeout", "browser disconnected", "reCaptcha detected"): FS is wedged. Try `flaresolverr_destroy_all_sessions()` then re-run `flaresolverr_test_fetch` — this is the canonical recovery for "FS got stuck after an upgrade".
+5. **If `flaresolverr_test_fetch` succeeds but specific indexers still fail**: FS is healthy, the problem is the tag/wiring on those indexers — continue with the tag steps below.
+
+**Tag setup** (only after Step 0 confirms FS itself is healthy):
+1. `prowlarr_tags()` — find the FlareSolverr tag ID (e.g. `{"id": 1, "label": "flaresolverr"}`)
 2. **Include the tag when adding**: `prowlarr_indexer_manage(action="add", definition_name="eztv", app_profile_id=1, tags=[1])`
 3. If you forgot the tag and the indexer was added without it, update with force: `prowlarr_indexer_manage(action="update", indexer_id=N, tags=[1])` — the tool uses `forceSave` to bypass validation errors
 4. Without the FlareSolverr tag, these indexers will fail with "blocked by CloudFlare Protection" errors

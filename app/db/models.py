@@ -3,7 +3,7 @@ from datetime import datetime, time, timezone
 from typing import Optional
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint, text
 
 from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR, UUID
@@ -1170,6 +1170,72 @@ class Task(Base):
     __table_args__ = (
         Index("ix_tasks_status_run_at", "status", "run_at"),
         Index("ix_tasks_correlation_id", "correlation_id"),
+    )
+
+
+class Outbox(Base):
+    """Durable channel-event outbox.
+
+    Phase D of the Integration Delivery refactor. One row per
+    ``(channel, event seq, target integration)`` tuple. Inserted in the
+    same DB transaction as the originating message rows by
+    ``app/services/outbox.py:enqueue`` so a crash between commit and
+    renderer-ack cannot lose deliveries. The drainer
+    (``app/services/outbox_drainer.py``) pulls rows via
+    ``SELECT ... FOR UPDATE SKIP LOCKED``, routes them through
+    ``renderer_registry``, and updates the row state.
+
+    Mirrors ``migrations/versions/188_add_outbox.py``.
+    """
+
+    __tablename__ = "outbox"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    channel_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    seq: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    target_integration_id: Mapped[str] = mapped_column(Text, nullable=False)
+    target: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    delivery_state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'pending'")
+    )
+    attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    defer_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    available_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
+    )
+    delivered_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dead_letter_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_outbox_channel_state", "channel_id", "delivery_state"),
+        # NB: the partial index ix_outbox_pending is in the migration only;
+        # SQLAlchemy doesn't carry the `postgresql_where` predicate cleanly
+        # across dialects so the migration owns it.
     )
 
 

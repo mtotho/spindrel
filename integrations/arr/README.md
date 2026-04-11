@@ -31,6 +31,9 @@ JELLYSEERR_API_KEY=your-jellyseerr-api-key
 # Bazarr (Subtitles)
 BAZARR_URL=http://192.168.1.x:6767
 BAZARR_API_KEY=your-bazarr-api-key
+
+# FlareSolverr (Cloudflare bypass for indexers — no auth)
+FLARESOLVERR_URL=http://192.168.1.x:8191
 ```
 
 **Finding API keys:**
@@ -107,6 +110,10 @@ local_tools:
 | Jellyseerr | `jellyseerr_search` | Read | Search TMDB |
 | Jellyseerr | `jellyseerr_manage` | Write | Approve/decline/create requests |
 | Bazarr | `bazarr_subtitles` | Both | View wanted subs, trigger search, check status |
+| FlareSolverr | `flaresolverr_health` | Read | Reachability + version + active session count — first thing to check when CF indexers fail |
+| FlareSolverr | `flaresolverr_sessions` | Both | List, create, or destroy browser sessions |
+| FlareSolverr | `flaresolverr_test_fetch` | Read | Fetch a Cloudflare URL through FS to verify challenge solving works end-to-end |
+| FlareSolverr | `flaresolverr_destroy_all_sessions` | Write | Reset all FS sessions (canonical fix for wedged FS) |
 
 ## Key Workflows
 

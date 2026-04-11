@@ -251,9 +251,13 @@ async def update_integration_settings(
             except Exception:
                 logger.warning("Failed to auto-provision API key for %s", integration_id, exc_info=True)
 
-    # Refresh MCP servers — configuration change may activate/deactivate servers
+    # Refresh MCP servers — configuration change may activate/deactivate
+    # servers or rotate api keys resolved from integration settings. Clear
+    # the tools/list cache so the next fetch picks up the new auth.
     from app.services.mcp_servers import load_mcp_servers
+    from app.tools.mcp import _cache as _mcp_tools_cache
     await load_mcp_servers()
+    _mcp_tools_cache.clear()
 
     return {"applied": applied}
 

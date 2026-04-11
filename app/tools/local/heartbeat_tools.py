@@ -1,10 +1,11 @@
 """Tools for inspecting heartbeat run history and dispatch."""
 import json
 import logging
+import uuid
 
 from sqlalchemy import select
 
-from app.agent.context import current_channel_id, current_dispatch_config, current_dispatch_type
+from app.agent.context import current_channel_id
 from app.db.engine import async_session
 from app.db.models import ChannelHeartbeat, HeartbeatRun
 from app.tools.registry import register
@@ -91,8 +92,9 @@ POST_HEARTBEAT_TO_CHANNEL_SCHEMA = {
         "name": "post_heartbeat_to_channel",
         "description": (
             "Post a message to the channel. Use this ONLY when you have something "
-            "worth sharing with the channel. If nothing noteworthy came up during "
-            "this heartbeat run, do NOT call this tool."
+            "worth sharing with the channel DURING a heartbeat run. If nothing noteworthy came up during "
+            "this heartbeat run, do NOT call this tool. "
+            "This DOES NOT work during normal channel conversations."
         ),
         "parameters": {
             "type": "object",
@@ -110,23 +112,46 @@ POST_HEARTBEAT_TO_CHANNEL_SCHEMA = {
 
 @register(POST_HEARTBEAT_TO_CHANNEL_SCHEMA, safety_tier="control_plane")
 async def post_heartbeat_to_channel(message: str) -> str:
+    """Publish a heartbeat message onto the channel-events bus.
+
+    The bus is fire-and-forget — renderers consume the NEW_MESSAGE event
+    asynchronously, so this returns "Message queued for channel delivery."
+    rather than waiting for an integration ack.
+    """
     from app.agent.context import current_bot_id
-    dispatch_config = current_dispatch_config.get()
-    dispatch_type = current_dispatch_type.get()
     bot_id = current_bot_id.get()
+    channel_id = current_channel_id.get()
 
-    if not dispatch_config or not dispatch_type:
-        return "No dispatch context available — cannot post to channel."
+    if channel_id is None:
+        return "No channel context available — cannot post to channel."
 
-    from app.agent import dispatchers
-    dispatcher = dispatchers.get(dispatch_type)
     try:
-        ok = await dispatcher.post_message(
-            dispatch_config, message, bot_id=bot_id,
+        from datetime import datetime, timezone
+
+        from app.domain.actor import ActorRef
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.message import Message as DomainMessage
+        from app.domain.payloads import MessagePayload
+        from app.services.channel_events import publish_typed
+
+        domain_msg = DomainMessage(
+            id=uuid.uuid4(),
+            session_id=uuid.uuid4(),  # heartbeat tool runs without a session
+            role="assistant",
+            content=message,
+            created_at=datetime.now(timezone.utc),
+            actor=ActorRef.bot(bot_id or "heartbeat", display_name=bot_id),
+            channel_id=channel_id,
         )
-        if ok:
-            return "Message posted to channel successfully."
-        return "Post dispatched (dispatcher returned no confirmation)."
+        publish_typed(
+            channel_id,
+            ChannelEvent(
+                channel_id=channel_id,
+                kind=ChannelEventKind.NEW_MESSAGE,
+                payload=MessagePayload(message=domain_msg),
+            ),
+        )
+        return "Message queued for channel delivery."
     except Exception as exc:
-        logger.warning("post_heartbeat_to_channel failed: %s", exc)
+        logger.warning("post_heartbeat_to_channel publish failed: %s", exc)
         return f"Failed to post to channel: {exc}"

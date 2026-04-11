@@ -23,6 +23,13 @@ class TestChannelThrottle:
     def setup_method(self):
         _reset()
 
+    def teardown_method(self):
+        # Reset global state AFTER each test too — without this, the last
+        # test's ``configure(max_runs=2, ...)`` leaks into other test files
+        # that import the throttle (e.g. ``test_chat_202.py``), causing
+        # spurious throttle warnings and failed POST /chat assertions.
+        _reset()
+
     def test_not_throttled_initially(self):
         assert is_throttled("ch-1") is False
 

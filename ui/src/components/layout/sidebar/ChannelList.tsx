@@ -24,7 +24,26 @@ import { useChannelReadStore } from "../../../stores/channelRead";
 import { useThemeTokens } from "../../../theme/tokens";
 import type { Channel } from "../../../types/api";
 import type { BotConfig } from "../../../types/api";
-import { useState, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
+
+const CATEGORY_COLLAPSED_STORAGE_KEY = "channel-category-collapsed";
+
+function loadCategoryCollapsed(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(CATEGORY_COLLAPSED_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveCategoryCollapsed(state: Record<string, boolean>) {
+  try {
+    localStorage.setItem(CATEGORY_COLLAPSED_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // ignore
+  }
+}
 
 /** Resolve a lucide icon name to a component. */
 const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
@@ -208,48 +227,40 @@ function OrchestratorItem({ channel, mobile, channelPy }: { channel: Channel; mo
 }
 
 interface CategoryGroupProps {
-  category: string | null;
+  category: string;
   channels: Channel[];
   botMap: Map<string, BotConfig>;
   integrationIcons: Record<string, string>;
   mobile?: boolean;
   channelPy: string;
   streamingSet: Set<string>;
+  collapsed: boolean;
+  onToggle: () => void;
 }
 
-function CategoryGroup({ category, channels, botMap, integrationIcons, mobile, channelPy, streamingSet }: CategoryGroupProps) {
-  const [collapsed, setCollapsed] = useState(false);
+function CategoryGroup({
+  category,
+  channels,
+  botMap,
+  integrationIcons,
+  mobile,
+  channelPy,
+  streamingSet,
+  collapsed,
+  onToggle,
+}: CategoryGroupProps) {
   const t = useThemeTokens();
 
   if (channels.length === 0) return null;
 
-  // Uncategorized channels have no header
-  if (!category) {
-    return (
-      <>
-        {channels.map((channel) => (
-          <ChannelItem
-            key={channel.id}
-            channel={channel}
-            bot={botMap.get(channel.bot_id)}
-            mobile={mobile}
-            channelPy={channelPy}
-            isStreaming={streamingSet.has(channel.id)}
-            integrationIcons={integrationIcons}
-          />
-        ))}
-      </>
-    );
-  }
-
   return (
     <div>
       <button
-        onClick={() => setCollapsed(!collapsed)}
+        onClick={onToggle}
         className="sidebar-nav-item"
         style={{
           display: "flex", alignItems: "center", gap: 6,
-          padding: "4px 12px", borderRadius: 4,
+          padding: "6px 12px", marginTop: 4, borderRadius: 4,
           background: "none", border: "none", cursor: "pointer",
           width: "100%", textAlign: "left",
         }}
@@ -260,13 +271,13 @@ function CategoryGroup({ category, channels, botMap, integrationIcons, mobile, c
           <ChevronDown size={12} color={t.textDim} />
         )}
         <span style={{
-          flex: 1, fontSize: 10, fontWeight: 600,
+          flex: 1, fontSize: 11, fontWeight: 600,
           letterSpacing: 0.5, color: t.textDim,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}>
           {category.toUpperCase()}
         </span>
-        <span style={{ fontSize: 10, color: t.textDim, opacity: 0.5 }}>
+        <span style={{ fontSize: 10, color: t.textDim, opacity: 0.6 }}>
           {channels.length}
         </span>
       </button>
@@ -314,28 +325,42 @@ export function ChannelList({
     [channels],
   );
 
-  // Group channels by category
-  const categoryGroups = useMemo(() => {
-    const grouped = new Map<string | null, Channel[]>();
+  // Group channels by category — uncategorized float to the top so they
+  // don't visually merge into the trailing named category.
+  const { uncategorized, namedGroups } = useMemo(() => {
+    const byCategory = new Map<string, Channel[]>();
+    const loose: Channel[] = [];
     for (const ch of regularChannels) {
       const cat = ch.category ?? null;
-      const list = grouped.get(cat) ?? [];
-      list.push(ch);
-      grouped.set(cat, list);
+      if (cat === null) {
+        loose.push(ch);
+      } else {
+        const list = byCategory.get(cat) ?? [];
+        list.push(ch);
+        byCategory.set(cat, list);
+      }
     }
-    const sorted: { category: string | null; channels: Channel[] }[] = [];
-    const namedCategories = [...grouped.keys()].filter((k): k is string => k !== null).sort();
-    for (const cat of namedCategories) {
-      sorted.push({ category: cat, channels: grouped.get(cat)! });
-    }
-    const uncategorized = grouped.get(null);
-    if (uncategorized?.length) {
-      sorted.push({ category: null, channels: uncategorized });
-    }
-    return sorted;
+    const namedCategories = [...byCategory.keys()].sort();
+    return {
+      uncategorized: loose,
+      namedGroups: namedCategories.map((cat) => ({ category: cat, channels: byCategory.get(cat)! })),
+    };
   }, [regularChannels]);
 
-  const hasCategories = categoryGroups.some((g) => g.category !== null);
+  const [categoryCollapsed, setCategoryCollapsed] = useState<Record<string, boolean>>(
+    () => loadCategoryCollapsed(),
+  );
+
+  const toggleCategory = useCallback((category: string) => {
+    setCategoryCollapsed((prev) => {
+      const next = { ...prev, [category]: !prev[category] };
+      saveCategoryCollapsed(next);
+      return next;
+    });
+  }, []);
+
+  const hasAnyChannels = regularChannels.length > 0;
+  const showDivider = uncategorized.length > 0 && namedGroups.length > 0;
 
   return (
     <>
@@ -366,22 +391,26 @@ export function ChannelList({
 
         {channelsLoading ? (
           <ChannelSkeletons />
-        ) : hasCategories ? (
-          categoryGroups.map((group) => (
-            <CategoryGroup
-              key={group.category ?? "__uncategorized"}
-              category={group.category}
-              channels={group.channels}
-              botMap={botMap}
-              integrationIcons={integrationIcons}
-              mobile={mobile}
-              channelPy={channelPy}
-              streamingSet={streamingSet}
-            />
-          ))
+        ) : !hasAnyChannels ? (
+          <Link href={"/channels/new" as any}>
+            <div
+              className="sidebar-nav-item"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "6px 8px", margin: "4px 8px",
+                border: `1px dashed ${t.surfaceBorder}`,
+                borderRadius: 6, cursor: "pointer",
+              }}
+            >
+              <Plus size={12} color={t.textDim} />
+              <span style={{ fontSize: 11, color: t.textDim }}>Create a channel</span>
+            </div>
+          </Link>
         ) : (
           <>
-            {regularChannels.map((channel) => (
+            {/* Uncategorized channels render first so they don't visually
+                bleed into the trailing named category. */}
+            {uncategorized.map((channel) => (
               <ChannelItem
                 key={channel.id}
                 channel={channel}
@@ -392,22 +421,30 @@ export function ChannelList({
                 integrationIcons={integrationIcons}
               />
             ))}
-            {regularChannels.length === 0 && (
-              <Link href={"/channels/new" as any}>
-                <div
-                  className="sidebar-nav-item"
-                  style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "6px 8px", margin: "4px 8px",
-                    border: `1px dashed ${t.surfaceBorder}`,
-                    borderRadius: 6, cursor: "pointer",
-                  }}
-                >
-                  <Plus size={12} color={t.textDim} />
-                  <span style={{ fontSize: 11, color: t.textDim }}>Create a channel</span>
-                </div>
-              </Link>
+            {showDivider && (
+              <div
+                style={{
+                  height: 1,
+                  backgroundColor: t.surfaceBorder,
+                  opacity: 0.6,
+                  margin: "8px 12px 4px",
+                }}
+              />
             )}
+            {namedGroups.map((group) => (
+              <CategoryGroup
+                key={group.category}
+                category={group.category}
+                channels={group.channels}
+                botMap={botMap}
+                integrationIcons={integrationIcons}
+                mobile={mobile}
+                channelPy={channelPy}
+                streamingSet={streamingSet}
+                collapsed={categoryCollapsed[group.category] ?? false}
+                onToggle={() => toggleCategory(group.category)}
+              />
+            ))}
           </>
         )}
       </div>

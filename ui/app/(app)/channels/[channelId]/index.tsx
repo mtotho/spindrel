@@ -310,7 +310,7 @@ export default function ChatScreen() {
     onSend: handleSend,
     onSendAudio: handleSendAudio,
     disabled: isPaused,
-    isStreaming: chatState.isStreaming || chatState.isProcessing,
+    isStreaming: Object.keys(chatState.turns).length > 0 || chatState.isProcessing,
     onCancel: handleCancel,
     modelOverride: turnModelOverride,
     modelProviderIdOverride: turnProviderIdOverride,

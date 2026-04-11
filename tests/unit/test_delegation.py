@@ -183,6 +183,7 @@ class TestStreamingDispatchPath:
                 dispatch_config={"channel_id": "C123", "token": "xoxb-test"},
                 depth=0,
                 root_session_id=uuid.uuid4(),
+                channel_id=uuid.uuid4(),
             )
 
         assert result == "here is your image"
@@ -242,15 +243,13 @@ class TestNonStreamingDispatchPath:
     was dropping client_actions."""
 
     @pytest.mark.asyncio
-    async def test_calls_post_child_response_with_client_actions(self):
+    async def test_calls_post_child_response_with_channel_id(self):
         svc = DelegationService()
         parent = _make_parent_bot()
         child = _make_child_bot()
 
-        fake_actions = [{"type": "upload_image", "data": "abc123", "filename": "img.png"}]
-
         async def fake_stream(*a, **kw):
-            yield {"type": "response", "text": "image result", "client_actions": fake_actions}
+            yield {"type": "response", "text": "image result", "client_actions": []}
 
         with patch("app.services.delegation.settings") as s, \
              patch("app.agent.bots.get_bot", return_value=child), \
@@ -267,7 +266,7 @@ class TestNonStreamingDispatchPath:
             mock_cv.get.return_value = None  # non-streaming path
 
             session_id = uuid.uuid4()
-            dispatch_cfg = {"channel_id": "C123", "token": "xoxb-test"}
+            channel_id = uuid.uuid4()
 
             result = await svc.run_immediate(
                 parent_session_id=session_id,
@@ -275,23 +274,25 @@ class TestNonStreamingDispatchPath:
                 delegate_bot_id="child-bot",
                 prompt="generate image",
                 dispatch_type="slack",
-                dispatch_config=dispatch_cfg,
+                dispatch_config={"channel_id": "C123", "token": "xoxb-test"},
                 depth=0,
                 root_session_id=uuid.uuid4(),
                 client_id="slack:C123",
+                channel_id=channel_id,
             )
 
         assert result == "image result"
         mock_post.assert_awaited_once_with(
-            "slack", dispatch_cfg, "image result",
-            "child-bot", reply_in_thread=False,
-            client_actions=fake_actions,
+            channel_id=channel_id,
+            text="image result",
+            bot_id="child-bot",
+            reply_in_thread=False,
         )
         mock_echo.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_no_echo_when_post_fails(self):
-        """If dispatcher returns False, store_dispatch_echo is NOT called."""
+        """If post_child_response returns False, store_dispatch_echo is NOT called."""
         svc = DelegationService()
         parent = _make_parent_bot()
         child = _make_child_bot()
@@ -322,6 +323,7 @@ class TestNonStreamingDispatchPath:
                 dispatch_config={"channel_id": "C123", "token": "xoxb-test"},
                 depth=0,
                 root_session_id=uuid.uuid4(),
+                channel_id=uuid.uuid4(),
             )
 
         mock_echo.assert_not_awaited()
@@ -332,58 +334,48 @@ class TestNonStreamingDispatchPath:
 # ---------------------------------------------------------------------------
 
 class TestPostChildResponse:
-    @pytest.mark.asyncio
-    async def test_forwards_client_actions(self):
-        svc = DelegationService()
-        fake_actions = [{"type": "upload_image", "data": "base64data"}]
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.post_message = AsyncMock(return_value=True)
+    """post_child_response publishes a typed NEW_MESSAGE event to the
+    channel-events bus. Renderers consume the event and post to the
+    integration. The legacy dispatcher path is gone."""
 
-        with patch("app.agent.dispatchers.get", return_value=mock_dispatcher):
+    @pytest.mark.asyncio
+    async def test_publishes_new_message_to_bus(self):
+        svc = DelegationService()
+        channel_id = uuid.uuid4()
+
+        with patch("app.services.channel_events.publish_typed") as mock_publish:
             ok = await svc.post_child_response(
-                dispatch_type="slack",
-                dispatch_config={"channel_id": "C123", "token": "xoxb-test"},
-                text="here is the image",
+                channel_id=channel_id,
+                text="here is the reply",
                 bot_id="child-bot",
-                client_actions=fake_actions,
             )
 
         assert ok is True
-        mock_dispatcher.post_message.assert_awaited_once()
-        call_kwargs = mock_dispatcher.post_message.call_args
-        assert call_kwargs.kwargs["client_actions"] == fake_actions
-        assert call_kwargs.kwargs["bot_id"] == "child-bot"
+        mock_publish.assert_called_once()
+        call_args = mock_publish.call_args
+        assert call_args.args[0] == channel_id
+        event = call_args.args[1]
+        # event is a domain ChannelEvent — assert kind + payload shape.
+        from app.domain.channel_events import ChannelEventKind
+        assert event.kind == ChannelEventKind.NEW_MESSAGE
+        assert event.payload.message.content == "here is the reply"
+        assert event.payload.message.actor.id == "child-bot"
 
     @pytest.mark.asyncio
-    async def test_none_client_actions_forwarded(self):
-        """client_actions=None should be forwarded without error."""
+    async def test_reply_in_thread_passed_to_payload(self):
         svc = DelegationService()
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.post_message = AsyncMock(return_value=True)
+        channel_id = uuid.uuid4()
 
-        with patch("app.agent.dispatchers.get", return_value=mock_dispatcher):
-            ok = await svc.post_child_response(
-                dispatch_type="slack",
-                dispatch_config={"channel_id": "C123"},
-                text="text only",
+        with patch("app.services.channel_events.publish_typed") as mock_publish:
+            await svc.post_child_response(
+                channel_id=channel_id,
+                text="hi",
                 bot_id="child-bot",
-                client_actions=None,
+                reply_in_thread=True,
             )
 
-        assert ok is True
-        assert mock_dispatcher.post_message.call_args.kwargs["client_actions"] is None
-
-    @pytest.mark.asyncio
-    async def test_unknown_dispatch_type_returns_false(self):
-        """Unknown dispatch type falls back to NoneDispatcher which returns False."""
-        svc = DelegationService()
-        ok = await svc.post_child_response(
-            dispatch_type="nonexistent",
-            dispatch_config={},
-            text="test",
-            bot_id="bot",
-        )
-        assert ok is False
+        event = mock_publish.call_args.args[1]
+        assert event.payload.reply_in_thread is True
 
 
 # ---------------------------------------------------------------------------

@@ -45,6 +45,14 @@ current_provider_id_override: ContextVar[str | None] = ContextVar("current_provi
 # Set explicitly in run_stream; NOT managed by set_agent_context.
 current_injected_tools: ContextVar[list[dict] | None] = ContextVar("current_injected_tools", default=None)
 
+# Tools activated mid-loop by get_tool_info. The agent loop initializes this to
+# an empty list at the start of run_agent_tool_loop and re-checks it at the top
+# of each iteration, merging any appended schemas into tools_param so the LLM
+# can actually invoke tools it looked up. Without this, the text hint "call
+# get_tool_info(...) to load it" is a lie — get_tool_info returns the schema
+# but the tool remains absent from the tools array and uncallable.
+current_activated_tools: ContextVar[list[dict] | None] = ContextVar("current_activated_tools", default=None)
+
 current_allowed_secrets: ContextVar[list[str] | None] = ContextVar("current_allowed_secrets", default=None)
 
 # Per-request task creation counter (capped to prevent runaway loops)
@@ -149,6 +157,7 @@ class AgentContextSnapshot:
     dispatch_type: str | None
     dispatch_config: dict | None
     injected_tools: list[dict] | None
+    activated_tools: list[dict] | None
     session_depth: int
     root_session_id: uuid.UUID | None
     ephemeral_delegates: list
@@ -174,6 +183,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         dispatch_type=current_dispatch_type.get(),
         dispatch_config=current_dispatch_config.get(),
         injected_tools=current_injected_tools.get(),
+        activated_tools=current_activated_tools.get(),
         session_depth=current_session_depth.get(),
         root_session_id=current_root_session_id.get(),
         ephemeral_delegates=list(current_ephemeral_delegates.get() or []),
@@ -199,6 +209,7 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_dispatch_type.set(snap.dispatch_type)
     current_dispatch_config.set(snap.dispatch_config)
     current_injected_tools.set(snap.injected_tools)
+    current_activated_tools.set(snap.activated_tools)
     current_session_depth.set(snap.session_depth)
     current_root_session_id.set(snap.root_session_id)
     current_ephemeral_delegates.set(list(snap.ephemeral_delegates))

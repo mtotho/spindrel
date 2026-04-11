@@ -1,13 +1,20 @@
 """Integration auto-discovery.
 
 Scans integrations/*/router.py for a `router` FastAPI APIRouter attribute.
-Scans integrations/*/dispatcher.py and auto-imports to trigger register() calls.
+Auto-imports each integration's optional support modules to trigger
+self-registration with the relevant agent-side registry.
 Returns [(integration_id, router), ...] for each discovered integration with a router.
 
-Each integration can also provide:
-  - dispatcher.py  — calls app.agent.dispatchers.register() at import time
-  - hooks.py       — calls app.agent.hooks.register_integration() / register_hook()
-  - process.py     — declares CMD/REQUIRED_ENV for dev-server auto-start
+Each integration can provide:
+  - target.py     — defines the typed DispatchTarget subclass and calls
+                    ``app.domain.target_registry.register(MyTarget)``.
+                    Auto-imported BEFORE renderer.py so the renderer
+                    module can import its target class.
+  - renderer.py   — defines the ChannelRenderer subclass and calls
+                    ``app.integrations.renderer_registry.register(MyRenderer())``.
+  - hooks.py      — calls ``app.agent.hooks.register_integration() /
+                    register_hook()``.
+  - process.py    — declares CMD/REQUIRED_ENV for dev-server auto-start.
 
 Supports external integration directories via INTEGRATION_DIRS config.
 """
@@ -183,10 +190,23 @@ def _iter_integration_candidates() -> list[tuple[Path, str, bool, str]]:
 def _load_single_integration(
     candidate: Path, integration_id: str, is_external: bool, source: str,
 ) -> APIRouter | None:
-    """Load dispatcher, hooks, and router for a single integration.
+    """Load target, dispatcher, renderer, hooks, and router for a single integration.
 
     Returns the APIRouter if one exists, else None.
     """
+    # Auto-import target.py FIRST so the typed DispatchTarget subclass
+    # is registered with `app.domain.target_registry` before anything
+    # downstream (renderer, dispatcher, router) tries to construct one
+    # via `parse_dispatch_target`. Integration targets must NEVER live
+    # in `app/domain/` — every integration ships its own target.py.
+    target_file = candidate / "target.py"
+    if target_file.exists():
+        try:
+            _import_module(integration_id, "target", target_file, is_external, source)
+            logger.debug("Loaded target for integration: %s", integration_id)
+        except Exception:
+            logger.exception("Failed to load target for integration %r", integration_id)
+
     # Auto-import dispatcher.py to trigger register() (independent of router.py)
     dispatcher_file = candidate / "dispatcher.py"
     if dispatcher_file.exists():
@@ -195,6 +215,19 @@ def _load_single_integration(
             logger.debug("Loaded dispatcher for integration: %s", integration_id)
         except Exception:
             logger.exception("Failed to load dispatcher for integration %r", integration_id)
+
+    # Auto-import renderer.py to trigger renderer_registry.register() (Phase F+).
+    # Each integration's renderer self-registers via a `_register()` helper at
+    # module import time. The discovery boundary keeps `app/main.py` ignorant
+    # of which integrations exist — never `import integrations.X.renderer`
+    # explicitly from `app/`.
+    renderer_file = candidate / "renderer.py"
+    if renderer_file.exists():
+        try:
+            _import_module(integration_id, "renderer", renderer_file, is_external, source)
+            logger.debug("Loaded renderer for integration: %s", integration_id)
+        except Exception:
+            logger.exception("Failed to load renderer for integration %r", integration_id)
 
     # Auto-import hooks.py to trigger register_integration() / register_hook()
     hooks_file = candidate / "hooks.py"
@@ -317,6 +350,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "icon": "Plug",
             "has_router": (candidate / "router.py").exists(),
             "has_dispatcher": (candidate / "dispatcher.py").exists(),
+            "has_renderer": (candidate / "renderer.py").exists(),
             "has_hooks": (candidate / "hooks.py").exists(),
             "has_tools": any((candidate / "tools").glob("*.py")) if (candidate / "tools").is_dir() else False,
             "has_skills": any((candidate / "skills").glob("**/*.md")) if (candidate / "skills").is_dir() else False,
@@ -485,7 +519,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
         deps_ok = entry.get("deps_installed", True) and entry.get("npm_deps_installed", True)
         if not required_vars:
             # No required vars declared — "ready" if has any capability file AND deps installed
-            if entry["has_router"] or entry["has_dispatcher"] or entry["has_hooks"] or entry["has_tools"] or entry["has_carapaces"]:
+            if entry["has_router"] or entry["has_dispatcher"] or entry["has_renderer"] or entry["has_hooks"] or entry["has_tools"] or entry["has_carapaces"]:
                 entry["status"] = "ready" if deps_ok else "partial"
         else:
             set_count = sum(1 for v in required_vars if v["is_set"])

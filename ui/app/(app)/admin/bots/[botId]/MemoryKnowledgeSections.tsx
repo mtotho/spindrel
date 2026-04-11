@@ -290,7 +290,10 @@ function MemoryHygieneSubsection({ draft, update, botId }: {
           </FormRow>
         </Col>
         <Col>
-          <FormRow label="Only if active">
+          <FormRow
+            label="Only if active"
+            description="Skip when no user messages have landed in this bot's channels (primary or member) since the last run. Bot-to-bot delegation, heartbeats, and assistant replies don't count as activity — a bot whose channels only see bot traffic will never dream unless this is set to No."
+          >
             <div style={{ display: "flex", gap: 6 }}>
               {([undefined, true, false] as const).map((val) => {
                 const isSelected =

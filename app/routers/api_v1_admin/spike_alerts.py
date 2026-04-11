@@ -205,7 +205,6 @@ async def spike_status(_auth=Depends(require_scopes("alerts:read"))):
 async def available_targets(db: AsyncSession = Depends(get_db), _auth=Depends(require_scopes("alerts:read"))):
     """List channels + integration bindings + available integration types as target options."""
     from app.agent.hooks import get_integration_meta, _meta_registry
-    from app.agent import dispatchers as dispatcher_registry
 
     options: list[dict] = []
 

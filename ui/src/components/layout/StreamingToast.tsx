@@ -10,7 +10,7 @@ export function StreamingToast() {
   const streamingIds = useChatStore(
     useShallow((s) =>
       Object.entries(s.channels)
-        .filter(([, ch]) => ch.isStreaming)
+        .filter(([, ch]) => Object.keys(ch.turns).length > 0)
         .map(([id]) => id),
     ),
   );

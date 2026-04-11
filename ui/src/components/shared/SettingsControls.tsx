@@ -139,7 +139,8 @@ type BadgeVariant =
   | "danger"
   | "info"
   | "neutral"
-  | "purple";
+  | "purple"
+  | "skipped";
 
 const BADGE_COLORS: Record<
   BadgeVariant,
@@ -154,6 +155,9 @@ const BADGE_COLORS: Record<
   info: (t) => ({ bg: t.accentMuted, fg: t.accent }),
   neutral: (t) => ({ bg: t.surfaceBorder, fg: t.textMuted }),
   purple: (t) => ({ bg: t.purpleSubtle, fg: t.purple }),
+  // Intentionally not-run: dimmed purple to read as "dreaming-related, but
+  // didn't execute this cycle". Distinct from neutral (pending/running).
+  skipped: (t) => ({ bg: t.surfaceOverlay, fg: t.purpleMuted }),
 };
 
 export function StatusBadge({

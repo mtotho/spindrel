@@ -20,3 +20,4 @@ def arr_env(monkeypatch):
     monkeypatch.setenv("PROWLARR_API_KEY", "test-prowlarr-key")
     monkeypatch.setenv("BAZARR_URL", "http://bazarr:6767")
     monkeypatch.setenv("BAZARR_API_KEY", "test-bazarr-key")
+    monkeypatch.setenv("FLARESOLVERR_URL", "http://flaresolverr:8191")

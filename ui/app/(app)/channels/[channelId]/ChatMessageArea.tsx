@@ -3,7 +3,7 @@ import { ChevronDown } from "lucide-react";
 import { StreamingIndicator, ProcessingIndicator } from "@/src/components/chat/StreamingIndicator";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { Message } from "@/src/types/api";
-import type { MemberStreamState } from "@/src/stores/chat";
+import type { TurnState } from "@/src/stores/chat";
 
 export function DateSeparator({ label }: { label: string }) {
   const t = useThemeTokens();
@@ -31,7 +31,7 @@ export function DateSeparator({ label }: { label: string }) {
 export interface ChatMessageAreaProps {
   invertedData: Message[];
   renderMessage: (info: { item: Message; index: number }) => React.JSX.Element;
-  chatState: { isStreaming: boolean; streamingContent: string; toolCalls: any[]; thinkingContent: string; respondingBotName?: string | null; memberStreams?: Record<string, MemberStreamState> };
+  chatState: { turns: Record<string, TurnState> };
   bot: { name?: string } | undefined;
   botId?: string;
   isLoading: boolean;
@@ -139,32 +139,33 @@ export function ChatMessageArea({
     if (el) el.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  const streamingBotName = chatState.respondingBotName ?? undefined;
-  const primaryIndicator = chatState.isStreaming ? (
+  // Render every in-flight turn uniformly. Sort the channel's primary
+  // bot first (if present), then by insertion order so concurrent member
+  // bot turns appear below.
+  const turnEntries = Object.entries(chatState.turns).sort((a, b) => {
+    if (a[1].isPrimary && !b[1].isPrimary) return -1;
+    if (b[1].isPrimary && !a[1].isPrimary) return 1;
+    return 0;
+  });
+  const turnIndicators = turnEntries.map(([turnId, turn]) => (
     <StreamingIndicator
-      content={chatState.streamingContent}
-      toolCalls={chatState.toolCalls}
-      botName={streamingBotName}
-      botId={botId}
-      thinkingContent={chatState.thinkingContent}
-    />
-  ) : isProcessing ? (
-    <ProcessingIndicator botName={streamingBotName} />
-  ) : null;
-
-  // Concurrent member bot streams
-  const memberEntries = Object.entries(chatState.memberStreams ?? {});
-  const memberIndicators = memberEntries.map(([streamId, stream]) => (
-    <StreamingIndicator
-      key={streamId}
-      content={stream.streamingContent}
-      toolCalls={stream.toolCalls}
-      botName={stream.botName}
-      thinkingContent={stream.thinkingContent}
+      key={turnId}
+      content={turn.streamingContent}
+      toolCalls={turn.toolCalls}
+      botName={turn.botName}
+      botId={turn.isPrimary ? botId : turn.botId}
+      thinkingContent={turn.thinkingContent}
     />
   ));
 
-  const hasIndicators = !!primaryIndicator || memberIndicators.length > 0;
+  // Background-task processing without an in-flight turn (e.g. queued
+  // task accepted but worker not yet started) gets the simpler indicator.
+  const processingIndicator =
+    isProcessing && turnIndicators.length === 0 ? (
+      <ProcessingIndicator />
+    ) : null;
+
+  const hasIndicators = turnIndicators.length > 0 || !!processingIndicator;
 
   return (
     <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
@@ -186,8 +187,8 @@ export function ChatMessageArea({
             the outer reverse. */}
         {hasIndicators && (
           <div>
-            {memberIndicators}
-            {primaryIndicator}
+            {turnIndicators}
+            {processingIndicator}
           </div>
         )}
 

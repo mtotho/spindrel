@@ -8,6 +8,13 @@ import type { MemoryHygieneRun } from "@/src/api/hooks/useMemoryHygiene";
 
 type RunWithExtras = MemoryHygieneRun & { bot_name?: string; files_affected?: string[] };
 
+function statusVariant(status: string): "success" | "danger" | "skipped" | "neutral" {
+  if (status === "complete") return "success";
+  if (status === "failed") return "danger";
+  if (status === "skipped") return "skipped";
+  return "neutral";
+}
+
 function fmtDuration(ms: number | null | undefined): string {
   if (ms == null) return "";
   if (ms < 1000) return `${ms}ms`;
@@ -33,6 +40,8 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
         {runs.map((run) => {
           const isExpanded = expandedId === run.id;
           const hasContent = run.result || run.error || run.correlation_id;
+          const isFailed = run.status === "failed";
+          const isSkipped = run.status === "skipped";
           return (
             <div key={run.id}>
               <div
@@ -40,9 +49,23 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                 style={{
                   display: "flex", flexDirection: "column", gap: 4,
                   padding: "8px 12px",
-                  background: isExpanded ? t.surfaceOverlay : (run.status === "failed" ? "rgba(239,68,68,0.04)" : t.surfaceRaised),
+                  background: isExpanded
+                    ? t.surfaceOverlay
+                    : isFailed
+                      ? "rgba(239,68,68,0.04)"
+                      : isSkipped
+                        ? "rgba(168,85,247,0.04)"
+                        : t.surfaceRaised,
                   borderRadius: isExpanded ? "6px 6px 0 0" : 6,
-                  border: `1px solid ${isExpanded ? t.accent : run.status === "failed" ? "rgba(239,68,68,0.2)" : t.surfaceOverlay}`,
+                  border: `1px solid ${
+                    isExpanded
+                      ? t.accent
+                      : isFailed
+                        ? "rgba(239,68,68,0.2)"
+                        : isSkipped
+                          ? t.purpleBorder
+                          : t.surfaceOverlay
+                  }`,
                   cursor: hasContent ? "pointer" : "default",
                   transition: "background 0.1s, border-color 0.1s",
                 }}
@@ -62,18 +85,15 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                     <span style={{ fontSize: 12, color: t.textMuted }}>
                       {new Date(run.created_at).toLocaleString()}
                     </span>
-                    {run.completed_at && (
+                    {run.completed_at && !isSkipped && (
                       <span style={{ fontSize: 10, color: t.textDim }}>
                         ({Math.round((new Date(run.completed_at).getTime() - new Date(run.created_at).getTime()) / 1000)}s)
                       </span>
                     )}
                   </div>
-                  <StatusBadge
-                    label={run.status}
-                    variant={run.status === "complete" ? "success" : run.status === "failed" ? "danger" : "neutral"}
-                  />
+                  <StatusBadge label={run.status} variant={statusVariant(run.status)} />
                 </div>
-                {/* Collapsed: show files affected + error preview */}
+                {/* Collapsed: show files affected + error/skip preview */}
                 {!isExpanded && (
                   <>
                     {run.files_affected && run.files_affected.length > 0 && (
@@ -92,13 +112,22 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                         )}
                       </div>
                     )}
-                    {run.status === "failed" && run.error && (
+                    {isFailed && run.error && (
                       <div style={{
                         fontSize: 10, color: t.danger, marginLeft: hasContent ? 20 : 0,
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                         maxWidth: "100%",
                       }}>
                         {run.error}
+                      </div>
+                    )}
+                    {isSkipped && run.result && (
+                      <div style={{
+                        fontSize: 10, color: t.purpleMuted, marginLeft: hasContent ? 20 : 0,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        maxWidth: "100%",
+                      }}>
+                        {run.result}
                       </div>
                     )}
                   </>

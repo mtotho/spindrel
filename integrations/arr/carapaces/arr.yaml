@@ -3,7 +3,7 @@ name: Media Stack
 description: >-
   Home media management — TV shows (Sonarr), movies (Radarr), indexers (Prowlarr),
   downloads (qBittorrent), streaming (Jellyfin), requests (Jellyseerr), subtitles (Bazarr).
-tags: [media, sonarr, radarr, prowlarr, jellyfin, qbittorrent, jellyseerr]
+tags: [media, sonarr, radarr, prowlarr, jellyfin, qbittorrent, jellyseerr, flaresolverr]
 
 local_tools:
   - sonarr_calendar
@@ -45,6 +45,10 @@ local_tools:
   - prowlarr_indexer_schemas
   - prowlarr_indexer_manage
   - bazarr_subtitles
+  - flaresolverr_health
+  - flaresolverr_sessions
+  - flaresolverr_test_fetch
+  - flaresolverr_destroy_all_sessions
 
 system_prompt_fragment: |
   ## Media Stack (ARR)
@@ -121,6 +125,10 @@ system_prompt_fragment: |
   | `prowlarr_search` | Search across ALL indexers — shows which have results and which don't |
   | `prowlarr_apps` | List connected apps (Sonarr/Radarr) and sync status |
   | `prowlarr_health` | System health check — indexer issues, sync problems, warnings |
+  | `flaresolverr_health` | Is FlareSolverr reachable? Returns version + active session count. FIRST tool to run when Cloudflare-protected indexers fail |
+  | `flaresolverr_sessions` | List/create/destroy FS browser sessions |
+  | `flaresolverr_test_fetch` | End-to-end Cloudflare bypass test — fetch a URL through FS, see if challenge solving currently works |
+  | `flaresolverr_destroy_all_sessions` | Reset all FS sessions (the "turn it off and on again" fix for wedged FS) |
 
   ### Pagination & Filtering
 

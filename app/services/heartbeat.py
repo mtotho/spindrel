@@ -605,20 +605,29 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 msg_metadata={"trigger": "heartbeat", "dispatched": _dispatched},
             )
 
-        # Dispatch result (skip for "optional" mode — the LLM used the tool if it wanted to post)
-        if _dispatch_mode != "optional":
-            from app.agent import dispatchers
-            dispatcher = dispatchers.get(dispatch_type)
-            task_proxy = Task(
-                id=uuid.uuid4(),
-                bot_id=bot_id,
-                session_id=eff_session_id,
-                client_id=client_id,
-                dispatch_type=dispatch_type,
-                dispatch_config=dispatch_config,
+        # Publish heartbeat result to the bus. Renderers consume TURN_ENDED
+        # with kind_hint="heartbeat" and prepend the 💓 prefix themselves.
+        if _dispatch_mode != "optional" and channel_id is not None:
+            _proxy_task_id = uuid.uuid4()
+            from app.domain.channel_events import ChannelEvent, ChannelEventKind
+            from app.domain.payloads import TurnEndedPayload
+            from app.services.channel_events import publish_typed
+
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.TURN_ENDED,
+                    payload=TurnEndedPayload(
+                        bot_id=bot_id,
+                        turn_id=correlation_id,
+                        result=result_text,
+                        client_actions=list(run_result.client_actions or []),
+                        task_id=str(_proxy_task_id),
+                        kind_hint="heartbeat",
+                    ),
+                ),
             )
-            _dispatch_text = f"💓 _Heartbeat_\n{result_text}"
-            await dispatcher.deliver(task_proxy, _dispatch_text, client_actions=run_result.client_actions)
 
         # trigger_rag_loop: create a follow-up Task so the bot can react
         if trigger_rag_loop and result_text:

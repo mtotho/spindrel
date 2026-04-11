@@ -1,0 +1,311 @@
+"""BlueBubblesRenderer — Phase G of the Integration Delivery refactor.
+
+The single, in-process BlueBubbles delivery path. Replaces
+``integrations/bluebubbles/dispatcher.py`` (the legacy task-based path)
+which was the last consumer of ``app/agent/dispatchers.py``.
+
+iMessage is intentionally simpler than Slack/Discord because the
+underlying API doesn't support edits, threads, or interactive
+components:
+
+- No ``STREAMING_EDIT`` — there's no ``message.update`` equivalent, so
+  ``TURN_STARTED`` / ``TURN_STREAM_*`` events are silently skipped and
+  the renderer only sends a single ``TURN_ENDED`` final message.
+- No interactive buttons — ``APPROVAL_REQUESTED`` is delivered as a
+  plain-text description with the approval id; the user approves via
+  the web UI or CLI.
+- No edit/delete API — ``ATTACHMENT_DELETED`` is a no-op.
+
+Echo-tracker wiring is load-bearing: ``track_sent`` + ``save_to_db``
+MUST run BEFORE the network send so an inbound webhook arriving while
+the bot's reply is still in flight doesn't see our reply as a human
+input. ``EchoTracker.is_own_content`` (the primary defense in
+``router.py``'s inbound path) reads from the same ``_sent_content``
+dict that ``track_sent`` populates.
+
+Self-registers via ``_register()`` at module import time. The
+integration discovery loop in ``integrations/__init__.py:_load_single_integration``
+auto-imports this file alongside ``dispatcher.py``/``hooks.py``, so
+``app/main.py`` does not need any explicit import.
+"""
+from __future__ import annotations
+
+import logging
+import uuid
+from typing import ClassVar
+
+import httpx
+
+from app.domain.capability import Capability
+from app.domain.channel_events import ChannelEvent, ChannelEventKind
+from app.domain.dispatch_target import DispatchTarget
+from app.domain.outbound_action import OutboundAction
+from app.integrations.renderer import DeliveryReceipt
+from integrations.bluebubbles.bb_api import send_text
+from integrations.bluebubbles.echo_tracker import shared_tracker
+from integrations.bluebubbles.target import BlueBubblesTarget
+
+logger = logging.getLogger(__name__)
+
+
+# Max iMessage text length per bubble. Apple doesn't hard-enforce this
+# but very long messages get split client-side; 20k is a safe single
+# bubble. Same value as the legacy dispatcher.
+_MAX_MSG_LEN = 20000
+
+
+# Module-level shared httpx client. Created at import time; the renderer
+# never closes it explicitly because it lives for the process lifetime.
+_http = httpx.AsyncClient(timeout=90.0)
+
+
+def _split_text(text: str, max_len: int = _MAX_MSG_LEN) -> list[str]:
+    """Split text into chunks that fit in a single iMessage bubble.
+
+    Ported verbatim from the legacy dispatcher. Prefers a newline split
+    near the boundary so chunks break cleanly on paragraph edges.
+    """
+    if len(text) <= max_len:
+        return [text]
+    chunks: list[str] = []
+    while text:
+        if len(text) <= max_len:
+            chunks.append(text)
+            break
+        split_at = text.rfind("\n", 0, max_len)
+        if split_at < max_len // 2:
+            split_at = max_len
+        chunks.append(text[:split_at])
+        text = text[split_at:].lstrip("\n")
+    return chunks
+
+
+async def _bb_send(
+    target: BlueBubblesTarget, text: str,
+) -> bool:
+    """Send a single chunk via the BB API with echo-tracking.
+
+    The ``track_sent`` + ``save_to_db`` calls MUST happen BEFORE the
+    network send. If they happened after, an inbound webhook arriving
+    while we're mid-send would see the bot's reply as a human input
+    and re-trigger the agent — the exact echo loop the tracker exists
+    to prevent.
+    """
+    temp_guid = str(uuid.uuid4())
+    shared_tracker.track_sent(temp_guid, text, chat_guid=target.chat_guid)
+    # Persist immediately so a process crash between this point and the
+    # send doesn't lose the suppression record.
+    await shared_tracker.save_to_db()
+
+    result = await send_text(
+        _http, target.server_url, target.password,
+        target.chat_guid, text,
+        temp_guid=temp_guid,
+        method=target.send_method,
+    )
+    return result is not None
+
+
+def _apply_footer(text: str, target: BlueBubblesTarget) -> str:
+    """Append the per-target text footer if configured.
+
+    Footer is applied BEFORE chunking so it appears on every chunk —
+    matches the legacy dispatcher's behavior. The footer is a per-binding
+    setting (e.g. ``-- via Spindrel``) and users expect it on every
+    bubble.
+    """
+    if target.text_footer:
+        return f"{text}\n{target.text_footer}"
+    return text
+
+
+class BlueBubblesRenderer:
+    """Channel renderer for BlueBubbles / iMessage delivery.
+
+    iMessage's narrow capability surface drives the renderer shape:
+    only the final ``TURN_ENDED`` event maps to a network send for
+    a typical agent turn. Streaming token events have nothing to update.
+    """
+
+    integration_id: ClassVar[str] = "bluebubbles"
+    capabilities: ClassVar[frozenset[Capability]] = frozenset({
+        Capability.TEXT,
+        Capability.ATTACHMENTS,
+        Capability.APPROVAL_BUTTONS,  # text-only approval — see _handle_approval_requested
+        Capability.DISPLAY_NAMES,
+        Capability.MENTIONS,
+    })
+    # Notably absent:
+    # - STREAMING_EDIT: iMessage has no ``message.update`` equivalent
+    # - RICH_TEXT / INLINE_BUTTONS: no interactive components in iMessage
+    # - IMAGE_UPLOAD / FILE_UPLOAD: handled via send_attachment but not
+    #   wired to the renderer event flow yet (Phase H/I follow-up)
+    # - FILE_DELETE / REACTIONS: no API surface
+
+    async def render(
+        self,
+        event: ChannelEvent,
+        target: DispatchTarget,
+    ) -> DeliveryReceipt:
+        if not isinstance(target, BlueBubblesTarget):
+            return DeliveryReceipt.failed(
+                f"BlueBubblesRenderer received non-bluebubbles target: "
+                f"{type(target).__name__}",
+                retryable=False,
+            )
+
+        kind = event.kind
+        try:
+            if kind == ChannelEventKind.TURN_ENDED:
+                return await self._handle_turn_ended(event, target)
+            if kind == ChannelEventKind.NEW_MESSAGE:
+                return await self._handle_new_message(event, target)
+            if kind == ChannelEventKind.APPROVAL_REQUESTED:
+                return await self._handle_approval_requested(event, target)
+        except Exception as exc:
+            logger.exception(
+                "BlueBubblesRenderer.render: unexpected failure for %s",
+                kind.value,
+            )
+            return DeliveryReceipt.failed(f"unexpected: {exc}", retryable=True)
+
+        # TURN_STARTED, TURN_STREAM_*, ATTACHMENT_DELETED, MESSAGE_UPDATED
+        # all silently skip — iMessage can't render any of them.
+        return DeliveryReceipt.skipped(
+            f"bluebubbles does not handle {kind.value}"
+        )
+
+    async def handle_outbound_action(
+        self,
+        action: OutboundAction,
+        target: DispatchTarget,
+    ) -> DeliveryReceipt:
+        # Phase G has no out-of-band actions for BB. Image / file
+        # uploads through OutboundAction land in Phase H/I.
+        return DeliveryReceipt.skipped(
+            "bluebubbles outbound actions are not yet wired"
+        )
+
+    async def delete_attachment(
+        self,
+        attachment_metadata: dict,
+        target: DispatchTarget,
+    ) -> bool:
+        # iMessage exposes no server-side delete-attachment API. The
+        # legacy dispatcher returned False here too.
+        return False
+
+    # ------------------------------------------------------------------
+    # Event handlers
+    # ------------------------------------------------------------------
+
+    async def _handle_turn_ended(
+        self, event: ChannelEvent, target: BlueBubblesTarget,
+    ) -> DeliveryReceipt:
+        """Send the final agent response as one or more iMessage bubbles.
+
+        Renders ``payload.result`` (or a user-visible error fallback),
+        appends the per-target footer, splits into bubble-sized chunks,
+        and sends each chunk through ``_bb_send`` (which handles
+        echo-tracking before the network call).
+        """
+        payload = event.payload
+        result_text = (getattr(payload, "result", None) or "").strip()
+        error_text = (getattr(payload, "error", None) or "").strip()
+
+        if result_text:
+            body_text = result_text
+        elif error_text:
+            body_text = f"⚠️ Agent error: {error_text}"
+        else:
+            return DeliveryReceipt.skipped(
+                "turn_ended with no result and no error — nothing to send"
+            )
+
+        body_text = _apply_footer(body_text, target)
+        chunks = _split_text(body_text)
+        for chunk in chunks:
+            if not await _bb_send(target, chunk):
+                return DeliveryReceipt.failed(
+                    f"BB send_text failed for chat {target.chat_guid}",
+                    retryable=True,
+                )
+        return DeliveryReceipt.ok()
+
+    async def _handle_new_message(
+        self, event: ChannelEvent, target: BlueBubblesTarget,
+    ) -> DeliveryReceipt:
+        """Send a passive / member-bot / mirror message to the iMessage chat.
+
+        ``NEW_MESSAGE`` events are produced by ``persist_turn``,
+        member-bot fanout (``delegation.post_child_response``), and
+        cross-integration mirroring (``inject_message`` with
+        ``notify=True``). The renderer treats them all as "post this
+        text to the chat" — there's no edit lifecycle to coordinate.
+        """
+        payload = event.payload
+        msg = getattr(payload, "message", None)
+        if msg is None:
+            return DeliveryReceipt.skipped("new_message without message payload")
+
+        text = (getattr(msg, "content", "") or "").strip()
+        if not text:
+            return DeliveryReceipt.skipped("new_message with empty content")
+
+        text = _apply_footer(text, target)
+        for chunk in _split_text(text):
+            if not await _bb_send(target, chunk):
+                return DeliveryReceipt.failed(
+                    f"BB send_text failed for chat {target.chat_guid}",
+                    retryable=True,
+                )
+        return DeliveryReceipt.ok()
+
+    async def _handle_approval_requested(
+        self, event: ChannelEvent, target: BlueBubblesTarget,
+    ) -> DeliveryReceipt:
+        """Send a text-based approval request.
+
+        iMessage has no interactive buttons, so we render the approval
+        as a plain-text description with the approval id and a pointer
+        to the web UI. Ported from the legacy dispatcher's
+        ``request_approval``.
+        """
+        import json as _json
+
+        payload = event.payload
+        approval_id = getattr(payload, "approval_id", "") or ""
+        bot_id = getattr(payload, "bot_id", "") or ""
+        tool_name = getattr(payload, "tool_name", "") or ""
+        arguments = getattr(payload, "arguments", {}) or {}
+        reason = getattr(payload, "reason", None)
+
+        args_preview = _json.dumps(arguments, indent=2)[:500]
+        text = (
+            f"Tool approval required\n"
+            f"Bot: {bot_id} | Tool: {tool_name}\n"
+            f"Reason: {reason or 'Policy requires approval'}\n"
+            f"Args: {args_preview}\n\n"
+            f"Approve via the web UI (approval ID: {approval_id})"
+        )
+        text = _apply_footer(text, target)
+        if not await _bb_send(target, text):
+            return DeliveryReceipt.failed(
+                f"BB approval send failed for chat {target.chat_guid}",
+                retryable=True,
+            )
+        return DeliveryReceipt.ok()
+
+
+# ---------------------------------------------------------------------------
+# Self-registration — same idempotent pattern as the Slack/Discord renderers
+# ---------------------------------------------------------------------------
+
+
+def _register() -> None:
+    from app.integrations import renderer_registry
+    if renderer_registry.get(BlueBubblesRenderer.integration_id) is None:
+        renderer_registry.register(BlueBubblesRenderer())
+
+
+_register()

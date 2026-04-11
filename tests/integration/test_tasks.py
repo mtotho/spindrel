@@ -369,9 +369,6 @@ class TestRunTask:
         from app.agent.loop import RunResult
         mock_run_result = RunResult(response="Hello!", transcript="", client_actions=[])
 
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.deliver = AsyncMock()
-
         with (
             patch("app.agent.tasks.async_session", factory),
             patch("app.agent.tasks.get_bot", return_value=bot),
@@ -381,10 +378,9 @@ class TestRunTask:
             patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value=None),
             patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(sid, [{"role": "system", "content": "sp"}])),
             patch("app.services.sessions.persist_turn", new_callable=AsyncMock),
-            patch("app.agent.tasks.dispatchers") as mock_dispatchers,
+            patch("app.agent.tasks._publish_turn_ended"),
         ):
             mock_locks.acquire.return_value = True
-            mock_dispatchers.get.return_value = mock_dispatcher
             from app.agent.tasks import run_task
             await run_task(task)
 
@@ -538,8 +534,6 @@ class TestRunTask:
 
         from app.agent.loop import RunResult
         mock_run_result = RunResult(response="Done!", transcript="", client_actions=[])
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.deliver = AsyncMock()
 
         with (
             patch("app.agent.tasks.async_session", factory),
@@ -549,11 +543,10 @@ class TestRunTask:
             patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value=None),
             patch("app.services.sessions.load_or_create", new_callable=AsyncMock, return_value=(sid, [{"role": "system", "content": "sp"}])),
             patch("app.services.sessions.persist_turn", new_callable=AsyncMock),
-            patch("app.agent.tasks.dispatchers") as mock_dispatchers,
+            patch("app.agent.tasks._publish_turn_ended"),
         ):
             # Session lock is held (simulating parent streaming request)
             mock_locks.acquire.return_value = False
-            mock_dispatchers.get.return_value = mock_dispatcher
             from app.agent.tasks import run_task
             await run_task(task)
 
@@ -600,8 +593,6 @@ class TestRunTask:
 
         from app.agent.loop import RunResult
         mock_run_result = RunResult(response="Done!", transcript="", client_actions=[])
-        mock_dispatcher = MagicMock()
-        mock_dispatcher.deliver = AsyncMock()
 
         captured_session_ids = []
 
@@ -617,10 +608,9 @@ class TestRunTask:
             patch("app.agent.persona.get_persona", new_callable=AsyncMock, return_value=None),
             patch("app.services.sessions.load_or_create", new_callable=AsyncMock, side_effect=mock_load_or_create),
             patch("app.services.sessions.persist_turn", new_callable=AsyncMock),
-            patch("app.agent.tasks.dispatchers") as mock_dispatchers,
+            patch("app.agent.tasks._publish_turn_ended"),
         ):
             mock_locks.acquire.return_value = False
-            mock_dispatchers.get.return_value = mock_dispatcher
             from app.agent.tasks import run_task
             await run_task(task)
 

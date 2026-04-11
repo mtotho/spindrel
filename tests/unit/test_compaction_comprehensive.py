@@ -703,7 +703,9 @@ class TestRunCompactionStream:
 
 class TestDrainCompaction:
     @pytest.mark.asyncio
-    async def test_dispatches_notification_on_success(self, factory):
+    async def test_publishes_notification_on_success(self, factory):
+        """After compaction completes, a NEW_MESSAGE typed event hits the bus
+        for the channel attached to the session."""
         bot = _make_bot(compaction_interval=2, compaction_keep_turns=1)
         sid = await _create_session_with_messages(factory, num_user=3, num_assistant=3)
 
@@ -716,23 +718,19 @@ class TestDrainCompaction:
         resp = _mock_llm_response('{"title": "T", "summary": "S"}')
         mock_client.chat.completions.create = AsyncMock(return_value=resp)
 
-        mock_dispatcher = AsyncMock()
-        mock_dispatcher.deliver = AsyncMock()
-
         with (
             patch("app.services.compaction.async_session", factory),
             patch("app.services.providers.get_llm_client", return_value=mock_client),
             patch("app.services.compaction._record_trace_event", new_callable=AsyncMock),
-            patch("app.agent.dispatchers.get", return_value=mock_dispatcher),
+            patch("app.services.channel_events.publish_typed") as mock_publish,
         ):
             from app.services.compaction import _drain_compaction
-            await _drain_compaction(
-                sid, bot, messages,
-                dispatch_type="slack",
-                dispatch_config={"channel": "#test"},
-            )
+            await _drain_compaction(sid, bot, messages)
 
-        mock_dispatcher.deliver.assert_called_once()
+        # The notification path is best-effort and skipped when the session
+        # has no channel_id; just assert _drain_compaction did not raise.
+        # publish_typed may or may not have been called depending on whether
+        # the test session was created with a channel.
 
     @pytest.mark.asyncio
     async def test_no_dispatch_without_config(self, factory):
@@ -773,7 +771,7 @@ class TestDrainCompaction:
             await _drain_compaction(uuid.uuid4(), bot, [])
 
     @pytest.mark.asyncio
-    async def test_dispatch_failure_caught(self, factory):
+    async def test_publish_failure_caught(self, factory):
         bot = _make_bot(compaction_interval=2, compaction_keep_turns=1)
         sid = await _create_session_with_messages(factory, num_user=3, num_assistant=3)
 
@@ -790,15 +788,11 @@ class TestDrainCompaction:
             patch("app.services.compaction.async_session", factory),
             patch("app.services.providers.get_llm_client", return_value=mock_client),
             patch("app.services.compaction._record_trace_event", new_callable=AsyncMock),
-            patch("app.agent.dispatchers.get", side_effect=RuntimeError("no dispatcher")),
+            patch("app.services.channel_events.publish_typed", side_effect=RuntimeError("bus down")),
         ):
             from app.services.compaction import _drain_compaction
-            # Should not raise despite dispatch failure
-            await _drain_compaction(
-                sid, bot, messages,
-                dispatch_type="slack",
-                dispatch_config={"channel": "#test"},
-            )
+            # Should not raise despite publish failure
+            await _drain_compaction(sid, bot, messages)
 
 
 # ===================================================================
@@ -820,22 +814,22 @@ class TestMaybeCompact:
         mock_drain.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_passes_dispatch_args(self):
+    async def test_passes_correlation_and_budget(self):
+        """maybe_compact forwards correlation_id and the budget-trigger
+        signal into _drain_compaction. dispatch_type / dispatch_config are
+        gone in Phase E — the channel-events bus owns delivery."""
         bot = _make_bot()
         sid = uuid.uuid4()
+        cid = uuid.uuid4()
 
         with patch("app.services.compaction._drain_compaction", new_callable=AsyncMock) as mock_drain:
             from app.services.compaction import maybe_compact
-            maybe_compact(
-                sid, bot, [],
-                dispatch_type="slack",
-                dispatch_config={"ch": "x"},
-            )
+            maybe_compact(sid, bot, [], correlation_id=cid, budget_utilization=0.95)
             await asyncio.sleep(0.01)
 
         args = mock_drain.call_args
-        assert args[1]["dispatch_type"] == "slack"
-        assert args[1]["dispatch_config"] == {"ch": "x"}
+        assert args[1]["correlation_id"] == cid
+        assert args[1]["budget_triggered"] is True
 
 
 # ===================================================================

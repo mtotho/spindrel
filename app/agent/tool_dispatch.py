@@ -520,17 +520,16 @@ async def _create_approval_record(
         await db.refresh(approval)
         approval_id = str(approval.id)
 
-    # Fire-and-forget notification via dispatcher
-    if dispatch_type and dispatch_config:
+    # Fire-and-forget bus publish so renderers can prompt the user.
+    if channel_id is not None:
         safe_create_task(_notify_approval_request(
-            dispatch_type=dispatch_type,
-            dispatch_config=dispatch_config,
             approval_id=approval_id,
             bot_id=bot_id,
             tool_name=tool_name,
             arguments=arguments,
             reason=reason,
             extra_metadata=extra_metadata,
+            channel_id=channel_id,
         ))
 
     return approval_id
@@ -538,51 +537,41 @@ async def _create_approval_record(
 
 async def _notify_approval_request(
     *,
-    dispatch_type: str,
-    dispatch_config: dict,
     approval_id: str,
     bot_id: str,
     tool_name: str,
     arguments: dict,
     reason: str | None,
     extra_metadata: dict | None = None,
+    channel_id: uuid.UUID | None = None,
 ) -> None:
-    """Send approval notification via the appropriate dispatcher."""
+    """Publish an APPROVAL_REQUESTED event for renderer pickup."""
+    if channel_id is None:
+        logger.warning(
+            "approval %s for tool %s has no channel_id, dropping notification",
+            approval_id, tool_name,
+        )
+        return
     try:
-        from app.agent import dispatchers
-        dispatcher = dispatchers.get(dispatch_type)
-        if hasattr(dispatcher, "request_approval"):
-            await dispatcher.request_approval(
-                dispatch_config=dispatch_config,
-                approval_id=approval_id,
-                bot_id=bot_id,
-                tool_name=tool_name,
-                arguments=arguments,
-                reason=reason,
-                extra_metadata=extra_metadata,
-            )
-        else:
-            # Fallback: post a text message
-            cap = (extra_metadata or {}).get("_capability")
-            if cap:
-                text = (
-                    f"✨ *Capability activation — {cap.get('name', tool_name)}*\n"
-                    f"{cap.get('description', '')}\n"
-                    f"Provides: {cap.get('tools_count', 0)} tool(s)\n"
-                    f"Bot: `{bot_id}`\n"
-                    f"Approval ID: `{approval_id}`\n"
-                    f"Use `POST /api/v1/approvals/{approval_id}/decide` to approve or deny."
-                )
-            else:
-                args_preview = json.dumps(arguments, indent=2)[:300]
-                text = (
-                    f"🔒 *Tool approval required*\n"
-                    f"Bot: `{bot_id}` | Tool: `{tool_name}`\n"
-                    f"Reason: {reason or 'Policy requires approval'}\n"
-                    f"```\n{args_preview}\n```\n"
-                    f"Approval ID: `{approval_id}`\n"
-                    f"Use `POST /api/v1/approvals/{approval_id}/decide` to approve or deny."
-                )
-            await dispatcher.post_message(dispatch_config, text, bot_id=bot_id)
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.payloads import ApprovalRequestedPayload
+        from app.services.channel_events import publish_typed
+
+        cap = (extra_metadata or {}).get("_capability")
+        publish_typed(
+            channel_id,
+            ChannelEvent(
+                channel_id=channel_id,
+                kind=ChannelEventKind.APPROVAL_REQUESTED,
+                payload=ApprovalRequestedPayload(
+                    approval_id=approval_id,
+                    bot_id=bot_id,
+                    tool_name=tool_name,
+                    arguments=dict(arguments or {}),
+                    reason=reason,
+                    capability=cap if isinstance(cap, dict) else None,
+                ),
+            ),
+        )
     except Exception:
-        logger.exception("Failed to send approval notification for %s", approval_id)
+        logger.exception("Failed to publish APPROVAL_REQUESTED for %s", approval_id)

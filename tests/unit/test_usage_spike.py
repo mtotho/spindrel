@@ -12,9 +12,9 @@ from app.services.usage_spike import (
     _dispatch_alert,
 )
 
-# The dispatch function imports dispatchers and get_integration_meta lazily,
+# The dispatch function imports renderer_registry and get_integration_meta lazily,
 # so we need to patch them at the correct location.
-DISPATCHERS_PATH = "app.agent.dispatchers"
+RENDERER_REGISTRY_PATH = "app.integrations.renderer_registry"
 HOOKS_PATH = "app.agent.hooks"
 
 
@@ -318,11 +318,8 @@ class TestDispatchAlert:
         mock_channel.integration = "slack"
         mock_channel.dispatch_config = {"channel": "C123"}
 
-        mock_dispatcher = AsyncMock()
-        mock_dispatcher.post_message = AsyncMock(return_value=True)
-
         with patch("app.services.usage_spike.async_session") as mock_session, \
-             patch("app.agent.dispatchers.get", return_value=mock_dispatcher):
+             patch("app.services.channel_events.publish_typed") as mock_publish:
 
             mock_db = AsyncMock()
             mock_db.get = AsyncMock(return_value=mock_channel)
@@ -333,11 +330,16 @@ class TestDispatchAlert:
 
             assert attempted == 1
             assert succeeded == 1
-            mock_dispatcher.post_message.assert_called_once()
+            mock_publish.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_integration_target_success(self):
-        """Dispatching to an integration target should resolve config and call post_message."""
+        """Dispatching to an integration target resolves dispatch_config,
+        looks up the integration's renderer, and calls render() inline.
+        Phase G replaced the legacy dispatcher path with a direct render
+        call against the renderer registry.
+        """
+        from app.integrations.renderer import DeliveryReceipt
         config = _make_config(targets=[{
             "type": "integration",
             "integration_type": "bluebubbles",
@@ -345,22 +347,32 @@ class TestDispatchAlert:
         }])
 
         mock_meta = MagicMock()
-        mock_meta.resolve_dispatch_config = MagicMock(return_value={"phone": "+1555"})
+        mock_meta.resolve_dispatch_config = MagicMock(return_value={
+            "chat_guid": "iMessage;-;+1555",
+            "server_url": "http://localhost",
+            "password": "x",
+        })
 
-        mock_dispatcher = AsyncMock()
-        mock_dispatcher.post_message = AsyncMock(return_value=True)
+        mock_renderer = AsyncMock()
+        mock_renderer.render = AsyncMock(return_value=DeliveryReceipt.ok())
 
         with patch("app.agent.hooks.get_integration_meta", return_value=mock_meta), \
-             patch("app.agent.dispatchers.get", return_value=mock_dispatcher):
+             patch("app.integrations.renderer_registry.get", return_value=mock_renderer):
 
             attempted, succeeded, details = await _dispatch_alert(config, "test message")
 
             assert attempted == 1
             assert succeeded == 1
+            mock_renderer.render.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_partial_failure(self):
-        """One target fails, another succeeds — both are recorded."""
+        """Channel target publishes (succeeds); integration target's
+        renderer returns failed (the renderer path is the Phase G
+        replacement for the legacy dispatcher path). Both attempts are
+        recorded.
+        """
+        from app.integrations.renderer import DeliveryReceipt
         channel_id = str(uuid.uuid4())
         config = _make_config(targets=[
             {"type": "channel", "channel_id": channel_id},
@@ -371,15 +383,20 @@ class TestDispatchAlert:
         mock_channel.integration = "slack"
         mock_channel.dispatch_config = {"channel": "C123"}
 
-        mock_dispatcher = AsyncMock()
-        # First call succeeds, second fails
-        mock_dispatcher.post_message = AsyncMock(side_effect=[True, False])
+        mock_renderer = AsyncMock()
+        mock_renderer.render = AsyncMock(return_value=DeliveryReceipt.failed(
+            "simulated", retryable=False,
+        ))
 
         mock_meta = MagicMock()
-        mock_meta.resolve_dispatch_config = MagicMock(return_value={"channel": "C456"})
+        mock_meta.resolve_dispatch_config = MagicMock(return_value={
+            "channel_id": "C456",
+            "token": "xoxb-test",
+        })
 
         with patch("app.services.usage_spike.async_session") as mock_session, \
-             patch("app.agent.dispatchers.get", return_value=mock_dispatcher), \
+             patch("app.services.channel_events.publish_typed") as mock_publish, \
+             patch("app.integrations.renderer_registry.get", return_value=mock_renderer), \
              patch("app.agent.hooks.get_integration_meta", return_value=mock_meta):
 
             mock_db = AsyncMock()
@@ -392,6 +409,8 @@ class TestDispatchAlert:
             assert attempted == 2
             assert succeeded == 1
             assert len(details) == 2
+            mock_publish.assert_called_once()
+            mock_renderer.render.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_missing_channel_id(self):

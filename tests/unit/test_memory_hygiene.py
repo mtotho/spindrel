@@ -345,8 +345,17 @@ class TestCheckMemoryHygiene:
             mock_settings.MEMORY_HYGIENE_TARGET_HOUR = -1
             await check_memory_hygiene()
 
-        # No task created, but schedule advanced
-        db.add.assert_not_called()
+        # A skipped Task row was inserted so the Learning Center surfaces the
+        # decision instead of dropping the cycle silently.
+        db.add.assert_called_once()
+        skip_task = db.add.call_args[0][0]
+        assert skip_task.task_type == "memory_hygiene"
+        assert skip_task.status == "skipped"
+        assert skip_task.bot_id == "test-bot"
+        assert skip_task.result and "No user messages" in skip_task.result
+        assert skip_task.completed_at is not None
+
+        # Schedule still advanced past now
         assert bot.next_hygiene_run_at is not None
         assert bot.next_hygiene_run_at > now
 
@@ -847,13 +856,19 @@ class TestNextTargetRun:
         assert result_local.day == 7  # tomorrow
         assert result_local.hour == 3
 
-    def test_after_run_respects_interval(self):
-        """After a run, next target occurrence must be >= now + interval."""
+    def test_after_run_daily_next_day(self):
+        """After a run slightly past target hour, next run is tomorrow at target hour.
+
+        Regression: previously the 'earliest = now + interval_hours' floor
+        caused runs completing just past the target hour to be pushed two days
+        out instead of one, because the 'tomorrow at target_hour' candidate
+        fell short of the literal 24h floor by the run's own few minutes.
+        """
         from app.services.memory_hygiene import _next_target_run
 
         tz = ZoneInfo("America/New_York")
-        # Now is 3:30 AM, target is 3 AM, interval is 24h
-        # Next run should be tomorrow at 3 AM + stagger (>= 3:30 AM + 24h)
+        # Now is 3:30 AM, target is 3 AM, interval is 24h (daily).
+        # Next run should be tomorrow at 3 AM + stagger.
         now_local = datetime(2026, 4, 6, 3, 30, 0, tzinfo=tz)
         now_utc = now_local.astimezone(timezone.utc)
 
@@ -862,14 +877,32 @@ class TestNextTargetRun:
             result = _next_target_run("test-bot", 3, 24, now_utc, after_run=True)
 
         result_local = result.astimezone(tz)
-        # Must be >= now + 24h, which is Apr 7 3:30 AM
-        # The target hour is 3 AM, so candidate is Apr 7 3:00 AM -> that's < earliest
-        # Next candidate is Apr 8 3:00 AM
-        assert result_local.day == 8
+        assert result_local.day == 7  # tomorrow
         assert result_local.hour == 3
 
+    def test_after_run_bennie_regression(self):
+        """Regression: run completes at 04:36, target hour 04, next = tomorrow 04:XX.
+
+        Exact scenario that produced the 48h cadence bug in production on
+        2026-04-11: Bennie Bot finished at 04:36:09 with target_hour=4 and
+        interval=24. Expected: next run 04-12 at 04:XX (≈24h later), not 04-13.
+        """
+        from app.services.memory_hygiene import _next_target_run
+
+        tz = ZoneInfo("America/New_York")
+        now_local = datetime(2026, 4, 11, 4, 36, 9, tzinfo=tz)
+        now_utc = now_local.astimezone(timezone.utc)
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.TIMEZONE = "America/New_York"
+            result = _next_target_run("bennie-bot", 4, 24, now_utc, after_run=True)
+
+        result_local = result.astimezone(tz)
+        assert result_local.day == 12  # next day, not day-after
+        assert result_local.hour == 4
+
     def test_after_run_multi_day_interval(self):
-        """With 48h interval, should skip to the right day."""
+        """With 48h interval, should anchor to target hour ~2 days out."""
         from app.services.memory_hygiene import _next_target_run
 
         tz = ZoneInfo("America/New_York")
@@ -881,9 +914,46 @@ class TestNextTargetRun:
             result = _next_target_run("test-bot", 3, 48, now_utc, after_run=True)
 
         result_local = result.astimezone(tz)
-        # Earliest is Apr 8 4:00 AM. Target 3 AM on Apr 8 is before that.
-        # So it should be Apr 9 3:00 AM
-        assert result_local.day == 9
+        # days_between = 2. Next target occurrence after now is Apr 7 3 AM,
+        # then +1 day = Apr 8 3 AM.
+        assert result_local.day == 8
+        assert result_local.hour == 3
+
+    def test_after_run_exact_target_hour(self):
+        """Run that finishes exactly at target_hour:00:00 still schedules next day.
+
+        Edge case: the 'strictly after now' rule handles the boundary cleanly.
+        """
+        from app.services.memory_hygiene import _next_target_run
+
+        tz = ZoneInfo("America/New_York")
+        now_local = datetime(2026, 4, 6, 3, 0, 0, tzinfo=tz)
+        now_utc = now_local.astimezone(timezone.utc)
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.TIMEZONE = "America/New_York"
+            result = _next_target_run("test-bot", 3, 24, now_utc, after_run=True)
+
+        result_local = result.astimezone(tz)
+        assert result_local.day == 7
+        assert result_local.hour == 3
+
+    def test_after_run_before_target_hour(self):
+        """Run finishes at 01:00, target hour is 03:00: next run is today at 03:00."""
+        from app.services.memory_hygiene import _next_target_run
+
+        tz = ZoneInfo("America/New_York")
+        now_local = datetime(2026, 4, 6, 1, 0, 0, tzinfo=tz)
+        now_utc = now_local.astimezone(timezone.utc)
+
+        with patch("app.services.memory_hygiene.settings") as mock_settings:
+            mock_settings.TIMEZONE = "America/New_York"
+            result = _next_target_run("test-bot", 3, 24, now_utc, after_run=True)
+
+        result_local = result.astimezone(tz)
+        # 03:00 today is strictly after 01:00 now, so candidate stays today.
+        # days_between=1, no extra days. Next = today at 03:00.
+        assert result_local.day == 6
         assert result_local.hour == 3
 
     def test_stagger_within_window(self):

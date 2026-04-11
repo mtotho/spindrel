@@ -489,6 +489,43 @@ async def persist_turn(
         .where(Session.id == session_id)
         .values(last_active=now)
     )
+
+    # Outbox enqueue (durable channel-event delivery). Resolve every
+    # dispatch target bound to the channel and insert one outbox row per
+    # (record, target) pair INSIDE the same transaction as the message
+    # inserts. The drainer (`outbox_drainer.py`) picks them up and routes
+    # them through the renderer registry. A crash between this commit and
+    # the renderer ack does not lose deliveries — the rows survive.
+    if channel_id and persisted_records:
+        try:
+            from app.domain.channel_events import ChannelEvent, ChannelEventKind
+            from app.domain.message import Message as DomainMessage
+            from app.domain.payloads import MessagePayload
+            from app.services import outbox as _outbox
+            from app.services.dispatch_resolution import resolve_targets
+
+            channel_row = await db.get(Channel, channel_id)
+            if channel_row is not None:
+                targets = await resolve_targets(channel_row)
+                for record in persisted_records:
+                    domain_msg = DomainMessage.from_orm(
+                        record, channel_id=channel_id
+                    )
+                    event = ChannelEvent(
+                        channel_id=channel_id,
+                        kind=ChannelEventKind.NEW_MESSAGE,
+                        payload=MessagePayload(message=domain_msg),
+                    )
+                    await _outbox.enqueue(db, channel_id, event, targets)
+        except Exception:
+            # Outbox enqueue failure must not break persist_turn — the
+            # bus publish below still hits SSE subscribers via publish_typed.
+            # Log loudly so the failure doesn't go unnoticed.
+            logger.exception(
+                "outbox enqueue failed during persist_turn for channel %s",
+                channel_id,
+            )
+
     await db.commit()
 
     # Link orphaned attachments to the correct message in this turn.
@@ -537,11 +574,18 @@ async def persist_turn(
                 channel_id, first_user_msg_id, last_assistant_msg_id,
             )
 
-    # Ship each persisted row through the channel events bus, with
-    # attachments eagerly loaded so subscribers receive a complete payload.
-    # One event per row — clients filter (tool/empty rows) on their side.
+    # Publish each persisted row to the in-memory channel-events bus so
+    # SSE subscribers (web UI tabs) receive the typed NEW_MESSAGE event
+    # without waiting for the drainer. Attachments are eagerly loaded so
+    # the payload is complete. Outbox delivery to integrations runs in
+    # parallel via the drainer (rows enqueued above).
     if channel_id and persisted_records:
         try:
+            from app.domain.channel_events import ChannelEvent, ChannelEventKind
+            from app.domain.message import Message as DomainMessage
+            from app.domain.payloads import MessagePayload
+            from app.services.outbox_publish import publish_to_bus
+
             record_ids = [r.id for r in persisted_records]
             fresh_rows = (await db.execute(
                 select(Message)
@@ -549,10 +593,15 @@ async def persist_turn(
                 .where(Message.id.in_(record_ids))
                 .order_by(Message.created_at)
             )).scalars().all()
-            from app.services.channel_events import publish_message as _publish_message
             for row in fresh_rows:
                 try:
-                    _publish_message(channel_id, row)
+                    domain_msg = DomainMessage.from_orm(row, channel_id=channel_id)
+                    event = ChannelEvent(
+                        channel_id=channel_id,
+                        kind=ChannelEventKind.NEW_MESSAGE,
+                        payload=MessagePayload(message=domain_msg),
+                    )
+                    publish_to_bus(channel_id, event)
                 except Exception:
                     logger.warning(
                         "Failed to publish persisted message %s for channel %s",
@@ -560,7 +609,7 @@ async def persist_turn(
                     )
         except Exception:
             logger.exception(
-                "Failed to publish persist_turn rows for channel %s", channel_id,
+                "Failed publish loop for channel %s", channel_id,
             )
 
     return first_user_msg_id

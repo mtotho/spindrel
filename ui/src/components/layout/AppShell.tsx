@@ -22,7 +22,7 @@ export function AppShell() {
   const { data: status } = useSystemStatus();
   const t = useThemeTokens();
   const anyStreaming = useChatStore(
-    (s) => Object.values(s.channels).some((ch) => ch.isStreaming),
+    (s) => Object.values(s.channels).some((ch) => Object.keys(ch.turns).length > 0),
   );
 
   // Warn on tab close / refresh when a stream is active

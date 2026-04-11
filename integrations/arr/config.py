@@ -84,5 +84,10 @@ class _Settings:
     def BAZARR_API_KEY(self) -> str:
         return _get("BAZARR_API_KEY")
 
+    # -- FlareSolverr (no auth) --
+    @property
+    def FLARESOLVERR_URL(self) -> str:
+        return _get("FLARESOLVERR_URL")
+
 
 settings = _Settings()

@@ -1,6 +1,6 @@
 id: e2e-delegator
 name: "E2E Delegator Bot"
-model: "gemini-2.5-flash-lite"
+model: "gemini-2.5-flash"
 system_prompt: |
   You are a coordinator bot. When asked to delegate a task, use delegate_to_agent
   to send it to the appropriate bot. Be concise.

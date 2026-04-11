@@ -2,62 +2,70 @@ import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useChatStore } from "../../stores/chat";
-import type { SSEEvent } from "../../types/api";
+import { useBots } from "./useBots";
 
-/** Timeout (ms) for observed streams — if stream_end doesn't arrive, force-finish. */
-const OBSERVER_STREAM_TIMEOUT = 60_000;
+/** Timeout (ms) for in-flight turn observation — if turn_ended doesn't arrive, force-finish. */
+const OBSERVER_TURN_TIMEOUT = 60_000;
 
 /**
- * Subscribe to real-time channel events via SSE.
+ * Subscribe to typed channel-event bus events via SSE.
  *
- * Handles two kinds of events:
- * - `new_message`: invalidates TanStack Query so messages refetch from DB
- * - `stream_start/stream_event/stream_end`: relays the agent's SSE stream
- *   to observer tabs so they see real-time streaming, tool calls, thinking, etc.
+ * The wire format is `{ kind, channel_id, seq, ts, payload }` produced by
+ * `app/services/channel_events.event_to_sse_dict`. This hook is the single
+ * source of truth for chat streaming UI state — every concurrent agent
+ * turn (primary or member bot) lives in `chatStore.channels[id].turns`
+ * keyed by `payload.turn_id`.
  *
- * With stream_id-based demuxing, multiple bot streams can run concurrently.
- * Each stream is tracked independently in `memberStreams` (chat store).
- * The primary bot's direct SSE (useChannelChat) still uses the singular fields
- * for the local tab — member streams only go through this channel events path.
+ * Reconnect-with-replay: on bus reconnect, the server resumes from `since`
+ * (the last seq we saw). On `replay_lapsed` we drop everything in flight
+ * for the channel and refetch from REST.
  */
 export function useChannelEvents(channelId: string | undefined, primaryBotId?: string) {
   const queryClient = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
-  const handleSSEEvent = useChatStore((s) => s.handleSSEEvent);
-  const finishStreaming = useChatStore((s) => s.finishStreaming);
+  const { data: bots } = useBots();
 
-  // Keep primaryBotId current without triggering SSE reconnect
+  // Bot-id → display name lookup, kept in a ref so reconnects don't churn.
+  const botNamesRef = useRef<Record<string, string>>({});
+  if (bots) {
+    for (const b of bots) botNamesRef.current[b.id] = b.name ?? b.id;
+  }
+
+  // Keep primaryBotId current without triggering SSE reconnect.
   const primaryBotIdRef = useRef(primaryBotId);
   primaryBotIdRef.current = primaryBotId;
 
-  // Per-stream delta batching (stream_id → { text, think })
+  // Per-turn delta batching (turn_id → { text, think })
   const pendingDeltasRef = useRef<Record<string, { text: string; think: string }>>({});
   const rafRef = useRef<number>(0);
 
-  // Per-stream observer timeouts
+  // Per-turn observer timeouts so a missing turn_ended doesn't leave a
+  // streaming indicator stuck on screen forever.
   const observerTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Last bus seq we received, for replay-on-reconnect.
+  const lastSeqRef = useRef<number | null>(null);
 
   const flushDeltas = useCallback(
     (chId: string) => {
       rafRef.current = 0;
       const store = useChatStore.getState();
       const pending = pendingDeltasRef.current;
-      for (const [streamId, deltas] of Object.entries(pending)) {
+      for (const [turnId, deltas] of Object.entries(pending)) {
         if (!deltas.text && !deltas.think) continue;
-        // Route to the correct member stream
-        if (store.channels[chId]?.memberStreams[streamId]) {
-          if (deltas.text) {
-            store.handleMemberStreamEvent(chId, streamId, {
-              event: "text_delta",
-              data: { delta: deltas.text },
-            });
-          }
-          if (deltas.think) {
-            store.handleMemberStreamEvent(chId, streamId, {
-              event: "thinking",
-              data: { delta: deltas.think },
-            });
-          }
+        const ch = store.channels[chId];
+        if (!ch?.turns[turnId]) continue;
+        if (deltas.text) {
+          store.handleTurnEvent(chId, turnId, {
+            event: "text_delta",
+            data: { delta: deltas.text },
+          });
+        }
+        if (deltas.think) {
+          store.handleTurnEvent(chId, turnId, {
+            event: "thinking",
+            data: { delta: deltas.think },
+          });
         }
       }
       pendingDeltasRef.current = {};
@@ -75,37 +83,37 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;
 
-    function clearObserverTimeout(streamId: string) {
-      const timer = observerTimeoutsRef.current[streamId];
+    function clearObserverTimeout(turnId: string) {
+      const timer = observerTimeoutsRef.current[turnId];
       if (timer) {
         clearTimeout(timer);
-        delete observerTimeoutsRef.current[streamId];
+        delete observerTimeoutsRef.current[turnId];
       }
     }
 
     function clearAllObserverTimeouts() {
-      for (const streamId of Object.keys(observerTimeoutsRef.current)) {
-        clearTimeout(observerTimeoutsRef.current[streamId]);
+      for (const turnId of Object.keys(observerTimeoutsRef.current)) {
+        clearTimeout(observerTimeoutsRef.current[turnId]);
       }
       observerTimeoutsRef.current = {};
     }
 
-    function startObserverTimeout(chId: string, streamId: string) {
-      clearObserverTimeout(streamId);
-      observerTimeoutsRef.current[streamId] = setTimeout(() => {
-        delete observerTimeoutsRef.current[streamId];
-        const ch = useChatStore.getState().getChannel(chId);
-        // Flush pending deltas for this stream
-        const deltas = pendingDeltasRef.current[streamId];
+    function startObserverTimeout(chId: string, turnId: string) {
+      clearObserverTimeout(turnId);
+      observerTimeoutsRef.current[turnId] = setTimeout(() => {
+        delete observerTimeoutsRef.current[turnId];
+        // Flush pending deltas for this turn before finishing.
+        const deltas = pendingDeltasRef.current[turnId];
         if (deltas && (deltas.text || deltas.think)) {
           cancelAnimationFrame(rafRef.current);
           flushDeltas(chId);
         }
-        if (ch.memberStreams[streamId]) {
-          useChatStore.getState().finishMemberStream(chId, streamId);
+        const ch = useChatStore.getState().getChannel(chId);
+        if (ch.turns[turnId]) {
+          useChatStore.getState().finishTurn(chId, turnId);
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
         }
-      }, OBSERVER_STREAM_TIMEOUT);
+      }, OBSERVER_TURN_TIMEOUT);
     }
 
     function connect() {
@@ -115,7 +123,10 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
       const ctrl = new AbortController();
       abortRef.current = ctrl;
 
-      fetch(`${serverUrl}/api/v1/channels/${channelId}/events`, {
+      // Resume from the last seq we saw if reconnecting.
+      const sinceParam = lastSeqRef.current != null ? `?since=${lastSeqRef.current}` : "";
+
+      fetch(`${serverUrl}/api/v1/channels/${channelId}/events${sinceParam}`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           Accept: "text/event-stream",
@@ -152,12 +163,12 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
             }
           }
 
-          // Stream ended cleanly (server restart, etc.) — reconnect
+          // Stream ended cleanly (server restart, etc.) — reconnect.
           if (!stopped) {
             retryTimer = setTimeout(connect, 1000);
           }
         })
-        .catch((err) => {
+        .catch((_err) => {
           if (stopped || ctrl.signal.aborted) return;
           const delay = Math.min(1000 * 2 ** retryCount, 30000);
           retryCount = Math.min(retryCount + 1, 10);
@@ -165,122 +176,199 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
         });
     }
 
-    function handleEvent(chId: string, payload: any) {
-      const ch = useChatStore.getState().getChannel(chId);
-
-      if (payload.type === "new_message") {
-        // Skip if this channel is actively streaming (either locally or observing)
-        if (ch.isStreaming || ch.isProcessing) return;
-        // Also skip if any member streams are active
-        if (Object.keys(ch.memberStreams).length > 0) return;
-        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-        return;
+    function handleEvent(chId: string, wire: any) {
+      const kind = wire?.kind;
+      const payload = wire?.payload;
+      if (typeof wire?.seq === "number") {
+        lastSeqRef.current = wire.seq;
       }
+      if (!kind) return;
+      const store = useChatStore.getState();
 
-      if (payload.type === "stream_start") {
-        const streamId = payload.stream_id as string | undefined;
-        if (!streamId) return; // Legacy event without stream_id — ignore
-
-        // If this tab initiated the stream (isLocalStream), the primary bot's
-        // stream_start should be ignored (already handled by useChannelChat).
-        // But member bot streams always go through memberStreams.
-        // Match against both respondingBotId (set by stream_meta) and the
-        // channel's configured primary bot ID to avoid a race where stream_start
-        // arrives before stream_meta and member bot streams get dropped.
-        if (ch.isLocalStream && (
-          payload.responding_bot_id === ch.respondingBotId ||
-          payload.responding_bot_id === primaryBotIdRef.current
-        )) {
+      switch (kind) {
+        case "new_message": {
+          // The bus already shipped the full message; refetch session pages
+          // (cheap because TanStack dedupes) so the canonical row appears.
+          // Suppress while a turn is still in flight to avoid clobbering
+          // the synthetic streaming-content message in the store.
+          const ch = store.getChannel(chId);
+          if (Object.keys(ch.turns).length > 0 || ch.isProcessing) return;
+          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
           return;
         }
 
-        useChatStore.getState().startMemberStream(
-          chId, streamId,
-          payload.responding_bot_id ?? "",
-          payload.responding_bot_name ?? "",
-        );
-        startObserverTimeout(chId, streamId);
-        return;
-      }
+        case "message_updated": {
+          // Workflow lifecycle / step progress in-place edits.
+          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          return;
+        }
 
-      if (payload.type === "stream_event") {
-        const streamId = payload.stream_id as string | undefined;
-        const inner = payload.event;
-        if (!inner || !streamId) return;
+        case "turn_started": {
+          const turnId = payload?.turn_id as string | undefined;
+          const botId = payload?.bot_id as string | undefined;
+          if (!turnId || !botId) return;
+          const botName = botNamesRef.current[botId] ?? botId;
+          const isPrimary = botId === primaryBotIdRef.current;
+          store.startTurn(chId, turnId, botId, botName, isPrimary);
+          startObserverTimeout(chId, turnId);
+          return;
+        }
 
-        // Check if this is a member stream we're tracking
-        const latestCh = useChatStore.getState().getChannel(chId);
-        if (!latestCh.memberStreams[streamId]) return;
-
-        const eventType = inner.type as SSEEvent["event"];
-
-        // Batch text_delta and thinking for 60fps rendering
-        if (eventType === "text_delta" || eventType === "thinking") {
-          if (!pendingDeltasRef.current[streamId]) {
-            pendingDeltasRef.current[streamId] = { text: "", think: "" };
+        case "turn_stream_token": {
+          const turnId = payload?.turn_id as string | undefined;
+          if (!turnId) return;
+          if (!store.getChannel(chId).turns[turnId]) return;
+          if (!pendingDeltasRef.current[turnId]) {
+            pendingDeltasRef.current[turnId] = { text: "", think: "" };
           }
-          if (eventType === "text_delta") {
-            pendingDeltasRef.current[streamId].text += inner.delta ?? "";
-          } else {
-            pendingDeltasRef.current[streamId].think += inner.delta ?? "";
-          }
+          pendingDeltasRef.current[turnId].text += (payload?.delta as string) ?? "";
           if (!rafRef.current) {
             rafRef.current = requestAnimationFrame(() => flushDeltas(chId));
           }
           return;
         }
 
-        // Flush pending deltas before processing other events
-        const deltas = pendingDeltasRef.current[streamId];
-        if (deltas && (deltas.text || deltas.think)) {
-          cancelAnimationFrame(rafRef.current);
-          flushDeltas(chId);
+        case "turn_stream_tool_start": {
+          const turnId = payload?.turn_id as string | undefined;
+          if (!turnId) return;
+          // Flush any pending deltas before the tool chip appears.
+          const deltas = pendingDeltasRef.current[turnId];
+          if (deltas && (deltas.text || deltas.think)) {
+            cancelAnimationFrame(rafRef.current);
+            flushDeltas(chId);
+          }
+          if (!store.getChannel(chId).turns[turnId]) return;
+          const argsStr =
+            payload?.arguments && Object.keys(payload.arguments).length > 0
+              ? JSON.stringify(payload.arguments)
+              : undefined;
+          store.handleTurnEvent(chId, turnId, {
+            event: "tool_start",
+            data: { tool: payload?.tool_name ?? "unknown", args: argsStr },
+          });
+          return;
         }
 
-        useChatStore.getState().handleMemberStreamEvent(
-          chId, streamId, { event: eventType, data: inner },
-        );
-        return;
-      }
+        case "turn_stream_tool_result": {
+          const turnId = payload?.turn_id as string | undefined;
+          if (!turnId) return;
+          const deltas = pendingDeltasRef.current[turnId];
+          if (deltas && (deltas.text || deltas.think)) {
+            cancelAnimationFrame(rafRef.current);
+            flushDeltas(chId);
+          }
+          if (!store.getChannel(chId).turns[turnId]) return;
+          store.handleTurnEvent(chId, turnId, {
+            event: "tool_result",
+            data: {
+              tool: payload?.tool_name,
+              is_error: !!payload?.is_error,
+            } as any,
+          });
+          return;
+        }
 
-      if (payload.type === "pending_member_stream") {
-        // Legacy event — no longer needed with stream_id-based demuxing.
-        // Trigger safety-net refetch for backward compat.
-        const delays = [3000, 8000, 15000];
-        for (const delay of delays) {
-          setTimeout(() => {
-            const latest = useChatStore.getState().getChannel(chId);
-            if (!latest.isStreaming && Object.keys(latest.memberStreams).length === 0) {
-              queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        case "approval_requested": {
+          // Approvals can target the channel without a specific turn (e.g.
+          // capability gates fired pre-execution). Apply to the most recent
+          // turn for the channel; in practice there's only one running turn
+          // per primary bot at a time.
+          const ch = store.getChannel(chId);
+          const turnIds = Object.keys(ch.turns);
+          const targetTurnId = turnIds[turnIds.length - 1];
+          if (!targetTurnId) return;
+          const deltas = pendingDeltasRef.current[targetTurnId];
+          if (deltas && (deltas.text || deltas.think)) {
+            cancelAnimationFrame(rafRef.current);
+            flushDeltas(chId);
+          }
+          store.handleTurnEvent(chId, targetTurnId, {
+            event: "approval_request",
+            data: {
+              approval_id: payload?.approval_id,
+              tool: payload?.tool_name,
+              reason: payload?.reason,
+              capability: payload?.capability,
+            } as any,
+          });
+          return;
+        }
+
+        case "approval_resolved": {
+          const ch = store.getChannel(chId);
+          // Find the turn that has the matching approval id and dispatch.
+          for (const [turnId, turn] of Object.entries(ch.turns)) {
+            if (turn.toolCalls.some((tc) => tc.approvalId === payload?.approval_id)) {
+              store.handleTurnEvent(chId, turnId, {
+                event: "approval_resolved",
+                data: {
+                  approval_id: payload?.approval_id,
+                  decision: payload?.decision,
+                } as any,
+              });
+              return;
             }
-          }, delay);
-        }
-        return;
-      }
-
-      if (payload.type === "stream_end") {
-        const streamId = payload.stream_id as string | undefined;
-        if (!streamId) return;
-
-        clearObserverTimeout(streamId);
-
-        // Flush any remaining deltas for this stream
-        const deltas = pendingDeltasRef.current[streamId];
-        if (deltas && (deltas.text || deltas.think)) {
-          cancelAnimationFrame(rafRef.current);
-          flushDeltas(chId);
+          }
+          return;
         }
 
-        const latestCh = useChatStore.getState().getChannel(chId);
-        const wasTracked = !!latestCh.memberStreams[streamId];
-        if (wasTracked) {
-          useChatStore.getState().finishMemberStream(chId, streamId);
-          // Refetch only when this tab was observing a member stream — local
-          // tab streams are handled by useChatStream.onComplete in useChannelChat
-          // (otherwise both fire and we double-refetch every page on every send).
+        case "turn_ended": {
+          const turnId = payload?.turn_id as string | undefined;
+          if (!turnId) return;
+          clearObserverTimeout(turnId);
+          // Flush any remaining deltas for this turn.
+          const deltas = pendingDeltasRef.current[turnId];
+          if (deltas && (deltas.text || deltas.think)) {
+            cancelAnimationFrame(rafRef.current);
+            flushDeltas(chId);
+          }
+          delete pendingDeltasRef.current[turnId];
+          // Finalize the turn (materialize content as a synthetic message).
+          if (store.getChannel(chId).turns[turnId]) {
+            if (payload?.error) {
+              store.setError(chId, String(payload.error));
+            }
+            store.finishTurn(chId, turnId);
+            // Pull the canonical DB row in (replaces the synthetic message).
+            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          }
+          return;
+        }
+
+        case "delivery_failed": {
+          // Surface as a channel-level error so the UI can render a chip.
+          if (payload?.last_error) {
+            store.setError(chId, `Delivery failed: ${payload.last_error}`);
+          }
+          return;
+        }
+
+        case "replay_lapsed": {
+          // Buffer too short OR our subscriber overflowed. Either way the
+          // safe move is to drop in-flight state and refetch from REST.
+          // We'll reconnect cleanly on the next loop iteration.
+          for (const turnId of Object.keys(observerTimeoutsRef.current)) {
+            clearObserverTimeout(turnId);
+          }
+          pendingDeltasRef.current = {};
+          rafRef.current = 0;
+          const ch = store.getChannel(chId);
+          for (const turnId of Object.keys(ch.turns)) {
+            store.finishTurn(chId, turnId);
+          }
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          // Reset the cursor so the next connect resumes from current head.
+          lastSeqRef.current = null;
+          return;
         }
-        return;
+
+        case "shutdown": {
+          // Server is going down — let the reconnect backoff handle resume.
+          return;
+        }
+
+        default:
+          return;
       }
     }
 
@@ -293,5 +381,5 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
       if (retryTimer) clearTimeout(retryTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [channelId, queryClient, handleSSEEvent, finishStreaming, flushDeltas]);
+  }, [channelId, queryClient, flushDeltas]);
 }

@@ -173,12 +173,12 @@ class DelegationService:
             await asyncio.sleep(0)
             restore_agent_context(parent_ctx)
 
-        # Post child response via dispatcher (attributed to child bot).
+        # Publish child response onto the channel-events bus (attributed to child bot).
         # In a streaming context (outermost run_stream set the ContextVar), queue the post
         # so it can be emitted as a delegation_post event BEFORE the parent's response —
         # this ensures the child's message appears above the parent's in the timeline.
-        # In a non-streaming context (task worker), post immediately.
-        if dispatch_type and dispatch_config and final_response:
+        # In a non-streaming context (task worker), publish immediately.
+        if channel_id is not None and final_response:
             from app.agent.context import current_pending_delegation_posts
             pending = current_pending_delegation_posts.get()
             if pending is not None:
@@ -194,9 +194,10 @@ class DelegationService:
                 )
             else:
                 posted = await self.post_child_response(
-                    dispatch_type, dispatch_config, final_response,
-                    delegate_bot_id, reply_in_thread=reply_in_thread,
-                    client_actions=child_client_actions,
+                    channel_id=channel_id,
+                    text=final_response,
+                    bot_id=delegate_bot_id,
+                    reply_in_thread=reply_in_thread,
                 )
                 if posted:
                     from app.services.sessions import store_dispatch_echo
@@ -291,25 +292,47 @@ class DelegationService:
 
     async def post_child_response(
         self,
-        dispatch_type: str,
-        dispatch_config: dict,
+        *,
+        channel_id: uuid.UUID,
         text: str,
         bot_id: str,
         reply_in_thread: bool = False,
-        client_actions: list[dict] | None = None,
     ) -> bool:
-        """Dispatch a child bot's response to the appropriate target.
+        """Publish a child bot's response onto the channel-events bus.
 
-        Called by the non-streaming run() wrapper when delegation_post events are emitted,
-        or as a fallback when the streaming delegation_post queue is unavailable
-        (e.g. _with_keepalive Task ContextVar boundary).
+        Called by the non-streaming `run()` wrapper and by the turn worker
+        when ``delegation_post`` events fire. Renderers consume the
+        NEW_MESSAGE event and post to the integration.
         """
-        from app.agent import dispatchers
-        posted = await dispatchers.get(dispatch_type).post_message(
-            dispatch_config, text, bot_id=bot_id, reply_in_thread=reply_in_thread,
-            client_actions=client_actions,
+        from datetime import datetime, timezone
+
+        from app.domain.actor import ActorRef
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.message import Message as DomainMessage
+        from app.domain.payloads import MessagePayload
+        from app.services.channel_events import publish_typed
+
+        domain_msg = DomainMessage(
+            id=uuid.uuid4(),
+            session_id=uuid.uuid4(),  # delegation post is bus-only, no session row
+            role="assistant",
+            content=text,
+            created_at=datetime.now(timezone.utc),
+            actor=ActorRef.bot(bot_id, display_name=bot_id),
+            channel_id=channel_id,
         )
-        return posted
+        publish_typed(
+            channel_id,
+            ChannelEvent(
+                channel_id=channel_id,
+                kind=ChannelEventKind.NEW_MESSAGE,
+                payload=MessagePayload(
+                    message=domain_msg,
+                    reply_in_thread=reply_in_thread,
+                ),
+            ),
+        )
+        return True
 
 
 delegation_service = DelegationService()

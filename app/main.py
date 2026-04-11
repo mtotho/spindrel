@@ -595,6 +595,40 @@ async def lifespan(application: FastAPI):
     from app.services.integration_processes import process_manager
     _workers.append(safe_create_task(process_manager.start_auto_start_processes(), name="integration_processes"))
 
+    # Start one IntegrationDispatcherTask per registered ChannelRenderer
+    # (Phase B of the Integration Delivery refactor). Phase C1 imports
+    # `app.integrations.core_renderers` so the four core renderers
+    # (none / web / webhook / internal) self-register before this loop
+    # runs. Phase F adds `SlackRenderer`. Phase D (this) wires the real
+    # channel → DispatchTarget resolver via `dispatch_resolution`.
+    import app.integrations.core_renderers  # noqa: F401  registers core renderers
+    # Integration-specific renderers (Slack, Discord, BlueBubbles, …) are
+    # auto-imported by the integration discovery loop above (line 424,
+    # which calls `discover_integrations()` → `_load_single_integration`
+    # → auto-imports `renderer.py`). Each integration's renderer.py runs
+    # a `_register()` helper at import time so by the time we reach this
+    # block, the registry is already populated. Never `import
+    # integrations.X.renderer` explicitly from `app/` — that breaks the
+    # boundary the discovery system was built to enforce.
+    from app.integrations.renderer_registry import all_renderers
+    from app.services.channel_renderers import IntegrationDispatcherTask
+    from app.services.dispatch_resolution import resolve_target_for_renderer
+    _renderer_dispatchers: list[IntegrationDispatcherTask] = []
+    for _renderer in all_renderers().values():
+        async def _resolve(channel_id, _r=_renderer):
+            return await resolve_target_for_renderer(channel_id, _r.integration_id)
+        _disp = IntegrationDispatcherTask(_renderer, _resolve)
+        _disp.start()
+        _renderer_dispatchers.append(_disp)
+        logger.info("Started IntegrationDispatcherTask for renderer %r", _renderer.integration_id)
+
+    # Outbox drainer. Pulls pending outbox rows and routes them through
+    # the renderer registry. Persist_turn enqueues one row per dispatch
+    # target inside the same DB transaction as the message inserts; the
+    # drainer fans them out asynchronously to integration renderers.
+    from app.services.outbox_drainer import outbox_drainer_worker
+    _workers.append(safe_create_task(outbox_drainer_worker(), name="outbox_drainer"))
+
     try:
         yield
     finally:
@@ -603,6 +637,10 @@ async def lifespan(application: FastAPI):
         # this ensures clean subscriber cleanup for any stragglers.
         from app.services.channel_events import signal_shutdown
         signal_shutdown()
+
+        # Stop renderer dispatchers cleanly so per-channel state is dropped.
+        for _disp in _renderer_dispatchers:
+            await _disp.stop()
 
         for w in _workers:
             w.cancel()

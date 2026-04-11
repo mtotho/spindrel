@@ -65,7 +65,7 @@ export function InContextCard({
 
   // Auto-refresh while bot is streaming so newly written active files appear.
   const queryClient = useQueryClient();
-  const isStreaming = useChatStore((s) => s.getChannel(channelId).isStreaming);
+  const isStreaming = useChatStore((s) => Object.keys(s.getChannel(channelId).turns).length > 0);
   useEffect(() => {
     if (!isStreaming) return;
     const interval = setInterval(() => {

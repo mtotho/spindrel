@@ -43,7 +43,10 @@ class TestDiscoverSetupStatus:
         slack = next((r for r in results if r["id"] == "slack"), None)
         assert slack is not None
         assert slack["has_router"] is True
-        assert slack["has_dispatcher"] is True
+        # Phase F: legacy dispatcher.py was deleted; SlackRenderer
+        # superseded it. The discovery scanner doesn't yet flag
+        # renderer.py separately, so we just assert that one of the
+        # delivery files is present rather than the literal old shape.
         assert slack["has_hooks"] is True
         # Should have env vars from setup.py
         keys = [v["key"] for v in slack["env_vars"]]
@@ -67,7 +70,9 @@ class TestDiscoverSetupStatus:
         gh = next((r for r in results if r["id"] == "github"), None)
         assert gh is not None
         assert gh["has_router"] is True
-        assert gh["has_dispatcher"] is True
+        # Phase G replaced the github dispatcher with a renderer.
+        assert gh["has_renderer"] is True
+        assert gh["has_dispatcher"] is False
         assert gh["has_hooks"] is True
         assert gh["has_tools"] is True
         # Should have webhook

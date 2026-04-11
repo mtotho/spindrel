@@ -263,18 +263,19 @@ class TestPersistTurnChannelEvents:
             db_session, sid, bot, messages, from_index=0, channel_id=channel_id,
         )
 
-        # Two events should be in the replay buffer (one per row)
+        # Two events should be in the replay buffer (one per row).
+        # Phase E persist_turn publishes via ``publish_typed(NEW_MESSAGE, ...)``
+        # which stashes the typed event under ``metadata["_typed_event"]``.
         buf = list(channel_events._replay_buffer.get(channel_id, ()))
         new_msg_events = [e for e in buf if e.event_type == "new_message"]
         assert len(new_msg_events) == 2
 
-        # First event = user, second = assistant
-        first = new_msg_events[0].metadata["message"]
-        second = new_msg_events[1].metadata["message"]
-        assert first["role"] == "user"
-        assert first["content"] == "hello"
-        assert second["role"] == "assistant"
-        assert second["content"] == "hi back"
+        first_payload = new_msg_events[0].metadata["_typed_event"].payload
+        second_payload = new_msg_events[1].metadata["_typed_event"].payload
+        assert first_payload.message.role == "user"
+        assert first_payload.message.content == "hello"
+        assert second_payload.message.role == "assistant"
+        assert second_payload.message.content == "hi back"
 
         # Sequence numbers must be monotonic
         assert new_msg_events[0].seq < new_msg_events[1].seq

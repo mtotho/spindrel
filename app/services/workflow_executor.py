@@ -60,21 +60,28 @@ async def _dispatch_workflow_event(
     Events: started, step_done, step_failed, completed, failed
     Dispatch failures are swallowed — never block workflow execution.
     """
-    if run.dispatch_type in ("none", None) or not run.dispatch_config:
+    if run.channel_id is None:
         return
     try:
-        from app.agent import dispatchers
-        dispatcher = dispatchers.get(run.dispatch_type)
-        run_short = str(run.id)[:8]
-        text = f"[Workflow] {workflow_name} — {event}"
-        if detail:
-            text += f": {detail}"
-        text += f" (run {run_short})"
-        await dispatcher.post_message(
-            run.dispatch_config, text, bot_id=run.bot_id,
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.payloads import WorkflowProgressPayload
+        from app.services.channel_events import publish_typed
+
+        publish_typed(
+            run.channel_id,
+            ChannelEvent(
+                channel_id=run.channel_id,
+                kind=ChannelEventKind.WORKFLOW_PROGRESS,
+                payload=WorkflowProgressPayload(
+                    run_id=str(run.id),
+                    event=event,
+                    detail=f"{workflow_name}: {detail}" if detail else workflow_name,
+                    bot_id=run.bot_id,
+                ),
+            ),
         )
     except Exception:
-        logger.debug("Workflow event dispatch failed (event=%s, run=%s)", event, run.id, exc_info=True)
+        logger.debug("Workflow event publish failed (event=%s, run=%s)", event, run.id, exc_info=True)
 
 
 async def _post_workflow_chat_message(

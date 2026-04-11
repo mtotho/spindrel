@@ -502,7 +502,7 @@ async def cancel_stale_pending_tasks() -> None:
 async def diagnose_mirror(_auth=Depends(verify_admin_auth)) -> dict:
     """Diagnose the mirror-to-iMessage path. Shows exactly what would happen."""
     from app.agent.hooks import get_integration_meta
-    from app.agent import dispatchers as disp_mod
+    from app.integrations import renderer_registry
 
     issues = []
     checks = {}
@@ -515,11 +515,11 @@ async def diagnose_mirror(_auth=Depends(verify_admin_auth)) -> dict:
     else:
         issues.append("IntegrationMeta not registered — hooks.py not imported")
 
-    # 2. Check BB dispatcher registration
-    dispatcher = disp_mod._registry.get("bluebubbles")
-    checks["dispatcher_registered"] = dispatcher is not None
-    if not dispatcher:
-        issues.append("BlueBubblesDispatcher not registered — dispatcher.py not imported")
+    # 2. Check BB renderer registration (renderer.py imported by discovery?)
+    renderer = renderer_registry.get("bluebubbles")
+    checks["renderer_registered"] = renderer is not None
+    if not renderer:
+        issues.append("BlueBubblesRenderer not registered — renderer.py not imported")
 
     # 3. Check BB credentials accessible
     server_url, password = _get_bb_credentials()

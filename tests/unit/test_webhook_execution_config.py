@@ -10,73 +10,84 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# 1. GitHub dispatcher accepts extra_metadata without error
+# 1. GitHubRenderer round-trips a github dispatch_config dict
 # ---------------------------------------------------------------------------
+#
+# Phase G replaced ``GitHubDispatcher`` with ``GitHubRenderer``. The
+# legacy ``deliver(task, result)`` test surface is gone — we now drive
+# the renderer with a typed event + target. The thing the old test was
+# really pinning was that the github dispatch_config shape (with the
+# nested ``comment_target.issue_number`` and assorted event metadata)
+# round-trips into a usable typed target. ``GitHubTarget.from_dispatch_config``
+# is what handles that flattening, so we test it directly here.
 
-class TestGitHubDispatcherExtraMetadata:
-    def _make_task(self, **overrides):
-        task = MagicMock()
-        task.id = overrides.get("id", uuid.uuid4())
-        task.bot_id = overrides.get("bot_id", "test-bot")
-        task.client_id = overrides.get("client_id", "github:org/repo")
-        task.session_id = overrides.get("session_id", uuid.uuid4())
-        task.dispatch_config = overrides.get("dispatch_config", {
+class TestGitHubTargetRoundTrip:
+    def _config(self, **overrides):
+        cfg = {
             "type": "github",
             "owner": "org",
             "repo": "repo",
             "token": "ghp_test",
             "comment_target": {"type": "issue_comment", "issue_number": 1},
-        })
-        return task
-
-    @pytest.mark.asyncio
-    async def test_deliver_accepts_extra_metadata(self):
-        from integrations.github.dispatcher import GitHubDispatcher
-
-        dispatcher = GitHubDispatcher()
-        task = self._make_task()
-
-        with patch("integrations.github.dispatcher._post_comment",
-                    new_callable=AsyncMock, return_value=True), \
-             patch("app.services.sessions.store_dispatch_echo",
-                    new_callable=AsyncMock):
-            # Should not raise TypeError
-            await dispatcher.deliver(
-                task, "result text",
-                client_actions=None,
-                extra_metadata={"delegated_by": "parent-bot"},
-            )
-
-    @pytest.mark.asyncio
-    async def test_deliver_works_without_extra_metadata(self):
-        from integrations.github.dispatcher import GitHubDispatcher
-
-        dispatcher = GitHubDispatcher()
-        task = self._make_task()
-
-        with patch("integrations.github.dispatcher._post_comment",
-                    new_callable=AsyncMock, return_value=True), \
-             patch("app.services.sessions.store_dispatch_echo",
-                    new_callable=AsyncMock):
-            await dispatcher.deliver(task, "result text")
-
-    @pytest.mark.asyncio
-    async def test_post_message_accepts_extra_metadata(self):
-        from integrations.github.dispatcher import GitHubDispatcher
-
-        dispatcher = GitHubDispatcher()
-        config = {
-            "owner": "org", "repo": "repo", "token": "ghp_test",
-            "comment_target": {"type": "issue_comment", "issue_number": 1},
         }
+        cfg.update(overrides)
+        return cfg
 
-        with patch("integrations.github.dispatcher._post_comment",
-                    new_callable=AsyncMock, return_value=True):
-            ok = await dispatcher.post_message(
-                config, "hello",
-                extra_metadata={"some": "data"},
-            )
-        assert ok is True
+    def test_parse_dispatch_target_flattens_comment_target(self):
+        from app.domain.dispatch_target import parse_dispatch_target
+        # Force the github target to be registered (test isolation —
+        # the import side-effect runs target_registry.register).
+        import integrations.github.target  # noqa: F401
+
+        target = parse_dispatch_target(self._config())
+        assert target.owner == "org"
+        assert target.repo == "repo"
+        assert target.issue_number == 1
+
+    def test_parse_drops_token_and_event_metadata(self):
+        from app.domain.dispatch_target import parse_dispatch_target
+        import integrations.github.target  # noqa: F401
+
+        cfg = self._config(sender="bot-user", action="opened")
+        # Adding extra event metadata must NOT crash the parse — the
+        # github target only consumes the fields it actually carries.
+        target = parse_dispatch_target(cfg)
+        assert target.owner == "org"
+        assert not hasattr(target, "token")
+        assert not hasattr(target, "sender")
+
+    @pytest.mark.asyncio
+    async def test_renderer_render_for_turn_ended(self):
+        """Smoke-test that the renderer fires _post_comment with the
+        flattened target. Phase G removed the dispatcher's
+        ``extra_metadata`` plumbing — the renderer reads the result
+        from the typed payload directly.
+        """
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.dispatch_target import parse_dispatch_target
+        from app.domain.payloads import TurnEndedPayload
+        from integrations.github import target as _t  # noqa: F401  registers GitHubTarget
+        from integrations.github.renderer import GitHubRenderer
+
+        renderer = GitHubRenderer()
+        target = parse_dispatch_target(self._config())
+        event = ChannelEvent(
+            channel_id=uuid.uuid4(),
+            kind=ChannelEventKind.TURN_ENDED,
+            payload=TurnEndedPayload(
+                bot_id="test-bot",
+                turn_id=uuid.uuid4(),
+                result="result text",
+                error=None,
+                client_actions=[],
+            ),
+        )
+
+        with patch("integrations.github.renderer._post_comment",
+                   new_callable=AsyncMock, return_value=True), \
+             patch("integrations.github.renderer._get_token", return_value="ghp_test"):
+            receipt = await renderer.render(event, target)
+        assert receipt.success is True
 
 
 # ---------------------------------------------------------------------------

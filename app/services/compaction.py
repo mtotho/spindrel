@@ -1174,8 +1174,6 @@ async def run_compaction_stream(
 async def _drain_compaction(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     correlation_id: uuid.UUID | None = None,
-    dispatch_type: str | None = None,
-    dispatch_config: dict | None = None,
     budget_triggered: bool = False,
 ) -> None:
     """Drain run_compaction_stream (memory phase if any + summary). Used by fire-and-forget path."""
@@ -1187,27 +1185,46 @@ async def _drain_compaction(
     except Exception:
         logger.exception("Background compaction failed for session %s", session_id)
 
-    if compacted and dispatch_type and dispatch_config:
+    if compacted:
         try:
-            from app.agent.dispatchers import get as get_dispatcher
-            from app.db.models import Task
-            notif = Task(
-                bot_id=bot.id,
-                session_id=session_id,
-                dispatch_type=dispatch_type,
-                dispatch_config=dispatch_config,
-            )
-            dispatcher = get_dispatcher(dispatch_type)
-            await dispatcher.deliver(notif, "🧠 _Context compacted._")
+            from app.db.engine import async_session as _async_session
+            from app.db.models import Session as _SessionRow
+            async with _async_session() as _db:
+                _sess = await _db.get(_SessionRow, session_id)
+                _channel_id = _sess.channel_id if _sess else None
+            if _channel_id is not None:
+                from datetime import datetime, timezone
+
+                from app.domain.actor import ActorRef
+                from app.domain.channel_events import ChannelEvent, ChannelEventKind
+                from app.domain.message import Message as DomainMessage
+                from app.domain.payloads import MessagePayload
+                from app.services.channel_events import publish_typed
+
+                _domain_msg = DomainMessage(
+                    id=uuid.uuid4(),
+                    session_id=session_id,
+                    role="system",
+                    content="🧠 _Context compacted._",
+                    created_at=datetime.now(timezone.utc),
+                    actor=ActorRef.system("compaction", "Context"),
+                    channel_id=_channel_id,
+                )
+                publish_typed(
+                    _channel_id,
+                    ChannelEvent(
+                        channel_id=_channel_id,
+                        kind=ChannelEventKind.NEW_MESSAGE,
+                        payload=MessagePayload(message=_domain_msg),
+                    ),
+                )
         except Exception:
-            logger.warning("Failed to post compaction notification for session %s", session_id)
+            logger.warning("Failed to publish compaction notification for session %s", session_id)
 
 
 def maybe_compact(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     correlation_id: uuid.UUID | None = None,
-    dispatch_type: str | None = None,
-    dispatch_config: dict | None = None,
     budget_utilization: float | None = None,
 ) -> None:
     """If compaction is due, run it in the background (memory phase + summary). Non-blocking.
@@ -1218,8 +1235,6 @@ def maybe_compact(
     asyncio.create_task(_drain_compaction(
         session_id, bot, messages,
         correlation_id=correlation_id,
-        dispatch_type=dispatch_type,
-        dispatch_config=dispatch_config,
         budget_triggered=_budget_triggered,
     ))
 

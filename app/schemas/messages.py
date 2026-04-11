@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from app.db.models import Attachment, Message
+    from app.domain.message import Message as DomainMessage
 
 
 class AttachmentBrief(BaseModel):
@@ -88,4 +89,42 @@ class MessageOut(BaseModel):
             created_at=msg.created_at,
             metadata=msg.metadata_ or {},
             attachments=[AttachmentBrief.from_orm(a) for a in _attachments_if_loaded(msg)],
+        )
+
+    @classmethod
+    def from_domain(cls, msg: "DomainMessage") -> "MessageOut":
+        """Construct from a domain Message (not the ORM row).
+
+        The domain Message is what flows on the channel-events bus
+        (`app.domain.message.Message`). HTTP responses still use this
+        pydantic schema; this classmethod bridges the two so a bus
+        consumer that wants to serve an HTTP-shaped payload can do so
+        without re-fetching the ORM row.
+
+        Attachments are mapped through AttachmentBrief manually because
+        the domain type uses a frozen tuple of frozen dataclasses while
+        this schema expects pydantic models.
+        """
+        return cls(
+            id=msg.id,
+            session_id=msg.session_id,
+            role=msg.role,
+            content=msg.content,
+            tool_calls=msg.tool_calls,
+            tool_call_id=msg.tool_call_id,
+            correlation_id=msg.correlation_id,
+            created_at=msg.created_at,
+            metadata=dict(msg.metadata or {}),
+            attachments=[
+                AttachmentBrief(
+                    id=a.id,
+                    type=a.type,
+                    filename=a.filename,
+                    mime_type=a.mime_type,
+                    size_bytes=a.size_bytes,
+                    description=a.description,
+                    has_file_data=a.has_file_data,
+                )
+                for a in msg.attachments
+            ],
         )

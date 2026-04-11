@@ -2305,13 +2305,19 @@ async def available_integrations(
     _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List registered integration types with binding metadata."""
-    from app.agent import dispatchers as disp_mod
+    from app.integrations import renderer_registry
     from integrations import discover_binding_metadata, discover_integrations
 
-    # Collect from dispatcher registry
-    types = set(disp_mod._registry.keys()) - {"none", "webhook", "internal"}
+    # Collect from renderer registry — Phase G replaced the legacy
+    # dispatcher registry. The "core" renderers (none/web/webhook/
+    # internal) are infrastructure, not user-facing integration types,
+    # so they're filtered out the same way the legacy code did.
+    types = set(renderer_registry.all_renderers().keys()) - {
+        "none", "web", "webhook", "internal",
+    }
 
-    # Collect from integration discovery
+    # Collect from integration discovery (an integration may have a
+    # router/hooks but no renderer yet — still surface it).
     for integration_id, _ in discover_integrations():
         types.add(integration_id)
 

@@ -29,9 +29,6 @@ from ._helpers import (  # noqa: F401
     _transcribe_audio_data,
 )
 
-# --- Mirror ---
-from ._mirror import _resolve_mirror_target, _mirror_to_integration  # noqa: F401
-
 # --- Keepalive ---
 from ._keepalive import SSE_KEEPALIVE_INTERVAL, _with_keepalive  # noqa: F401
 

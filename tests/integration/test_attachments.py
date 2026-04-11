@@ -34,37 +34,29 @@ def _make_file_metadata(**overrides):
 # ---------------------------------------------------------------------------
 
 class TestPostMessageWithSlackFile:
+    """Phase E: POST /chat returns 202 immediately and the agent loop runs in
+    a background turn worker. The test stubs ``start_turn`` so the request
+    returns without spinning up the worker, and asserts that attachment
+    creation happens synchronously inside the route handler before the 202.
+    """
+
     @pytest.fixture(autouse=True)
-    def _mock_run(self):
-        with patch("app.routers.chat._routes.run", new_callable=AsyncMock) as mock:
-            from dataclasses import dataclass
-
-            @dataclass
-            class FakeResult:
-                response: str = "Got it."
-                transcript: str = ""
-                client_actions: list = None
-
-                def __post_init__(self):
-                    if self.client_actions is None:
-                        self.client_actions = []
-
-            mock.return_value = FakeResult()
+    def _mock_start_turn(self):
+        from app.services.turns import TurnHandle
+        with patch(
+            "app.routers.chat._routes.start_turn",
+            new_callable=AsyncMock,
+        ) as mock:
+            mock.return_value = TurnHandle(
+                session_id=uuid.uuid4(),
+                channel_id=uuid.uuid4(),
+                turn_id=uuid.uuid4(),
+            )
             yield mock
-
-    @pytest.fixture(autouse=True)
-    def _mock_persist(self):
-        with patch("app.routers.chat._routes.persist_turn", new_callable=AsyncMock) as mock:
-            mock.return_value = uuid.uuid4()  # Return a user_msg_id
-            yield mock
-
-    @pytest.fixture(autouse=True)
-    def _mock_compact(self):
-        with patch("app.routers.chat._routes.maybe_compact"):
-            yield
 
     async def test_slack_file_triggers_attachment_creation(self, client):
-        """Slack message with file → attachment creation awaited."""
+        """Slack message with file → attachment creation awaited inside the
+        route handler before the 202 is returned."""
         with patch("app.routers.chat._routes._create_attachments_from_metadata", new_callable=AsyncMock) as mock_create:
             resp = await client.post(
                 "/chat",
@@ -72,11 +64,11 @@ class TestPostMessageWithSlackFile:
                     "message": "Check this file",
                     "bot_id": "test-bot",
                     "file_metadata": [_make_file_metadata()],
-                    "msg_metadazta": {"source": "slack"},
+                    "msg_metadata": {"source": "slack"},
                 },
                 headers=AUTH_HEADERS,
             )
-            assert resp.status_code == 200
+            assert resp.status_code == 202
 
             # _create_attachments_from_metadata was awaited directly
             mock_create.assert_awaited_once()

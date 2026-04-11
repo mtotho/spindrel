@@ -212,12 +212,22 @@ async def delete_attachment(attachment_id: uuid.UUID) -> dict:
                 dispatch_config = await _resolve_dispatch_config(att.channel_id, integration_type)
                 if dispatch_config:
                     try:
-                        from app.agent import dispatchers
-                        dispatcher = dispatchers.get(integration_type)
-                        integration_deleted = await dispatcher.delete_attachment(dispatch_config, meta)
+                        from app.domain.dispatch_target import parse_dispatch_target
+                        from app.integrations import renderer_registry
+
+                        renderer = renderer_registry.get(integration_type)
+                        if renderer is not None:
+                            target_dict = dict(dispatch_config)
+                            target_dict.setdefault("type", integration_type)
+                            try:
+                                target = parse_dispatch_target(target_dict)
+                            except ValueError:
+                                target = None
+                            if target is not None:
+                                integration_deleted = await renderer.delete_attachment(meta, target)
                     except Exception:
                         logger.warning(
-                            "Failed to dispatch attachment deletion for %s via %s",
+                            "Failed to delete attachment %s via %s renderer",
                             attachment_id, integration_type, exc_info=True,
                         )
 

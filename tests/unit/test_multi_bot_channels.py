@@ -580,9 +580,8 @@ class TestMultiBotIdentity:
         with patch("app.agent.bots.get_bot", side_effect=lambda bid: member if bid == "helper" else primary), \
              patch("app.db.engine.async_session", return_value=mock_cm), \
              patch("app.agent.loop.run_stream", fake_run_stream), \
-             patch("app.services.channel_events.publish"), \
+             patch("app.services.channel_events.publish_typed"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.routers.chat._multibot._mirror_to_integration", new_callable=AsyncMock), \
              patch("app.agent.context.set_agent_context"), \
              patch("app.routers.chat._multibot._record_channel_run"), \
              patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False):
@@ -638,9 +637,8 @@ class TestMultiBotIdentity:
         with patch("app.agent.bots.get_bot", side_effect=lambda bid: member if bid == "helper" else primary), \
              patch("app.db.engine.async_session", return_value=mock_cm), \
              patch("app.agent.loop.run_stream", fake_run_stream), \
-             patch("app.services.channel_events.publish"), \
+             patch("app.services.channel_events.publish_typed"), \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.routers.chat._multibot._mirror_to_integration", new_callable=AsyncMock), \
              patch("app.agent.context.set_agent_context"), \
              patch("app.routers.chat._multibot._record_channel_run"), \
              patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False), \
@@ -2008,7 +2006,7 @@ class TestParallelInvocation:
              patch("app.routers.chat._multibot._record_channel_run"), \
              patch("app.agent.context.set_agent_context"), \
              patch("app.agent.loop.run_stream", side_effect=_fake_stream), \
-             patch("app.services.channel_events.publish"), \
+             patch("app.services.channel_events.publish_typed"), \
              patch("app.db.engine.async_session") as mock_session:
 
             mock_db = AsyncMock()
@@ -2028,7 +2026,7 @@ class TestParallelInvocation:
                     uuid.uuid4(), uuid.uuid4(), "helper-bot", {},
                     "primary-bot",
                     messages_snapshot=snapshot,
-                    stream_id="test-stream-123",
+                    turn_id=uuid.uuid4(),
                 )
 
             # Lock should NOT have been acquired when using snapshot
@@ -2067,11 +2065,10 @@ class TestParallelInvocation:
         ]
 
         with patch("app.agent.bots.get_bot") as mock_get_bot, \
-             patch("app.services.channel_events.publish") as mock_publish, \
+             patch("app.services.channel_events.publish_typed") as mock_publish, \
              patch("app.agent.loop.run_stream") as mock_run_stream, \
              patch("app.db.engine.async_session") as mock_session_factory, \
              patch("app.services.sessions.persist_turn", new_callable=AsyncMock), \
-             patch("app.routers.chat._multibot._mirror_to_integration", new_callable=AsyncMock), \
              patch("app.routers.chat._multibot._trigger_member_bot_replies", new_callable=AsyncMock) as mock_trigger, \
              patch("app.services.sessions._resolve_workspace_base_prompt_enabled", new_callable=AsyncMock, return_value=False):
 
@@ -2089,7 +2086,7 @@ class TestParallelInvocation:
                 channel_id, session_id, "helper-bot", {},
                 "primary-bot", _depth=1,
                 messages_snapshot=messages_snapshot,
-                stream_id="test-stream-id",
+                turn_id=uuid.uuid4(),
             )
 
             # The chained trigger should have been called with a snapshot

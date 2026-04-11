@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter } from "expo-router";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import {
   View,
@@ -37,8 +38,8 @@ import { BotOverridesList } from "@/src/components/settings/BotOverridesList";
 import { FlushPromptOverrideWarning } from "@/src/components/settings/FlushPromptOverrideWarning";
 import { FileModeOnlyBanner } from "@/src/components/settings/FileModeOnlyBanner";
 import { MemoryHygieneGroupBanner } from "@/src/components/settings/MemoryHygieneGroupBanner";
-import { DreamingBotList } from "@/src/components/settings/DreamingBotList";
 import { BackupSection } from "@/src/components/settings/BackupSection";
+import { InfoBanner } from "@/src/components/shared/SettingsControls";
 
 // ---------------------------------------------------------------------------
 // Field renderers
@@ -389,6 +390,51 @@ const GROUP_DISPLAY_NAMES: Record<string, string> = {
 };
 function groupDisplayName(key: string) {
   return GROUP_DISPLAY_NAMES[key] ?? key;
+}
+
+// ---------------------------------------------------------------------------
+// Pointer to Learning Center > Dreaming (replaces the old DreamingBotList).
+// Per-bot toggles + run history live in /admin/learning#Dreaming so there's
+// only one place to manage dreaming.
+// ---------------------------------------------------------------------------
+function DreamingLearningCenterPointer() {
+  const t = useThemeTokens();
+  const router = useRouter();
+  return (
+    <div style={{ marginTop: 20 }}>
+      <InfoBanner
+        variant="info"
+        icon={<Moon size={14} color={t.purple} />}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+            Manage per-bot dreaming in the Learning Center
+          </span>
+          <span style={{ fontSize: 11, color: t.textMuted, lineHeight: "17px" }}>
+            Toggle dreaming per bot, trigger runs on demand, and review the
+            full run history with skipped/failed details.
+          </span>
+          <button
+            onClick={() => router.push("/admin/learning#Dreaming" as any)}
+            style={{
+              alignSelf: "flex-start",
+              marginTop: 4,
+              padding: "5px 12px",
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 500,
+              cursor: "pointer",
+              background: t.purpleSubtle,
+              color: t.purple,
+              border: `1px solid ${t.purpleBorder}`,
+            }}
+          >
+            Open Learning Center → Dreaming
+          </button>
+        </div>
+      </InfoBanner>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -787,11 +833,13 @@ export default function SettingsScreen() {
             );
           })}
 
-          {/* Dreaming: memory scheme + per-bot toggles */}
+          {/* Dreaming: memory scheme defaults + pointer to Learning Center.
+              Per-bot toggles + run history live in Learning Center > Dreaming
+              (single canonical management surface). */}
           {activeGroup === "Memory Hygiene" && (
             <>
               <MemorySchemeSection />
-              <DreamingBotList />
+              <DreamingLearningCenterPointer />
             </>
           )}
 

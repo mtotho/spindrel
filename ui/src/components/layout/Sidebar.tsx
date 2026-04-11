@@ -41,7 +41,6 @@ import {
   Camera,
   MessageCircle,
   Terminal,
-  Cable,
 } from "lucide-react";
 import { useMCModules } from "../../api/hooks/useMissionControl";
 import { useSidebarSections, useIntegrationIcons, type SidebarSection } from "../../api/hooks/useIntegrations";
@@ -297,7 +296,7 @@ export function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const streamingChannelIds = useChatStore(
     useShallow((s) =>
       Object.entries(s.channels)
-        .filter(([, ch]) => ch.isStreaming)
+        .filter(([, ch]) => Object.keys(ch.turns).length > 0)
         .map(([id]) => id),
     ),
   );

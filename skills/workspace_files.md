@@ -1,7 +1,7 @@
 ---
 name: Workspace Files
-description: Guide for using the file tool vs exec_command for reading, writing, and editing files
-triggers: file tool, read file, write file, append, edit file, exec_command, workspace files
+description: Guide for using the file tool vs exec_command for reading, writing, editing, and searching files
+triggers: file tool, read file, write file, append, edit file, grep, glob, search code, find files, exec_command, workspace files
 category: core
 ---
 
@@ -22,13 +22,21 @@ You have a `file` tool for direct file operations inside your workspace. It bypa
 | List directory contents | `file(list, path)` | — |
 | Delete a file | `file(delete, path)` | — |
 | Create directories | `file(mkdir, path)` | — |
+| Move/rename a file | `file(move, path, destination)` | — |
+| **Literal/regex text search** | `file(grep, path, pattern)` | — |
+| **Find files by name pattern** | `file(glob, path, pattern)` | — |
 | Run a program/script | — | `exec_command` or `delegate_to_exec` |
 | Git operations | — | `exec_command` |
 | Pipe commands / process data | — | `exec_command` |
 | Install packages | — | `exec_command` |
 | Complex multi-step shell tasks | — | `exec_command` |
 
-**Rule of thumb**: If you're just reading or writing text to a file, use `file`. If you need to *execute* something, use `exec_command`.
+**Rule of thumb**: If you're just reading, writing, or searching files, use `file`. If you need to *execute* something, use `exec_command`.
+
+**Search tools — which one?**
+- `file(grep, …)` — **literal** text / regex search when you know the exact string (function name, error message, config key, import path). Fast, deterministic.
+- `search_workspace(query)` — **semantic** search via embeddings. Use for "find code that does X" when you don't know the exact names involved.
+- `file(glob, …)` — find files by **filename** pattern (e.g. all `test_*.py` files). Doesn't look inside files.
 
 ---
 
@@ -57,6 +65,50 @@ file(operation="write", path="memory/reference/deployment-guide.md", content="# 
 ```
 file(operation="edit", path="memory/MEMORY.md", find="status: pending", replace="status: complete")
 ```
+
+---
+
+## Searching Code — `grep` and `glob`
+
+### Find where a function is defined or called
+
+```
+file(operation="grep", path=".", pattern=r"def assemble_context")
+file(operation="grep", path="app/", pattern=r"assemble_context\(")
+```
+
+Output is JSON with `matches: [{file, line, text}, …]`, `count`, `files_scanned`, `truncated`. Common junk dirs (`.git`, `node_modules`, `__pycache__`, `.venv`, `dist`, `build`, …) and binary files are always skipped.
+
+### Grep only certain files with `include`
+
+```
+file(operation="grep", path=".", pattern="TODO", include="*.py")
+file(operation="grep", path="app/", pattern="deprecated", include="*.md")
+```
+
+### Find files by name
+
+```
+file(operation="glob", path=".", pattern="**/test_*.py")
+file(operation="glob", path="app/services", pattern="*.py")
+file(operation="glob", path=".", pattern="**/MEMORY.md")
+```
+
+`*` matches one path segment, `**` recurses. Results are sorted newest-modified first.
+
+### Search a single file
+
+`grep` accepts a file path as the root, not just a directory:
+
+```
+file(operation="grep", path="app/main.py", pattern=r"lifespan")
+```
+
+### When grep vs search_workspace
+
+- Know the exact string or regex → **grep** (fast, precise, no embeddings needed).
+- Fuzzy/conceptual search ("where do we rate-limit outgoing requests?") → **search_workspace** (semantic).
+- Never shell out to `exec_command "grep -r …"` for code search — the `file` tool avoids the shell-quoting hazards that motivated it in the first place.
 
 ---
 

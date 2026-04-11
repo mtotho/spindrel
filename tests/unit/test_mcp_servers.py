@@ -126,6 +126,121 @@ class TestLoadMCPServers:
             assert _servers["test-server"].api_key == "secret"
 
     @pytest.mark.asyncio
+    async def test_integration_sourced_resolves_key_from_integration_settings(self):
+        """Integration-sourced rows should pull api_key from integration settings
+        via the manifest's api_key_env, not the stale mcp_servers.api_key column.
+
+        Regression: firecrawl row was seeded with api_key=NULL, then the user
+        set FIRECRAWL_API_KEY via integration settings. load_mcp_servers was
+        loading NULL from the column instead of resolving from settings, so
+        every fetch_mcp_tools call hit firecrawl with no auth header."""
+        mock_row = MagicMock()
+        mock_row.id = "firecrawl"
+        mock_row.url = "https://mcp.firecrawl.dev/v2/mcp"
+        mock_row.api_key = None  # stale NULL in the column
+        mock_row.source = "integration:firecrawl"
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [mock_row]
+        mock_result.scalars.return_value = mock_scalars
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_cm.__aexit__ = AsyncMock(return_value=False)
+
+        fake_manifest = {
+            "mcp_servers": [
+                {
+                    "id": "firecrawl",
+                    "url": "https://mcp.firecrawl.dev/v2/mcp",
+                    "api_key_env": "FIRECRAWL_API_KEY",
+                }
+            ]
+        }
+
+        with patch("app.db.engine.async_session", return_value=mock_session_cm), \
+             patch("app.services.integration_manifests.get_manifest", return_value=fake_manifest), \
+             patch("app.services.integration_settings.is_active", return_value=True), \
+             patch("app.services.integration_settings.get_value", return_value="fc-live-key"), \
+             patch.dict(_servers, {}, clear=True):
+            from app.services.mcp_servers import load_mcp_servers
+            await load_mcp_servers()
+
+            assert "firecrawl" in _servers
+            assert _servers["firecrawl"].api_key == "fc-live-key"
+
+    @pytest.mark.asyncio
+    async def test_integration_sourced_falls_back_to_column_key(self):
+        """If integration settings don't have the key, fall back to the
+        encrypted mcp_servers.api_key column — preserves legacy rows and
+        manually-set keys."""
+        mock_row = MagicMock()
+        mock_row.id = "legacy-int"
+        mock_row.url = "http://legacy.local/mcp"
+        mock_row.api_key = "enc:fallback"
+        mock_row.source = "integration:legacy"
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [mock_row]
+        mock_result.scalars.return_value = mock_scalars
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_cm.__aexit__ = AsyncMock(return_value=False)
+
+        fake_manifest = {
+            "mcp_servers": [
+                {"id": "legacy-int", "url": "http://legacy.local/mcp", "api_key_env": "LEGACY_KEY"}
+            ]
+        }
+
+        with patch("app.db.engine.async_session", return_value=mock_session_cm), \
+             patch("app.services.integration_manifests.get_manifest", return_value=fake_manifest), \
+             patch("app.services.integration_settings.is_active", return_value=True), \
+             patch("app.services.integration_settings.get_value", return_value=""), \
+             patch("app.services.encryption.decrypt", side_effect=lambda x: x.replace("enc:", "")), \
+             patch.dict(_servers, {}, clear=True):
+            from app.services.mcp_servers import load_mcp_servers
+            await load_mcp_servers()
+
+            assert _servers["legacy-int"].api_key == "fallback"
+
+    @pytest.mark.asyncio
+    async def test_integration_sourced_skips_inactive_parent(self):
+        """Disabled parent integrations must not leak their MCP servers into
+        the in-memory registry."""
+        mock_row = MagicMock()
+        mock_row.id = "firecrawl"
+        mock_row.url = "https://mcp.firecrawl.dev/v2/mcp"
+        mock_row.api_key = None
+        mock_row.source = "integration:firecrawl"
+
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [mock_row]
+        mock_result.scalars.return_value = mock_scalars
+        mock_db.execute = AsyncMock(return_value=mock_result)
+
+        mock_session_cm = AsyncMock()
+        mock_session_cm.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("app.db.engine.async_session", return_value=mock_session_cm), \
+             patch("app.services.integration_settings.is_active", return_value=False), \
+             patch.dict(_servers, {}, clear=True):
+            from app.services.mcp_servers import load_mcp_servers
+            await load_mcp_servers()
+
+            assert "firecrawl" not in _servers
+
+    @pytest.mark.asyncio
     async def test_clears_existing_servers(self):
         """Should clear _servers before loading from DB."""
         mock_db = AsyncMock()

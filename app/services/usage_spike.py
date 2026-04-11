@@ -194,7 +194,6 @@ async def _dispatch_alert(
     """Dispatch alert to all configured targets.
     Returns (attempted, succeeded, delivery_details).
     """
-    from app.agent import dispatchers
     from app.agent.hooks import get_integration_meta
 
     targets = config.targets or []
@@ -217,33 +216,42 @@ async def _dispatch_alert(
 
                 async with async_session() as db:
                     channel = await db.get(Channel, uuid.UUID(channel_id))
-                if not channel or not channel.integration:
-                    detail["error"] = "channel not found or has no integration"
+                if not channel:
+                    detail["error"] = "channel not found"
                     details.append(detail)
                     continue
 
-                # Resolve dispatch_config: prefer stored config, fall back to
-                # integration's resolve_dispatch_config using the channel's client_id
-                dispatch_config = channel.dispatch_config
-                if not dispatch_config and channel.client_id:
-                    meta = get_integration_meta(channel.integration)
-                    if meta and meta.resolve_dispatch_config:
-                        dispatch_config = meta.resolve_dispatch_config(channel.client_id)
-                if not dispatch_config:
-                    detail["error"] = "could not resolve dispatch_config for channel"
-                    details.append(detail)
-                    continue
+                try:
+                    from datetime import datetime, timezone
 
-                dispatcher = dispatchers.get(channel.integration)
-                ok = await dispatcher.post_message(
-                    dispatch_config,
-                    message,
-                    username="Spike Alert",
-                    reply_in_thread=False,
-                )
-                detail["success"] = ok
-                if ok:
+                    from app.domain.actor import ActorRef
+                    from app.domain.channel_events import ChannelEvent, ChannelEventKind
+                    from app.domain.message import Message as DomainMessage
+                    from app.domain.payloads import MessagePayload
+                    from app.services.channel_events import publish_typed
+
+                    domain_msg = DomainMessage(
+                        id=uuid.uuid4(),
+                        session_id=uuid.uuid4(),
+                        role="system",
+                        content=message,
+                        created_at=datetime.now(timezone.utc),
+                        actor=ActorRef.system("spike_alert", "Spike Alert"),
+                        channel_id=channel.id,
+                    )
+                    publish_typed(
+                        channel.id,
+                        ChannelEvent(
+                            channel_id=channel.id,
+                            kind=ChannelEventKind.NEW_MESSAGE,
+                            payload=MessagePayload(message=domain_msg),
+                        ),
+                    )
+                    detail["success"] = True
                     succeeded += 1
+                except Exception as _exc:
+                    detail["error"] = f"publish failed: {_exc}"
+                    logger.warning("Spike alert publish failed for channel %s: %s", channel.id, _exc)
 
             elif target_type == "integration":
                 integration_type = target.get("integration_type")
@@ -265,16 +273,71 @@ async def _dispatch_alert(
                     details.append(detail)
                     continue
 
-                dispatcher = dispatchers.get(integration_type)
-                ok = await dispatcher.post_message(
-                    dispatch_config,
-                    message,
-                    username="Spike Alert",
-                    reply_in_thread=False,
+                # Phase G: route through the renderer registry instead of
+                # the deleted ``app/agent/dispatchers.py``. Spike alerts
+                # are admin-initiated synchronous fire-and-forget — they
+                # have no channel_id and don't need the outbox bus, so
+                # we call ``renderer.render()`` inline. The renderer
+                # uses the typed ``DispatchTarget`` (built from the same
+                # dispatch_config the legacy dispatcher consumed) and
+                # the "Spike Alert" username override is carried via
+                # ``ActorRef.system(display_name=...)`` (renderers map
+                # actor.display_name → integration username).
+                from datetime import datetime, timezone
+
+                from app.domain.actor import ActorRef
+                from app.domain.channel_events import (
+                    ChannelEvent,
+                    ChannelEventKind,
                 )
-                detail["success"] = ok
-                if ok:
+                from app.domain.dispatch_target import parse_dispatch_target
+                from app.domain.message import Message as DomainMessage
+                from app.domain.payloads import MessagePayload
+                from app.integrations import renderer_registry
+
+                renderer = renderer_registry.get(integration_type)
+                if renderer is None:
+                    detail["error"] = (
+                        f"no renderer registered for integration_type={integration_type}"
+                    )
+                    details.append(detail)
+                    continue
+                try:
+                    typed_target = parse_dispatch_target(
+                        {"type": integration_type, **dispatch_config}
+                    )
+                except ValueError as _exc:
+                    detail["error"] = f"invalid dispatch_config for {integration_type}: {_exc}"
+                    details.append(detail)
+                    continue
+
+                _alert_event = ChannelEvent(
+                    # Sentinel channel id — the renderer doesn't read
+                    # event.channel_id for the actual send (it reads
+                    # target.<integration-id> instead). The bus is not
+                    # involved on this path.
+                    channel_id=uuid.UUID(int=0),
+                    kind=ChannelEventKind.NEW_MESSAGE,
+                    payload=MessagePayload(
+                        message=DomainMessage(
+                            id=uuid.uuid4(),
+                            session_id=uuid.UUID(int=0),
+                            role="system",
+                            content=message,
+                            created_at=datetime.now(timezone.utc),
+                            actor=ActorRef.system(
+                                "spike_alert", "Spike Alert",
+                            ),
+                            channel_id=None,
+                        ),
+                    ),
+                )
+                receipt = await renderer.render(_alert_event, typed_target)
+                detail["success"] = receipt.success
+                if receipt.success:
                     succeeded += 1
+                else:
+                    detail["error"] = receipt.error or "renderer returned failure"
 
             else:
                 detail["error"] = f"unknown target type: {target_type}"

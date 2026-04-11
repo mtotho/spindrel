@@ -106,8 +106,12 @@ class TestScaffold:
         assert (int_dir / "skills").is_dir()
 
     def test_scaffold_all_features(self, tmp_path):
+        # Phase G removed "dispatcher" from the scaffold features —
+        # new integrations declare a renderer.py instead, and the
+        # scaffolder doesn't have a generator for that yet (out of
+        # scope for Phase G; renderer-scaffolding can land later).
         scaffold = self._get_scaffold_fn()
-        all_features = ["tools", "skills", "carapaces", "dispatcher", "hooks", "process", "workflows"]
+        all_features = ["tools", "skills", "carapaces", "hooks", "process", "workflows"]
         with patch("app.tools.local.admin_integrations._get_scaffold_dir", return_value=tmp_path):
             result = scaffold("full_integration", all_features)
 
@@ -116,7 +120,6 @@ class TestScaffold:
         assert (int_dir / "tools").is_dir()
         assert (int_dir / "skills").is_dir()
         assert (int_dir / "carapaces").is_dir()
-        assert (int_dir / "dispatcher.py").exists()
         assert (int_dir / "hooks.py").exists()
         assert (int_dir / "process.py").exists()
         assert (int_dir / "workflows").is_dir()

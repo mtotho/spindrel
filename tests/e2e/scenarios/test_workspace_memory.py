@@ -33,7 +33,7 @@ def _unique(prefix: str = "e2e") -> str:
 # Explicit instruction prefix so small models use the right tool name.
 _FILE_TOOL_HINT = (
     'You have a tool called "file" that accepts an "operation" parameter '
-    '(one of: read, write, append, edit, list, delete, mkdir, move) '
+    '(one of: read, write, append, edit, list, delete, mkdir, move, grep, glob) '
     'and a "path" parameter. '
 )
 

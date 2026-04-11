@@ -8,37 +8,38 @@ type ToolCall = {
   approvalId?: string;
   approvalReason?: string;
   capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
+  isError?: boolean;
 };
 
-/** State for a single concurrent member bot stream (keyed by stream_id). */
-export interface MemberStreamState {
+/**
+ * State for a single in-flight agent turn.
+ *
+ * Every concurrent turn — primary bot or member bot — has an entry keyed
+ * by its `turn_id` (assigned by the backend in TurnStartedPayload). The
+ * UI renders one StreamingIndicator per turn, ordered by `isPrimary`
+ * (channel's primary bot first) then insertion order.
+ */
+export interface TurnState {
   botId: string;
   botName: string;
+  isPrimary: boolean;
   streamingContent: string;
   thinkingContent: string;
   toolCalls: ToolCall[];
+  correlationId?: string | null;
   error?: string;
 }
 
 interface ChatChannelState {
   messages: Message[];
-  streamingContent: string;
-  thinkingContent: string;
-  isStreaming: boolean;
-  /** True when this tab initiated the stream (vs observing another tab's stream). */
-  isLocalStream: boolean;
+  /** All in-flight turns, keyed by turn_id. */
+  turns: Record<string, TurnState>;
+  /** Background-task processing (e.g. queued message running on the server). */
   isProcessing: boolean;
   queuedTaskId: string | null;
-  toolCalls: ToolCall[];
-  correlationId: string | null;
   error: string | null;
   secretWarning: { patterns: { type: string }[] } | null;
-  /** Bot currently responding (for multi-bot channels). */
-  respondingBotId: string | null;
-  respondingBotName: string | null;
-  /** Concurrent member bot streams, keyed by stream_id. */
-  memberStreams: Record<string, MemberStreamState>;
-  /** Latest context budget from SSE stream. */
+  /** Latest context budget published by the agent loop. */
   contextBudget: { utilization: number; consumed: number; total: number } | null;
 }
 
@@ -47,36 +48,40 @@ interface ChatState {
   getChannel: (channelId: string) => ChatChannelState;
   addMessage: (channelId: string, message: Message) => void;
   setMessages: (channelId: string, messages: Message[]) => void;
-  startStreaming: (channelId: string) => void;
-  handleSSEEvent: (channelId: string, event: SSEEvent) => void;
-  finishStreaming: (channelId: string) => void;
+  /** Begin tracking a new turn for the channel. */
+  startTurn: (
+    channelId: string,
+    turnId: string,
+    botId: string,
+    botName: string,
+    isPrimary: boolean,
+  ) => void;
+  /** Apply an event to the matching turn slot. */
+  handleTurnEvent: (channelId: string, turnId: string, event: SSEEvent) => void;
+  /** Finalize a turn — materialize as a synthetic message and remove the slot. */
+  finishTurn: (channelId: string, turnId: string) => void;
   clearProcessing: (channelId: string) => void;
   setError: (channelId: string, error: string) => void;
   /** Remove all cached state for a channel (call on channel deletion). */
   deleteChannel: (channelId: string) => void;
-  /** Start tracking a concurrent member bot stream. */
-  startMemberStream: (channelId: string, streamId: string, botId: string, botName: string) => void;
-  /** Route a stream event to the correct member stream. */
-  handleMemberStreamEvent: (channelId: string, streamId: string, event: SSEEvent) => void;
-  /** Finalize a member stream — materialize as message and remove entry. */
-  finishMemberStream: (channelId: string, streamId: string) => void;
+  /** Mark the channel as background-processing (e.g. queued task accepted). */
+  setProcessing: (channelId: string, taskId: string | null) => void;
+  /** Set a secret-pattern warning surfaced from the secret-check pre-flight. */
+  setSecretWarning: (channelId: string, warning: { patterns: { type: string }[] } | null) => void;
+  /** Update the latest context budget for the channel. */
+  setContextBudget: (
+    channelId: string,
+    budget: { utilization: number; consumed: number; total: number } | null,
+  ) => void;
 }
 
 const emptyChannel: ChatChannelState = {
   messages: [],
-  streamingContent: "",
-  thinkingContent: "",
-  isStreaming: false,
-  isLocalStream: false,
+  turns: {},
   isProcessing: false,
   queuedTaskId: null,
-  toolCalls: [],
-  correlationId: null,
   error: null,
   secretWarning: null,
-  respondingBotId: null,
-  respondingBotName: null,
-  memberStreams: {},
   contextBudget: null,
 };
 
@@ -104,381 +109,229 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       };
     }),
 
-  startStreaming: (channelId) =>
+  startTurn: (channelId, turnId, botId, botName, isPrimary) =>
     set((s) => {
       const ch = s.channels[channelId] ?? emptyChannel;
-
-      // If already streaming with partial content, materialize it as a message
-      // so it doesn't vanish when we reset the streaming buffer.
-      let messages = ch.messages;
-      if (ch.isStreaming && ch.streamingContent) {
-        const toolsUsed = ch.toolCalls.length > 0
-          ? ch.toolCalls.map((tc) => tc.name)
-          : undefined;
-        const startMeta: Record<string, any> = {
-          ...(toolsUsed ? { tools_used: toolsUsed } : {}),
-          ...(ch.respondingBotName ? { sender_display_name: ch.respondingBotName } : {}),
-          ...(ch.respondingBotId ? { sender_id: `bot:${ch.respondingBotId}` } : {}),
-        };
-        const hasStartMeta = Object.keys(startMeta).length > 0;
-        messages = [
-          ...messages,
-          {
-            id: `msg-${Date.now()}`,
-            session_id: "",
-            role: "assistant" as const,
-            content: ch.streamingContent,
-            created_at: new Date().toISOString(),
-            correlation_id: ch.correlationId ?? undefined,
-            ...(hasStartMeta ? { metadata: startMeta } : {}),
-          },
-        ];
-      }
-
+      // Idempotent: if a turn with this id already exists (e.g. SSE
+      // replay after reconnect), keep the existing slot.
+      if (ch.turns[turnId]) return s;
       return {
         channels: {
           ...s.channels,
           [channelId]: {
             ...ch,
-            messages,
-            isStreaming: true,
-            isLocalStream: true,
+            turns: {
+              ...ch.turns,
+              [turnId]: {
+                botId,
+                botName,
+                isPrimary,
+                streamingContent: "",
+                thinkingContent: "",
+                toolCalls: [],
+              },
+            },
+            // A new turn implies the channel is no longer in the
+            // queued/processing intermediate state.
             isProcessing: false,
             queuedTaskId: null,
-            streamingContent: "",
-            thinkingContent: "",
-            toolCalls: [],
-            correlationId: null,
             error: null,
-            secretWarning: null,
-            respondingBotId: null,
-            respondingBotName: null,
-            memberStreams: {},
           },
         },
       };
     }),
 
-  handleSSEEvent: (channelId, event) =>
+  handleTurnEvent: (channelId, turnId, event) =>
     set((s) => {
       const ch = s.channels[channelId] ?? emptyChannel;
+      const turn = ch.turns[turnId];
+      if (!turn) return s;
+
+      let updated: TurnState;
       switch (event.event) {
-        case "response": {
-          // Server sends: {"type": "response", "text": "...", "tools_used": [...], "correlation_id": "..."}
-          const data = event.data as { text?: string; tools_used?: string[]; correlation_id?: string };
-          // Capture tools_used from the response for persistence
-          const updatedToolCalls = data.tools_used?.length
-            ? data.tools_used.map((name) => ({ name, status: "done" as const }))
-            : ch.toolCalls;
-          // Don't replace streamingContent — text_deltas already accumulated it.
-          // Only use response text as fallback when no deltas were received (e.g. non-streaming path).
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                streamingContent: ch.streamingContent || data.text || "",
-                toolCalls: updatedToolCalls,
-                correlationId: data.correlation_id ?? ch.correlationId,
-              },
-            },
-          };
-        }
         case "text_delta": {
-          // Streaming text token
           const data = event.data as { delta?: string };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                streamingContent: ch.streamingContent + (data.delta ?? ""),
-              },
-            },
+          updated = {
+            ...turn,
+            streamingContent: turn.streamingContent + (data.delta ?? ""),
           };
+          break;
         }
         case "thinking": {
-          // Streaming thinking/reasoning token
           const data = event.data as { delta?: string };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                thinkingContent: ch.thinkingContent + (data.delta ?? ""),
-              },
-            },
+          updated = {
+            ...turn,
+            thinkingContent: turn.thinkingContent + (data.delta ?? ""),
           };
+          break;
         }
         case "thinking_content": {
-          // Consolidated thinking content (fallback for non-streaming path)
           const data = event.data as { text?: string };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                thinkingContent: data.text ?? ch.thinkingContent,
-              },
-            },
-          };
+          updated = { ...turn, thinkingContent: data.text ?? turn.thinkingContent };
+          break;
         }
         case "assistant_text": {
-          // Intermediate text emitted alongside tool calls.
-          // Don't replace streamingContent — text_deltas already accumulated it.
-          // Only use as fallback when no deltas were received.
+          // Don't replace — text_deltas already accumulated the canonical content.
           const data = event.data as { text?: string };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                streamingContent: ch.streamingContent || data.text || "",
-              },
-            },
+          updated = {
+            ...turn,
+            streamingContent: turn.streamingContent || data.text || "",
           };
+          break;
+        }
+        case "response": {
+          // Fallback for non-streaming providers. Don't replace if deltas
+          // already populated streamingContent.
+          const data = event.data as { text?: string };
+          updated = {
+            ...turn,
+            streamingContent: turn.streamingContent || data.text || "",
+          };
+          break;
         }
         case "tool_start": {
-          // Server sends: {"type": "tool_start", "tool": "name", "args": "..."}
           const data = event.data as { tool?: string; args?: string };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                toolCalls: [
-                  ...ch.toolCalls,
-                  { name: data.tool ?? "unknown", args: data.args, status: "running" },
-                ],
-              },
-            },
+          updated = {
+            ...turn,
+            toolCalls: [
+              ...turn.toolCalls,
+              { name: data.tool ?? "unknown", args: data.args, status: "running" },
+            ],
           };
+          break;
         }
         case "tool_result": {
-          const updated = [...ch.toolCalls];
-          const last = updated.findLastIndex((t) => t.status === "running");
-          if (last >= 0) updated[last] = { ...updated[last], status: "done" };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: { ...ch, toolCalls: updated },
-            },
-          };
-        }
-        case "queued": {
-          // Message was queued — SSE stream ends, switch to background processing mode
-          const queuedData = event.data as { task_id?: string };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                isStreaming: false,
-                isProcessing: true,
-                queuedTaskId: queuedData.task_id ?? null,
-              },
-            },
-          };
-        }
-        case "pending_tasks": {
-          // Deferred delegations / scheduled tasks were created during this turn.
-          // Switch to background polling so the UI picks up results when they arrive.
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: { ...ch, isProcessing: true },
-            },
-          };
-        }
-        case "cancelled": {
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: { ...ch, isStreaming: false, streamingContent: "", thinkingContent: "", toolCalls: [], respondingBotId: null, respondingBotName: null },
-            },
-          };
-        }
-        case "error": {
-          // Server sends: {"type": "error", "message": "..."}
-          const data = event.data as { message?: string; detail?: string };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: { ...ch, error: data.message ?? data.detail ?? "Unknown error" },
-            },
-          };
+          const data = event.data as { tool?: string; is_error?: boolean };
+          const tcs = [...turn.toolCalls];
+          // Match the tool by name (last running entry with that name)
+          // so concurrent tool calls don't get mismatched.
+          let idx = -1;
+          for (let i = tcs.length - 1; i >= 0; i--) {
+            if (tcs[i].status === "running" && (!data.tool || tcs[i].name === data.tool)) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx >= 0) {
+            tcs[idx] = {
+              ...tcs[idx],
+              status: "done",
+              isError: data.is_error || tcs[idx].isError,
+            };
+          }
+          updated = { ...turn, toolCalls: tcs };
+          break;
         }
         case "approval_request": {
           const data = event.data as {
             approval_id?: string;
             tool?: string;
             reason?: string;
-            capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
+            capability?: TurnState["toolCalls"][number]["capability"];
           };
-          const updated = [...ch.toolCalls];
-          const last = updated.findLastIndex((t) => t.status === "running" && t.name === data.tool);
-          if (last >= 0) {
-            updated[last] = {
-              ...updated[last],
+          const tcs = [...turn.toolCalls];
+          let idx = -1;
+          for (let i = tcs.length - 1; i >= 0; i--) {
+            if (tcs[i].status === "running" && (!data.tool || tcs[i].name === data.tool)) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx >= 0) {
+            tcs[idx] = {
+              ...tcs[idx],
               status: "awaiting_approval",
               approvalId: data.approval_id,
               approvalReason: data.reason ?? undefined,
               capability: data.capability ?? undefined,
             };
+          } else {
+            // Approval arrived without a preceding tool_start (capability
+            // approval gates can fire before the call). Synthesize one.
+            tcs.push({
+              name: data.tool ?? "approval",
+              status: "awaiting_approval",
+              approvalId: data.approval_id,
+              approvalReason: data.reason ?? undefined,
+              capability: data.capability ?? undefined,
+            });
           }
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: { ...ch, toolCalls: updated },
-            },
-          };
+          updated = { ...turn, toolCalls: tcs };
+          break;
         }
         case "approval_resolved": {
-          const data = event.data as { approval_id?: string; verdict?: string };
-          const updated = [...ch.toolCalls];
-          const idx = updated.findIndex((t) => t.approvalId === data.approval_id);
+          const data = event.data as { approval_id?: string; verdict?: string; decision?: string };
+          const verdict = data.verdict ?? data.decision;
+          const tcs = [...turn.toolCalls];
+          const idx = tcs.findIndex((t) => t.approvalId === data.approval_id);
           if (idx >= 0) {
-            const newStatus = data.verdict === "approved" ? "running" as const : "denied" as const;
-            updated[idx] = { ...updated[idx], status: newStatus };
+            const newStatus = verdict === "approved" ? ("running" as const) : ("denied" as const);
+            tcs[idx] = { ...tcs[idx], status: newStatus };
           }
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: { ...ch, toolCalls: updated },
-            },
-          };
+          updated = { ...turn, toolCalls: tcs };
+          break;
         }
-        case "delegation_post": {
-          // Immediate delegation result — add as a synthetic message so it's
-          // visible during streaming rather than waiting for the DB refetch.
-          const data = event.data as { bot_id?: string; text?: string; display_name?: string };
-          if (!data.text) return s;
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                messages: [
-                  ...ch.messages,
-                  {
-                    id: `delegation-${Date.now()}`,
-                    session_id: "",
-                    role: "assistant" as const,
-                    content: data.text,
-                    created_at: new Date().toISOString(),
-                    metadata: {
-                      passive: true,
-                      delegated_by: data.bot_id,
-                      delegated_by_display: data.display_name,
-                    },
-                  },
-                ],
-              },
-            },
-          };
-        }
-        case "stream_meta": {
-          const data = event.data as { responding_bot_id?: string; responding_bot_name?: string };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                respondingBotId: data.responding_bot_id ?? ch.respondingBotId,
-                respondingBotName: data.responding_bot_name ?? ch.respondingBotName,
-              },
-            },
-          };
-        }
-        case "pending_member_stream": {
-          // Legacy event — no longer needed with stream_id-based demuxing.
-          // Kept for backward compat but ignored.
-          return s;
-        }
-        case "secret_warning": {
-          const data = event.data as { patterns?: { type: string }[] };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: { ...ch, secretWarning: { patterns: data.patterns ?? [] } },
-            },
-          };
-        }
-        case "context_budget": {
-          const data = event.data as { utilization?: number; consumed_tokens?: number; total_tokens?: number };
-          return {
-            channels: {
-              ...s.channels,
-              [channelId]: {
-                ...ch,
-                contextBudget: {
-                  utilization: data.utilization ?? 0,
-                  consumed: data.consumed_tokens ?? 0,
-                  total: data.total_tokens ?? 0,
-                },
-              },
-            },
-          };
+        case "error": {
+          const data = event.data as { message?: string; detail?: string };
+          updated = { ...turn, error: data.message ?? data.detail ?? "Error" };
+          break;
         }
         default:
           return s;
       }
-    }),
-
-  finishStreaming: (channelId) =>
-    set((s) => {
-      const ch = s.channels[channelId] ?? emptyChannel;
-      // Build metadata with tools_used if any tool calls were made
-      const toolsUsed = ch.toolCalls.length > 0
-        ? ch.toolCalls.map((tc) => tc.name)
-        : undefined;
-      // Include bot identity so the synthetic message renders with the correct
-      // bot name/avatar in multi-bot channels (before DB refetch replaces it).
-      const metadata: Record<string, any> = {
-        ...(toolsUsed ? { tools_used: toolsUsed } : {}),
-        ...(ch.respondingBotName ? { sender_display_name: ch.respondingBotName } : {}),
-        ...(ch.respondingBotId ? { sender_id: `bot:${ch.respondingBotId}` } : {}),
-      };
-      // Convert streaming content to a real message
-      const hasMetadata = Object.keys(metadata).length > 0;
-      const newMessages = ch.streamingContent
-        ? [
-            ...ch.messages,
-            {
-              id: `msg-${Date.now()}`,
-              session_id: "",
-              role: "assistant" as const,
-              content: ch.streamingContent,
-              created_at: new Date().toISOString(),
-              correlation_id: ch.correlationId ?? undefined,
-              ...(hasMetadata ? { metadata } : {}),
-            },
-          ]
-        : ch.messages;
-
-      // NOTE: Do NOT clear memberStreams here. Member bots stream independently
-      // and finishMemberStream handles each one when its stream_end arrives.
-      // Clearing here would kill in-progress member streams when the primary
-      // bot finishes first.
 
       return {
         channels: {
           ...s.channels,
           [channelId]: {
             ...ch,
-            messages: newMessages,
-            isStreaming: false,
-            isLocalStream: false,
-            // Preserve isProcessing/queuedTaskId — if a "queued" event set these,
-            // we must NOT clear them here. The SSE closes after "queued" which
-            // triggers finishStreaming, but the background task is still running.
-            // clearProcessing() handles the reset when the task actually completes.
-            streamingContent: "",
-            thinkingContent: "",
-            toolCalls: [],
-            correlationId: null,
-            respondingBotId: null,
-            respondingBotName: null,
+            turns: { ...ch.turns, [turnId]: updated },
+          },
+        },
+      };
+    }),
+
+  finishTurn: (channelId, turnId) =>
+    set((s) => {
+      const ch = s.channels[channelId] ?? emptyChannel;
+      const turn = ch.turns[turnId];
+      if (!turn) return s;
+
+      // Materialize the turn's content as a synthetic message.
+      let messages = ch.messages;
+      if (turn.streamingContent) {
+        const toolsUsed = turn.toolCalls.length > 0
+          ? turn.toolCalls.map((tc) => tc.name)
+          : undefined;
+        const metadata: Record<string, any> = {
+          ...(toolsUsed ? { tools_used: toolsUsed } : {}),
+          ...(turn.botName ? { sender_display_name: turn.botName } : {}),
+          ...(turn.botId ? { sender_id: `bot:${turn.botId}` } : {}),
+          ...(turn.isPrimary ? {} : { trigger: "member_mention", sender_type: "bot" }),
+        };
+        const hasMetadata = Object.keys(metadata).length > 0;
+        messages = [
+          ...messages,
+          {
+            id: `turn-${turnId}`,
+            session_id: "",
+            role: "assistant" as const,
+            content: turn.streamingContent,
+            created_at: new Date().toISOString(),
+            ...(turn.correlationId ? { correlation_id: turn.correlationId } : {}),
+            ...(hasMetadata ? { metadata } : {}),
+          },
+        ];
+      }
+
+      const { [turnId]: _removed, ...remaining } = ch.turns;
+      return {
+        channels: {
+          ...s.channels,
+          [channelId]: {
+            ...ch,
+            messages,
+            turns: remaining,
           },
         },
       };
@@ -496,6 +349,18 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       },
     })),
 
+  setProcessing: (channelId, taskId) =>
+    set((s) => ({
+      channels: {
+        ...s.channels,
+        [channelId]: {
+          ...(s.channels[channelId] ?? emptyChannel),
+          isProcessing: true,
+          queuedTaskId: taskId,
+        },
+      },
+    })),
+
   setError: (channelId, error) =>
     set((s) => ({
       channels: {
@@ -503,9 +368,28 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         [channelId]: {
           ...(s.channels[channelId] ?? emptyChannel),
           error,
-          isStreaming: false,
-          respondingBotId: null,
-          respondingBotName: null,
+        },
+      },
+    })),
+
+  setSecretWarning: (channelId, warning) =>
+    set((s) => ({
+      channels: {
+        ...s.channels,
+        [channelId]: {
+          ...(s.channels[channelId] ?? emptyChannel),
+          secretWarning: warning,
+        },
+      },
+    })),
+
+  setContextBudget: (channelId, budget) =>
+    set((s) => ({
+      channels: {
+        ...s.channels,
+        [channelId]: {
+          ...(s.channels[channelId] ?? emptyChannel),
+          contextBudget: budget,
         },
       },
     })),
@@ -515,146 +399,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       const { [channelId]: _, ...rest } = s.channels;
       return { channels: rest };
     }),
-
-  // ---- Member stream actions (for parallel multi-bot) ----
-
-  startMemberStream: (channelId, streamId, botId, botName) =>
-    set((s) => {
-      const ch = s.channels[channelId] ?? emptyChannel;
-      return {
-        channels: {
-          ...s.channels,
-          [channelId]: {
-            ...ch,
-            memberStreams: {
-              ...ch.memberStreams,
-              [streamId]: {
-                botId,
-                botName,
-                streamingContent: "",
-                thinkingContent: "",
-                toolCalls: [],
-              },
-            },
-          },
-        },
-      };
-    }),
-
-  handleMemberStreamEvent: (channelId, streamId, event) =>
-    set((s) => {
-      const ch = s.channels[channelId] ?? emptyChannel;
-      const stream = ch.memberStreams[streamId];
-      if (!stream) return s;
-
-      let updated: MemberStreamState;
-      switch (event.event) {
-        case "text_delta": {
-          const data = event.data as { delta?: string };
-          updated = { ...stream, streamingContent: stream.streamingContent + (data.delta ?? "") };
-          break;
-        }
-        case "thinking": {
-          const data = event.data as { delta?: string };
-          updated = { ...stream, thinkingContent: stream.thinkingContent + (data.delta ?? "") };
-          break;
-        }
-        case "thinking_content": {
-          const data = event.data as { text?: string };
-          updated = { ...stream, thinkingContent: data.text ?? stream.thinkingContent };
-          break;
-        }
-        case "assistant_text": {
-          // Don't replace — text_deltas already accumulated content
-          const data = event.data as { text?: string };
-          updated = { ...stream, streamingContent: stream.streamingContent || data.text || "" };
-          break;
-        }
-        case "response": {
-          // Don't replace — text_deltas already accumulated content
-          const data = event.data as { text?: string };
-          updated = { ...stream, streamingContent: stream.streamingContent || data.text || "" };
-          break;
-        }
-        case "tool_start": {
-          const data = event.data as { tool?: string; args?: string };
-          updated = {
-            ...stream,
-            toolCalls: [
-              ...stream.toolCalls,
-              { name: data.tool ?? "unknown", args: data.args, status: "running" },
-            ],
-          };
-          break;
-        }
-        case "tool_result": {
-          const tcs = [...stream.toolCalls];
-          const last = tcs.findLastIndex((t) => t.status === "running");
-          if (last >= 0) tcs[last] = { ...tcs[last], status: "done" };
-          updated = { ...stream, toolCalls: tcs };
-          break;
-        }
-        case "error": {
-          const data = event.data as { message?: string; detail?: string };
-          updated = { ...stream, error: data.message ?? data.detail ?? "Error" };
-          break;
-        }
-        default:
-          return s; // Ignore unknown events for member streams
-      }
-
-      return {
-        channels: {
-          ...s.channels,
-          [channelId]: {
-            ...ch,
-            memberStreams: { ...ch.memberStreams, [streamId]: updated },
-          },
-        },
-      };
-    }),
-
-  finishMemberStream: (channelId, streamId) =>
-    set((s) => {
-      const ch = s.channels[channelId] ?? emptyChannel;
-      const stream = ch.memberStreams[streamId];
-      if (!stream) return s;
-
-      // Materialize the member stream's content as a message
-      let messages = ch.messages;
-      if (stream.streamingContent) {
-        const toolsUsed = stream.toolCalls.length > 0
-          ? stream.toolCalls.map((tc) => tc.name)
-          : undefined;
-        const metadata: Record<string, any> = {
-          ...(toolsUsed ? { tools_used: toolsUsed } : {}),
-          trigger: "member_mention",
-          sender_type: "bot",
-        };
-        messages = [
-          ...messages,
-          {
-            id: `member-${streamId}`,
-            session_id: "",
-            role: "assistant" as const,
-            content: stream.streamingContent,
-            created_at: new Date().toISOString(),
-            metadata,
-          },
-        ];
-      }
-
-      // Remove this stream from memberStreams
-      const { [streamId]: _, ...remaining } = ch.memberStreams;
-      return {
-        channels: {
-          ...s.channels,
-          [channelId]: {
-            ...ch,
-            messages,
-            memberStreams: remaining,
-          },
-        },
-      };
-    }),
 }));
+
+/** Convenience selector — true when the channel has at least one in-flight turn. */
+export function selectIsStreaming(state: ChatChannelState): boolean {
+  return Object.keys(state.turns).length > 0;
+}

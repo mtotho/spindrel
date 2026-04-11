@@ -1537,7 +1537,9 @@ async def assemble_context(
                     f"  • {_compact_tool_usage(n, fn)}" for n, fn in _unretrieved
                 )
                 _tool_idx_content = (
-                    "Available tools not yet loaded — call get_tool_info(tool_name=\"<name>\") for full schema:\n"
+                    "Available tools not yet loaded — call get_tool_info(tool_name=\"<name>\") "
+                    "to fetch the full schema AND activate the tool. Once activated, you can "
+                    "invoke it on the next turn exactly like any other tool:\n"
                     + _index_lines
                 )
                 # P4: expendable — skip if budget is tight

@@ -15,11 +15,18 @@ async def load_mcp_servers() -> None:
     """Load all enabled MCP servers from DB into the in-memory _servers dict.
 
     Skips MCP servers whose parent integration is disabled or unconfigured.
+
+    For integration-sourced servers, resolves the API key live from the
+    integration's settings via the manifest's ``api_key_env`` declaration —
+    the ``mcp_servers.api_key`` column is only a fallback. This keeps
+    integration settings as the single source of truth for the key so users
+    can rotate it via the integration-settings UI without stale copies.
     """
     from app.db.engine import async_session
     from app.db.models import MCPServer
     from app.services.encryption import decrypt
-    from app.services.integration_settings import is_active
+    from app.services.integration_manifests import get_manifest
+    from app.services.integration_settings import get_value, is_active
 
     _servers.clear()
 
@@ -29,7 +36,8 @@ async def load_mcp_servers() -> None:
         ).scalars().all()
 
     for row in rows:
-        # Skip MCP servers from inactive parent integrations
+        api_key: str = ""
+        # Integration-sourced: resolve key from integration settings first.
         if row.source and row.source.startswith("integration:"):
             parent_id = row.source.removeprefix("integration:")
             if not is_active(parent_id):
@@ -39,7 +47,19 @@ async def load_mcp_servers() -> None:
                 )
                 continue
 
-        api_key = decrypt(row.api_key) if row.api_key else ""
+            manifest = get_manifest(parent_id) or {}
+            api_key_env: str | None = None
+            for srv in manifest.get("mcp_servers") or []:
+                if isinstance(srv, dict) and srv.get("id") == row.id:
+                    api_key_env = srv.get("api_key_env")
+                    break
+            if api_key_env:
+                api_key = get_value(parent_id, api_key_env, "")
+            if not api_key and row.api_key:
+                api_key = decrypt(row.api_key)
+        else:
+            api_key = decrypt(row.api_key) if row.api_key else ""
+
         _servers[row.id] = MCPServerConfig(
             name=row.id,
             url=row.url,

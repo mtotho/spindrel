@@ -380,61 +380,54 @@ class TestWorkflowEventDispatch:
     """Tests for _dispatch_workflow_event and dispatch integration points."""
 
     @pytest.mark.asyncio
-    async def test_dispatch_skipped_for_none_type(self):
-        """Dispatch should be skipped when dispatch_type is 'none'."""
+    async def test_dispatch_skipped_when_no_channel(self):
+        """Workflow events go nowhere when the run has no channel_id."""
         from app.services.workflow_executor import _dispatch_workflow_event
         run = MagicMock()
-        run.dispatch_type = "none"
-        run.dispatch_config = {"channel": "test"}
-        # Should not raise
-        await _dispatch_workflow_event(run, "Test WF", "started")
+        run.channel_id = None
+        with patch("app.services.channel_events.publish_typed") as mock_publish:
+            await _dispatch_workflow_event(run, "Test WF", "started")
+        mock_publish.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_dispatch_skipped_for_no_config(self):
-        """Dispatch should be skipped when dispatch_config is None."""
-        from app.services.workflow_executor import _dispatch_workflow_event
-        run = MagicMock()
-        run.dispatch_type = "slack"
-        run.dispatch_config = None
-        await _dispatch_workflow_event(run, "Test WF", "started")
-
-    @pytest.mark.asyncio
-    async def test_dispatch_calls_post_message(self):
-        """Dispatch should call dispatcher.post_message with the right text."""
+    async def test_dispatch_publishes_workflow_progress(self):
+        """Workflow events publish a typed WORKFLOW_PROGRESS event onto the
+        channel-events bus. Renderers consume it; the legacy dispatcher
+        path is gone."""
+        from app.domain.channel_events import ChannelEventKind
         from app.services.workflow_executor import _dispatch_workflow_event
         run = MagicMock()
         run.id = uuid.uuid4()
-        run.dispatch_type = "slack"
-        run.dispatch_config = {"channel": "C123"}
+        run.channel_id = uuid.uuid4()
         run.bot_id = "test-bot"
 
-        mock_dispatcher = AsyncMock()
-        mock_dispatcher.post_message = AsyncMock()
-
-        with patch("app.agent.dispatchers.get", return_value=mock_dispatcher):
+        with patch("app.services.channel_events.publish_typed") as mock_publish:
             await _dispatch_workflow_event(run, "My Workflow", "started", "3 steps")
 
-        mock_dispatcher.post_message.assert_called_once()
-        call_args = mock_dispatcher.post_message.call_args
-        text = call_args[0][1]  # positional arg: text
-        assert "My Workflow" in text
-        assert "started" in text
-        assert "3 steps" in text
+        mock_publish.assert_called_once()
+        event = mock_publish.call_args.args[1]
+        assert event.kind == ChannelEventKind.WORKFLOW_PROGRESS
+        assert "My Workflow" in event.payload.detail
+        assert "3 steps" in event.payload.detail
+        assert event.payload.event == "started"
 
     @pytest.mark.asyncio
     async def test_dispatch_errors_swallowed(self):
-        """Dispatch failures should not propagate."""
+        """Dispatch failures should not propagate.
+
+        Phase G replaced the dispatcher path with a typed-bus publish.
+        Patch ``publish_typed`` to raise; the helper must still swallow.
+        """
         from app.services.workflow_executor import _dispatch_workflow_event
         run = MagicMock()
         run.id = uuid.uuid4()
-        run.dispatch_type = "slack"
-        run.dispatch_config = {"channel": "C123"}
+        run.channel_id = uuid.uuid4()
         run.bot_id = "test-bot"
 
-        mock_dispatcher = AsyncMock()
-        mock_dispatcher.post_message = AsyncMock(side_effect=RuntimeError("boom"))
-
-        with patch("app.agent.dispatchers.get", return_value=mock_dispatcher):
+        with patch(
+            "app.services.channel_events.publish_typed",
+            side_effect=RuntimeError("boom"),
+        ):
             # Should NOT raise
             await _dispatch_workflow_event(run, "Test", "completed")
 
