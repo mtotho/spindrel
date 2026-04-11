@@ -367,6 +367,25 @@ class SlackRenderer:
         if role in ("tool", "system"):
             return DeliveryReceipt.skipped(f"slack skips internal role={role}")
 
+        # Echo prevention. Slack-origin user messages reach the bus via
+        # ``turn_worker._persist_and_publish_user_message`` publishing a
+        # NEW_MESSAGE, which the IntegrationDispatcherTask then routes
+        # right back to this renderer. Posting it would re-display the
+        # user's own message in their own Slack channel as an APP post.
+        # Cross-integration mirroring (user types in web UI, message
+        # should appear in Slack) still works — those user messages
+        # carry a different actor.id prefix. The ``slack:`` prefix
+        # convention is set by ``integrations/slack/message_handlers.py``
+        # via ``sender_id: f"slack:{user}"`` and preserved unchanged
+        # through ``ActorRef.user(metadata.get("sender_id"))``.
+        if role == "user":
+            actor = getattr(msg, "actor", None)
+            actor_id = getattr(actor, "id", "") or "" if actor is not None else ""
+            if actor_id.startswith("slack:"):
+                return DeliveryReceipt.skipped(
+                    "slack skips own-origin user message (echo prevention)"
+                )
+
         # Assistant messages that land on the bus during an active turn
         # are the persisted form of the reply that TURN_ENDED has
         # already delivered via the streaming ``chat.update`` path. Posting

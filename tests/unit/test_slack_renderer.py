@@ -628,6 +628,58 @@ class TestNewMessage:
         assert receipt.success is True
         assert len(fake_http.calls) == 1
 
+    async def test_skips_slack_origin_user_message_echo(self, fake_http):
+        """Regression: user types in Slack, server pre-persists the user
+        message and publishes NEW_MESSAGE, IntegrationDispatcherTask
+        routes the event back to this renderer, which must NOT re-post
+        the user's own message into their own Slack channel as an APP
+        reply. Slack-origin is identified by actor.id prefix
+        (``slack:U06STGBF4Q0``) set by message_handlers.py via
+        ``sender_id: f'slack:{user}'``."""
+        fake_http.set_response({"ok": True, "ts": "1700000002.6"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        slack_origin_actor = ActorRef.user("slack:U06STGBF4Q0", display_name="Michael")
+        ev = _new_message_event(
+            role="user",
+            content="[Slack channel:C123 user:U06STGBF4Q0] Test from slack",
+            actor=slack_origin_actor,
+        )
+
+        receipt = await renderer.render(ev, target)
+
+        assert receipt.success is True
+        assert receipt.skip_reason is not None
+        assert "echo" in receipt.skip_reason
+        assert len(fake_http.calls) == 0
+
+    async def test_still_mirrors_cross_integration_user_message(self, fake_http):
+        """Cross-integration mirror: user types in the web UI in a
+        channel that's also bound to Slack. The user message must still
+        reach Slack — the echo filter only catches Slack-origin ids."""
+        fake_http.set_response({"ok": True, "ts": "1700000002.7"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        # Web user — actor.id is a UUID string, no "slack:" prefix.
+        web_user_actor = ActorRef.user(
+            "550e8400-e29b-41d4-a716-446655440000",
+            display_name="Alice",
+        )
+        ev = _new_message_event(
+            role="user",
+            content="hi from web",
+            actor=web_user_actor,
+        )
+
+        receipt = await renderer.render(ev, target)
+
+        assert receipt.success is True
+        assert receipt.skip_reason is None
+        assert len(fake_http.calls) == 1
+        assert fake_http.calls[0]["body"]["username"] == "Alice"
+
     async def test_dedupes_same_message_id_across_paths(self, fake_http):
         """Regression: NEW_MESSAGE is delivered via both the outbox
         drainer AND IntegrationDispatcherTask.subscribe_all(). The same
