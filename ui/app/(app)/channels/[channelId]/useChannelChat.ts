@@ -142,30 +142,60 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
           return true;
         });
 
-      // Preserve synthetic messages from finishTurn() when the DB doesn't
-      // yet have a corresponding assistant row. Two cases:
-      //   1. correlation_id match — happy path, drop the synthetic (DB
-      //      caught up).
-      //   2. no correlation_id match AND no recent DB assistant — likely
-      //      a persist failure or in-flight commit. Keep the synthetic so
-      //      the user doesn't lose visible content.
+      // Preserve synthetic messages from finishTurn() only when the DB
+      // genuinely doesn't have a corresponding assistant row. Two
+      // drop signals, evaluated in order:
+      //
+      //   1. correlation_id match — happy path. Synthetics currently
+      //      have no correlation_id (the field isn't threaded from
+      //      turn_started into TurnState), so this rarely fires in
+      //      practice; retained as a forward-compat hook.
+      //   2. content-prefix match — the authoritative signal. If the
+      //      DB has an assistant row whose normalized content starts
+      //      with the same first ~120 chars as the synthetic, the DB
+      //      row IS the canonical version of it. Prefix tolerance
+      //      matters because the persisted row can be a SUPERSET of
+      //      the streaming accumulator (multi-chunk assistant text
+      //      straddling a tool call — the streaming buffer captured
+      //      only the pre-tool prefix, and the DB has the full
+      //      concatenation). Immune to clock skew, which is what the
+      //      previous strict `m.created_at <= newestDbAssistantTs`
+      //      check was broken by: when the browser wall clock is even
+      //      a few milliseconds ahead of the server DB commit time,
+      //      every synthetic survives indefinitely and the user sees
+      //      a permanent duplicate of every bot reply on the web UI.
+      //
+      // A timestamp-window fallback was considered and rejected: it
+      // false-positives on the genuine persist-failure case (send A,
+      // bot replies persisted; minutes later send B, bot replies but
+      // persist_turn fails → synthetic B must be kept, but a timestamp
+      // window centered on the DB's newest assistant would drop it
+      // because row A is within the window of B).
       const currentMessages = useChatStore.getState().channels[channelId]?.messages ?? [];
       const dbCorrelationIds = new Set(
         allMessages.map((m) => m.correlation_id).filter(Boolean)
       );
-      const newestDbAssistantTs = allMessages
-        .filter((m) => m.role === "assistant")
-        .reduce<string | null>(
-          (acc, m) => (acc === null || m.created_at > acc ? m.created_at : acc),
-          null,
-        );
+
+      const CONTENT_PREFIX_LEN = 120;
+      const normalizeForPrefix = (raw: unknown): string => {
+        if (typeof raw !== "string") return "";
+        return extractDisplayText(raw).trim().replace(/\s+/g, " ").slice(0, CONTENT_PREFIX_LEN);
+      };
+      const dbAssistantPrefixes = new Set<string>();
+      for (const m of allMessages) {
+        if (m.role !== "assistant") continue;
+        const p = normalizeForPrefix(m.content);
+        if (p) dbAssistantPrefixes.add(p);
+      }
+
       const syntheticToKeep = currentMessages.filter((m) => {
         if (!(m.id.startsWith("turn-") || m.id.startsWith("msg-"))) return false;
         if (m.role !== "assistant") return false;
-        // Drop if DB has a row with the same correlation_id.
+        // (1) Drop if DB has a row with the same correlation_id.
         if (m.correlation_id && dbCorrelationIds.has(m.correlation_id)) return false;
-        // Drop if DB has a NEWER assistant row (the canonical one).
-        if (newestDbAssistantTs && m.created_at <= newestDbAssistantTs) return false;
+        // (2) Drop if DB has an assistant row whose content prefix matches.
+        const prefix = normalizeForPrefix(m.content);
+        if (prefix && dbAssistantPrefixes.has(prefix)) return false;
         return true;
       });
 

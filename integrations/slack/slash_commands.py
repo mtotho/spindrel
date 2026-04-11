@@ -17,12 +17,12 @@ from agent_client import (
     get_channel_settings,
     list_bots,
     list_models,
-    stream_chat,
+    submit_chat,
     update_channel_settings,
     update_plan_item_status,
     update_plan_status,
 )
-from formatting import format_last_active, format_response_for_slack, format_tool_status, split_for_slack
+from formatting import format_last_active, split_for_slack
 from session_helpers import slack_client_id
 from slack_settings import BOT_TOKEN, get_bot_display_info
 from state import get_channel_state, get_global_setting, set_channel_state, set_global_setting
@@ -160,76 +160,30 @@ def register_slash_commands(app):
             "token": BOT_TOKEN,
         }
 
-        display_info = get_bot_display_info(target_bot_id)
-        identity: dict = {}
-        if display_info.get("display_name"):
-            identity["username"] = display_info["display_name"]
-        if display_info.get("icon_emoji"):
-            identity["icon_emoji"] = display_info["icon_emoji"]
-        elif display_info.get("icon_url"):
-            identity["icon_url"] = display_info["icon_url"]
-
-        thinking_msg = await client.chat_postMessage(
-            channel=channel,
-            text="⏳ _thinking..._",
-            **identity,
-        )
-        thinking_ts = thinking_msg["ts"]
-        thinking_channel = thinking_msg["channel"]
-
+        # Phase F: enqueue the turn on the server (POST /chat → 202) and
+        # let the main-process SlackRenderer drive delivery via the bus.
+        # The renderer posts its own "thinking..." placeholder on
+        # TURN_STARTED and updates it with streaming tokens + the final
+        # reply — this subprocess no longer touches chat.update itself.
+        # Mirrors the inbound-message path in message_handlers.py.
         try:
-            client_actions: list = []
-            async for event in stream_chat(
+            await submit_chat(
                 message=full_message,
                 bot_id=target_bot_id,
                 client_id=client_id,
                 dispatch_type="slack",
                 dispatch_config=dispatch_config,
                 msg_metadata=msg_metadata,
-            ):
-                etype = event.get("type")
-                if etype == "tool_start":
-                    tool = event.get("tool", "tool")
-                    status = format_tool_status(tool, event.get("args"))
-                    await client.chat_update(
-                        channel=thinking_channel,
-                        ts=thinking_ts,
-                        text=status,
-                        **identity,
-                    )
-                elif etype == "queued":
-                    try:
-                        await client.chat_delete(
-                            channel=thinking_channel,
-                            ts=thinking_ts,
-                        )
-                    except Exception:
-                        pass
-                    return
-                elif etype == "response":
-                    reply = (event.get("text") or "").strip()
-                    client_actions = event.get("client_actions") or []
-                    formatted = format_response_for_slack(reply)
-                    chunks = split_for_slack(formatted)
-                    await client.chat_update(
-                        channel=thinking_channel,
-                        ts=thinking_ts,
-                        text=chunks[0],
-                        **identity,
-                    )
-                    for chunk in chunks[1:]:
-                        await client.chat_postMessage(
-                            channel=thinking_channel,
-                            text=chunk,
-                            **identity,
-                        )
-        except Exception as e:
-            await client.chat_update(
-                channel=thinking_channel,
-                ts=thinking_ts,
-                text=f"_Error: {str(e)[:500]}_",
-                **identity,
             )
+        except Exception as e:
+            logger.exception("submit_chat failed for /ask in channel %s", channel)
+            try:
+                await client.chat_postMessage(
+                    channel=channel,
+                    text=f"_Failed to enqueue request: {str(e)[:200]}_",
+                )
+            except Exception:
+                pass
 
     @app.command("/context")
     async def cmd_context(ack, command, respond):
