@@ -321,7 +321,7 @@ async def lifespan(application: FastAPI):
     await ensure_orchestrator_channel()
     from app.agent.base_prompt import load_base_prompt
     load_base_prompt()
-    logger.info("Seeding integration manifests (seed-once)...")
+    logger.info("Synchronizing integration manifests (YAML seed-once, setup.py upsert)...")
     await seed_manifests()
     logger.info("Loading integration manifests from DB...")
     await load_manifests()

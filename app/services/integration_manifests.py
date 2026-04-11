@@ -1,8 +1,18 @@
 """Integration manifest service: YAML-first, DB-backed, UI-editable.
 
 Integrations can be defined via integration.yaml (declarative) or setup.py (legacy).
-YAML files are seeded to DB on first startup; DB is source of truth after that.
-The UI reads/writes the DB copy — the YAML file on disk is never overwritten.
+
+YAML manifests:
+  - Seeded on first startup. DB is source of truth after that — the YAML file on
+    disk is never overwritten and changes to it are *reported* via
+    ``check_file_drift`` but not auto-applied. The user reconciles via the UI editor.
+
+setup.py manifests:
+  - Re-synced on every startup. setup.py is the only source — there is no UI
+    editor for these rows (``yaml_content`` is NULL). When the file's content
+    hash changes, the DB row is updated in place via ``ON CONFLICT DO UPDATE``.
+    No drift reporting is needed because drift can never exist between
+    consecutive startups.
 """
 from __future__ import annotations
 
@@ -11,7 +21,7 @@ import logging
 from pathlib import Path
 
 import yaml
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 logger = logging.getLogger(__name__)
@@ -125,10 +135,16 @@ def setup_dict_to_manifest(integration_id: str, setup: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 async def seed_manifests() -> None:
-    """Scan all integration dirs for integration.yaml and seed to DB.
+    """Scan all integration dirs and synchronize manifests to DB.
 
-    Uses INSERT ON CONFLICT DO NOTHING — never overwrites existing entries.
-    Also auto-generates manifest entries for setup.py-only integrations.
+    YAML manifests use INSERT ON CONFLICT DO NOTHING — seeded once, then
+    edited via the UI. File-on-disk drift is *reported* via check_file_drift,
+    not auto-applied (the UI editor is the canonical edit surface).
+
+    setup.py manifests use INSERT ON CONFLICT DO UPDATE keyed on content_hash —
+    the file on disk is the only source (yaml_content is NULL, no UI editor),
+    so any change to setup.py must propagate on the next startup. Without
+    this, env_vars added to setup.py would never appear in the admin UI.
     """
     from integrations import _iter_integration_candidates
     from app.db.engine import async_session
@@ -138,7 +154,9 @@ async def seed_manifests() -> None:
     if not candidates:
         return
 
-    seeded = 0
+    yaml_seeded = 0
+    setup_seeded = 0
+    setup_refreshed = 0
     async with async_session() as db:
         for candidate_dir, integration_id, _is_external, source in candidates:
             yaml_path = candidate_dir / "integration.yaml"
@@ -166,8 +184,8 @@ async def seed_manifests() -> None:
                     content_hash=content_hash,
                 ).on_conflict_do_nothing(index_elements=["id"])
                 await db.execute(stmt)
-                seeded += 1
-                logger.info("Seeded integration manifest '%s' from %s", data["id"], yaml_path)
+                yaml_seeded += 1
+                logger.debug("Seeded YAML manifest '%s' from %s", data["id"], yaml_path)
 
             else:
                 # Try setup.py for legacy integrations
@@ -186,11 +204,17 @@ async def seed_manifests() -> None:
                     if not setup_dict or not isinstance(setup_dict, dict):
                         continue
                     data = setup_dict_to_manifest(integration_id, setup_dict)
+                    content_hash = _file_hash(setup_file)
                 except Exception:
                     logger.debug("Could not read setup.py for '%s'", integration_id, exc_info=True)
                     continue
 
-                stmt = pg_insert(IntegrationManifest).values(
+                # Look up the existing row's hash so we can log seed-vs-refresh
+                # accurately. (The UPSERT below is idempotent regardless.)
+                existing = await db.get(IntegrationManifest, integration_id)
+                existing_hash = existing.content_hash if existing else None
+
+                base_stmt = pg_insert(IntegrationManifest).values(
                     id=integration_id,
                     name=data.get("name", integration_id),
                     description=data.get("description"),
@@ -201,15 +225,57 @@ async def seed_manifests() -> None:
                     is_enabled=True,
                     source="setup_py",
                     source_path=str(setup_file),
-                    content_hash=None,
-                ).on_conflict_do_nothing(index_elements=["id"])
+                    content_hash=content_hash,
+                )
+                # ON CONFLICT DO UPDATE — but only when the file content has
+                # actually changed. The IS DISTINCT FROM filter keeps updated_at
+                # stable across no-op startups so the row's mtime is meaningful.
+                stmt = base_stmt.on_conflict_do_update(
+                    index_elements=["id"],
+                    set_={
+                        "name": base_stmt.excluded.name,
+                        "description": base_stmt.excluded.description,
+                        "version": base_stmt.excluded.version,
+                        "icon": base_stmt.excluded.icon,
+                        "manifest": base_stmt.excluded.manifest,
+                        "source": base_stmt.excluded.source,
+                        "source_path": base_stmt.excluded.source_path,
+                        "content_hash": base_stmt.excluded.content_hash,
+                        "updated_at": text("now()"),
+                    },
+                    where=IntegrationManifest.content_hash.is_distinct_from(
+                        base_stmt.excluded.content_hash
+                    ),
+                )
                 await db.execute(stmt)
-                seeded += 1
-                logger.debug("Seeded manifest for setup.py integration '%s'", integration_id)
+
+                if existing is None:
+                    setup_seeded += 1
+                    logger.info(
+                        "Seeded new setup.py manifest '%s' (hash=%s)",
+                        integration_id, content_hash[:8],
+                    )
+                elif existing_hash != content_hash:
+                    setup_refreshed += 1
+                    logger.info(
+                        "Refreshed setup.py manifest '%s' (hash %s → %s) — "
+                        "setup.py changed since last startup",
+                        integration_id,
+                        (existing_hash or "none")[:8],
+                        content_hash[:8],
+                    )
+                else:
+                    logger.debug(
+                        "setup.py manifest '%s' unchanged (hash=%s)",
+                        integration_id, content_hash[:8],
+                    )
 
         await db.commit()
 
-    logger.info("Seeded %d integration manifest(s)", seeded)
+    logger.info(
+        "Manifest seed complete: %d YAML seeded, %d setup.py seeded, %d setup.py refreshed",
+        yaml_seeded, setup_seeded, setup_refreshed,
+    )
 
 
 async def load_manifests() -> None:
