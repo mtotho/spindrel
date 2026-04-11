@@ -509,6 +509,15 @@ class Settings(BaseSettings):
     # Parallel tool execution — dispatch multiple tool calls concurrently via asyncio.gather
     PARALLEL_TOOL_EXECUTION: bool = True
     PARALLEL_TOOL_MAX_CONCURRENT: int = 10  # semaphore limit for concurrent dispatches
+    # Tool-dispatch wall-clock guard. Any local/MCP tool that exceeds this many
+    # seconds is cancelled and returns a timeout error to the LLM, so a wedged
+    # tool can never hang a turn forever. Must be > MCP_CALL_TIMEOUT so honest
+    # MCP failures surface as MCP timeouts instead of tripping this guard.
+    TOOL_DISPATCH_TIMEOUT: float = 90.0
+    # httpx client timeout inside app/tools/mcp.py:call_mcp_tool — lower than 60
+    # so a slow/blocking origin (e.g. a site that fingerprints the firecrawl
+    # proxy) doesn't eat a full minute of turn wall-clock per attempt.
+    MCP_CALL_TIMEOUT: float = 30.0
     # Rate limit retry (LLM call level — preserves accumulated tool-call context)
     LLM_RATE_LIMIT_RETRIES: int = 3          # additional attempts after first failure
     LLM_RATE_LIMIT_INITIAL_WAIT: int = 90    # seconds before first retry (slightly > 60s TPM window)
@@ -599,7 +608,7 @@ class Settings(BaseSettings):
     SKILL_INDEX_RETRIEVAL_THRESHOLD: float = 0.35
 
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
-    TOOL_RETRIEVAL_THRESHOLD: float = 0.45
+    TOOL_RETRIEVAL_THRESHOLD: float = 0.35
     TOOL_RETRIEVAL_TOP_K: int = 10
 
     # Memory

@@ -139,7 +139,7 @@ class TestAgentLoopCancellation:
         bot = _make_bot()
 
         # Pre-set cancellation
-        session_locks._active.add(str(sid))
+        session_locks.acquire(sid)
         session_locks._cancel_requested.add(str(sid))
 
         try:
@@ -158,7 +158,7 @@ class TestAgentLoopCancellation:
                 assert len(events) == 1
                 assert events[0]["type"] == "cancelled"
         finally:
-            session_locks._active.discard(str(sid))
+            session_locks.release(sid)
             session_locks._cancel_requested.discard(str(sid))
 
     @pytest.mark.asyncio
@@ -179,7 +179,7 @@ class TestAgentLoopCancellation:
             session_locks._cancel_requested.add(str(sid))
             yield acc
 
-        session_locks._active.add(str(sid))
+        session_locks.acquire(sid)
 
         try:
             with patch("app.agent.loop._llm_call_stream", side_effect=cancelling_stream), \
@@ -201,7 +201,7 @@ class TestAgentLoopCancellation:
                 # No tools should have been dispatched
                 assert "tool_start" not in event_types
         finally:
-            session_locks._active.discard(str(sid))
+            session_locks.release(sid)
             session_locks._cancel_requested.discard(str(sid))
 
     @pytest.mark.asyncio
@@ -241,7 +241,7 @@ class TestAgentLoopCancellation:
         tc2 = _mock_tool_call("tool_b", '{}', "tc_2")
         acc = _mock_accumulated(content=None, tool_calls=[tc1, tc2])
 
-        session_locks._active.add(str(sid))
+        session_locks.acquire(sid)
 
         # Patch dispatch_tool_call to set cancel flag after first call
         call_count = 0
@@ -284,5 +284,5 @@ class TestAgentLoopCancellation:
                 # dispatch_tool_call was only called once (second was cancelled)
                 assert call_count == 1
         finally:
-            session_locks._active.discard(str(sid))
+            session_locks.release(sid)
             session_locks._cancel_requested.discard(str(sid))

@@ -78,9 +78,13 @@ class TestChat:
         )
         assert resp.status_code == 202
         body = resp.json()
+        # Phase E: POST /chat returns the turn handle (channel_id +
+        # session_id + turn_id) so the client can subscribe to the SSE
+        # bus. The legacy `stream_id` field was removed when the long-
+        # poll SSE body was deleted.
         assert "session_id" in body
         assert "turn_id" in body
-        assert "stream_id" in body
+        assert "channel_id" in body
         assert self._mock_start_turn.await_count == 1
 
     async def test_chat_empty_message_no_attachments(self, client):

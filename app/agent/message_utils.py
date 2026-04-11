@@ -23,7 +23,27 @@ def _build_user_message_content(text: str, attachments: list[dict] | None) -> st
     """OpenAI-style multimodal user content for LiteLLM. `attachments` items: type image, content (base64), mime_type."""
     if not attachments:
         return text
-    parts: list[dict] = [{"type": "text", "text": text or "(no text)"}]
+
+    # Collect image-entry IDs so the LLM can call attachment-aware tools
+    # (generate_image, send_file, describe_attachment, …) against the
+    # upload it just received. Without this, the model only sees the raw
+    # image bytes and has no way to name the attachment — it either has
+    # to call list_attachments first or (as seen in the bug trace)
+    # hallucinates a UUID that doesn't exist.
+    id_hints: list[str] = []
+    for att in attachments:
+        if att.get("type") != "image":
+            continue
+        aid = att.get("attachment_id")
+        name = att.get("name") or "attachment"
+        if aid:
+            id_hints.append(f'<attachment id="{aid}" filename="{name}"/>')
+
+    base_text = text or "(no text)"
+    if id_hints:
+        base_text = base_text + "\n" + "\n".join(id_hints)
+
+    parts: list[dict] = [{"type": "text", "text": base_text}]
     for att in attachments:
         if att.get("type") != "image":
             continue

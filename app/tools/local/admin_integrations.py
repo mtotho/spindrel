@@ -10,7 +10,15 @@ from app.tools.registry import register
 logger = logging.getLogger(__name__)
 
 # Valid features that can be scaffolded
-_VALID_FEATURES = {"tools", "skills", "carapaces", "hooks", "process", "workflows"}
+_VALID_FEATURES = {
+    "tools",
+    "skills",
+    "carapaces",
+    "hooks",
+    "process",
+    "workflows",
+    "renderer",
+}
 
 
 def _get_scaffold_dir() -> Path | None:
@@ -178,15 +186,176 @@ system_prompt_fragment: |
   You have {pretty_name} capabilities. Describe triggers and usage here.
 ''')
 
-    # Phase G removed the legacy dispatcher scaffolding. New
-    # integrations that need to deliver outbound messages should ship a
-    # ``renderer.py`` implementing the ``ChannelRenderer`` protocol from
-    # ``app.integrations.renderer``. The integration discovery loop in
-    # ``integrations/__init__.py:_load_single_integration`` auto-imports
-    # ``renderer.py`` so registration happens at startup with no
-    # ``app/main.py`` changes. See ``integrations/slack/renderer.py`` or
-    # ``integrations/bluebubbles/renderer.py`` as templates. Renderer
-    # scaffolding for this admin tool is a future-session follow-up.
+    if "renderer" in features:
+        # ``target.py`` — typed dispatch destination, self-registers with
+        # ``app.domain.target_registry`` at module import. The integration
+        # discovery loop auto-imports this before ``renderer.py``.
+        target_class = "".join(p.capitalize() for p in integration_id.split("_")) + "Target"
+        renderer_class = "".join(p.capitalize() for p in integration_id.split("_")) + "Renderer"
+        (integration_dir / "target.py").write_text(f'''"""{target_class} — typed dispatch destination for the {pretty_name} integration.
+
+Self-registers with ``app.domain.target_registry`` at module import.
+The integration discovery loop auto-imports this module before
+``renderer.py``.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import ClassVar, Literal
+
+from app.domain import target_registry
+from app.domain.dispatch_target import _BaseTarget
+
+
+@dataclass(frozen=True)
+class {target_class}(_BaseTarget):
+    """{pretty_name} dispatch destination.
+
+    Add the fields your renderer needs to actually deliver a message
+    (channel id, auth token, thread/comment id, etc.). Optional fields
+    must have defaults — required fields are validated by
+    ``parse_dispatch_target``.
+    """
+
+    type: ClassVar[Literal["{integration_id}"]] = "{integration_id}"
+    integration_id: ClassVar[str] = "{integration_id}"
+
+    # Required fields:
+    # channel_id: str
+    # token: str
+
+    # Optional fields (must have defaults):
+    # thread_id: str | None = None
+
+
+target_registry.register({target_class})
+''')
+
+        # ``renderer.py`` — channel renderer that converts typed bus
+        # events into platform API calls. Slack and Discord renderers
+        # are the canonical templates.
+        (integration_dir / "renderer.py").write_text(f'''"""{renderer_class} — channel renderer for {pretty_name} delivery.
+
+Subscribes to the channel-events bus via the renderer registry. The
+outbox drainer (``app/services/outbox_drainer.py``) calls
+``render(event, target)`` for each {integration_id}-bound row.
+NEW_MESSAGE events reach this renderer ONLY via the outbox drainer
+because ``ChannelEventKind.is_outbox_durable`` is True for that kind —
+the in-memory bus path (``IntegrationDispatcherTask``) short-circuits
+outbox-durable kinds. Streaming kinds (TURN_STREAM_*, TURN_STARTED,
+TURN_ENDED) still flow via the bus.
+"""
+from __future__ import annotations
+
+import logging
+from typing import ClassVar
+
+import httpx
+
+from app.domain.capability import Capability
+from app.domain.channel_events import ChannelEvent, ChannelEventKind
+from app.domain.dispatch_target import DispatchTarget
+from app.domain.outbound_action import OutboundAction
+from app.integrations.renderer import DeliveryReceipt
+from integrations.{integration_id}.target import {target_class}
+
+logger = logging.getLogger(__name__)
+
+
+# Module-level shared httpx client. Closed in ``app/main.py`` lifespan
+# shutdown via the renderer-module reflective sweep.
+_http = httpx.AsyncClient(timeout=30.0)
+
+
+class {renderer_class}:
+    """Channel renderer for {pretty_name} delivery.
+
+    Declare every capability the integration supports. The dispatcher
+    only delivers events whose ``required_capabilities()`` is a subset
+    of this set, so unsupported kinds never reach ``render()``.
+    """
+
+    integration_id: ClassVar[str] = "{integration_id}"
+    capabilities: ClassVar[frozenset[Capability]] = frozenset({{
+        Capability.TEXT,
+        # Capability.RICH_TEXT,
+        # Capability.STREAMING_EDIT,
+        # Capability.ATTACHMENTS,
+        # Capability.APPROVAL_BUTTONS,
+    }})
+
+    async def render(
+        self,
+        event: ChannelEvent,
+        target: DispatchTarget,
+    ) -> DeliveryReceipt:
+        if not isinstance(target, {target_class}):
+            return DeliveryReceipt.failed(
+                f"{renderer_class} received non-{integration_id} target: "
+                f"{{type(target).__name__}}",
+                retryable=False,
+            )
+
+        kind = event.kind
+        try:
+            if kind == ChannelEventKind.NEW_MESSAGE:
+                return await self._handle_new_message(event, target)
+            if kind == ChannelEventKind.TURN_ENDED:
+                return await self._handle_turn_ended(event, target)
+        except Exception as exc:
+            logger.exception(
+                "{renderer_class}.render: unexpected failure for %s",
+                kind.value,
+            )
+            return DeliveryReceipt.failed(f"unexpected: {{exc}}", retryable=True)
+
+        # Anything else is silently skipped — the outbox drainer marks
+        # the row delivered with the skip reason.
+        return DeliveryReceipt.skipped(
+            f"{integration_id} does not handle {{kind.value}}"
+        )
+
+    async def handle_outbound_action(
+        self,
+        action: OutboundAction,
+        target: DispatchTarget,
+    ) -> DeliveryReceipt:
+        return DeliveryReceipt.skipped("not implemented")
+
+    async def delete_attachment(
+        self,
+        attachment_metadata: dict,
+        target: DispatchTarget,
+    ) -> bool:
+        return False
+
+    # ------------------------------------------------------------------
+    # Event handlers — implement the ones your integration supports
+    # ------------------------------------------------------------------
+
+    async def _handle_new_message(
+        self, event: ChannelEvent, target: {target_class}
+    ) -> DeliveryReceipt:
+        # TODO: implement message delivery via ``_http``.
+        return DeliveryReceipt.skipped("not implemented")
+
+    async def _handle_turn_ended(
+        self, event: ChannelEvent, target: {target_class}
+    ) -> DeliveryReceipt:
+        # TODO: implement final-message delivery.
+        return DeliveryReceipt.skipped("not implemented")
+
+
+def _register() -> None:
+    """Self-register at module import. Idempotent."""
+    from app.integrations import renderer_registry
+
+    if renderer_registry.get({renderer_class}.integration_id) is None:
+        renderer_registry.register({renderer_class}())
+
+
+_register()
+''')
 
     if "hooks" in features:
         (integration_dir / "hooks.py").write_text(f'''"""Hooks for {pretty_name} — lifecycle event handlers."""

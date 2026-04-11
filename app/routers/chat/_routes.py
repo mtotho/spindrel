@@ -235,11 +235,37 @@ async def _enqueue_chat_turn(
         )
 
     # Eager attachment records so the agent loop can see them.
+    # Capture the created rows and thread their UUIDs into ``att_payload``
+    # so the LLM can reference them directly (e.g. via
+    # ``generate_image(attachment_ids=...)``) instead of hallucinating a
+    # UUID for a fresh upload it has never been told the id of.
     if req.file_metadata:
         source = (req.msg_metadata or {}).get("source", "web")
-        await _create_attachments_from_metadata(
+        created_attachments = await _create_attachments_from_metadata(
             req.file_metadata, channel_id, source, bot_id=req.bot_id,
         )
+        if att_payload:
+            # file_metadata covers every upload (images + text), while
+            # att_payload only contains vision-eligible entries. Match by
+            # (filename, size_bytes) to thread the id onto the right
+            # payload entry — filename alone can collide for duplicate
+            # uploads in the same turn.
+            _by_key = {
+                (att.filename, att.size_bytes): str(att.id)
+                for att in created_attachments
+            }
+            for entry in att_payload:
+                key = (entry.get("name"), None)
+                # Size isn't on the Attachment pydantic model, so fall
+                # back to filename-only lookup when we can't match the
+                # exact key.
+                matched_id: str | None = None
+                for (fname, _size), aid in _by_key.items():
+                    if fname == entry.get("name"):
+                        matched_id = aid
+                        break
+                if matched_id:
+                    entry["attachment_id"] = matched_id
 
     # Spawn the background turn worker. start_turn returns immediately.
     try:

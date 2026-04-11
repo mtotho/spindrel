@@ -186,8 +186,11 @@ async def call_mcp_tool(tool_name: str, arguments: str) -> str:
     try:
         args = json.loads(arguments) if arguments else {}
         from app.security.audit import log_outbound_request
+        from app.config import settings
         log_outbound_request(url=server.url, method="POST", tool_name=f"mcp:{tool_name}")
-        async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=settings.MCP_CALL_TIMEOUT, follow_redirects=True
+        ) as client:
             resp = await client.post(
                 server.url,
                 json={

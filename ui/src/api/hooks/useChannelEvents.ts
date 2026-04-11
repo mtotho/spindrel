@@ -269,13 +269,21 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
         }
 
         case "approval_requested": {
-          // Approvals can target the channel without a specific turn (e.g.
-          // capability gates fired pre-execution). Apply to the most recent
-          // turn for the channel; in practice there's only one running turn
-          // per primary bot at a time.
+          // Prefer the explicit turn_id from the payload — set by every
+          // current publisher (turn_event_emit, tool_dispatch). Fall
+          // back to the most recent turn for the channel only when the
+          // payload omits it (legacy / script-driven admin approvals
+          // that fire outside any turn context). Without the explicit
+          // routing, a member-bot turn requesting approval while the
+          // primary turn is still active would land in the primary's
+          // slot and never resolve.
           const ch = store.getChannel(chId);
           const turnIds = Object.keys(ch.turns);
-          const targetTurnId = turnIds[turnIds.length - 1];
+          const explicitTurnId = payload?.turn_id as string | undefined;
+          const targetTurnId =
+            explicitTurnId && ch.turns[explicitTurnId]
+              ? explicitTurnId
+              : turnIds[turnIds.length - 1];
           if (!targetTurnId) return;
           const deltas = pendingDeltasRef.current[targetTurnId];
           if (deltas && (deltas.text || deltas.think)) {

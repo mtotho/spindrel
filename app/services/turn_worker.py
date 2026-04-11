@@ -116,6 +116,13 @@ async def run_turn(
             dispatch_type=None,
             dispatch_config=None,
         )
+        # ``current_turn_id`` is set separately because ``set_agent_context``
+        # doesn't know the turn_id (it's a per-task value, not a request
+        # value). Tool-dispatch reads this when publishing
+        # APPROVAL_REQUESTED so the UI can route the approval back to the
+        # right in-flight turn slot.
+        from app.agent.context import current_turn_id
+        current_turn_id.set(turn_id)
 
         # 1. Pre-persist the user message and publish NEW_MESSAGE so the bus
         #    sees the user input before the agent starts emitting tokens.
@@ -414,8 +421,18 @@ async def _persist_and_publish_user_message(
                     metadata.get("sender_id", "user"),
                     display_name=metadata.get("sender_display_name"),
                 ),
+                metadata=dict(metadata),
+                correlation_id=correlation_id,
                 channel_id=channel_id,
             )
+            # NEW_MESSAGE is outbox-durable: enqueue an outbox row so the
+            # drainer is the single delivery path to renderers, and call
+            # publish_typed so SSE subscribers (web UI) still see the
+            # event live. The Slack renderer's echo filter then catches
+            # this on the outbox path the same way it would on the bus
+            # path.
+            from app.services.outbox_publish import enqueue_new_message_for_channel
+            await enqueue_new_message_for_channel(channel_id, domain_msg)
             publish_typed(
                 channel_id,
                 ChannelEvent(

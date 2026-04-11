@@ -19,13 +19,13 @@ coalesce window. SlackRenderer collapses both into one path with:
    fires after the in-flight call completes.
 
 The renderer subscribes to the channel-events bus via the registry
-``app.integrations.renderer_registry``. The outbox drainer
-(``app/services/outbox_drainer.py``) calls ``render(event, target)`` for
-each Slack-bound row. ``IntegrationDispatcherTask``
-(``app/services/channel_renderers.py``) ALSO calls it via
-``subscribe_all()``; the renderer is idempotent across both paths
-because Slack's ``chat.update`` is itself idempotent (same ts → same
-state).
+``app.integrations.renderer_registry``. NEW_MESSAGE events reach this
+renderer via the outbox drainer ONLY — ``IntegrationDispatcherTask``
+short-circuits outbox-durable kinds in its dispatch loop, so there is
+no longer a "two paths racing for the same msg.id" foot-gun (see
+``ChannelEventKind.is_outbox_durable``). Streaming kinds
+(``TURN_STREAM_*``, ``TURN_STARTED``, ``TURN_ENDED``) still flow via
+the bus because they're inherently ephemeral.
 """
 from __future__ import annotations
 
@@ -33,7 +33,6 @@ import asyncio
 import logging
 import time
 import uuid
-from collections import deque
 from typing import ClassVar
 
 import httpx
@@ -64,13 +63,6 @@ logger = logging.getLogger(__name__)
 _http = httpx.AsyncClient(timeout=30.0)
 
 
-_RECENT_POSTED_CAP = 1024
-"""LRU cap for the per-renderer `_posted_message_ids` dedup buffer. Sized
-to comfortably cover a burst of a few hundred cross-integration mirror
-messages without evicting entries before their twin arrives via the other
-delivery path."""
-
-
 class SlackRenderer:
     """Channel renderer for Slack delivery.
 
@@ -96,30 +88,6 @@ class SlackRenderer:
         Capability.DISPLAY_NAMES,
         Capability.MENTIONS,
     })
-
-    def __init__(self) -> None:
-        # Bounded LRU of message ids we've already posted via
-        # ``_handle_new_message``. NEW_MESSAGE events are delivered via
-        # BOTH ``outbox_drainer`` (durable) and
-        # ``IntegrationDispatcherTask.subscribe_all()`` (ephemeral),
-        # so the same event reaches this renderer twice. Dedup by
-        # ``msg.id`` ensures we only chat.postMessage once regardless
-        # of which delivery path wins the race. The ``deque`` is the
-        # FIFO eviction queue; the ``set`` is the O(1) membership probe.
-        self._posted_order: deque[uuid.UUID] = deque(maxlen=_RECENT_POSTED_CAP)
-        self._posted_set: set[uuid.UUID] = set()
-
-    def _remember_posted(self, msg_id: uuid.UUID) -> None:
-        if msg_id in self._posted_set:
-            return
-        if len(self._posted_order) == _RECENT_POSTED_CAP:
-            evicted = self._posted_order[0]
-            self._posted_set.discard(evicted)
-        self._posted_order.append(msg_id)
-        self._posted_set.add(msg_id)
-
-    def _already_posted(self, msg_id: uuid.UUID) -> bool:
-        return msg_id in self._posted_set
 
     async def render(
         self,
@@ -374,11 +342,19 @@ class SlackRenderer:
         # user's own message in their own Slack channel as an APP post.
         # Cross-integration mirroring (user types in web UI, message
         # should appear in Slack) still works — those user messages
-        # carry a different actor.id prefix. The ``slack:`` prefix
-        # convention is set by ``integrations/slack/message_handlers.py``
-        # via ``sender_id: f"slack:{user}"`` and preserved unchanged
-        # through ``ActorRef.user(metadata.get("sender_id"))``.
+        # have a different ``metadata["source"]``.
+        #
+        # Primary signal: ``metadata["source"] == "slack"`` set by
+        # ``integrations/slack/message_handlers.py:msg_metadata`` and
+        # threaded through ``turn_worker._persist_and_publish_user_message``
+        # onto the DomainMessage. Fallback: legacy ``slack:`` prefix on
+        # ``actor.id`` for messages persisted before metadata was threaded.
         if role == "user":
+            msg_metadata = getattr(msg, "metadata", None) or {}
+            if msg_metadata.get("source") == "slack":
+                return DeliveryReceipt.skipped(
+                    "slack skips own-origin user message (echo prevention)"
+                )
             actor = getattr(msg, "actor", None)
             actor_id = getattr(actor, "id", "") or "" if actor is not None else ""
             if actor_id.startswith("slack:"):
@@ -391,23 +367,13 @@ class SlackRenderer:
         # already delivered via the streaming ``chat.update`` path. Posting
         # them again would duplicate every bot reply. Workflow-authored
         # assistant messages (``workflow_executor.py``) arrive outside
-        # any turn context and are still posted. We also remember the
-        # id so a later NEW_MESSAGE redelivery via the other path
-        # (outbox drainer vs. subscribe_all) doesn't slip through.
+        # any turn context and are still posted.
         if role == "assistant" and slack_render_contexts.has_active_turn(
             target.channel_id
         ):
-            self._remember_posted(msg.id)
             return DeliveryReceipt.skipped(
                 "assistant new_message during active turn — TURN_ENDED handles"
             )
-
-        # Cross-path dedup. NEW_MESSAGE is delivered via BOTH the outbox
-        # drainer and ``IntegrationDispatcherTask.subscribe_all()``, so
-        # the same message.id reaches render() twice. The first call
-        # wins, the second is a no-op.
-        if self._already_posted(msg.id):
-            return DeliveryReceipt.skipped("slack already posted message id")
 
         # Use the message's actor for display attribution. Bot
         # messages get bot_attribution; user messages get the user's
@@ -420,12 +386,6 @@ class SlackRenderer:
             display_name = getattr(actor, "display_name", None)
             if display_name:
                 attrs["username"] = display_name
-
-        # Mark as posted BEFORE issuing the API call so a concurrent
-        # render of the same event (race between the two paths) short-
-        # circuits on the set membership check above instead of making
-        # a second duplicate post.
-        self._remember_posted(msg.id)
 
         text = getattr(msg, "content", "") or ""
         slack_text = markdown_to_slack_mrkdwn(text)

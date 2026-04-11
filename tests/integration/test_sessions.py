@@ -264,14 +264,16 @@ class TestPersistTurnChannelEvents:
         )
 
         # Two events should be in the replay buffer (one per row).
-        # Phase E persist_turn publishes via ``publish_typed(NEW_MESSAGE, ...)``
-        # which stashes the typed event under ``metadata["_typed_event"]``.
+        # persist_turn publishes via ``publish_typed(NEW_MESSAGE, ...)``
+        # so the buffer holds typed ``ChannelEvent`` instances directly.
+        from app.domain.channel_events import ChannelEventKind
+
         buf = list(channel_events._replay_buffer.get(channel_id, ()))
-        new_msg_events = [e for e in buf if e.event_type == "new_message"]
+        new_msg_events = [e for e in buf if e.kind == ChannelEventKind.NEW_MESSAGE]
         assert len(new_msg_events) == 2
 
-        first_payload = new_msg_events[0].metadata["_typed_event"].payload
-        second_payload = new_msg_events[1].metadata["_typed_event"].payload
+        first_payload = new_msg_events[0].payload
+        second_payload = new_msg_events[1].payload
         assert first_payload.message.role == "user"
         assert first_payload.message.content == "hello"
         assert second_payload.message.role == "assistant"
@@ -329,12 +331,14 @@ class TestPersistTurnChannelEvents:
             db_session, sid, "ambient", {"passive": True}, channel_id=channel_id,
         )
 
+        from app.domain.channel_events import ChannelEventKind
+
         buf = list(channel_events._replay_buffer.get(channel_id, ()))
-        new_msg_events = [e for e in buf if e.event_type == "new_message"]
+        new_msg_events = [e for e in buf if e.kind == ChannelEventKind.NEW_MESSAGE]
         assert len(new_msg_events) == 1
-        body = new_msg_events[0].metadata["message"]
-        assert body["content"] == "ambient"
-        assert body["metadata"] == {"passive": True}
+        message = new_msg_events[0].payload.message
+        assert message.content == "ambient"
+        assert message.metadata == {"passive": True}
 
         channel_events.reset_channel_state(channel_id)
 

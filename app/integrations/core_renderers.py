@@ -302,7 +302,21 @@ class InternalRenderer:
                 await db.refresh(record)
 
                 if session.channel_id:
+                    # NEW_MESSAGE is outbox-durable: enqueue an outbox row
+                    # so the drainer is the single delivery path to renderers,
+                    # then publish_message for SSE subscribers.
+                    from app.domain.message import Message as DomainMessage
                     from app.services.channel_events import publish_message
+                    from app.services.outbox_publish import (
+                        enqueue_new_message_for_channel,
+                    )
+
+                    domain_msg = DomainMessage.from_orm(
+                        record, channel_id=session.channel_id
+                    )
+                    await enqueue_new_message_for_channel(
+                        session.channel_id, domain_msg
+                    )
                     publish_message(session.channel_id, record)
         except Exception as exc:  # noqa: BLE001
             logger.exception("InternalRenderer.render failed for task %s", task_id)

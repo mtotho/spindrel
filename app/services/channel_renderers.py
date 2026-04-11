@@ -186,6 +186,18 @@ class IntegrationDispatcherTask:
 
     async def _dispatch(self, event: "DomainChannelEvent") -> None:
         """Capability-check + target-resolve + render a single event."""
+        # Outbox-durable kinds (NEW_MESSAGE today) are delivered to
+        # renderers exclusively via the outbox drainer. Skipping them
+        # here avoids the dual-path delivery foot-gun: the same event
+        # reaching ``renderer.render()`` once via the outbox drainer and
+        # again via this in-memory bus path. Publishers of these kinds
+        # must enqueue an outbox row in addition to (or instead of)
+        # calling ``publish_typed`` — see ``outbox_publish.enqueue_new_
+        # message_for_channel`` and the ``ChannelEventKind.is_outbox_
+        # durable`` docstring.
+        if event.kind.is_outbox_durable:
+            return
+
         # Capability gate. Renderers that don't declare the required
         # capabilities for a kind never see those events.
         required = event.kind.required_capabilities()

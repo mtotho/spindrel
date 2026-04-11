@@ -80,27 +80,39 @@ class TestPostMessageWithSlackFile:
 
 class TestMessageHistoryRedaction:
     async def test_attachment_hint_format(self):
-        """Turn 1+: attachment hint has correct format."""
+        """Turn 1+: attachment hint is an XML-style tag with id/filename/description."""
         from app.services.sessions import _attachment_hint
 
         att = MagicMock()
+        att.id = uuid.UUID("11111111-1111-1111-1111-111111111111")
         att.filename = "report.pdf"
         att.description = "A quarterly financial report."
 
         hint = _attachment_hint(att)
         assert "report.pdf" in hint
         assert "quarterly financial report" in hint
+        assert str(att.id) in hint
+        assert hint.startswith("<attachment ")
+        assert hint.endswith("/>")
+        # The instructional "→ To fetch full file, call: get_attachment(...)"
+        # and "(Use get_attachment tool ...)" strings leaked into assistant
+        # output verbatim — the LLM copied the format from enriched history.
+        # Any regression here reintroduces the same user-visible leak.
+        assert "To fetch full file" not in hint
+        assert "Use get_attachment tool" not in hint
 
     async def test_attachment_hint_no_description(self):
         """Unsummarized attachment produces hint without description."""
         from app.services.sessions import _attachment_hint
 
         att = MagicMock()
+        att.id = uuid.UUID("22222222-2222-2222-2222-222222222222")
         att.filename = "image.png"
         att.description = None
 
         hint = _attachment_hint(att)
         assert "image.png" in hint
+        assert str(att.id) in hint
 
 
 # ---------------------------------------------------------------------------
@@ -261,15 +273,31 @@ class TestMessageRedaction:
         # Verify: redacted to attachment hint
         assert "screenshot.png" in text_parts
         assert "A dashboard showing metrics" in text_parts
-        # Verify: tool hint present
-        assert "get_attachment" in text_parts
+        # Verify: hint carries the UUID so the agent can reference the
+        # attachment in tool calls (generate_image, describe_attachment, …).
+        assert str(att.id) in text_parts
         # Verify: placeholder is gone
         assert "[image — not available in this session]" not in text_parts
+        # Regression: the old imperative hint text leaked verbatim into
+        # assistant replies (bug 2026-04-11). The new XML-tag format
+        # avoids this because LLMs don't naturally echo self-closing tags.
+        assert "To fetch full file" not in text_parts
+        assert "Use get_attachment tool" not in text_parts
 
-    async def test_large_text_file_truncated_on_turn_1_plus(
+    async def test_large_text_file_passes_through_on_turn_1_plus(
         self, db_session, session_with_text_attachment,
     ):
-        """Turn 1+: large text attachments show summary + hint, not full content."""
+        """Turn 1+: user messages without image placeholders are unchanged.
+
+        The previous behavior unconditionally appended a hint when the
+        user message carried an attachment, even for messages that had
+        no placeholder to replace. That was the source of the
+        enrichment-hint leak (the LLM began copying the hint format
+        into its own assistant replies). Text files are inlined at
+        upload time via ``_process_slack_files``, so the stored
+        content already carries their body; the enrichment pass
+        should no-op for messages that never had a placeholder.
+        """
         from app.services.sessions import _load_messages
 
         session, user_msg, att = session_with_text_attachment
@@ -287,12 +315,12 @@ class TestMessageRedaction:
                 p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
             )
 
-        # Summary + hint injected
-        assert "data.csv" in content
-        assert "50k rows of sales data" in content
-        assert "get_attachment" in content
-        # Content is compact — no full 1MB file re-injected
-        assert len(content) < 500
+        # Original user text survives unchanged.
+        assert "Please analyze the attached file" in content
+        # Enrichment no longer appends the imperative hint text that
+        # was getting echoed into the bot's own responses.
+        assert "To fetch full file" not in content
+        assert "Use get_attachment tool" not in content
 
     async def test_no_attachment_unaffected(self, db_session):
         """Messages without attachments pass through unchanged across all turns."""

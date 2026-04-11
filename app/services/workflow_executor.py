@@ -196,7 +196,14 @@ async def _post_workflow_chat_message(
             )
             await db.commit()
             await db.refresh(record)
+            # NEW_MESSAGE is outbox-durable: enqueue for renderer delivery
+            # before the bus publish that feeds SSE subscribers.
+            from app.domain.message import Message as DomainMessage
             from app.services.channel_events import publish_message
+            from app.services.outbox_publish import enqueue_new_message_for_channel
+
+            domain_msg = DomainMessage.from_orm(record, channel_id=channel.id)
+            await enqueue_new_message_for_channel(channel.id, domain_msg)
             publish_message(channel.id, record)
     except Exception:
         logger.debug(

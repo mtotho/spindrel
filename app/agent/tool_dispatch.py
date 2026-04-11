@@ -230,6 +230,12 @@ async def dispatch_tool_call(
     _tc_type = "local"
     _tc_server: str | None = None
 
+    # The local / MCP branches build a coroutine and then run it under a
+    # single wall-clock guard below. Client tools already have their own
+    # CLIENT_TOOL_TIMEOUT wait_for (long-poll pattern), so they're handled
+    # inline and never fall into the shared guard.
+    _tool_coro = None
+
     if is_client_tool(name):
         _tc_type = "client"
         request_id = str(uuid.uuid4())
@@ -252,7 +258,7 @@ async def dispatch_tool_call(
     elif is_local_tool(name):
         _tc_type = "local"
         if name in ("update_persona", "append_to_persona", "edit_persona"):
-            result = await call_persona_tool(name, args or "{}", bot_id)
+            _tool_coro = call_persona_tool(name, args or "{}", bot_id)
         elif name in (
             "upsert_knowledge",
             "get_knowledge",
@@ -265,7 +271,7 @@ async def dispatch_tool_call(
             "unpin_knowledge",
             "set_knowledge_similarity_threshold",
         ) and client_id:
-            result = await call_knowledge_tool(
+            _tool_coro = call_knowledge_tool(
                 name,
                 args or "{}",
                 bot_id,
@@ -275,13 +281,30 @@ async def dispatch_tool_call(
                 fallback_threshold=settings.KNOWLEDGE_SIMILARITY_THRESHOLD,
             )
         else:
-            result = await call_local_tool(name, args)
+            _tool_coro = call_local_tool(name, args)
     elif is_mcp_tool(name):
         _tc_type = "mcp"
         _tc_server = get_mcp_server_for_tool(name)
-        result = await call_mcp_tool(name, args)
+        _tool_coro = call_mcp_tool(name, args)
     else:
         result = json.dumps({"error": f"Unknown tool: {name}"})
+
+    if _tool_coro is not None:
+        try:
+            result = await asyncio.wait_for(
+                _tool_coro, timeout=settings.TOOL_DISPATCH_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Tool %s exceeded %.0fs wall-clock — cancelled by dispatch guard",
+                name, settings.TOOL_DISPATCH_TIMEOUT,
+            )
+            result = json.dumps({
+                "error": (
+                    f"Tool {name} exceeded {settings.TOOL_DISPATCH_TIMEOUT:.0f}s "
+                    "wall-clock and was cancelled. Try a different approach."
+                ),
+            })
 
     _tc_duration = int((time.monotonic() - t0) * 1000)
     result_obj.duration_ms = _tc_duration
@@ -553,6 +576,7 @@ async def _notify_approval_request(
         )
         return
     try:
+        from app.agent.context import current_turn_id
         from app.domain.channel_events import ChannelEvent, ChannelEventKind
         from app.domain.payloads import ApprovalRequestedPayload
         from app.services.channel_events import publish_typed
@@ -570,6 +594,7 @@ async def _notify_approval_request(
                     arguments=dict(arguments or {}),
                     reason=reason,
                     capability=cap if isinstance(cap, dict) else None,
+                    turn_id=current_turn_id.get(),
                 ),
             ),
         )

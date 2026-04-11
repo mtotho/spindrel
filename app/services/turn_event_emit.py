@@ -154,6 +154,7 @@ async def emit_run_stream_events(
                         tool_name=event.get("tool", ""),
                         arguments=_coerce_tool_arguments(event.get("args")),
                         reason=event.get("reason"),
+                        turn_id=turn_id,
                     ),
                 ),
             )

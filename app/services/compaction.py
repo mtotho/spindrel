@@ -1200,6 +1200,7 @@ async def _drain_compaction(
                 from app.domain.message import Message as DomainMessage
                 from app.domain.payloads import MessagePayload
                 from app.services.channel_events import publish_typed
+                from app.services.outbox_publish import enqueue_new_message_for_channel
 
                 _domain_msg = DomainMessage(
                     id=uuid.uuid4(),
@@ -1208,8 +1209,12 @@ async def _drain_compaction(
                     content="🧠 _Context compacted._",
                     created_at=datetime.now(timezone.utc),
                     actor=ActorRef.system("compaction", "Context"),
+                    metadata={"source": "compaction"},
                     channel_id=_channel_id,
                 )
+                # NEW_MESSAGE is outbox-durable: enqueue for renderer delivery,
+                # publish_typed for SSE.
+                await enqueue_new_message_for_channel(_channel_id, _domain_msg)
                 publish_typed(
                     _channel_id,
                     ChannelEvent(

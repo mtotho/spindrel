@@ -50,7 +50,14 @@ export function ToolBadges({
   t: ThemeTokens;
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  if (toolNames.length === 0) return null;
+  // Render when EITHER source has data — toolNames is the
+  // metadata-derived list (set on persisted turns) and toolCalls is the
+  // raw tool_calls field (set during streaming and on freshly persisted
+  // assistant rows where meta.tools_used hasn't been backfilled yet).
+  // Gating only on toolNames produces an empty-assistant-turn ghost row.
+  if (toolNames.length === 0 && (!toolCalls || toolCalls.length === 0)) {
+    return null;
+  }
 
   const items = buildItems(toolNames, toolCalls);
 

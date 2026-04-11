@@ -301,8 +301,9 @@ class DelegationService:
         """Publish a child bot's response onto the channel-events bus.
 
         Called by the non-streaming `run()` wrapper and by the turn worker
-        when ``delegation_post`` events fire. Renderers consume the
-        NEW_MESSAGE event and post to the integration.
+        when ``delegation_post`` events fire. NEW_MESSAGE is outbox-durable
+        — enqueue an outbox row first (renderer delivery path), then
+        publish to the bus (SSE path).
         """
         from datetime import datetime, timezone
 
@@ -311,6 +312,7 @@ class DelegationService:
         from app.domain.message import Message as DomainMessage
         from app.domain.payloads import MessagePayload
         from app.services.channel_events import publish_typed
+        from app.services.outbox_publish import enqueue_new_message_for_channel
 
         domain_msg = DomainMessage(
             id=uuid.uuid4(),
@@ -319,8 +321,10 @@ class DelegationService:
             content=text,
             created_at=datetime.now(timezone.utc),
             actor=ActorRef.bot(bot_id, display_name=bot_id),
+            metadata={"trigger": "delegation_callback", "sender_type": "bot"},
             channel_id=channel_id,
         )
+        await enqueue_new_message_for_channel(channel_id, domain_msg)
         publish_typed(
             channel_id,
             ChannelEvent(

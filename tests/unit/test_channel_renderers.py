@@ -151,6 +151,19 @@ class TestStartStop:
             await task.stop()
 
 
+def _turn_started_event(channel_id: uuid.UUID) -> DomainChannelEvent:
+    """Build a TURN_STARTED event for use as a non-outbox-durable
+    sentinel in dispatch tests. ``NEW_MESSAGE`` is short-circuited by
+    ``IntegrationDispatcherTask._dispatch`` because it's outbox-durable;
+    streaming/lifecycle kinds still flow via the bus and are the right
+    test vehicle for verifying the dispatcher's routing behavior."""
+    return DomainChannelEvent(
+        channel_id=channel_id,
+        kind=ChannelEventKind.TURN_STARTED,
+        payload=TurnStartedPayload(bot_id="bot1", turn_id=uuid.uuid4()),
+    )
+
+
 class TestEventDispatch:
     @pytest.mark.asyncio
     async def test_renderer_receives_published_event(self):
@@ -162,35 +175,15 @@ class TestEventDispatch:
 
         try:
             ch = _cid()
-            evt = DomainChannelEvent(
-                channel_id=ch,
-                kind=ChannelEventKind.NEW_MESSAGE,
-                payload=MessagePayload(message=_make_message(ch)),
-            )
+            evt = _turn_started_event(ch)
             publish_typed(ch, evt)
 
             await _spin_until(lambda: len(renderer.rendered) == 1)
 
             (received_event, received_target) = renderer.rendered[0]
-            assert received_event.kind == ChannelEventKind.NEW_MESSAGE
+            assert received_event.kind == ChannelEventKind.TURN_STARTED
             assert received_event.channel_id == ch
             assert received_target is target
-        finally:
-            await task.stop()
-
-    @pytest.mark.asyncio
-    async def test_legacy_dict_publish_is_ignored_by_renderer(self):
-        """publish() (untyped) does not surface to renderers in Phase B —
-        only publish_typed() does. Phase C migrates publishers."""
-        renderer = FakeRenderer()
-        task = IntegrationDispatcherTask(renderer, lambda _ch: _slack_target())
-        task.start()
-        await asyncio.sleep(0.01)
-        try:
-            ch = _cid()
-            ce_module.publish(ch, "new_message", {"v": 1})
-            await asyncio.sleep(0.05)
-            assert renderer.rendered == []
         finally:
             await task.stop()
 
@@ -204,11 +197,7 @@ class TestEventDispatch:
         try:
             ch1, ch2 = _cid(), _cid()
             for ch in (ch1, ch2):
-                publish_typed(ch, DomainChannelEvent(
-                    channel_id=ch,
-                    kind=ChannelEventKind.NEW_MESSAGE,
-                    payload=MessagePayload(message=_make_message(ch)),
-                ))
+                publish_typed(ch, _turn_started_event(ch))
 
             await _spin_until(lambda: len(renderer.rendered) == 2)
             channel_ids = {ev.channel_id for ev, _ in renderer.rendered}
@@ -218,6 +207,38 @@ class TestEventDispatch:
             assert task.get_context(ch2) is not None
             # Different objects.
             assert task.get_context(ch1) is not task.get_context(ch2)
+        finally:
+            await task.stop()
+
+    @pytest.mark.asyncio
+    async def test_outbox_durable_kinds_skip_bus_dispatch(self):
+        """Regression: NEW_MESSAGE is outbox-durable. The dispatcher
+        must short-circuit it before capability gating + target
+        resolution so the renderer never sees the same msg.id twice
+        (once via the outbox drainer, once via subscribe_all). The
+        outbox drainer is the sole renderer-delivery path for these
+        kinds."""
+        renderer = FakeRenderer()
+        task = IntegrationDispatcherTask(renderer, lambda _ch: _slack_target())
+        task.start()
+        await asyncio.sleep(0.01)
+
+        try:
+            ch = _cid()
+            # Publish a NEW_MESSAGE — should NOT reach the renderer
+            # because is_outbox_durable returns True.
+            publish_typed(ch, DomainChannelEvent(
+                channel_id=ch,
+                kind=ChannelEventKind.NEW_MESSAGE,
+                payload=MessagePayload(message=_make_message(ch)),
+            ))
+            # And a TURN_STARTED — should reach the renderer (not outbox-durable).
+            publish_typed(ch, _turn_started_event(ch))
+
+            await _spin_until(lambda: len(renderer.rendered) == 1)
+            await asyncio.sleep(0.05)
+            assert len(renderer.rendered) == 1
+            assert renderer.rendered[0][0].kind == ChannelEventKind.TURN_STARTED
         finally:
             await task.stop()
 
@@ -280,11 +301,7 @@ class TestTargetResolution:
         await asyncio.sleep(0.01)
         try:
             ch = _cid()
-            publish_typed(ch, DomainChannelEvent(
-                channel_id=ch,
-                kind=ChannelEventKind.NEW_MESSAGE,
-                payload=MessagePayload(message=_make_message(ch)),
-            ))
+            publish_typed(ch, _turn_started_event(ch))
             await asyncio.sleep(0.05)
             assert renderer.rendered == []
         finally:
@@ -304,11 +321,7 @@ class TestTargetResolution:
         await asyncio.sleep(0.01)
         try:
             ch = _cid()
-            publish_typed(ch, DomainChannelEvent(
-                channel_id=ch,
-                kind=ChannelEventKind.NEW_MESSAGE,
-                payload=MessagePayload(message=_make_message(ch)),
-            ))
+            publish_typed(ch, _turn_started_event(ch))
             await _spin_until(lambda: len(renderer.rendered) == 1)
             assert renderer.rendered[0][1] is target
         finally:
@@ -326,11 +339,7 @@ class TestTargetResolution:
         await asyncio.sleep(0.01)
         try:
             ch = _cid()
-            publish_typed(ch, DomainChannelEvent(
-                channel_id=ch,
-                kind=ChannelEventKind.NEW_MESSAGE,
-                payload=MessagePayload(message=_make_message(ch)),
-            ))
+            publish_typed(ch, _turn_started_event(ch))
             await asyncio.sleep(0.05)
             assert renderer.rendered == []
         finally:
@@ -411,20 +420,12 @@ class TestRendererCrashIsolation:
         await asyncio.sleep(0.01)
         try:
             ch = _cid()
-            publish_typed(ch, DomainChannelEvent(
-                channel_id=ch,
-                kind=ChannelEventKind.NEW_MESSAGE,
-                payload=MessagePayload(message=_make_message(ch)),
-            ))
+            publish_typed(ch, _turn_started_event(ch))
             await _spin_until(lambda: len(renderer.rendered) == 1)
 
             # Now stop raising and verify the loop still processes.
             renderer.raise_on_render = False
-            publish_typed(ch, DomainChannelEvent(
-                channel_id=ch,
-                kind=ChannelEventKind.NEW_MESSAGE,
-                payload=MessagePayload(message=_make_message(ch, "second")),
-            ))
+            publish_typed(ch, _turn_started_event(ch))
             await _spin_until(lambda: len(renderer.rendered) == 2)
             assert task.is_running
         finally:

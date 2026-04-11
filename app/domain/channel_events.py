@@ -69,6 +69,34 @@ class ChannelEventKind(StrEnum):
         """
         return _REQUIRED_CAPS.get(self, frozenset())
 
+    @property
+    def is_outbox_durable(self) -> bool:
+        """Whether renderer delivery for this kind goes ONLY through the outbox.
+
+        Kinds in this set are delivered to renderers exclusively via
+        ``outbox_drainer`` — ``IntegrationDispatcherTask`` short-circuits
+        them in ``_dispatch`` to avoid the dual-path delivery foot-gun
+        (the same event reaching ``renderer.render()`` twice). Publishers
+        of these kinds MUST also enqueue an outbox row via
+        ``outbox_publish.enqueue_new_message_for_channel`` (or, inside an
+        existing transaction, ``outbox_publish.enqueue_for_targets``);
+        otherwise the event flows to SSE subscribers but never reaches
+        Slack/Discord/etc.
+
+        ``NEW_MESSAGE`` is the only kind that needs durability today —
+        the streaming kinds (``TURN_STREAM_*``, ``TURN_STARTED``,
+        ``TURN_ENDED``) are inherently ephemeral (a missed token is fine,
+        the next one supersedes it) and continue to flow via the bus.
+        """
+        return self in _OUTBOX_DURABLE_KINDS
+
+
+# Kinds whose renderer delivery is the outbox drainer's exclusive
+# responsibility. Publishers must enqueue an outbox row in addition to
+# (or instead of) calling ``publish_typed``; ``IntegrationDispatcherTask``
+# short-circuits these kinds in its dispatch loop.
+_OUTBOX_DURABLE_KINDS: frozenset["ChannelEventKind"] = frozenset()  # populated below
+
 
 # Each kind → the minimum capabilities a renderer must support to receive it.
 # Empty frozenset = "every renderer can handle this" (e.g. shutdown).
@@ -90,6 +118,13 @@ _REQUIRED_CAPS: dict[ChannelEventKind, frozenset[Capability]] = {
     ChannelEventKind.SHUTDOWN: frozenset(),
     ChannelEventKind.REPLAY_LAPSED: frozenset(),
 }
+
+
+# Populate the outbox-durable set after the enum exists. NEW_MESSAGE is
+# the only kind that needs durable renderer delivery; everything else is
+# either ephemeral (streaming tokens, turn lifecycle) or always handled
+# inline (delivery_failed is published by the drainer itself).
+_OUTBOX_DURABLE_KINDS = frozenset({ChannelEventKind.NEW_MESSAGE})
 
 
 # kind → expected payload class. Used by ChannelEvent.__post_init__ to

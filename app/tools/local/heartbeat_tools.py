@@ -141,8 +141,13 @@ async def post_heartbeat_to_channel(message: str) -> str:
             content=message,
             created_at=datetime.now(timezone.utc),
             actor=ActorRef.bot(bot_id or "heartbeat", display_name=bot_id),
+            metadata={"trigger": "heartbeat", "is_heartbeat": True},
             channel_id=channel_id,
         )
+        # NEW_MESSAGE is outbox-durable: enqueue for the renderer path,
+        # then publish to the bus for SSE subscribers.
+        from app.services.outbox_publish import enqueue_new_message_for_channel
+        await enqueue_new_message_for_channel(channel_id, domain_msg)
         publish_typed(
             channel_id,
             ChannelEvent(

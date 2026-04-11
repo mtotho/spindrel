@@ -12,6 +12,14 @@ current_channel_id: ContextVar[uuid.UUID | None] = ContextVar(
 current_correlation_id: ContextVar[uuid.UUID | None] = ContextVar(
     "current_correlation_id", default=None
 )
+# Set by ``turn_worker.run_turn`` (and any other publisher of TURN_STARTED)
+# to the per-turn UUID. Read by ``tool_dispatch._notify_approval_request`` so
+# ``ApprovalRequestedPayload.turn_id`` carries the right routing key — without
+# it, an approval requested by a member-bot turn while the primary turn is
+# still active would land in the primary's "most recent in-flight" UI slot.
+current_turn_id: ContextVar[uuid.UUID | None] = ContextVar(
+    "current_turn_id", default=None
+)
 current_client_id: ContextVar[str | None] = ContextVar(
     "current_client_id", default=None
 )
@@ -148,6 +156,7 @@ class AgentContextSnapshot:
     session_id: uuid.UUID | None
     channel_id: uuid.UUID | None
     correlation_id: uuid.UUID | None
+    turn_id: uuid.UUID | None
     client_id: str | None
     bot_id: str | None
     memory_cross_channel: bool | None
@@ -174,6 +183,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         session_id=current_session_id.get(),
         channel_id=current_channel_id.get(),
         correlation_id=current_correlation_id.get(),
+        turn_id=current_turn_id.get(),
         client_id=current_client_id.get(),
         bot_id=current_bot_id.get(),
         memory_cross_channel=current_memory_cross_channel.get(),
@@ -200,6 +210,7 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_session_id.set(snap.session_id)
     current_channel_id.set(snap.channel_id)
     current_correlation_id.set(snap.correlation_id)
+    current_turn_id.set(snap.turn_id)
     current_client_id.set(snap.client_id)
     current_bot_id.set(snap.bot_id)
     current_memory_cross_channel.set(snap.memory_cross_channel)

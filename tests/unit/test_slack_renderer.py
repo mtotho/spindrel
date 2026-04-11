@@ -197,6 +197,7 @@ def _new_message_event(
     channel_id: uuid.UUID | None = None,
     msg_id: uuid.UUID | None = None,
     actor: ActorRef | None = None,
+    metadata: dict | None = None,
 ) -> ChannelEvent:
     cid = channel_id if channel_id is not None else uuid.uuid4()
     if actor is None:
@@ -219,6 +220,7 @@ def _new_message_event(
                 content=content,
                 created_at=datetime.now(timezone.utc),
                 actor=actor,
+                metadata=metadata or {},
                 channel_id=cid,
             ),
         ),
@@ -628,14 +630,46 @@ class TestNewMessage:
         assert receipt.success is True
         assert len(fake_http.calls) == 1
 
-    async def test_skips_slack_origin_user_message_echo(self, fake_http):
+    async def test_skips_slack_origin_user_message_echo_via_metadata(self, fake_http):
         """Regression: user types in Slack, server pre-persists the user
         message and publishes NEW_MESSAGE, IntegrationDispatcherTask
         routes the event back to this renderer, which must NOT re-post
         the user's own message into their own Slack channel as an APP
-        reply. Slack-origin is identified by actor.id prefix
-        (``slack:U06STGBF4Q0``) set by message_handlers.py via
-        ``sender_id: f'slack:{user}'``."""
+        reply.
+
+        Primary signal: ``metadata["source"] == "slack"`` set by
+        ``integrations/slack/message_handlers.py:msg_metadata`` and
+        threaded onto the DomainMessage by ``turn_worker._persist_and_
+        publish_user_message``. The actor.id prefix is the legacy
+        fallback exercised by the next test."""
+        fake_http.set_response({"ok": True, "ts": "1700000002.6"})
+        renderer = SlackRenderer()
+        target = _slack_target("C123")
+
+        # Note: actor.id intentionally has NO ``slack:`` prefix here
+        # — we want to prove the metadata-based check is enough on
+        # its own, so a future refactor that strips integration prefixes
+        # from actor.id can't silently break echo prevention.
+        ev = _new_message_event(
+            role="user",
+            content="[Slack channel:C123 user:U06STGBF4Q0] Test from slack",
+            actor=ActorRef.user("U06STGBF4Q0", display_name="Michael"),
+            metadata={"source": "slack", "sender_id": "slack:U06STGBF4Q0"},
+        )
+
+        receipt = await renderer.render(ev, target)
+
+        assert receipt.success is True
+        assert receipt.skip_reason is not None
+        assert "echo" in receipt.skip_reason
+        assert len(fake_http.calls) == 0
+
+    async def test_skips_slack_origin_user_message_echo_legacy_actor_prefix(
+        self, fake_http
+    ):
+        """Legacy fallback: a Slack-origin user message that lacks
+        ``metadata["source"]`` (e.g. persisted before the metadata fix
+        landed) is still caught by the ``slack:`` prefix on actor.id."""
         fake_http.set_response({"ok": True, "ts": "1700000002.6"})
         renderer = SlackRenderer()
         target = _slack_target("C123")
@@ -645,6 +679,7 @@ class TestNewMessage:
             role="user",
             content="[Slack channel:C123 user:U06STGBF4Q0] Test from slack",
             actor=slack_origin_actor,
+            # metadata empty — exercises the fallback path
         )
 
         receipt = await renderer.render(ev, target)
@@ -680,17 +715,29 @@ class TestNewMessage:
         assert len(fake_http.calls) == 1
         assert fake_http.calls[0]["body"]["username"] == "Alice"
 
-    async def test_dedupes_same_message_id_across_paths(self, fake_http):
-        """Regression: NEW_MESSAGE is delivered via both the outbox
-        drainer AND IntegrationDispatcherTask.subscribe_all(). The same
-        event reaches render() twice with the same message.id. The
-        second call must be a no-op or every cross-integration message
-        posts twice."""
+    async def test_no_dedup_state_held_across_calls(self, fake_http):
+        """The renderer no longer carries a per-instance dedup LRU.
+
+        NEW_MESSAGE is now outbox-durable
+        (``ChannelEventKind.is_outbox_durable``) — the bus path
+        (``IntegrationDispatcherTask.subscribe_all``) short-circuits
+        these kinds in ``_dispatch``, so the renderer is only ever
+        invoked once per (msg_id, target) by the outbox drainer.
+        Cross-path dedup state is therefore unnecessary and the
+        ``_posted_set`` / ``_posted_order`` LRU was deleted.
+
+        This test asserts the deletion is real: a renderer instance
+        carries no dedup attributes, and rendering the same event
+        twice (the way you'd simulate a buggy double-delivery) posts
+        twice — which is the correct contract once the outbox is the
+        single delivery path."""
         fake_http.set_response({"ok": True, "ts": "1700000002.5"})
         renderer = SlackRenderer()
         target = _slack_target("C123")
 
-        # Same message id, two delivery attempts.
+        assert not hasattr(renderer, "_posted_set")
+        assert not hasattr(renderer, "_posted_order")
+
         msg_id = uuid.uuid4()
         cid = uuid.uuid4()
         ev = _new_message_event(
@@ -702,9 +749,12 @@ class TestNewMessage:
 
         assert r1.success is True
         assert r1.skip_reason is None
-        assert r2.success is True  # skipped receipts are success=True
-        assert r2.skip_reason is not None
-        assert len(fake_http.calls) == 1  # only the first delivery hit the API
+        assert r2.success is True
+        assert r2.skip_reason is None
+        # Both calls hit the API — there's no per-renderer dedup
+        # protecting against caller bugs anymore. Cross-path dedup is
+        # the outbox drainer's responsibility (via the kind check).
+        assert len(fake_http.calls) == 2
 
 
 # ---------------------------------------------------------------------------

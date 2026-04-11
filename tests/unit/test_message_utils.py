@@ -55,6 +55,39 @@ class TestBuildUserMessageContent:
         result = _build_user_message_content("hi", att)
         assert "image/jpeg" in result[1]["image_url"]["url"]
 
+    def test_surfaces_attachment_id_when_present(self):
+        """Fresh uploads carry their DB attachment_id so the LLM can pass
+        it to tools like ``generate_image(attachment_ids=...)`` directly.
+
+        Without this, a model asked to edit an image it was just sent
+        will hallucinate a plausible-looking UUID (observed on Gemini
+        2.5 Flash) instead of calling ``list_attachments`` first, and
+        the tool call fails with ``Attachment <fake-uuid> not found``.
+        """
+        att = [
+            {
+                "type": "image",
+                "content": "abc123",
+                "mime_type": "image/jpeg",
+                "name": "IMG_2605.jpg",
+                "attachment_id": "9316416e-5a79-4ab5-a490-e403cb615749",
+            }
+        ]
+        result = _build_user_message_content("cartoonify this", att)
+        assert isinstance(result, list)
+        text_part = result[0]["text"]
+        assert "cartoonify this" in text_part
+        assert "9316416e-5a79-4ab5-a490-e403cb615749" in text_part
+        assert "IMG_2605.jpg" in text_part
+        # XML tag format — less copy-prone than arrow/instruction syntax.
+        assert '<attachment id="9316416e-5a79-4ab5-a490-e403cb615749"' in text_part
+
+    def test_no_attachment_id_leaves_text_untouched(self):
+        """Images without an ID (web UI pre-creation path) don't inject hints."""
+        att = [{"type": "image", "content": "abc123", "mime_type": "image/png"}]
+        result = _build_user_message_content("look at this", att)
+        assert result[0] == {"type": "text", "text": "look at this"}
+
 
 # ---------------------------------------------------------------------------
 # _build_audio_user_message

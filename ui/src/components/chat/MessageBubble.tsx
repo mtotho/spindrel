@@ -95,7 +95,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} t={t} />
       )}
-      {toolsUsed.length > 0 && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
+      {(toolsUsed.length > 0 || (msgToolCalls && msgToolCalls.length > 0)) && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
       {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
     </>
   );

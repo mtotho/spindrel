@@ -106,12 +106,11 @@ class TestScaffold:
         assert (int_dir / "skills").is_dir()
 
     def test_scaffold_all_features(self, tmp_path):
-        # Phase G removed "dispatcher" from the scaffold features —
-        # new integrations declare a renderer.py instead, and the
-        # scaffolder doesn't have a generator for that yet (out of
-        # scope for Phase G; renderer-scaffolding can land later).
         scaffold = self._get_scaffold_fn()
-        all_features = ["tools", "skills", "carapaces", "hooks", "process", "workflows"]
+        all_features = [
+            "tools", "skills", "carapaces", "hooks", "process",
+            "workflows", "renderer",
+        ]
         with patch("app.tools.local.admin_integrations._get_scaffold_dir", return_value=tmp_path):
             result = scaffold("full_integration", all_features)
 
@@ -123,6 +122,41 @@ class TestScaffold:
         assert (int_dir / "hooks.py").exists()
         assert (int_dir / "process.py").exists()
         assert (int_dir / "workflows").is_dir()
+        # Renderer feature lays down both target.py and renderer.py.
+        assert (int_dir / "target.py").exists()
+        assert (int_dir / "renderer.py").exists()
+
+    def test_scaffold_renderer_feature_generates_target_and_renderer(self, tmp_path):
+        """The ``renderer`` feature generates target.py + renderer.py
+        boilerplate using the ChannelRenderer protocol. New integrations
+        no longer have to write these by hand."""
+        scaffold = self._get_scaffold_fn()
+        with patch(
+            "app.tools.local.admin_integrations._get_scaffold_dir",
+            return_value=tmp_path,
+        ):
+            result = scaffold("my_renderer_int", ["renderer"])
+
+        assert result["ok"] is True
+        int_dir = tmp_path / "my_renderer_int"
+        target_py = int_dir / "target.py"
+        renderer_py = int_dir / "renderer.py"
+        assert target_py.exists()
+        assert renderer_py.exists()
+
+        target_src = target_py.read_text()
+        # Class name uses CamelCase derived from integration_id.
+        assert "class MyRendererIntTarget" in target_src
+        assert 'integration_id: ClassVar[str] = "my_renderer_int"' in target_src
+        assert "target_registry.register(MyRendererIntTarget)" in target_src
+
+        renderer_src = renderer_py.read_text()
+        assert "class MyRendererIntRenderer" in renderer_src
+        assert "from integrations.my_renderer_int.target import MyRendererIntTarget" in renderer_src
+        assert "_register()" in renderer_src
+        # Renderer template wires NEW_MESSAGE + TURN_ENDED handlers.
+        assert "_handle_new_message" in renderer_src
+        assert "_handle_turn_ended" in renderer_src
 
     def test_scaffold_no_features(self, tmp_path):
         """Scaffold with no features creates only base files."""

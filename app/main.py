@@ -583,10 +583,18 @@ async def lifespan(application: FastAPI):
                 await asyncio.sleep(600)  # every 10 minutes
                 from app.agent.capability_session import cleanup_stale as _cap_cleanup
                 from app.agent.session_allows import cleanup_stale as _allow_cleanup
+                from app.services.session_locks import sweep_stale as _lock_sweep
                 cap_removed = _cap_cleanup()
                 allow_removed = _allow_cleanup()
-                if cap_removed or allow_removed:
-                    logger.debug("Session cleanup: %d capability + %d allow sessions evicted", cap_removed, allow_removed)
+                # session_locks janitor: sweep entries older than the
+                # default TTL (2 hours). Drops locks leaked by background
+                # tasks cancelled before their try-block runs.
+                lock_removed = _lock_sweep()
+                if cap_removed or allow_removed or lock_removed:
+                    logger.debug(
+                        "Session cleanup: %d capability + %d allow + %d session-lock entries evicted",
+                        cap_removed, allow_removed, lock_removed,
+                    )
             except Exception:
                 logger.warning("Session cleanup failed", exc_info=True)
     _workers.append(safe_create_task(_session_cleanup_worker(), name="session_cleanup"))
@@ -655,6 +663,31 @@ async def lifespan(application: FastAPI):
         # Stop renderer dispatchers cleanly so per-channel state is dropped.
         for _disp in _renderer_dispatchers:
             await _disp.stop()
+
+        # Close every renderer's module-level httpx.AsyncClient so process
+        # shutdown doesn't log a "Unclosed client session" resource warning.
+        # Each renderer module exposes its client as ``_http``; we look it
+        # up reflectively so adding a new integration doesn't require
+        # editing this list.
+        from app.integrations.renderer_registry import all_renderers
+        import importlib
+        _renderer_modules: set[str] = set()
+        for _r in all_renderers().values():
+            mod_name = type(_r).__module__
+            _renderer_modules.add(mod_name)
+        # Also close the core_renderers WebhookRenderer client.
+        _renderer_modules.add("app.integrations.core_renderers")
+        for _mod_name in _renderer_modules:
+            try:
+                _mod = importlib.import_module(_mod_name)
+                _client = getattr(_mod, "_http", None)
+                if _client is not None and hasattr(_client, "aclose"):
+                    await _client.aclose()
+            except Exception:
+                logger.debug(
+                    "Failed to close httpx client in %s during shutdown",
+                    _mod_name, exc_info=True,
+                )
 
         for w in _workers:
             w.cancel()

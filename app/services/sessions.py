@@ -496,35 +496,34 @@ async def persist_turn(
     # inserts. The drainer (`outbox_drainer.py`) picks them up and routes
     # them through the renderer registry. A crash between this commit and
     # the renderer ack does not lose deliveries — the rows survive.
+    #
+    # An enqueue failure here propagates: the in-progress transaction
+    # rolls back (taking the message inserts with it) and the caller
+    # surfaces the error. We deliberately do NOT swallow — the legacy
+    # try/except let one row's outbox insert silently fail while the
+    # commit proceeded, leaving the bus subscribers with a NEW_MESSAGE
+    # for which no integration delivery was ever attempted. Atomicity
+    # is the entire point of the outbox pattern.
     if channel_id and persisted_records:
-        try:
-            from app.domain.channel_events import ChannelEvent, ChannelEventKind
-            from app.domain.message import Message as DomainMessage
-            from app.domain.payloads import MessagePayload
-            from app.services import outbox as _outbox
-            from app.services.dispatch_resolution import resolve_targets
+        from app.domain.channel_events import ChannelEvent, ChannelEventKind
+        from app.domain.message import Message as DomainMessage
+        from app.domain.payloads import MessagePayload
+        from app.services import outbox as _outbox
+        from app.services.dispatch_resolution import resolve_targets
 
-            channel_row = await db.get(Channel, channel_id)
-            if channel_row is not None:
-                targets = await resolve_targets(channel_row)
-                for record in persisted_records:
-                    domain_msg = DomainMessage.from_orm(
-                        record, channel_id=channel_id
-                    )
-                    event = ChannelEvent(
-                        channel_id=channel_id,
-                        kind=ChannelEventKind.NEW_MESSAGE,
-                        payload=MessagePayload(message=domain_msg),
-                    )
-                    await _outbox.enqueue(db, channel_id, event, targets)
-        except Exception:
-            # Outbox enqueue failure must not break persist_turn — the
-            # bus publish below still hits SSE subscribers via publish_typed.
-            # Log loudly so the failure doesn't go unnoticed.
-            logger.exception(
-                "outbox enqueue failed during persist_turn for channel %s",
-                channel_id,
-            )
+        channel_row = await db.get(Channel, channel_id)
+        if channel_row is not None:
+            targets = await resolve_targets(channel_row)
+            for record in persisted_records:
+                domain_msg = DomainMessage.from_orm(
+                    record, channel_id=channel_id
+                )
+                event = ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.NEW_MESSAGE,
+                    payload=MessagePayload(message=domain_msg),
+                )
+                await _outbox.enqueue(db, channel_id, event, targets)
 
     await db.commit()
 
@@ -731,7 +730,14 @@ async def store_passive_message(
         if _sess:
             _notify_id = _sess.channel_id
     if _notify_id:
+        # NEW_MESSAGE is outbox-durable: enqueue for renderer delivery,
+        # publish to bus for SSE subscribers.
+        from app.domain.message import Message as DomainMessage
         from app.services.channel_events import publish_message as _publish_message
+        from app.services.outbox_publish import enqueue_new_message_for_channel
+
+        _domain_msg = DomainMessage.from_orm(record, channel_id=_notify_id)
+        await enqueue_new_message_for_channel(_notify_id, _domain_msg)
         _publish_message(_notify_id, record)
 
 
@@ -821,63 +827,65 @@ def _sanitize_tool_messages(messages: list[dict]) -> list[dict]:
 
 
 def _attachment_hint(att: Attachment) -> str:
-    """Build a compact redaction hint for an attachment in history."""
+    """Build a compact redaction hint for an attachment in history.
+
+    Uses an XML-style self-closing tag rather than natural-language
+    instructions. LLMs are far less likely to echo an ``<attachment/>``
+    tag into their own output than text like ``→ To fetch full file,
+    call: get_attachment("…")`` — which the model was reproducing
+    verbatim in assistant responses visible to users. The tool-usage
+    docs for ``get_attachment`` live in the attachments skill and do
+    not need to be restated in every enriched message.
+    """
     desc = att.description or "pending summary"
+    # Quote-escape the description so it can't break the attribute.
+    safe_desc = desc.replace('"', "'")
     return (
-        f'[attached: {att.filename} — "{desc}"]\n'
-        f'→ To fetch full file, call: get_attachment("{att.id}")'
+        f'<attachment id="{att.id}" filename="{att.filename}" '
+        f'description="{safe_desc}"/>'
     )
 
 
 def _enrich_content_with_attachments(content: Any, attachments: list[Attachment]) -> Any:
-    """Replace image/file placeholders in stored content with attachment summaries.
+    """Replace image placeholders in stored content with attachment hints.
 
-    Only applies to older turns where images were redacted to placeholders by
-    _redact_images_for_db.  Returns enriched content.
+    Only replaces the ``[image — not available in this session]`` /
+    ``[image]`` placeholders that ``_redact_images_for_db`` writes to
+    storage. Messages *without* a placeholder (assistant replies, tool
+    results) are returned unchanged so the hint text cannot leak into
+    what the bot renders back to the user — the LLM was happily copying
+    the hint format into its own assistant turns after seeing it in
+    enriched history.
     """
     if not attachments:
         return content
 
     hints = "\n".join(_attachment_hint(a) for a in attachments)
-    tool_hint = (
-        "\n(Use get_attachment tool to fetch full file/image if needed.)"
-        if any(a.description for a in attachments)
-        else ""
-    )
 
     if isinstance(content, str):
-        # Replace generic image placeholders with attachment summaries
         if "[image — not available in this session]" in content:
-            content = content.replace(
+            return content.replace(
                 "[image — not available in this session]",
-                hints + tool_hint,
-                1,  # replace first occurrence; remaining will be replaced by subsequent calls
+                hints,
+                1,
             )
-        elif "[image]" in content:
-            content = content.replace("[image]", hints + tool_hint, 1)
-        else:
-            # No placeholder — append hints
-            content = content + "\n" + hints + tool_hint
+        if "[image]" in content:
+            return content.replace("[image]", hints, 1)
         return content
 
     if isinstance(content, list):
-        # Replace image_url placeholder parts with text attachment hints
         result: list = []
-        hint_injected = False
         for part in content:
             if isinstance(part, dict) and part.get("type") == "text":
                 text = part.get("text", "")
                 if "[image — not available in this session]" in text:
                     text = text.replace(
                         "[image — not available in this session]",
-                        hints + tool_hint,
+                        hints,
                     )
-                    hint_injected = True
                 result.append({"type": "text", "text": text})
             else:
                 result.append(part)
-        if not hint_injected:
-            result.append({"type": "text", "text": hints + tool_hint})
         return result
 
     return content
@@ -887,7 +895,17 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
     d: dict = {"role": msg.role}
     if msg.content is not None:
         content = normalize_stored_content(msg.content)
-        if enrich_attachments and hasattr(msg, "attachments") and msg.attachments:
+        # Only user messages get attachment hints injected. Assistant /
+        # tool messages are rendered as-is: if the LLM sees the hint
+        # appended to its own prior assistant turns it will happily
+        # reproduce the exact format in new responses, which then ships
+        # to the user verbatim.
+        if (
+            enrich_attachments
+            and msg.role == "user"
+            and hasattr(msg, "attachments")
+            and msg.attachments
+        ):
             content = _enrich_content_with_attachments(content, msg.attachments)
         d["content"] = content
     elif msg.tool_calls is not None:

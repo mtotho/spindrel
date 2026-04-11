@@ -142,6 +142,13 @@ class ApprovalRequestedPayload:
     """Set when the approval is for a capability activation rather than a
     raw tool call — see SlackDispatcher._build_capability_approval_blocks
     in the legacy code."""
+    turn_id: uuid.UUID | None = None
+    """The turn that requested approval. Optional only because legacy
+    publishers may emit approvals outside a turn context (script-driven
+    admin approvals, etc.). The web UI uses this to route the approval
+    decision back to the correct in-flight turn slot — without it, a
+    member-bot turn requesting approval while the primary turn is still
+    active would land in the primary's slot and never resolve."""
 
 
 @dataclass(frozen=True)

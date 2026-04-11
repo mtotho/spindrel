@@ -30,8 +30,8 @@ async def _fanout(session: Session, text: str, source: str | None = None) -> Non
     The source label is attributed via ``ActorRef.system``. No-op when the
     session has no channel.
 
-    Phase G of the Integration Delivery refactor will delete this helper
-    along with the BlueBubbles webhook unification.
+    NEW_MESSAGE is outbox-durable, so this enqueues an outbox row first
+    (renderer delivery path) and THEN publishes to the bus (SSE path).
     """
     if session.channel_id is None:
         return
@@ -41,6 +41,7 @@ async def _fanout(session: Session, text: str, source: str | None = None) -> Non
     from app.domain.message import Message as DomainMessage
     from app.domain.payloads import MessagePayload
     from app.services.channel_events import publish_typed
+    from app.services.outbox_publish import enqueue_new_message_for_channel
 
     actor = ActorRef.system(
         id=source or "injected",
@@ -53,8 +54,10 @@ async def _fanout(session: Session, text: str, source: str | None = None) -> Non
         content=text,
         created_at=datetime.now(timezone.utc),
         actor=actor,
+        metadata={"source": source or "injected"},
         channel_id=session.channel_id,
     )
+    await enqueue_new_message_for_channel(session.channel_id, domain_msg)
     publish_typed(
         session.channel_id,
         ChannelEvent(

@@ -24,6 +24,7 @@ from app.domain.dispatch_target import (
 # process never went through the integration discovery loop.
 from integrations.bluebubbles.target import BlueBubblesTarget  # noqa: F401
 from integrations.discord.target import DiscordTarget  # noqa: F401
+from integrations.github.target import GitHubTarget  # noqa: F401
 from integrations.slack.target import SlackTarget  # noqa: F401
 
 
@@ -75,10 +76,81 @@ class TestSlackTarget:
 
 class TestDiscordTarget:
     def test_round_trip(self):
-        t = DiscordTarget(channel_id="123456", token="bot-token")
+        t = DiscordTarget(
+            channel_id="123456",
+            token="bot-token",
+            user_message_id="987654",
+        )
         parsed = parse_dispatch_target(t.to_dict())
         assert parsed == t
         assert parsed.integration_id == "discord"
+
+    def test_parse_from_message_handlers_shape(self):
+        """Regression: integrations/discord/message_handlers.py builds
+        dispatch_config with three keys (channel_id, user_message_id,
+        token). parse_dispatch_target must accept them or
+        ``resolve_targets`` silently drops Discord delivery to NoneTarget.
+
+        Mirror of ``TestSlackTarget.test_parse_from_message_handlers_shape``
+        — same field-drift class of bug that took Slack down in session 12.
+        """
+        cfg = {
+            "type": "discord",
+            "channel_id": "123456",
+            "user_message_id": "789012",
+            "token": "discord-bot-token",
+        }
+        parsed = parse_dispatch_target(cfg)
+        assert isinstance(parsed, DiscordTarget)
+        assert parsed.channel_id == "123456"
+        assert parsed.token == "discord-bot-token"
+        assert parsed.user_message_id == "789012"
+
+    def test_optional_user_message_id(self):
+        """Some inbound paths (slash commands, admin injection) have no
+        user message to react to. The field is optional."""
+        t = DiscordTarget(channel_id="C", token="T")
+        assert t.user_message_id is None
+
+
+class TestGitHubTarget:
+    def test_round_trip(self):
+        t = GitHubTarget(owner="mtoth", repo="spindrel", issue_number=42)
+        parsed = parse_dispatch_target(t.to_dict())
+        assert parsed == t
+        assert parsed.integration_id == "github"
+
+    def test_parse_from_router_shape_with_comment_target(self):
+        """Regression: integrations/github/router.py writes a nested
+        ``comment_target: {type, issue_number}`` shape into
+        dispatch_config. ``GitHubTarget.from_dispatch_config`` flattens
+        it. Symmetric to the Slack/Discord regressions — exercises the
+        full router shape rather than the round-trip output of
+        ``to_dict``."""
+        cfg = {
+            "type": "github",
+            "owner": "mtoth",
+            "repo": "spindrel",
+            "comment_target": {"type": "issue_comment", "issue_number": 7},
+        }
+        parsed = parse_dispatch_target(cfg)
+        assert isinstance(parsed, GitHubTarget)
+        assert parsed.owner == "mtoth"
+        assert parsed.repo == "spindrel"
+        assert parsed.issue_number == 7
+
+    def test_parse_with_no_comment_target_for_push_events(self):
+        """Push events (and other non-comment events) carry no
+        comment_target. The renderer treats them as informational and
+        skips the network call; the parser must accept the shape."""
+        cfg = {
+            "type": "github",
+            "owner": "mtoth",
+            "repo": "spindrel",
+        }
+        parsed = parse_dispatch_target(cfg)
+        assert isinstance(parsed, GitHubTarget)
+        assert parsed.issue_number is None
 
 
 class TestBlueBubblesTarget:

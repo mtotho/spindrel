@@ -20,6 +20,15 @@ class DiscordTarget(_BaseTarget):
 
     channel_id: str
     token: str
+    # ``user_message_id`` is the snowflake of the inbound user message
+    # that triggered the turn. The Discord renderer / reaction hooks
+    # use it to add hourglass + tool-name emoji reactions to the
+    # original user message. Written into ``dispatch_config`` by
+    # ``integrations/discord/message_handlers.py:dispatch`` and read
+    # by ``integrations/discord/hooks.py:_get_discord_ref``. Optional
+    # because admin-injected messages and slash commands sometimes
+    # have no inbound user message to react to.
+    user_message_id: str | None = None
 
 
 target_registry.register(DiscordTarget)

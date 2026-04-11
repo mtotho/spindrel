@@ -34,16 +34,23 @@ async def _create_attachments_from_metadata(
     source_integration: str,
     bot_id: str | None = None,
     message_id: uuid.UUID | None = None,
-) -> None:
-    """Create attachment records from file metadata."""
+) -> list:
+    """Create attachment records from file metadata.
+
+    Returns the list of created Attachment rows so callers can thread the
+    generated UUIDs back into the turn's ``att_payload`` — without this the
+    LLM has no way to name a freshly-uploaded image when calling tools like
+    ``generate_image(attachment_ids=...)`` and resorts to hallucinating a UUID.
+    """
     from app.services.attachments import create_attachment
 
     logger.info("Creating %d attachment(s) for channel %s", len(file_metadata), channel_id)
+    created: list = []
     for fm in file_metadata:
         try:
             import base64 as _b64
             raw_bytes = _b64.b64decode(fm.file_data) if fm.file_data else None
-            await create_attachment(
+            att = await create_attachment(
                 message_id=message_id,
                 channel_id=channel_id,
                 filename=fm.filename,
@@ -55,8 +62,10 @@ async def _create_attachments_from_metadata(
                 url=fm.url,
                 bot_id=bot_id,
             )
+            created.append(att)
         except Exception:
             logger.warning("Failed to create attachment for %s", fm.filename, exc_info=True)
+    return created
 
 
 async def _resolve_channel_and_session(

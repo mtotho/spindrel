@@ -498,6 +498,9 @@ def _gate_patches(
     mock_settings.TOOL_RESULT_HARD_CAP = 0
     mock_settings.CONTEXT_PRUNING_MIN_LENGTH = 200
     mock_settings.KNOWLEDGE_SIMILARITY_THRESHOLD = 0.5
+    # Wall-clock guard wraps the local/MCP dispatch via asyncio.wait_for —
+    # needs a real number so the comparison in wait_for doesn't blow up.
+    mock_settings.TOOL_DISPATCH_TIMEOUT = 5.0
 
     bot_cfg = SimpleNamespace(carapaces=bot_carapaces or [])
     cap_data = _MOCK_REGISTRY.get("code-review")
