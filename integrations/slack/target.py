@@ -23,6 +23,10 @@ class SlackTarget(_BaseTarget):
     ``thread_ts`` is set when the message belongs in a thread reply;
     ``reply_in_thread`` controls whether outbound messages should
     inherit that thread or post at the top level.
+
+    ``message_ts`` is the timestamp of the user's triggering message —
+    hooks in ``integrations/slack/hooks.py`` read it off the dispatch
+    config to attach tool-call reactions to the originating message.
     """
 
     type: ClassVar[Literal["slack"]] = "slack"
@@ -31,6 +35,7 @@ class SlackTarget(_BaseTarget):
     channel_id: str
     token: str
     thread_ts: str | None = None
+    message_ts: str | None = None
     reply_in_thread: bool = False
 
 

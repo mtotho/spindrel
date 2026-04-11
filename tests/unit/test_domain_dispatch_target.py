@@ -29,14 +29,38 @@ from integrations.slack.target import SlackTarget  # noqa: F401
 
 class TestSlackTarget:
     def test_round_trip(self):
-        t = SlackTarget(channel_id="C123", token="xoxb-abc", thread_ts="1234.56", reply_in_thread=True)
+        t = SlackTarget(
+            channel_id="C123",
+            token="xoxb-abc",
+            thread_ts="1234.56",
+            message_ts="1234.78",
+            reply_in_thread=True,
+        )
         d = t.to_dict()
         assert d["type"] == "slack"
         assert d["channel_id"] == "C123"
         assert d["thread_ts"] == "1234.56"
+        assert d["message_ts"] == "1234.78"
         assert d["reply_in_thread"] is True
         parsed = parse_dispatch_target(d)
         assert parsed == t
+
+    def test_parse_from_message_handlers_shape(self):
+        """Regression: integrations/slack/message_handlers.py builds
+        dispatch_config with all five slack keys. parse_dispatch_target
+        must accept them or `resolve_targets` silently drops slack to
+        NoneTarget and no messages reach Slack."""
+        cfg = {
+            "type": "slack",
+            "channel_id": "C123",
+            "thread_ts": "1234.56",
+            "message_ts": "1234.78",
+            "token": "xoxb-abc",
+            "reply_in_thread": True,
+        }
+        parsed = parse_dispatch_target(cfg)
+        assert isinstance(parsed, SlackTarget)
+        assert parsed.message_ts == "1234.78"
 
     def test_integration_id_class_var(self):
         assert SlackTarget.integration_id == "slack"
@@ -45,6 +69,7 @@ class TestSlackTarget:
     def test_optional_fields_default(self):
         t = SlackTarget(channel_id="C", token="t")
         assert t.thread_ts is None
+        assert t.message_ts is None
         assert t.reply_in_thread is False
 
 
