@@ -125,6 +125,50 @@ async def query_chats(
         return []
 
 
+async def mark_chat_unread(
+    client: httpx.AsyncClient,
+    server_url: str,
+    password: str,
+    chat_guid: str,
+) -> bool:
+    """Tell the BB server's Mac to mark a chat as unread.
+
+    Background: BlueBubbles Server runs on the user's Mac. When BB sees an
+    incoming iMessage and pushes it to our webhook, the Mac side ends up
+    treating the chat as "read by the user" — iCloud syncs that state to
+    every Apple device including the user's iPhone, suppressing the push
+    notification banner. Calling this endpoint right after the webhook
+    fires re-flips the chat to unread, restoring the iPhone notification
+    in the (common) case where iCloud sync hasn't propagated yet.
+
+    This is a best-effort experiment — silently returns False if the BB
+    server doesn't support the endpoint, since success/failure of the
+    "fix the notifications" workaround should never affect message
+    processing.
+    """
+    try:
+        r = await client.post(
+            f"{server_url}/api/v1/chat/{chat_guid}/markUnread",
+            params={"password": password},
+            timeout=5.0,
+        )
+        if r.status_code == 200:
+            return True
+        if r.status_code == 404:
+            # BB server doesn't expose this endpoint — caller should
+            # consider another approach (push notifications, etc.).
+            logger.debug("BB markUnread endpoint not supported by server")
+            return False
+        logger.warning(
+            "BB markUnread returned %s for chat %s: %s",
+            r.status_code, chat_guid, r.text[:200],
+        )
+        return False
+    except Exception:
+        logger.debug("BB markUnread failed for chat %s", chat_guid, exc_info=True)
+        return False
+
+
 async def get_chat_messages(
     client: httpx.AsyncClient,
     server_url: str,

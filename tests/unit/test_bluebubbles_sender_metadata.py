@@ -56,6 +56,18 @@ def _make_binding(channel_id, client_id="bb:iMessage;-;+15551234567",
     return b
 
 
+@pytest.fixture(autouse=True)
+def _stub_bb_mark_unread():
+    """Stub mark_chat_unread so tests don't make real HTTP calls.
+
+    The webhook handler calls mark_chat_unread post-processing to restore
+    iPhone notifications. Tests use a fake BB server URL so leaving this
+    unmocked makes every webhook test wait the full httpx timeout (~5s).
+    """
+    with patch("integrations.bluebubbles.bb_api.mark_chat_unread", new_callable=AsyncMock):
+        yield
+
+
 _WEBHOOK_TOKEN = "test-webhook-token"
 
 
@@ -289,6 +301,159 @@ class TestSenderMetadata:
         assert meta["sender_display_name"] == "+15559999999"
 
 
+class TestGroupChatSenderDisambiguation:
+    """Verify that group chat messages keep per-sender identity.
+
+    The BB binding display_name labels the WHOLE chat — using it as a
+    per-message sender fallback collapses every speaker into the same name
+    and the agent can't tell people apart. Group chats must fall through
+    directly to the handle address, and the persisted message must include
+    a stable disambiguator so two participants who share a first name don't
+    blur together.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _bypass_guid_dedup(self):
+        with patch("integrations.bluebubbles.router._guid_dedup") as mock_dedup:
+            mock_dedup.check_and_record.return_value = False
+            mock_dedup.save_to_db = AsyncMock()
+            yield
+
+    @pytest.fixture(autouse=True)
+    def _reset_content_dedup(self):
+        from integrations.bluebubbles import router as _router_mod
+        _router_mod._content_dedup._seen.clear()
+        yield
+        _router_mod._content_dedup._seen.clear()
+
+    @pytest.fixture(autouse=True)
+    def _skip_db_loading(self):
+        from integrations.bluebubbles import router as _router_mod
+        _router_mod._echo_state_loaded["done"] = True
+        yield
+        _router_mod._echo_state_loaded.clear()
+
+    @pytest.mark.asyncio
+    async def test_group_chat_falls_back_to_handle_address(self):
+        """In a group chat, binding.display_name MUST NOT be used as the sender."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        # Group chat: client_id has no ";-;"
+        binding = _make_binding(
+            ch.id,
+            client_id="bb:iMessage;+;chat-group-abc",
+            display_name="Family Group",
+        )
+        session_id = uuid.uuid4()
+        request = _webhook_request(_bb_webhook_payload(
+            text="hey", chat_guid="iMessage;+;chat-group-abc",
+            sender="+15558675309",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={
+                "message_id": "m1", "session_id": str(session_id), "task_id": "t1",
+            })
+            await webhook(request, db)
+
+        call = mock_utils.inject_message.call_args
+        # The persisted content (positional arg 1) carries the per-sender
+        # identity, not the group label. The address rides along as a
+        # disambiguator.
+        assert call.args[1] == "[+15558675309]: hey"
+        meta = call.kwargs["extra_metadata"]
+        # binding_display_name still appears in metadata for the UI
+        assert meta["binding_display_name"] == "Family Group"
+        # but it is NOT the sender_display_name
+        assert meta["sender_display_name"] == "+15558675309"
+
+    @pytest.mark.asyncio
+    async def test_group_chat_appends_address_to_named_sender(self):
+        """Two 'Alex'es in a group → each gets the address suffix to disambiguate."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(
+            ch.id,
+            client_id="bb:iMessage;+;chat-group-xyz",
+            display_name="Crew",
+        )
+        session_id = uuid.uuid4()
+        request = _webhook_request(_bb_webhook_payload(
+            text="yo", chat_guid="iMessage;+;chat-group-xyz",
+            sender="+15550000111",
+            handle_extra={"firstName": "Alex"},
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={
+                "message_id": "m1", "session_id": str(session_id), "task_id": "t1",
+            })
+            await webhook(request, db)
+
+        call = mock_utils.inject_message.call_args
+        assert call.args[1] == "[Alex (+15550000111)]: yo"
+        assert call.kwargs["extra_metadata"]["sender_display_name"] == "Alex"
+
+    @pytest.mark.asyncio
+    async def test_one_to_one_still_uses_binding_fallback(self):
+        """1:1 chat behavior is unchanged — binding.display_name remains a fallback."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id, display_name="Mom")
+        session_id = uuid.uuid4()
+        # 1:1: client_id has ";-;"
+        request = _webhook_request(_bb_webhook_payload(
+            text="dinner?", chat_guid="iMessage;-;+15558675309",
+            sender="+15558675309",
+        ))
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={
+                "message_id": "m1", "session_id": str(session_id), "task_id": "t1",
+            })
+            await webhook(request, db)
+
+        call = mock_utils.inject_message.call_args
+        # 1:1 still falls back to binding.display_name and does NOT append the address
+        assert call.args[1] == "[Mom]: dinner?"
+
+
 class TestFormatHandleName:
     """Unit tests for _format_handle_name helper."""
 
@@ -379,3 +544,132 @@ class TestInjectMessageExtraMetadata:
 
             stored_metadata = mock_store.call_args[0][3]
             assert stored_metadata == {"source": "github"}
+
+
+class TestContentDedup:
+    """The (chat_guid, text) dedup window catches the iCloud cross-device dup.
+
+    BlueBubbles delivers the same physical iMessage to the webhook twice when
+    iCloud mirrors it across the user's devices: once with ``isFromMe=True``
+    from the origin, once with ``isFromMe=False`` from the contact handle.
+    The two have different message GUIDs, so ``_guid_dedup`` doesn't catch
+    them. Without ``_content_dedup`` the user sees a duplicate user message
+    in the channel and the agent runs twice.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _bypass_guid_dedup(self):
+        with patch("integrations.bluebubbles.router._guid_dedup") as mock_dedup:
+            mock_dedup.check_and_record.return_value = False
+            mock_dedup.save_to_db = AsyncMock()
+            yield
+
+    @pytest.fixture(autouse=True)
+    def _reset_content_dedup(self):
+        from integrations.bluebubbles import router as _router_mod
+        # Reset the in-memory dedup store before each test
+        _router_mod._content_dedup._seen.clear()
+        yield
+        _router_mod._content_dedup._seen.clear()
+
+    @pytest.fixture(autouse=True)
+    def _skip_db_loading(self):
+        from integrations.bluebubbles import router as _router_mod
+        _router_mod._echo_state_loaded["done"] = True
+        yield
+        _router_mod._echo_state_loaded.clear()
+
+    async def _drive_webhook(self, payload: dict):
+        """Run the webhook handler with the standard mocks and return result."""
+        from integrations.bluebubbles.router import webhook
+
+        ch = _make_channel(require_mention=False)
+        binding = _make_binding(ch.id, display_name="Test")
+        session_id = uuid.uuid4()
+        request = _webhook_request(payload)
+        db = AsyncMock()
+
+        with patch("integrations.bluebubbles.router.shared_tracker") as mock_tracker, \
+             patch("integrations.bluebubbles.router.resolve_all_channels_by_client_id", return_value=[(ch, binding)]), \
+             patch("integrations.bluebubbles.router.ensure_active_session", return_value=session_id), \
+             patch("integrations.bluebubbles.router.utils") as mock_utils, \
+             patch("integrations.bluebubbles.router._bot_wake_words", return_value=["atlas"]), \
+             patch("integrations.bluebubbles.config.settings", _mock_bb_settings()):
+            mock_tracker.is_own_content.return_value = False
+            mock_tracker.is_echo.return_value = False
+            mock_tracker.in_reply_cooldown.return_value = False
+            mock_tracker.is_circuit_open.return_value = False
+            mock_tracker.in_echo_suppress.return_value = False
+            mock_utils.inject_message = AsyncMock(return_value={
+                "message_id": "m1", "session_id": str(session_id), "task_id": "t1",
+            })
+            result = await webhook(request, db)
+            return result, mock_utils.inject_message
+
+    @pytest.mark.asyncio
+    async def test_icloud_mirror_duplicate_dropped(self):
+        """The is_from_me=True and is_from_me=False mirror pair → only one runs."""
+        chat = "iMessage;-;+15551234567"
+        first, inject1 = await self._drive_webhook(_bb_webhook_payload(
+            text="Wonky", chat_guid=chat, is_from_me=True, msg_guid="origin-guid",
+        ))
+        # Second webhook arrives ~2s later: same chat, same text, mirrored
+        # from the contact's number with a fresh GUID and is_from_me=False.
+        second, inject2 = await self._drive_webhook(_bb_webhook_payload(
+            text="Wonky", chat_guid=chat, is_from_me=False,
+            msg_guid="mirror-guid", sender="+15551234567",
+        ))
+        assert first["status"] == "processed"
+        assert inject1.await_count == 1
+        assert second["status"] == "ignored"
+        assert second["reason"] == "duplicate_content"
+        # Critical: inject_message must NOT be called for the mirror — that
+        # would persist a second user message AND start a second agent run.
+        assert inject2.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_distinct_text_in_same_chat_processed(self):
+        """Different texts in the same chat → both processed."""
+        chat = "iMessage;-;+15551234567"
+        first, _ = await self._drive_webhook(_bb_webhook_payload(
+            text="Hello", chat_guid=chat, is_from_me=True, msg_guid="g1",
+        ))
+        second, inject2 = await self._drive_webhook(_bb_webhook_payload(
+            text="World", chat_guid=chat, is_from_me=True, msg_guid="g2",
+        ))
+        assert first["status"] == "processed"
+        assert second["status"] == "processed"
+        assert inject2.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_same_text_different_chats_processed(self):
+        """Same text in two different chats → both processed."""
+        first, _ = await self._drive_webhook(_bb_webhook_payload(
+            text="Wonky", chat_guid="iMessage;-;+15550000001",
+            is_from_me=True, msg_guid="g1",
+        ))
+        second, inject2 = await self._drive_webhook(_bb_webhook_payload(
+            text="Wonky", chat_guid="iMessage;-;+15550000002",
+            is_from_me=True, msg_guid="g2",
+        ))
+        assert first["status"] == "processed"
+        assert second["status"] == "processed"
+        assert inject2.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_window_expires_allows_repeat(self):
+        """After the dedup window passes, the same text can be sent again."""
+        from integrations.bluebubbles import router as _router_mod
+        chat = "iMessage;-;+15551234567"
+        first, _ = await self._drive_webhook(_bb_webhook_payload(
+            text="Ping", chat_guid=chat, is_from_me=True, msg_guid="g1",
+        ))
+        # Age the dedup entry past the window
+        for key in list(_router_mod._content_dedup._seen.keys()):
+            _router_mod._content_dedup._seen[key] = 0.0  # epoch
+        second, inject2 = await self._drive_webhook(_bb_webhook_payload(
+            text="Ping", chat_guid=chat, is_from_me=True, msg_guid="g2",
+        ))
+        assert first["status"] == "processed"
+        assert second["status"] == "processed"
+        assert inject2.await_count == 1

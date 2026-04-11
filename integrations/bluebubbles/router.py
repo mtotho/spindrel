@@ -111,6 +111,64 @@ class _GuidDedup:
 
 _guid_dedup = _GuidDedup()
 
+
+# ---------------------------------------------------------------------------
+# Content dedup — catches the iCloud cross-device duplicate
+# ---------------------------------------------------------------------------
+# BlueBubbles delivers the same iMessage to the webhook twice when iCloud
+# mirrors it across the user's devices: once with ``isFromMe=True`` from the
+# origin device and once with ``isFromMe=False`` from the contact's number
+# (the mirror). The two deliveries carry DIFFERENT message GUIDs, so
+# ``_guid_dedup`` doesn't catch them. We need a (chat_guid, text) match
+# inside a short window.
+#
+# Window is short on purpose: long enough for any iMessage device to mirror
+# (a few seconds in practice; 30s for headroom), short enough that the user
+# can intentionally retype the same word later without it being dropped.
+_TEXT_DEDUP_WINDOW = 30.0
+_TEXT_DEDUP_MAX = 2000
+
+
+class _ContentDedup:
+    """Track recently-processed (chat_guid, text) pairs.
+
+    In-memory only — the window is short enough that a process restart
+    losing the state is harmless. The slower replay-storm case is already
+    covered by the persistent ``_guid_dedup``.
+    """
+
+    def __init__(
+        self,
+        max_size: int = _TEXT_DEDUP_MAX,
+        window: float = _TEXT_DEDUP_WINDOW,
+    ) -> None:
+        self._max = max_size
+        self._window = window
+        self._seen: OrderedDict[tuple[str, str], float] = OrderedDict()
+
+    def _evict(self, now: float) -> None:
+        """Drop entries older than the window."""
+        while self._seen:
+            oldest_key, oldest_ts = next(iter(self._seen.items()))
+            if oldest_ts >= now - self._window:
+                break
+            self._seen.popitem(last=False)
+
+    def check_and_record(self, chat_guid: str, text: str) -> bool:
+        """Return True if this (chat_guid, text) was already seen recently."""
+        now = time.time()
+        self._evict(now)
+        key = (chat_guid, text.strip().lower())
+        if key in self._seen:
+            return True
+        self._seen[key] = now
+        while len(self._seen) > self._max:
+            self._seen.popitem(last=False)
+        return False
+
+
+_content_dedup = _ContentDedup()
+
 router = APIRouter()
 
 
@@ -958,6 +1016,17 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
     logger.info("BB webhook: new-message chat_guid=%s is_from_me=%s text=%r",
                 chat_guid, is_from_me, text[:80])
 
+    # Cross-device duplicate dedup — iCloud delivers the same iMessage twice
+    # to the BB webhook (once is_from_me=True, once is_from_me=False from the
+    # contact's number) with DIFFERENT message GUIDs, so the GUID dedup misses
+    # them. Match by (chat_guid, text) inside a short window.
+    if _content_dedup.check_and_record(chat_guid, text):
+        logger.info(
+            "BB webhook: duplicate content for chat %s (is_from_me=%s), ignoring",
+            chat_guid, is_from_me,
+        )
+        return {"status": "ignored", "reason": "duplicate_content"}
+
     # Content-based echo detection — catches our own messages regardless of
     # is_from_me flag.  This is the primary echo defense; it compares incoming
     # text against all text we recently sent to this chat (normalized, not popped).
@@ -1032,16 +1101,43 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
             dispatch_config["text_footer"] = binding_text_footer
 
         # Resolve sender display name early so it's available for content prefixes.
-        # BB contact info → binding display name → raw address
-        sender_display = (
-            handle.get("displayName")
-            or _format_handle_name(handle)
-            or binding.display_name
-            or (handle.get("address") if not is_from_me else None)
-        )
+        # Group chats (chat_guid without ";-;") have multiple participants, so
+        # ``binding.display_name`` (which labels the WHOLE chat) must NOT be used
+        # as a per-message sender — it would collapse every speaker into the
+        # same name and the agent could not tell people apart. For 1:1 chats
+        # ``binding.display_name`` remains a useful fallback when the BB handle
+        # has no contact info.
+        _is_group_chat = ";-;" not in chat_guid
+        _handle_address = (handle.get("address") or "").strip()
+        if _is_group_chat:
+            sender_display = (
+                handle.get("displayName")
+                or _format_handle_name(handle)
+                or (_handle_address if not is_from_me else None)
+            )
+        else:
+            sender_display = (
+                handle.get("displayName")
+                or _format_handle_name(handle)
+                or binding.display_name
+                or (_handle_address if not is_from_me else None)
+            )
         # Label used in message content so the LLM can distinguish speakers.
         # is_from_me → "Me", otherwise → contact's display name or raw address.
-        _sender_label = sender_display or sender if not is_from_me else "Me"
+        # In group chats, append the address as a stable disambiguator when the
+        # display name doesn't already contain it — so two participants who
+        # share a first name don't blur into one identity in the agent's view.
+        if is_from_me:
+            _sender_label = "Me"
+        else:
+            _sender_label = sender_display or sender
+            if (
+                _is_group_chat
+                and _handle_address
+                and _sender_label
+                and _handle_address not in _sender_label
+            ):
+                _sender_label = f"{_sender_label} ({_handle_address})"
 
         # Sender filtering: for 1:1 chats, only the bound contact's messages
         # should trigger the bot.  Messages from other phone numbers (e.g. the
@@ -1125,6 +1221,20 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
 
     # Persist GUID dedup state to DB (batched — only on successful processing)
     await _guid_dedup.save_to_db()
+
+    # Best-effort: re-mark the chat as unread on the Mac so iCloud syncs
+    # the unread state to the iPhone, restoring the push notification.
+    # Skip for is_from_me messages — we never need to notify the user about
+    # their own outgoing text. See bb_api.mark_chat_unread for full context.
+    if not is_from_me and server_url and password:
+        try:
+            from integrations.bluebubbles.bb_api import mark_chat_unread
+            async with httpx.AsyncClient(timeout=5.0) as _bb:
+                await mark_chat_unread(_bb, server_url, password, chat_guid)
+        except Exception:
+            # Notification restoration is non-essential — never let it
+            # break webhook processing.
+            logger.debug("BB markUnread post-processing failed", exc_info=True)
 
     return {
         "status": "processed",

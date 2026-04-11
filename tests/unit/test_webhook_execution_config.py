@@ -171,6 +171,50 @@ class TestInjectMessageExecutionConfig:
         task = next(obj for obj in added_objects if hasattr(obj, "execution_config"))
         assert task.execution_config is None
 
+    @pytest.mark.asyncio
+    async def test_task_carries_session_channel_id(self):
+        """Regression: inject_message MUST propagate session.channel_id to the
+        Task row.
+
+        Without it, ``app/agent/tasks.py:_publish_turn_ended`` drops the
+        TURN_ENDED publish (logs ``task ... has no channel_id``) and the
+        renderer never sees the event — agent replies stop reaching the
+        integration. Caught in production via the BlueBubbles webhook path
+        when iMessage replies stopped showing up on the user's phone.
+        """
+        from integrations.utils import inject_message
+
+        session_id = uuid.uuid4()
+        channel_id = uuid.uuid4()
+        session = MagicMock()
+        session.bot_id = "test-bot"
+        session.client_id = "bb:chat-guid"
+        session.channel_id = channel_id
+        session.dispatch_config = {"type": "bluebubbles"}
+
+        msg = MagicMock()
+        msg.id = uuid.uuid4()
+
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=session)
+        added_objects = []
+        db.add = lambda obj: added_objects.append(obj)
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+
+        mock_result = MagicMock()
+        mock_result.scalar_one.return_value = msg
+        db.execute = AsyncMock(return_value=mock_result)
+
+        with patch("integrations.utils.store_passive_message", new_callable=AsyncMock):
+            await inject_message(
+                session_id, "[Me]: Wonky", source="bluebubbles",
+                run_agent=True, notify=False, db=db,
+            )
+
+        task = next(obj for obj in added_objects if hasattr(obj, "execution_config"))
+        assert task.channel_id == channel_id
+
 
 # ---------------------------------------------------------------------------
 # 3. Ephemeral skills merge (not replace)

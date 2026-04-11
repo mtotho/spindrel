@@ -163,6 +163,7 @@ async def inject_message(
             bot_id=session.bot_id,
             client_id=session.client_id,
             session_id=session_id,
+            channel_id=session.channel_id,
             prompt=content,
             status="pending",
             task_type="api",

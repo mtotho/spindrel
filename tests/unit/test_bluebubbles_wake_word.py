@@ -7,6 +7,33 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from integrations.bluebubbles.agent_client import bb_client_id
 
 
+@pytest.fixture(autouse=True)
+def _reset_bb_content_dedup():
+    """Reset the in-memory (chat_guid, text) dedup between tests.
+
+    Many tests in this module reuse the same chat_guid + text combinations.
+    Without resetting, the second test that sends "hey atlas" to the same
+    chat would be silently dropped as a duplicate.
+    """
+    from integrations.bluebubbles import router as _router_mod
+    _router_mod._content_dedup._seen.clear()
+    yield
+    _router_mod._content_dedup._seen.clear()
+
+
+@pytest.fixture(autouse=True)
+def _stub_bb_mark_unread():
+    """Stub mark_chat_unread so tests don't make real HTTP calls.
+
+    The webhook handler now calls mark_chat_unread post-processing to
+    restore iPhone notifications. Tests use a fake BB server URL so
+    leaving this unmocked makes every webhook test wait the full
+    httpx timeout (~5s).
+    """
+    with patch("integrations.bluebubbles.bb_api.mark_chat_unread", new_callable=AsyncMock):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Wake word checking
 # ---------------------------------------------------------------------------
