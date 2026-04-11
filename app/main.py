@@ -626,7 +626,21 @@ async def lifespan(application: FastAPI):
     # the renderer registry. Persist_turn enqueues one row per dispatch
     # target inside the same DB transaction as the message inserts; the
     # drainer fans them out asynchronously to integration renderers.
+    #
+    # Recovery sweep first: any rows left in IN_FLIGHT from a previous
+    # process that crashed mid-delivery are stranded — fetch_pending only
+    # sees PENDING / FAILED_RETRYABLE. Reset them to PENDING so the
+    # drainer picks them up on its next batch.
+    from app.services.outbox import reset_stale_in_flight
     from app.services.outbox_drainer import outbox_drainer_worker
+    try:
+        from app.db.engine import async_session as _outbox_session
+        async with _outbox_session() as _db:
+            _recovered = await reset_stale_in_flight(_db)
+        if _recovered:
+            logger.info("outbox: recovered %d stale IN_FLIGHT row(s) from previous run", _recovered)
+    except Exception:
+        logger.exception("outbox: stale IN_FLIGHT recovery failed (drainer will continue)")
     _workers.append(safe_create_task(outbox_drainer_worker(), name="outbox_drainer"))
 
     try:

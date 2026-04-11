@@ -24,10 +24,18 @@ class TestChatBasic:
         assert resp.session_id, "Expected non-empty session_id"
 
     async def test_response_structure(self, client: E2EClient) -> None:
-        """Response raw body has expected top-level keys."""
+        """Response raw body has expected top-level keys.
+
+        Phase E flipped /chat to 202 with ``{session_id, channel_id, turn_id}``.
+        The harness consumes the channel-events bus to materialize the
+        agent's reply onto ``resp.response``; the raw body is just the
+        202 acknowledgement, no longer the synchronous response payload.
+        """
         resp = await client.chat("Say hi")
-        assert "response" in resp.raw
         assert "session_id" in resp.raw
+        assert "channel_id" in resp.raw
+        assert "turn_id" in resp.raw
+        assert resp.response, "Expected harness to materialize a response from the bus"
 
     async def test_empty_message_returns_error(self, client: E2EClient) -> None:
         """Empty message should return 400."""

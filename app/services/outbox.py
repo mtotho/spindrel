@@ -279,6 +279,38 @@ async def mark_in_flight(db: AsyncSession, row: Outbox) -> None:
     row.delivery_state = DeliveryState.IN_FLIGHT.value
 
 
+async def reset_stale_in_flight(db: AsyncSession) -> int:
+    """Recover IN_FLIGHT rows from a previous process that crashed mid-delivery.
+
+    The drainer marks rows IN_FLIGHT in one transaction, then runs the
+    renderer in a separate session, then marks DELIVERED / FAILED in a
+    third. If the process crashes between mark_in_flight and the final
+    state transition, the row is stranded in IN_FLIGHT forever — the
+    fetch_pending query only selects PENDING / FAILED_RETRYABLE, so
+    these rows are invisible to a fresh drainer.
+
+    Call this once at startup BEFORE the drainer task launches. Resets
+    every IN_FLIGHT row back to PENDING with ``available_at = now`` so
+    the next batch picks them up immediately. ``attempts`` is NOT
+    incremented — the prior in-flight attempt never reached a renderer
+    receipt, so it doesn't count against the retry budget.
+
+    Returns the number of rows recovered.
+    """
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(Outbox)
+        .where(Outbox.delivery_state == DeliveryState.IN_FLIGHT.value)
+        .values(
+            delivery_state=DeliveryState.PENDING.value,
+            available_at=now,
+            last_error="recovered from stale in_flight on startup",
+        )
+    )
+    await db.commit()
+    return result.rowcount or 0
+
+
 async def mark_delivered(db: AsyncSession, row: Outbox) -> None:
     now = datetime.now(timezone.utc)
     await db.execute(

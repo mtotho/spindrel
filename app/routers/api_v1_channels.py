@@ -1141,8 +1141,26 @@ async def channel_events(
                 except StopAsyncIteration:
                     break
         finally:
+            # Tear down the inner subscriber generator cleanly. Order
+            # matters: cancel the in-flight ``__anext__`` future AND
+            # await its completion before calling ``aclose()`` — calling
+            # ``aclose`` while the generator is still running its
+            # ``await q.get()`` raises ``RuntimeError: aclose():
+            # asynchronous generator is already running``. Awaiting the
+            # cancelled future first lets the underlying coroutine drive
+            # itself out of the suspension point so ``aclose`` has a
+            # quiescent generator to throw GeneratorExit into.
             pending.cancel()
-            await async_gen.aclose()
+            try:
+                await pending
+            except (asyncio.CancelledError, StopAsyncIteration):
+                pass
+            except Exception:  # noqa: BLE001 — best effort, generator about to be closed
+                pass
+            try:
+                await async_gen.aclose()
+            except (RuntimeError, StopAsyncIteration):
+                pass
 
     from fastapi.responses import StreamingResponse
     return StreamingResponse(

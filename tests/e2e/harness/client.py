@@ -49,27 +49,28 @@ class E2EClient:
         client_id: str | None = None,
         **kwargs: Any,
     ) -> ChatResponse:
-        """Send a message to the non-streaming /chat endpoint."""
-        payload: dict[str, Any] = {
-            "message": message,
-            "bot_id": bot_id or self.default_bot_id,
-            "msg_metadata": {"sender_type": "human", "source": "e2e-test"},
+        """Send a message to /chat (POST → 202) and consume the bus until TURN_ENDED.
+
+        Phase E of the Integration Delivery refactor flipped /chat from a
+        synchronous endpoint that returned ``{response: ...}`` to a
+        202-Accepted handle ``{session_id, channel_id, turn_id}``. The
+        actual agent run happens on a background turn worker that
+        publishes typed events to the channel-events bus. This helper
+        re-creates the old "wait for the answer" behavior by tailing the
+        SSE bus until the matching ``turn_ended`` event arrives.
+        """
+        result = await self._post_and_consume_turn(
+            message,
+            bot_id=bot_id,
+            channel_id=channel_id,
+            client_id=client_id,
             **kwargs,
-        }
-        if channel_id:
-            payload["channel_id"] = channel_id
-        if client_id:
-            payload["client_id"] = client_id
-
-        resp = await self._client.post("/chat", json=payload)
-        resp.raise_for_status()
-        body = resp.json()
-
+        )
         return ChatResponse(
-            session_id=body.get("session_id", ""),
-            response=body.get("response", ""),
-            client_actions=body.get("client_actions", []),
-            raw=body,
+            session_id=result["session_id"],
+            response=result["response_text"],
+            client_actions=result["client_actions"],
+            raw=result["raw"],
         )
 
     async def chat_stream(
@@ -80,7 +81,54 @@ class E2EClient:
         client_id: str | None = None,
         **kwargs: Any,
     ) -> StreamResult:
-        """Send a message to the streaming /chat/stream endpoint and collect all events."""
+        """Send a message and consume the channel-events bus as a StreamResult.
+
+        After Phase E the legacy SSE long-poll on ``/chat/stream`` is gone
+        — both ``/chat`` and ``/chat/stream`` return ``202`` immediately
+        with ``{session_id, channel_id, turn_id}``. The harness now POSTs
+        to ``/chat`` and tails ``GET /api/v1/channels/{channel_id}/events``
+        until the matching turn finishes, mapping the typed bus events
+        back into the legacy ``StreamEvent`` shape so existing scenarios
+        keep working without per-test changes.
+        """
+        consumed = await self._post_and_consume_turn(
+            message,
+            bot_id=bot_id,
+            channel_id=channel_id,
+            client_id=client_id,
+            **kwargs,
+        )
+
+        result = StreamResult()
+        result.session_id = consumed["session_id"]
+        result.response_text = consumed["response_text"]
+        result.tools_used = list(consumed["tools_used"])
+        result.raw_lines = list(consumed["raw_lines"])
+        for ev_type, ev_data in consumed["legacy_events"]:
+            result.events.append(StreamEvent(type=ev_type, data=ev_data))
+        return result
+
+    async def _post_and_consume_turn(
+        self,
+        message: str,
+        *,
+        bot_id: str | None,
+        channel_id: str | None,
+        client_id: str | None,
+        timeout: float | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """POST /chat, then tail the channel-events bus until TURN_ENDED.
+
+        Returns a dict with the canonical fields the two public methods
+        synthesize their results from. Handles the queued / passive /
+        throttled fast paths (no turn_id in the 202 body) by returning
+        immediately with empty event lists.
+        """
+        import asyncio
+        import json
+        import time
+
         payload: dict[str, Any] = {
             "message": message,
             "bot_id": bot_id or self.default_bot_id,
@@ -92,17 +140,171 @@ class E2EClient:
         if client_id:
             payload["client_id"] = client_id
 
-        result = StreamResult()
+        post_resp = await self._client.post("/chat", json=payload)
+        post_resp.raise_for_status()
+        body = post_resp.json()
 
-        async with self._client.stream("POST", "/chat/stream", json=payload) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                result.raw_lines.append(line)
-                event = StreamEvent.from_line(line)
-                if event:
-                    result.add_event(event)
+        session_id = body.get("session_id", "")
+        chan_id = body.get("channel_id") or channel_id or ""
+        turn_id = body.get("turn_id")
 
-        return result
+        # Fast paths that have no turn_id: passive store, throttled,
+        # queued (busy session or system pause). Return what we have.
+        if not turn_id:
+            return {
+                "session_id": session_id,
+                "response_text": "",
+                "tools_used": [],
+                "raw_lines": [],
+                "legacy_events": [],
+                "client_actions": body.get("client_actions") or [],
+                "raw": body,
+            }
+
+        if not chan_id:
+            # Shouldn't happen — POST /chat always returns channel_id when
+            # turn_id is present. Bail out with what we have.
+            return {
+                "session_id": session_id,
+                "response_text": "",
+                "tools_used": [],
+                "raw_lines": [],
+                "legacy_events": [],
+                "client_actions": body.get("client_actions") or [],
+                "raw": body,
+            }
+
+        deadline = time.monotonic() + (timeout or self.config.request_timeout)
+        accumulated_text: list[str] = []
+        tools_used: list[str] = []
+        legacy_events: list[tuple[str, dict]] = []
+        raw_lines: list[str] = []
+        final_response_text = ""
+        final_error: str | None = None
+        final_client_actions: list[dict] = []
+        final_raw: dict = body
+
+        sse_url = f"/api/v1/channels/{chan_id}/events"
+        sse_params = {"since": "0"}
+
+        try:
+            async with self._client.stream(
+                "GET", sse_url, params=sse_params,
+                timeout=httpx.Timeout(timeout or self.config.request_timeout),
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    raw_lines.append(line)
+                    if time.monotonic() > deadline:
+                        legacy_events.append(("error", {"reason": "harness_timeout"}))
+                        final_error = "harness_timeout"
+                        break
+                    stripped = line.strip()
+                    if not stripped or stripped.startswith(":"):
+                        continue
+                    if stripped.startswith("data: "):
+                        stripped = stripped[6:]
+                    try:
+                        evt = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        continue
+
+                    kind = evt.get("kind", "")
+                    epayload = evt.get("payload") or {}
+                    ep_turn_id = epayload.get("turn_id")
+                    is_my_turn = ep_turn_id == turn_id
+
+                    # Map typed bus events into legacy StreamEvent shape so
+                    # scenarios that introspect ``result.events`` /
+                    # ``result.event_types`` keep matching.
+                    if kind == "turn_started" and is_my_turn:
+                        legacy_events.append(("start", {"bot_id": epayload.get("bot_id")}))
+                    elif kind == "turn_stream_token" and is_my_turn:
+                        # ``TurnStreamTokenPayload.delta`` is the canonical
+                        # field name on the wire (see app/domain/payloads.py).
+                        text_chunk = epayload.get("delta") or epayload.get("text", "")
+                        if text_chunk:
+                            accumulated_text.append(text_chunk)
+                        legacy_events.append((
+                            "text_delta",
+                            {"text": text_chunk, "delta": text_chunk},
+                        ))
+                    elif kind == "turn_stream_tool_start" and is_my_turn:
+                        tname = epayload.get("tool_name") or epayload.get("tool", "")
+                        if tname and tname not in tools_used:
+                            tools_used.append(tname)
+                        legacy_events.append(("tool_start", {
+                            "tool": tname,
+                            "name": tname,
+                            **epayload,
+                        }))
+                    elif kind == "turn_stream_tool_result" and is_my_turn:
+                        tname = epayload.get("tool_name") or epayload.get("tool", "")
+                        if tname and tname not in tools_used:
+                            tools_used.append(tname)
+                        legacy_events.append(("tool_result", {
+                            "tool": tname,
+                            "name": tname,
+                            **epayload,
+                        }))
+                    elif kind == "approval_requested":
+                        legacy_events.append(("approval_request", dict(epayload)))
+                    elif kind == "approval_resolved":
+                        legacy_events.append(("approval_resolved", dict(epayload)))
+                    elif kind == "delivery_failed":
+                        legacy_events.append(("error", dict(epayload)))
+                    elif kind == "new_message":
+                        # Pass through new_message events for tests that
+                        # introspect message ordering.
+                        legacy_events.append(("message", dict(epayload)))
+                    elif kind == "turn_ended" and is_my_turn:
+                        result_text = epayload.get("result")
+                        if result_text:
+                            final_response_text = result_text
+                        elif accumulated_text:
+                            final_response_text = "".join(accumulated_text)
+                        final_error = epayload.get("error")
+                        final_client_actions = list(epayload.get("client_actions") or [])
+                        legacy_events.append(("response", {
+                            "text": final_response_text,
+                            "session_id": session_id,
+                            "error": final_error,
+                            "client_actions": final_client_actions,
+                        }))
+                        if final_error:
+                            legacy_events.append(("error", {
+                                "message": final_error,
+                            }))
+                        break
+                    elif kind == "replay_lapsed":
+                        # Buffer rolled over before we connected — break
+                        # out so the test sees what's available rather
+                        # than spinning indefinitely.
+                        legacy_events.append(("error", {
+                            "reason": "replay_lapsed",
+                            **dict(epayload),
+                        }))
+                        final_error = "replay_lapsed"
+                        break
+        except httpx.HTTPError as exc:
+            legacy_events.append(("error", {"message": str(exc)}))
+            final_error = str(exc)
+        except asyncio.TimeoutError:
+            legacy_events.append(("error", {"reason": "sse_timeout"}))
+            final_error = "sse_timeout"
+
+        if not final_response_text and accumulated_text:
+            final_response_text = "".join(accumulated_text)
+
+        return {
+            "session_id": session_id,
+            "response_text": final_response_text,
+            "tools_used": tools_used,
+            "raw_lines": raw_lines,
+            "legacy_events": legacy_events,
+            "client_actions": final_client_actions,
+            "raw": {**final_raw, "error": final_error} if final_error else final_raw,
+        }
 
     # -- Admin/utility endpoints --
 

@@ -21,9 +21,10 @@ helper has no view into.
 """
 from __future__ import annotations
 
+import json
 import logging
 import uuid
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 
 from app.domain.channel_events import ChannelEvent, ChannelEventKind
 from app.domain.payloads import (
@@ -36,6 +37,33 @@ from app.domain.payloads import (
 from app.services.channel_events import publish_typed
 
 logger = logging.getLogger(__name__)
+
+
+def _coerce_tool_arguments(raw: Any) -> dict:
+    """Normalize tool-call ``args`` into a plain dict for the typed payload.
+
+    The agent loop yields OpenAI-format tool calls, where
+    ``tc["function"]["arguments"]`` is a **JSON string**, not a dict
+    (`app/agent/loop.py:919, 1107`). Older callers and some providers
+    pass an already-parsed dict instead. ``TurnStreamToolStartPayload``
+    requires a dict, so this helper handles both.
+
+    Returns ``{}`` for any value that can't be parsed into a dict.
+    """
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (ValueError, TypeError):
+            return {"_raw": raw}
+        if isinstance(parsed, dict):
+            return parsed
+        return {"_raw": parsed}
+    # Last-ditch: stringify and stash so the bus payload still validates.
+    return {"_raw": str(raw)}
 
 
 async def emit_run_stream_events(
@@ -92,7 +120,7 @@ async def emit_run_stream_events(
                         bot_id=bot_id,
                         turn_id=turn_id,
                         tool_name=event.get("tool", ""),
-                        arguments=dict(event.get("args") or {}),
+                        arguments=_coerce_tool_arguments(event.get("args")),
                     ),
                 ),
             )
@@ -124,7 +152,7 @@ async def emit_run_stream_events(
                         approval_id=event.get("approval_id", ""),
                         bot_id=bot_id,
                         tool_name=event.get("tool", ""),
-                        arguments=dict(event.get("args") or {}),
+                        arguments=_coerce_tool_arguments(event.get("args")),
                         reason=event.get("reason"),
                     ),
                 ),
