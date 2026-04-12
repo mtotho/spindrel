@@ -339,6 +339,7 @@ class TestCrossWorkspaceAccess:
 
             mock_db = AsyncMock()
             mock_db.get = AsyncMock(return_value=mock_channel)
+            mock_db.scalar = AsyncMock(return_value=False)  # not a member
             mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
 

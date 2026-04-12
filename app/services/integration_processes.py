@@ -59,27 +59,19 @@ class IntegrationProcessManager:
         return ["watchfiles", "--filter", "python", " ".join(resolved)] + watch_paths
 
     def _discover(self) -> dict[str, dict]:
-        """Discover all integrations with process.py (regardless of env readiness)."""
-        from integrations import _iter_integration_candidates, _import_module
+        """Discover all integrations with a process (process.py or YAML process section)."""
+        from integrations import _iter_integration_candidates, _get_process_config
 
         results: dict[str, dict] = {}
         for candidate, integration_id, is_external, source in _iter_integration_candidates():
-            process_file = candidate / "process.py"
-            if not process_file.exists():
+            proc_cfg = _get_process_config(candidate, integration_id, is_external, source)
+            if not proc_cfg:
                 continue
-            try:
-                module = _import_module(integration_id, "process", process_file, is_external, source)
-                cmd = getattr(module, "CMD", None)
-                if not cmd:
-                    continue
-                watch_paths = getattr(module, "WATCH_PATHS", None)
-                results[integration_id] = {
-                    "cmd": self._build_cmd(cmd, watch_paths),
-                    "required_env": getattr(module, "REQUIRED_ENV", []),
-                    "description": getattr(module, "DESCRIPTION", integration_id),
-                }
-            except Exception:
-                logger.exception("Failed to load process config for integration %r", integration_id)
+            results[integration_id] = {
+                "cmd": self._build_cmd(proc_cfg["cmd"], proc_cfg.get("watch_paths")),
+                "required_env": proc_cfg["required_env"],
+                "description": proc_cfg["description"],
+            }
         return results
 
     def _env_ready(self, integration_id: str, required_env: list[str]) -> bool:

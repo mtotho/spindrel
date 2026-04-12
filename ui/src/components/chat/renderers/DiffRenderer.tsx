@@ -51,7 +51,7 @@ export function DiffRenderer({ body, t }: Props) {
           color: t.textMuted,
           fontStyle: "italic",
           border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 6,
+          borderRadius: 8,
           background: t.codeBg,
         }}
       >
@@ -65,14 +65,14 @@ export function DiffRenderer({ body, t }: Props) {
   return (
     <div
       style={{
-        borderRadius: 6,
+        borderRadius: 8,
         border: `1px solid ${t.surfaceBorder}`,
         background: t.codeBg,
         fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
         fontSize: 12,
         lineHeight: 1.5,
         overflow: "hidden",
-        maxHeight: 360,
+        maxHeight: 400,
         overflowY: "auto",
       }}
     >

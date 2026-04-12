@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import httpx
 
-from integrations import _register as reg
+from integrations import sdk as reg
 from integrations.github.config import settings
 
 _GITHUB_API = "https://api.github.com"

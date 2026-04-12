@@ -506,7 +506,9 @@ class TestResolveIndexingSegments:
         bot_indexing = WorkspaceIndexingConfig(
             segments=[IndexSegment(path_prefix="common/")],
         )
-        result = resolve_indexing(bot_indexing, {}, None)
+        # The raw dict must declare "segments" for the bot-level cascade to fire
+        raw = {"indexing": {"segments": [{"path_prefix": "common/"}]}}
+        result = resolve_indexing(bot_indexing, raw, None)
         assert len(result["segments"]) == 1
         assert result["segments"], "Non-empty segments must be truthy"
         assert result["segments"][0]["path_prefix"] == "common/"

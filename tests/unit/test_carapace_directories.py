@@ -475,14 +475,12 @@ class TestContextMasterySkill:
         from pathlib import Path
 
         content = Path("skills/context_mastery.md").read_text()
-        # Context map
-        assert "Auto-Injected" in content
-        assert "On Demand" in content
-        # Temperature tiers
-        assert "Hot" in content and "Warm" in content and "Cold" in content
-        # Reference file authoring (pseudo-skills)
-        assert "Pseudo-Skill" in content or "pseudo-skill" in content or "Reference Files" in content
-        # Delegation with model override
+        # Four persistence tiers
+        assert "Auto-injected" in content
+        assert "Reference files" in content or "Reference Files" in content
+        assert "Bot-authored skills" in content
+        assert "Fleet skills" in content
+        # Research delegation with model override
         assert "Delegation" in content or "delegation" in content
         assert "model_override" in content
         assert "schedule_task" in content

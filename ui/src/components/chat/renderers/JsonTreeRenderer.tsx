@@ -23,14 +23,14 @@ export function JsonTreeRenderer({ body, t }: Props) {
         style={{
           margin: 0,
           padding: "8px 12px",
-          borderRadius: 6,
+          borderRadius: 8,
           background: t.codeBg,
           border: `1px solid ${t.codeBorder}`,
           fontFamily: "'Menlo', monospace",
           fontSize: 12,
           color: t.contentText,
           whiteSpace: "pre-wrap",
-          maxHeight: 360,
+          maxHeight: 400,
           overflowY: "auto",
         }}
       >
@@ -43,14 +43,14 @@ export function JsonTreeRenderer({ body, t }: Props) {
     <div
       style={{
         padding: "8px 12px",
-        borderRadius: 6,
+        borderRadius: 8,
         background: t.codeBg,
         border: `1px solid ${t.codeBorder}`,
         fontFamily: "'Menlo', monospace",
         fontSize: 12,
         lineHeight: 1.55,
         color: t.contentText,
-        maxHeight: 360,
+        maxHeight: 400,
         overflowY: "auto",
       }}
     >

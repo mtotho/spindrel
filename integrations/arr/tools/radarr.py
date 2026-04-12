@@ -6,7 +6,7 @@ import logging
 import httpx
 
 from integrations.arr.config import settings
-from integrations._register import register
+from integrations.sdk import register_tool as register
 
 from integrations.arr.tools._helpers import coerce_list, error, sanitize, validate_url
 

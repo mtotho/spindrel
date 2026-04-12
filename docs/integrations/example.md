@@ -57,7 +57,7 @@ def register(schema, *, source_dir=None):
 
 ```python
 # ~/my-integrations/mygithub/tools/my_tool.py
-from integrations._register import register
+from integrations.sdk import register_tool as register
 
 @register({
     "type": "function",

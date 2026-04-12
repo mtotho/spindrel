@@ -1,0 +1,58 @@
+id: slack
+name: Slack
+icon: MessageSquare
+description: Slack integration with Socket Mode bot — real-time messaging, emoji reactions, and audit logging.
+version: "1.0"
+
+settings:
+  - key: SLACK_BOT_TOKEN
+    type: string
+    label: "Bot token (xoxb-...) — needs chat:write, reactions:write, channels:read scopes"
+    required: true
+    secret: true
+  - key: SLACK_APP_TOKEN
+    type: string
+    label: "App-level token (xapp-...) for Socket Mode"
+    required: true
+    secret: true
+  - key: AGENT_API_KEY
+    type: string
+    label: "API key for the agent server"
+    required: true
+    secret: true
+  - key: AGENT_BASE_URL
+    type: string
+    label: "Agent server URL (default: http://localhost:8000)"
+  - key: SLACK_SUGGEST_CHANNELS
+    type: string
+    label: "Show channel dropdown when binding (default: true)"
+  - key: SLACK_SUGGEST_COUNT
+    type: string
+    label: "Number of channels to show in binding dropdown (default: 20, max: 100)"
+  - key: SLACK_REQUIRE_CHANNEL_APPROVAL
+    type: string
+    label: "Require approval before auto-creating channels from Slack messages (default: false)"
+
+api_permissions: slack_integration
+
+binding:
+  client_id_prefix: "slack:"
+  client_id_placeholder: "slack:C01ABC123"
+  client_id_description: "Slack channel ID (starts with C)"
+  display_name_placeholder: "#general"
+  suggestions_endpoint: "/integrations/slack/binding-suggestions"
+
+target:
+  type: slack
+  fields:
+    channel_id: string
+    token: string
+    thread_ts: string?
+    message_ts: string?
+    reply_in_thread: bool = false
+
+process:
+  cmd: ["python", "integrations/slack/slack_bot.py"]
+  description: "Slack Bolt bot (socket mode)"
+  required_env: ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"]
+  watch_paths: ["integrations/slack/"]

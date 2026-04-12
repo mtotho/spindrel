@@ -101,14 +101,27 @@ def _get_setup(
 
     # Fall back to setup.py
     setup_file = candidate / "setup.py"
-    if not setup_file.exists():
-        return None
-    try:
-        module = _import_module(integration_id, "setup", setup_file, is_external, source)
-        return getattr(module, "SETUP", None)
-    except Exception:
-        logger.exception("Failed to load setup.py for integration %r", integration_id)
-        return None
+    if setup_file.exists():
+        try:
+            module = _import_module(integration_id, "setup", setup_file, is_external, source)
+            setup = getattr(module, "SETUP", None)
+            if setup:
+                return setup
+        except Exception:
+            logger.exception("Failed to load setup.py for integration %r", integration_id)
+
+    # Fall back to parsing integration.yaml directly from disk (covers
+    # cases where the manifest cache isn't populated yet, e.g. unit tests)
+    yaml_path = candidate / "integration.yaml"
+    if yaml_path.exists():
+        try:
+            from app.services.integration_manifests import parse_integration_yaml
+            data = parse_integration_yaml(yaml_path)
+            return _manifest_to_setup(data)
+        except Exception:
+            logger.debug("Failed to parse integration.yaml for %r", integration_id, exc_info=True)
+
+    return None
 
 
 def _manifest_to_setup(manifest: dict) -> dict:
@@ -187,6 +200,102 @@ def _iter_integration_candidates() -> list[tuple[Path, str, bool, str]]:
     return results
 
 
+def _auto_register_target(integration_id: str, target_spec: dict) -> bool:
+    """Generate and register a DispatchTarget dataclass from a YAML ``target`` section.
+
+    ``target_spec`` has the shape::
+
+        {"type": "slack", "fields": {"channel_id": "string", "token": "string",
+         "thread_ts": "string?", "reply_in_thread": "bool = false"}}
+
+    Type syntax:
+      - ``string``  → ``str`` (required)
+      - ``string?`` → ``str | None`` (optional, default ``None``)
+      - ``int``, ``int?`` — likewise for ``int``
+      - ``bool``, ``bool?`` — likewise for ``bool``
+      - ``bool = false`` → ``bool`` with default ``False``
+      - ``string = foo`` → ``str`` with default ``"foo"``
+
+    Returns True on success, False on failure (logged, never raised).
+    """
+    import dataclasses
+
+    from app.domain.dispatch_target import _BaseTarget
+    from app.domain import target_registry
+
+    type_name = target_spec.get("type")
+    fields_spec = target_spec.get("fields", {})
+
+    if not type_name:
+        logger.error("YAML target for %r missing required 'type' field", integration_id)
+        return False
+
+    # Already registered (e.g. by a target.py that was loaded first)
+    if target_registry.get(type_name) is not None:
+        return True
+
+    _TYPE_MAP = {"string": str, "str": str, "int": int, "bool": bool}
+
+    dc_fields: list[tuple] = []  # (name, type, field) triples for make_dataclass
+    for field_name, type_decl in fields_spec.items():
+        type_decl = str(type_decl).strip()
+
+        # Parse "type = default" syntax
+        default = dataclasses.MISSING
+        if "=" in type_decl:
+            type_part, default_str = type_decl.split("=", 1)
+            type_decl = type_part.strip()
+            default_str = default_str.strip()
+            # Coerce default to Python value
+            if type_decl.rstrip("?") in ("bool",):
+                default = default_str.lower() in ("true", "1", "yes")
+            elif type_decl.rstrip("?") in ("int",):
+                default = int(default_str)
+            else:
+                default = default_str
+
+        # Parse optional "?" suffix
+        optional = type_decl.endswith("?")
+        base_type_str = type_decl.rstrip("?")
+
+        py_type = _TYPE_MAP.get(base_type_str)
+        if py_type is None:
+            logger.error(
+                "YAML target for %r: unknown type %r for field %r",
+                integration_id, base_type_str, field_name,
+            )
+            return False
+
+        if optional:
+            py_type = py_type | None  # type: ignore[operator]
+            if default is dataclasses.MISSING:
+                default = None
+
+        if default is not dataclasses.MISSING:
+            dc_fields.append((field_name, py_type, dataclasses.field(default=default)))
+        else:
+            dc_fields.append((field_name, py_type))
+
+    try:
+        cls_name = f"{''.join(w.capitalize() for w in integration_id.split('_'))}Target"
+        cls = dataclasses.make_dataclass(
+            cls_name,
+            dc_fields,
+            bases=(_BaseTarget,),
+            frozen=True,
+        )
+        # ClassVars can't be passed through make_dataclass fields — set directly
+        cls.type = type_name  # type: ignore[attr-defined]
+        cls.integration_id = integration_id  # type: ignore[attr-defined]
+
+        target_registry.register(cls)
+        logger.debug("Auto-registered YAML target %r (type=%r) for integration %r", cls_name, type_name, integration_id)
+        return True
+    except Exception:
+        logger.exception("Failed to auto-register YAML target for integration %r", integration_id)
+        return False
+
+
 def _load_single_integration(
     candidate: Path, integration_id: str, is_external: bool, source: str,
 ) -> APIRouter | None:
@@ -194,11 +303,10 @@ def _load_single_integration(
 
     Returns the APIRouter if one exists, else None.
     """
-    # Auto-import target.py FIRST so the typed DispatchTarget subclass
-    # is registered with `app.domain.target_registry` before anything
-    # downstream (renderer, dispatcher, router) tries to construct one
-    # via `parse_dispatch_target`. Integration targets must NEVER live
-    # in `app/domain/` — every integration ships its own target.py.
+    # Register target FIRST so the typed DispatchTarget subclass is
+    # available before anything downstream (renderer, dispatcher, router)
+    # tries to construct one via `parse_dispatch_target`.
+    # Prefers target.py (custom logic); falls back to YAML ``target`` section.
     target_file = candidate / "target.py"
     if target_file.exists():
         try:
@@ -206,6 +314,15 @@ def _load_single_integration(
             logger.debug("Loaded target for integration: %s", integration_id)
         except Exception:
             logger.exception("Failed to load target for integration %r", integration_id)
+    else:
+        # Try YAML-declared target from manifest
+        try:
+            from app.services.integration_manifests import get_manifest
+            manifest = get_manifest(integration_id)
+            if manifest and manifest.get("target"):
+                _auto_register_target(integration_id, manifest["target"])
+        except ImportError:
+            pass
 
     # Auto-import dispatcher.py to trigger register() (independent of router.py)
     dispatcher_file = candidate / "dispatcher.py"
@@ -323,6 +440,67 @@ def discover_identity_fields() -> list[dict]:
     return results
 
 
+def _get_process_config(
+    candidate: Path, integration_id: str, is_external: bool, source: str,
+) -> dict | None:
+    """Get process config from process.py or the manifest's ``process`` section.
+
+    Returns ``{"cmd": [...], "required_env": [...], "description": "...",
+    "watch_paths": [...] | None}`` or ``None`` if neither source declares a
+    process.  ``process.py`` wins when both exist.
+    """
+    process_file = candidate / "process.py"
+    if process_file.exists():
+        try:
+            mod = _import_module(integration_id, "process", process_file, is_external, source)
+            cmd = getattr(mod, "CMD", None)
+            if cmd:
+                return {
+                    "cmd": list(cmd),
+                    "required_env": getattr(mod, "REQUIRED_ENV", []),
+                    "description": getattr(mod, "DESCRIPTION", integration_id),
+                    "watch_paths": getattr(mod, "WATCH_PATHS", None),
+                }
+        except Exception:
+            logger.exception("Failed to load process.py for integration %r", integration_id)
+
+    # Fall back to manifest cache (integration.yaml) process section
+    try:
+        from app.services.integration_manifests import get_manifest
+        manifest = get_manifest(integration_id)
+        if manifest:
+            proc = manifest.get("process")
+            if proc and proc.get("cmd"):
+                return {
+                    "cmd": list(proc["cmd"]),
+                    "required_env": proc.get("required_env", []),
+                    "description": proc.get("description", integration_id),
+                    "watch_paths": proc.get("watch_paths"),
+                }
+    except ImportError:
+        pass
+
+    # Fall back to parsing integration.yaml directly from disk (covers
+    # cases where the manifest cache isn't populated yet, e.g. unit tests)
+    yaml_path = candidate / "integration.yaml"
+    if yaml_path.exists():
+        try:
+            from app.services.integration_manifests import parse_integration_yaml
+            data = parse_integration_yaml(yaml_path)
+            proc = data.get("process")
+            if proc and proc.get("cmd"):
+                return {
+                    "cmd": list(proc["cmd"]),
+                    "required_env": proc.get("required_env", []),
+                    "description": proc.get("description", integration_id),
+                    "watch_paths": proc.get("watch_paths"),
+                }
+        except Exception:
+            logger.debug("Failed to parse integration.yaml for %r", integration_id, exc_info=True)
+
+    return None
+
+
 def discover_setup_status(base_url: str = "") -> list[dict]:
     """Return setup status for all integrations.
 
@@ -332,17 +510,10 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        process_file = candidate / "process.py"
-        has_process = process_file.exists()
-        process_description = None
-        process_launchable = False
-        if has_process:
-            try:
-                mod = _import_module(integration_id, "process", process_file, is_external, source)
-                process_description = getattr(mod, "DESCRIPTION", None)
-                process_launchable = bool(getattr(mod, "CMD", None))
-            except Exception:
-                pass
+        proc_cfg = _get_process_config(candidate, integration_id, is_external, source)
+        has_process = proc_cfg is not None
+        process_description = proc_cfg["description"] if proc_cfg else None
+        process_launchable = has_process
         entry: dict = {
             "id": integration_id,
             "name": integration_id.replace("_", " ").replace("-", " ").title(),
@@ -972,33 +1143,24 @@ def discover_processes() -> list[dict]:
     results: list[dict] = []
 
     for candidate, integration_id, is_external, source in _iter_integration_candidates():
-        process_file = candidate / "process.py"
-        if not process_file.exists():
+        proc_cfg = _get_process_config(candidate, integration_id, is_external, source)
+        if not proc_cfg:
             continue
 
-        try:
-            module = _import_module(integration_id, "process", process_file, is_external, source)
-            cmd = getattr(module, "CMD", None)
-            required_env = getattr(module, "REQUIRED_ENV", [])
-            description = getattr(module, "DESCRIPTION", integration_id)
-            if not cmd:
-                continue
-            watch_paths = getattr(module, "WATCH_PATHS", None)
-            cmd = _resolve_cmd(cmd, watch_paths)
-            if all(os.environ.get(v) for v in required_env):
-                results.append({
-                    "id": integration_id,
-                    "cmd": cmd,
-                    "required_env": required_env,
-                    "description": description,
-                })
-            else:
-                missing = [v for v in required_env if not os.environ.get(v)]
-                logger.debug(
-                    "Skipping process for integration %r: missing env vars %s",
-                    integration_id, missing,
-                )
-        except Exception:
-            logger.exception("Failed to load process config for integration %r", integration_id)
+        required_env = proc_cfg["required_env"]
+        cmd = _resolve_cmd(proc_cfg["cmd"], proc_cfg.get("watch_paths"))
+        if all(os.environ.get(v) for v in required_env):
+            results.append({
+                "id": integration_id,
+                "cmd": cmd,
+                "required_env": required_env,
+                "description": proc_cfg["description"],
+            })
+        else:
+            missing = [v for v in required_env if not os.environ.get(v)]
+            logger.debug(
+                "Skipping process for integration %r: missing env vars %s",
+                integration_id, missing,
+            )
 
     return results

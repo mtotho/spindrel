@@ -41,6 +41,7 @@ _KNOWN_KEYS = {
     "binding", "dependencies", "docker_compose", "web_ui",
     "chat_hud", "chat_hud_presets", "sidebar_section",
     "debug_actions", "api_permissions", "dashboard_modules",
+    "target", "process",
 }
 
 # Keys passed through as-is between manifest and SETUP dict formats.
@@ -50,6 +51,7 @@ PASSTHROUGH_KEYS = (
     "mcp_servers", "docker_compose", "web_ui", "chat_hud",
     "chat_hud_presets", "sidebar_section", "debug_actions",
     "api_permissions", "dashboard_modules",
+    "target", "process",
 )
 
 
@@ -170,22 +172,43 @@ async def seed_manifests() -> None:
                     logger.error("Failed to parse %s", yaml_path, exc_info=True)
                     continue
 
-                stmt = pg_insert(IntegrationManifest).values(
-                    id=data["id"],
-                    name=data.get("name", integration_id),
-                    description=data.get("description"),
-                    version=data.get("version"),
-                    icon=data.get("icon", "Plug"),
-                    manifest=data,
-                    yaml_content=raw_content,
-                    is_enabled=True,
-                    source="yaml",
-                    source_path=str(yaml_path),
-                    content_hash=content_hash,
-                ).on_conflict_do_nothing(index_elements=["id"])
-                await db.execute(stmt)
-                yaml_seeded += 1
-                logger.debug("Seeded YAML manifest '%s' from %s", data["id"], yaml_path)
+                # Check if an existing row was seeded from setup.py — if so,
+                # the integration has migrated from setup.py to YAML and the
+                # row needs to be upgraded (otherwise ON CONFLICT DO NOTHING
+                # would keep the stale setup.py data forever).
+                existing = await db.get(IntegrationManifest, data["id"])
+                if existing and existing.source == "setup_py":
+                    existing.name = data.get("name", integration_id)
+                    existing.description = data.get("description")
+                    existing.version = data.get("version")
+                    existing.icon = data.get("icon", "Plug")
+                    existing.manifest = data
+                    existing.yaml_content = raw_content
+                    existing.source = "yaml"
+                    existing.source_path = str(yaml_path)
+                    existing.content_hash = content_hash
+                    yaml_seeded += 1
+                    logger.info(
+                        "Upgraded manifest '%s' from setup.py → YAML",
+                        data["id"],
+                    )
+                else:
+                    stmt = pg_insert(IntegrationManifest).values(
+                        id=data["id"],
+                        name=data.get("name", integration_id),
+                        description=data.get("description"),
+                        version=data.get("version"),
+                        icon=data.get("icon", "Plug"),
+                        manifest=data,
+                        yaml_content=raw_content,
+                        is_enabled=True,
+                        source="yaml",
+                        source_path=str(yaml_path),
+                        content_hash=content_hash,
+                    ).on_conflict_do_nothing(index_elements=["id"])
+                    await db.execute(stmt)
+                    yaml_seeded += 1
+                    logger.debug("Seeded YAML manifest '%s' from %s", data["id"], yaml_path)
 
             else:
                 # Try setup.py for legacy integrations

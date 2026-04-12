@@ -84,6 +84,11 @@ def _glob_with_exclusions(
         for pattern in exclude:
             for p in base_dir.glob(pattern):
                 excluded.add(p)
+                # Path.glob("dir/**") only matches the directory itself in
+                # Python 3.12+; also glob dir/**/* to catch files underneath.
+                if p.is_dir():
+                    for child in p.rglob("*"):
+                        excluded.add(child)
         seen -= excluded
     return seen
 

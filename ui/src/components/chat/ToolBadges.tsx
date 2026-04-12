@@ -1,17 +1,16 @@
 /**
  * Tool badges — shows tools used on persisted messages with expandable results.
  *
- * Design: unified card per tool group. Badge is the card header, results are
- * the card body. A 2px left accent bar connects them visually (blue for normal,
- * red for errors). Only the latest bot message auto-expands; older messages
- * render collapsed pill badges with a result count.
+ * Design: badge pill is the toggle. Expanded state renders a clean card below
+ * with per-result rows. Only the latest bot message auto-expands; older
+ * messages render collapsed pill badges with a result count hint.
  *
- * Within an expanded card, individual results are collapsible — latest expanded,
- * older collapsed. Large results fade at max-height with a "Show all" affordance.
+ * Within an expanded card, individual results are independently expandable.
+ * The latest result auto-opens; older ones show a one-line summary.
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { Wrench, ChevronRight, ChevronDown } from "lucide-react";
+import { Wrench, ChevronRight, ChevronDown, AlertCircle, CheckCircle2 } from "lucide-react";
 import { formatToolArgs } from "./toolCallUtils";
 import { normalizeToolCall } from "../../types/api";
 import type { ToolCall, ToolResultEnvelope } from "../../types/api";
@@ -55,7 +54,6 @@ function resultSummary(env: ToolResultEnvelope | undefined): string {
       return "error";
     }
   }
-  // For diffs, show a compact stat if plain_body mentions it
   const pb = env.plain_body ?? "";
   if (pb && pb.length < 120) return pb;
   if (env.byte_size > 0) return `${(env.byte_size / 1024).toFixed(1)} KB`;
@@ -120,16 +118,11 @@ export function ToolBadges({
   toolResults?: ToolResultEnvelope[];
   sessionId?: string;
   compact?: boolean;
-  /** When true, auto-expand inline-display envelopes (only set on the latest
-   *  bot message). When false, everything renders collapsed. */
   autoExpand?: boolean;
   t: ThemeTokens;
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  // Track which individual results within the expanded card are open.
-  // Key: "resultIdx", value: true if open.
   const [openResults, setOpenResults] = useState<Record<number, boolean>>({});
-  // Track which result panels have been "uncapped" (max-height removed).
   const [uncappedResults, setUncappedResults] = useState<Record<number, boolean>>({});
 
   const toggleResult = useCallback((i: number) => {
@@ -140,7 +133,6 @@ export function ToolBadges({
     setUncappedResults((prev) => ({ ...prev, [i]: true }));
   }, []);
 
-  // Auto-expand: only when autoExpand=true and not compact
   useEffect(() => {
     if (compact || !autoExpand) return;
     if (expandedIdx !== null) return;
@@ -149,7 +141,6 @@ export function ToolBadges({
     for (let i = 0; i < items.length; i++) {
       if (items[i].envelopes.some((e) => e?.display === "inline")) {
         setExpandedIdx(i);
-        // Auto-open the last result within the group
         const lastEnvIdx = items[i].envelopes.length - 1;
         if (lastEnvIdx >= 0) {
           setOpenResults({ [lastEnvIdx]: true });
@@ -173,7 +164,6 @@ export function ToolBadges({
       setUncappedResults({});
     } else {
       setExpandedIdx(idx);
-      // Auto-open the last result
       const item = items[idx];
       const lastEnvIdx = item.envelopes.length - 1;
       setOpenResults(lastEnvIdx >= 0 ? { [lastEnvIdx]: true } : {});
@@ -190,13 +180,12 @@ export function ToolBadges({
         const isExpanded = expandedIdx === idx;
         const hasError = groupHasError(item.envelopes);
         const envCount = item.envelopes.filter((e) => !!e).length;
-        const accentColor = hasError ? t.danger : t.accent;
-        const accentBorder = hasError ? t.dangerBorder : t.accentBorder;
-        const accentSubtle = hasError ? t.dangerSubtle : t.accentSubtle;
+        const errorCount = item.envelopes.filter(isErrorEnvelope).length;
+        const successCount = envCount - errorCount;
 
         return (
           <div key={idx} style={{ display: "flex", flexDirection: "column" }}>
-            {/* ── Badge / card header ── */}
+            {/* ── Badge pill ── */}
             <div
               onClick={expandable ? () => handleExpand(idx) : undefined}
               style={{
@@ -205,65 +194,82 @@ export function ToolBadges({
                 alignSelf: "flex-start",
                 gap: 5,
                 padding: "4px 10px 4px 8px",
-                borderRadius: isExpanded ? "6px 6px 0 0" : 6,
-                backgroundColor: isExpanded ? accentSubtle : t.overlayLight,
-                border: `1px solid ${isExpanded ? accentBorder : t.overlayBorder}`,
-                borderBottom: isExpanded ? `1px solid transparent` : undefined,
+                borderRadius: isExpanded ? "4px 4px 0 0" : 4,
+                backgroundColor: t.overlayLight,
+                border: `1px solid ${isExpanded ? t.surfaceBorder : t.overlayBorder}`,
+                borderBottom: isExpanded ? "none" : undefined,
                 cursor: expandable ? "pointer" : "default",
-                transition: "all 0.15s ease",
-                position: "relative",
-                zIndex: 1,
+                transition: "background-color 0.15s, border-color 0.15s",
               }}
+              onMouseEnter={expandable ? (e) => {
+                if (!isExpanded) e.currentTarget.style.backgroundColor = t.surfaceOverlay;
+              } : undefined}
+              onMouseLeave={expandable ? (e) => {
+                if (!isExpanded) e.currentTarget.style.backgroundColor = t.overlayLight;
+              } : undefined}
             >
-              <Wrench size={11} color={isExpanded ? accentColor : t.textDim} />
+              <Wrench size={11} color={t.textDim} />
               <span
                 style={{
                   fontSize: 11,
-                  color: isExpanded ? accentColor : t.textMuted,
+                  color: t.textMuted,
                   fontFamily: "'Menlo', monospace",
-                  fontWeight: isExpanded ? 600 : 400,
                 }}
               >
                 {item.name}
                 {item.count > 1 ? ` \u00d7${item.count}` : ""}
               </span>
+              {/* Status dots — compact success/error indicator */}
               {envCount > 0 && !isExpanded && (
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: hasError ? t.danger : t.textDim,
-                    fontFamily: "'Menlo', monospace",
-                  }}
-                >
-                  \u00b7 {envCount} {envCount === 1 ? "result" : "results"}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                  {errorCount > 0 && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                      <span style={{
+                        width: 6, height: 6, borderRadius: "50%",
+                        backgroundColor: t.danger, display: "inline-block",
+                      }} />
+                      {errorCount > 1 && (
+                        <span style={{ fontSize: 10, color: t.danger, fontFamily: "'Menlo', monospace" }}>
+                          {errorCount}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  {successCount > 0 && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+                      <span style={{
+                        width: 6, height: 6, borderRadius: "50%",
+                        backgroundColor: t.success, display: "inline-block",
+                      }} />
+                      {successCount > 1 && (
+                        <span style={{ fontSize: 10, color: t.success, fontFamily: "'Menlo', monospace" }}>
+                          {successCount}
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </span>
               )}
               {expandable &&
                 (isExpanded ? (
-                  <ChevronDown size={11} color={isExpanded ? accentColor : t.textDim} />
+                  <ChevronDown size={11} color={t.textDim} />
                 ) : (
                   <ChevronRight size={11} color={t.textDim} />
                 ))}
             </div>
 
-            {/* ── Expanded card body ── */}
+            {/* ── Expanded panel ── */}
             {isExpanded && (
               <div
                 style={{
-                  borderLeft: `2px solid ${accentColor}`,
-                  borderRight: `1px solid ${accentBorder}`,
-                  borderBottom: `1px solid ${accentBorder}`,
-                  borderRadius: "0 0 6px 6px",
-                  backgroundColor: t.overlayLight,
-                  marginLeft: 0,
-                  marginTop: -1,
-                  padding: "8px 0",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 2,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  borderTop: "none",
+                  borderRadius: "0 8px 8px 8px",
+                  backgroundColor: t.surfaceRaised,
+                  overflow: "hidden",
                 }}
               >
-                {/* Args section (if any) */}
+                {/* Args section */}
                 {hasArgs && (() => {
                   const argsToShow = item.argsList
                     .map((a) => formatToolArgs(a))
@@ -274,8 +280,8 @@ export function ToolBadges({
                       style={{
                         maxHeight: 200,
                         overflowY: "auto",
-                        padding: "0 12px",
-                        marginBottom: 4,
+                        padding: "8px 12px",
+                        borderBottom: `1px solid ${t.surfaceBorder}`,
                       }}
                     >
                       {argsToShow.map((formatted, i) => (
@@ -314,40 +320,49 @@ export function ToolBadges({
                   );
                 })()}
 
-                {/* Results section */}
+                {/* Results list */}
                 {item.envelopes.map((env, i) => {
                   if (!env) return null;
                   const isError = isErrorEnvelope(env);
                   const isOpen = openResults[i] ?? false;
-                  const isCapped = !uncappedResults[i];
+                  // Don't cap truncated results — RichToolResult has its own
+                  // "Show full output" affordance for those.
+                  const isCapped = !uncappedResults[i] && !env.truncated;
                   const summary = resultSummary(env);
                   const singleResult = item.envelopes.filter((e) => !!e).length === 1;
 
                   return (
                     <div key={`env-${i}`}>
-                      {/* Result header — clickable to toggle */}
+                      {/* Result row header */}
                       <div
                         onClick={() => toggleResult(i)}
                         style={{
                           display: "flex",
                           alignItems: "center",
                           gap: 6,
-                          padding: "4px 12px",
+                          padding: "6px 12px",
                           cursor: "pointer",
                           transition: "background-color 0.1s",
                           borderTop: i > 0 ? `1px solid ${t.surfaceBorder}` : undefined,
+                          backgroundColor: isOpen ? t.surfaceOverlay : "transparent",
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = t.surfaceOverlay;
+                          if (!isOpen) e.currentTarget.style.backgroundColor = t.surfaceOverlay;
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = "transparent";
+                          if (!isOpen) e.currentTarget.style.backgroundColor = "transparent";
                         }}
                       >
                         {isOpen ? (
                           <ChevronDown size={10} color={t.textDim} />
                         ) : (
                           <ChevronRight size={10} color={t.textDim} />
+                        )}
+                        {/* Status icon */}
+                        {isError ? (
+                          <AlertCircle size={12} color={t.danger} />
+                        ) : (
+                          <CheckCircle2 size={12} color={t.success} style={{ opacity: 0.7 }} />
                         )}
                         {!singleResult && (
                           <span
@@ -363,27 +378,11 @@ export function ToolBadges({
                             Result {i + 1}
                           </span>
                         )}
-                        {isError && (
-                          <span
-                            style={{
-                              fontSize: 10,
-                              fontWeight: 600,
-                              color: t.danger,
-                              background: t.dangerSubtle,
-                              border: `1px solid ${t.dangerBorder}`,
-                              borderRadius: 3,
-                              padding: "0 4px",
-                              flexShrink: 0,
-                            }}
-                          >
-                            error
-                          </span>
-                        )}
                         {summary && !isOpen && (
                           <span
                             style={{
                               fontSize: 11,
-                              color: isError ? t.dangerMuted : t.textDim,
+                              color: isError ? t.dangerMuted : t.textMuted,
                               fontFamily: "'Menlo', monospace",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
@@ -402,9 +401,10 @@ export function ToolBadges({
                         <div
                           style={{
                             position: "relative",
-                            margin: "0 12px 4px",
+                            padding: "4px 12px 8px",
                             maxHeight: isCapped ? 400 : undefined,
                             overflow: isCapped ? "hidden" : undefined,
+                            backgroundColor: t.surfaceOverlay,
                           }}
                         >
                           {isError ? (
@@ -412,7 +412,6 @@ export function ToolBadges({
                           ) : (
                             <RichToolResult envelope={env} sessionId={sessionId} t={t} />
                           )}
-                          {/* Fade + "Show all" for capped content */}
                           {isCapped && (env.byte_size > 2000 || (env.body ?? "").length > 1500) && (
                             <div
                               style={{
@@ -420,8 +419,8 @@ export function ToolBadges({
                                 bottom: 0,
                                 left: 0,
                                 right: 0,
-                                height: 60,
-                                background: `linear-gradient(transparent, ${t.overlayLight})`,
+                                height: 48,
+                                background: `linear-gradient(transparent, ${t.surfaceOverlay})`,
                                 display: "flex",
                                 alignItems: "flex-end",
                                 justifyContent: "center",
@@ -436,13 +435,16 @@ export function ToolBadges({
                                 }}
                                 style={{
                                   fontSize: 11,
-                                  color: t.accent,
+                                  color: t.textMuted,
                                   background: t.surfaceRaised,
-                                  border: `1px solid ${t.accentBorder}`,
+                                  border: `1px solid ${t.surfaceBorder}`,
                                   borderRadius: 4,
                                   padding: "2px 10px",
                                   cursor: "pointer",
+                                  transition: "color 0.1s",
                                 }}
+                                onMouseEnter={(e) => { e.currentTarget.style.color = t.text; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.color = t.textMuted; }}
                               >
                                 Show all
                               </button>
@@ -462,8 +464,7 @@ export function ToolBadges({
   );
 }
 
-/** Compact error result — extracts the error message and renders it with
- *  danger styling instead of dumping the raw JSON. */
+/** Compact error result — extracts the error message and shows it cleanly. */
 function ErrorResult({
   env,
   t,
@@ -486,16 +487,13 @@ function ErrorResult({
     // use raw body
   }
 
-  // If the error message is very short, render inline. Otherwise use the
-  // standard renderer with danger border.
   if (errorMsg.length < 200 && !errorMsg.includes("\n")) {
     return (
       <div
         style={{
           padding: "6px 10px",
-          borderRadius: 4,
+          borderRadius: 6,
           background: t.dangerSubtle,
-          borderLeft: `2px solid ${t.danger}`,
           fontSize: 12,
           fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
           color: t.dangerMuted,
@@ -507,16 +505,5 @@ function ErrorResult({
     );
   }
 
-  // Longer error — fall back to RichToolResult with a danger wrapper
-  return (
-    <div
-      style={{
-        borderLeft: `2px solid ${t.danger}`,
-        borderRadius: 4,
-        overflow: "hidden",
-      }}
-    >
-      <RichToolResult envelope={env} sessionId={sessionId} t={t} />
-    </div>
-  );
+  return <RichToolResult envelope={env} sessionId={sessionId} t={t} />;
 }

@@ -5,7 +5,7 @@ import re
 import httpx
 
 from integrations.web_search.config import settings
-from integrations._register import register
+from integrations.sdk import register_tool as register
 from app.utils.url_validation import resolve_and_pin, pin_url, validate_url as _validate_url
 
 logger = logging.getLogger(__name__)
@@ -70,10 +70,11 @@ async def _web_search_searxng(query: str, num_results: int = 5) -> str:
         return json.dumps({"error": f"SearXNG returned HTTP {exc.response.status_code}"})
 
     results = data.get("results", [])[:num_results]
-    return json.dumps([
+    items = [
         {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("content", "")}
         for r in results
-    ])
+    ]
+    return _search_result(query, items)
 
 
 async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
@@ -88,10 +89,41 @@ async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
         return json.dumps({"error": f"Web search failed: {exc}"})
     if not results:
         return json.dumps([])
-    return json.dumps([
+    items = [
         {"title": r.get("title", ""), "url": r.get("href", ""), "content": r.get("body", "")}
         for r in results
-    ])
+    ]
+    return _search_result(query, items)
+
+
+def _search_result(query: str, items: list[dict]) -> str:
+    """Build a web search result with a component-vocabulary envelope."""
+    return json.dumps({
+        "llm": json.dumps(items),
+        "_envelope": {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "plain_body": f"{len(items)} result(s) for: {query}",
+            "body": {
+                "v": 1,
+                "components": [
+                    {
+                        "type": "links",
+                        "items": [
+                            {
+                                "url": r["url"],
+                                "title": r["title"],
+                                "subtitle": r.get("content", "")[:150],
+                                "icon": "web",
+                            }
+                            for r in items
+                            if r.get("url")
+                        ],
+                    },
+                ],
+            },
+        },
+    })
 
 
 def _sanitize_fetched_content(text: str, url: str, max_length: int = 4000) -> str:

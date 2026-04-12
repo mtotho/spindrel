@@ -388,6 +388,8 @@ class SlackRenderer:
                 attrs["username"] = display_name
 
         text = getattr(msg, "content", "") or ""
+        if not text.strip():
+            return DeliveryReceipt.skipped("new_message with empty content")
         slack_text = markdown_to_slack_mrkdwn(text)
         for chunk in split_for_slack(slack_text) or [slack_text]:
             body: dict = {

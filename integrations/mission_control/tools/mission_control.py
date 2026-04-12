@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 
-from integrations import _register as reg
+from integrations import sdk as reg
 from integrations.mission_control.services import (
     append_timeline,
     create_card,

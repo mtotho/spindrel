@@ -7,7 +7,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from integrations import _register as reg
+from integrations import sdk as reg
 from integrations.ingestion.config import INGESTION_DB_DIR
 from integrations.ingestion.store import IngestionStore
 

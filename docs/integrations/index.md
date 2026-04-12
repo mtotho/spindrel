@@ -117,7 +117,7 @@ them at startup — any `*.py` file (except underscore-prefixed) is imported and
 Import `register` from the shim at `integrations/_register.py`:
 
 ```python
-from integrations._register import register
+from integrations.sdk import register_tool as register
 
 @register({
     "type": "function",

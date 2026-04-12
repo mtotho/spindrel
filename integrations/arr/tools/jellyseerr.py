@@ -8,7 +8,7 @@ from urllib.parse import quote, urlencode
 import httpx
 
 from integrations.arr.config import settings
-from integrations._register import register
+from integrations.sdk import register_tool as register
 
 from integrations.arr.tools._helpers import error, sanitize, validate_url
 

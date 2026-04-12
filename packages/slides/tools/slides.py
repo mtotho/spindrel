@@ -13,7 +13,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from integrations._register import register
+from integrations.sdk import register_tool as register
 
 logger = logging.getLogger(__name__)
 

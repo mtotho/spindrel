@@ -7,7 +7,7 @@ from typing import Optional
 import httpx
 
 from integrations.frigate.config import settings
-from integrations._register import register
+from integrations.sdk import register_tool as register
 
 logger = logging.getLogger(__name__)
 

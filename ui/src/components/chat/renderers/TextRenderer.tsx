@@ -18,7 +18,7 @@ export function TextRenderer({ body, t }: Props) {
       style={{
         margin: 0,
         padding: "8px 12px",
-        borderRadius: 6,
+        borderRadius: 8,
         background: t.codeBg,
         border: `1px solid ${t.codeBorder}`,
         fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
@@ -27,7 +27,7 @@ export function TextRenderer({ body, t }: Props) {
         color: t.contentText,
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
-        maxHeight: 360,
+        maxHeight: 400,
         overflowY: "auto",
       }}
     >

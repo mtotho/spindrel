@@ -8,7 +8,7 @@ import httpx
 
 from integrations.bluebubbles.config import settings
 from integrations.bluebubbles.echo_tracker import shared_tracker
-from integrations._register import register
+from integrations.sdk import register_tool as register
 
 logger = logging.getLogger(__name__)
 

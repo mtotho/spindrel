@@ -72,12 +72,12 @@ export function FileListingRenderer({ body, t }: Props) {
 function listingShell(t: ThemeTokens) {
   return {
     border: `1px solid ${t.surfaceBorder}`,
-    borderRadius: 6,
+    borderRadius: 8,
     background: t.codeBg,
     fontFamily: "'Menlo', monospace",
     fontSize: 12,
     color: t.contentText,
-    maxHeight: 360,
+    maxHeight: 400,
     overflowY: "auto" as const,
   };
 }

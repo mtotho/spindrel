@@ -281,7 +281,7 @@ class TestToolResultHardCap:
         big_result = "x" * 10_000
 
         with (
-            patch("app.config.settings") as mock_settings,
+            patch("app.agent.tool_dispatch.settings") as mock_settings,
             patch("app.agent.tool_dispatch.is_client_tool", return_value=False),
             patch("app.agent.tool_dispatch.is_local_tool", return_value=True),
             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False),
@@ -295,6 +295,8 @@ class TestToolResultHardCap:
             mock_settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
             mock_settings.IN_LOOP_PRUNING_ENABLED = False
             mock_settings.CAPABILITY_APPROVAL = "disabled"
+            mock_settings.TOOL_DISPATCH_TIMEOUT = 120
+            mock_settings.TOOL_POLICY_ENABLED = False
 
             result = await dispatch_tool_call(
                 name="big_tool", args="{}", tool_call_id="tc1",

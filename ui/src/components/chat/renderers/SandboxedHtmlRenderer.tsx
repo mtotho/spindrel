@@ -78,7 +78,7 @@ export function SandboxedHtmlRenderer({ body, t }: Props) {
   return (
     <div
       style={{
-        borderRadius: 6,
+        borderRadius: 8,
         border: `1px solid ${t.surfaceBorder}`,
         overflow: "hidden",
         background: "#ffffff",

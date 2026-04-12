@@ -5,7 +5,7 @@ import json
 import logging
 import os
 
-from integrations import _register as reg
+from integrations import sdk as reg
 
 logger = logging.getLogger(__name__)
 

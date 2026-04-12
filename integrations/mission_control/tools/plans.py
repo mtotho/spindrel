@@ -10,7 +10,7 @@ from datetime import date
 
 from sqlalchemy import select
 
-from integrations import _register as reg
+from integrations import sdk as reg
 from integrations.mission_control.services import (
     _read_plans_md,
     _write_plans_md,

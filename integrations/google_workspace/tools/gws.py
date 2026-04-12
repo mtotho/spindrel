@@ -12,7 +12,7 @@ import time
 
 import httpx
 
-from integrations import _register as reg
+from integrations import sdk as reg
 from integrations.google_workspace.config import SERVICE_ALIASES
 
 logger = logging.getLogger(__name__)

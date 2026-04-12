@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from integrations import _register as reg
+from integrations import sdk as reg
 
 logger = logging.getLogger(__name__)
 

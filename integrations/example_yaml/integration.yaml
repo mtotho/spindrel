@@ -24,6 +24,23 @@ mcp_servers:
     url: http://localhost:9090/mcp
     # image: example/mcp-server:latest  # uncomment for container-based
 
+# Typed dispatch target — auto-generates a frozen dataclass and registers
+# it with the target registry. No target.py needed for simple cases.
+# Use target.py instead when you need custom from_dispatch_config() logic.
+target:
+  type: example_yaml
+  fields:
+    channel_id: string
+    api_key: string?          # optional (defaults to None)
+    verbose: bool = false     # optional with default
+
+# Background process — replaces process.py for simple cmd + env declarations.
+# process:
+#   cmd: ["python", "integrations/example_yaml/bot.py"]
+#   description: "Example bot process"
+#   required_env: ["EXAMPLE_API_KEY"]
+#   watch_paths: ["integrations/example_yaml/"]
+
 # Per-channel activation
 activation:
   carapaces:

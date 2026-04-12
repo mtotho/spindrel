@@ -29,6 +29,7 @@ import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
 import { SandboxedHtmlRenderer } from "./renderers/SandboxedHtmlRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
 import { FileListingRenderer } from "./renderers/FileListingRenderer";
+import { ComponentRenderer } from "./renderers/ComponentRenderer";
 
 interface Props {
   envelope: ToolResultEnvelope;
@@ -52,7 +53,7 @@ export function RichToolResult({ envelope, sessionId, t }: Props) {
       <div
         style={{
           padding: "6px 10px",
-          borderRadius: 6,
+          borderRadius: 8,
           border: `1px dashed ${t.surfaceBorder}`,
           background: t.overlayLight,
           fontSize: 11,
@@ -89,9 +90,12 @@ export function RichToolResult({ envelope, sessionId, t }: Props) {
               color: t.accent,
               fontSize: 11,
               cursor: fetching ? "wait" : "pointer",
+              transition: "background-color 0.15s",
             }}
+            onMouseEnter={(e) => { if (!fetching) e.currentTarget.style.backgroundColor = t.accentMuted; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = t.accentSubtle; }}
           >
-            {fetching ? "Loading…" : "Show full output"}
+            {fetching ? "Loading\u2026" : "Show full output"}
           </button>
         )}
         {fetchError && (
@@ -118,6 +122,8 @@ export function RichToolResult({ envelope, sessionId, t }: Props) {
       return <DiffRenderer body={body} t={t} />;
     case "application/vnd.spindrel.file-listing+json":
       return <FileListingRenderer body={body} t={t} />;
+    case "application/vnd.spindrel.components+json":
+      return <ComponentRenderer body={body} t={t} />;
     case "text/plain":
     default:
       return <TextRenderer body={body} t={t} />;
