@@ -50,6 +50,13 @@ target:
     device_id: string
     connection_id: string?
 
+dependencies:
+  python:
+    - package: wyoming
+      import_name: wyoming
+    - package: zeroconf
+      import_name: zeroconf
+
 capabilities:
   - text
 
