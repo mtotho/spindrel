@@ -321,12 +321,17 @@ async def _bm25_tool_search(
             return []
 
         where_clause = " OR ".join(filter_parts)
+        # `websearch_to_tsquery` uses OR semantics (each term contributes
+        # independently to ts_rank) so a single high-signal token like
+        # "weather" can rescue a retrieval that conversational noise
+        # ("rolland", "hte", "test") would otherwise sink under the
+        # AND-by-default behavior of `plainto_tsquery`.
         sql = sa_text(f"""
             SELECT "schema", tool_name,
-                   ts_rank(to_tsvector('english', embed_text), plainto_tsquery('english', :q)) AS rank
+                   ts_rank(to_tsvector('english', embed_text), websearch_to_tsquery('english', :q)) AS rank
             FROM tool_embeddings
             WHERE ({where_clause})
-              AND to_tsvector('english', embed_text) @@ plainto_tsquery('english', :q)
+              AND to_tsvector('english', embed_text) @@ websearch_to_tsquery('english', :q)
             ORDER BY rank DESC
             LIMIT :lim
         """)

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.agent.tools import (
+    _bm25_tool_search,
     _cache_key,
     _fuse_tool_results,
     _tool_cache,
@@ -560,6 +561,48 @@ class TestRetrieveToolsHybrid:
 
                     assert len(result) == 1
                     assert result[0]["function"]["name"] == "tool_a"
+
+
+# ---------------------------------------------------------------------------
+# BM25 tool search uses websearch_to_tsquery (OR semantics) so a single
+# high-signal token can rescue a query buried in conversational noise.
+# Regression for the 2026-04-11 trace where qa-bot's "rolland can you test
+# hte get weather tool" returned 0 BM25 rows because plainto_tsquery ANDs
+# every non-stopword token (bot names + typos always kill the match).
+# ---------------------------------------------------------------------------
+
+
+class TestBm25ToolSearchUsesWebsearchTsquery:
+    """`_bm25_tool_search` must build SQL with `websearch_to_tsquery`, not
+    `plainto_tsquery`, so a noisy conversational query like 'rolland can you
+    test hte get weather tool' isn't shut out by AND semantics."""
+
+    @pytest.mark.asyncio
+    async def test_sql_uses_websearch_to_tsquery(self):
+        mock_db = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        mock_db.execute.return_value = mock_result
+
+        await _bm25_tool_search(
+            mock_db,
+            query="rolland can you test hte get weather tool",
+            local_tool_names={"get_weather"},
+            mcp_server_names=set(),
+            limit=10,
+            discover_all=False,
+        )
+
+        assert mock_db.execute.await_count == 1
+        sql_obj, params = mock_db.execute.await_args.args
+        sql_text = str(sql_obj)
+        assert "websearch_to_tsquery" in sql_text, (
+            "BM25 tool search must use websearch_to_tsquery for OR semantics; "
+            "plainto_tsquery ANDs every non-stopword token and is silently dead "
+            "for any conversational tool query."
+        )
+        assert "plainto_tsquery" not in sql_text
+        assert params["q"] == "rolland can you test hte get weather tool"
 
 
 # ---------------------------------------------------------------------------
