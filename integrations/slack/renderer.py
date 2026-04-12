@@ -113,6 +113,14 @@ class SlackRenderer:
                 # next text_delta will resume the stream. Force-flush so
                 # any queued text reaches the user before the tool runs.
                 await self._force_flush(event, target)
+                # Stash envelope for later Block Kit rendering in TURN_ENDED.
+                payload = event.payload
+                turn_id = str(getattr(payload, "turn_id", "") or "")
+                envelope = getattr(payload, "envelope", None)
+                if envelope and turn_id:
+                    ctx = slack_render_contexts.get(target.channel_id, turn_id)
+                    if ctx is not None:
+                        ctx.tool_envelopes.append(envelope)
                 return DeliveryReceipt.skipped("tool_result subsumed by next stream flush")
             if kind == ChannelEventKind.TURN_ENDED:
                 return await self._handle_turn_ended(event, target)
@@ -310,6 +318,23 @@ class SlackRenderer:
                 slack_render_contexts.discard(target.channel_id, turn_id)
                 return post_result
 
+        # Render component-vocabulary tool envelopes as Block Kit blocks.
+        tool_blocks = _components_to_blocks(ctx.tool_envelopes if ctx else [])
+        if tool_blocks:
+            # Slack caps blocks at 50 per message.
+            tool_blocks = tool_blocks[:50]
+            # Post as a follow-up — chat.update with blocks would replace
+            # the text content, and the blocks are supplementary detail.
+            block_body: dict = {
+                "channel": target.channel_id,
+                "text": "(tool results)",  # fallback for notifications
+                "blocks": tool_blocks,
+                **attrs,
+            }
+            if target.thread_ts and target.reply_in_thread:
+                block_body["thread_ts"] = target.thread_ts
+            await self._call_slack("chat.postMessage", target.token, block_body)
+
         # Upload any image / file actions attached to the turn.
         client_actions = getattr(payload, "client_actions", None) or []
         if client_actions:
@@ -402,6 +427,22 @@ class SlackRenderer:
             result = await self._call_slack("chat.postMessage", target.token, body)
             if not result.success:
                 return result
+
+        # Render component-vocabulary envelopes from persisted metadata.
+        msg_metadata = getattr(msg, "metadata", None) or {}
+        tool_results = msg_metadata.get("tool_results") or []
+        tool_blocks = _components_to_blocks(tool_results)
+        if tool_blocks:
+            block_body: dict = {
+                "channel": target.channel_id,
+                "text": "(tool results)",
+                "blocks": tool_blocks[:50],
+                **attrs,
+            }
+            if target.thread_ts and target.reply_in_thread:
+                block_body["thread_ts"] = target.thread_ts
+            await self._call_slack("chat.postMessage", target.token, block_body)
+
         return DeliveryReceipt.ok()
 
     async def _handle_message_updated(
@@ -842,6 +883,222 @@ def _build_tool_approval_blocks(
     if suggestion_actions:
         blocks.append({"type": "actions", "elements": suggestion_actions})
     return blocks
+
+
+# ---------------------------------------------------------------------------
+# Component vocabulary → Slack Block Kit conversion
+# ---------------------------------------------------------------------------
+
+# Semantic color slot → emoji prefix for Slack (no color in mrkdwn text).
+_SLOT_EMOJI = {
+    "success": ":large_green_circle:",
+    "warning": ":large_yellow_circle:",
+    "danger": ":red_circle:",
+    "info": ":large_purple_circle:",
+    "accent": ":large_blue_circle:",
+}
+
+_LINK_EMOJI = {
+    "github": ":github:",
+    "web": ":globe_with_meridians:",
+    "email": ":email:",
+    "file": ":page_facing_up:",
+}
+
+
+def _components_to_blocks(envelopes: list[dict]) -> list[dict]:
+    """Convert component-vocabulary envelopes to Slack Block Kit blocks.
+
+    Only processes envelopes with content_type
+    ``application/vnd.spindrel.components+json``. Other types are skipped
+    (the text content is already in the main message body).
+    """
+    import json as _json
+
+    blocks: list[dict] = []
+    for env in envelopes:
+        ct = env.get("content_type", "")
+        if ct != "application/vnd.spindrel.components+json":
+            continue
+        body_raw = env.get("body")
+        if not body_raw:
+            continue
+        try:
+            parsed = _json.loads(body_raw) if isinstance(body_raw, str) else body_raw
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(parsed, dict) or parsed.get("v") != 1:
+            continue
+        components = parsed.get("components", [])
+        for node in components:
+            result = _node_to_block(node)
+            if isinstance(result, list):
+                blocks.extend(result)
+            elif result:
+                blocks.append(result)
+    return blocks
+
+
+def _node_to_block(node: dict) -> dict | None:
+    """Map a single component node to a Slack block."""
+    ntype = node.get("type")
+
+    if ntype == "heading":
+        text = node.get("text", "")
+        level = node.get("level", 2)
+        if level == 1:
+            return {"type": "header", "text": {"type": "plain_text", "text": text[:150]}}
+        return {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*{_escape_mrkdwn(text)}*"},
+        }
+
+    if ntype == "text":
+        content = node.get("content", "")
+        style = node.get("style", "default")
+        if node.get("markdown"):
+            return {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": markdown_to_slack_mrkdwn(content)},
+            }
+        if style == "code":
+            return {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"`{_escape_mrkdwn(content)}`"},
+            }
+        if style == "bold":
+            return {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*{_escape_mrkdwn(content)}*"},
+            }
+        return {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": _escape_mrkdwn(content)},
+        }
+
+    if ntype == "properties":
+        items = node.get("items", [])
+        # Use Slack's fields layout (2-column grid, max 10 fields)
+        fields = []
+        for item in items[:10]:
+            label = _escape_mrkdwn(item.get("label", ""))
+            value = _escape_mrkdwn(item.get("value", ""))
+            color = item.get("color")
+            emoji = _SLOT_EMOJI.get(color, "")
+            prefix = f"{emoji} " if emoji else ""
+            fields.append({
+                "type": "mrkdwn",
+                "text": f"*{label}*\n{prefix}{value}",
+            })
+        if fields:
+            return {"type": "section", "fields": fields}
+        return None
+
+    if ntype == "table":
+        columns = node.get("columns", [])
+        rows = node.get("rows", [])
+        if not columns or not rows:
+            return None
+        # Slack has no native table — render as a code block
+        # Compute column widths
+        widths = [len(c) for c in columns]
+        for row in rows[:20]:  # cap to avoid huge blocks
+            for i, cell in enumerate(row):
+                if i < len(widths):
+                    widths[i] = max(widths[i], len(str(cell)))
+        header = " | ".join(c.ljust(widths[i]) for i, c in enumerate(columns))
+        sep = "-+-".join("-" * w for w in widths)
+        lines = [header, sep]
+        for row in rows[:20]:
+            line = " | ".join(
+                str(row[i] if i < len(row) else "").ljust(widths[i])
+                for i in range(len(columns))
+            )
+            lines.append(line)
+        if len(rows) > 20:
+            lines.append(f"... ({len(rows) - 20} more rows)")
+        return {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"```\n{chr(10).join(lines)}\n```"},
+        }
+
+    if ntype == "links":
+        items = node.get("items", [])
+        lines = []
+        for item in items[:10]:
+            url = item.get("url", "")
+            title = _escape_mrkdwn(item.get("title", url))
+            subtitle = item.get("subtitle", "")
+            icon = item.get("icon", "link")
+            emoji = _LINK_EMOJI.get(icon, ":link:")
+            line = f"{emoji} <{url}|{title}>"
+            if subtitle:
+                line += f"\n    {_escape_mrkdwn(subtitle[:120])}"
+            lines.append(line)
+        if lines:
+            return {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "\n".join(lines)},
+            }
+        return None
+
+    if ntype == "code":
+        content = node.get("content", "")
+        lang = node.get("language", "")
+        label = f"_{lang}_\n" if lang else ""
+        return {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"{label}```\n{content[:2900]}\n```"},
+        }
+
+    if ntype == "image":
+        url = node.get("url", "")
+        alt = node.get("alt", "image")
+        if url:
+            return {
+                "type": "image",
+                "image_url": url,
+                "alt_text": alt or "image",
+            }
+        return None
+
+    if ntype == "status":
+        text = node.get("text", "")
+        color = node.get("color", "default")
+        emoji = _SLOT_EMOJI.get(color, "")
+        prefix = f"{emoji} " if emoji else ""
+        return {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"{prefix}*{_escape_mrkdwn(text)}*"}],
+        }
+
+    if ntype == "divider":
+        return {"type": "divider"}
+
+    if ntype == "section":
+        # Flatten children into blocks (Slack has no nested sections)
+        children = node.get("children", [])
+        label = node.get("label")
+        child_blocks: list[dict] = []
+        if label:
+            child_blocks.append({
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": f"*{_escape_mrkdwn(label)}*"}],
+            })
+        for child in children:
+            result = _node_to_block(child)
+            if isinstance(result, list):
+                child_blocks.extend(result)
+            elif result:
+                child_blocks.append(result)
+        return child_blocks
+
+    return None
+
+
+def _escape_mrkdwn(text: str) -> str:
+    """Escape Slack mrkdwn special characters in user-provided text."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ---------------------------------------------------------------------------

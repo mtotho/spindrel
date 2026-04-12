@@ -66,8 +66,11 @@ class TestWebSearchModeDispatch:
             ctx.stop()
 
         parsed = json.loads(result)
-        assert len(parsed) == 1
-        assert parsed[0]["title"] == "Test"
+        # Result is now an envelope dict with "llm" (for the model) and "_envelope" (for UI)
+        assert "_envelope" in parsed
+        items = json.loads(parsed["llm"])
+        assert len(items) == 1
+        assert items[0]["title"] == "Test"
 
     @pytest.mark.asyncio
     async def test_ddgs_mode_calls_ddgs(self):
@@ -79,9 +82,11 @@ class TestWebSearchModeDispatch:
             result = await web_search("test query", num_results=1)
 
         parsed = json.loads(result)
-        assert len(parsed) == 1
-        assert parsed[0]["title"] == "DDG Result"
-        assert parsed[0]["url"] == "https://ddg.example.com"
+        assert "_envelope" in parsed
+        items = json.loads(parsed["llm"])
+        assert len(items) == 1
+        assert items[0]["title"] == "DDG Result"
+        assert items[0]["url"] == "https://ddg.example.com"
 
     @pytest.mark.asyncio
     async def test_none_mode_returns_error(self):

@@ -59,6 +59,10 @@ class TurnContext:
     text. This is the safety-pass that prevents Slack mobile clients
     from missing the final state.
     """
+    tool_envelopes: list[dict] = field(default_factory=list)
+    """Envelopes collected from TURN_STREAM_TOOL_RESULT events during the
+    turn. Used by _handle_turn_ended to render Block Kit blocks for tools
+    that produce component-vocabulary output."""
 
 
 @dataclass
