@@ -175,6 +175,7 @@ async def get_or_create_channel(
                 integration_type=integration,
                 client_id=client_id,
                 dispatch_config=dispatch_config,
+                activated=True,
             )
             db.add(binding)
             await db.flush()
