@@ -263,6 +263,9 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
             data: {
               tool: payload?.tool_name,
               is_error: !!payload?.is_error,
+              // envelope is the rendered ToolResultEnvelope dict from
+              // tool_dispatch.py — drives the mimetype-keyed renderer.
+              envelope: payload?.envelope,
             } as any,
           });
           return;
@@ -367,6 +370,19 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
           // Reset the cursor so the next connect resumes from current head.
           lastSeqRef.current = null;
+          return;
+        }
+
+        case "pinned_file_updated": {
+          // A pinned file's content changed — invalidate per-path query so
+          // the PinnedPanel component re-fetches.
+          if (payload?.path) {
+            queryClient.invalidateQueries({
+              queryKey: ["pinned-panel-content", payload.path],
+            });
+          }
+          // Also refresh the channel data so pinned_panels list stays current
+          queryClient.invalidateQueries({ queryKey: ["channels", chId] });
           return;
         }
 

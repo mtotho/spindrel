@@ -28,6 +28,7 @@ import { HudSidePanel } from "./hud/HudSidePanel";
 import { HudInputBar } from "./hud/HudInputBar";
 import { HudFloatingAction } from "./hud/HudFloatingAction";
 import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
+import { PinnedPanelsRail } from "@/src/components/chat/PinnedPanels";
 import { ParticipantsPanel } from "./ParticipantsPanel";
 import { BotInfoPanel } from "@/src/components/chat/BotInfoPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
@@ -199,10 +200,10 @@ export default function ChatScreen() {
         headerIdx++;
       }
       const fullTurnText = getTurnText(invertedData, headerIdx);
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} />;
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} />;
       return <>{dateSep}{bubble}</>;
     },
-    [invertedData, bot?.name, handleBotClick]
+    [invertedData, bot?.name, handleBotClick, channelId]
   );
 
   // ---- Workspace / file explorer state ----
@@ -548,6 +549,11 @@ export default function ChatScreen() {
           {!isMobile && sidePanels.map((h) => (
             <HudSidePanel key={h.key} hud={h} />
           ))}
+
+          {/* Pinned workspace-file panels */}
+          {!isMobile && channelId && (
+            <PinnedPanelsRail channelId={channelId} workspaceId={workspaceId} />
+          )}
 
           {/* Participants panel (multi-bot channels) */}
           {!isMobile && participantsPanelOpen && channelId && (

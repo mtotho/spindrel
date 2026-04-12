@@ -8,7 +8,8 @@ import { ToolBadges } from "./ToolBadges";
 import { MessageActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { extractDisplayText, parseSlackPrefix, stripBBPrefix, resolveDisplay, avatarColor } from "./messageUtils";
-import type { Message, ToolCall } from "../../types/api";
+import { useToolResultCompact } from "../../stores/toolResultPref";
+import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -23,14 +24,19 @@ interface Props {
   onBotClick?: (senderBotId: string | null) => void;
   /** Full concatenated text for multi-segment bot turns (only set on the turn header) */
   fullTurnText?: string;
+  /** Channel id — used to look up the per-channel "compact tool results"
+   *  preference and to thread sessionId-style auth into RichToolResult's
+   *  lazy-fetch path. Optional for back-compat with non-channel call sites. */
+  channelId?: string;
 }
 
 // ---------------------------------------------------------------------------
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId }: Props) {
   const t = useThemeTokens();
+  const [compact] = useToolResultCompact(channelId ?? "");
   const meta = message.metadata || {};
   // Extract text from content (handles JSON-array content blocks) then strip integration prefixes
   const rawText = extractDisplayText(message.content);
@@ -42,6 +48,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);
   const toolsUsed: string[] = (meta.tools_used as string[]) || [];
+  const toolResults: ToolResultEnvelope[] | undefined = meta.tool_results as ToolResultEnvelope[] | undefined;
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;
   const delegations = (meta.delegations as any[]) || [];
@@ -95,7 +102,16 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} t={t} />
       )}
-      {(toolsUsed.length > 0 || (msgToolCalls && msgToolCalls.length > 0)) && <ToolBadges toolNames={toolsUsed} toolCalls={msgToolCalls} t={t} />}
+      {(toolsUsed.length > 0 || (msgToolCalls && msgToolCalls.length > 0)) && (
+        <ToolBadges
+          toolNames={toolsUsed}
+          toolCalls={msgToolCalls}
+          toolResults={toolResults}
+          sessionId={message.session_id}
+          compact={compact}
+          t={t}
+        />
+      )}
       {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
     </>
   );

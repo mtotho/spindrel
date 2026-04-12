@@ -370,6 +370,9 @@ async def lifespan(application: FastAPI):
     # Load bot hooks into cache
     from app.services.bot_hooks import load_bot_hooks
     await load_bot_hooks()
+    # Load pinned-panel path index
+    from app.services.pinned_panels import load_pinned_paths
+    await load_pinned_paths()
     # Register workflow task completion hook
     from app.services.workflow_hooks import register_workflow_hooks
     register_workflow_hooks()

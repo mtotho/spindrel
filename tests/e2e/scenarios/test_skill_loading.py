@@ -556,13 +556,28 @@ async def test_get_skill_list_returns_bot_skills(client: E2EClient) -> None:
             f"Bot should have called get_skill_list. Tools: {result.tools_used}"
         )
 
-        # Response should mention both skills
-        text = result.response_text.lower()
-        assert "alpha" in text or sid1 in text, (
-            f"Response should mention Alpha Skill. Got: {result.response_text[:300]}"
+        # Inspect the actual tool result rather than the LLM's prose. With 38+
+        # skills system-wide, the LLM frequently summarizes and omits the
+        # test-created skills from the response text — see Loose Ends "Skill
+        # loading drift" entry. The bus payload's `result_summary` is also
+        # truncated to 500 chars (`turn_event_emit.py:141`), so we go straight
+        # to the messages table where the full tool output is persisted.
+        msgs_resp = await client.get(f"/api/v1/sessions/{result.session_id}/messages")
+        assert msgs_resp.status_code == 200, (
+            f"Failed to fetch session messages: {msgs_resp.status_code} {msgs_resp.text[:200]}"
         )
-        assert "beta" in text or sid2 in text, (
-            f"Response should mention Beta Skill. Got: {result.response_text[:300]}"
+        tool_contents = "\n".join(
+            (m.get("content") or "")
+            for m in msgs_resp.json()
+            if m.get("role") == "tool"
+        )
+        assert sid1 in tool_contents, (
+            f"Tool result should contain sid1={sid1}. "
+            f"Tool contents (first 500): {tool_contents[:500]}"
+        )
+        assert sid2 in tool_contents, (
+            f"Tool result should contain sid2={sid2}. "
+            f"Tool contents (first 500): {tool_contents[:500]}"
         )
     finally:
         await client.delete_bot(bot_id)

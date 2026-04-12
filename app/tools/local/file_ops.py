@@ -45,6 +45,24 @@ _SKIP_DIRS = frozenset({
 _CHANNEL_PATH_RE = re.compile(r"^/workspace/channels/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:/|$)")
 
 
+# Mimetype for the rendered envelope, picked off file extension. Used by
+# _op_read to give the web UI enough hint to choose markdown / json-tree /
+# plain-text rendering. Bots opting into custom envelopes (write/edit diffs,
+# grep listings, etc.) compose their own mimetypes inline.
+_MARKDOWN_EXTS = frozenset({".md", ".mdx", ".markdown"})
+_JSON_EXTS = frozenset({".json"})
+
+
+def _mimetype_for_path(path: str) -> str:
+    """Pick a render mimetype from a file extension."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in _MARKDOWN_EXTS:
+        return "text/markdown"
+    if ext in _JSON_EXTS:
+        return "application/json"
+    return "text/plain"
+
+
 def _get_bot_and_workspace_root() -> tuple:
     """Resolve current bot and workspace root. Returns (bot, bot_id, ws_root) or Nones."""
     bot_id = current_bot_id.get()
@@ -283,6 +301,26 @@ async def file(
     try:
         if operation == "read":
             result = _op_read(resolved, effective_ws_root, offset, limit)
+            # _op_read returns plain numbered text (kept that way so direct unit
+            # tests stay simple). Wrap with an envelope here so the web UI gets
+            # mimetype-keyed rendering and the LLM still sees the numbered text.
+            if not result.startswith('{"error"'):
+                rel = os.path.relpath(resolved, os.path.realpath(effective_ws_root))
+                # Body is the file content WITHOUT the line-number gutter so
+                # renderers (markdown / json / plain) consume the original.
+                try:
+                    body_text = Path(resolved).read_text()
+                except (OSError, UnicodeDecodeError):
+                    body_text = result
+                result = json.dumps({
+                    "_envelope": {
+                        "content_type": _mimetype_for_path(resolved),
+                        "body": body_text,
+                        "plain_body": f"Read {rel}",
+                        "display": "inline",
+                    },
+                    "llm": result,
+                })
         elif operation == "write":
             result = _op_write(resolved, content)
         elif operation == "append":
@@ -307,6 +345,9 @@ async def file(
         # --- Bot hooks: after_write (debounced) ---
         if operation in _WRITE_OPS and not result.startswith('{"error"'):
             schedule_after_write(bot_id, path)
+            # Notify pinned panels (lightweight — returns immediately if path not pinned)
+            from app.services.pinned_panels import notify_pinned_file_changed
+            await notify_pinned_file_changed(path)
 
         return result
     except Exception as exc:
@@ -342,16 +383,65 @@ def _op_read(path: str, ws_root: str, offset: int | None, limit: int | None) -> 
     return header + "\n" + "\n".join(numbered)
 
 
+def _make_diff(before: str, after: str, rel_path: str) -> str:
+    """Build a unified diff for envelope rendering. Empty if there is no change."""
+    diff_lines = list(difflib.unified_diff(
+        before.splitlines(keepends=True),
+        after.splitlines(keepends=True),
+        fromfile=f"a/{rel_path}",
+        tofile=f"b/{rel_path}",
+        lineterm="",
+    ))
+    return "".join(diff_lines)
+
+
+def _diff_stats(diff_text: str) -> tuple[int, int]:
+    """Count added/removed lines in a unified diff body."""
+    added = 0
+    removed = 0
+    for line in diff_text.splitlines():
+        if line.startswith("+") and not line.startswith("+++"):
+            added += 1
+        elif line.startswith("-") and not line.startswith("---"):
+            removed += 1
+    return added, removed
+
+
 def _op_write(path: str, content: str | None) -> str:
     if content is None:
         return _error("content is required for write.")
     if len(content.encode("utf-8")) > MAX_CONTENT_BYTES:
         return _error(f"Content exceeds {MAX_CONTENT_BYTES} byte limit.")
 
+    # Capture pre-content for the diff envelope. New file → empty before.
+    pre_content = ""
+    if os.path.isfile(path):
+        try:
+            pre_content = Path(path).read_text()
+        except (OSError, UnicodeDecodeError):
+            pre_content = ""
+
     os.makedirs(os.path.dirname(path), exist_ok=True)
     Path(path).write_text(content)
     size = os.path.getsize(path)
-    return json.dumps({"ok": True, "bytes": size})
+
+    rel = os.path.basename(path)
+    diff_text = _make_diff(pre_content, content, rel)
+    added, removed = _diff_stats(diff_text)
+    summary = (
+        f"Created {rel} (+{added} lines)" if not pre_content
+        else f"Wrote {rel} (+{added} −{removed} lines)"
+    )
+    return json.dumps({
+        "ok": True,
+        "bytes": size,
+        "_envelope": {
+            "content_type": "application/vnd.spindrel.diff+text",
+            "body": diff_text,
+            "plain_body": summary,
+            "display": "inline",
+        },
+    })
 
 
 def _op_append(path: str, content: str | None) -> str:
@@ -359,6 +449,13 @@ def _op_append(path: str, content: str | None) -> str:
         return _error("content is required for append.")
     if len(content.encode("utf-8")) > MAX_CONTENT_BYTES:
         return _error(f"Content exceeds {MAX_CONTENT_BYTES} byte limit.")
+
+    pre_content = ""
+    if os.path.isfile(path):
+        try:
+            pre_content = Path(path).read_text()
+        except (OSError, UnicodeDecodeError):
+            pre_content = ""
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
@@ -376,7 +473,20 @@ def _op_append(path: str, content: str | None) -> str:
         f.write(prefix + content)
 
     size = os.path.getsize(path)
-    return json.dumps({"ok": True, "bytes": size})
+    rel = os.path.basename(path)
+    post_content = pre_content + prefix + content
+    diff_text = _make_diff(pre_content, post_content, rel)
+    added, _removed = _diff_stats(diff_text)
+    return json.dumps({
+        "ok": True,
+        "bytes": size,
+        "_envelope": {
+            "content_type": "application/vnd.spindrel.diff+text",
+            "body": diff_text,
+            "plain_body": f"Appended {added} lines to {rel}",
+            "display": "inline",
+        },
+    })
 
 
 def _whitespace_flex_pattern(find: str) -> re.Pattern | None:
@@ -447,6 +557,25 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
 
     text = Path(path).read_text()
 
+    rel = os.path.basename(path)
+
+    def _edit_envelope(new_text: str, count: int, *, matched: str | None = None) -> dict:
+        diff_text = _make_diff(text, new_text, rel)
+        added, removed = _diff_stats(diff_text)
+        out: dict = {
+            "ok": True,
+            "replacements": count,
+            "_envelope": {
+                "content_type": "application/vnd.spindrel.diff+text",
+                "body": diff_text,
+                "plain_body": f"Edited {rel}: +{added} −{removed} lines ({count} replacement{'s' if count != 1 else ''})",
+                "display": "inline",
+            },
+        }
+        if matched:
+            out["matched"] = matched
+        return out
+
     # 1. Exact match — fastest, safest
     if find in text:
         if replace_all:
@@ -456,7 +585,7 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
             count = 1
             new_text = text.replace(find, replace, 1)
         Path(path).write_text(new_text)
-        return json.dumps({"ok": True, "replacements": count})
+        return json.dumps(_edit_envelope(new_text, count))
 
     # 2. Whitespace-normalized match — handles LLM whitespace drift
     pat = _whitespace_flex_pattern(find)
@@ -477,11 +606,7 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
                 new_text = text[:m.start()] + replace + text[m.end():]
             Path(path).write_text(new_text)
             logger.info("edit: whitespace-flex match on %s (%d replacement(s))", path, count)
-            return json.dumps({
-                "ok": True,
-                "replacements": count,
-                "matched": "whitespace-normalized",
-            })
+            return json.dumps(_edit_envelope(new_text, count, matched="whitespace-normalized"))
 
     # 3. No match — provide helpful error with closest text
     hint = _find_closest_hint(find, text)
@@ -512,7 +637,18 @@ def _op_list(path: str, ws_root: str) -> str:
             entries.append({"name": name, "type": "file", "size": size})
 
     rel = os.path.relpath(path, os.path.realpath(ws_root))
-    return json.dumps({"path": rel, "entries": entries})
+    listing = {"path": rel, "entries": entries}
+    n_dirs = sum(1 for e in entries if e["type"] == "dir")
+    n_files = sum(1 for e in entries if e["type"] == "file")
+    return json.dumps({
+        **listing,
+        "_envelope": {
+            "content_type": "application/vnd.spindrel.file-listing+json",
+            "body": json.dumps(listing),
+            "plain_body": f"Listed {rel}: {n_dirs} dir(s), {n_files} file(s)",
+            "display": "inline",
+        },
+    })
 
 
 def _op_delete(path: str) -> str:
@@ -521,13 +657,33 @@ def _op_delete(path: str) -> str:
     if not os.path.exists(path):
         return _error("File not found.")
 
+    rel = os.path.basename(path)
     os.remove(path)
-    return json.dumps({"ok": True, "deleted": True})
+    return json.dumps({
+        "ok": True,
+        "deleted": True,
+        "_envelope": {
+            "content_type": "text/markdown",
+            "body": f"**Deleted** `{rel}`",
+            "plain_body": f"Deleted {rel}",
+            "display": "inline",
+        },
+    })
 
 
 def _op_mkdir(path: str) -> str:
+    rel = os.path.basename(path) or path
     os.makedirs(path, exist_ok=True)
-    return json.dumps({"ok": True, "created": True})
+    return json.dumps({
+        "ok": True,
+        "created": True,
+        "_envelope": {
+            "content_type": "text/markdown",
+            "body": f"**Created directory** `{rel}`",
+            "plain_body": f"Created directory {rel}",
+            "display": "inline",
+        },
+    })
 
 
 async def _op_move(src: str, destination: str | None, ws_root: str, bot) -> str:
@@ -551,8 +707,18 @@ async def _op_move(src: str, destination: str | None, ws_root: str, bot) -> str:
 
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     import shutil
+    src_rel = os.path.basename(src)
     shutil.move(src, dest)
-    return json.dumps({"ok": True, "moved": destination})
+    return json.dumps({
+        "ok": True,
+        "moved": destination,
+        "_envelope": {
+            "content_type": "text/markdown",
+            "body": f"**Moved** `{src_rel}` → `{destination}`",
+            "plain_body": f"Moved {src_rel} → {destination}",
+            "display": "inline",
+        },
+    })
 
 
 def _looks_binary(path: str) -> bool:
@@ -698,7 +864,20 @@ def _op_grep(
     }
     if files_skipped_large:
         result["files_skipped_large"] = files_skipped_large
-    return json.dumps(result)
+    files_with_hits = len({m["file"] for m in matches}) if matches else 0
+    return json.dumps({
+        **result,
+        "_envelope": {
+            "content_type": "application/vnd.spindrel.file-listing+json",
+            "body": json.dumps({"kind": "grep", **result}),
+            "plain_body": (
+                f"{len(matches)} match(es) in {files_with_hits} file(s)"
+                f" — scanned {files_scanned}"
+                + (" (truncated)" if truncated else "")
+            ),
+            "display": "inline",
+        },
+    })
 
 
 def _op_glob(root: str, pattern: str | None, ws_root: str, limit: int | None) -> str:
@@ -753,8 +932,15 @@ def _op_glob(root: str, pattern: str | None, ws_root: str, limit: int | None) ->
     truncated = hit_cap or len(results) > max_results
     paths = [rel for _mtime, rel in results[:max_results]]
 
+    listing = {"paths": paths, "count": len(paths), "truncated": truncated}
     return json.dumps({
-        "paths": paths,
-        "count": len(paths),
-        "truncated": truncated,
+        **listing,
+        "_envelope": {
+            "content_type": "application/vnd.spindrel.file-listing+json",
+            "body": json.dumps({"kind": "glob", **listing}),
+            "plain_body": (
+                f"Found {len(paths)} file(s)" + (" (truncated)" if truncated else "")
+            ),
+            "display": "inline",
+        },
     })

@@ -213,6 +213,7 @@ def _finalize_response(
     user_msg_index: int | None,
     transcript_emitted: bool,
     tool_calls_made: list[str],
+    tool_envelopes_made: list[dict],
     turn_start: int,
     embedded_client_actions: list[dict],
 ) -> tuple[list[dict], bool]:
@@ -263,9 +264,15 @@ def _finalize_response(
         extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
     )))
 
-    # Inject tools_used into the final assistant message for persist_turn.
+    # Inject tools_used + tool envelopes into the final assistant message for
+    # persist_turn. The envelopes carry per-call rendered output (mimetype,
+    # body, plain_body, display, truncated, record_id) which the web UI
+    # consumes from message.metadata.tool_results to render rich tool views
+    # without per-tool knowledge.
     if tool_calls_made and messages and messages[-1].get("role") == "assistant":
         messages[-1]["_tools_used"] = list(tool_calls_made)
+        if tool_envelopes_made:
+            messages[-1]["_tool_envelopes"] = list(tool_envelopes_made)
 
     events.append(_event_with_compaction_tag({
         "type": "response",
@@ -407,6 +414,7 @@ async def run_agent_tool_loop(
     transcript_emitted = False
     embedded_client_actions: list[dict] = []
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
+    tool_envelopes_made: list[dict] = []  # ToolResultEnvelope.compact_dict() in invocation order — persisted to Message.metadata.tool_results
     tool_call_trace: list[ToolCallSignature] = []  # for within-run cycle detection
     _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
     _detected_cycle_len: int = 0  # populated when cycle detected
@@ -857,7 +865,9 @@ async def run_agent_tool_loop(
                     channel_id=channel_id, compaction=compaction,
                     native_audio=native_audio, user_msg_index=user_msg_index,
                     transcript_emitted=transcript_emitted,
-                    tool_calls_made=tool_calls_made, turn_start=turn_start,
+                    tool_calls_made=tool_calls_made,
+                    tool_envelopes_made=tool_envelopes_made,
+                    turn_start=turn_start,
                     embedded_client_actions=embedded_client_actions,
                 )
                 for _evt in _fin_events:
@@ -1050,6 +1060,7 @@ async def run_agent_tool_loop(
                         }, compaction)
 
                     tool_calls_made.append(name)
+                    tool_envelopes_made.append(tc_result.envelope.compact_dict())
                     tool_call_trace.append(make_signature(name, args))
                     for pre_event in tc_result.pre_events:
                         yield pre_event
@@ -1191,6 +1202,7 @@ async def run_agent_tool_loop(
                         }, compaction)
 
                     tool_calls_made.append(name)
+                    tool_envelopes_made.append(tc_result.envelope.compact_dict())
                     tool_call_trace.append(make_signature(name, args))
                     for pre_event in tc_result.pre_events:
                         yield pre_event
@@ -1369,7 +1381,9 @@ async def run_agent_tool_loop(
             channel_id=channel_id, compaction=compaction,
             native_audio=native_audio, user_msg_index=user_msg_index,
             transcript_emitted=transcript_emitted,
-            tool_calls_made=tool_calls_made, turn_start=turn_start,
+            tool_calls_made=tool_calls_made,
+            tool_envelopes_made=tool_envelopes_made,
+            turn_start=turn_start,
             embedded_client_actions=embedded_client_actions,
         )
         for _evt in _fin_events:

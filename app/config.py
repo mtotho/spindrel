@@ -560,7 +560,6 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "local/BAAI/bge-small-en-v1.5"
     EMBEDDING_DIMENSIONS: int = 1536
     RAG_TOP_K: int = 5
-    RAG_SIMILARITY_THRESHOLD: float = 0.45
 
     # Hybrid search (BM25 + vector fusion via Reciprocal Rank Fusion)
     HYBRID_SEARCH_ENABLED: bool = True

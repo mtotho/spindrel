@@ -32,6 +32,7 @@ from app.domain.payloads import (
     MemorySchemeBootstrapPayload,
     MessagePayload,
     MessageUpdatedPayload,
+    PinnedFileUpdatedPayload,
     ReplayLapsedPayload,
     ShutdownPayload,
     ToolActivityPayload,
@@ -63,6 +64,7 @@ class ChannelEventKind(StrEnum):
     REPLAY_LAPSED = "replay_lapsed"
     CONTEXT_BUDGET = "context_budget"
     MEMORY_SCHEME_BOOTSTRAP = "memory_scheme_bootstrap"
+    PINNED_FILE_UPDATED = "pinned_file_updated"
 
     def required_capabilities(self) -> frozenset[Capability]:
         """The capability set a renderer must declare to receive this kind.
@@ -121,6 +123,7 @@ _REQUIRED_CAPS: dict[ChannelEventKind, frozenset[Capability]] = {
     ChannelEventKind.TOOL_ACTIVITY: frozenset({Capability.TEXT}),
     ChannelEventKind.SHUTDOWN: frozenset(),
     ChannelEventKind.REPLAY_LAPSED: frozenset(),
+    ChannelEventKind.PINNED_FILE_UPDATED: frozenset({Capability.TEXT}),
 }
 
 
@@ -152,6 +155,7 @@ _KIND_PAYLOAD: dict[ChannelEventKind, type] = {
     ChannelEventKind.REPLAY_LAPSED: ReplayLapsedPayload,
     ChannelEventKind.CONTEXT_BUDGET: ContextBudgetPayload,
     ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP: MemorySchemeBootstrapPayload,
+    ChannelEventKind.PINNED_FILE_UPDATED: PinnedFileUpdatedPayload,
 }
 
 

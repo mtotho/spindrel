@@ -387,10 +387,20 @@ export interface Channel {
   channel_workspace_enabled?: boolean;
   workspace_id?: string | null;
   resolved_workspace_id?: string | null;
+  config?: {
+    pinned_panels?: PinnedPanel[];
+  };
   category?: string | null;
   tags?: string[];
   created_at: string;
   updated_at: string;
+}
+
+export interface PinnedPanel {
+  path: string;
+  position: "right" | "bottom";
+  pinned_at: string;
+  pinned_by: string;
 }
 
 // Full channel settings (matches server ChannelSettingsOut)
@@ -555,6 +565,24 @@ export function normalizeToolCall(tc: ToolCall): { name: string; arguments: stri
     return { name: tc.function.name, arguments: tc.function.arguments };
   }
   return { name: tc.name ?? "unknown", arguments: tc.arguments ?? "{}" };
+}
+
+/**
+ * Rendered tool result envelope — mirrors `ToolResultEnvelope.compact_dict()`
+ * from `app/agent/tool_dispatch.py`. Carries the user-visible body for the
+ * web UI's mimetype-keyed renderer (markdown / json-tree / sandboxed-html /
+ * unified-diff / file-listing). The full untruncated body lives on the
+ * persisted `tool_calls` row when `truncated=true`; the UI lazy-fetches it
+ * via `GET /api/v1/sessions/{sid}/tool-calls/{record_id}/result`.
+ */
+export interface ToolResultEnvelope {
+  content_type: string;
+  body: string | null;
+  plain_body: string;
+  display: "badge" | "inline" | "panel";
+  truncated: boolean;
+  record_id: string | null;
+  byte_size: number;
 }
 
 // Chat types

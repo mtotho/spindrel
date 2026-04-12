@@ -307,7 +307,18 @@ async def _run_memory_flush(
     full_prompt = "\n".join(header_lines) + prompt
 
     model = _get_memory_flush_model(bot, channel)
-    provider_id = channel.memory_flush_model_provider_id or bot.model_provider_id
+    # Resolve provider_id from the chosen model when no explicit channel
+    # override is set, instead of blindly inheriting bot.model_provider_id
+    # — that path produced nonsense pairs like
+    # `gemini-2.5-flash-lite @ mini-max` whenever the memory-flush model
+    # override pointed at a different provider than the bot's native one,
+    # corrupting usage_logs cost attribution.
+    from app.services.providers import resolve_provider_for_model
+    provider_id = (
+        channel.memory_flush_model_provider_id
+        or resolve_provider_for_model(model)
+        or bot.model_provider_id
+    )
 
     logger.info("Running memory flush for channel %s (session %s, model=%s)", channel.id, session_id, model)
 

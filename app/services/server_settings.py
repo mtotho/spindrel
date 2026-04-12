@@ -74,7 +74,6 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- Embeddings & RAG ---
     "EMBEDDING_MODEL": {"group": "Embeddings & RAG", "label": "Embedding Model", "description": "Model for text embeddings (use local/ prefix for local ONNX models, e.g. local/BAAI/bge-small-en-v1.5)", "type": "string", "widget": "embedding_model"},
     "RAG_TOP_K": {"group": "Embeddings & RAG", "label": "RAG Top-K", "description": "Number of RAG results to return", "type": "int", "min": 1, "max": 50},
-    "RAG_SIMILARITY_THRESHOLD": {"group": "Embeddings & RAG", "label": "RAG Similarity Threshold", "description": "Minimum cosine similarity for RAG results", "type": "float", "min": 0.0, "max": 1.0},
     "TOOL_RETRIEVAL_THRESHOLD": {"group": "Embeddings & RAG", "label": "Tool Retrieval Threshold", "description": "Minimum similarity for tool retrieval", "type": "float", "min": 0.0, "max": 1.0},
     "TOOL_RETRIEVAL_TOP_K": {"group": "Embeddings & RAG", "label": "Tool Retrieval Top-K", "description": "Number of tools returned by retrieval", "type": "int", "min": 1, "max": 50},
     "MEMORY_RETRIEVAL_LIMIT": {"group": "Embeddings & RAG", "label": "Memory Retrieval Limit", "description": "Max memory items to retrieve", "type": "int", "min": 1, "max": 50},

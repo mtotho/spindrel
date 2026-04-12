@@ -90,13 +90,21 @@ class TurnStreamToolStartPayload:
 
 @dataclass(frozen=True)
 class TurnStreamToolResultPayload:
-    """Payload for `turn_stream_tool_result` events — tool returned."""
+    """Payload for `turn_stream_tool_result` events — tool returned.
+
+    ``envelope`` carries the rendered ``ToolResultEnvelope.compact_dict()``
+    so the web UI can pick a mimetype-keyed renderer (markdown / json-tree
+    / diff / file-listing / sandboxed-html) without per-tool knowledge.
+    Optional for backward compat with legacy publishers that haven't been
+    migrated to populate it.
+    """
 
     bot_id: str
     turn_id: uuid.UUID
     tool_name: str
     result_summary: str
     is_error: bool = False
+    envelope: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -297,6 +305,20 @@ class MemorySchemeBootstrapPayload:
     files_loaded: int = 0
 
 
+@dataclass(frozen=True)
+class PinnedFileUpdatedPayload:
+    """Payload for ``pinned_file_updated`` events — a pinned file's content changed.
+
+    Body is NOT included in the payload. The web UI re-fetches content via
+    ``GET /api/v1/workspaces/{wid}/files/content?path=...`` when it receives
+    this event, keeping the event lightweight.
+    """
+
+    channel_id: uuid.UUID
+    path: str
+    content_type: str
+
+
 # Discriminated union of all known payloads.
 ChannelEventPayload = (
     MessagePayload
@@ -317,4 +339,5 @@ ChannelEventPayload = (
     | ReplayLapsedPayload
     | ContextBudgetPayload
     | MemorySchemeBootstrapPayload
+    | PinnedFileUpdatedPayload
 )

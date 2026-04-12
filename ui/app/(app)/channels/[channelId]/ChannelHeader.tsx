@@ -1,8 +1,9 @@
 import React from "react";
 import { View, Text, Pressable, Platform } from "react-native";
 import { Link, useRouter } from "expo-router";
-import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Users } from "lucide-react";
+import { Settings, Menu, ArrowLeft, Hash, FolderOpen, Code, PanelLeft, Users, Wrench } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { useToolResultCompact } from "@/src/stores/toolResultPref";
 
 export interface ChannelHeaderProps {
   channelId: string;
@@ -55,6 +56,7 @@ export function ChannelHeader({
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const router = useRouter();
+  const [compact, setCompact] = useToolResultCompact(channelId);
 
   const fmtTokens = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
@@ -131,6 +133,20 @@ export function ChannelHeader({
             </div>
           )}
         </div>
+        {/* Compact tool results toggle: when ON, rich tool result envelopes
+            (markdown / diff / json / file-listing) collapse to badge mode and
+            require an explicit click to expand. Default OFF — file ops show
+            their rendered body inline so the user can see what the bot did. */}
+        {!isMobile && (
+          <button
+            className="header-icon-btn"
+            style={{ width: 36, height: 36, backgroundColor: compact ? t.surfaceOverlay : "transparent" }}
+            onClick={() => setCompact(!compact)}
+            title={compact ? "Show full tool output inline" : "Compact tool results to badges"}
+          >
+            <Wrench size={16} color={compact ? t.accent : t.textDim} />
+          </button>
+        )}
         {/* Explorer toggle: available whenever the channel resolves to a workspace
             (even if channel-level workspace is disabled — the explorer can still
             show bot memory and other workspace files). */}

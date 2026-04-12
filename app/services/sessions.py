@@ -518,6 +518,12 @@ async def persist_turn(
         # Carry forward tools_used from the agent loop into message metadata
         if msg.get("_tools_used"):
             meta = {**meta, "tools_used": msg["_tools_used"]}
+        # Carry forward per-tool envelopes (rendered output keyed by mimetype)
+        # so the web UI can show rich tool result rendering on persisted
+        # messages — not just during streaming. The list is in invocation
+        # order, matching message.tool_calls[].
+        if msg.get("_tool_envelopes"):
+            meta = {**meta, "tool_results": msg["_tool_envelopes"]}
         # Carry forward tool record ID for retrieval-pointer pruning
         if msg.get("_tool_record_id"):
             meta = {**meta, "tool_record_id": msg["_tool_record_id"]}

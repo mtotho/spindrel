@@ -34,11 +34,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import {
+  useChannel,
   useChannels,
   useDeleteChannelWorkspaceFile,
   useMoveChannelWorkspaceFile,
   type ChannelWorkspaceFile,
 } from "@/src/api/hooks/useChannels";
+import { apiFetch } from "@/src/api/client";
 import {
   useWorkspaceFiles,
   useWriteWorkspaceFile,
@@ -137,6 +139,13 @@ export function ChannelFileExplorer({
   // Bot info — needed to compute the memory path target
   const { data: bot } = useBot(botId);
   const sharedWorkspace = !!bot?.shared_workspace_id;
+
+  // Pinned panels — used for pin/unpin context menu items
+  const { data: channelData } = useChannel(channelId);
+  const pinnedPaths = useMemo(
+    () => new Set((channelData?.config?.pinned_panels ?? []).map((p) => p.path)),
+    [channelData?.config?.pinned_panels],
+  );
 
   // Channel id→display_name map for substituting GUIDs in breadcrumbs.
   // useChannels() is cached app-wide (used by Sidebar/CommandPalette), so this
@@ -430,6 +439,32 @@ export function ChannelFileExplorer({
       }
     }
 
+    // Pin / Unpin to channel side rail
+    const isPinned = pinnedPaths.has(stripped);
+    items.push({
+      label: isPinned ? "Unpin from channel" : "Pin to channel",
+      separator: true,
+      action: async () => {
+        setContextMenu(null);
+        try {
+          if (isPinned) {
+            await apiFetch(
+              `/api/v1/channels/${channelId}/pins?path=${encodeURIComponent(stripped)}`,
+              { method: "DELETE" },
+            );
+          } else {
+            await apiFetch(`/api/v1/channels/${channelId}/pins`, {
+              method: "POST",
+              body: JSON.stringify({ path: stripped, position: "right" }),
+            });
+          }
+          queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
+        } catch (err) {
+          console.error("Pin/unpin failed:", err);
+        }
+      },
+    });
+
     items.push({
       label: "Delete",
       danger: true,
@@ -441,7 +476,7 @@ export function ChannelFileExplorer({
     });
 
     setContextMenu({ x: e.clientX, y: e.clientY, items });
-  }, [channelWorkspaceEnabled, channelId, moveChannel, onSelectFile, deleteEntry]);
+  }, [channelWorkspaceEnabled, channelId, moveChannel, onSelectFile, deleteEntry, pinnedPaths, queryClient]);
 
   const openFolderContextMenu = useCallback((e: any, entry: { name: string; path: string }) => {
     e.preventDefault();

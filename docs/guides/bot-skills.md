@@ -72,7 +72,6 @@ Skills automatically get YAML frontmatter with `name`, `triggers`, and `category
 Bot-authored skills use RAG mode, which has hard per-request limits:
 
 - **`RAG_TOP_K=5`**: Maximum 5 skill chunks injected per request
-- **`RAG_SIMILARITY_THRESHOLD=0.3`**: Only semantically relevant chunks
 - **Priority P3**: RAG skills are trimmed before system prompt or history if context is tight
 - **Chunk size**: Max 1500 chars each, so worst case ~7.5KB per request
 
@@ -271,7 +270,6 @@ The pre-compaction memory flush prompt also nudges bots to consider creating ski
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `RAG_TOP_K` | 5 | Max chunks injected per request |
-| `RAG_SIMILARITY_THRESHOLD` | 0.3 | Min similarity for RAG retrieval |
 | `SKILL_NUDGE_AFTER_ITERATIONS` | 8 | Inject learning nudge after N tool iterations (0 = disabled) |
 | `SKILL_CORRECTION_NUDGE_ENABLED` | true | Inject learning nudge when user corrects the bot |
 | `SKILL_REPEATED_LOOKUP_NUDGE_ENABLED` | true | Inject nudge when bot repeatedly searches same topics |

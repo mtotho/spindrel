@@ -406,3 +406,117 @@ class TestTruncateAtSentence:
     def test_legacy_trigger_heartbeat_removed_from_schema(self):
         from app.services.server_settings import SETTINGS_SCHEMA
         assert "TRIGGER_HEARTBEAT_BEFORE_COMPACTION" not in SETTINGS_SCHEMA
+
+
+# ===================================================================
+# Memory flush provider_id resolution
+# ===================================================================
+
+class TestRunMemoryFlushProviderId:
+    """`_run_memory_flush` must resolve provider_id from the chosen model
+    when no explicit channel override is set, instead of blindly inheriting
+    `bot.model_provider_id`.
+
+    Surfaced 2026-04-11 by the correlation_id contamination investigation:
+    a `gemini-2.5-flash-lite` memory-flush model paired with `mini-max` (the
+    bot's native provider) produced nonsense `model @ provider` rows in
+    `usage_logs`, breaking cost attribution and provider-level metrics.
+    """
+
+    def _stub_db_session(self, mock_session_factory, channel_id):
+        """Wire async_session() → AsyncMock context manager with a stubbed db.get."""
+        mock_db = AsyncMock()
+        mock_db.get = AsyncMock(return_value=MagicMock(summary=None, channel_id=channel_id))
+        mock_db.execute = AsyncMock()
+        mock_session_factory.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+        mock_session_factory.return_value.__aexit__ = AsyncMock(return_value=None)
+        return mock_db
+
+    @pytest.mark.asyncio
+    async def test_resolves_provider_from_model_when_no_channel_override(self):
+        from app.services import compaction
+        # memory_scheme="workspace-files" makes the function take the static-prompt
+        # branch and skip resolve_prompt entirely — keeps the test focused on the
+        # provider resolution arm.
+        bot = _make_bot(model_provider_id="mini-max", memory_scheme="workspace-files")
+        ch = _make_channel(memory_flush_enabled=True, memory_flush_model_provider_id=None)
+
+        with patch.object(compaction, "_get_memory_flush_model", return_value="gemini-2.5-flash-lite"), \
+             patch("app.services.providers.resolve_provider_for_model", return_value="gemini") as mock_resolve, \
+             patch("app.services.compaction.async_session") as mock_session_factory, \
+             patch("app.agent.loop.run", new=AsyncMock()) as mock_run:
+            self._stub_db_session(mock_session_factory, ch.id)
+            mock_run.return_value = MagicMock(response="ok")
+
+            await compaction._run_memory_flush(
+                channel=ch,
+                bot=bot,
+                session_id=uuid.uuid4(),
+                messages=[{"role": "user", "content": "hi"}],
+                correlation_id=uuid.uuid4(),
+            )
+
+            mock_resolve.assert_called_once_with("gemini-2.5-flash-lite")
+            assert mock_run.await_count == 1
+            kwargs = mock_run.await_args.kwargs
+            assert kwargs["model_override"] == "gemini-2.5-flash-lite"
+            assert kwargs["provider_id_override"] == "gemini", (
+                "Provider must be resolved from the chosen model, not inherited "
+                f"from bot.model_provider_id (mini-max). Got: {kwargs['provider_id_override']}"
+            )
+
+    @pytest.mark.asyncio
+    async def test_channel_override_wins_over_model_resolution(self):
+        from app.services import compaction
+        bot = _make_bot(model_provider_id="mini-max", memory_scheme="workspace-files")
+        ch = _make_channel(
+            memory_flush_enabled=True,
+            memory_flush_model_provider_id="explicit-override",
+        )
+
+        with patch.object(compaction, "_get_memory_flush_model", return_value="gemini-2.5-flash-lite"), \
+             patch("app.services.providers.resolve_provider_for_model", return_value="gemini") as mock_resolve, \
+             patch("app.services.compaction.async_session") as mock_session_factory, \
+             patch("app.agent.loop.run", new=AsyncMock()) as mock_run:
+            self._stub_db_session(mock_session_factory, ch.id)
+            mock_run.return_value = MagicMock(response="ok")
+
+            await compaction._run_memory_flush(
+                channel=ch,
+                bot=bot,
+                session_id=uuid.uuid4(),
+                messages=[{"role": "user", "content": "hi"}],
+                correlation_id=uuid.uuid4(),
+            )
+
+            # Channel override is truthy → short-circuits the resolver call.
+            mock_resolve.assert_not_called()
+            kwargs = mock_run.await_args.kwargs
+            assert kwargs["provider_id_override"] == "explicit-override"
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_bot_provider_when_resolver_returns_none(self):
+        from app.services import compaction
+        bot = _make_bot(model_provider_id="mini-max", memory_scheme="workspace-files")
+        ch = _make_channel(memory_flush_enabled=True, memory_flush_model_provider_id=None)
+
+        with patch.object(compaction, "_get_memory_flush_model", return_value="custom-unknown-model"), \
+             patch("app.services.providers.resolve_provider_for_model", return_value=None), \
+             patch("app.services.compaction.async_session") as mock_session_factory, \
+             patch("app.agent.loop.run", new=AsyncMock()) as mock_run:
+            self._stub_db_session(mock_session_factory, ch.id)
+            mock_run.return_value = MagicMock(response="ok")
+
+            await compaction._run_memory_flush(
+                channel=ch,
+                bot=bot,
+                session_id=uuid.uuid4(),
+                messages=[{"role": "user", "content": "hi"}],
+                correlation_id=uuid.uuid4(),
+            )
+
+            kwargs = mock_run.await_args.kwargs
+            assert kwargs["provider_id_override"] == "mini-max", (
+                "When the resolver can't map the model, fall back to the bot's "
+                "native provider rather than passing None."
+            )

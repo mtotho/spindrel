@@ -8,7 +8,7 @@ import uuid
 
 from app.utils import safe_create_task
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from app.agent.llm import _summarize_tool_result
 from app.agent.recording import _record_tool_call, _record_trace_event
@@ -24,6 +24,65 @@ from app.tools.local.knowledge import call_knowledge_tool
 logger = logging.getLogger(__name__)
 
 
+# Maximum bytes of envelope body that travel inline on SSE / Message metadata.
+# Bodies larger than this are dropped from the inline envelope, the envelope is
+# marked truncated, and the UI fetches the full body lazily via the
+# session-scoped tool-call result endpoint. Tunable via settings.
+INLINE_BODY_CAP_BYTES = 4096
+
+# Default short summary length for envelope.plain_body.
+PLAIN_BODY_CAP_CHARS = 200
+
+
+@dataclass
+class ToolResultEnvelope:
+    """Structured envelope for the user-visible rendering of a tool result.
+
+    Decoupled from ``ToolCallResult.result`` (which is the persisted +
+    redacted raw text the LLM consumes). The envelope is what the web UI
+    renders — keyed off ``content_type`` so the renderer dispatcher can
+    pick markdown / json-tree / diff / file-listing / sandboxed-html
+    components without per-tool knowledge.
+
+    Tools opt in by returning a JSON dict containing an ``_envelope`` key
+    in their result string. Tools that don't opt in get a default
+    text/plain envelope built from their raw result, so legacy tools keep
+    working byte-identically (the renderer just falls back to the
+    plain-text component).
+
+    Truncation rule: ``body`` is capped at ``INLINE_BODY_CAP_BYTES``. When
+    the underlying result exceeds the cap, ``body`` is set to None,
+    ``truncated`` is True, and ``record_id`` points to the persisted
+    ``tool_calls`` row so the UI can lazy-fetch the full content via
+    ``GET /api/v1/sessions/{sid}/tool-calls/{id}/result``.
+    """
+
+    content_type: str = "text/plain"
+    body: str | None = None
+    plain_body: str = ""
+    display: Literal["badge", "inline", "panel"] = "badge"
+    truncated: bool = False
+    record_id: uuid.UUID | None = None
+    byte_size: int = 0
+
+    def compact_dict(self) -> dict[str, Any]:
+        """Serialize for SSE bus + Message.metadata.tool_results storage.
+
+        ``record_id`` is stringified so the dict round-trips through JSONB.
+        Empty/default fields are kept (the UI uses ``content_type`` as the
+        renderer dispatch key, so it must always be present).
+        """
+        return {
+            "content_type": self.content_type,
+            "body": self.body,
+            "plain_body": self.plain_body,
+            "display": self.display,
+            "truncated": self.truncated,
+            "record_id": str(self.record_id) if self.record_id else None,
+            "byte_size": self.byte_size,
+        }
+
+
 @dataclass
 class ToolCallResult:
     """Result of dispatching a single tool call."""
@@ -34,6 +93,7 @@ class ToolCallResult:
     embedded_client_action: dict | None = None
     injected_images: list[dict] | None = None  # [{"mime_type": str, "base64": str}]
     tool_event: dict[str, Any] = field(default_factory=dict)
+    envelope: ToolResultEnvelope = field(default_factory=ToolResultEnvelope)
     pre_events: list[dict[str, Any]] = field(default_factory=list)
     duration_ms: int = 0
     # Approval fields (Phase 3)
@@ -41,6 +101,77 @@ class ToolCallResult:
     approval_id: str | None = None
     approval_timeout: int = 300
     approval_reason: str | None = None
+
+
+def _build_default_envelope(text: str) -> ToolResultEnvelope:
+    """Build a text/plain envelope from raw tool result text.
+
+    Used for tools that don't opt into the structured envelope. Caps body
+    at INLINE_BODY_CAP_BYTES and sets the truncated flag if the underlying
+    text is larger.
+    """
+    text = text or ""
+    byte_size = len(text.encode("utf-8"))
+    if len(text) > INLINE_BODY_CAP_BYTES:
+        return ToolResultEnvelope(
+            content_type="text/plain",
+            body=None,
+            plain_body=text[:PLAIN_BODY_CAP_CHARS],
+            display="badge",
+            truncated=True,
+            byte_size=byte_size,
+        )
+    return ToolResultEnvelope(
+        content_type="text/plain",
+        body=text,
+        plain_body=text[:PLAIN_BODY_CAP_CHARS],
+        display="badge",
+        truncated=False,
+        byte_size=byte_size,
+    )
+
+
+def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResultEnvelope:
+    """Build an envelope from a tool's ``_envelope`` opt-in payload.
+
+    Truncates ``body`` if it exceeds the inline cap and sets truncated/byte_size
+    accordingly. ``raw_text`` is the redacted full result string that lives on
+    the persisted ``tool_calls`` row — used to compute byte_size when the
+    envelope omits its own ``body``.
+    """
+    content_type = str(envelope_data.get("content_type") or "text/plain")
+    body = envelope_data.get("body")
+    plain_body = str(envelope_data.get("plain_body") or "")[:PLAIN_BODY_CAP_CHARS * 4]
+    display = envelope_data.get("display") or "badge"
+    if display not in ("badge", "inline", "panel"):
+        display = "badge"
+
+    if isinstance(body, str):
+        body_str = body
+    elif body is None:
+        body_str = ""
+    else:
+        # Tool sent a non-string body (e.g. dict for json content) — JSON-encode
+        # it so the wire format is consistent and the renderer can re-parse.
+        try:
+            body_str = json.dumps(body, ensure_ascii=False)
+        except (TypeError, ValueError):
+            body_str = str(body)
+
+    byte_size = len(body_str.encode("utf-8")) if body_str else len((raw_text or "").encode("utf-8"))
+    truncated = False
+    if len(body_str) > INLINE_BODY_CAP_BYTES:
+        body_str = None
+        truncated = True
+
+    return ToolResultEnvelope(
+        content_type=content_type,
+        body=body_str,
+        plain_body=plain_body,
+        display=display,  # type: ignore[arg-type]
+        truncated=truncated,
+        byte_size=byte_size,
+    )
 
 
 async def dispatch_tool_call(
@@ -328,17 +459,38 @@ async def dispatch_tool_call(
     from app.services.secret_registry import redact as _redact_secrets
     result_obj.result = _redact_secrets(result)
 
-    # Extract embedded client_action or injected_images
+    # Extract embedded client_action / injected_images / _envelope.
+    # The _envelope opt-in is additive — tools may pair it with client_action.
+    # When present, the dispatcher lifts it onto result_obj.envelope; when
+    # absent, _build_default_envelope (called after summarization) builds a
+    # text/plain envelope from the redacted result so legacy tools render
+    # in the existing badge UI without per-tool changes.
     result_for_llm = result
+    _envelope_optin: dict | None = None
     try:
         parsed_tool = json.loads(result_for_llm)
         if isinstance(parsed_tool, dict):
+            if isinstance(parsed_tool.get("_envelope"), dict):
+                _envelope_optin = parsed_tool["_envelope"]
+                # Fall through to client_action / injected_images so tools can
+                # combine an envelope with the existing extension points.
             if "client_action" in parsed_tool:
                 result_obj.embedded_client_action = parsed_tool["client_action"]
                 result_for_llm = parsed_tool.get("message", "Done.")
             elif "injected_images" in parsed_tool:
                 result_obj.injected_images = parsed_tool["injected_images"]
                 result_for_llm = parsed_tool.get("message", "Image loaded for analysis.")
+            elif _envelope_optin is not None:
+                # Tool only sent an envelope — surface its plain_body to the LLM
+                # so the bot has a short, readable hand-off without the full
+                # rendered body bloating the context window. The full untruncated
+                # body still flows to the bot via the result_for_llm path below
+                # for tools that want their LLM-side answer intact (we only
+                # take this branch when the tool didn't also set "message" or
+                # "client_action"/"injected_images").
+                _llm_text = parsed_tool.get("llm")
+                if isinstance(_llm_text, str) and _llm_text:
+                    result_for_llm = _llm_text
     except (json.JSONDecodeError, TypeError):
         pass
 
@@ -385,11 +537,36 @@ async def dispatch_tool_call(
         and len(result_for_llm) > summarize_threshold
     )
 
+    # Build the user-visible envelope from the redacted result. Envelope opt-in
+    # via {"_envelope": {...}} from the tool takes priority; otherwise we
+    # construct a text/plain envelope so the existing badge UI keeps working.
+    # The envelope body goes through redaction here because the opt-in dict
+    # is lifted from the unredacted parse upstream.
+    if _envelope_optin is not None:
+        # Redact the body field in-place before building. Other fields
+        # (content_type, display, plain_body) are short and structural —
+        # plain_body still goes through redaction since tools may put
+        # snippets there.
+        _envelope_optin = dict(_envelope_optin)
+        if isinstance(_envelope_optin.get("body"), str):
+            _envelope_optin["body"] = _redact_secrets(_envelope_optin["body"])
+        if isinstance(_envelope_optin.get("plain_body"), str):
+            _envelope_optin["plain_body"] = _redact_secrets(_envelope_optin["plain_body"])
+        result_obj.envelope = _build_envelope_from_optin(_envelope_optin, result_obj.result)
+    else:
+        result_obj.envelope = _build_default_envelope(result_obj.result)
+
     # Pre-generate tool call ID so we can reference it in the retrieval hint.
     # Store full result for any result large enough to be pruned later, so the
     # retrieval pointer in subsequent turns actually works.
-    _store_full = _will_summarize or _orig_len > settings.CONTEXT_PRUNING_MIN_LENGTH
+    _store_full = (
+        _will_summarize
+        or _orig_len > settings.CONTEXT_PRUNING_MIN_LENGTH
+        or result_obj.envelope.truncated
+    )
     _tc_record_id = uuid.uuid4() if _store_full else None
+    if result_obj.envelope.truncated and _tc_record_id is not None:
+        result_obj.envelope.record_id = _tc_record_id
 
     # Record tool call (store full result so retrieval pointers work)
     safe_create_task(_record_tool_call(
@@ -462,6 +639,9 @@ async def dispatch_tool_call(
             _trace("← %s (%d chars)", name, len(result_for_llm))
     except (json.JSONDecodeError, TypeError):
         _trace("← %s (%d chars)", name, len(result_for_llm))
+    # Attach the rendered envelope so SSE consumers (web UI) can pick a
+    # mimetype-keyed renderer instead of just showing the tool name.
+    tool_event["envelope"] = result_obj.envelope.compact_dict()
     result_obj.tool_event = tool_event
 
     return result_obj

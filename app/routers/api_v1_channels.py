@@ -100,6 +100,7 @@ class ChannelOut(BaseModel):
     channel_workspace_enabled: Optional[bool] = None
     workspace_id: Optional[uuid.UUID] = None
     resolved_workspace_id: Optional[str] = None
+    config: dict = {}
     category: Optional[str] = None
     tags: list[str] = []
     created_at: datetime
@@ -1806,3 +1807,104 @@ async def update_bot_member_config(
     except Exception:
         out.bot_name = bm.bot_id
     return out
+
+
+# ---------------------------------------------------------------------------
+# Pinned panels
+# ---------------------------------------------------------------------------
+
+class PinPanelRequest(BaseModel):
+    path: str
+    position: str = "right"
+
+
+class PinPanelOut(BaseModel):
+    path: str
+    position: str
+    pinned_at: str
+    pinned_by: str
+
+
+@router.post(
+    "/{channel_id}/pins",
+    response_model=PinPanelOut,
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def pin_file(
+    channel_id: uuid.UUID,
+    body: PinPanelRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pin a workspace file to a channel's side rail."""
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    ch = (await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )).scalar_one_or_none()
+    if not ch:
+        raise HTTPException(404, "Channel not found")
+
+    if body.position not in ("right", "bottom"):
+        raise HTTPException(422, "position must be 'right' or 'bottom'")
+
+    cfg = copy.deepcopy(ch.config or {})
+    panels = cfg.setdefault("pinned_panels", [])
+    # Deduplicate by path (replace existing)
+    panels = [p for p in panels if p["path"] != body.path]
+    now_iso = datetime.now(timezone.utc).isoformat()
+    entry = {
+        "path": body.path,
+        "position": body.position,
+        "pinned_at": now_iso,
+        "pinned_by": "user",
+    }
+    panels.append(entry)
+    cfg["pinned_panels"] = panels
+    ch.config = cfg
+    flag_modified(ch, "config")
+
+    await db.commit()
+
+    # Invalidate pinned-path cache
+    from app.services.pinned_panels import invalidate_channel
+    await invalidate_channel(channel_id)
+
+    return PinPanelOut(**entry)
+
+
+@router.delete(
+    "/{channel_id}/pins",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def unpin_file(
+    channel_id: uuid.UUID,
+    path: str = Query(..., description="Path of the file to unpin"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Unpin a workspace file from a channel's side rail."""
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    ch = (await db.execute(
+        select(Channel).where(Channel.id == channel_id)
+    )).scalar_one_or_none()
+    if not ch:
+        raise HTTPException(404, "Channel not found")
+
+    cfg = copy.deepcopy(ch.config or {})
+    panels = cfg.get("pinned_panels", [])
+    new_panels = [p for p in panels if p["path"] != path]
+    if len(new_panels) == len(panels):
+        raise HTTPException(404, "File is not pinned")
+    cfg["pinned_panels"] = new_panels
+    ch.config = cfg
+    flag_modified(ch, "config")
+
+    await db.commit()
+
+    # Invalidate pinned-path cache
+    from app.services.pinned_panels import invalidate_channel
+    await invalidate_channel(channel_id)
+
+    return {"ok": True}

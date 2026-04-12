@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Message, SSEEvent } from "../types/api";
+import type { Message, SSEEvent, ToolResultEnvelope } from "../types/api";
 
 type ToolCall = {
   name: string;
@@ -9,6 +9,9 @@ type ToolCall = {
   approvalReason?: string;
   capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
   isError?: boolean;
+  /** Rendered tool result envelope (set on tool_result event). Drives the
+   * mimetype-keyed renderer in <RichToolResult>. */
+  envelope?: ToolResultEnvelope;
 };
 
 /**
@@ -201,7 +204,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           break;
         }
         case "tool_result": {
-          const data = event.data as { tool?: string; is_error?: boolean };
+          const data = event.data as { tool?: string; is_error?: boolean; envelope?: ToolResultEnvelope };
           const tcs = [...turn.toolCalls];
           // Match the tool by name (last running entry with that name)
           // so concurrent tool calls don't get mismatched.
@@ -217,6 +220,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               ...tcs[idx],
               status: "done",
               isError: data.is_error || tcs[idx].isError,
+              envelope: data.envelope ?? tcs[idx].envelope,
             };
           }
           updated = { ...turn, toolCalls: tcs };
@@ -303,8 +307,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         const toolsUsed = turn.toolCalls.length > 0
           ? turn.toolCalls.map((tc) => tc.name)
           : undefined;
+        // Carry envelopes from the streaming turn into the synthetic message
+        // so the rich tool result UI doesn't blink empty between finishTurn
+        // and the session-messages refetch landing.
+        const toolResults = turn.toolCalls.length > 0
+          ? turn.toolCalls.map((tc) => tc.envelope ?? null).filter((e): e is NonNullable<typeof e> => e !== null)
+          : undefined;
         const metadata: Record<string, any> = {
           ...(toolsUsed ? { tools_used: toolsUsed } : {}),
+          ...(toolResults && toolResults.length > 0 ? { tool_results: toolResults } : {}),
           ...(turn.botName ? { sender_display_name: turn.botName } : {}),
           ...(turn.botId ? { sender_id: `bot:${turn.botId}` } : {}),
           ...(turn.isPrimary ? {} : { trigger: "member_mention", sender_type: "bot" }),

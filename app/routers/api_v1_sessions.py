@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Attachment as AttachmentModel, Message, Session, Task
+from app.db.models import Attachment, Attachment as AttachmentModel, Message, Session, Task, ToolCall
 from app.dependencies import get_db, require_scopes
 from app.services.sessions import store_passive_message
 
@@ -268,6 +268,61 @@ async def list_messages(
         await _recover_orphan_attachments(db, session.channel_id, messages)
 
     return [MessageOut.from_orm(m) for m in messages]
+
+
+# ---------------------------------------------------------------------------
+# Tool call result fetch — session-scoped, used by the rich tool result UI
+# to lazy-fetch full bodies that exceeded the inline envelope cap.
+# ---------------------------------------------------------------------------
+
+
+class ToolCallResultOut(BaseModel):
+    """Full untruncated body of a tool call result."""
+
+    id: uuid.UUID
+    tool_name: str
+    content_type: str = "text/plain"
+    body: str
+    byte_size: int
+
+
+@router.get("/{session_id}/tool-calls/{tool_call_id}/result", response_model=ToolCallResultOut)
+async def get_session_tool_call_result(
+    session_id: uuid.UUID,
+    tool_call_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    """Return the full untruncated body of a tool call result.
+
+    The rich tool-result envelope (``Message.metadata.tool_results[i]``) caps
+    inline body at 4KB to keep SSE / metadata payloads small. When the body
+    exceeds the cap, the envelope sets ``truncated=true`` and points to a
+    ``record_id``. The web UI fetches the full body via this endpoint when
+    the user clicks "Show full output".
+
+    Auth boundary: ``sessions:read`` plus a check that the tool_call belongs
+    to the path session. Mirrors the admin endpoint at
+    ``app/routers/api_v1_tool_calls.py:155`` (which uses ``logs:read`` and
+    isn't reachable from the UI).
+    """
+    row = await db.get(ToolCall, tool_call_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tool call not found")
+    if row.session_id != session_id:
+        raise HTTPException(status_code=404, detail="Tool call not found in this session")
+
+    body = row.result or ""
+    return ToolCallResultOut(
+        id=row.id,
+        tool_name=row.tool_name,
+        # Mimetype isn't persisted on the tool_calls row — the envelope on
+        # the Message metadata carries it. Default to text/plain; the UI
+        # already has the envelope context to know what renderer to use.
+        content_type="text/plain",
+        body=body,
+        byte_size=len(body.encode("utf-8")),
+    )
 
 
 async def _recover_orphan_attachments(
