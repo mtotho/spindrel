@@ -1906,8 +1906,9 @@ async def admin_channel_config_overhead(
     if disabled_skills:
         skills = [s for s in skills if s["id"] not in disabled_skills]
 
-    # Add channel-extra skills
-    for sid in (channel.skills_extra or []):
+    # Add channel-extra skills (stored as dicts with "id" key)
+    for entry in (channel.skills_extra or []):
+        sid = entry["id"] if isinstance(entry, dict) else entry
         if not any(s["id"] == sid for s in skills):
             skills.append({"id": sid, "mode": "on_demand"})
 
