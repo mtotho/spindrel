@@ -1383,31 +1383,47 @@ async def activate_integration(
             warnings=[],
         )
 
-    # Resolve client_id: use binding auto_client_id if available, else mc-activated:
-    client_id = f"mc-activated:{integration_type}:{channel_id}"
-    try:
-        client_id = _resolve_activation_client_id(integration_type, channel_id)
-    except Exception:
-        pass
-
-    # Check for an existing row we can reuse (mc-activated or matching client_id)
-    inactive = (await db.execute(
+    # Check for existing inactive rows we can reuse. Prefer a binding
+    # with a real integration prefix (e.g. bb:, slack:) over an
+    # mc-activated: stub — the real binding has the correct client_id
+    # for dispatch resolution and must not be overwritten.
+    inactive_rows = (await db.execute(
         select(ChannelIntegration).where(
             ChannelIntegration.channel_id == channel_id,
             ChannelIntegration.integration_type == integration_type,
             ChannelIntegration.activated == False,  # noqa: E712
         )
-    )).scalar_one_or_none()
+    )).scalars().all()
+
+    # Pick the best row: real-prefix binding > mc-activated stub
+    real_binding = next(
+        (r for r in inactive_rows if not r.client_id.startswith("mc-activated:")),
+        None,
+    )
+    inactive = real_binding or (inactive_rows[0] if inactive_rows else None)
 
     if inactive:
         inactive.activated = True
-        inactive.client_id = client_id
+        # Only set client_id on mc-activated stubs — never overwrite a
+        # real binding's client_id (e.g. bb:chat_guid).
+        if inactive.client_id.startswith("mc-activated:"):
+            client_id = f"mc-activated:{integration_type}:{channel_id}"
+            try:
+                client_id = _resolve_activation_client_id(integration_type, channel_id)
+            except Exception:
+                pass
+            inactive.client_id = client_id
         db.add(inactive)
     else:
+        new_client_id = f"mc-activated:{integration_type}:{channel_id}"
+        try:
+            new_client_id = _resolve_activation_client_id(integration_type, channel_id)
+        except Exception:
+            pass
         ci = ChannelIntegration(
             channel_id=channel_id,
             integration_type=integration_type,
-            client_id=client_id,
+            client_id=new_client_id,
             activated=True,
         )
         db.add(ci)

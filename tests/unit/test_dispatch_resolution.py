@@ -156,7 +156,13 @@ class TestChannelIntegrationFanout:
         assert types == {"SlackTarget", "BlueBubblesTarget"}
 
     @pytest.mark.asyncio
-    async def test_inactive_bindings_are_skipped(self, factory):
+    async def test_inactive_binding_with_valid_config_still_resolves(self, factory):
+        """Bindings resolve based on dispatch_config, not activated flag.
+
+        The activated flag controls capability injection (tools/prompts),
+        NOT message delivery. A binding with a valid dispatch_config should
+        always produce a target so responses reach the integration.
+        """
         channel = _make_channel()
         async with factory() as db:
             db.add(channel)
@@ -176,7 +182,27 @@ class TestChannelIntegrationFanout:
             db.add(inactive)
             await db.commit()
             targets = await dispatch_resolution.resolve_targets(channel)
-        # Should fall back to NoneTarget — inactive binding is skipped.
+        assert len(targets) == 1
+        assert targets[0][0] == "slack"
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_binding_falls_through_to_none(self, factory):
+        """Bindings without valid dispatch_config still fall through to NoneTarget."""
+        channel = _make_channel()
+        async with factory() as db:
+            db.add(channel)
+            await db.commit()
+            stub = ChannelIntegration(
+                id=uuid.uuid4(),
+                channel_id=channel.id,
+                integration_type="bluebubbles",
+                client_id="mc-activated:bluebubbles:" + str(channel.id),
+                activated=True,
+            )
+            db.add(stub)
+            await db.commit()
+            targets = await dispatch_resolution.resolve_targets(channel)
+        # mc-activated: client_id won't resolve via BB hooks → NoneTarget
         assert targets == [("none", NoneTarget())]
 
     @pytest.mark.asyncio

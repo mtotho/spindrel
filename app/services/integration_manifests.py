@@ -36,7 +36,7 @@ _manifests: dict[str, dict] = {}
 
 # Top-level keys we expect in integration.yaml
 _KNOWN_KEYS = {
-    "id", "name", "icon", "description", "version", "includes",
+    "id", "name", "icon", "description", "version", "enabled", "includes",
     "mcp_servers", "settings", "activation", "oauth", "webhook",
     "binding", "dependencies", "docker_compose", "web_ui",
     "chat_hud", "chat_hud_presets", "sidebar_section",
@@ -201,7 +201,7 @@ async def seed_manifests() -> None:
                         icon=data.get("icon", "Plug"),
                         manifest=data,
                         yaml_content=raw_content,
-                        is_enabled=True,
+                        is_enabled=data.get("enabled", False),
                         source="yaml",
                         source_path=str(yaml_path),
                         content_hash=content_hash,
@@ -245,7 +245,7 @@ async def seed_manifests() -> None:
                     icon=data.get("icon", "Plug"),
                     manifest=data,
                     yaml_content=None,
-                    is_enabled=True,
+                    is_enabled=data.get("enabled", False),
                     source="setup_py",
                     source_path=str(setup_file),
                     content_hash=content_hash,
@@ -379,6 +379,7 @@ async def update_manifest(integration_id: str, new_yaml: str) -> dict:
         row_source = row.source
         row_source_path = row.source_path
         row_content_hash = row.content_hash
+        row_is_enabled = row.is_enabled
 
         row.name = data.get("name", row.name)
         row.description = data.get("description")
@@ -395,7 +396,7 @@ async def update_manifest(integration_id: str, new_yaml: str) -> dict:
         "description": data.get("description"),
         "version": data.get("version"),
         "icon": data.get("icon", "Plug"),
-        "is_enabled": True,
+        "is_enabled": row_is_enabled,
         "source": row_source,
         "source_path": row_source_path,
         "content_hash": row_content_hash,

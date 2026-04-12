@@ -72,5 +72,5 @@ docker_compose:
 process:
   cmd: ["python", "-m", "integrations.wyoming.wyoming_server"]
   description: "Wyoming voice assistant server (TCP)"
-  required_env: ["WYOMING_WHISPER_URI", "WYOMING_PIPER_URI"]
+  required_env: []
   watch_paths: ["integrations/wyoming/"]

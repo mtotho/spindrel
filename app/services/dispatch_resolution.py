@@ -19,8 +19,10 @@ Differences from the legacy resolver:
 - **Typed.** Returns ``list[(integration_id, DispatchTarget)]`` instead of
   ``(integration_str, dispatch_config_dict)``. The drainer routes via the
   integration_id and serializes the typed target into the outbox row.
-- **Activated-only.** Inactive ``ChannelIntegration`` rows are skipped so
-  the drainer doesn't fire deliveries for half-configured bindings.
+- **Resolve-or-skip.** Any ``ChannelIntegration`` binding whose client_id
+  resolves to a valid dispatch target is included; unresolvable rows
+  (``mc-activated:`` stubs, missing credentials) are filtered by
+  ``_resolve_binding`` returning None.
 """
 from __future__ import annotations
 
@@ -109,8 +111,6 @@ async def resolve_targets(channel: Channel) -> list[tuple[str, DispatchTarget]]:
         bindings = []
 
     for binding in bindings:
-        if not binding.activated:
-            continue
         # Skip if we already have a channel-level target for the same
         # integration type — channel-level fields win.
         if any(integ_id == binding.integration_type for integ_id, _ in targets):

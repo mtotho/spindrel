@@ -1,12 +1,15 @@
 """GitHub API tools for the agent."""
 from __future__ import annotations
 
+import json
+
 import httpx
 
 from integrations import sdk as reg
 from integrations.github.config import settings
 
 _GITHUB_API = "https://api.github.com"
+_COMPONENTS_CT = "application/vnd.spindrel.components+json"
 _http = httpx.AsyncClient(timeout=30.0)
 
 
@@ -16,6 +19,35 @@ def _headers(accept: str = "application/vnd.github+json") -> dict:
         "Accept": accept,
         "X-GitHub-Api-Version": "2022-11-28",
     }
+
+
+def _rich(llm_text: str, plain_body: str, components: list[dict]) -> str:
+    """Build a dual-payload result: LLM gets full text, UI gets rich components."""
+    return json.dumps({
+        "llm": llm_text,
+        "_envelope": {
+            "content_type": _COMPONENTS_CT,
+            "display": "inline",
+            "plain_body": plain_body,
+            "body": {"v": 1, "components": components},
+        },
+    })
+
+
+def _state_color(state: str, merged: bool = False) -> str:
+    if merged:
+        return "accent"
+    return "success" if state == "open" else "muted"
+
+
+def _gh_link(owner: str, repo: str, number: int | None = None, path: str = "") -> str:
+    base = f"https://github.com/{owner}/{repo}"
+    if number is not None:
+        # Works for both issues and PRs
+        return f"{base}/issues/{number}"
+    if path:
+        return f"{base}/{path}"
+    return base
 
 
 @reg.register({"type": "function", "function": {
@@ -52,13 +84,13 @@ async def github_get_pr(owner: str, repo: str, pull_number: int) -> str:
         headers=_headers(),
         params={"per_page": 100},
     )
-    files = []
-    if r_files.status_code == 200:
-        files = [
-            f"{f['filename']} (+{f.get('additions', 0)} -{f.get('deletions', 0)})"
-            for f in r_files.json()
-        ]
+    raw_files = r_files.json() if r_files.status_code == 200 else []
+    files = [
+        f"{f['filename']} (+{f.get('additions', 0)} -{f.get('deletions', 0)})"
+        for f in raw_files
+    ]
 
+    # LLM text (unchanged — full detail including diff)
     lines = [
         f"# PR #{pull_number}: {pr.get('title', '')}",
         f"State: {pr.get('state', '')} | Merged: {pr.get('merged', False)}",
@@ -75,7 +107,58 @@ async def github_get_pr(owner: str, repo: str, pull_number: int) -> str:
         "## Diff",
         diff,
     ]
-    return "\n".join(lines)
+    llm_text = "\n".join(lines)
+
+    # Rich UI components
+    state = pr.get("state", "")
+    merged = pr.get("merged", False)
+    state_label = "merged" if merged else state
+    additions = pr.get("additions", 0)
+    deletions = pr.get("deletions", 0)
+    changed = pr.get("changed_files", 0)
+    title = pr.get("title", "")
+    author = pr.get("user", {}).get("login", "")
+    head_ref = pr.get("head", {}).get("ref", "")
+    base_ref = pr.get("base", {}).get("ref", "")
+    labels = ", ".join(l["name"] for l in pr.get("labels", []))
+
+    props = [
+        {"label": "Author", "value": f"@{author}"},
+        {"label": "Branch", "value": f"{head_ref} → {base_ref}"},
+        {"label": "Stats", "value": f"+{additions} −{deletions} across {changed} files"},
+    ]
+    if labels:
+        props.append({"label": "Labels", "value": labels})
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"PR #{pull_number}: {title}", "level": 2},
+        {"type": "status", "text": state_label, "color": _state_color(state, merged)},
+        {"type": "properties", "items": props, "layout": "vertical"},
+        {"type": "links", "items": [
+            {"url": pr.get("html_url", _gh_link(owner, repo, pull_number)),
+             "title": f"View PR #{pull_number} on GitHub", "icon": "github"},
+        ]},
+    ]
+    if raw_files:
+        components.append({
+            "type": "section", "label": f"Changed Files ({len(raw_files)})",
+            "collapsible": True, "defaultOpen": False,
+            "children": [{"type": "table", "compact": True,
+                          "columns": ["File", "+", "−"],
+                          "rows": [[f["filename"],
+                                    str(f.get("additions", 0)),
+                                    str(f.get("deletions", 0))]
+                                   for f in raw_files[:50]]}],
+        })
+    if diff and diff != "(diff unavailable)":
+        components.append({
+            "type": "section", "label": "Diff",
+            "collapsible": True, "defaultOpen": False,
+            "children": [{"type": "code", "content": diff[:3000], "language": "diff"}],
+        })
+
+    plain = f"PR #{pull_number}: {title} — {state_label}, +{additions} −{deletions}"
+    return _rich(llm_text, plain, components)
 
 
 @reg.register({"type": "function", "function": {
@@ -107,6 +190,7 @@ async def github_search_issues(query: str, repo: str = "") -> str:
     if not items:
         return f"No results for: {q}"
 
+    # LLM text
     lines = [f"Found {data.get('total_count', 0)} results (showing top {len(items)}):\n"]
     for item in items:
         labels = ", ".join(l["name"] for l in item.get("labels", []))
@@ -116,8 +200,30 @@ async def github_search_issues(query: str, repo: str = "") -> str:
             line += f" [{labels}]"
         line += f"\n  {item['html_url']}"
         lines.append(line)
+    llm_text = "\n".join(lines)
 
-    return "\n".join(lines)
+    # Rich UI
+    total = data.get("total_count", 0)
+    link_items = []
+    for item in items:
+        kind = "PR" if "pull_request" in item else "Issue"
+        labels = ", ".join(l["name"] for l in item.get("labels", []))
+        subtitle = f"{item['state']} · {kind}"
+        if labels:
+            subtitle += f" · {labels}"
+        link_items.append({
+            "url": item["html_url"],
+            "title": f"#{item['number']} {item['title']}",
+            "subtitle": subtitle,
+            "icon": "github",
+        })
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"{total} results for: {query}", "level": 3},
+        {"type": "links", "items": link_items},
+    ]
+    plain = f"{total} results for: {query}"
+    return _rich(llm_text, plain, components)
 
 
 @reg.register({"type": "function", "function": {
@@ -170,6 +276,7 @@ async def github_list_prs(owner: str, repo: str, state: str = "open") -> str:
     if not prs:
         return f"No {state} PRs in {owner}/{repo}"
 
+    # LLM text
     lines = [f"{len(prs)} {state} PR(s) in {owner}/{repo}:\n"]
     for pr in prs:
         author = pr.get("user", {}).get("login", "")
@@ -178,8 +285,29 @@ async def github_list_prs(owner: str, repo: str, state: str = "open") -> str:
         if labels:
             line += f" [{labels}]"
         lines.append(line)
+    llm_text = "\n".join(lines)
 
-    return "\n".join(lines)
+    # Rich UI
+    link_items = []
+    for pr in prs:
+        author = pr.get("user", {}).get("login", "")
+        labels = ", ".join(l["name"] for l in pr.get("labels", []))
+        subtitle = f"by @{author}"
+        if labels:
+            subtitle += f" · {labels}"
+        link_items.append({
+            "url": pr.get("html_url", _gh_link(owner, repo, pr["number"])),
+            "title": f"#{pr['number']} {pr['title']}",
+            "subtitle": subtitle,
+            "icon": "github",
+        })
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"{len(prs)} {state} PRs in {owner}/{repo}", "level": 3},
+        {"type": "links", "items": link_items},
+    ]
+    plain = f"{len(prs)} {state} PRs in {owner}/{repo}"
+    return _rich(llm_text, plain, components)
 
 
 @reg.register({"type": "function", "function": {
@@ -233,6 +361,7 @@ async def github_list_commits(
     if not commits:
         return f"No commits found in {owner}/{repo} with the given filters."
 
+    # LLM text
     lines = [f"{len(commits)} commit(s) in {owner}/{repo}:\n"]
     for c in commits:
         sha_short = c["sha"][:7]
@@ -242,8 +371,27 @@ async def github_list_commits(
         date = author_info.get("date", "")[:10]
         msg = commit.get("message", "").split("\n")[0]
         lines.append(f"- `{sha_short}` {msg} — {name} ({date})")
+    llm_text = "\n".join(lines)
 
-    return "\n".join(lines)
+    # Rich UI
+    rows = []
+    for c in commits:
+        commit = c.get("commit", {})
+        author_info = commit.get("author", {})
+        rows.append([
+            c["sha"][:7],
+            commit.get("message", "").split("\n")[0][:80],
+            author_info.get("name", ""),
+            author_info.get("date", "")[:10],
+        ])
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"{len(commits)} commits in {owner}/{repo}", "level": 3},
+        {"type": "table", "columns": ["SHA", "Message", "Author", "Date"],
+         "rows": rows, "compact": True},
+    ]
+    plain = f"{len(commits)} commits in {owner}/{repo}"
+    return _rich(llm_text, plain, components)
 
 
 @reg.register({"type": "function", "function": {
@@ -270,10 +418,11 @@ async def github_get_commit(owner: str, repo: str, ref: str) -> str:
     commit = data.get("commit", {})
     author = commit.get("author", {})
     stats = data.get("stats", {})
+    raw_files = data.get("files", [])
 
     files = [
         f"{f['filename']} (+{f.get('additions', 0)} -{f.get('deletions', 0)})"
-        for f in data.get("files", [])
+        for f in raw_files
     ]
 
     # Fetch diff format
@@ -285,11 +434,12 @@ async def github_get_commit(owner: str, repo: str, ref: str) -> str:
     if len(diff) > 50_000:
         diff = diff[:50_000] + "\n... (diff truncated at 50K chars)"
 
+    # LLM text
     lines = [
         f"# Commit {data['sha'][:7]}",
         f"Author: {author.get('name', '')} <{author.get('email', '')}>",
         f"Date: {author.get('date', '')}",
-        f"+{stats.get('additions', 0)} -{stats.get('deletions', 0)} across {len(data.get('files', []))} files",
+        f"+{stats.get('additions', 0)} -{stats.get('deletions', 0)} across {len(raw_files)} files",
         "",
         "## Message",
         commit.get("message", "(no message)"),
@@ -300,7 +450,52 @@ async def github_get_commit(owner: str, repo: str, ref: str) -> str:
         "## Diff",
         diff,
     ]
-    return "\n".join(lines)
+    llm_text = "\n".join(lines)
+
+    # Rich UI
+    sha_short = data["sha"][:7]
+    additions = stats.get("additions", 0)
+    deletions = stats.get("deletions", 0)
+    message = commit.get("message", "(no message)")
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"Commit {sha_short}", "level": 2},
+        {"type": "properties", "items": [
+            {"label": "Author", "value": f"{author.get('name', '')} <{author.get('email', '')}>"},
+            {"label": "Date", "value": author.get("date", "")[:10]},
+            {"label": "Stats", "value": f"+{additions} −{deletions} across {len(raw_files)} files"},
+        ], "layout": "vertical"},
+        {"type": "links", "items": [
+            {"url": data.get("html_url", f"https://github.com/{owner}/{repo}/commit/{ref}"),
+             "title": f"View commit {sha_short} on GitHub", "icon": "github"},
+        ]},
+    ]
+    if message:
+        components.append({
+            "type": "section", "label": "Message",
+            "collapsible": True, "defaultOpen": True,
+            "children": [{"type": "text", "content": message, "markdown": True}],
+        })
+    if raw_files:
+        components.append({
+            "type": "section", "label": f"Changed Files ({len(raw_files)})",
+            "collapsible": True, "defaultOpen": False,
+            "children": [{"type": "table", "compact": True,
+                          "columns": ["File", "+", "−"],
+                          "rows": [[f["filename"],
+                                    str(f.get("additions", 0)),
+                                    str(f.get("deletions", 0))]
+                                   for f in raw_files[:50]]}],
+        })
+    if diff and diff != "(diff unavailable)":
+        components.append({
+            "type": "section", "label": "Diff",
+            "collapsible": True, "defaultOpen": False,
+            "children": [{"type": "code", "content": diff[:3000], "language": "diff"}],
+        })
+
+    plain = f"Commit {sha_short} — +{additions} −{deletions} across {len(raw_files)} files"
+    return _rich(llm_text, plain, components)
 
 
 @reg.register({"type": "function", "function": {
@@ -463,6 +658,7 @@ async def github_get_issue(owner: str, repo: str, issue_number: int) -> str:
     labels = ", ".join(l["name"] for l in issue.get("labels", []))
     assignees = ", ".join(f"@{a['login']}" for a in issue.get("assignees", []))
 
+    # LLM text
     lines = [
         f"# Issue #{issue_number}: {issue.get('title', '')}",
         f"State: {issue.get('state', '')}",
@@ -482,7 +678,7 @@ async def github_get_issue(owner: str, repo: str, issue_number: int) -> str:
         issue.get("body") or "(no description)",
     ]
 
-    # Fetch comments
+    comments_data: list[dict] = []
     if issue.get("comments", 0) > 0:
         r_comments = await _http.get(
             f"{_GITHUB_API}/repos/{owner}/{repo}/issues/{issue_number}/comments",
@@ -490,17 +686,69 @@ async def github_get_issue(owner: str, repo: str, issue_number: int) -> str:
             params={"per_page": 30},
         )
         if r_comments.status_code == 200:
-            comments = r_comments.json()
-            lines += ["", f"## Comments ({len(comments)})"]
-            for c in comments:
-                author = c.get("user", {}).get("login", "")
+            comments_data = r_comments.json()
+            lines += ["", f"## Comments ({len(comments_data)})"]
+            for c in comments_data:
+                c_author = c.get("user", {}).get("login", "")
                 date = c.get("created_at", "")[:10]
                 body = c.get("body", "")
                 if len(body) > 2000:
                     body = body[:2000] + "... (truncated)"
-                lines += [f"### @{author} ({date})", body, ""]
+                lines += [f"### @{c_author} ({date})", body, ""]
+    llm_text = "\n".join(lines)
 
-    return "\n".join(lines)
+    # Rich UI
+    state = issue.get("state", "")
+    title = issue.get("title", "")
+    author = issue.get("user", {}).get("login", "")
+
+    props = [
+        {"label": "Author", "value": f"@{author}"},
+        {"label": "Created", "value": issue.get("created_at", "")[:10]},
+        {"label": "Updated", "value": issue.get("updated_at", "")[:10]},
+    ]
+    if labels:
+        props.append({"label": "Labels", "value": labels})
+    if assignees:
+        props.append({"label": "Assignees", "value": assignees})
+    if issue.get("milestone"):
+        props.append({"label": "Milestone", "value": issue["milestone"].get("title", "")})
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"Issue #{issue_number}: {title}", "level": 2},
+        {"type": "status", "text": state, "color": _state_color(state)},
+        {"type": "properties", "items": props, "layout": "vertical"},
+        {"type": "links", "items": [
+            {"url": issue.get("html_url", _gh_link(owner, repo, issue_number)),
+             "title": f"View issue #{issue_number} on GitHub", "icon": "github"},
+        ]},
+    ]
+
+    body_text = issue.get("body") or ""
+    if body_text:
+        components.append({
+            "type": "section", "label": "Description",
+            "collapsible": True, "defaultOpen": True,
+            "children": [{"type": "text", "content": body_text[:2000], "markdown": True}],
+        })
+
+    if comments_data:
+        comment_children: list[dict] = []
+        for c in comments_data[:10]:
+            c_author = c.get("user", {}).get("login", "")
+            date = c.get("created_at", "")[:10]
+            body = c.get("body", "")[:500]
+            comment_children.append(
+                {"type": "text", "content": f"**@{c_author}** ({date}): {body}", "markdown": True}
+            )
+        components.append({
+            "type": "section", "label": f"Comments ({len(comments_data)})",
+            "collapsible": True, "defaultOpen": False,
+            "children": comment_children,
+        })
+
+    plain = f"Issue #{issue_number}: {title} — {state}"
+    return _rich(llm_text, plain, components)
 
 
 @reg.register({"type": "function", "function": {

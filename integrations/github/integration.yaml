@@ -1,0 +1,71 @@
+id: github
+name: GitHub
+icon: Code2
+description: GitHub repository management — PR reviews, issue tracking, code push events, and release monitoring.
+version: "1.0"
+
+settings:
+  - key: GITHUB_TOKEN
+    type: string
+    label: "PAT with repo scope"
+    required: true
+    secret: true
+  - key: GITHUB_WEBHOOK_SECRET
+    type: string
+    label: "Webhook signature secret"
+    required: true
+    secret: true
+  - key: GITHUB_BOT_LOGIN
+    type: string
+    label: "GitHub username of the bot/PAT owner (to ignore its own comments)"
+
+api_permissions:
+  - chat
+  - bots:read
+  - channels:read
+  - channels:write
+  - sessions:read
+  - sessions:write
+
+webhook:
+  path: /integrations/github/webhook
+  description: "GitHub webhook receiver (push, PR, issue events)"
+
+activation:
+  carapaces: [github]
+  requires_workspace: false
+  description: "GitHub repository management — PR reviews, issue tracking, code push events, and release monitoring"
+
+binding:
+  client_id_prefix: "github:"
+  client_id_placeholder: "github:owner/repo"
+  client_id_description: "GitHub owner/repo (e.g. octocat/hello-world)"
+  display_name_placeholder: "octocat/hello-world"
+  config_fields:
+    - key: event_filter
+      type: multiselect
+      label: Event Filter
+      description: "Which GitHub events to process (empty = all)"
+      options:
+        - { value: pull_request, label: Pull requests }
+        - { value: push, label: Pushes }
+        - { value: issues, label: Issues }
+        - { value: issue_comment, label: "Issue/PR comments" }
+        - { value: pull_request_review, label: PR reviews }
+        - { value: pull_request_review_comment, label: "PR review comments" }
+        - { value: release, label: Releases }
+        - { value: discussion, label: Discussions }
+        - { value: discussion_comment, label: "Discussion comments" }
+
+capabilities:
+  - text
+  - rich_text
+  - mentions
+
+provides:
+  - target
+  - renderer
+  - router
+  - tools
+  - carapaces
+  - skills

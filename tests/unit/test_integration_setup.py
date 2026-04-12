@@ -73,7 +73,8 @@ class TestDiscoverSetupStatus:
         # Phase G replaced the github dispatcher with a renderer.
         assert gh["has_renderer"] is True
         assert gh["has_dispatcher"] is False
-        assert gh["has_hooks"] is True
+        # hooks.py deleted — auto_register_from_manifest handles metadata
+        assert gh["has_hooks"] is False
         assert gh["has_tools"] is True
         # Should have webhook
         assert gh["webhook"] is not None
