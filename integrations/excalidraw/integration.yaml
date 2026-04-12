@@ -4,7 +4,11 @@ icon: PenTool
 description: Hand-drawn-style diagrams — create from Excalidraw JSON or Mermaid syntax, rendered as inline images.
 version: "1.0"
 
-settings: []
+settings:
+  - key: EXCALIDRAW_CHROME_PATH
+    type: string
+    label: "Path to Chrome/Chromium binary (auto-detected if blank)"
+    required: false
 
 dependencies:
   npm:

@@ -24,11 +24,26 @@ _INSTALL_LOCK = asyncio.Lock()
 
 
 def _find_chrome_path() -> str | None:
-    """Find a usable Chromium/Chrome binary, avoiding snap-packaged browsers."""
+    """Find a usable Chromium/Chrome binary.
+
+    Check order: integration setting → env vars → well-known paths.
+    """
+    # 1. Integration setting (configured via admin UI)
+    try:
+        from app.services.integration_settings import get_value
+        val = get_value("excalidraw", "EXCALIDRAW_CHROME_PATH")
+        if val and shutil.which(val):
+            return val
+    except Exception:
+        pass
+
+    # 2. Environment variables
     for env in ("CHROME_PATH", "PUPPETEER_EXECUTABLE_PATH"):
         val = os.environ.get(env)
         if val and shutil.which(val):
             return val
+
+    # 3. Well-known paths
     for candidate in (
         "/usr/bin/chromium",
         "/usr/bin/chromium-browser",

@@ -1,20 +1,25 @@
 # Excalidraw
 
-Hand-drawn-style diagram generation for Spindrel bots.
+Hand-drawn-style diagram generation — from Excalidraw JSON or Mermaid syntax.
 
-Built on [Excalidraw](https://excalidraw.com) (MIT) and [excalidraw_export](https://github.com/Timmmm/excalidraw_export) (MIT).
+Built on [Excalidraw](https://excalidraw.com) (MIT) and [Puppeteer](https://pptr.dev) (Apache-2.0).
 
 ## Requirements
 
-- Node.js / npx (auto-installs CLI tools on first use)
+**On the server host** (where the Spindrel process runs):
 
-If `canvas` prebuilt binaries fail on your platform:
-```bash
-apt-get install libcairo2-dev libjpeg-dev libpango1.0-dev libgif-dev build-essential
-```
+1. **Node.js / npm** — for export scripts (same as slides/Marp)
+2. **Chromium or Google Chrome** — for headless rendering
+   - Debian/Ubuntu: `apt install chromium`
+   - The path is auto-detected from common locations (`/usr/bin/chromium`, `/usr/bin/google-chrome`, etc.)
+   - Or set `EXCALIDRAW_CHROME_PATH` in the integration settings below
+
+Click **Install Dependencies** to install the npm packages. They install locally inside this integration's `scripts/` directory.
 
 ## What's included
 
-- `tools/excalidraw.py` — `create_excalidraw` and `mermaid_to_excalidraw` tools
-- `scripts/mermaid_convert.mjs` — Mermaid → Excalidraw JSON converter
-- `skills/excalidraw.md` — element reference and patterns for bots
+| Asset | Purpose |
+|-------|---------|
+| `create_excalidraw` | Tool — render Excalidraw element JSON to SVG/PNG |
+| `mermaid_to_excalidraw` | Tool — convert Mermaid syntax to hand-drawn Excalidraw image |
+| `excalidraw` skill | Element reference, color palette, and diagram patterns for bots |
