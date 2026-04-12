@@ -13,6 +13,21 @@ interface Props {
   t: ThemeTokens;
 }
 
+/** Count total nodes in a JSON value (objects, arrays, and primitives). */
+function countNodes(value: unknown, cap = 100): number {
+  if (value === null || typeof value !== "object") return 1;
+  let n = 1;
+  const entries = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>);
+  for (const v of entries) {
+    n += countNodes(v, cap);
+    if (n >= cap) return cap;
+  }
+  return n;
+}
+
+/** When the tree is small, expand everything. Otherwise depth-limit. */
+const SMALL_TREE_THRESHOLD = 60;
+
 export function JsonTreeRenderer({ body, t }: Props) {
   let parsed: unknown;
   try {
@@ -39,6 +54,10 @@ export function JsonTreeRenderer({ body, t }: Props) {
     );
   }
 
+  const nodeCount = countNodes(parsed);
+  // Small trees expand fully; larger ones use depth-based collapsing.
+  const expandDepth = nodeCount < SMALL_TREE_THRESHOLD ? 20 : 2;
+
   return (
     <div
       style={{
@@ -54,7 +73,7 @@ export function JsonTreeRenderer({ body, t }: Props) {
         overflowY: "auto",
       }}
     >
-      <JsonNode value={parsed} t={t} keyPath="$" depth={0} />
+      <JsonNode value={parsed} t={t} keyPath="$" depth={0} expandDepth={expandDepth} />
     </div>
   );
 }
@@ -64,16 +83,15 @@ function JsonNode({
   t,
   keyPath,
   depth,
-  defaultOpen = true,
+  expandDepth = 2,
 }: {
   value: unknown;
   t: ThemeTokens;
   keyPath: string;
   depth: number;
-  defaultOpen?: boolean;
+  expandDepth?: number;
 }) {
-  // Auto-collapse deeply nested values to keep first-paint compact.
-  const [open, setOpen] = useState(defaultOpen && depth < 2);
+  const [open, setOpen] = useState(depth < expandDepth);
 
   if (value === null) return <span style={{ color: t.textDim }}>null</span>;
   if (typeof value === "boolean") return <span style={{ color: t.purple }}>{String(value)}</span>;
@@ -92,7 +110,7 @@ function JsonNode({
             {value.map((item, i) => (
               <div key={`${keyPath}.${i}`}>
                 <span style={{ color: t.textDim }}>{i}: </span>
-                <JsonNode value={item} t={t} keyPath={`${keyPath}.${i}`} depth={depth + 1} />
+                <JsonNode value={item} t={t} keyPath={`${keyPath}.${i}`} depth={depth + 1} expandDepth={expandDepth} />
               </div>
             ))}
           </div>
@@ -114,7 +132,7 @@ function JsonNode({
               <div key={`${keyPath}.${k}`}>
                 <span style={{ color: t.accent }}>"{k}"</span>
                 <span style={{ color: t.textMuted }}>: </span>
-                <JsonNode value={v} t={t} keyPath={`${keyPath}.${k}`} depth={depth + 1} />
+                <JsonNode value={v} t={t} keyPath={`${keyPath}.${k}`} depth={depth + 1} expandDepth={expandDepth} />
               </div>
             ))}
           </div>

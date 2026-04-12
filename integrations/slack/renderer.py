@@ -119,8 +119,14 @@ class SlackRenderer:
                 envelope = getattr(payload, "envelope", None)
                 if envelope and turn_id:
                     ctx = slack_render_contexts.get(target.channel_id, turn_id)
-                    if ctx is not None:
-                        ctx.tool_envelopes.append(envelope)
+                    if ctx is None:
+                        # Context may not exist if TURN_STARTED hasn't arrived
+                        # yet (race) — create lazily so we don't lose envelopes.
+                        ctx = slack_render_contexts.get_or_create(
+                            target.channel_id, turn_id,
+                            bot_id=getattr(payload, "bot_id", "") or "",
+                        )
+                    ctx.tool_envelopes.append(envelope)
                 return DeliveryReceipt.skipped("tool_result subsumed by next stream flush")
             if kind == ChannelEventKind.TURN_ENDED:
                 return await self._handle_turn_ended(event, target)

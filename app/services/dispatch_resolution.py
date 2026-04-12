@@ -42,7 +42,17 @@ logger = logging.getLogger(__name__)
 # Keys that live in ``ChannelIntegration.dispatch_config`` for activation /
 # wake-word config but are NOT part of the dispatch credential set. Mirrors
 # the same constant in ``_mirror._resolve_mirror_target``.
-_INTERNAL_KEYS = {"extra_wake_words", "use_bot_wake_word", "echo_suppress_window"}
+_INTERNAL_KEYS = {
+    "extra_wake_words", "use_bot_wake_word", "echo_suppress_window",
+    # Per-turn ephemeral fields — must NOT be read from the persisted binding.
+    # thread_ts and message_ts are set per-message by the Slack event handler;
+    # persisting them on the binding would lock all future replies into a stale
+    # thread. reply_in_thread is derived from thread_ts at call time.
+    "thread_ts", "message_ts", "reply_in_thread",
+    # Token is resolved dynamically by _resolve_dispatch_config; stale copies
+    # in binding_config should not override a rotated token.
+    "token",
+}
 
 
 async def resolve_targets(channel: Channel) -> list[tuple[str, DispatchTarget]]:
