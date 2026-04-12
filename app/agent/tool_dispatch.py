@@ -104,31 +104,74 @@ class ToolCallResult:
 
 
 def _build_default_envelope(text: str) -> ToolResultEnvelope:
-    """Build a text/plain envelope from raw tool result text.
+    """Build a default envelope from raw tool result text.
 
-    Used for tools that don't opt into the structured envelope. Caps body
-    at INLINE_BODY_CAP_BYTES and sets the truncated flag if the underlying
-    text is larger.
+    Used for tools that don't opt into the structured envelope. Detects
+    content type from the text shape:
+
+    - Markdown (headings, links, lists, emphasis) → ``text/markdown`` + inline
+    - JSON (valid parse) → ``application/json`` + badge
+    - Plain text fallback → ``text/plain`` + badge
+
+    Caps body at INLINE_BODY_CAP_BYTES and sets the truncated flag if the
+    underlying text is larger.
     """
     text = text or ""
+    content_type, display = _detect_content_type(text)
     byte_size = len(text.encode("utf-8"))
-    if len(text) > INLINE_BODY_CAP_BYTES:
-        return ToolResultEnvelope(
-            content_type="text/plain",
-            body=None,
-            plain_body=text[:PLAIN_BODY_CAP_CHARS],
-            display="badge",
-            truncated=True,
-            byte_size=byte_size,
-        )
+    truncated = len(text) > INLINE_BODY_CAP_BYTES
     return ToolResultEnvelope(
-        content_type="text/plain",
-        body=text,
+        content_type=content_type,
+        body=None if truncated else text,
         plain_body=text[:PLAIN_BODY_CAP_CHARS],
-        display="badge",
-        truncated=False,
+        display=display if not truncated else "badge",
+        truncated=truncated,
         byte_size=byte_size,
     )
+
+
+import re as _re
+
+# Markdown heuristics — must match at least 2 of these to qualify.
+_MD_HEADING = _re.compile(r"^#{1,3}\s+\S", _re.MULTILINE)
+_MD_LINK = _re.compile(r"\[.+?\]\(.+?\)")
+_MD_LIST = _re.compile(r"^[\-\*]\s+\S", _re.MULTILINE)
+_MD_EMPHASIS = _re.compile(r"(\*\*|__).+?\1")
+_MD_CODE_FENCE = _re.compile(r"^```", _re.MULTILINE)
+
+
+def _detect_content_type(text: str) -> tuple[str, str]:
+    """Sniff text content to pick a better MIME type and display hint.
+
+    Returns ``(content_type, display)`` — callers use these to populate
+    the envelope. Conservative: only promotes to markdown when at least
+    2 signals are present, to avoid false positives on plain text that
+    happens to contain ``#`` or ``*``.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return "text/plain", "badge"
+
+    # JSON detection — must be a valid object or array.
+    if stripped[0] in "{[":
+        try:
+            json.loads(stripped)
+            return "application/json", "badge"
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Markdown detection — count signals, require ≥ 2.
+    md_signals = sum([
+        bool(_MD_HEADING.search(stripped)),
+        bool(_MD_LINK.search(stripped)),
+        bool(_MD_LIST.search(stripped)),
+        bool(_MD_EMPHASIS.search(stripped)),
+        bool(_MD_CODE_FENCE.search(stripped)),
+    ])
+    if md_signals >= 2:
+        return "text/markdown", "inline"
+
+    return "text/plain", "badge"
 
 
 def _build_envelope_from_optin(envelope_data: dict, raw_text: str) -> ToolResultEnvelope:
