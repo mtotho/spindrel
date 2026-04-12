@@ -192,6 +192,22 @@ async def seed_manifests() -> None:
                         "Upgraded manifest '%s' from setup.py → YAML",
                         data["id"],
                     )
+                elif existing and existing.source == "yaml" and existing.content_hash != content_hash:
+                    # YAML file changed on disk — update the DB row
+                    existing.name = data.get("name", integration_id)
+                    existing.description = data.get("description")
+                    existing.version = data.get("version")
+                    existing.icon = data.get("icon", "Plug")
+                    existing.manifest = data
+                    existing.yaml_content = raw_content
+                    existing.source_path = str(yaml_path)
+                    existing.content_hash = content_hash
+                    # Preserve is_enabled — don't reset on file change
+                    yaml_seeded += 1
+                    logger.info(
+                        "Updated manifest '%s' from changed YAML",
+                        data["id"],
+                    )
                 else:
                     stmt = pg_insert(IntegrationManifest).values(
                         id=data["id"],

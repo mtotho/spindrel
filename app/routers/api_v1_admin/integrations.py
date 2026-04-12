@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -295,7 +296,18 @@ async def start_process(integration_id: str, _auth=Depends(require_scopes("integ
         status = process_manager.status(integration_id)
         if status["status"] == "running":
             raise HTTPException(status_code=409, detail="Process is already running")
-        raise HTTPException(status_code=400, detail="Failed to start process (check env vars and logs)")
+        # Try to give a more specific error
+        state = process_manager._states.get(integration_id)
+        if state and state.required_env:
+            from app.services.integration_settings import get_value as _get_int_val
+            missing = [k for k in state.required_env
+                       if not os.environ.get(k) and not _get_int_val(integration_id, k)]
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Missing required settings: {', '.join(missing)}",
+                )
+        raise HTTPException(status_code=400, detail="Failed to start process (check server logs)")
     return process_manager.status(integration_id)
 
 

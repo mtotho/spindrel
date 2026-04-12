@@ -394,6 +394,22 @@ function ProcessControls({ integrationId }: { integrationId: string }) {
           )}
         </div>
       </div>
+      {(startMut.isError || stopMut.isError || restartMut.isError) && (
+        <div style={{
+          fontSize: 11, color: "#ef4444", padding: "4px 8px",
+          background: "rgba(239,68,68,0.1)", borderRadius: 4,
+        }}>
+          {(() => {
+            const err = startMut.error || stopMut.error || restartMut.error;
+            if (!err) return "Process action failed";
+            const body = (err as any)?.body;
+            if (body) {
+              try { return JSON.parse(body)?.detail || body; } catch { return body; }
+            }
+            return err.message || "Process action failed";
+          })()}
+        </div>
+      )}
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: t.textDim, cursor: "pointer" }}>
         <input
           type="checkbox"
