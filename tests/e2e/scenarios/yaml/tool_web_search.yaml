@@ -12,11 +12,20 @@ scenarios:
           - no_errors: true
 
   - name: web_search_no_trigger
-    description: "Agent should not web search for trivial knowledge it already has"
-    bot_id: e2e-tools
+    description: "Agent respects an explicit instruction to not call web_search"
     tags: [tool-grounding, web-search]
+    bot:
+      id: e2e-no-web
+      name: "E2E No-WebSearch Bot"
+      system_prompt: |
+        You are a test bot. Answer from your own knowledge unless the user
+        explicitly asks you to search the web. Be concise. Respond in plain text.
+      local_tools:
+        - get_current_time
+        - web_search
+      tool_retrieval: false
     steps:
-      - message: "What color is the sky on a clear day?"
+      - message: "What color is the sky on a clear day? Answer from memory — do not call any tools."
         stream: true
         assertions:
           - tool_not_called: [web_search]

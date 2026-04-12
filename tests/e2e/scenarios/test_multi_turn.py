@@ -14,11 +14,16 @@ class TestMultiTurn:
     async def test_context_persists(self, client: E2EClient) -> None:
         """Tell the bot a fact, then ask about it in the same channel."""
         channel_id = client.new_channel_id()
+        # Pin client_id so both turns derive the same session under the
+        # same channel — without this, client.chat() synthesizes a fresh
+        # client_id per call and turn 2 lands in a different session.
+        client_id = client.new_client_id()
 
         # Turn 1: tell the bot something
         resp1 = await client.chat(
             "Remember this: my favorite color is purple.",
             channel_id=channel_id,
+            client_id=client_id,
         )
         assert_response_not_empty(resp1.response)
 
@@ -26,6 +31,7 @@ class TestMultiTurn:
         resp2 = await client.chat(
             "What is my favorite color?",
             channel_id=channel_id,
+            client_id=client_id,
         )
         assert_response_not_empty(resp2.response)
         assert_contains_any(resp2.response, ["purple"])
