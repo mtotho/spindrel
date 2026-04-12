@@ -183,6 +183,7 @@ export interface BindingSuggestion {
   client_id: string;
   display_name: string;
   description?: string;
+  config_values?: Record<string, any>;
 }
 
 export interface AvailableIntegration {

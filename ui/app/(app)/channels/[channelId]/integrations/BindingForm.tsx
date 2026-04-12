@@ -144,6 +144,9 @@ export function BindingForm({
   const handleSuggestionSelect = (s: BindingSuggestion) => {
     setClientId(s.client_id);
     setDisplayName(s.display_name);
+    if (s.config_values) {
+      setConfigValues((prev) => ({ ...prev, ...s.config_values }));
+    }
   };
 
   return (

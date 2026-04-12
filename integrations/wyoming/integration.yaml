@@ -37,6 +37,12 @@ binding:
   client_id_prefix: "wyoming:"
   client_id_placeholder: "wyoming:living-room"
   client_id_description: "Device name or identifier"
+  suggestions_endpoint: "/integrations/wyoming/binding-suggestions"
+  config_fields:
+    - key: satellite_uri
+      type: string
+      label: "Satellite URI"
+      description: "TCP address of the Wyoming satellite (e.g. tcp://192.168.1.50:10700)"
 
 target:
   type: wyoming

@@ -94,21 +94,73 @@ async def wyoming_config(request: Request):
 
 @router.get("/binding-suggestions")
 async def binding_suggestions():
-    """Return suggested device bindings for the admin UI."""
+    """Discover Wyoming satellites on the network via Zeroconf."""
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    discovered = await asyncio.get_event_loop().run_in_executor(
+        ThreadPoolExecutor(max_workers=1), _scan_for_satellites,
+    )
+
+    if discovered:
+        return discovered
+
+    # Fallback: no satellites found, return placeholder
     return [
         {
-            "client_id": "wyoming:living-room",
-            "display_name": "Living Room",
-            "description": "Example: Raspberry Pi satellite in the living room",
-        },
-        {
-            "client_id": "wyoming:bedroom",
-            "display_name": "Bedroom",
-            "description": "Example: Raspberry Pi satellite in the bedroom",
-        },
-        {
-            "client_id": "wyoming:kitchen",
-            "display_name": "Kitchen",
-            "description": "Example: Raspberry Pi satellite in the kitchen",
+            "client_id": "wyoming:satellite",
+            "display_name": "Manual Entry",
+            "description": "Enter the satellite URI manually in the config field below",
         },
     ]
+
+
+def _scan_for_satellites(timeout: float = 3.0) -> list[dict]:
+    """Scan for Wyoming satellites via Zeroconf (blocking, run in executor)."""
+    results: list[dict] = []
+    try:
+        from zeroconf import ServiceBrowser, Zeroconf, ServiceStateChange
+
+        zc = Zeroconf()
+        found: list[tuple[str, str]] = []
+
+        class Handler:
+            def add_service(self, zc_inst, type_, name):
+                info = zc_inst.get_service_info(type_, name)
+                if info:
+                    addresses = info.parsed_addresses()
+                    port = info.port
+                    sat_name = info.get_name() or name.split(".")[0]
+                    if addresses:
+                        found.append((sat_name, f"tcp://{addresses[0]}:{port}"))
+
+            def remove_service(self, *args):
+                pass
+
+            def update_service(self, *args):
+                pass
+
+        handler = Handler()
+        # Wyoming satellites advertise as _wyoming._tcp.local.
+        browser = ServiceBrowser(zc, "_wyoming._tcp.local.", handler)
+
+        import time
+        time.sleep(timeout)
+
+        browser.cancel()
+        zc.close()
+
+        for sat_name, uri in found:
+            device_id = sat_name.replace(" ", "-").lower()
+            results.append({
+                "client_id": f"wyoming:{device_id}",
+                "display_name": sat_name,
+                "description": uri,
+                "config_values": {"satellite_uri": uri},
+            })
+    except ImportError:
+        logger.debug("zeroconf not installed, skipping satellite discovery")
+    except Exception:
+        logger.debug("Zeroconf scan failed", exc_info=True)
+
+    return results

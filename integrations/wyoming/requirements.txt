@@ -1,1 +1,2 @@
 wyoming>=1.5.0
+zeroconf>=0.80.0
