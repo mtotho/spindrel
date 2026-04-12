@@ -652,8 +652,8 @@ class Settings(BaseSettings):
     SERVER_PUBLIC_URL: str = "http://host.docker.internal:8000"
 
     # Workspace code editor (code-server)
-    EDITOR_PORT_RANGE_START: int = 9100
-    EDITOR_PORT_RANGE_END: int = 9199
+    EDITOR_PORT_RANGE_START: int = 9200
+    EDITOR_PORT_RANGE_END: int = 9299
 
     # Docker sandboxes
     DOCKER_SANDBOX_ENABLED: bool = False

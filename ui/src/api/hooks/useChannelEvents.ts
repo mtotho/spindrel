@@ -126,6 +126,22 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
       // Resume from the last seq we saw if reconnecting.
       const sinceParam = lastSeqRef.current != null ? `?since=${lastSeqRef.current}` : "";
 
+      // First connect (no `since`) — clean up stale turns left over from a
+      // previous mount (e.g. user navigated away mid-turn and came back).
+      // Without this, the orphaned turn blocks the DB→store sync effect and
+      // can produce duplicate messages. Same logic as `replay_lapsed`.
+      if (lastSeqRef.current == null && channelId) {
+        const store = useChatStore.getState();
+        const ch = store.getChannel(channelId);
+        const staleTurnIds = Object.keys(ch.turns);
+        if (staleTurnIds.length > 0) {
+          for (const turnId of staleTurnIds) {
+            store.finishTurn(channelId, turnId);
+          }
+          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        }
+      }
+
       fetch(`${serverUrl}/api/v1/channels/${channelId}/events${sinceParam}`, {
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -433,6 +449,22 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
       clearAllObserverTimeouts();
       if (retryTimer) clearTimeout(retryTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+
+      // Clean up any in-flight turns for this channel so they don't linger
+      // as stale state in the store (e.g. user navigates away mid-turn).
+      // Without SSE, we can't receive TURN_ENDED, so finishTurn now and
+      // let the query refetch canonical rows on next mount.
+      if (channelId) {
+        const store = useChatStore.getState();
+        const ch = store.getChannel(channelId);
+        const turnIds = Object.keys(ch.turns);
+        if (turnIds.length > 0) {
+          for (const turnId of turnIds) {
+            store.finishTurn(channelId, turnId);
+          }
+          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        }
+      }
     };
   }, [channelId, queryClient, flushDeltas]);
 }

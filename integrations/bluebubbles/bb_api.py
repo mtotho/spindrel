@@ -225,6 +225,12 @@ async def send_reaction(
         )
         r.raise_for_status()
         return r.json()
+    except httpx.HTTPStatusError as e:
+        logger.warning(
+            "BB send_reaction HTTP %s for chat %s: %s",
+            e.response.status_code, chat_guid, e.response.text[:200],
+        )
+        return None
     except Exception:
         logger.exception("BB send_reaction failed for chat %s", chat_guid)
         return None

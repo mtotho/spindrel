@@ -44,8 +44,8 @@ def render_base_prompt(bot) -> str | None:
         "skills_section": "\n- **Skills**: Skill documents contain detailed procedures and reference material. Call `get_skill(skill_id)` to load a skill before attempting tasks it covers. Use `get_skill_list()` to see all available skills — check it when you're unsure how to proceed." if has_skills else "",
         "memory_section": "\n- **Memory**: You have persistent memory across conversations. Relevant memories are automatically recalled." if has_memory else "",
         "knowledge_section": "\n- **Knowledge**: You can read and write knowledge documents for long-term reference." if has_knowledge else "",
-        "delegation_section": "\n- **Delegation**: You can delegate tasks to other bots via delegate_to_agent or @bot-id mentions." if has_delegation else "",
-        "subagent_section": "\n- **Sub-agents**: Use spawn_subagents for parallel grunt work (file scanning, summarizing, research). They run on cheaper models and return results directly to you." if has_subagents else "",
+        "delegation_section": "\n- **Delegation**: Use delegate_to_agent to send work to a specific named bot. The result is posted to the channel under that bot's identity. Use only when the task requires that bot's expertise and the user should see the result from it." if has_delegation else "",
+        "subagent_section": "\n- **Sub-agents**: Use spawn_subagents for parallel grunt work (file scanning, summarizing, research). Results return directly to you — nothing is posted to the channel. Prefer this over delegate_to_agent when you need help thinking or gathering information." if has_subagents else "",
         "memory_guidelines": "\n- Use memory naturally: reference recalled memories when relevant, save important information for future recall." if has_memory else "",
         "knowledge_guidelines": "\n- Use knowledge docs to persist structured information that should survive across sessions." if has_knowledge else "",
     })

@@ -441,6 +441,135 @@ class TestRunDeferredChannelId:
 
 
 # ---------------------------------------------------------------------------
+# Tool-layer allowlist check (delegate_to_agent rejects unauthorized targets)
+# ---------------------------------------------------------------------------
+
+class TestToolLayerAllowlist:
+    """The delegate_to_agent tool must reject targets not in delegate_bots,
+    even though run_deferred has no permission checks of its own."""
+
+    @pytest.mark.asyncio
+    async def test_target_not_in_allowlist_returns_error(self):
+        """delegate_to_agent(bot_id="unauthorized-bot") should return error, not create a task."""
+        import json
+        from app.tools.local.delegation import delegate_to_agent
+        from app.agent.context import (
+            current_bot_id,
+            current_session_id,
+            current_client_id,
+            current_channel_id,
+            current_dispatch_type,
+            current_dispatch_config,
+            current_ephemeral_delegates,
+        )
+
+        current_bot_id.set("parent-bot")
+        current_session_id.set(uuid.uuid4())
+        current_client_id.set("test:client")
+        current_channel_id.set(uuid.uuid4())
+        current_dispatch_type.set("none")
+        current_dispatch_config.set({})
+        current_ephemeral_delegates.set([])
+
+        parent_bot = _make_parent_bot(delegate_bots=["child-bot"])
+
+        resolved_bot = MagicMock()
+        resolved_bot.id = "unauthorized-bot"
+
+        mock_deferred = AsyncMock()
+
+        with patch("app.agent.bots.resolve_bot_id", return_value=resolved_bot), \
+             patch("app.agent.bots.get_bot", return_value=parent_bot), \
+             patch("app.services.delegation.delegation_service") as mock_svc:
+            mock_svc.run_deferred = mock_deferred
+
+            result = await delegate_to_agent(bot_id="unauthorized-bot", prompt="do something")
+
+        data = json.loads(result)
+        assert "error" in data
+        assert "not in your delegate_bots allowlist" in data["error"]
+        mock_deferred.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_wildcard_allows_any_bot(self):
+        """delegate_bots=["*"] should allow delegation to any bot."""
+        from app.tools.local.delegation import delegate_to_agent
+        from app.agent.context import (
+            current_bot_id,
+            current_session_id,
+            current_client_id,
+            current_channel_id,
+            current_dispatch_type,
+            current_dispatch_config,
+            current_ephemeral_delegates,
+        )
+
+        current_bot_id.set("parent-bot")
+        current_session_id.set(uuid.uuid4())
+        current_client_id.set("test:client")
+        current_channel_id.set(uuid.uuid4())
+        current_dispatch_type.set("none")
+        current_dispatch_config.set({})
+        current_ephemeral_delegates.set([])
+
+        parent_bot = _make_parent_bot(delegate_bots=["*"])
+
+        resolved_bot = MagicMock()
+        resolved_bot.id = "any-bot"
+
+        mock_deferred = AsyncMock(return_value="task-123")
+
+        with patch("app.agent.bots.resolve_bot_id", return_value=resolved_bot), \
+             patch("app.agent.bots.get_bot", return_value=parent_bot), \
+             patch("app.services.delegation.delegation_service") as mock_svc:
+            mock_svc.run_deferred = mock_deferred
+
+            result = await delegate_to_agent(bot_id="any-bot", prompt="do something")
+
+        assert "task-123" in result
+        mock_deferred.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ephemeral_delegate_bypasses_allowlist(self):
+        """@-tagged bots (ephemeral delegates) bypass the allowlist at the tool layer."""
+        from app.tools.local.delegation import delegate_to_agent
+        from app.agent.context import (
+            current_bot_id,
+            current_session_id,
+            current_client_id,
+            current_channel_id,
+            current_dispatch_type,
+            current_dispatch_config,
+            current_ephemeral_delegates,
+        )
+
+        current_bot_id.set("parent-bot")
+        current_session_id.set(uuid.uuid4())
+        current_client_id.set("test:client")
+        current_channel_id.set(uuid.uuid4())
+        current_dispatch_type.set("none")
+        current_dispatch_config.set({})
+        current_ephemeral_delegates.set(["ephemeral-bot"])
+
+        parent_bot = _make_parent_bot(delegate_bots=["child-bot"])
+
+        resolved_bot = MagicMock()
+        resolved_bot.id = "ephemeral-bot"
+
+        mock_deferred = AsyncMock(return_value="task-456")
+
+        with patch("app.agent.bots.resolve_bot_id", return_value=resolved_bot), \
+             patch("app.agent.bots.get_bot", return_value=parent_bot), \
+             patch("app.services.delegation.delegation_service") as mock_svc:
+            mock_svc.run_deferred = mock_deferred
+
+            result = await delegate_to_agent(bot_id="ephemeral-bot", prompt="do something")
+
+        assert "task-456" in result
+        mock_deferred.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
 # Self-delegation guard (orchestrator → orchestrator is always wrong)
 # ---------------------------------------------------------------------------
 

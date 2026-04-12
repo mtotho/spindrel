@@ -1,0 +1,11 @@
+{
+  "name": "excalidraw-export-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "puppeteer-core": "^24.0.0",
+    "@excalidraw/utils": "^0.1.2",
+    "@excalidraw/mermaid-to-excalidraw": "^2.2.2",
+    "mermaid": "^11.0.0"
+  }
+}

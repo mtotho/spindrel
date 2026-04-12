@@ -142,6 +142,16 @@ async def delegate_to_agent(
         # Permission check: delegate_bots must be configured for bot delegation
         if not parent_bot.delegate_bots:
             return json.dumps({"error": "Delegation is disabled. Configure delegate_bots for this bot."})
+
+        # Allowlist check: target must be in delegate_bots, wildcard, or ephemeral @-tag
+        from app.agent.context import current_ephemeral_delegates
+        ephemeral = current_ephemeral_delegates.get() or []
+        allowed = parent_bot.delegate_bots
+        if "*" not in allowed and bot_id not in allowed and bot_id not in ephemeral:
+            return json.dumps({
+                "error": f"Bot {bot_id!r} is not in your delegate_bots allowlist. "
+                f"Authorized delegates: {allowed}"
+            })
     else:
         # No bot found — try carapace resolution
         carapace = get_carapace(bot_id)

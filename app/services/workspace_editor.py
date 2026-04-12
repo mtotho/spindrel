@@ -206,9 +206,20 @@ async def allocate_editor_port() -> int:
             )).scalars().all()
         )
     for port in range(start, end + 1):
-        if port not in used:
+        if port not in used and not _port_in_use(port):
             return port
     raise RuntimeError(f"No free editor ports in range {start}-{end}")
+
+
+def _port_in_use(port: int) -> bool:
+    """Check if a port is already bound on the host."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("0.0.0.0", port))
+            return False
+        except OSError:
+            return True
 
 
 async def _container_actually_running(container_name: str) -> bool:

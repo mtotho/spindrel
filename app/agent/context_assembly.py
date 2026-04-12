@@ -1378,12 +1378,18 @@ async def assemble_context(
                 _delegate_lines.append(_label)
 
     if _delegate_lines:
+        _delegate_content = (
+            "Available delegates for delegate_to_agent:\n"
+            + "\n".join(_delegate_lines)
+        )
+        if "spawn_subagents" in (bot.local_tools or []):
+            _delegate_content += (
+                "\n\nFor anonymous parallel grunt work (file scanning, research, summarizing), "
+                "use spawn_subagents instead — results return to you without posting to the channel."
+            )
         messages.append({
             "role": "system",
-            "content": (
-                "Available sub-agents (delegate via delegate_to_agent):\n"
-                + "\n".join(_delegate_lines)
-            ),
+            "content": _delegate_content,
         })
         yield {"type": "delegate_index", "count": len(_delegate_lines)}
 

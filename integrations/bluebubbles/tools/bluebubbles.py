@@ -211,6 +211,9 @@ async def bb_send_message(chat_guid: str = "", message: str = "") -> str:
         server_url, password = _credentials()
     except ValueError as e:
         return _error(str(e))
+    if chat_guid and not chat_guid.startswith(("iMessage;", "SMS;")):
+        logger.info("bb_send_message: ignoring invalid chat_guid %r, auto-resolving", chat_guid)
+        chat_guid = ""
     if not chat_guid:
         chat_guid = await _resolve_chat_guid()  # type: ignore[assignment]
     if not chat_guid:
@@ -272,6 +275,11 @@ async def bb_send_reaction(message_text: str, reaction: str, chat_guid: str = ""
         server_url, password = _credentials()
     except ValueError as e:
         return _error(str(e))
+    # Validate chat_guid — reject obvious nonsense so we fall through to
+    # auto-resolve instead of sending garbage to the API.
+    if chat_guid and not chat_guid.startswith(("iMessage;", "SMS;")):
+        logger.info("bb_send_reaction: ignoring invalid chat_guid %r, auto-resolving", chat_guid)
+        chat_guid = ""
     if not chat_guid:
         chat_guid = await _resolve_chat_guid()  # type: ignore[assignment]
     if not chat_guid:
