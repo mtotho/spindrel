@@ -6,6 +6,13 @@ version: "1.0"
 
 settings: []
 
+dependencies:
+  npm:
+    - package: "puppeteer-core + @excalidraw/utils + mermaid"
+      binary_name: excalidraw-export
+      check_path: scripts/node_modules
+      local_install_dir: scripts
+
 provides:
   - tools
   - skills

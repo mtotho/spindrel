@@ -671,12 +671,20 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                 npm_status = []
                 all_npm_installed = True
                 for dep in npm_deps:
-                    binary = dep.get("binary_name", dep["package"])
-                    installed = (
-                        shutil.which(binary) is not None
-                        or os.path.isfile(os.path.join(_npm_bin, binary))
-                    )
-                    npm_status.append({"package": dep["package"], "binary_name": binary, "installed": installed})
+                    # check_path: integration-specific path to check (e.g. local node_modules)
+                    check_path = dep.get("check_path")
+                    if check_path:
+                        # Resolve relative paths against the integration directory
+                        if not os.path.isabs(check_path):
+                            check_path = os.path.join(str(candidate), check_path)
+                        installed = os.path.exists(check_path)
+                    else:
+                        binary = dep.get("binary_name", dep["package"])
+                        installed = (
+                            shutil.which(binary) is not None
+                            or os.path.isfile(os.path.join(_npm_bin, binary))
+                        )
+                    npm_status.append({"package": dep["package"], "binary_name": dep.get("binary_name", dep["package"]), "installed": installed})
                     if not installed:
                         all_npm_installed = False
                 entry["npm_dependencies"] = npm_status

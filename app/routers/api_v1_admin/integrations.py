@@ -411,17 +411,36 @@ async def install_npm_deps(integration_id: str, _auth=Depends(require_scopes("in
     if not npm_deps:
         raise HTTPException(status_code=404, detail=f"No npm_dependencies found for integration {integration_id!r}")
 
+    # Check if any dep declares a local install directory (package.json in that dir)
+    local_install_dir = None
+    for dep in npm_deps:
+        if dep.get("local_install_dir"):
+            import os
+            d = dep["local_install_dir"]
+            if not os.path.isabs(d):
+                d = os.path.join(str(candidate), d)
+            local_install_dir = d
+            break
+
     packages = [dep["package"] for dep in npm_deps]
     try:
-        # Use --prefix to install into the user's home directory instead of /usr/lib
-        # which requires root. The binaries go into ~/.local/bin (or npm's default prefix).
-        import os
-        npm_prefix = os.path.expanduser("~/.local")
-        proc = await asyncio.create_subprocess_exec(
-            "npm", "install", "-g", f"--prefix={npm_prefix}", *packages,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        if local_install_dir:
+            # Install from the integration's own package.json
+            proc = await asyncio.create_subprocess_exec(
+                "npm", "install", "--no-audit", "--no-fund",
+                cwd=local_install_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        else:
+            # Global install into the user's home directory
+            import os
+            npm_prefix = os.path.expanduser("~/.local")
+            proc = await asyncio.create_subprocess_exec(
+                "npm", "install", "-g", f"--prefix={npm_prefix}", *packages,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
 
         if proc.returncode != 0:
