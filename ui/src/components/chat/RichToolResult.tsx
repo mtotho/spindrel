@@ -44,7 +44,9 @@ export function RichToolResult({ envelope, sessionId, t }: Props) {
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  const body = fetched ?? envelope.body;
+  // body may be a pre-parsed object from JSONB metadata — normalize to string
+  const rawBody = fetched ?? envelope.body;
+  const body = rawBody == null ? null : typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
 
   // Truncated and not yet fetched — show the lazy-load affordance.
   if (envelope.truncated && body == null) {

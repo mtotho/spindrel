@@ -186,7 +186,8 @@ interface Props {
 export function ComponentRenderer({ body, t }: Props) {
   let parsed: ComponentBody;
   try {
-    parsed = JSON.parse(body);
+    // body may already be a parsed object (e.g. from JSONB metadata)
+    parsed = typeof body === "object" && body !== null ? (body as unknown as ComponentBody) : JSON.parse(body);
   } catch {
     return (
       <pre
@@ -197,7 +198,7 @@ export function ComponentRenderer({ body, t }: Props) {
           fontFamily: "'Menlo', monospace",
         }}
       >
-        {body}
+        {typeof body === "string" ? body : JSON.stringify(body, null, 2)}
       </pre>
     );
   }

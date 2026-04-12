@@ -29,7 +29,7 @@ def _rich(llm_text: str, plain_body: str, components: list[dict]) -> str:
             "content_type": _COMPONENTS_CT,
             "display": "inline",
             "plain_body": plain_body,
-            "body": {"v": 1, "components": components},
+            "body": json.dumps({"v": 1, "components": components}),
         },
     })
 

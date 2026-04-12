@@ -6,6 +6,7 @@ component-vocabulary envelope for rich UI rendering.
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -67,7 +68,7 @@ def _envelope(plain_body: str, components: list[dict]) -> dict:
         "content_type": _COMPONENTS_CT,
         "display": "inline",
         "plain_body": plain_body,
-        "body": {"v": 1, "components": components},
+        "body": json.dumps({"v": 1, "components": components}),
         "truncated": False,
         "record_id": None,
         "byte_size": 0,
