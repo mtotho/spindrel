@@ -61,7 +61,7 @@ async def transcribe_audio(
     """
     host, port = _parse_uri(whisper_uri)
     try:
-        client = WyomingClient(host, port)
+        client = WyomingClient.from_uri(f"tcp://{host}:{port}")
         await client.connect()
 
         # Send audio
@@ -120,7 +120,7 @@ async def synthesize_speech(
     host, port = _parse_uri(piper_uri)
     events: list[Event] = []
     try:
-        client = WyomingClient(host, port)
+        client = WyomingClient.from_uri(f"tcp://{host}:{port}")
         await client.connect()
 
         synth = Synthesize(text=text, voice=voice)

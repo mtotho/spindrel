@@ -100,10 +100,9 @@ class SatelliteConnection:
 
     async def _connect_and_run(self):
         """Connect to satellite, send RunSatellite, process events."""
-        host, port = _parse_uri(self.satellite_uri)
-        logger.info("Connecting to satellite %s at %s:%d", self.device_id, host, port)
+        logger.info("Connecting to satellite %s at %s", self.device_id, self.satellite_uri)
 
-        self._client = AsyncClient(host, port)
+        self._client = AsyncClient.from_uri(self.satellite_uri)
         await self._client.connect()
         logger.info("Connected to satellite %s", self.device_id)
 
