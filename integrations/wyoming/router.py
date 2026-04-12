@@ -16,9 +16,10 @@ router = APIRouter()
 
 @router.get("/config")
 async def wyoming_config(request: Request):
-    """Returns device->bot mapping for the Wyoming server process.
+    """Returns device->bot mapping for the Wyoming pipeline orchestrator.
 
     Merges legacy Channel-level bindings and modern ChannelIntegration bindings.
+    Each device entry includes satellite_uri so the orchestrator knows where to connect.
     """
     from app.config import settings
 
@@ -83,6 +84,7 @@ async def wyoming_config(request: Request):
             "bot_name": bot.name if bot else "unknown",
             "channel_id": str(channel.id),
             "channel_name": channel.name,
+            "satellite_uri": config.get("satellite_uri"),
             "voice": config.get("voice"),
             "wake_words": config.get("wake_words"),
         }

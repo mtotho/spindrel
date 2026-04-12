@@ -1,132 +1,111 @@
 # Voice Assistant (Wyoming)
 
-Voice interaction with your bots via the [Wyoming protocol](https://github.com/rhasspy/wyoming). Speak to a satellite device, get a spoken response from whichever bot/channel the device is bound to.
+Voice interaction with your bots via the [Wyoming protocol](https://github.com/rhasspy/wyoming). Bind a Wyoming satellite device to a Spindrel channel — speak to it, get a spoken response from the bound bot. Transcripts appear in the channel like any other message.
 
 ## How It Works
 
-1. A satellite device (Raspberry Pi, ESP32, etc.) listens for a wake word
-2. After wake word detection, it streams audio to this integration's TCP server
-3. Audio is transcribed via Whisper (STT)
-4. The transcript is dispatched to the bound Spindrel channel
-5. The bot's response is synthesized via Piper (TTS)
-6. Audio is streamed back to the satellite and played through its speaker
+1. A satellite device (Raspberry Pi, desktop, etc.) runs `wyoming-satellite` with a wake word engine
+2. The Spindrel integration connects to the satellite over TCP as a pipeline orchestrator
+3. When you say the wake word, the satellite streams your audio to Spindrel
+4. Spindrel transcribes via Whisper (STT) and posts the transcript to the bound channel
+5. The bot responds in the channel
+6. Spindrel synthesizes the response via Piper (TTS) and sends audio back to the satellite
+7. The satellite plays the response through its speaker
+
+Voice is just another integration binding — like Slack. Messages appear in the web UI, and if the channel is also mirrored to Slack, the transcript shows up there too.
 
 ## Quick Start
 
 ### 1. Enable the Integration
 
-Toggle the integration on in the admin UI. This starts the Whisper + Piper Docker containers automatically.
+Toggle the integration on in the admin UI. Set `WYOMING_CONTAINERS` to `true` to auto-start the Whisper + Piper Docker containers.
 
-### 2. Configure Settings
+### 2. Set Up a Satellite
 
-- **Listen port**: TCP port for satellite connections (default: 10700)
-- **Whisper URI**: STT service address (default: tcp://localhost:10300 — auto-started)
-- **Piper URI**: TTS service address (default: tcp://localhost:10200 — auto-started)
-- **Default voice**: Piper voice model (default: en_US-lessac-medium)
-
-### 3. Bind a Channel
-
-Create or select a channel in the admin UI and bind it to a Wyoming device:
-- Set the client ID to `wyoming:<device-name>` (e.g., `wyoming:living-room`)
-- Choose which bot handles this device
-
-### 4. Connect a Satellite
-
-#### Raspberry Pi (standalone, no Home Assistant needed)
-
-Install `wyoming-satellite` on your Pi:
+#### Desktop (for testing)
 
 ```bash
-# Install dependencies
+# Terminal 1: start the wake word engine
+docker run -d --name wyoming-openwakeword \
+  -p 10400:10400 \
+  rhasspy/wyoming-openwakeword \
+  --uri tcp://0.0.0.0:10400 \
+  --preload-model hey_jarvis
+
+# Terminal 2: start the satellite
+~/wyoming-client/bin/python -m wyoming_satellite \
+  --name desktop \
+  --uri tcp://0.0.0.0:10700 \
+  --mic-command "arecord -r 16000 -c 1 -f S16_LE -t raw -q" \
+  --snd-command "aplay -r 22050 -c 1 -f S16_LE -t raw -q" \
+  --wake-uri tcp://127.0.0.1:10400 \
+  --wake-word-name hey_jarvis \
+  --vad
+```
+
+#### Raspberry Pi
+
+```bash
+# Install
 sudo apt-get install python3-venv python3-dev
 python3 -m venv ~/wyoming-satellite
 source ~/wyoming-satellite/bin/activate
+pip install wyoming-satellite
 
-# Install wyoming-satellite + wake word engine
-pip install wyoming-satellite wyoming-openwakeword
-
-# Run the satellite (replace YOUR_SERVER_IP)
-wyoming-satellite \
-  --name "living-room" \
-  --uri "tcp://0.0.0.0:10700" \
-  --mic-command "arecord -r 16000 -c 1 -f S16_LE -t raw" \
-  --snd-command "aplay -r 22050 -c 1 -f S16_LE -t raw" \
-  --wake-uri "tcp://127.0.0.1:10400" \
-  --wake-word-name "hey_jarvis" \
-  --awake-wav ~/sounds/awake.wav
+# Run (replace mic/speaker devices as needed)
+python -m wyoming_satellite \
+  --name living-room \
+  --uri tcp://0.0.0.0:10700 \
+  --mic-command "arecord -D plughw:CARD=seeed2micvoicec -r 16000 -c 1 -f S16_LE -t raw -q" \
+  --snd-command "aplay -D plughw:CARD=seeed2micvoicec -r 22050 -c 1 -f S16_LE -t raw -q" \
+  --wake-uri tcp://127.0.0.1:10400 \
+  --wake-word-name hey_jarvis \
+  --vad
 ```
 
-Run openwakeword alongside it:
-
+Run openwakeword on the Pi too:
 ```bash
-python3 -m wyoming_openwakeword \
-  --uri "tcp://127.0.0.1:10400" \
-  --preload-model "hey_jarvis"
+docker run -d --name wyoming-openwakeword \
+  -p 10400:10400 \
+  rhasspy/wyoming-openwakeword \
+  --uri tcp://0.0.0.0:10400 \
+  --preload-model hey_jarvis
 ```
 
-The satellite will connect to your Spindrel server at `tcp://YOUR_SERVER_IP:10700`.
+### 3. Bind a Channel
 
-#### Testing from your Linux Desktop
+In the Spindrel admin UI:
+1. Create or select a channel
+2. Add a Wyoming binding with client ID `wyoming:desktop` (or `wyoming:living-room`, etc.)
+3. Set the activation config:
+   ```json
+   {"satellite_uri": "tcp://192.168.1.50:10700"}
+   ```
+4. The integration will automatically connect to the satellite
 
-Install the Wyoming CLI tools to test without hardware:
+### 4. Talk to It
 
-```bash
-pip install wyoming
+Say "hey jarvis" → wait for the beep → speak your message → hear the response.
 
-# Record a message and send it to your Wyoming server
-python3 -c "
-import asyncio
-from wyoming.client import AsyncClient
-from wyoming.audio import AudioStart, AudioChunk, AudioStop
-import subprocess
+The transcript and bot response will appear in the channel's web UI (and Slack if mirrored).
 
-async def test():
-    client = AsyncClient('YOUR_SERVER_IP', 10700)
-    await client.connect()
+## Configuration
 
-    # Record 3 seconds of audio
-    proc = subprocess.run(
-        ['arecord', '-d', '3', '-r', '16000', '-c', '1', '-f', 'S16_LE', '-t', 'raw'],
-        capture_output=True
-    )
+| Setting | Default | Description |
+|---------|---------|-------------|
+| WYOMING_WHISPER_URI | tcp://localhost:10300 | Whisper STT service |
+| WYOMING_PIPER_URI | tcp://localhost:10200 | Piper TTS service |
+| WYOMING_DEFAULT_VOICE | en_US-lessac-medium | Default Piper voice |
+| WYOMING_CONTAINERS | true | Auto-start Whisper + Piper Docker containers |
 
-    # Send audio
-    await client.write_event(AudioStart(rate=16000, width=2, channels=1).event())
-    await client.write_event(AudioChunk(rate=16000, width=2, channels=1, audio=proc.stdout).event())
-    await client.write_event(AudioStop().event())
-
-    # Read response audio events
-    while True:
-        event = await asyncio.wait_for(client.read_event(), timeout=30)
-        if event is None:
-            break
-        print(f'Event: {event.type}')
-        if event.type == 'audio-stop':
-            break
-
-asyncio.run(test())
-"
-```
-
-#### M5Stack ATOM Echo (via Home Assistant)
-
-The Echo uses ESPHome firmware which connects through Home Assistant:
-
-1. Flash the Echo with ESPHome (see [ESPHome voice assistant docs](https://esphome.io/components/voice_assistant.html))
-2. In HA, configure a Voice Pipeline with a custom conversation agent pointing to `tcp://YOUR_SERVER_IP:10700`
-3. The Echo talks to HA, HA routes to your Spindrel Wyoming server
-
-## Hardware Recommendations
-
-| Device | Cost | Standalone? | Notes |
-|--------|------|------------|-------|
-| Raspberry Pi Zero 2W + ReSpeaker 2-Mic HAT | ~$25 | Yes | Best standalone option |
-| Raspberry Pi 3/4 + ReSpeaker | ~$45 | Yes | More headroom |
-| M5Stack ATOM Echo | ~$13 | Via HA | Cheapest, needs Home Assistant |
+Per-device overrides go in the channel binding's `activation_config`:
+- `satellite_uri` (required) — the satellite's TCP address
+- `voice` — override the default Piper voice for this device
+- `wake_words` — (Phase 2) map wake words to different channels
 
 ## Available Wake Words
 
-Built-in models for `openwakeword` (run on-device):
+Built-in `openwakeword` models (run on the satellite device):
 - `hey_jarvis`
 - `hey_mycroft`
 - `ok_nabu`
@@ -134,4 +113,12 @@ Built-in models for `openwakeword` (run on-device):
 
 ## Available Voices
 
-Piper has dozens of voices. Browse at [rhasspy.github.io/piper-samples](https://rhasspy.github.io/piper-samples/). Change the voice in integration settings or per-device in the channel binding config.
+Piper has dozens of voices. Browse at [rhasspy.github.io/piper-samples](https://rhasspy.github.io/piper-samples/).
+
+## Hardware
+
+| Device | Cost | Notes |
+|--------|------|-------|
+| Raspberry Pi Zero 2W + ReSpeaker 2-Mic HAT | ~$25 | Best standalone satellite |
+| Raspberry Pi 3/4 + ReSpeaker | ~$45 | More headroom |
+| Any Linux machine with mic + speakers | $0 | Great for testing |

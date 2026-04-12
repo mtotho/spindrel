@@ -119,7 +119,7 @@ async def query_chats(
         )
         r.raise_for_status()
         data = r.json()
-        return data.get("data", [])
+        return data.get("data") or []
     except Exception:
         logger.exception("BB query_chats failed")
         return []
@@ -249,7 +249,7 @@ async def get_findmy_devices(
         )
         r.raise_for_status()
         data = r.json()
-        return data.get("data", [])
+        return data.get("data") or []
     except Exception:
         logger.exception("BB get_findmy_devices failed")
         return []
@@ -269,7 +269,7 @@ async def get_findmy_friends(
         )
         r.raise_for_status()
         data = r.json()
-        return data.get("data", [])
+        return data.get("data") or []
     except Exception:
         logger.exception("BB get_findmy_friends failed")
         return []
@@ -313,7 +313,7 @@ async def get_chat_messages(
         )
         r.raise_for_status()
         data = r.json()
-        return data.get("data", [])
+        return data.get("data") or []
     except Exception:
         logger.exception("BB get_chat_messages failed for %s", chat_guid)
         return []

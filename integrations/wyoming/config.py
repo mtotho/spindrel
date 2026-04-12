@@ -16,8 +16,6 @@ def _setting(key: str, default: str = "") -> str:
     return os.environ.get(key, default)
 
 
-LISTEN_HOST = _setting("WYOMING_LISTEN_HOST", "0.0.0.0")
-LISTEN_PORT = int(_setting("WYOMING_LISTEN_PORT", "10700"))
 WHISPER_URI = _setting("WYOMING_WHISPER_URI", "tcp://localhost:10300")
 PIPER_URI = _setting("WYOMING_PIPER_URI", "tcp://localhost:10200")
 DEFAULT_VOICE = _setting("WYOMING_DEFAULT_VOICE", "en_US-lessac-medium")

@@ -2,30 +2,20 @@ id: wyoming
 name: Voice Assistant (Wyoming)
 icon: Mic
 description: >-
-  Voice assistant via Wyoming protocol. Accepts audio from Wyoming satellites
-  (Raspberry Pi, ESP32, etc.), transcribes via Whisper, dispatches to a bound
-  channel, and speaks the response back via Piper TTS.
+  Voice assistant via Wyoming protocol. Connects to Wyoming satellites
+  (Raspberry Pi, ESP32, etc.), transcribes speech via Whisper, dispatches
+  to a bound channel, and speaks the bot's response back via Piper TTS.
 version: "0.1"
 
 settings:
-  - key: WYOMING_LISTEN_HOST
-    type: string
-    label: "Listen host for incoming satellite connections"
-    default: "0.0.0.0"
-  - key: WYOMING_LISTEN_PORT
-    type: string
-    label: "Listen port for incoming satellite connections"
-    default: "10700"
   - key: WYOMING_WHISPER_URI
     type: string
     label: "Whisper STT service URI (tcp://host:port)"
     default: "tcp://localhost:10300"
-    required: true
   - key: WYOMING_PIPER_URI
     type: string
     label: "Piper TTS service URI (tcp://host:port)"
     default: "tcp://localhost:10200"
-    required: true
   - key: WYOMING_DEFAULT_VOICE
     type: string
     label: "Default Piper voice model"
@@ -70,7 +60,7 @@ docker_compose:
   description: "Whisper STT + Piper TTS for voice assistant pipeline"
 
 process:
-  cmd: ["python", "-m", "integrations.wyoming.wyoming_server"]
-  description: "Wyoming voice assistant server (TCP)"
+  cmd: ["python", "-m", "integrations.wyoming.pipeline_orchestrator"]
+  description: "Wyoming pipeline orchestrator (connects to satellites)"
   required_env: []
   watch_paths: ["integrations/wyoming/"]

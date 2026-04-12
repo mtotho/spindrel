@@ -1,0 +1,347 @@
+"""Wyoming pipeline orchestrator.
+
+Runs as a standalone process (spawned by the integration process manager).
+Connects to registered Wyoming satellites as a CLIENT, orchestrates the
+full voice pipeline per interaction:
+
+  wake word detected → receive audio → Whisper STT → POST /chat →
+  wait for response → Piper TTS → send audio back to satellite
+
+Each satellite gets a persistent TCP connection. The orchestrator manages
+reconnection on drop and periodically refreshes config to pick up new
+satellite bindings.
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import sys
+
+from wyoming.audio import AudioChunk, AudioStart, AudioStop
+from wyoming.asr import Transcript
+from wyoming.client import AsyncClient
+from wyoming.event import Event
+from wyoming.info import Describe, Info
+from wyoming.pipeline import RunPipeline, PipelineStage
+from wyoming.satellite import RunSatellite, StreamingStarted, StreamingStopped
+from wyoming.tts import Synthesize
+
+from integrations.wyoming.agent_client import AgentClient
+from integrations.wyoming.pipeline import transcribe_audio, synthesize_speech, AudioBuffer
+
+logger = logging.getLogger(__name__)
+
+RECONNECT_DELAY = 5.0
+CONFIG_REFRESH_INTERVAL = 30.0
+
+
+class SatelliteConnection:
+    """Manages a persistent connection to a single Wyoming satellite."""
+
+    def __init__(
+        self,
+        *,
+        device_id: str,
+        satellite_uri: str,
+        bot_id: str,
+        client_id: str,
+        channel_id: str,
+        whisper_uri: str,
+        piper_uri: str,
+        voice: str,
+        agent: AgentClient,
+    ):
+        self.device_id = device_id
+        self.satellite_uri = satellite_uri
+        self.bot_id = bot_id
+        self.client_id = client_id
+        self.channel_id = channel_id
+        self.whisper_uri = whisper_uri
+        self.piper_uri = piper_uri
+        self.voice = voice
+        self.agent = agent
+        self._client: AsyncClient | None = None
+        self._running = False
+        self._task: asyncio.Task | None = None
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    async def start(self):
+        """Start the satellite connection loop."""
+        self._running = True
+        self._task = asyncio.create_task(self._run_loop())
+
+    async def stop(self):
+        """Stop the satellite connection."""
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+
+    async def _run_loop(self):
+        """Main loop: connect, run pipeline, reconnect on failure."""
+        while self._running:
+            try:
+                await self._connect_and_run()
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Satellite %s connection error", self.device_id)
+
+            if self._running:
+                logger.info("Reconnecting to %s in %.0fs...", self.device_id, RECONNECT_DELAY)
+                await asyncio.sleep(RECONNECT_DELAY)
+
+    async def _connect_and_run(self):
+        """Connect to satellite, send RunSatellite, process events."""
+        host, port = _parse_uri(self.satellite_uri)
+        logger.info("Connecting to satellite %s at %s:%d", self.device_id, host, port)
+
+        self._client = AsyncClient(host, port)
+        await self._client.connect()
+        logger.info("Connected to satellite %s", self.device_id)
+
+        # Service discovery
+        await self._client.write_event(Describe().event())
+        info_event = await asyncio.wait_for(self._client.read_event(), timeout=10.0)
+        if info_event and Info.is_type(info_event.type):
+            info = Info.from_event(info_event)
+            sat_info = info.satellite[0] if info.satellite else None
+            name = sat_info.name if sat_info else "unknown"
+            logger.info("Satellite %s identified as: %s", self.device_id, name)
+
+        # Tell satellite to start
+        await self._client.write_event(RunSatellite().event())
+        logger.info("Satellite %s started, waiting for voice activity...", self.device_id)
+
+        # Main event loop
+        while self._running:
+            event = await self._client.read_event()
+            if event is None:
+                logger.warning("Satellite %s disconnected", self.device_id)
+                break
+
+            if RunPipeline.is_type(event.type):
+                pipeline = RunPipeline.from_event(event)
+                logger.info(
+                    "Pipeline requested: %s → %s",
+                    pipeline.start_stage.value, pipeline.end_stage.value,
+                )
+                await self._handle_pipeline(pipeline)
+
+            elif StreamingStarted.is_type(event.type):
+                logger.debug("Streaming started from %s", self.device_id)
+
+            elif StreamingStopped.is_type(event.type):
+                logger.debug("Streaming stopped from %s", self.device_id)
+
+            else:
+                logger.debug("Event from %s: %s", self.device_id, event.type)
+
+    async def _handle_pipeline(self, pipeline: RunPipeline):
+        """Handle a full voice interaction pipeline."""
+        assert self._client is not None
+
+        # Collect audio from satellite until AudioStop
+        audio_buffer = AudioBuffer()
+        collecting = False
+
+        while True:
+            event = await asyncio.wait_for(self._client.read_event(), timeout=30.0)
+            if event is None:
+                logger.warning("Connection lost during audio collection")
+                return
+
+            if AudioStart.is_type(event.type):
+                audio_start = AudioStart.from_event(event)
+                audio_buffer = AudioBuffer(
+                    rate=audio_start.rate,
+                    width=audio_start.width,
+                    channels=audio_start.channels,
+                )
+                collecting = True
+
+            elif AudioChunk.is_type(event.type) and collecting:
+                chunk = AudioChunk.from_event(event)
+                audio_buffer.add_chunk(chunk.audio)
+
+            elif AudioStop.is_type(event.type):
+                break
+
+            elif StreamingStopped.is_type(event.type):
+                # Satellite stopped streaming without AudioStop
+                break
+
+        duration = audio_buffer.duration_seconds
+        logger.info("Collected %.1fs of audio from %s", duration, self.device_id)
+
+        if duration < 0.3:
+            logger.info("Audio too short, ignoring")
+            return
+
+        # Step 1: STT — transcribe via Whisper
+        transcript = await transcribe_audio(self.whisper_uri, audio_buffer)
+        if not transcript or not transcript.strip():
+            logger.info("Empty transcript, skipping")
+            return
+
+        logger.info("Transcript from %s: %r", self.device_id, transcript)
+
+        # Send transcript back to satellite (triggers done sound, LED update)
+        await self._client.write_event(Transcript(text=transcript).event())
+
+        # Step 2: Dispatch to Spindrel channel
+        try:
+            result = await self.agent.submit_chat(
+                message=transcript,
+                bot_id=self.bot_id,
+                client_id=self.client_id,
+                dispatch_type="wyoming",
+                dispatch_config={
+                    "type": "wyoming",
+                    "device_id": self.device_id,
+                },
+            )
+        except Exception:
+            logger.exception("Failed to submit chat for %s", self.device_id)
+            await self._speak_error("Sorry, I couldn't process that.")
+            return
+
+        # Step 3: Wait for bot response
+        stream_id = result.get("stream_id")
+        if not stream_id:
+            logger.error("No stream_id in chat response")
+            await self._speak_error("Sorry, something went wrong.")
+            return
+
+        response_text = await self.agent.stream_response(stream_id)
+        if not response_text:
+            logger.warning("Empty response from agent")
+            await self._speak_error("I don't have a response for that.")
+            return
+
+        logger.info("Response for %s: %r", self.device_id, response_text[:200])
+
+        # Step 4: TTS — synthesize and send audio to satellite
+        if pipeline.end_stage == PipelineStage.TTS:
+            await self._speak(response_text)
+
+    async def _speak(self, text: str):
+        """Synthesize text and send audio to the satellite."""
+        assert self._client is not None
+        events = await synthesize_speech(self.piper_uri, text, self.voice)
+        for event in events:
+            await self._client.write_event(event)
+
+    async def _speak_error(self, message: str):
+        """Speak an error message to the satellite."""
+        try:
+            await self._speak(message)
+        except Exception:
+            logger.debug("Could not speak error to satellite")
+
+
+async def main():
+    """Entry point for the pipeline orchestrator process."""
+    parser = argparse.ArgumentParser(description="Spindrel Wyoming Pipeline Orchestrator")
+    parser.add_argument("--whisper-uri", default=None, help="Whisper STT URI")
+    parser.add_argument("--piper-uri", default=None, help="Piper TTS URI")
+    parser.add_argument("--voice", default=None, help="Default voice model")
+    args = parser.parse_args()
+
+    from integrations.wyoming.config import (
+        WHISPER_URI, PIPER_URI, DEFAULT_VOICE, API_KEY, AGENT_BASE_URL,
+    )
+
+    whisper_uri = args.whisper_uri or WHISPER_URI
+    piper_uri = args.piper_uri or PIPER_URI
+    default_voice = args.voice or DEFAULT_VOICE
+
+    agent = AgentClient(AGENT_BASE_URL, API_KEY)
+
+    # Track active satellite connections
+    connections: dict[str, SatelliteConnection] = {}
+
+    async def refresh_and_manage():
+        """Periodically refresh config and manage satellite connections."""
+        while True:
+            try:
+                config = await agent.get_channel_config()
+                devices = config.get("devices", {})
+
+                # Start connections for new devices
+                for device_id, device in devices.items():
+                    satellite_uri = device.get("satellite_uri")
+                    if not satellite_uri:
+                        continue
+
+                    if device_id in connections and connections[device_id].is_running:
+                        continue
+
+                    bot_id = device.get("bot_id")
+                    if not bot_id:
+                        continue
+
+                    conn = SatelliteConnection(
+                        device_id=device_id,
+                        satellite_uri=satellite_uri,
+                        bot_id=bot_id,
+                        client_id=f"wyoming:{device_id}",
+                        channel_id=device.get("channel_id", ""),
+                        whisper_uri=whisper_uri,
+                        piper_uri=piper_uri,
+                        voice=device.get("voice") or default_voice,
+                        agent=agent,
+                    )
+                    connections[device_id] = conn
+                    await conn.start()
+                    logger.info("Started connection to satellite %s at %s", device_id, satellite_uri)
+
+                # Stop connections for removed devices
+                for device_id in list(connections.keys()):
+                    if device_id not in devices:
+                        await connections[device_id].stop()
+                        del connections[device_id]
+                        logger.info("Stopped connection to removed satellite %s", device_id)
+
+            except Exception:
+                logger.debug("Config refresh failed", exc_info=True)
+
+            await asyncio.sleep(CONFIG_REFRESH_INTERVAL)
+
+    logger.info("Starting Wyoming pipeline orchestrator")
+    logger.info("  Whisper: %s", whisper_uri)
+    logger.info("  Piper:   %s", piper_uri)
+    logger.info("  Voice:   %s", default_voice)
+
+    try:
+        await refresh_and_manage()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        for conn in connections.values():
+            await conn.stop()
+        await agent.close()
+
+
+def _parse_uri(uri: str) -> tuple[str, int]:
+    """Parse a tcp://host:port URI into (host, port)."""
+    uri = uri.removeprefix("tcp://")
+    if ":" in uri:
+        host, port_str = uri.rsplit(":", 1)
+        return host, int(port_str)
+    return uri, 10700
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    )
+    asyncio.run(main())

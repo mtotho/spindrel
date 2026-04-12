@@ -26,6 +26,39 @@ def _error(msg: str) -> str:
     return json.dumps({"error": msg})
 
 
+async def _resolve_chat_guid() -> str | None:
+    """Auto-resolve the chat_guid from the current channel's BB binding.
+
+    Tools run inside the agent loop which sets ``current_channel_id``.
+    The channel's ``ChannelIntegration`` row with a ``bb:`` prefix
+    contains the chat_guid.
+    """
+    try:
+        from app.agent.context import current_channel_id
+        channel_id = current_channel_id.get()
+        if not channel_id:
+            return None
+
+        from app.db.models import ChannelIntegration
+        from sqlalchemy import select
+        from app.db.engine import async_session
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(ChannelIntegration.client_id).where(
+                    ChannelIntegration.channel_id == channel_id,
+                    ChannelIntegration.client_id.like("bb:%"),
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row and row.startswith("bb:"):
+                return row.removeprefix("bb:")
+        return None
+    except Exception:
+        logger.debug("_resolve_chat_guid failed", exc_info=True)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Tools
 # ---------------------------------------------------------------------------
@@ -95,7 +128,7 @@ async def bb_list_chats(limit: int = 25, offset: int = 0) -> str:
         "description": (
             "Get recent messages from a specific iMessage chat. "
             "Returns messages in reverse chronological order (newest first). "
-            "Use bb_list_chats first to find the chat GUID. "
+            "If chat_guid is omitted, uses the current channel's iMessage chat. "
             "Use offset for pagination (e.g. offset=25 to get the next page)."
         ),
         "parameters": {
@@ -103,7 +136,7 @@ async def bb_list_chats(limit: int = 25, offset: int = 0) -> str:
             "properties": {
                 "chat_guid": {
                     "type": "string",
-                    "description": "The chat GUID (e.g. 'iMessage;-;+15551234567' or 'iMessage;+;chat123456').",
+                    "description": "The chat GUID. Omit to use the current channel's chat.",
                 },
                 "limit": {
                     "type": "integer",
@@ -114,15 +147,18 @@ async def bb_list_chats(limit: int = 25, offset: int = 0) -> str:
                     "description": "Pagination offset (default 0). Use to page through older messages.",
                 },
             },
-            "required": ["chat_guid"],
         },
     },
 })
-async def bb_get_messages(chat_guid: str, limit: int = 25, offset: int = 0) -> str:
+async def bb_get_messages(chat_guid: str = "", limit: int = 25, offset: int = 0) -> str:
     try:
         server_url, password = _credentials()
     except ValueError as e:
         return _error(str(e))
+    if not chat_guid:
+        chat_guid = await _resolve_chat_guid()  # type: ignore[assignment]
+    if not chat_guid:
+        return _error("No chat_guid provided and could not auto-resolve from current channel")
     try:
         from integrations.bluebubbles.bb_api import get_chat_messages
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -151,7 +187,7 @@ async def bb_get_messages(chat_guid: str, limit: int = 25, offset: int = 0) -> s
         "name": "bb_send_message",
         "description": (
             "Send an iMessage to a specific chat via BlueBubbles. "
-            "Use bb_list_chats first to find the chat GUID. "
+            "If chat_guid is omitted, sends to the current channel's iMessage chat. "
             "Messages are sent through the BlueBubbles server to Apple's iMessage network."
         ),
         "parameters": {
@@ -159,22 +195,28 @@ async def bb_get_messages(chat_guid: str, limit: int = 25, offset: int = 0) -> s
             "properties": {
                 "chat_guid": {
                     "type": "string",
-                    "description": "The chat GUID to send to.",
+                    "description": "The chat GUID to send to. Omit to use the current channel's chat.",
                 },
                 "message": {
                     "type": "string",
                     "description": "The message text to send.",
                 },
             },
-            "required": ["chat_guid", "message"],
+            "required": ["message"],
         },
     },
 })
-async def bb_send_message(chat_guid: str, message: str) -> str:
+async def bb_send_message(chat_guid: str = "", message: str = "") -> str:
     try:
         server_url, password = _credentials()
     except ValueError as e:
         return _error(str(e))
+    if not chat_guid:
+        chat_guid = await _resolve_chat_guid()  # type: ignore[assignment]
+    if not chat_guid:
+        return _error("No chat_guid provided and could not auto-resolve from current channel")
+    if not message:
+        return _error("No message text provided")
     try:
         from integrations.bluebubbles.bb_api import send_text
         temp_guid = str(uuid.uuid4())
@@ -202,15 +244,11 @@ async def bb_send_message(chat_guid: str, message: str) -> str:
         "description": (
             "Send a tapback reaction to a specific iMessage message. "
             "Tapbacks are the small icons (heart, thumbs up, etc.) that appear on messages in iMessage. "
-            "Use bb_get_messages first to find the message text to react to."
+            "If chat_guid is omitted, uses the current channel's iMessage chat."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "chat_guid": {
-                    "type": "string",
-                    "description": "The chat GUID containing the message.",
-                },
                 "message_text": {
                     "type": "string",
                     "description": "The exact text of the message to react to.",
@@ -220,16 +258,24 @@ async def bb_send_message(chat_guid: str, message: str) -> str:
                     "enum": ["love", "like", "dislike", "laugh", "emphasize", "question"],
                     "description": "The tapback reaction type.",
                 },
+                "chat_guid": {
+                    "type": "string",
+                    "description": "The chat GUID. Omit to use the current channel's chat.",
+                },
             },
-            "required": ["chat_guid", "message_text", "reaction"],
+            "required": ["message_text", "reaction"],
         },
     },
 })
-async def bb_send_reaction(chat_guid: str, message_text: str, reaction: str) -> str:
+async def bb_send_reaction(message_text: str, reaction: str, chat_guid: str = "") -> str:
     try:
         server_url, password = _credentials()
     except ValueError as e:
         return _error(str(e))
+    if not chat_guid:
+        chat_guid = await _resolve_chat_guid()  # type: ignore[assignment]
+    if not chat_guid:
+        return _error("No chat_guid provided and could not auto-resolve from current channel")
     try:
         from integrations.bluebubbles.bb_api import send_reaction
         async with httpx.AsyncClient(timeout=10.0) as client:
