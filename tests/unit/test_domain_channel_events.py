@@ -96,6 +96,10 @@ class TestKindPayloadPairing:
         cases[ChannelEventKind.MEMORY_SCHEME_BOOTSTRAP] = MemorySchemeBootstrapPayload(
             bot_id="x", turn_id=_tid, scheme="workspace-files", files_loaded=3,
         )
+        from app.domain.payloads import PinnedFileUpdatedPayload
+        cases[ChannelEventKind.PINNED_FILE_UPDATED] = PinnedFileUpdatedPayload(
+            channel_id=cid, path="report.md", content_type="text/markdown",
+        )
 
         for kind in ChannelEventKind:
             assert kind in cases, f"missing test case for {kind}"

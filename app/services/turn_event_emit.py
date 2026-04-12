@@ -140,6 +140,7 @@ async def emit_run_stream_events(
                         tool_name=event.get("tool", ""),
                         result_summary=str(_result_text)[:500],
                         is_error=bool(event.get("error")),
+                        envelope=event.get("envelope"),
                     ),
                 ),
             )
