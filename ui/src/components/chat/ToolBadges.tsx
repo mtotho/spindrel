@@ -54,16 +54,21 @@ function buildItems(
     }
     return items;
   }
-  // Fallback: dedup from toolNames
+  // Fallback: dedup from toolNames (persisted messages where tool_calls is null).
+  // toolResults is in the same order as toolNames, so distribute positionally.
   const counts = new Map<string, number>();
-  for (const name of toolNames) {
+  const envMap = new Map<string, (ToolResultEnvelope | undefined)[]>();
+  for (let i = 0; i < toolNames.length; i++) {
+    const name = toolNames[i];
     counts.set(name, (counts.get(name) || 0) + 1);
+    if (!envMap.has(name)) envMap.set(name, []);
+    envMap.get(name)!.push(toolResults?.[i]);
   }
   return Array.from(counts, ([name, count]) => ({
     name,
     count,
     argsList: [],
-    envelopes: [],
+    envelopes: envMap.get(name) ?? [],
   }));
 }
 
