@@ -1,17 +1,20 @@
 """Event handlers for GitHub webhook events.
 
 Each handler parses a GitHub event payload into a human-readable message,
-a run_agent flag, and a comment_target for reply delivery.
+a run_agent flag, a comment_target for reply delivery, and an optional
+component-vocabulary envelope for rich UI rendering.
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.security.prompt_sanitize import sanitize_unicode
 
 logger = logging.getLogger(__name__)
+
+_COMPONENTS_CT = "application/vnd.spindrel.components+json"
 
 
 @dataclass
@@ -23,6 +26,7 @@ class ParsedEvent:
     owner: str
     repo: str
     sender: str
+    envelope: dict | None = field(default=None)  # Component-vocabulary envelope for UI
 
 
 def parse_event(event_type: str, payload: dict[str, Any]) -> ParsedEvent | None:
@@ -52,6 +56,30 @@ def _sender(payload: dict) -> str:
     return payload.get("sender", {}).get("login", "unknown")
 
 
+def _gh_url(owner: str, repo: str, path: str = "") -> str:
+    base = f"https://github.com/{owner}/{repo}"
+    return f"{base}/{path}" if path else base
+
+
+def _envelope(plain_body: str, components: list[dict]) -> dict:
+    """Build a component-vocabulary envelope."""
+    return {
+        "content_type": _COMPONENTS_CT,
+        "display": "inline",
+        "plain_body": plain_body,
+        "body": {"v": 1, "components": components},
+        "truncated": False,
+        "record_id": None,
+        "byte_size": 0,
+    }
+
+
+def _state_color(state: str, merged: bool = False) -> str:
+    if merged:
+        return "accent"
+    return "success" if state == "open" else "muted"
+
+
 # ---------------------------------------------------------------------------
 # Individual event handlers
 # ---------------------------------------------------------------------------
@@ -78,28 +106,70 @@ def _handle_pull_request(payload: dict) -> ParsedEvent | None:
         )
         if body:
             msg += f"\n{_truncate(body, 2000)}"
+
+        components: list[dict] = [
+            {"type": "heading", "text": f"PR #{number}: {title}", "level": 2},
+            {"type": "status", "text": "opened", "color": "success"},
+            {"type": "properties", "items": [
+                {"label": "Author", "value": f"@{sender}"},
+                {"label": "Branch", "value": f"{head_ref} → {base_ref}"},
+                {"label": "Stats", "value": f"+{additions} −{deletions} across {changed} files"},
+            ], "layout": "inline"},
+            {"type": "links", "items": [
+                {"url": pr.get("html_url", _gh_url(owner, repo, f"pull/{number}")),
+                 "title": f"View PR #{number}", "icon": "github"},
+            ]},
+        ]
+        if body:
+            components.append({
+                "type": "section", "label": "Description",
+                "collapsible": True, "defaultOpen": False,
+                "children": [{"type": "text", "content": _truncate(body, 1000), "markdown": True}],
+            })
+
         return ParsedEvent(
             message=msg,
             run_agent=True,
             comment_target={"type": "issue_comment", "issue_number": number},
             owner=owner, repo=repo, sender=sender,
+            envelope=_envelope(f"PR #{number}: {title} opened by @{sender}", components),
         )
 
     if action == "synchronize":
         commits = payload.get("after", "")[:7]
         msg = f"PR #{number} updated ({title}) — new head: {commits}"
+        components = [
+            {"type": "properties", "items": [
+                {"label": "PR", "value": f"#{number} {title}"},
+                {"label": "New head", "value": commits},
+            ], "layout": "inline"},
+            {"type": "links", "items": [
+                {"url": pr.get("html_url", _gh_url(owner, repo, f"pull/{number}")),
+                 "title": f"View PR #{number}", "icon": "github"},
+            ]},
+        ]
         return ParsedEvent(
             message=msg, run_agent=False, comment_target=None,
             owner=owner, repo=repo, sender=sender,
+            envelope=_envelope(msg, components),
         )
 
     if action in ("closed",):
         merged = pr.get("merged", False)
         verb = "merged" if merged else "closed"
         msg = f"PR #{number} {verb}: {title}"
+        components = [
+            {"type": "heading", "text": f"PR #{number}: {title}", "level": 3},
+            {"type": "status", "text": verb, "color": _state_color("closed", merged)},
+            {"type": "links", "items": [
+                {"url": pr.get("html_url", _gh_url(owner, repo, f"pull/{number}")),
+                 "title": f"View PR #{number}", "icon": "github"},
+            ]},
+        ]
         return ParsedEvent(
             message=msg, run_agent=False, comment_target=None,
             owner=owner, repo=repo, sender=sender,
+            envelope=_envelope(msg, components),
         )
 
     return None
@@ -121,11 +191,33 @@ def _handle_issues(payload: dict) -> ParsedEvent | None:
             msg += f"\nLabels: {labels}"
         if body:
             msg += f"\n\n{_truncate(body, 2000)}"
+
+        props = [{"label": "Author", "value": f"@{sender}"}]
+        if labels:
+            props.append({"label": "Labels", "value": labels})
+
+        components: list[dict] = [
+            {"type": "heading", "text": f"Issue #{number}: {title}", "level": 2},
+            {"type": "status", "text": "opened", "color": "success"},
+            {"type": "properties", "items": props, "layout": "inline"},
+            {"type": "links", "items": [
+                {"url": issue.get("html_url", _gh_url(owner, repo, f"issues/{number}")),
+                 "title": f"View issue #{number}", "icon": "github"},
+            ]},
+        ]
+        if body:
+            components.append({
+                "type": "section", "label": "Description",
+                "collapsible": True, "defaultOpen": False,
+                "children": [{"type": "text", "content": _truncate(body, 1000), "markdown": True}],
+            })
+
         return ParsedEvent(
             message=msg,
             run_agent=True,
             comment_target={"type": "issue_comment", "issue_number": number},
             owner=owner, repo=repo, sender=sender,
+            envelope=_envelope(f"Issue #{number}: {title} opened by @{sender}", components),
         )
 
     return None
@@ -150,11 +242,26 @@ def _handle_issue_comment(payload: dict) -> ParsedEvent | None:
         f"Comment on {context} #{number} ({title}) by @{sender}:\n\n"
         f"{_truncate(body, 3000)}"
     )
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"Comment on {context} #{number}: {title}", "level": 3},
+        {"type": "properties", "items": [
+            {"label": "Author", "value": f"@{sender}"},
+        ], "layout": "inline"},
+        {"type": "links", "items": [
+            {"url": comment.get("html_url", _gh_url(owner, repo, f"issues/{number}")),
+             "title": f"View comment on {context} #{number}", "icon": "github"},
+        ]},
+    ]
+    if body:
+        components.append({"type": "text", "content": _truncate(body, 1000), "markdown": True})
+
     return ParsedEvent(
         message=msg,
         run_agent=True,
         comment_target={"type": "issue_comment", "issue_number": number},
         owner=owner, repo=repo, sender=sender,
+        envelope=_envelope(f"Comment on {context} #{number} by @{sender}", components),
     )
 
 
@@ -174,11 +281,29 @@ def _handle_pull_request_review(payload: dict) -> ParsedEvent | None:
     if body:
         msg += f"\n{_truncate(body, 2000)}"
 
+    state_color = "danger" if state == "changes_requested" else "success" if state == "approved" else "muted"
+    state_label = state.replace("_", " ")
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"Review on PR #{number}: {title}", "level": 3},
+        {"type": "status", "text": state_label, "color": state_color},
+        {"type": "properties", "items": [
+            {"label": "Reviewer", "value": f"@{sender}"},
+        ], "layout": "inline"},
+        {"type": "links", "items": [
+            {"url": review.get("html_url", _gh_url(owner, repo, f"pull/{number}")),
+             "title": f"View review on PR #{number}", "icon": "github"},
+        ]},
+    ]
+    if body:
+        components.append({"type": "text", "content": _truncate(body, 1000), "markdown": True})
+
     return ParsedEvent(
         message=msg,
         run_agent=state == "changes_requested",
         comment_target={"type": "issue_comment", "issue_number": number} if state == "changes_requested" else None,
         owner=owner, repo=repo, sender=sender,
+        envelope=_envelope(f"PR #{number} review: {state_label} by @{sender}", components),
     )
 
 
@@ -205,11 +330,30 @@ def _handle_pull_request_review_comment(payload: dict) -> ParsedEvent | None:
         msg += f":{line}"
     msg += f"\n\n{_truncate(body, 2000)}"
 
+    file_ref = path
+    if line:
+        file_ref += f":{line}"
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"Inline comment on PR #{number}: {title}", "level": 3},
+        {"type": "properties", "items": [
+            {"label": "Author", "value": f"@{sender}"},
+            {"label": "File", "value": file_ref},
+        ], "layout": "inline"},
+        {"type": "links", "items": [
+            {"url": comment.get("html_url", _gh_url(owner, repo, f"pull/{number}")),
+             "title": f"View comment on PR #{number}", "icon": "github"},
+        ]},
+    ]
+    if body:
+        components.append({"type": "text", "content": _truncate(body, 1000), "markdown": True})
+
     return ParsedEvent(
         message=msg,
         run_agent=True,
         comment_target={"type": "issue_comment", "issue_number": number},
         owner=owner, repo=repo, sender=sender,
+        envelope=_envelope(f"Inline comment on PR #{number} by @{sender}", components),
     )
 
 
@@ -232,9 +376,38 @@ def _handle_push(payload: dict) -> ParsedEvent | None:
         f"Push to {branch}{force_tag}: {len(commits)} commit(s) by @{sender}\n"
         f"{commit_list}{extra}"
     )
+
+    # Rich components
+    components: list[dict] = [
+        {"type": "heading", "text": f"Push to {branch}{force_tag}", "level": 3},
+    ]
+    if forced:
+        components.append({"type": "status", "text": "force push", "color": "warning"})
+    components.append({"type": "properties", "items": [
+        {"label": "Author", "value": f"@{sender}"},
+        {"label": "Commits", "value": str(len(commits))},
+        {"label": "Branch", "value": branch},
+    ], "layout": "inline"})
+
+    if commits:
+        rows = [
+            [c.get("id", "")[:7], c.get("message", "").splitlines()[0][:80]]
+            for c in commits[:10]
+        ]
+        components.append(
+            {"type": "table", "columns": ["SHA", "Message"], "rows": rows, "compact": True}
+        )
+
+    compare_url = payload.get("compare", "")
+    if compare_url:
+        components.append({"type": "links", "items": [
+            {"url": compare_url, "title": "View diff on GitHub", "icon": "github"},
+        ]})
+
     return ParsedEvent(
         message=msg, run_agent=False, comment_target=None,
         owner=owner, repo=repo, sender=sender,
+        envelope=_envelope(f"Push to {branch}: {len(commits)} commit(s)", components),
     )
 
 
@@ -254,9 +427,29 @@ def _handle_release(payload: dict) -> ParsedEvent | None:
     if body:
         msg += f"\n\n{_truncate(body, 2000)}"
 
+    components: list[dict] = [
+        {"type": "heading", "text": f"Release {tag}: {name}", "level": 2},
+        {"type": "status", "text": "published", "color": "success"},
+        {"type": "properties", "items": [
+            {"label": "Author", "value": f"@{sender}"},
+            {"label": "Tag", "value": tag},
+        ], "layout": "inline"},
+        {"type": "links", "items": [
+            {"url": release.get("html_url", _gh_url(owner, repo, f"releases/tag/{tag}")),
+             "title": f"View release {tag}", "icon": "github"},
+        ]},
+    ]
+    if body:
+        components.append({
+            "type": "section", "label": "Release Notes",
+            "collapsible": True, "defaultOpen": False,
+            "children": [{"type": "text", "content": _truncate(body, 1000), "markdown": True}],
+        })
+
     return ParsedEvent(
         message=msg, run_agent=False, comment_target=None,
         owner=owner, repo=repo, sender=sender,
+        envelope=_envelope(f"Release {tag}: {name}", components),
     )
 
 
@@ -275,9 +468,23 @@ def _handle_discussion(payload: dict) -> ParsedEvent | None:
     if body:
         msg += f"\n\n{_truncate(body, 2000)}"
 
+    components: list[dict] = [
+        {"type": "heading", "text": f"Discussion: {title}", "level": 3},
+        {"type": "properties", "items": [
+            {"label": "Author", "value": f"@{sender}"},
+        ], "layout": "inline"},
+        {"type": "links", "items": [
+            {"url": discussion.get("html_url", _gh_url(owner, repo, "discussions")),
+             "title": "View discussion", "icon": "github"},
+        ]},
+    ]
+    if body:
+        components.append({"type": "text", "content": _truncate(body, 1000), "markdown": True})
+
     return ParsedEvent(
         message=msg, run_agent=False, comment_target=None,
         owner=owner, repo=repo, sender=sender,
+        envelope=_envelope(f"Discussion: {title} by @{sender}", components),
     )
 
 
@@ -297,9 +504,20 @@ def _handle_discussion_comment(payload: dict) -> ParsedEvent | None:
         f"Comment on discussion \"{title}\" by @{sender}:\n\n"
         f"{_truncate(body, 2000)}"
     )
+
+    components: list[dict] = [
+        {"type": "heading", "text": f"Comment on discussion: {title}", "level": 3},
+        {"type": "properties", "items": [
+            {"label": "Author", "value": f"@{sender}"},
+        ], "layout": "inline"},
+    ]
+    if body:
+        components.append({"type": "text", "content": _truncate(body, 1000), "markdown": True})
+
     return ParsedEvent(
         message=msg, run_agent=False, comment_target=None,
         owner=owner, repo=repo, sender=sender,
+        envelope=_envelope(f"Discussion comment by @{sender}", components),
     )
 
 

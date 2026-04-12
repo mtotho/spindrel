@@ -98,6 +98,9 @@ export function resolveDisplay(
     const senderName = meta.sender_display_name as string | undefined;
     return { name: senderName || "Unknown", isCurrentUser: false, isSlack: false, isMemberBot: false, sourceLabel: "via BlueBubbles" };
   }
+  if (meta.source === "github") {
+    return { name: meta.sender_display_name || "GitHub", isCurrentUser: false, isSlack: false, isMemberBot: false, sourceLabel: "via GitHub" };
+  }
   if (meta.source === "web" && meta.sender_display_name) {
     return { name: meta.sender_display_name, isCurrentUser: true, isSlack: false, isMemberBot: false, sourceLabel: null };
   }

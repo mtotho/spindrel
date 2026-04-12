@@ -78,7 +78,8 @@ async def wyoming_config(request: Request):
         if not device_id:
             continue
         bot = bots.get(str(channel.bot_id))
-        config = binding.activation_config or {}
+        # Config values may be in dispatch_config (binding form) or activation_config
+        config = {**(binding.dispatch_config or {}), **(binding.activation_config or {})}
         devices[device_id] = {
             "bot_id": str(channel.bot_id),
             "bot_name": bot.name if bot else "unknown",

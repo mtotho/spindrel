@@ -1,8 +1,0 @@
-id: example-yaml
-name: Example YAML Capability
-description: Demonstrates a capability defined via integration.yaml
-tags: [example, yaml, demo]
-
-system_prompt_fragment: |
-  You have access to the Example YAML integration tools.
-  Use them to demonstrate the YAML-only integration pattern.

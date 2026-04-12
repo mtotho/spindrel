@@ -135,6 +135,14 @@ async def github_webhook(
 
     execution_config = _build_execution_config(event_type, parsed)
 
+    # Rich UI envelope for component-vocabulary rendering
+    extra_metadata: dict | None = None
+    if parsed.envelope:
+        extra_metadata = {
+            "envelope": parsed.envelope,
+            "sender_display_name": f"@{parsed.sender}",
+        }
+
     # Fan-out to all channels bound to this client_id
     pairs = await resolve_all_channels_by_client_id(db, client_id)
 
@@ -147,7 +155,8 @@ async def github_webhook(
             session_id, parsed.message, source="github",
             run_agent=parsed.run_agent, notify=False,
             dispatch_config=dispatch_config,
-            execution_config=execution_config, db=db,
+            execution_config=execution_config,
+            extra_metadata=extra_metadata, db=db,
         )
         return {
             "status": "processed",
@@ -170,7 +179,8 @@ async def github_webhook(
             session_id, parsed.message, source="github",
             run_agent=parsed.run_agent, notify=False,
             dispatch_config=dispatch_config,
-            execution_config=execution_config, db=db,
+            execution_config=execution_config,
+            extra_metadata=extra_metadata, db=db,
         )
         results.append(result)
 

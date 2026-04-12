@@ -7,6 +7,7 @@ import { AttachmentImages } from "./AttachmentDisplay";
 import { ToolBadges } from "./ToolBadges";
 import { MessageActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
+import { RichToolResult } from "./RichToolResult";
 import { extractDisplayText, parseSlackPrefix, stripBBPrefix, resolveDisplay, avatarColor } from "./messageUtils";
 import { useToolResultCompact } from "../../stores/toolResultPref";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
@@ -52,6 +53,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const timestamp = formatTimeShort(message.created_at);
   const toolsUsed: string[] = (meta.tools_used as string[]) || [];
   const toolResults: ToolResultEnvelope[] | undefined = meta.tool_results as ToolResultEnvelope[] | undefined;
+  const richEnvelope: ToolResultEnvelope | undefined = meta.envelope as ToolResultEnvelope | undefined;
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;
   const delegations = (meta.delegations as any[]) || [];
@@ -99,9 +101,11 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
 
   const messageContent = (
     <>
-      {displayContent.length > 0 && (
+      {richEnvelope ? (
+        <RichToolResult envelope={richEnvelope} sessionId={message.session_id} t={t} />
+      ) : displayContent.length > 0 ? (
         <MarkdownContent text={displayContent} t={t} />
-      )}
+      ) : null}
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} t={t} />
       )}
