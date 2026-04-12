@@ -206,6 +206,17 @@ class GitHubRenderer:
         msg = getattr(payload, "message", None)
         if msg is None:
             return DeliveryReceipt.skipped("new_message without message payload")
+
+        role = getattr(msg, "role", "") or ""
+        if role in ("tool", "system"):
+            return DeliveryReceipt.skipped(f"github skips internal role={role}")
+        if role == "user":
+            msg_metadata = getattr(msg, "metadata", None) or {}
+            if msg_metadata.get("source") == "github":
+                return DeliveryReceipt.skipped(
+                    "github skips own-origin user message (echo prevention)"
+                )
+
         text = (getattr(msg, "content", "") or "").strip()
         if not text:
             return DeliveryReceipt.skipped("new_message with empty content")

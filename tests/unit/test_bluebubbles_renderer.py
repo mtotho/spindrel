@@ -326,6 +326,47 @@ class TestEchoTrackerOrdering:
 # ---------------------------------------------------------------------------
 
 
+def _new_message_user(content: str = "hi", source: str = "bluebubbles") -> ChannelEvent:
+    """NEW_MESSAGE with role=user — simulates a user message echoed back via outbox."""
+    cid = uuid.uuid4()
+    return ChannelEvent(
+        channel_id=cid,
+        kind=ChannelEventKind.NEW_MESSAGE,
+        payload=MessagePayload(
+            message=DomainMessage(
+                id=uuid.uuid4(),
+                session_id=uuid.uuid4(),
+                role="user",
+                content=content,
+                created_at=datetime.now(timezone.utc),
+                actor=ActorRef.user(f"bb:+15551234"),
+                metadata={"source": source},
+                channel_id=cid,
+            ),
+        ),
+    )
+
+
+def _new_message_internal(role: str = "tool") -> ChannelEvent:
+    """NEW_MESSAGE with an internal role (tool/system)."""
+    cid = uuid.uuid4()
+    return ChannelEvent(
+        channel_id=cid,
+        kind=ChannelEventKind.NEW_MESSAGE,
+        payload=MessagePayload(
+            message=DomainMessage(
+                id=uuid.uuid4(),
+                session_id=uuid.uuid4(),
+                role=role,
+                content='{"ok": true}',
+                created_at=datetime.now(timezone.utc),
+                actor=ActorRef.bot("test-bot"),
+                channel_id=cid,
+            ),
+        ),
+    )
+
+
 class TestNewMessage:
     async def test_posts_message_content(self, fake_send_text, fake_tracker):
         renderer = BlueBubblesRenderer()
@@ -345,6 +386,42 @@ class TestNewMessage:
         target = _target(text_footer="-- bot")
         await renderer.render(_new_message("hi"), target)
         assert fake_send_text.calls[0]["text"] == "hi\n-- bot"
+
+    async def test_own_origin_user_message_skipped(self, fake_send_text, fake_tracker):
+        """User messages originating from BB must NOT be echoed back to iMessage.
+
+        Without this guard, every inbound iMessage gets re-sent as a bot
+        reply because store_passive_message enqueues a NEW_MESSAGE in the
+        outbox, and the drainer delivers it right back to this renderer.
+        """
+        renderer = BlueBubblesRenderer()
+        receipt = await renderer.render(_new_message_user("hello", source="bluebubbles"), _target())
+        assert receipt.success is True
+        assert "echo prevention" in (receipt.skip_reason or "")
+        assert fake_send_text.calls == []
+
+    async def test_cross_origin_user_message_delivered(self, fake_send_text, fake_tracker):
+        """User messages from OTHER sources (e.g. web UI) SHOULD be mirrored."""
+        renderer = BlueBubblesRenderer()
+        receipt = await renderer.render(_new_message_user("hello", source="web"), _target())
+        assert receipt.success is True
+        assert fake_send_text.calls[0]["text"] == "hello"
+
+    async def test_tool_role_skipped(self, fake_send_text, fake_tracker):
+        """Tool-result messages should never be sent to iMessage."""
+        renderer = BlueBubblesRenderer()
+        receipt = await renderer.render(_new_message_internal("tool"), _target())
+        assert receipt.success is True
+        assert "internal role" in (receipt.skip_reason or "")
+        assert fake_send_text.calls == []
+
+    async def test_system_role_skipped(self, fake_send_text, fake_tracker):
+        """System messages should never be sent to iMessage."""
+        renderer = BlueBubblesRenderer()
+        receipt = await renderer.render(_new_message_internal("system"), _target())
+        assert receipt.success is True
+        assert "internal role" in (receipt.skip_reason or "")
+        assert fake_send_text.calls == []
 
 
 # ---------------------------------------------------------------------------

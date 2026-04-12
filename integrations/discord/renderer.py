@@ -297,6 +297,17 @@ class DiscordRenderer:
         msg = getattr(payload, "message", None)
         if msg is None:
             return DeliveryReceipt.skipped("new_message without message payload")
+
+        role = getattr(msg, "role", "") or ""
+        if role in ("tool", "system"):
+            return DeliveryReceipt.skipped(f"discord skips internal role={role}")
+        if role == "user":
+            msg_metadata = getattr(msg, "metadata", None) or {}
+            if msg_metadata.get("source") == "discord":
+                return DeliveryReceipt.skipped(
+                    "discord skips own-origin user message (echo prevention)"
+                )
+
         text = getattr(msg, "content", "") or ""
         formatted = format_response_for_discord(text)
         for chunk in split_for_discord(formatted) or [formatted]:

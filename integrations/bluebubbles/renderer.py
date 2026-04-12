@@ -274,6 +274,22 @@ class BlueBubblesRenderer:
         if msg is None:
             return DeliveryReceipt.skipped("new_message without message payload")
 
+        role = getattr(msg, "role", "") or ""
+        if role in ("tool", "system"):
+            return DeliveryReceipt.skipped(f"bb skips internal role={role}")
+
+        # Echo prevention — mirrors the Slack renderer pattern.
+        # BB-origin user messages reach the bus via turn_worker's
+        # _persist_and_publish_user_message, which the outbox drainer
+        # routes right back to this renderer. Without this guard every
+        # inbound iMessage is echoed back as a bot reply.
+        if role == "user":
+            msg_metadata = getattr(msg, "metadata", None) or {}
+            if msg_metadata.get("source") == "bluebubbles":
+                return DeliveryReceipt.skipped(
+                    "bb skips own-origin user message (echo prevention)"
+                )
+
         text = (getattr(msg, "content", "") or "").strip()
         if not text:
             return DeliveryReceipt.skipped("new_message with empty content")

@@ -187,12 +187,41 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
 
       switch (kind) {
         case "new_message": {
-          // The bus already shipped the full message; refetch session pages
-          // (cheap because TanStack dedupes) so the canonical row appears.
-          // Suppress while a turn is still in flight to avoid clobbering
-          // the synthetic streaming-content message in the store.
           const ch = store.getChannel(chId);
-          if (Object.keys(ch.turns).length > 0 || ch.isProcessing) return;
+          const turnActive = Object.keys(ch.turns).length > 0 || ch.isProcessing;
+          const msg = payload?.message;
+
+          // User messages from external sources (e.g. Slack) must appear
+          // immediately even while a turn is in flight. Add directly to the
+          // chat store so both suppression gates (here + useChannelChat sync
+          // effect) are bypassed.
+          if (turnActive && msg?.role === "user") {
+            // Deduplicate against optimistic messages already in the store
+            // (e.g. web-UI sends create an optimistic `msg-*` entry).
+            const existing = ch.messages;
+            const isDuplicate = existing.some(
+              (m) => m.id === msg.id || (m.role === "user" && m.content === msg.content &&
+                Math.abs(new Date(m.created_at).getTime() - new Date(msg.created_at).getTime()) < 3000),
+            );
+            if (!isDuplicate) {
+              store.addMessage(chId, {
+                id: msg.id,
+                session_id: msg.session_id,
+                role: msg.role,
+                content: msg.content ?? "",
+                created_at: msg.created_at,
+                metadata: msg.metadata,
+              });
+            }
+            return;
+          }
+
+          // During a turn, suppress assistant new_message events to avoid
+          // clobbering the synthetic streaming-content message in the store.
+          if (turnActive) return;
+
+          // No turn active — refetch session pages so the canonical row
+          // appears (cheap because TanStack dedupes).
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
           return;
         }
