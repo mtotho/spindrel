@@ -26,11 +26,13 @@ F can register `SlackRenderer` with a single `register(...)` call.
 """
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.integrations.renderer import ChannelRenderer
 
+logger = logging.getLogger(__name__)
 
 _registry: dict[str, "ChannelRenderer"] = {}
 
@@ -38,9 +40,13 @@ _registry: dict[str, "ChannelRenderer"] = {}
 def register(renderer: "ChannelRenderer") -> None:
     """Register a `ChannelRenderer` under its `integration_id`.
 
+    If the integration's YAML manifest declares ``capabilities``, those
+    override the renderer's ClassVar (YAML is the source of truth).
+    A migration warning is logged when YAML and ClassVar disagree.
+
     Raises:
         ValueError: if `integration_id` is empty, already registered,
-            or `capabilities` is not a `frozenset`.
+            or capabilities cannot be resolved from either source.
     """
     integration_id = getattr(renderer, "integration_id", None)
     if not integration_id:
@@ -49,11 +55,30 @@ def register(renderer: "ChannelRenderer") -> None:
             f"`integration_id` ClassVar"
         )
 
-    capabilities = getattr(renderer, "capabilities", None)
-    if not isinstance(capabilities, frozenset):
+    # Resolve capabilities: YAML manifest wins over ClassVar
+    from app.services.integration_manifests import get_capabilities
+    from app.domain.capability import Capability
+
+    yaml_caps = get_capabilities(integration_id)
+    classvar_caps = getattr(renderer, "capabilities", None)
+
+    if yaml_caps is not None:
+        resolved = frozenset(Capability(c) for c in yaml_caps)
+
+        if isinstance(classvar_caps, frozenset) and classvar_caps != resolved:
+            logger.warning(
+                "renderer %s: YAML capabilities differ from ClassVar "
+                "(YAML=%s, ClassVar=%s) — using YAML as source of truth",
+                type(renderer).__name__,
+                sorted(c.value for c in resolved),
+                sorted(c.value for c in classvar_caps),
+            )
+
+        type(renderer).capabilities = resolved
+    elif not isinstance(classvar_caps, frozenset):
         raise ValueError(
             f"renderer {type(renderer).__name__}.capabilities must be a "
-            f"frozenset[Capability], got {type(capabilities).__name__}"
+            f"frozenset[Capability] or declared in integration.yaml"
         )
 
     if integration_id in _registry:

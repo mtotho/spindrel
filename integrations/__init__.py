@@ -38,6 +38,16 @@ _PACKAGES_DIR = _INTEGRATIONS_DIR.parent / "packages"
 _loaded_ids: set[str] = set()
 
 
+def _get_manifest_field(integration_id: str, field: str):
+    """Read a field from the manifest cache. Returns None if missing."""
+    try:
+        from app.services.integration_manifests import get_manifest
+        manifest = get_manifest(integration_id)
+        return manifest.get(field) if manifest else None
+    except ImportError:
+        return None
+
+
 def _all_integration_dirs() -> list[Path]:
     """Return all integration directories: in-repo integrations/, packages/, + INTEGRATION_DIRS."""
     dirs = [_INTEGRATIONS_DIR, _PACKAGES_DIR]
@@ -354,6 +364,32 @@ def _load_single_integration(
             logger.debug("Loaded hooks for integration: %s", integration_id)
         except Exception:
             logger.exception("Failed to load hooks for integration %r", integration_id)
+
+    # Auto-detect which modules this integration provides
+    detected_provides: set[str] = set()
+    if target_file.exists() or (
+        # YAML-declared target counts too
+        not target_file.exists()
+        and _get_manifest_field(integration_id, "target")
+    ):
+        detected_provides.add("target")
+    if dispatcher_file.exists():
+        detected_provides.add("dispatcher")
+    if renderer_file.exists():
+        detected_provides.add("renderer")
+    if hooks_file.exists():
+        detected_provides.add("hooks")
+    if (candidate / "router.py").exists():
+        detected_provides.add("router")
+    if (candidate / "tools").is_dir() and any((candidate / "tools").glob("*.py")):
+        detected_provides.add("tools")
+    if (candidate / "carapaces").is_dir() and any((candidate / "carapaces").glob("*.yaml")):
+        detected_provides.add("carapaces")
+    if (candidate / "skills").is_dir() and any((candidate / "skills").glob("*.md")):
+        detected_provides.add("skills")
+
+    from app.services.integration_manifests import set_detected_provides
+    set_detected_provides(integration_id, detected_provides)
 
     # Register router if present
     router_file = candidate / "router.py"

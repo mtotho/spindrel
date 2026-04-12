@@ -21,7 +21,11 @@ from app.config import VERSION, settings
 from app.db.engine import async_session, run_migrations
 from app.tools.loader import discover_and_load_tools
 from app.services.mcp_servers import load_mcp_servers, seed_from_yaml as seed_mcp_from_yaml, seed_from_integrations as seed_mcp_from_integrations
-from app.services.integration_manifests import seed_manifests, load_manifests
+from app.services.integration_manifests import (
+    seed_manifests, load_manifests,
+    validate_capabilities, validate_provides, validate_manifest_consistency,
+    get_all_manifests,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -434,6 +438,17 @@ async def lifespan(application: FastAPI):
             logger.info("Registered integration: %s", _integration_id)
         except Exception:
             logger.exception("Failed to register integration router: %s", _integration_id)
+
+    # Auto-register IntegrationMeta from manifests for integrations that
+    # have binding.client_id_prefix but no hooks.py (or a minimal hooks.py).
+    from app.agent.hooks import auto_register_from_manifest
+    for _iid, _manifest in get_all_manifests().items():
+        auto_register_from_manifest(_iid, _manifest)
+
+    # Validate integration manifests against runtime state
+    validate_capabilities()
+    validate_provides()
+    validate_manifest_consistency()
 
     # Build endpoint catalog from route introspection (after all routers registered)
     from app.services.endpoint_catalog import build_endpoint_catalog

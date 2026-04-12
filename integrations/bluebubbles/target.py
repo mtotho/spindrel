@@ -30,6 +30,7 @@ class BlueBubblesTarget(_BaseTarget):
     password: str
     send_method: str | None = None
     text_footer: str | None = None
+    typing_indicator: bool = True
 
 
 target_registry.register(BlueBubblesTarget)

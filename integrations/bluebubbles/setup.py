@@ -116,6 +116,7 @@ SETUP = {
                 {"value": "private-api", "label": "Private API (requires helper)"},
             ]},
             {"key": "text_footer", "type": "string", "label": "Text Footer", "description": "Text appended to every outgoing message (e.g. ' - Michael Bot')", "default": ""},
+            {"key": "typing_indicator", "type": "boolean", "label": "Typing Indicator", "description": "Show typing indicator in iMessage while the bot is processing", "default": True},
         ],
     },
 }

@@ -1089,11 +1089,13 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
         binding_send_method = dc.get("send_method", "") or None
 
         binding_text_footer = dc.get("text_footer", "") or ""
+        binding_typing = dc.get("typing_indicator", True)
         dispatch_config = {
             "type": "bluebubbles",
             "chat_guid": chat_guid,
             "server_url": server_url,
             "password": password,
+            "typing_indicator": binding_typing,
         }
         if binding_send_method:
             dispatch_config["send_method"] = binding_send_method
@@ -1197,12 +1199,17 @@ async def webhook(request: Request, db: AsyncSession = Depends(get_db)) -> dict:
                 run_agent = False
                 content = f"[{_sender_label}]: {text}"
 
-        # Sender metadata for UI display (name, source label, etc.)
+        # Sender metadata — matches the Slack/Discord pattern so the
+        # agent context builder can attribute messages properly in group
+        # chats. ``message_guid`` is included so tools (e.g. reactions)
+        # can reference the specific inbound message.
         extra_metadata: dict = {
             "sender_id": f"bb:{handle.get('address', 'unknown')}",
+            "sender_type": "human",
             "is_from_me": is_from_me,
+            "message_guid": data.get("guid", ""),
         }
-        if sender_display and not is_from_me:
+        if sender_display:
             extra_metadata["sender_display_name"] = sender_display
         if binding.display_name:
             extra_metadata["binding_display_name"] = binding.display_name

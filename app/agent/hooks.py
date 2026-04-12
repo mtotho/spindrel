@@ -42,9 +42,44 @@ _meta_registry: dict[str, IntegrationMeta] = {}
 
 
 def register_integration(meta: IntegrationMeta) -> None:
-    """Register an integration's metadata (prefix, attribution, display names)."""
+    """Register an integration's metadata (prefix, attribution, display names).
+
+    If an auto-registered entry already exists (from manifest), merge:
+    hooks.py callbacks win, manifest static fields fill gaps.
+    """
+    existing = _meta_registry.get(meta.integration_type)
+    if existing:
+        # Merge: prefer hooks.py values, fall back to auto-registered
+        meta = IntegrationMeta(
+            integration_type=meta.integration_type,
+            client_id_prefix=meta.client_id_prefix or existing.client_id_prefix,
+            user_attribution=meta.user_attribution or existing.user_attribution,
+            resolve_display_names=meta.resolve_display_names or existing.resolve_display_names,
+            resolve_dispatch_config=meta.resolve_dispatch_config or existing.resolve_dispatch_config,
+        )
     _meta_registry[meta.integration_type] = meta
     logger.debug("Registered integration meta: %s (prefix=%s)", meta.integration_type, meta.client_id_prefix)
+
+
+def auto_register_from_manifest(integration_id: str, manifest: dict) -> None:
+    """Create a minimal IntegrationMeta from manifest data.
+
+    Called after discover_integrations() to fill gaps for integrations
+    that have ``binding.client_id_prefix`` in their manifest but no
+    hooks.py (or a hooks.py that doesn't call register_integration).
+    No-ops if already registered.
+    """
+    if integration_id in _meta_registry:
+        return
+    binding = manifest.get("binding", {})
+    prefix = binding.get("client_id_prefix", "")
+    if not prefix:
+        return
+    _meta_registry[integration_id] = IntegrationMeta(
+        integration_type=integration_id,
+        client_id_prefix=prefix,
+    )
+    logger.debug("Auto-registered integration meta from manifest: %s (prefix=%s)", integration_id, prefix)
 
 
 def get_integration_meta(integration_type: str) -> IntegrationMeta | None:

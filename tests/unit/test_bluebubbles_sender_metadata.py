@@ -194,7 +194,9 @@ class TestSenderMetadata:
         call_kwargs = mock_utils.inject_message.call_args
         meta = call_kwargs.kwargs["extra_metadata"]
         assert meta["is_from_me"] is True
-        assert "sender_display_name" not in meta
+        assert meta["sender_type"] == "human"
+        assert "message_guid" in meta
+        # is_from_me still gets sender_display_name (from binding fallback)
         assert meta["binding_display_name"] == "Jane Doe"
 
     @pytest.mark.asyncio

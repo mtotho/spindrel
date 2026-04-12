@@ -1,0 +1,18 @@
+name: "spindrel-wyoming"
+
+services:
+  whisper:
+    image: rhasspy/wyoming-whisper
+    container_name: spindrel-wyoming-whisper
+    ports:
+      - "10300:10300"
+    command: --model tiny-int8 --language en
+    restart: unless-stopped
+
+  piper:
+    image: rhasspy/wyoming-piper
+    container_name: spindrel-wyoming-piper
+    ports:
+      - "10200:10200"
+    command: --voice en_US-lessac-medium
+    restart: unless-stopped

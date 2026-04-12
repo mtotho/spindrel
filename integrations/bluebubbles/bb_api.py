@@ -169,6 +169,133 @@ async def mark_chat_unread(
         return False
 
 
+async def set_typing(
+    client: httpx.AsyncClient,
+    server_url: str,
+    password: str,
+    chat_guid: str,
+) -> bool:
+    """Send a typing indicator to a BB chat.
+
+    iMessage typing indicators auto-expire after ~10s, so there's no
+    explicit "stop typing" call needed — the message send clears it.
+    Fire-and-forget; failures are silently swallowed.
+    """
+    try:
+        r = await client.post(
+            f"{server_url}/api/v1/chat/{chat_guid}/typing",
+            params={"password": password},
+            json={"chatGuid": chat_guid},
+            timeout=5.0,
+        )
+        return r.status_code in (200, 204)
+    except Exception:
+        logger.debug("BB set_typing failed for chat %s", chat_guid, exc_info=True)
+        return False
+
+
+async def send_reaction(
+    client: httpx.AsyncClient,
+    server_url: str,
+    password: str,
+    chat_guid: str,
+    message_text: str,
+    reaction: str,
+    *,
+    selected_message_guid: str | None = None,
+) -> dict | None:
+    """Send a tapback reaction on a message in a BB chat.
+
+    *reaction* must be one of: love, like, dislike, laugh, emphasize, question.
+    *selected_message_guid* is the GUID of the specific message part to react to.
+    Returns the API response dict or None on failure.
+    """
+    body: dict = {
+        "chatGuid": chat_guid,
+        "selectedMessageGuid": selected_message_guid or "",
+        "selectedMessageText": message_text,
+        "reaction": reaction,
+    }
+    try:
+        r = await client.post(
+            f"{server_url}/api/v1/message/react",
+            params={"password": password},
+            json=body,
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        logger.exception("BB send_reaction failed for chat %s", chat_guid)
+        return None
+
+
+async def get_findmy_devices(
+    client: httpx.AsyncClient,
+    server_url: str,
+    password: str,
+) -> list[dict]:
+    """Get cached Find My device locations.
+
+    On macOS Sequoia (15+) Apple encrypts the Find My cache, so this
+    may return an empty list or null locations. Callers should handle
+    gracefully.
+    """
+    try:
+        r = await client.get(
+            f"{server_url}/api/v1/icloud/findmy/devices",
+            params={"password": password},
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data.get("data", [])
+    except Exception:
+        logger.exception("BB get_findmy_devices failed")
+        return []
+
+
+async def get_findmy_friends(
+    client: httpx.AsyncClient,
+    server_url: str,
+    password: str,
+) -> list[dict]:
+    """Get cached Find My friends/people locations."""
+    try:
+        r = await client.get(
+            f"{server_url}/api/v1/icloud/findmy/friends",
+            params={"password": password},
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data.get("data", [])
+    except Exception:
+        logger.exception("BB get_findmy_friends failed")
+        return []
+
+
+async def refresh_findmy(
+    client: httpx.AsyncClient,
+    server_url: str,
+    password: str,
+) -> bool:
+    """Force a refresh of Find My device locations from Apple.
+
+    Returns True if the server accepted the refresh request.
+    """
+    try:
+        r = await client.post(
+            f"{server_url}/api/v1/icloud/findmy/devices/refresh",
+            params={"password": password},
+            timeout=10.0,
+        )
+        return r.status_code in (200, 204)
+    except Exception:
+        logger.debug("BB refresh_findmy failed", exc_info=True)
+        return False
+
+
 async def get_chat_messages(
     client: httpx.AsyncClient,
     server_url: str,

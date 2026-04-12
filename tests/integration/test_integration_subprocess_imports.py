@@ -59,14 +59,21 @@ STUB_ENV: dict[str, str] = {
 
 
 def _discover_subprocess_entries() -> list[tuple[str, Path]]:
-    """Find every (integration_name, script_path) declared by a process.py CMD.
+    """Find every (integration_name, script_path) declared by process.py CMD
+    or by the YAML ``process.cmd`` section in integration.yaml.
 
     Reads each ``integrations/*/process.py``'s ``CMD`` attribute via
-    importlib so new integrations are picked up automatically. Skips
-    integrations that declare ``CMD = None`` (e.g., bluebubbles, which
-    runs as a webhook only).
+    importlib so new integrations are picked up automatically. Also reads
+    ``integrations/*/integration.yaml`` for YAML-declared processes.
+    Skips integrations that declare ``CMD = None`` (e.g., bluebubbles,
+    which runs as a webhook only).
     """
+    import yaml as _yaml
+
     entries: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+
+    # 1. process.py (legacy)
     for process_py in sorted(INTEGRATIONS_DIR.glob("*/process.py")):
         integration = process_py.parent.name
         spec = importlib.util.spec_from_file_location(
@@ -78,19 +85,39 @@ def _discover_subprocess_entries() -> list[tuple[str, Path]]:
         try:
             spec.loader.exec_module(module)
         except Exception:
-            # A broken process.py is itself a bug, but it's out of
-            # scope for this smoke test — let the integration's own
-            # tests catch it.
             continue
         cmd = getattr(module, "CMD", None)
         if not cmd or not isinstance(cmd, list) or len(cmd) < 2:
             continue
-        # CMD looks like ["python", "integrations/<name>/<entry>.py"]
         script_rel = cmd[1]
         script_path = REPO_ROOT / script_rel
         if not script_path.exists() or script_path.suffix != ".py":
             continue
         entries.append((integration, script_path))
+        seen.add(integration)
+
+    # 2. integration.yaml process.cmd (modern)
+    for yaml_path in sorted(INTEGRATIONS_DIR.glob("*/integration.yaml")):
+        integration = yaml_path.parent.name
+        if integration in seen:
+            continue
+        try:
+            with open(yaml_path) as f:
+                data = _yaml.safe_load(f)
+            process = data.get("process") if isinstance(data, dict) else None
+            if not process or not isinstance(process, dict):
+                continue
+            cmd = process.get("cmd")
+            if not cmd or not isinstance(cmd, list) or len(cmd) < 2:
+                continue
+            script_rel = cmd[1]
+            script_path = REPO_ROOT / script_rel
+            if not script_path.exists() or script_path.suffix != ".py":
+                continue
+            entries.append((integration, script_path))
+        except Exception:
+            continue
+
     return entries
 
 

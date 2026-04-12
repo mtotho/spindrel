@@ -198,6 +198,140 @@ async def bb_send_message(chat_guid: str, message: str) -> str:
 @register({
     "type": "function",
     "function": {
+        "name": "bb_send_reaction",
+        "description": (
+            "Send a tapback reaction to a specific iMessage message. "
+            "Tapbacks are the small icons (heart, thumbs up, etc.) that appear on messages in iMessage. "
+            "Use bb_get_messages first to find the message text to react to."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "chat_guid": {
+                    "type": "string",
+                    "description": "The chat GUID containing the message.",
+                },
+                "message_text": {
+                    "type": "string",
+                    "description": "The exact text of the message to react to.",
+                },
+                "reaction": {
+                    "type": "string",
+                    "enum": ["love", "like", "dislike", "laugh", "emphasize", "question"],
+                    "description": "The tapback reaction type.",
+                },
+            },
+            "required": ["chat_guid", "message_text", "reaction"],
+        },
+    },
+})
+async def bb_send_reaction(chat_guid: str, message_text: str, reaction: str) -> str:
+    try:
+        server_url, password = _credentials()
+    except ValueError as e:
+        return _error(str(e))
+    try:
+        from integrations.bluebubbles.bb_api import send_reaction
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            result = await send_reaction(
+                client, server_url, password, chat_guid, message_text, reaction,
+            )
+        if result:
+            return json.dumps({"ok": True, "reaction": reaction, "chat_guid": chat_guid})
+        return _error("send_reaction returned None — reaction may not have been delivered")
+    except Exception as e:
+        logger.exception("bb_send_reaction failed")
+        return _error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "bb_find_my",
+        "description": (
+            "Look up the location of Apple devices and people via Find My. "
+            "Returns device names, locations (latitude/longitude), battery levels, and last update times. "
+            "Refreshes location data from Apple before returning results. "
+            "Note: on macOS Sequoia (15+) device locations may be unavailable due to Apple encryption changes."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+})
+async def bb_find_my() -> str:
+    try:
+        server_url, password = _credentials()
+    except ValueError as e:
+        return _error(str(e))
+    try:
+        from integrations.bluebubbles.bb_api import (
+            get_findmy_devices,
+            get_findmy_friends,
+            refresh_findmy,
+        )
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # Refresh first to get latest locations
+            await refresh_findmy(client, server_url, password)
+            # Fetch both devices and friends
+            devices = await get_findmy_devices(client, server_url, password)
+            friends = await get_findmy_friends(client, server_url, password)
+
+        device_results = []
+        for d in devices:
+            location = d.get("location") or {}
+            device_results.append({
+                "name": d.get("name") or d.get("deviceDisplayName") or "Unknown device",
+                "model": d.get("deviceModel") or d.get("deviceDisplayName"),
+                "latitude": location.get("latitude"),
+                "longitude": location.get("longitude"),
+                "address": d.get("address") or location.get("address"),
+                "battery_level": d.get("batteryLevel"),
+                "battery_status": d.get("batteryStatus"),
+                "last_updated": d.get("lastUpdated") or location.get("timeStamp"),
+            })
+
+        friend_results = []
+        for f in friends:
+            location = f.get("location") or {}
+            friend_results.append({
+                "name": (
+                    f"{f.get('firstName', '')} {f.get('lastName', '')}".strip()
+                    or f.get("handle") or "Unknown"
+                ),
+                "handle": f.get("handle"),
+                "latitude": location.get("latitude"),
+                "longitude": location.get("longitude"),
+                "address": f.get("address") or location.get("address"),
+                "last_updated": location.get("timestamp"),
+            })
+
+        if not device_results and not friend_results:
+            return json.dumps({
+                "devices": [],
+                "friends": [],
+                "note": (
+                    "No Find My data available. On macOS Sequoia (15+), "
+                    "Apple encrypts the Find My cache which prevents access. "
+                    "On older macOS versions, ensure Find My is enabled in System Settings."
+                ),
+            })
+
+        return json.dumps({
+            "devices": device_results,
+            "friends": friend_results,
+            "device_count": len(device_results),
+            "friend_count": len(friend_results),
+        })
+    except Exception as e:
+        logger.exception("bb_find_my failed")
+        return _error(str(e))
+
+
+@register({
+    "type": "function",
+    "function": {
         "name": "bb_server_info",
         "description": (
             "Check BlueBubbles server connectivity and get server info. "

@@ -41,7 +41,7 @@ _KNOWN_KEYS = {
     "binding", "dependencies", "docker_compose", "web_ui",
     "chat_hud", "chat_hud_presets", "sidebar_section",
     "debug_actions", "api_permissions", "dashboard_modules",
-    "target", "process",
+    "target", "process", "capabilities", "provides",
 }
 
 # Keys passed through as-is between manifest and SETUP dict formats.
@@ -51,7 +51,7 @@ PASSTHROUGH_KEYS = (
     "mcp_servers", "docker_compose", "web_ui", "chat_hud",
     "chat_hud_presets", "sidebar_section", "debug_actions",
     "api_permissions", "dashboard_modules",
-    "target", "process",
+    "target", "process", "capabilities", "provides",
 )
 
 
@@ -424,6 +424,89 @@ def collect_integration_mcp_servers(channel_integrations, exclude: set[str] | No
             if srv_id and srv_id not in _exclude and srv_id not in result:
                 result.append(srv_id)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Capabilities & provides
+# ---------------------------------------------------------------------------
+
+def get_capabilities(integration_id: str) -> frozenset[str] | None:
+    """Return capabilities from the manifest cache, or None if not declared.
+
+    Returns string values matching ``Capability`` StrEnum members so this
+    module doesn't need to import ``Capability``.
+    """
+    manifest = _manifests.get(integration_id)
+    if not manifest:
+        return None
+    caps = manifest.get("capabilities")
+    if caps is None:
+        return None
+    return frozenset(caps)
+
+
+def set_detected_provides(integration_id: str, detected: set[str]) -> None:
+    """Store auto-detected module list on the in-memory manifest."""
+    if integration_id in _manifests:
+        _manifests[integration_id]["_detected_provides"] = sorted(detected)
+
+
+def validate_capabilities() -> None:
+    """Check that YAML-declared capabilities use valid Capability enum values."""
+    from app.domain.capability import Capability
+    valid = {c.value for c in Capability}
+    for iid, manifest in _manifests.items():
+        caps = manifest.get("capabilities")
+        if not caps:
+            continue
+        unknown = set(caps) - valid
+        if unknown:
+            logger.warning(
+                "Integration '%s' declares unknown capabilities: %s (valid: %s)",
+                iid, sorted(unknown), sorted(valid),
+            )
+
+
+def validate_provides() -> None:
+    """Warn if declared ``provides`` modules don't match detected modules."""
+    for iid, manifest in _manifests.items():
+        declared = set(manifest.get("provides", []))
+        detected = set(manifest.get("_detected_provides", []))
+        if not declared:
+            continue
+        missing = declared - detected
+        extra = detected - declared
+        if missing:
+            logger.warning(
+                "Integration '%s' declares provides=%s but modules not found: %s",
+                iid, sorted(declared), sorted(missing),
+            )
+        if extra:
+            logger.info(
+                "Integration '%s' has undeclared modules: %s (consider adding to provides)",
+                iid, sorted(extra),
+            )
+
+
+def validate_manifest_consistency() -> None:
+    """Cross-check manifests against runtime registries after discovery."""
+    from app.integrations import renderer_registry
+    from app.agent.hooks import get_integration_meta
+
+    for iid, manifest in _manifests.items():
+        caps = manifest.get("capabilities")
+        if caps and not renderer_registry.get(iid):
+            logger.warning(
+                "Integration '%s' declares capabilities but has no registered renderer",
+                iid,
+            )
+
+        binding = manifest.get("binding", {})
+        if binding.get("client_id_prefix") and not get_integration_meta(iid):
+            logger.warning(
+                "Integration '%s' has binding.client_id_prefix but no IntegrationMeta registered",
+                iid,
+            )
 
 
 async def check_file_drift(integration_id: str) -> dict | None:

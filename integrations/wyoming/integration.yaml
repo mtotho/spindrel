@@ -1,0 +1,76 @@
+id: wyoming
+name: Voice Assistant (Wyoming)
+icon: Mic
+description: >-
+  Voice assistant via Wyoming protocol. Accepts audio from Wyoming satellites
+  (Raspberry Pi, ESP32, etc.), transcribes via Whisper, dispatches to a bound
+  channel, and speaks the response back via Piper TTS.
+version: "0.1"
+
+settings:
+  - key: WYOMING_LISTEN_HOST
+    type: string
+    label: "Listen host for incoming satellite connections"
+    default: "0.0.0.0"
+  - key: WYOMING_LISTEN_PORT
+    type: string
+    label: "Listen port for incoming satellite connections"
+    default: "10700"
+  - key: WYOMING_WHISPER_URI
+    type: string
+    label: "Whisper STT service URI (tcp://host:port)"
+    default: "tcp://localhost:10300"
+    required: true
+  - key: WYOMING_PIPER_URI
+    type: string
+    label: "Piper TTS service URI (tcp://host:port)"
+    default: "tcp://localhost:10200"
+    required: true
+  - key: WYOMING_DEFAULT_VOICE
+    type: string
+    label: "Default Piper voice model"
+    default: "en_US-lessac-medium"
+  - key: AGENT_API_KEY
+    type: string
+    label: "API key for the agent server"
+    required: true
+    secret: true
+  - key: AGENT_BASE_URL
+    type: string
+    label: "Agent server URL (default: http://localhost:8000)"
+  - key: WYOMING_CONTAINERS
+    type: string
+    label: "Start Whisper + Piper Docker containers (true/false)"
+    default: "true"
+
+binding:
+  client_id_prefix: "wyoming:"
+  client_id_placeholder: "wyoming:living-room"
+  client_id_description: "Device name or identifier"
+
+target:
+  type: wyoming
+  fields:
+    device_id: string
+    connection_id: string?
+
+capabilities:
+  - text
+
+provides:
+  - target
+  - renderer
+  - router
+
+docker_compose:
+  file: docker-compose.yml
+  project_name: spindrel-wyoming
+  enabled_setting: WYOMING_CONTAINERS
+  connect_networks: ["agent-server_default"]
+  description: "Whisper STT + Piper TTS for voice assistant pipeline"
+
+process:
+  cmd: ["python", "-m", "integrations.wyoming.wyoming_server"]
+  description: "Wyoming voice assistant server (TCP)"
+  required_env: ["WYOMING_WHISPER_URI", "WYOMING_PIPER_URI"]
+  watch_paths: ["integrations/wyoming/"]

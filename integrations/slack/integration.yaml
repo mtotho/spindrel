@@ -51,6 +51,30 @@ target:
     message_ts: string?
     reply_in_thread: bool = false
 
+capabilities:
+  - text
+  - rich_text
+  - threading
+  - reactions
+  - inline_buttons
+  - attachments
+  - image_upload
+  - file_upload
+  - file_delete
+  - streaming_edit
+  - approval_buttons
+  - display_names
+  - mentions
+
+provides:
+  - target
+  - renderer
+  - hooks
+  - router
+  - tools
+  - carapaces
+  - skills
+
 process:
   cmd: ["python", "integrations/slack/slack_bot.py"]
   description: "Slack Bolt bot (socket mode)"

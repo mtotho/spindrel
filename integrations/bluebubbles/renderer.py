@@ -39,9 +39,9 @@ import httpx
 from app.domain.capability import Capability
 from app.domain.channel_events import ChannelEvent, ChannelEventKind
 from app.domain.dispatch_target import DispatchTarget
-from app.domain.outbound_action import OutboundAction
+from app.domain.outbound_action import OutboundAction, UploadFile, UploadImage
 from app.integrations.renderer import DeliveryReceipt
-from integrations.bluebubbles.bb_api import send_text
+from integrations.bluebubbles.bb_api import send_attachment, send_text, set_typing
 from integrations.bluebubbles.echo_tracker import shared_tracker
 from integrations.bluebubbles.target import BlueBubblesTarget
 
@@ -156,6 +156,8 @@ class BlueBubblesRenderer:
 
         kind = event.kind
         try:
+            if kind == ChannelEventKind.TURN_STARTED:
+                return await self._handle_turn_started(event, target)
             if kind == ChannelEventKind.TURN_ENDED:
                 return await self._handle_turn_ended(event, target)
             if kind == ChannelEventKind.NEW_MESSAGE:
@@ -169,8 +171,8 @@ class BlueBubblesRenderer:
             )
             return DeliveryReceipt.failed(f"unexpected: {exc}", retryable=True)
 
-        # TURN_STARTED, TURN_STREAM_*, ATTACHMENT_DELETED, MESSAGE_UPDATED
-        # all silently skip — iMessage can't render any of them.
+        # TURN_STREAM_*, ATTACHMENT_DELETED, MESSAGE_UPDATED
+        # silently skip — iMessage can't render any of them.
         return DeliveryReceipt.skipped(
             f"bluebubbles does not handle {kind.value}"
         )
@@ -180,10 +182,16 @@ class BlueBubblesRenderer:
         action: OutboundAction,
         target: DispatchTarget,
     ) -> DeliveryReceipt:
-        # Phase G has no out-of-band actions for BB. Image / file
-        # uploads through OutboundAction land in Phase H/I.
+        if not isinstance(target, BlueBubblesTarget):
+            return DeliveryReceipt.skipped("not a bluebubbles target")
+
+        if isinstance(action, UploadImage):
+            return await self._handle_upload(action, target)
+        if isinstance(action, UploadFile):
+            return await self._handle_upload(action, target)
+
         return DeliveryReceipt.skipped(
-            "bluebubbles outbound actions are not yet wired"
+            f"bluebubbles does not handle outbound action {action.type}"
         )
 
     async def delete_attachment(
@@ -198,6 +206,24 @@ class BlueBubblesRenderer:
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
+
+    async def _handle_turn_started(
+        self, event: ChannelEvent, target: BlueBubblesTarget,
+    ) -> DeliveryReceipt:
+        """Send a typing indicator when the agent begins processing.
+
+        Shows the "..." typing bubble in iMessage. The indicator
+        auto-expires after ~10s and is implicitly cleared when the
+        bot's actual reply is sent. Fire-and-forget — failures are
+        silently swallowed since this is a cosmetic UX enhancement.
+
+        Controlled by the per-binding ``typing_indicator`` config
+        (default: enabled).
+        """
+        if not target.typing_indicator:
+            return DeliveryReceipt.skipped("typing indicator disabled for this binding")
+        await set_typing(_http, target.server_url, target.password, target.chat_guid)
+        return DeliveryReceipt.skipped("typing indicator sent (fire-and-forget)")
 
     async def _handle_turn_ended(
         self, event: ChannelEvent, target: BlueBubblesTarget,
@@ -295,6 +321,56 @@ class BlueBubblesRenderer:
                 retryable=True,
             )
         return DeliveryReceipt.ok()
+
+
+    async def _handle_upload(
+        self,
+        action: UploadImage | UploadFile,
+        target: BlueBubblesTarget,
+    ) -> DeliveryReceipt:
+        """Send an image or file attachment via the BB API.
+
+        Decodes the base64 payload to a temp file and sends via
+        ``send_attachment``. The echo tracker is NOT wired here
+        because attachments don't echo back as text content.
+        """
+        import base64
+        import os
+        import tempfile
+
+        data_b64 = getattr(action, "image_data_b64", None) or getattr(action, "file_data_b64", "")
+        if not data_b64:
+            return DeliveryReceipt.skipped("upload action with no data")
+
+        filename = action.filename
+        try:
+            raw = base64.b64decode(data_b64)
+        except Exception:
+            return DeliveryReceipt.failed("invalid base64 data", retryable=False)
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f"_{filename}") as tmp:
+                tmp.write(raw)
+                tmp_path = tmp.name
+
+            result = await send_attachment(
+                _http, target.server_url, target.password,
+                target.chat_guid, tmp_path, filename,
+            )
+            if result:
+                # If there's a description, send it as a follow-up text
+                desc = getattr(action, "description", None)
+                if desc:
+                    await _bb_send(target, desc)
+                return DeliveryReceipt.ok()
+            return DeliveryReceipt.failed(
+                f"BB send_attachment failed for chat {target.chat_guid}",
+                retryable=True,
+            )
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
 
 # ---------------------------------------------------------------------------

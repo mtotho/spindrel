@@ -370,8 +370,9 @@ class TestApprovalRequested:
 # ---------------------------------------------------------------------------
 
 
-class TestSilentSkips:
-    async def test_turn_started_skipped(self, fake_send_text, fake_tracker):
+class TestTypingIndicator:
+    async def test_turn_started_sends_typing(self, fake_send_text, fake_tracker):
+        """TURN_STARTED fires a typing indicator (fire-and-forget)."""
         renderer = BlueBubblesRenderer()
         event = ChannelEvent(
             channel_id=uuid.uuid4(),
@@ -380,10 +381,31 @@ class TestSilentSkips:
                 bot_id="b", turn_id=uuid.uuid4(), reason="user_message",
             ),
         )
-        receipt = await renderer.render(event, _target())
+        with patch.object(bb_renderer_mod, "set_typing", new_callable=AsyncMock, return_value=True) as mock_typing:
+            receipt = await renderer.render(event, _target())
         assert receipt.success is True
-        assert "does not handle" in (receipt.skip_reason or "")
+        assert "typing indicator sent" in (receipt.skip_reason or "")
+        mock_typing.assert_awaited_once()
         assert fake_send_text.calls == []
+
+    async def test_turn_started_skipped_when_disabled(self, fake_send_text, fake_tracker):
+        """TURN_STARTED skips typing when the binding has it disabled."""
+        renderer = BlueBubblesRenderer()
+        event = ChannelEvent(
+            channel_id=uuid.uuid4(),
+            kind=ChannelEventKind.TURN_STARTED,
+            payload=TurnStartedPayload(
+                bot_id="b", turn_id=uuid.uuid4(), reason="user_message",
+            ),
+        )
+        with patch.object(bb_renderer_mod, "set_typing", new_callable=AsyncMock) as mock_typing:
+            receipt = await renderer.render(event, _target(typing_indicator=False))
+        assert receipt.success is True
+        assert "disabled" in (receipt.skip_reason or "")
+        mock_typing.assert_not_awaited()
+
+
+class TestSilentSkips:
 
     async def test_stream_token_skipped(self, fake_send_text, fake_tracker):
         renderer = BlueBubblesRenderer()
