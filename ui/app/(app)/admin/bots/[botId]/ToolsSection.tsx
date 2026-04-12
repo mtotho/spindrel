@@ -11,6 +11,7 @@ import type { BotConfig, BotEditorData, ToolGroup } from "@/src/types/api";
 import { ResolvedSummary } from "./ResolvedSummary";
 import { MOBILE_NAV_BREAKPOINT } from "./constants";
 import { ToolSchemaModal } from "./ToolSchemaModal";
+import { EnrolledToolsPanel } from "./EnrolledToolsPanel";
 
 // ---------------------------------------------------------------------------
 // Pinned Tools picker (default view)
@@ -843,6 +844,9 @@ export function ToolsSection({
 
       {/* Pinned Tools */}
       <PinnedToolsPicker editorData={editorData} draft={draft} update={update} discovery={discovery} />
+
+      {/* Enrolled Tools (persistent working set) */}
+      {discovery && draft.id && <EnrolledToolsPanel botId={draft.id} />}
 
       {/* MCP Servers */}
       <McpServersSection editorData={editorData} draft={draft} update={update} filter="" />

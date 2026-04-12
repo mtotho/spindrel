@@ -28,13 +28,16 @@ interface Props {
    *  preference and to thread sessionId-style auth into RichToolResult's
    *  lazy-fetch path. Optional for back-compat with non-channel call sites. */
   channelId?: string;
+  /** When true, this is the newest bot message in the channel — tool results
+   *  auto-expand. Older messages render collapsed. */
+  isLatestBotMessage?: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage }: Props) {
   const t = useThemeTokens();
   const [compact] = useToolResultCompact(channelId ?? "");
   const meta = message.metadata || {};
@@ -109,6 +112,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           toolResults={toolResults}
           sessionId={message.session_id}
           compact={compact}
+          autoExpand={isLatestBotMessage}
           t={t}
         />
       )}

@@ -88,7 +88,6 @@ def _bot_to_out(
         attachment_text_max_chars=getattr(bot, "attachment_text_max_chars", None),
         attachment_vision_concurrency=getattr(bot, "attachment_vision_concurrency", None),
         context_pruning=getattr(bot, "context_pruning", None),
-        context_pruning_keep_turns=getattr(bot, "context_pruning_keep_turns", None),
         history_mode=getattr(bot, "history_mode", "summary"),
         model_params=getattr(bot, "model_params", {}),
         delegation_config={

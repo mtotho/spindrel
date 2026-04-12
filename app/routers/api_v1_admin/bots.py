@@ -485,7 +485,6 @@ class BotUpdateIn(BaseModel):
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
     context_pruning: Optional[bool] = None
-    context_pruning_keep_turns: Optional[int] = None
     history_mode: Optional[str] = None
     audio_input: Optional[str] = None
     memory_config: Optional[dict] = None
@@ -652,7 +651,6 @@ class BotCreateIn(BaseModel):
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
     context_pruning: Optional[bool] = None
-    context_pruning_keep_turns: Optional[int] = None
     history_mode: Optional[str] = "file"
     audio_input: Optional[str] = "transcribe"
     memory_config: Optional[dict] = None
@@ -744,6 +742,13 @@ async def admin_bot_create(
         await enroll_starter_pack(data.id)
     except Exception:
         logger.warning("Failed to enroll starter pack for new bot %s", data.id, exc_info=True)
+
+    # Enroll the bot's declared local_tools as starter tools
+    try:
+        from app.services.tool_enrollment import enroll_starter_tools
+        await enroll_starter_tools(data.id, data.local_tools or [])
+    except Exception:
+        logger.warning("Failed to enroll starter tools for new bot %s", data.id, exc_info=True)
 
     await reload_bots()
 
@@ -1358,5 +1363,82 @@ async def admin_bot_enrolled_skill_remove(
     deleted = await unenroll(bot_id, skill_id)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Enrollment not found: {bot_id}/{skill_id}")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Enrolled tools (persistent tool working set)
+# ---------------------------------------------------------------------------
+
+class EnrolledToolOut(BaseModel):
+    tool_name: str
+    source: str
+    enrolled_at: datetime
+
+
+class EnrollToolIn(BaseModel):
+    tool_name: str
+    source: str = "manual"
+
+
+@router.get("/bots/{bot_id}/enrolled-tools", response_model=list[EnrolledToolOut])
+async def admin_bot_enrolled_tools_list(
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:read")),
+):
+    """List the bot's enrolled tool working set."""
+    from app.services.tool_enrollment import get_enrollments
+
+    bot_row = await db.get(BotRow, bot_id)
+    if not bot_row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    rows = await get_enrollments(bot_id)
+    return [
+        EnrolledToolOut(
+            tool_name=r.tool_name,
+            source=r.source,
+            enrolled_at=r.enrolled_at,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/bots/{bot_id}/enrolled-tools", status_code=201)
+async def admin_bot_enrolled_tool_add(
+    bot_id: str,
+    body: EnrollToolIn = Body(...),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:write")),
+):
+    """Manually enroll a tool in the bot's working set."""
+    from app.services.tool_enrollment import enroll
+
+    bot_row = await db.get(BotRow, bot_id)
+    if not bot_row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    inserted = await enroll(bot_id, body.tool_name, source=body.source or "manual")
+    return {"status": "ok", "tool_name": body.tool_name, "inserted": inserted}
+
+
+@router.delete("/bots/{bot_id}/enrolled-tools/{tool_name:path}", status_code=204)
+async def admin_bot_enrolled_tool_remove(
+    bot_id: str,
+    tool_name: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("bots:write")),
+):
+    """Remove a tool from the bot's enrolled working set."""
+    from app.services.tool_enrollment import unenroll
+
+    bot_row = await db.get(BotRow, bot_id)
+    if not bot_row:
+        raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
+
+    deleted = await unenroll(bot_id, tool_name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Tool enrollment not found: {bot_id}/{tool_name}")
     return None
 

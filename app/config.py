@@ -736,7 +736,6 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
 
     # Context pruning (trim old tool results at assembly time)
     CONTEXT_PRUNING_ENABLED: bool = True
-    CONTEXT_PRUNING_KEEP_TURNS: int = 3
     CONTEXT_PRUNING_MIN_LENGTH: int = 200
 
     # In-loop pruning (trim old tool results between iterations within a single turn).

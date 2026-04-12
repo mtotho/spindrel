@@ -211,7 +211,6 @@ async def assemble_config_state(db) -> dict:
             "memory_scheme": b.memory_scheme,
             "history_mode": b.history_mode,
             "context_pruning": b.context_pruning,
-            "context_pruning_keep_turns": b.context_pruning_keep_turns,
         }
         for b in bot_rows
     ]
@@ -267,7 +266,6 @@ async def assemble_config_state(db) -> dict:
             "section_index_count": ch.section_index_count,
             "section_index_verbosity": ch.section_index_verbosity,
             "context_pruning": ch.context_pruning,
-            "context_pruning_keep_turns": ch.context_pruning_keep_turns,
             "channel_workspace_enabled": ch.channel_workspace_enabled,
         }
         for ch in channel_rows

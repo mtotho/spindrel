@@ -367,11 +367,9 @@ async def estimate_bot_context(
     _pruning = draft.get("context_pruning")
     _pruning_on = _pruning if _pruning is not None else settings.CONTEXT_PRUNING_ENABLED
     if _pruning_on:
-        _keep = draft.get("context_pruning_keep_turns")
-        _keep = _keep if _keep is not None else settings.CONTEXT_PRUNING_KEEP_TURNS
         lines.append(EstimateLine(
             "opt:context_pruning", 0,
-            f"enabled — old tool results trimmed (keeping last {_keep} turns intact)",
+            "enabled — old tool results trimmed",
         ))
 
     if audio_input == "native":

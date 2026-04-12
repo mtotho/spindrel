@@ -98,7 +98,6 @@ class Channel(Base):
     section_index_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     section_index_verbosity: Mapped[str | None] = mapped_column(Text, nullable=True)
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     workspace_schema_template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("prompt_templates.id", ondelete="SET NULL"),
@@ -862,7 +861,6 @@ class Bot(Base):
     system_prompt_write_protected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'file'"))
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    context_pruning_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     carapaces: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))  # "system"|"file"|"manual"
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
@@ -1004,6 +1002,32 @@ class BotSkillEnrollment(Base):
         primary_key=True,
     )
     # source: 'starter' | 'fetched' | 'manual' | 'migration' | 'authored'
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
+    enrolled_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
+class BotToolEnrollment(Base):
+    """Per-bot persistent tool working set.
+
+    Mirrors BotSkillEnrollment for tools. Each row is a (bot, tool_name)
+    enrollment that persists across turns and sessions.
+    """
+    __tablename__ = "bot_tool_enrollment"
+
+    bot_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("bots.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    tool_name: Mapped[str] = mapped_column(
+        Text,
+        primary_key=True,
+    )
+    # source: 'starter' | 'fetched' | 'manual'
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
     enrolled_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),

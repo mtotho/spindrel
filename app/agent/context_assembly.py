@@ -751,9 +751,6 @@ async def assemble_context(
             logger.warning("Failed to load channel %s for context assembly, continuing without overrides", channel_id, exc_info=True)
 
     # --- context pruning (trim stale tool results) ---
-    # NOTE: context_pruning_keep_turns is a deprecated no-op — all tool
-    # results from previous turns are now pruned regardless. See vault
-    # Loose Ends.
     _pruning_enabled = settings.CONTEXT_PRUNING_ENABLED
     _pruning_min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
     # Bot-level override
@@ -1506,8 +1503,19 @@ async def assemble_context(
                       "selected": [t["function"]["name"] for t in retrieved],
                       "top_candidates": tool_candidates},
             ))
+        # Load enrolled tools (persistent working set) and merge into pinned
+        _enrolled_tool_names: list[str] = []
+        if bot.id:
+            try:
+                from app.services.tool_enrollment import get_enrolled_tool_names as _get_enrolled_tools
+                _enrolled_tool_names = await _get_enrolled_tools(bot.id)
+            except Exception:
+                logger.warning("Failed to load enrolled tools for %s", bot.id, exc_info=True)
+
         if by_name:
             _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names + ["get_tool_info"]
+            if _enrolled_tool_names:
+                _effective_pinned += _enrolled_tool_names
             if bot.skills:
                 _effective_pinned += ["get_skill", "get_skill_list"]
             pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]

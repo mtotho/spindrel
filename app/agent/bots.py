@@ -223,7 +223,6 @@ class BotConfig:
     carapaces: list[str] = field(default_factory=list)
     # Context pruning (trim old tool results at assembly time)
     context_pruning: bool | None = None
-    context_pruning_keep_turns: int | None = None
     # History mode: "file" (default) | "summary" | "structured"
     history_mode: str = "file"
     # Scoped API key permissions (populated from linked ApiKey)
@@ -451,7 +450,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         shared_workspace_role=_sw_role,
         carapaces=row.carapaces or [],
         context_pruning=getattr(row, "context_pruning", None),
-        context_pruning_keep_turns=getattr(row, "context_pruning_keep_turns", None),
         history_mode=row.history_mode or "file",
         memory_scheme=getattr(row, "memory_scheme", None),
         memory_hygiene_enabled=getattr(row, "memory_hygiene_enabled", None),
@@ -536,7 +534,6 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "workspace": data.get("workspace", {"enabled": False}),
         "carapaces": data.get("carapaces", []),
         "context_pruning": data.get("context_pruning"),
-        "context_pruning_keep_turns": data.get("context_pruning_keep_turns"),
         "history_mode": data.get("history_mode", "file"),
         "memory_scheme": data.get("memory_scheme"),
         "memory_hygiene_enabled": data.get("memory_hygiene_enabled"),

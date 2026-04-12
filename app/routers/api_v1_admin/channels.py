@@ -1934,7 +1934,6 @@ async def admin_channel_config_overhead(
         "delegation_config": {"delegate_bots": list(bot.delegate_bots)} if bot.delegate_bots else {},
         "history_mode": bot.history_mode,
         "context_pruning": bot.context_pruning,
-        "context_pruning_keep_turns": bot.context_pruning_keep_turns,
         "audio_input": bot.audio_input or "transcribe",
         "base_prompt": bot.base_prompt if bot.base_prompt is not None else True,
     }

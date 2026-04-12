@@ -601,11 +601,6 @@ async def compute_context_breakdown(
             getattr(bot, "context_pruning", None),
             settings.CONTEXT_PRUNING_ENABLED, "context_pruning",
         ),
-        "context_pruning_keep_turns": _resolve_setting(
-            getattr(channel, "context_pruning_keep_turns", None),
-            getattr(bot, "context_pruning_keep_turns", None),
-            settings.CONTEXT_PRUNING_KEEP_TURNS, "context_pruning_keep_turns",
-        ),
     }
 
     # -----------------------------------------------------------------------

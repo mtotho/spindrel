@@ -416,6 +416,7 @@ async def run_agent_tool_loop(
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
     tool_envelopes_made: list[dict] = []  # ToolResultEnvelope.compact_dict() in invocation order — persisted to Message.metadata.tool_results
     tool_call_trace: list[ToolCallSignature] = []  # for within-run cycle detection
+    _tools_to_enroll: list[str] = []  # tools to promote to persistent working set
     _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
     _detected_cycle_len: int = 0  # populated when cycle detected
 
@@ -1081,6 +1082,15 @@ async def run_agent_tool_loop(
                     messages.append(_tool_msg)
                     yield _event_with_compaction_tag(tc_result.tool_event, compaction)
 
+                    # Promote successfully-called tools to the bot's persistent working set
+                    if (
+                        bot.id
+                        and name not in STICKY_TOOL_NAMES
+                        and not tc_result.needs_approval
+                        and not tc_result.tool_event.get("error")
+                    ):
+                        _tools_to_enroll.append(name)
+
                     # Fire after_tool_call lifecycle hook (fire-and-forget)
                     safe_create_task(fire_hook("after_tool_call", HookContext(
                         bot_id=bot.id, session_id=session_id, channel_id=channel_id,
@@ -1222,6 +1232,15 @@ async def run_agent_tool_loop(
                         _tool_msg["_no_prune"] = True
                     messages.append(_tool_msg)
                     yield _event_with_compaction_tag(tc_result.tool_event, compaction)
+
+                    # Promote successfully-called tools to the bot's persistent working set
+                    if (
+                        bot.id
+                        and name not in STICKY_TOOL_NAMES
+                        and not tc_result.needs_approval
+                        and not tc_result.tool_event.get("error")
+                    ):
+                        _tools_to_enroll.append(name)
 
                     # Fire after_tool_call lifecycle hook (fire-and-forget)
                     safe_create_task(fire_hook("after_tool_call", HookContext(
@@ -1388,6 +1407,12 @@ async def run_agent_tool_loop(
         )
         for _evt in _fin_events:
             yield _evt
+
+        # Flush tool enrollment (fire-and-forget)
+        if _tools_to_enroll and bot.id:
+            _unique_tools = list(dict.fromkeys(_tools_to_enroll))
+            from app.services.tool_enrollment import enroll_many as _enroll_tools
+            safe_create_task(_enroll_tools(bot.id, _unique_tools, source="fetched"))
 
     except Exception as exc:
         # Fire after_response hook on error path so integrations can clean up

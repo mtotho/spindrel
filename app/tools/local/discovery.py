@@ -1,7 +1,8 @@
-"""Tool discovery tool — let agents look up full schemas for available tools."""
+"""Tool discovery tools — look up schemas and manage the persistent tool working set."""
 import json
 import logging
 
+from app.agent.context import current_bot_id
 from app.tools.registry import _tools, register
 
 logger = logging.getLogger(__name__)
@@ -82,3 +83,49 @@ async def get_tool_info(tool_name: str) -> str:
             logger.exception("get_tool_info: failed to activate %r", tool_name)
 
     return response_json
+
+
+@register({
+    "type": "function",
+    "function": {
+        "name": "prune_enrolled_tools",
+        "description": (
+            "Remove tools from your persistent enrolled working set. The tools "
+            "stay available in the catalog and will be re-enrolled on next "
+            "successful use. Use this in memory hygiene runs to drop tools you "
+            "don't actively use — their slot in your working set will be freed "
+            "and the semantic discovery layer will resurface them only when a "
+            "user message is relevant."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "tool_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tool names to unenroll from this bot's working set",
+                },
+            },
+            "required": ["tool_names"],
+        },
+    },
+})
+async def prune_enrolled_tools(tool_names: list[str]) -> str:
+    """Remove the listed tools from this bot's persistent enrollment."""
+    bot_id = current_bot_id.get()
+    if not bot_id:
+        return "Cannot prune: no bot context."
+    if not tool_names:
+        return "No tool names provided."
+
+    from app.services.tool_enrollment import unenroll_many
+
+    try:
+        removed = await unenroll_many(bot_id, tool_names)
+    except Exception as exc:
+        logger.exception("prune_enrolled_tools failed for bot %s", bot_id)
+        return f"Failed to prune enrollments: {exc}"
+
+    if removed == 0:
+        return f"No matching enrollments to remove ({len(tool_names)} requested)."
+    return f"Pruned {removed} tool enrollment(s) from your working set."

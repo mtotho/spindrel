@@ -276,7 +276,6 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "memory_scheme": row.get("memory_scheme"),
                 "history_mode": row.get("history_mode"),
                 "context_pruning": row.get("context_pruning"),
-                "context_pruning_keep_turns": row.get("context_pruning_keep_turns"),
             }
             stmt = pg_insert(Bot).values(id=row["id"], **vals)
             stmt = stmt.on_conflict_do_update(index_elements=["id"], set_=vals)
@@ -397,7 +396,6 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "section_index_count": row.get("section_index_count"),
                 "section_index_verbosity": row.get("section_index_verbosity"),
                 "context_pruning": row.get("context_pruning"),
-                "context_pruning_keep_turns": row.get("context_pruning_keep_turns"),
                 "channel_workspace_enabled": row.get("channel_workspace_enabled"),
             }
             stmt = pg_insert(Channel).values(id=row["id"], **vals)

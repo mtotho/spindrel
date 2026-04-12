@@ -200,7 +200,8 @@ export default function ChatScreen() {
         headerIdx++;
       }
       const fullTurnText = getTurnText(invertedData, headerIdx);
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} />;
+      const isLatestBotMessage = item.role === "assistant" && index === 0;
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} />;
       return <>{dateSep}{bubble}</>;
     },
     [invertedData, bot?.name, handleBotClick, channelId]
