@@ -357,9 +357,9 @@ class ESPHomeVoiceConnection:
             )
 
             session_id = result.get("session_id")
-            turn_id = result.get("turn_id")
-            if not session_id:
-                logger.error("No session_id in chat response for %s", cfg.device_name)
+            stream_id = result.get("stream_id")
+            if not session_id or not stream_id:
+                logger.error("No session_id/stream_id in chat response for %s", cfg.device_name)
                 client.send_voice_assistant_event(
                     VoiceAssistantEventType.VOICE_ASSISTANT_ERROR,
                     {"code": "no-session", "message": "Failed to start chat"},
@@ -369,11 +369,11 @@ class ESPHomeVoiceConnection:
                 )
                 return
 
-            logger.info("Chat submitted for %s: session=%s turn=%s", cfg.device_name, session_id, turn_id)
+            logger.info("Chat submitted for %s: session=%s stream=%s", cfg.device_name, session_id, stream_id)
 
-            # Poll for the bot's response (the /chat endpoint is async —
-            # it returns 202 and the turn worker generates the response)
-            response_text = await cfg.agent.wait_for_response(session_id, turn_id=turn_id)
+            # Stream the response via SSE — avoids stale-response bug
+            # that polling has (previous turn's message picked up first)
+            response_text = await cfg.agent.stream_response(stream_id)
             if not response_text:
                 logger.warning("Empty response from agent for %s", cfg.device_name)
                 response_text = "I don't have a response for that."

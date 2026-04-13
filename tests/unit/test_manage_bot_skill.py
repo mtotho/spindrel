@@ -47,6 +47,7 @@ def _make_skill_row(skill_id: str, name: str = "Test", content: str = "body",
     row.updated_at = kw.get("updated_at", datetime.now(timezone.utc))
     row.last_surfaced_at = kw.get("last_surfaced_at", None)
     row.surface_count = kw.get("surface_count", 0)
+    row.archived_at = kw.get("archived_at", None)
     return row
 
 
