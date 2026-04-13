@@ -276,6 +276,12 @@ class SatelliteConnection:
                     "type": "wyoming",
                     "device_id": self.device_id,
                 },
+                msg_metadata={
+                    "source": "wyoming",
+                    "sender_type": "human",
+                    "sender_id": f"wyoming:{self.device_id}",
+                    "sender_display_name": self.device_id,
+                },
             )
         except Exception:
             logger.exception("Failed to submit chat for %s", self.device_id)
@@ -284,12 +290,19 @@ class SatelliteConnection:
 
         # Step 3: Wait for bot response
         stream_id = result.get("stream_id")
-        if not stream_id:
-            logger.error("No stream_id in chat response")
+        session_id = result.get("session_id")
+        if stream_id:
+            response_text = await self.agent.stream_response(stream_id)
+        elif session_id:
+            from datetime import datetime, timezone
+            response_text = await self.agent.wait_for_response(
+                session_id, after=datetime.now(timezone.utc),
+            )
+        else:
+            logger.error("No stream_id or session_id in chat response: %s", result)
             await self._speak_error("Sorry, something went wrong.")
             return
 
-        response_text = await self.agent.stream_response(stream_id)
         if not response_text:
             logger.warning("Empty response from agent")
             await self._speak_error("I don't have a response for that.")

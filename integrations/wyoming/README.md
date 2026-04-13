@@ -22,54 +22,26 @@ Toggle the integration on in the admin UI. Set `WYOMING_CONTAINERS` to `true` to
 
 ### 2. Set Up a Satellite
 
-#### Desktop (for testing)
+#### Desktop or Raspberry Pi
+
+Client setup files are in `clients/satellite/`. Copy the directory to your satellite machine:
 
 ```bash
-# Terminal 1: start the wake word engine
-docker run -d --name wyoming-openwakeword \
-  -p 10400:10400 \
-  rhasspy/wyoming-openwakeword \
-  --uri tcp://0.0.0.0:10400 \
-  --preload-model hey_jarvis
-
-# Terminal 2: start the satellite
-~/wyoming-client/bin/python -m wyoming_satellite \
-  --name desktop \
-  --uri tcp://0.0.0.0:10700 \
-  --mic-command "arecord -r 16000 -c 1 -f S16_LE -t raw -q" \
-  --snd-command "aplay -r 22050 -c 1 -f S16_LE -t raw -q" \
-  --wake-uri tcp://127.0.0.1:10400 \
-  --wake-word-name hey_jarvis \
-  --vad
-```
-
-#### Raspberry Pi
-
-```bash
-# Install
-sudo apt-get install python3-venv python3-dev
+# On the satellite machine:
+# 1. Install the satellite
 python3 -m venv ~/wyoming-satellite
-source ~/wyoming-satellite/bin/activate
-pip install wyoming-satellite
+~/wyoming-satellite/bin/pip install wyoming-satellite
 
-# Run (replace mic/speaker devices as needed)
-python -m wyoming_satellite \
-  --name living-room \
-  --uri tcp://0.0.0.0:10700 \
-  --mic-command "arecord -D plughw:CARD=seeed2micvoicec -r 16000 -c 1 -f S16_LE -t raw -q" \
-  --snd-command "aplay -D plughw:CARD=seeed2micvoicec -r 22050 -c 1 -f S16_LE -t raw -q" \
-  --wake-uri tcp://127.0.0.1:10400 \
-  --wake-word-name hey_jarvis \
-  --vad
+# 2. Copy and run the start script
+#    (or clone the repo and cd to integrations/wyoming/clients/satellite/)
+bash start-satellite.sh
 ```
 
-Run openwakeword on the Pi too:
+The `start-satellite.sh` script handles everything: starts the wake word engine (Docker), detects PipeWire vs ALSA, and launches the satellite with audio feedback sounds.
+
+Configure via environment variables:
 ```bash
-docker run -d --name wyoming-openwakeword \
-  -p 10400:10400 \
-  rhasspy/wyoming-openwakeword \
-  --uri tcp://0.0.0.0:10400 \
-  --preload-model hey_jarvis
+WAKE_WORD=ok_nabu SATELLITE_NAME=kitchen bash start-satellite.sh
 ```
 
 ### 3. Set Up an ESPHome Device (ATOM Echo)
@@ -78,8 +50,11 @@ The M5Stack ATOM Echo is a $13 ESP32 device with built-in mic and speaker. No se
 
 #### Flash the firmware
 
+ESPHome device configs and firmware patches are in `clients/esphome/`.
+
 ```bash
-cd integrations/wyoming
+cd integrations/wyoming/clients/esphome
+
 # Create secrets.yaml with your WiFi credentials
 echo 'wifi_ssid: "YourSSID"' > secrets.yaml
 echo 'wifi_password: "YourPassword"' >> secrets.yaml

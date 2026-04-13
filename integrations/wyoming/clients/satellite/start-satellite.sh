@@ -157,6 +157,11 @@ echo "  Say '${WAKE_WORD}' to activate, then speak your message."
 echo "  Press Ctrl+C to stop."
 echo ""
 
+# Resolve path to audio feedback WAVs (relative to this script)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+AWAKE_WAV="${SCRIPT_DIR}/awake.wav"
+DONE_WAV="${SCRIPT_DIR}/done.wav"
+
 "$VENV/bin/python" -m wyoming_satellite \
     --name "${SATELLITE_NAME}" \
     --uri "tcp://0.0.0.0:${SATELLITE_PORT}" \
@@ -164,6 +169,8 @@ echo ""
     --snd-command "${SND_COMMAND}" \
     --wake-uri "tcp://127.0.0.1:${WAKE_PORT}" \
     --wake-word-name "${WAKE_WORD}" \
+    ${AWAKE_WAV:+--awake-wav "${AWAKE_WAV}"} \
+    ${DONE_WAV:+--done-wav "${DONE_WAV}"} \
     --debug &
 SAT_PID=$!
 
