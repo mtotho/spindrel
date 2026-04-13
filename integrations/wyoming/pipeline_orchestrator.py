@@ -29,6 +29,8 @@ from wyoming.tts import Synthesize
 
 from integrations.wyoming.agent_client import AgentClient
 from integrations.wyoming.pipeline import transcribe_audio, synthesize_speech, AudioBuffer
+from integrations.wyoming.esphome_client import ESPHomeVoiceConnection, ESPHomeConnectionConfig
+from integrations.wyoming.esphome_device_registry import ESPHomeDeviceRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +258,7 @@ async def main():
 
     from integrations.wyoming.config import (
         WHISPER_URI, PIPER_URI, DEFAULT_VOICE, API_KEY, AGENT_BASE_URL,
+        ESPHOME_API_PASSWORD,
     )
 
     whisper_uri = args.whisper_uri or WHISPER_URI
@@ -264,29 +267,38 @@ async def main():
 
     agent = AgentClient(AGENT_BASE_URL, API_KEY)
 
-    # Track active satellite connections
-    connections: dict[str, SatelliteConnection] = {}
+    # Track active connections — Wyoming satellites and ESPHome devices
+    wyoming_conns: dict[str, SatelliteConnection] = {}
+    esphome_conns: dict[str, ESPHomeVoiceConnection] = {}
+    esphome_registry = ESPHomeDeviceRegistry()
 
     async def refresh_and_manage():
-        """Periodically refresh config and manage satellite connections."""
+        """Periodically refresh config and manage device connections."""
         while True:
             try:
                 config = await agent.get_channel_config()
                 devices = config.get("devices", {})
 
-                # Start connections for new devices
+                # Split devices by protocol
+                wyoming_devices: dict[str, dict] = {}
+                esphome_devices: dict[str, dict] = {}
                 for device_id, device in devices.items():
+                    protocol = device.get("protocol", "wyoming")
+                    if protocol == "esphome":
+                        esphome_devices[device_id] = device
+                    else:
+                        wyoming_devices[device_id] = device
+
+                # --- Wyoming satellite connections ---
+                for device_id, device in wyoming_devices.items():
                     satellite_uri = device.get("satellite_uri")
                     if not satellite_uri:
                         continue
-
-                    if device_id in connections and connections[device_id].is_running:
+                    if device_id in wyoming_conns and wyoming_conns[device_id].is_running:
                         continue
-
                     bot_id = device.get("bot_id")
                     if not bot_id:
                         continue
-
                     conn = SatelliteConnection(
                         device_id=device_id,
                         satellite_uri=satellite_uri,
@@ -298,16 +310,55 @@ async def main():
                         voice=device.get("voice") or default_voice,
                         agent=agent,
                     )
-                    connections[device_id] = conn
+                    wyoming_conns[device_id] = conn
                     await conn.start()
-                    logger.info("Started connection to satellite %s at %s", device_id, satellite_uri)
+                    logger.info("Started Wyoming connection to %s at %s", device_id, satellite_uri)
 
-                # Stop connections for removed devices
-                for device_id in list(connections.keys()):
-                    if device_id not in devices:
-                        await connections[device_id].stop()
-                        del connections[device_id]
-                        logger.info("Stopped connection to removed satellite %s", device_id)
+                for device_id in list(wyoming_conns.keys()):
+                    if device_id not in wyoming_devices:
+                        await wyoming_conns[device_id].stop()
+                        del wyoming_conns[device_id]
+                        logger.info("Stopped Wyoming connection to %s", device_id)
+
+                # --- ESPHome device connections ---
+                esphome_registry.update(esphome_devices)
+
+                for device_id, device in esphome_devices.items():
+                    satellite_uri = device.get("satellite_uri")
+                    if not satellite_uri:
+                        continue
+                    if device_id in esphome_conns:
+                        continue
+                    bot_id = device.get("bot_id")
+                    if not bot_id:
+                        continue
+
+                    host, port = _parse_esphome_uri(satellite_uri)
+                    device_name = device.get("esphome_device_name") or device_id
+                    device_config = esphome_registry.get(device_name)
+                    if not device_config:
+                        continue
+
+                    econn = ESPHomeVoiceConnection(ESPHomeConnectionConfig(
+                        device_name=device_name,
+                        host=host,
+                        port=port,
+                        password=ESPHOME_API_PASSWORD,
+                        device_config=device_config,
+                        whisper_uri=whisper_uri,
+                        piper_uri=piper_uri,
+                        default_voice=default_voice,
+                        agent=agent,
+                    ))
+                    esphome_conns[device_id] = econn
+                    await econn.start()
+                    logger.info("Started ESPHome connection to %s at %s:%d", device_name, host, port)
+
+                for device_id in list(esphome_conns.keys()):
+                    if device_id not in esphome_devices:
+                        await esphome_conns[device_id].stop()
+                        del esphome_conns[device_id]
+                        logger.info("Stopped ESPHome connection to %s", device_id)
 
             except Exception:
                 logger.debug("Config refresh failed", exc_info=True)
@@ -324,7 +375,9 @@ async def main():
     except asyncio.CancelledError:
         pass
     finally:
-        for conn in connections.values():
+        for conn in wyoming_conns.values():
+            await conn.stop()
+        for conn in esphome_conns.values():
             await conn.stop()
         await agent.close()
 
@@ -336,6 +389,15 @@ def _parse_uri(uri: str) -> tuple[str, int]:
         host, port_str = uri.rsplit(":", 1)
         return host, int(port_str)
     return uri, 10700
+
+
+def _parse_esphome_uri(uri: str) -> tuple[str, int]:
+    """Parse a tcp://host:port URI for ESPHome devices (default port 6053)."""
+    uri = uri.removeprefix("tcp://")
+    if ":" in uri:
+        host, port_str = uri.rsplit(":", 1)
+        return host, int(port_str)
+    return uri, 6053
 
 
 if __name__ == "__main__":

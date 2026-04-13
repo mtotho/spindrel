@@ -143,13 +143,68 @@ async def _export_scene(scene: dict, output_path: Path) -> str | None:
     return None
 
 
+def _normalize_element(el: dict, idx: int) -> dict:
+    """Fill in required Excalidraw element fields that the LLM may omit."""
+    import random
+    defaults = {
+        "id": el.get("id", f"el_{idx}"),
+        "type": el.get("type", "rectangle"),
+        "x": 0,
+        "y": 0,
+        "width": 100,
+        "height": 50,
+        "angle": 0,
+        "opacity": 100,
+        "strokeColor": "#1e1e1e",
+        "backgroundColor": "transparent",
+        "fillStyle": "hachure",
+        "strokeWidth": 2,
+        "strokeStyle": "solid",
+        "roughness": 1,
+        "seed": random.randint(1, 2**31),
+        "version": 1,
+        "versionNonce": random.randint(1, 2**31),
+        "isDeleted": False,
+        "groupIds": [],
+        "boundElements": None,
+        "roundness": None,
+    }
+    # Text elements need extra defaults
+    if el.get("type") == "text":
+        defaults.update({
+            "text": el.get("text", ""),
+            "fontSize": 20,
+            "fontFamily": 1,
+            "textAlign": "left",
+            "verticalAlign": "top",
+            "baseline": 18,
+            "containerId": None,
+            "originalText": el.get("text", ""),
+        })
+    # Arrow/line elements need points
+    if el.get("type") in ("arrow", "line"):
+        defaults["points"] = el.get("points", [[0, 0], [100, 0]])
+        defaults["startBinding"] = el.get("startBinding", None)
+        defaults["endBinding"] = el.get("endBinding", None)
+        defaults["startArrowhead"] = None
+        defaults["endArrowhead"] = "arrow" if el.get("type") == "arrow" else None
+
+    # Merge: user values override defaults
+    merged = {**defaults, **el}
+    # Ensure originalText stays in sync with text
+    if merged.get("type") == "text" and "originalText" not in el:
+        merged["originalText"] = merged.get("text", "")
+    return merged
+
+
 def _wrap_elements(elements: list, app_state: dict | None = None) -> dict:
-    """Wrap an elements array into a full Excalidraw document."""
+    """Wrap an elements array into a full Excalidraw document, normalizing each element."""
+    normalized = [_normalize_element(el, i) for i, el in enumerate(elements)]
     return {
         "type": "excalidraw",
         "version": 2,
         "source": "spindrel",
-        "elements": elements,
+        "elements": normalized,
         "appState": app_state or {"viewBackgroundColor": "#ffffff"},
     }
 
@@ -237,7 +292,7 @@ async def _deliver(data: bytes, filename: str, mime: str) -> str:
                 "format": {
                     "type": "string",
                     "enum": ["svg", "png"],
-                    "description": "Output format. Default: svg.",
+                    "description": "Output format. Default: png.",
                 },
             },
             "required": ["elements"],
@@ -248,7 +303,7 @@ async def create_excalidraw(
     elements: list,
     app_state: dict | None = None,
     filename: str = "diagram",
-    format: str = "svg",
+    format: str = "png",
 ) -> str:
     if format not in ("svg", "png"):
         return json.dumps({"error": f"Unsupported format: {format}. Use svg or png."})
@@ -302,7 +357,7 @@ async def create_excalidraw(
                 "format": {
                     "type": "string",
                     "enum": ["svg", "png"],
-                    "description": "Output format. Default: svg.",
+                    "description": "Output format. Default: png.",
                 },
             },
             "required": ["mermaid"],
@@ -312,7 +367,7 @@ async def create_excalidraw(
 async def mermaid_to_excalidraw(
     mermaid: str,
     filename: str = "diagram",
-    format: str = "svg",
+    format: str = "png",
 ) -> str:
     if format not in ("svg", "png"):
         return json.dumps({"error": f"Unsupported format: {format}. Use svg or png."})

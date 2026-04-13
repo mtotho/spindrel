@@ -88,6 +88,8 @@ async def wyoming_config(request: Request):
             "satellite_uri": config.get("satellite_uri"),
             "voice": config.get("voice"),
             "wake_words": config.get("wake_words"),
+            "protocol": config.get("protocol", "wyoming"),
+            "esphome_device_name": config.get("esphome_device_name"),
         }
 
     return {"devices": devices}

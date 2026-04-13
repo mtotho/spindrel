@@ -21,3 +21,6 @@ PIPER_URI = _setting("WYOMING_PIPER_URI", "tcp://localhost:10200")
 DEFAULT_VOICE = _setting("WYOMING_DEFAULT_VOICE", "en_US-lessac-medium")
 API_KEY = _setting("AGENT_API_KEY", os.environ.get("API_KEY", ""))
 AGENT_BASE_URL = _setting("AGENT_BASE_URL", os.environ.get("AGENT_BASE_URL", "http://localhost:8000"))
+
+# ESPHome bridge settings
+ESPHOME_API_PASSWORD = _setting("ESPHOME_API_PASSWORD", "")

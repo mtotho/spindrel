@@ -32,6 +32,11 @@ settings:
     type: string
     label: "Start Whisper + Piper Docker containers (true/false)"
     default: "true"
+  - key: ESPHOME_API_PASSWORD
+    type: string
+    label: "ESPHome API password (optional, must match device config)"
+    default: ""
+    secret: true
 
 binding:
   client_id_prefix: "wyoming:"
@@ -39,10 +44,22 @@ binding:
   client_id_description: "Device name or identifier"
   suggestions_endpoint: "/integrations/wyoming/binding-suggestions"
   config_fields:
+    - key: protocol
+      type: select
+      label: "Device Protocol"
+      description: "Wyoming for Raspberry Pi satellites, ESPHome for ESP32 devices (ATOM Echo, etc.)"
+      default: wyoming
+      options:
+        - { value: wyoming, label: "Wyoming (Pi satellite)" }
+        - { value: esphome, label: "ESPHome (ATOM Echo / ESP32)" }
     - key: satellite_uri
       type: string
-      label: "Satellite URI"
-      description: "TCP address of the Wyoming satellite (e.g. tcp://192.168.1.50:10700)"
+      label: "Device URI"
+      description: "TCP address of the device (e.g. tcp://192.168.1.50:10700 for Wyoming, tcp://192.168.1.50:6053 for ESPHome)"
+    - key: esphome_device_name
+      type: string
+      label: "ESPHome Device Name"
+      description: "Device name from ESPHome YAML (used to identify device on connect). Only for ESPHome protocol."
 
 target:
   type: wyoming
@@ -56,6 +73,8 @@ dependencies:
       import_name: wyoming
     - package: zeroconf
       import_name: zeroconf
+    - package: aioesphomeapi
+      import_name: aioesphomeapi
 
 capabilities:
   - text
