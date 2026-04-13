@@ -183,6 +183,12 @@ class ESPHomeVoiceConnection:
         VoiceAssistantRequest start=False) and abort=False (audio
         end=True) mean "process the collected audio". We only skip
         if there's no audio buffer or it's too short.
+
+        Critical: the button release also triggers request_stop() on the
+        device which sets desired_state_ = IDLE. We must send STT_VAD_END
+        immediately so the device transitions to AWAITING_RESPONSE instead.
+        Without this, the device goes IDLE and the speaker gets killed by
+        the IDLE loop handler before TTS audio can play.
         """
         if not self._voice_active or not self._audio_buffer:
             logger.debug("Stop received on %s but no active session", self._config.device_name)
@@ -192,8 +198,20 @@ class ESPHomeVoiceConnection:
         buffer = self._audio_buffer
         self._audio_buffer = None
 
+        # Send STT_VAD_END immediately — this overrides the device's
+        # desired_state_ from IDLE to AWAITING_RESPONSE, preventing the
+        # IDLE loop from killing the speaker before TTS audio plays.
+        if self._client:
+            self._client.send_voice_assistant_event(
+                VoiceAssistantEventType.VOICE_ASSISTANT_STT_VAD_END, None
+            )
+
         if buffer.duration_seconds < 0.3:
             logger.info("Audio too short (%.1fs) from %s, skipping", buffer.duration_seconds, self._config.device_name)
+            if self._client:
+                self._client.send_voice_assistant_event(
+                    VoiceAssistantEventType.VOICE_ASSISTANT_RUN_END, None
+                )
             return
 
         logger.info(
