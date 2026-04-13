@@ -455,18 +455,39 @@ class ESPHomeVoiceConnection:
                 # and set up its socket reader
                 await asyncio.sleep(0.05)
 
-                # Send all audio upfront — the device has a ring buffer
-                # (16KB) and the speaker task drains it at realtime rate.
-                # Sending in bursts with sleeps causes gaps/crackling
-                # because asyncio.sleep granularity is ~15ms on Linux,
-                # which accumulates into audible stuttering.
+                # The device has ~32KB of buffer depth (16KB speaker_buffer_
+                # + 16KB speaker ring buffer). Send an initial burst to fill
+                # the pipeline, then pace remaining audio at realtime using
+                # absolute time targets to avoid asyncio.sleep drift.
+                pre_buffer_bytes = 32 * 1024  # fill the pipeline
+                seconds_per_chunk = _UDP_AUDIO_CHUNK_BYTES / 2 / _DEVICE_SAMPLE_RATE
                 offset = 0
                 chunks_sent = 0
-                while offset < len(pcm_16k):
+
+                # Phase 1: burst-fill the device pipeline
+                while offset < min(len(pcm_16k), pre_buffer_bytes):
                     chunk_data = pcm_16k[offset:offset + _UDP_AUDIO_CHUNK_BYTES]
                     self._udp_server.send_audio(chunk_data)
                     offset += _UDP_AUDIO_CHUNK_BYTES
                     chunks_sent += 1
+
+                # Phase 2: pace remaining audio at realtime using
+                # absolute time targets (immune to sleep drift)
+                if offset < len(pcm_16k):
+                    loop = asyncio.get_running_loop()
+                    start_time = loop.time()
+                    paced_chunk_index = 0
+                    while offset < len(pcm_16k):
+                        chunk_data = pcm_16k[offset:offset + _UDP_AUDIO_CHUNK_BYTES]
+                        self._udp_server.send_audio(chunk_data)
+                        offset += _UDP_AUDIO_CHUNK_BYTES
+                        chunks_sent += 1
+                        paced_chunk_index += 1
+                        # Sleep until the absolute target time for this chunk
+                        target = start_time + paced_chunk_index * seconds_per_chunk
+                        delay = target - loop.time()
+                        if delay > 0:
+                            await asyncio.sleep(delay)
 
                 logger.info(
                     "Sent %d UDP audio chunks (%d bytes) to %s",
