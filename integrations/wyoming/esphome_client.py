@@ -14,7 +14,9 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
-from aioesphomeapi import APIClient, VoiceAssistantEventType
+import re
+
+from aioesphomeapi import APIClient, LogLevel, VoiceAssistantEventType
 
 from integrations.wyoming.agent_client import AgentClient
 from integrations.wyoming.esphome_device_registry import ESPHomeDeviceConfig
@@ -118,11 +120,27 @@ class ESPHomeVoiceConnection:
             device_info.name, device_info.model,
         )
 
+        # Forward device logs so we can see firmware-side voice/speaker activity
+        _ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+        dev_name = cfg.device_name
+
+        def _on_device_log(msg: object) -> None:
+            text = msg.message  # type: ignore[attr-defined]
+            if isinstance(text, bytes):
+                text = text.decode("utf-8", errors="replace")
+            text = _ansi_re.sub("", text).strip()
+            if text:
+                logger.debug("[%s firmware] %s", dev_name, text)
+
+        unsub_logs = self._client.subscribe_logs(
+            _on_device_log, log_level=LogLevel.LOG_LEVEL_VERY_VERBOSE,
+        )
+
         # Subscribe for voice assistant events.
         # handle_start is called when the device detects a wake word.
         # handle_stop is called when audio ends or device aborts.
         # handle_audio receives raw PCM chunks.
-        unsub = self._client.subscribe_voice_assistant(
+        unsub_voice = self._client.subscribe_voice_assistant(
             handle_start=self._handle_start,
             handle_stop=self._handle_stop,
             handle_audio=self._handle_audio,
@@ -133,7 +151,8 @@ class ESPHomeVoiceConnection:
             while self._client is not None:
                 await asyncio.sleep(1)
         finally:
-            unsub()
+            unsub_voice()
+            unsub_logs()
 
     async def _handle_start(
         self,
