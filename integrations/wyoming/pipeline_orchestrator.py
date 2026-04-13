@@ -182,11 +182,21 @@ class SatelliteConnection:
 
     async def _handle_pipeline(self, pipeline: RunPipeline):
         """Handle a full voice interaction pipeline."""
+        import struct
+
         assert self._client is not None
 
-        # Collect audio from satellite until AudioStop
+        # Collect audio from satellite until AudioStop or silence detected.
+        # Many satellites (especially wyoming-satellite without --vad) stream
+        # audio indefinitely — we need server-side silence detection to know
+        # when the user stopped speaking.
         audio_buffer = AudioBuffer()
         collecting = False
+        got_speech = False
+        silence_chunks = 0
+        # Silence threshold: ~1.5s of low-energy audio after speech started
+        SILENCE_THRESHOLD = 150  # RMS below this = silence
+        SILENCE_CHUNKS_NEEDED = 24  # ~1.5s at 16kHz/1024 samples per chunk
 
         while True:
             event = await asyncio.wait_for(self._client.read_event(), timeout=30.0)
@@ -202,10 +212,26 @@ class SatelliteConnection:
                     channels=audio_start.channels,
                 )
                 collecting = True
+                got_speech = False
+                silence_chunks = 0
 
             elif AudioChunk.is_type(event.type) and collecting:
                 chunk = AudioChunk.from_event(event)
                 audio_buffer.add_chunk(chunk.audio)
+
+                # Simple energy-based silence detection
+                audio_data = chunk.audio
+                if len(audio_data) >= 2:
+                    samples = struct.unpack(f"<{len(audio_data) // 2}h", audio_data)
+                    rms = (sum(s * s for s in samples) / len(samples)) ** 0.5
+                    if rms > SILENCE_THRESHOLD:
+                        got_speech = True
+                        silence_chunks = 0
+                    elif got_speech:
+                        silence_chunks += 1
+                        if silence_chunks >= SILENCE_CHUNKS_NEEDED:
+                            logger.info("Silence detected after speech, stopping collection")
+                            break
 
             elif AudioStop.is_type(event.type):
                 break
