@@ -153,7 +153,8 @@ class ESPHomeVoiceConnection:
         )
         self._audio_buffer = AudioBuffer(rate=_DEVICE_SAMPLE_RATE, width=2, channels=1)
         self._voice_active = True
-        # Return 0 to use API audio mode (audio sent via protobuf messages)
+        # Return 0 for API audio mode (audio streamed via protobuf messages,
+        # not UDP). This matches HA behavior for devices with API_AUDIO flag.
         return 0
 
     async def _handle_stop(self, abort: bool) -> None:
@@ -267,6 +268,9 @@ class ESPHomeVoiceConnection:
             )
 
             # --- TTS ---
+            # Event order matters for the ESPHome state machine:
+            # TTS_START → TTS_END (triggers STREAMING_RESPONSE state) →
+            # TTS_STREAM_START → audio chunks → TTS_STREAM_END → RUN_END
             client.send_voice_assistant_event(
                 VoiceAssistantEventType.VOICE_ASSISTANT_TTS_START,
                 {"text": response_text},
@@ -275,9 +279,15 @@ class ESPHomeVoiceConnection:
             voice = dc.voice or cfg.default_voice
             audio_events = await synthesize_speech(cfg.piper_uri, response_text, voice)
             logger.info(
-                "TTS for %s: %d events from Piper (types: %s)",
+                "TTS for %s: %d events from Piper",
                 cfg.device_name, len(audio_events),
-                [e.type for e in audio_events],
+            )
+
+            # Send TTS_END BEFORE streaming — this transitions the device
+            # into STREAMING_RESPONSE state so it actually plays audio.
+            client.send_voice_assistant_event(
+                VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END,
+                {"url": ""},  # no URL, we stream via API
             )
 
             if audio_events:
@@ -308,9 +318,6 @@ class ESPHomeVoiceConnection:
                     VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_END, None
                 )
 
-            client.send_voice_assistant_event(
-                VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END, None
-            )
             client.send_voice_assistant_event(
                 VoiceAssistantEventType.VOICE_ASSISTANT_RUN_END, None
             )
