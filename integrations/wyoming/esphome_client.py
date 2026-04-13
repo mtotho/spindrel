@@ -210,7 +210,7 @@ class ESPHomeVoiceConnection:
                 logger.info("Empty transcript from %s, ending pipeline", cfg.device_name)
                 client.send_voice_assistant_event(
                     VoiceAssistantEventType.VOICE_ASSISTANT_ERROR,
-                    {"code": "no-speech", "message": "No speech detected"},
+                    {"code": "no_speech", "message": "No speech detected"},
                 )
                 client.send_voice_assistant_event(
                     VoiceAssistantEventType.VOICE_ASSISTANT_RUN_END, None
@@ -220,7 +220,7 @@ class ESPHomeVoiceConnection:
             logger.info("Transcript from %s: %r", cfg.device_name, transcript)
             client.send_voice_assistant_event(
                 VoiceAssistantEventType.VOICE_ASSISTANT_STT_END,
-                {"stt_output": transcript},
+                {"text": transcript},
             )
 
             # --- Intent / Chat ---
@@ -269,7 +269,7 @@ class ESPHomeVoiceConnection:
             # --- TTS ---
             client.send_voice_assistant_event(
                 VoiceAssistantEventType.VOICE_ASSISTANT_TTS_START,
-                {"tts_text": response_text},
+                {"text": response_text},
             )
 
             voice = dc.voice or cfg.default_voice

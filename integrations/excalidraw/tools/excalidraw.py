@@ -217,7 +217,8 @@ def _expand_labels(elements: list) -> list:
             parent_w = el.get("width", 100)
             parent_h = el.get("height", 50)
             font_size = label.get("fontSize", 20)
-            text_val = label["text"]
+            # Mermaid uses <br> for line breaks — convert to real newlines
+            text_val = label["text"].replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
             # Estimate text dimensions
             est_w = len(text_val) * font_size * 0.6
             est_h = font_size * 1.4
