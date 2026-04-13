@@ -305,6 +305,13 @@ async def create_excalidraw(
     filename: str = "diagram",
     format: str = "png",
 ) -> str:
+    # Some models serialize the array as a JSON string
+    if isinstance(elements, str):
+        try:
+            elements = json.loads(elements)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "elements must be a JSON array, got unparseable string"})
+
     if format not in ("svg", "png"):
         return json.dumps({"error": f"Unsupported format: {format}. Use svg or png."})
 
