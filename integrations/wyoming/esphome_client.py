@@ -274,23 +274,28 @@ class ESPHomeVoiceConnection:
 
             voice = dc.voice or cfg.default_voice
             audio_events = await synthesize_speech(cfg.piper_uri, response_text, voice)
+            logger.info(
+                "TTS for %s: %d events from Piper (types: %s)",
+                cfg.device_name, len(audio_events),
+                [e.type for e in audio_events],
+            )
 
             if audio_events:
                 client.send_voice_assistant_event(
                     VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_START, None
                 )
 
+                chunks_sent = 0
                 for event in audio_events:
                     if AudioChunk.is_type(event.type):
                         chunk = AudioChunk.from_event(event)
-                        audio_bytes = chunk.audio
-                        # Resample from Piper's rate to device rate if needed
-                        if AudioStart.is_type(event.type):
-                            continue
                         audio_bytes = _resample_if_needed(
-                            audio_bytes, chunk.rate, _DEVICE_SAMPLE_RATE,
+                            chunk.audio, chunk.rate, _DEVICE_SAMPLE_RATE,
                         )
                         client.send_voice_assistant_audio(audio_bytes)
+                        chunks_sent += 1
+
+                logger.info("Sent %d audio chunks to %s", chunks_sent, cfg.device_name)
 
                 client.send_voice_assistant_event(
                     VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_END, None

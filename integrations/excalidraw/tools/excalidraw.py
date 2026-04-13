@@ -197,6 +197,50 @@ def _normalize_element(el: dict, idx: int) -> dict:
     return merged
 
 
+def _expand_labels(elements: list) -> list:
+    """Expand mermaid-to-excalidraw label objects into separate text elements.
+
+    The @excalidraw/mermaid-to-excalidraw library puts text in a ``label``
+    property on shape/arrow elements instead of creating standalone text
+    elements.  This function extracts those labels into proper text elements
+    bound to their parent shape.
+    """
+    expanded = []
+    for el in elements:
+        label = el.pop("label", None)
+        expanded.append(el)
+        if label and isinstance(label, dict) and label.get("text"):
+            text_id = f"{el.get('id', 'el')}_label"
+            # Center the label inside the parent shape
+            parent_x = el.get("x", 0)
+            parent_y = el.get("y", 0)
+            parent_w = el.get("width", 100)
+            parent_h = el.get("height", 50)
+            font_size = label.get("fontSize", 20)
+            text_val = label["text"]
+            # Estimate text dimensions
+            est_w = len(text_val) * font_size * 0.6
+            est_h = font_size * 1.4
+            text_el = {
+                "id": text_id,
+                "type": "text",
+                "x": parent_x + (parent_w - est_w) / 2,
+                "y": parent_y + (parent_h - est_h) / 2,
+                "width": est_w,
+                "height": est_h,
+                "text": text_val,
+                "fontSize": font_size,
+                "containerId": el.get("id"),
+                "groupIds": label.get("groupIds", []),
+            }
+            expanded.append(text_el)
+            # Link parent to the text element
+            bound = el.get("boundElements") or []
+            bound.append({"id": text_id, "type": "text"})
+            el["boundElements"] = bound
+    return expanded
+
+
 def _wrap_elements(elements: list, app_state: dict | None = None) -> dict:
     """Wrap an elements array into a full Excalidraw document, normalizing each element."""
     normalized = [_normalize_element(el, i) for i, el in enumerate(elements)]
@@ -427,8 +471,13 @@ async def mermaid_to_excalidraw(
         if not excalidraw_path.exists():
             return json.dumps({"error": "Mermaid conversion produced no output."})
 
-        # Step 2: Excalidraw JSON → SVG/PNG
+        # Step 2: Expand labels into text elements, normalize missing fields,
+        #         then export to SVG/PNG
         scene = json.loads(excalidraw_path.read_text(encoding="utf-8"))
+        scene["elements"] = _expand_labels(scene.get("elements", []))
+        scene["elements"] = [
+            _normalize_element(el, i) for i, el in enumerate(scene["elements"])
+        ]
         err = await _export_scene(scene, output_path)
         if err:
             return json.dumps({"error": f"Export failed: {err}"})

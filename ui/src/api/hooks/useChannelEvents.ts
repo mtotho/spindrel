@@ -207,13 +207,14 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           const turnActive = Object.keys(ch.turns).length > 0 || ch.isProcessing;
           const msg = payload?.message;
 
-          // User messages from external sources (e.g. Slack) must appear
-          // immediately even while a turn is in flight. Add directly to the
-          // chat store so both suppression gates (here + useChannelChat sync
-          // effect) are bypassed.
-          if (turnActive && msg?.role === "user") {
-            // Deduplicate against optimistic messages already in the store
-            // (e.g. web-UI sends create an optimistic `msg-*` entry).
+          // User messages are always added directly to the store.
+          // The refetch path (invalidateQueries) is racy for user messages:
+          // NEW_MESSAGE(user) arrives before TURN_STARTED, so turnActive is
+          // false and we'd refetch — but TURN_STARTED arrives before the
+          // refetch completes, and the sync effect in useChannelChat guards
+          // on turnsCount === 0, so the user message never gets synced.
+          // Direct-add avoids this race entirely.
+          if (msg?.role === "user") {
             const existing = ch.messages;
             const isDuplicate = existing.some(
               (m) => m.id === msg.id || (m.role === "user" && m.content === msg.content &&

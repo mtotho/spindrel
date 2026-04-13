@@ -76,10 +76,17 @@ try {
   }, scene);
 
   if (isPng) {
-    // Render the SVG in the page and screenshot it
+    // Render the SVG in the page and screenshot it.
+    // Use networkidle0 to wait for external font downloads (Virgil, Cascadia).
     await page.setContent(
       `<!DOCTYPE html><html><body style="margin:0;padding:0;background:transparent">${svgString}</body></html>`,
+      { waitUntil: "networkidle0", timeout: 15000 },
     );
+    // Wait for fonts to load and render to complete
+    await page.evaluate(() => document.fonts.ready);
+    // Extra frame to ensure paint
+    await new Promise(r => setTimeout(r, 200));
+
     const svgEl = await page.$("svg");
     if (!svgEl) throw new Error("SVG element not found after render");
     const box = await svgEl.boundingBox();
