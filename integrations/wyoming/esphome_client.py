@@ -144,17 +144,17 @@ class ESPHomeVoiceConnection:
     ) -> int | None:
         """Called when the device detects a wake word and wants to start a pipeline.
 
-        Returns port number for UDP audio (not used) or None for API audio mode.
+        Returns port number for UDP audio or 0 for API audio mode (protobuf).
         """
         logger.info(
-            "Voice pipeline started on %s (wake_word=%s)",
+            "Voice pipeline started on %s (conv=%s, flags=%d, wake=%s, audio=%s)",
             self._config.device_name,
-            wake_word_phrase,
+            conversation_id, flags, wake_word_phrase, audio_settings,
         )
         self._audio_buffer = AudioBuffer(rate=_DEVICE_SAMPLE_RATE, width=2, channels=1)
         self._voice_active = True
-        # Return 0 for API audio mode (audio streamed via protobuf messages,
-        # not UDP). This matches HA behavior for devices with API_AUDIO flag.
+        # Return 0 → API audio mode: mic audio arrives via protobuf messages
+        # (not UDP), and we send TTS audio back via send_voice_assistant_audio.
         return 0
 
     async def _handle_stop(self, abort: bool) -> None:
@@ -201,6 +201,11 @@ class ESPHomeVoiceConnection:
             return
 
         try:
+            # RUN_START signals the pipeline is active (matches HA behavior)
+            client.send_voice_assistant_event(
+                VoiceAssistantEventType.VOICE_ASSISTANT_RUN_START, None
+            )
+
             # --- STT ---
             client.send_voice_assistant_event(
                 VoiceAssistantEventType.VOICE_ASSISTANT_STT_START, None
@@ -268,9 +273,9 @@ class ESPHomeVoiceConnection:
             )
 
             # --- TTS ---
-            # Event order matters for the ESPHome state machine:
-            # TTS_START → TTS_END (triggers STREAMING_RESPONSE state) →
-            # TTS_STREAM_START → audio chunks → TTS_STREAM_END → RUN_END
+            # Event order matches Home Assistant's ESPHome voice pipeline:
+            # TTS_START → synthesize → TTS_END(url="") → TTS_STREAM_START →
+            # fixed-size audio chunks → TTS_STREAM_END → RUN_END
             client.send_voice_assistant_event(
                 VoiceAssistantEventType.VOICE_ASSISTANT_TTS_START,
                 {"text": response_text},
@@ -278,44 +283,64 @@ class ESPHomeVoiceConnection:
 
             voice = dc.voice or cfg.default_voice
             audio_events = await synthesize_speech(cfg.piper_uri, response_text, voice)
+
+            # Collect all audio and resample into one contiguous PCM buffer,
+            # then re-chunk into fixed 512-sample (1024-byte) pieces — this
+            # matches HA's _stream_tts_audio exactly.
+            pcm_parts: list[bytes] = []
+            src_rate: int | None = None
+            for event in audio_events:
+                if AudioStart.is_type(event.type):
+                    astart = AudioStart.from_event(event)
+                    src_rate = astart.rate
+                elif AudioChunk.is_type(event.type):
+                    chunk = AudioChunk.from_event(event)
+                    if src_rate is None:
+                        src_rate = chunk.rate
+                    pcm_parts.append(chunk.audio)
+
+            raw_pcm = b"".join(pcm_parts)
+            effective_rate = src_rate or _PIPER_SAMPLE_RATE
+            pcm_16k = _resample_if_needed(raw_pcm, effective_rate, _DEVICE_SAMPLE_RATE)
+
             logger.info(
-                "TTS for %s: %d events from Piper",
+                "TTS for %s: %d Piper events, %d bytes @ %dHz -> %d bytes @ %dHz",
                 cfg.device_name, len(audio_events),
+                len(raw_pcm), effective_rate,
+                len(pcm_16k), _DEVICE_SAMPLE_RATE,
             )
 
-            # Send TTS_END BEFORE streaming — this transitions the device
-            # into STREAMING_RESPONSE state so it actually plays audio.
+            # TTS_END transitions device to STREAMING_RESPONSE state
             client.send_voice_assistant_event(
                 VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END,
-                {"url": ""},  # no URL, we stream via API
+                {"url": ""},  # empty = stream via API, not download
             )
 
-            if audio_events:
+            if pcm_16k:
                 client.send_voice_assistant_event(
-                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_START, None
+                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_START, {}
                 )
 
+                # Stream in fixed 512-sample (1024-byte) chunks at 90% realtime
+                # pacing — identical to HA's _stream_tts_audio parameters.
+                samples_per_chunk = 512
+                bytes_per_chunk = samples_per_chunk * 2  # 16-bit
+                seconds_per_chunk = samples_per_chunk / _DEVICE_SAMPLE_RATE
                 chunks_sent = 0
-                for event in audio_events:
-                    if AudioChunk.is_type(event.type):
-                        chunk = AudioChunk.from_event(event)
-                        audio_bytes = _resample_if_needed(
-                            chunk.audio, chunk.rate, _DEVICE_SAMPLE_RATE,
-                        )
-                        client.send_voice_assistant_audio(audio_bytes)
-                        chunks_sent += 1
 
-                        # Pace playback — wait 90% of chunk duration so we
-                        # don't overflow the device's audio buffer. This is
-                        # the same approach Home Assistant uses.
-                        samples = len(audio_bytes) // 2  # 16-bit = 2 bytes/sample
-                        seconds = samples / _DEVICE_SAMPLE_RATE
-                        await asyncio.sleep(seconds * 0.9)
+                for offset in range(0, len(pcm_16k), bytes_per_chunk):
+                    chunk_data = pcm_16k[offset:offset + bytes_per_chunk]
+                    client.send_voice_assistant_audio(chunk_data)
+                    chunks_sent += 1
+                    await asyncio.sleep(seconds_per_chunk * 0.9)
 
-                logger.info("Sent %d audio chunks to %s", chunks_sent, cfg.device_name)
+                logger.info(
+                    "Sent %d audio chunks (%d bytes) to %s",
+                    chunks_sent, len(pcm_16k), cfg.device_name,
+                )
 
                 client.send_voice_assistant_event(
-                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_END, None
+                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_END, {}
                 )
 
             client.send_voice_assistant_event(
