@@ -6,12 +6,18 @@ pipeline using the same Whisper/Piper services as Wyoming satellites.
 
 The ESPHome device is the TCP server (listens on port 6053 by default).
 Spindrel connects OUT to the device — same direction as Wyoming satellites.
+
+Audio uses UDP mode (not API/protobuf mode) — the device streams mic audio
+to us via UDP, and we send TTS audio back the same way. This avoids an
+ESPHome 2026.3.3 bug where API audio mode leaves `this->socket_` null,
+causing STREAMING_RESPONSE to never feed audio to the speaker.
 """
 from __future__ import annotations
 
 import array
 import asyncio
 import logging
+import socket
 from dataclasses import dataclass
 
 import re
@@ -30,6 +36,9 @@ logger = logging.getLogger(__name__)
 _PIPER_SAMPLE_RATE = 22050
 _DEVICE_SAMPLE_RATE = 16000
 
+# UDP audio chunk size — matches ESPHome's expectation
+_UDP_AUDIO_CHUNK_BYTES = 1024  # 512 samples * 2 bytes
+
 
 @dataclass
 class ESPHomeConnectionConfig:
@@ -46,6 +55,41 @@ class ESPHomeConnectionConfig:
     agent: AgentClient
 
 
+class _UDPAudioServer(asyncio.DatagramProtocol):
+    """Minimal UDP server for receiving mic audio and sending TTS audio.
+
+    ESPHome sends mic audio as raw 16-bit PCM UDP packets. We learn the
+    device's address from the first incoming packet and use it to send
+    TTS audio back.
+    """
+
+    def __init__(self) -> None:
+        self.transport: asyncio.DatagramTransport | None = None
+        self.device_addr: tuple[str, int] | None = None
+        self.audio_buffer: AudioBuffer | None = None
+
+    def connection_made(self, transport: asyncio.BaseTransport) -> None:
+        self.transport = transport  # type: ignore[assignment]
+
+    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+        # Learn device address from first mic packet
+        if self.device_addr is None:
+            self.device_addr = addr
+            logger.debug("UDP: learned device address %s:%d", addr[0], addr[1])
+        if self.audio_buffer is not None:
+            self.audio_buffer.add_chunk(data)
+
+    def send_audio(self, data: bytes) -> None:
+        """Send TTS audio chunk to the device via UDP."""
+        if self.transport and self.device_addr:
+            self.transport.sendto(data, self.device_addr)
+
+    def close(self) -> None:
+        if self.transport:
+            self.transport.close()
+            self.transport = None
+
+
 class ESPHomeVoiceConnection:
     """Manages a persistent connection to one ESPHome voice device.
 
@@ -60,6 +104,8 @@ class ESPHomeVoiceConnection:
         self._audio_buffer: AudioBuffer | None = None
         self._pipeline_task: asyncio.Task | None = None
         self._voice_active = False
+        self._udp_server: _UDPAudioServer | None = None
+        self._udp_port: int = 0
 
     async def start(self) -> None:
         """Start the connection loop (auto-reconnects)."""
@@ -77,6 +123,10 @@ class ESPHomeVoiceConnection:
         await self._disconnect()
 
     async def _disconnect(self) -> None:
+        if self._udp_server:
+            self._udp_server.close()
+            self._udp_server = None
+            self._udp_port = 0
         if self._client:
             try:
                 await self._client.disconnect()
@@ -136,14 +186,27 @@ class ESPHomeVoiceConnection:
             _on_device_log, log_level=LogLevel.LOG_LEVEL_VERY_VERBOSE,
         )
 
+        # Start a UDP server for audio. OS picks a free port.
+        loop = asyncio.get_running_loop()
+        transport, protocol = await loop.create_datagram_endpoint(
+            _UDPAudioServer,
+            local_addr=("0.0.0.0", 0),
+            family=socket.AF_INET,
+        )
+        self._udp_server = protocol  # type: ignore[assignment]
+        self._udp_port = transport.get_extra_info("sockname")[1]
+        logger.info(
+            "UDP audio server listening on port %d for %s",
+            self._udp_port, cfg.device_name,
+        )
+
         # Subscribe for voice assistant events.
         # handle_start is called when the device detects a wake word.
         # handle_stop is called when audio ends or device aborts.
-        # handle_audio receives raw PCM chunks.
+        # No handle_audio — we use UDP mode, not API audio mode.
         unsub_voice = self._client.subscribe_voice_assistant(
             handle_start=self._handle_start,
             handle_stop=self._handle_stop,
-            handle_audio=self._handle_audio,
         )
 
         try:
@@ -153,6 +216,10 @@ class ESPHomeVoiceConnection:
         finally:
             unsub_voice()
             unsub_logs()
+            if self._udp_server:
+                self._udp_server.close()
+                self._udp_server = None
+                self._udp_port = 0
 
     async def _handle_start(
         self,
@@ -161,9 +228,10 @@ class ESPHomeVoiceConnection:
         audio_settings: object,
         wake_word_phrase: str | None,
     ) -> int | None:
-        """Called when the device detects a wake word and wants to start a pipeline.
+        """Called when the device wants to start a pipeline.
 
-        Returns port number for UDP audio or 0 for API audio mode (protobuf).
+        Returns UDP port for audio streaming. The device sends mic audio
+        to this port and reads TTS audio from the same UDP socket.
         """
         logger.info(
             "Voice pipeline started on %s (conv=%s, flags=%d, wake=%s, audio=%s)",
@@ -172,9 +240,15 @@ class ESPHomeVoiceConnection:
         )
         self._audio_buffer = AudioBuffer(rate=_DEVICE_SAMPLE_RATE, width=2, channels=1)
         self._voice_active = True
-        # Return 0 → API audio mode: mic audio arrives via protobuf messages
-        # (not UDP), and we send TTS audio back via send_voice_assistant_audio.
-        return 0
+
+        # Wire the UDP server's buffer so incoming mic packets accumulate
+        if self._udp_server:
+            self._udp_server.audio_buffer = self._audio_buffer
+            # Reset device address — it may have changed between runs
+            self._udp_server.device_addr = None
+
+        # Return the UDP port — device will stream mic audio here
+        return self._udp_port
 
     async def _handle_stop(self, abort: bool) -> None:
         """Called when the device stops sending audio.
@@ -197,6 +271,10 @@ class ESPHomeVoiceConnection:
         self._voice_active = False
         buffer = self._audio_buffer
         self._audio_buffer = None
+
+        # Detach UDP buffer so late packets don't pollute
+        if self._udp_server:
+            self._udp_server.audio_buffer = None
 
         # Send STT_VAD_END immediately — this overrides the device's
         # desired_state_ from IDLE to AWAITING_RESPONSE, preventing the
@@ -223,11 +301,6 @@ class ESPHomeVoiceConnection:
         self._pipeline_task = asyncio.create_task(
             self._run_voice_pipeline(buffer)
         )
-
-    async def _handle_audio(self, data: bytes) -> None:
-        """Called for each chunk of audio from the device."""
-        if self._audio_buffer is not None:
-            self._audio_buffer.add_chunk(data)
 
     async def _run_voice_pipeline(self, audio_buffer: AudioBuffer) -> None:
         """Run the full STT → Spindrel → TTS pipeline."""
@@ -347,60 +420,44 @@ class ESPHomeVoiceConnection:
                 len(pcm_16k), _DEVICE_SAMPLE_RATE,
             )
 
-            # Audio delivery strategy:
-            # 1. Send a burst of audio BEFORE TTS_END (while still in
-            #    AWAITING_RESPONSE). on_audio() buffers regardless of state.
-            # 2. Send TTS_END which transitions to STREAMING_RESPONSE.
-            #    With audio already buffered, write_speaker_() fires on
-            #    the first loop iteration and the speaker starts playing.
-            # 3. Pace remaining audio at realtime rate.
-            #
-            # We deliberately skip TTS_STREAM_START/END — ESPHome 2026.3
-            # has a bug where stream_ended_ persists across runs, causing
-            # STREAMING_RESPONSE to exit immediately on the next pipeline.
-            # Without those events, the speaker-timeout mechanism handles
-            # end-of-playback naturally.
+            # Audio delivery via UDP:
+            # 1. Send TTS_END with non-empty URL → device transitions to
+            #    STREAMING_RESPONSE and opens its UDP socket for reading.
+            # 2. Send audio chunks via UDP at realtime pace.
             #
             # TTS_END URL must be non-empty — ESPHome 2026.3 early-returns
             # on empty URL, skipping the state transition.
+            #
+            # We skip TTS_STREAM_START/END — ESPHome 2026.3 has a bug
+            # where stream_ended_ persists across runs. The speaker-timeout
+            # mechanism handles end-of-playback naturally.
 
-            if pcm_16k:
-                samples_per_chunk = 512
-                bytes_per_chunk = samples_per_chunk * 2  # 16-bit
-                seconds_per_chunk = samples_per_chunk / _DEVICE_SAMPLE_RATE
+            # Transition to STREAMING_RESPONSE first — device needs to be
+            # in this state to read from the UDP socket.
+            client.send_voice_assistant_event(
+                VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END,
+                {"url": "synth://spindrel"},
+            )
 
-                # Pre-buffer: send first ~8KB of audio before TTS_END so the
-                # device has data ready when STREAMING_RESPONSE starts.
-                pre_buffer_limit = 8 * 1024
+            if pcm_16k and self._udp_server:
+                # Small delay to let the device enter STREAMING_RESPONSE
+                # and set up its socket reader
+                await asyncio.sleep(0.05)
+
+                seconds_per_chunk = _UDP_AUDIO_CHUNK_BYTES / 2 / _DEVICE_SAMPLE_RATE
                 offset = 0
-                while offset < min(len(pcm_16k), pre_buffer_limit):
-                    chunk_data = pcm_16k[offset:offset + bytes_per_chunk]
-                    client.send_voice_assistant_audio(chunk_data)
-                    offset += bytes_per_chunk
-
-                # Now transition to STREAMING_RESPONSE — audio is already buffered
-                client.send_voice_assistant_event(
-                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END,
-                    {"url": "synth://spindrel"},
-                )
-
-                # Pace remaining audio at realtime rate
-                chunks_sent = offset // bytes_per_chunk
+                chunks_sent = 0
                 while offset < len(pcm_16k):
-                    chunk_data = pcm_16k[offset:offset + bytes_per_chunk]
-                    client.send_voice_assistant_audio(chunk_data)
-                    offset += bytes_per_chunk
+                    chunk_data = pcm_16k[offset:offset + _UDP_AUDIO_CHUNK_BYTES]
+                    self._udp_server.send_audio(chunk_data)
+                    offset += _UDP_AUDIO_CHUNK_BYTES
                     chunks_sent += 1
+                    # Pace at realtime to avoid overflowing the device buffer
                     await asyncio.sleep(seconds_per_chunk)
 
                 logger.info(
-                    "Sent %d audio chunks (%d bytes) to %s",
+                    "Sent %d UDP audio chunks (%d bytes) to %s",
                     chunks_sent, len(pcm_16k), cfg.device_name,
-                )
-            else:
-                client.send_voice_assistant_event(
-                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END,
-                    {"url": "synth://spindrel"},
                 )
 
             client.send_voice_assistant_event(

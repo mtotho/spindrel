@@ -59,7 +59,7 @@ speaker:
     i2s_audio_id: i2s_audio_bus
     dac_type: external
     i2s_dout_pin: GPIO22
-    i2s_mode: secondary
+    i2s_mode: primary
 
 # --- Voice assistant ---
 
@@ -123,6 +123,12 @@ voice_assistant:
 
 # --- Button (trigger voice) ---
 
+# --- Speaker test (RTTTL buzzer) ---
+rtttl:
+  id: buzzer
+  speaker: echo_speaker
+
+# --- Button ---
 binary_sensor:
   - platform: gpio
     pin:
@@ -132,9 +138,13 @@ binary_sensor:
     id: echo_button
     on_press:
       - voice_assistant.start:
-
     on_release:
       - voice_assistant.stop:
+    on_double_click:
+      min_length: 50ms
+      max_length: 350ms
+      then:
+        - rtttl.play: "beep:d=4,o=5,b=200:c,e,g"
 
 # --- LED ---
 
