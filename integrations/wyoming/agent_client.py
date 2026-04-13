@@ -117,12 +117,12 @@ class AgentClient:
 
         return accumulated
 
-    async def wait_for_response(self, session_id: str, after_message_count: int, timeout: float = 120) -> str:
-        """Poll session messages until a new assistant message appears.
+    async def wait_for_response(self, session_id: str, correlation_id: str | None = None, timeout: float = 120) -> str:
+        """Poll session messages until an assistant response appears.
 
-        Used by ESPHome voice pipeline where the old SSE /stream/ endpoint
-        isn't available. Polls every 1s until an assistant message appears
-        after the user message, or timeout.
+        Used by ESPHome voice pipeline. Polls every 1s looking for the
+        most recent assistant message. If correlation_id is provided,
+        matches on that; otherwise returns the latest assistant content.
         """
         import asyncio
         deadline = asyncio.get_event_loop().time() + timeout
@@ -132,12 +132,19 @@ class AgentClient:
             try:
                 r = await self._http.get(url, headers=self._headers(), timeout=10.0)
                 r.raise_for_status()
-                messages = r.json()
-                # Look for assistant messages newer than our submission
-                if len(messages) > after_message_count:
-                    for msg in reversed(messages):
-                        if msg.get("role") == "assistant" and msg.get("content"):
-                            return msg["content"]
+                data = r.json()
+                messages = data.get("messages", data) if isinstance(data, dict) else data
+                # Walk newest-first looking for an assistant response
+                for msg in reversed(messages):
+                    if msg.get("role") != "assistant":
+                        continue
+                    content = msg.get("content", "")
+                    if not content or content == "[Cancelled by user]":
+                        continue
+                    if correlation_id and msg.get("correlation_id") != correlation_id:
+                        continue
+                    logger.info("Got response: %s", content[:100])
+                    return content
             except Exception:
                 logger.debug("Poll failed, retrying", exc_info=True)
         logger.warning("Timed out waiting for response in session %s", session_id)
