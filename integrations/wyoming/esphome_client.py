@@ -239,19 +239,21 @@ class ESPHomeVoiceConnection:
                 },
             )
 
-            stream_id = result.get("stream_id")
-            if not stream_id:
-                logger.error("No stream_id in chat response for %s", cfg.device_name)
+            session_id = result.get("session_id")
+            if not session_id:
+                logger.error("No session_id in chat response for %s", cfg.device_name)
                 client.send_voice_assistant_event(
                     VoiceAssistantEventType.VOICE_ASSISTANT_ERROR,
-                    {"code": "no-stream", "message": "Failed to start chat"},
+                    {"code": "no-session", "message": "Failed to start chat"},
                 )
                 client.send_voice_assistant_event(
                     VoiceAssistantEventType.VOICE_ASSISTANT_RUN_END, None
                 )
                 return
 
-            response_text = await cfg.agent.stream_response(stream_id)
+            # Poll for the bot's response (the /chat endpoint is async —
+            # it returns 202 and the turn worker generates the response)
+            response_text = await cfg.agent.wait_for_response(session_id, after_message_count=0)
             if not response_text:
                 logger.warning("Empty response from agent for %s", cfg.device_name)
                 response_text = "I don't have a response for that."

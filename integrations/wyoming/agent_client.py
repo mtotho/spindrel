@@ -117,6 +117,32 @@ class AgentClient:
 
         return accumulated
 
+    async def wait_for_response(self, session_id: str, after_message_count: int, timeout: float = 120) -> str:
+        """Poll session messages until a new assistant message appears.
+
+        Used by ESPHome voice pipeline where the old SSE /stream/ endpoint
+        isn't available. Polls every 1s until an assistant message appears
+        after the user message, or timeout.
+        """
+        import asyncio
+        deadline = asyncio.get_event_loop().time() + timeout
+        url = f"{self.base_url}/sessions/{session_id}/messages?limit=5"
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(1)
+            try:
+                r = await self._http.get(url, headers=self._headers(), timeout=10.0)
+                r.raise_for_status()
+                messages = r.json()
+                # Look for assistant messages newer than our submission
+                if len(messages) > after_message_count:
+                    for msg in reversed(messages):
+                        if msg.get("role") == "assistant" and msg.get("content"):
+                            return msg["content"]
+            except Exception:
+                logger.debug("Poll failed, retrying", exc_info=True)
+        logger.warning("Timed out waiting for response in session %s", session_id)
+        return ""
+
     async def get_channel_config(self) -> dict:
         """GET /integrations/wyoming/config -- fetch device->channel mappings."""
         try:
