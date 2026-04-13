@@ -159,16 +159,13 @@ class ESPHomeVoiceConnection:
     async def _handle_stop(self, abort: bool) -> None:
         """Called when the device stops sending audio.
 
-        If abort=True, the device wants to cancel. If False, audio stream
-        ended normally and we should process it.
+        For push-to-talk, both abort=True (button release sends
+        VoiceAssistantRequest start=False) and abort=False (audio
+        end=True) mean "process the collected audio". We only skip
+        if there's no audio buffer or it's too short.
         """
-        if abort:
-            logger.info("Voice pipeline aborted on %s", self._config.device_name)
-            self._voice_active = False
-            self._audio_buffer = None
-            return
-
         if not self._voice_active or not self._audio_buffer:
+            logger.debug("Stop received on %s but no active session", self._config.device_name)
             return
 
         self._voice_active = False
@@ -176,8 +173,13 @@ class ESPHomeVoiceConnection:
         self._audio_buffer = None
 
         if buffer.duration_seconds < 0.3:
-            logger.debug("Audio too short (%.1fs), skipping", buffer.duration_seconds)
+            logger.info("Audio too short (%.1fs) from %s, skipping", buffer.duration_seconds, self._config.device_name)
             return
+
+        logger.info(
+            "Processing %.1fs of audio from %s (abort=%s)",
+            buffer.duration_seconds, self._config.device_name, abort,
+        )
 
         # Run pipeline in a separate task so we don't block the connection
         self._pipeline_task = asyncio.create_task(
