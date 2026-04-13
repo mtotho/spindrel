@@ -37,6 +37,8 @@ import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { StatusBadge, CapBadge, EnvVarPill, formatUptime } from "../components";
 import { IntegrationDebugSection } from "./IntegrationDebugSection";
 import { ManifestEditor } from "./ManifestEditor";
+import { ProcessLogsSection } from "./ProcessLogsSection";
+import { DeviceStatusSection } from "./DeviceStatusSection";
 
 // ---------------------------------------------------------------------------
 // Section wrapper
@@ -1013,6 +1015,9 @@ export default function IntegrationDetailScreen() {
           </div>
         </SectionBox>
 
+        {/* Device / connection status (generic — shown when process reports devices) */}
+        <DeviceStatusSection integrationId={item.id} />
+
         {/* Manifest editor — Visual/YAML toggle with MCP server status */}
         <ManifestEditor integrationId={item.id} />
 
@@ -1152,6 +1157,14 @@ export default function IntegrationDetailScreen() {
               </div>
             )}
           </SectionBox>
+        )}
+
+        {/* Process logs (generic — shown for any integration with a process) */}
+        {item.has_process && (
+          <ProcessLogsSection
+            integrationId={item.id}
+            processRunning={item.process_status?.status === "running"}
+          />
         )}
 
         {/* API key */}

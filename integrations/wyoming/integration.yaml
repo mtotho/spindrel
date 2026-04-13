@@ -60,6 +60,10 @@ binding:
       type: string
       label: "ESPHome Device Name"
       description: "Device name from ESPHome YAML (used to identify device on connect). Only for ESPHome protocol."
+    - key: voice
+      type: string
+      label: "Piper Voice"
+      description: "Override the default TTS voice for this device (e.g. en_US-amy-medium). Browse voices at rhasspy.github.io/piper-samples/"
 
 target:
   type: wyoming

@@ -344,6 +344,52 @@ async def get_auto_start(integration_id: str, _auth=Depends(require_scopes("inte
 
 
 # ---------------------------------------------------------------------------
+# Process logs (ring buffer)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/integrations/{integration_id}/process/logs")
+async def get_process_logs(
+    integration_id: str,
+    after: int = Query(0, ge=0, description="Only return lines with index > after"),
+    _auth=Depends(require_scopes("integrations:read")),
+):
+    """Return buffered stdout lines from the integration's process."""
+    return process_manager.get_recent_logs(integration_id, after=after)
+
+
+# ---------------------------------------------------------------------------
+# Device / connection status
+# ---------------------------------------------------------------------------
+
+
+@router.get("/integrations/{integration_id}/device-status")
+async def get_device_status(
+    integration_id: str,
+    _auth=Depends(require_scopes("integrations:read")),
+):
+    """Return current device connection status reported by integration process."""
+    from app.services.integration_device_status import device_status_store
+    result = device_status_store.get(integration_id)
+    if result is None:
+        return {"devices": [], "updated_at": None, "stale": True}
+    return result
+
+
+@router.post("/integrations/{integration_id}/device-status")
+async def report_device_status(
+    integration_id: str,
+    body: dict,
+    _auth=Depends(require_scopes("integrations:write")),
+):
+    """Accept a device status report from an integration process."""
+    from app.services.integration_device_status import device_status_store
+    devices = body.get("devices", [])
+    device_status_store.report(integration_id, devices)
+    return {"ok": True, "count": len(devices)}
+
+
+# ---------------------------------------------------------------------------
 # Python dependency installation
 # ---------------------------------------------------------------------------
 

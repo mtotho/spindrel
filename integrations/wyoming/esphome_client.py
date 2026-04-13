@@ -107,6 +107,29 @@ class ESPHomeVoiceConnection:
         self._udp_server: _UDPAudioServer | None = None
         self._udp_port: int = 0
         self._friendly_name: str = config.device_name
+        self._connected = False
+        self._last_error: str | None = None
+        self._last_activity: str | None = None
+
+    @property
+    def status_info(self) -> dict:
+        """Return device status dict for reporting."""
+        cfg = self._config
+        if self._connected:
+            status = "connected"
+        elif self._task and not self._task.done():
+            status = "connecting"
+        else:
+            status = "disconnected"
+        return {
+            "device_id": cfg.device_name,
+            "label": self._friendly_name,
+            "protocol": "esphome",
+            "uri": f"tcp://{cfg.host}:{cfg.port}",
+            "status": "error" if self._last_error else status,
+            "detail": self._last_error,
+            "last_activity": self._last_activity,
+        }
 
     async def start(self) -> None:
         """Start the connection loop (auto-reconnects)."""
@@ -147,7 +170,9 @@ class ESPHomeVoiceConnection:
                 await self._connect_and_run()
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
+                self._connected = False
+                self._last_error = str(exc)
                 logger.exception(
                     "ESPHome connection to %s failed, retrying in 5s",
                     cfg.device_name,
@@ -167,6 +192,10 @@ class ESPHomeVoiceConnection:
         await self._client.connect(login=True)
         device_info = await self._client.device_info()
         self._friendly_name = device_info.friendly_name or device_info.name or cfg.device_name
+        self._connected = True
+        self._last_error = None
+        from datetime import datetime, timezone
+        self._last_activity = datetime.now(timezone.utc).isoformat()
         logger.info(
             "Connected to ESPHome device: %s (model=%s)",
             device_info.name, device_info.model,

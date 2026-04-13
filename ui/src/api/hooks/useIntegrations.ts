@@ -459,6 +459,65 @@ export function useCancelIntegrationTasks(id: string) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Process logs (ring buffer)
+// ---------------------------------------------------------------------------
+
+export interface ProcessLogLine {
+  ts: string;
+  text: string;
+  index: number;
+}
+
+export function useProcessLogs(id: string) {
+  return useQuery({
+    queryKey: ["admin-integration-process-logs", id],
+    queryFn: () =>
+      apiFetch<{ lines: ProcessLogLine[]; total: number }>(
+        `/api/v1/admin/integrations/${id}/process/logs`
+      ),
+    enabled: !!id,
+    refetchInterval: 5_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Device / connection status
+// ---------------------------------------------------------------------------
+
+export interface DeviceStatusInfo {
+  device_id: string;
+  label: string;
+  protocol: string;
+  uri: string;
+  status: "connected" | "disconnected" | "connecting" | "error";
+  detail: string | null;
+  last_activity: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface DeviceStatusResponse {
+  devices: DeviceStatusInfo[];
+  updated_at: string | null;
+  stale: boolean;
+}
+
+export function useDeviceStatus(id: string) {
+  return useQuery({
+    queryKey: ["admin-integration-device-status", id],
+    queryFn: () =>
+      apiFetch<DeviceStatusResponse>(
+        `/api/v1/admin/integrations/${id}/device-status`
+      ),
+    enabled: !!id,
+    refetchInterval: 10_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Integration disabled toggle
+// ---------------------------------------------------------------------------
+
 export function useSetIntegrationDisabled(id: string) {
   const qc = useQueryClient();
   return useMutation({

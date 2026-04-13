@@ -66,10 +66,32 @@ class SatelliteConnection:
         self._client: AsyncClient | None = None
         self._running = False
         self._task: asyncio.Task | None = None
+        self._connected = False
+        self._last_error: str | None = None
+        self._last_activity: str | None = None
 
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def status_info(self) -> dict:
+        """Return device status dict for reporting."""
+        if self._connected:
+            status = "connected"
+        elif self._running:
+            status = "connecting"
+        else:
+            status = "disconnected"
+        return {
+            "device_id": self.device_id,
+            "label": self.device_id,
+            "protocol": "wyoming",
+            "uri": self.satellite_uri,
+            "status": "error" if self._last_error else status,
+            "detail": self._last_error,
+            "last_activity": self._last_activity,
+        }
 
     async def start(self):
         """Start the satellite connection loop."""
@@ -93,7 +115,9 @@ class SatelliteConnection:
                 await self._connect_and_run()
             except asyncio.CancelledError:
                 break
-            except Exception:
+            except Exception as exc:
+                self._connected = False
+                self._last_error = str(exc)
                 logger.exception("Satellite %s connection error", self.device_id)
 
             if self._running:
@@ -102,10 +126,15 @@ class SatelliteConnection:
 
     async def _connect_and_run(self):
         """Connect to satellite, send RunSatellite, process events."""
+        from datetime import datetime, timezone
+
         logger.info("Connecting to satellite %s at %s", self.device_id, self.satellite_uri)
 
         self._client = AsyncClient.from_uri(self.satellite_uri)
         await self._client.connect()
+        self._connected = True
+        self._last_error = None
+        self._last_activity = datetime.now(timezone.utc).isoformat()
         logger.info("Connected to satellite %s", self.device_id)
 
         # Service discovery
@@ -113,8 +142,12 @@ class SatelliteConnection:
         info_event = await asyncio.wait_for(self._client.read_event(), timeout=10.0)
         if info_event and Info.is_type(info_event.type):
             info = Info.from_event(info_event)
-            sat_info = info.satellite[0] if info.satellite else None
-            name = sat_info.name if sat_info else "unknown"
+            # info.satellite may be a single Satellite object or a list
+            sat = info.satellite
+            if sat:
+                name = sat.name if hasattr(sat, "name") else str(sat)
+            else:
+                name = "unknown"
             logger.info("Satellite %s identified as: %s", self.device_id, name)
 
         # Tell satellite to start
@@ -125,11 +158,13 @@ class SatelliteConnection:
         while self._running:
             event = await self._client.read_event()
             if event is None:
+                self._connected = False
                 logger.warning("Satellite %s disconnected", self.device_id)
                 break
 
             if RunPipeline.is_type(event.type):
                 pipeline = RunPipeline.from_event(event)
+                self._last_activity = datetime.now(timezone.utc).isoformat()
                 logger.info(
                     "Pipeline requested: %s → %s",
                     pipeline.start_stage.value, pipeline.end_stage.value,
@@ -359,6 +394,15 @@ async def main():
                         await esphome_conns[device_id].stop()
                         del esphome_conns[device_id]
                         logger.info("Stopped ESPHome connection to %s", device_id)
+
+                # --- Report device status ---
+                status_devices = []
+                for conn in wyoming_conns.values():
+                    status_devices.append(conn.status_info)
+                for conn in esphome_conns.values():
+                    status_devices.append(conn.status_info)
+                if status_devices:
+                    await agent.report_device_status(status_devices)
 
             except Exception:
                 logger.debug("Config refresh failed", exc_info=True)

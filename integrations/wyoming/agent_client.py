@@ -167,6 +167,19 @@ class AgentClient:
         logger.warning("Timed out waiting for response in session %s", session_id)
         return ""
 
+    async def report_device_status(self, devices: list[dict]) -> None:
+        """POST device status to the admin API."""
+        try:
+            r = await self._http.post(
+                f"{self.base_url}/api/v1/admin/integrations/wyoming/device-status",
+                json={"devices": devices},
+                headers=self._headers(),
+                timeout=5.0,
+            )
+            r.raise_for_status()
+        except Exception:
+            logger.debug("Failed to report device status", exc_info=True)
+
     async def get_channel_config(self) -> dict:
         """GET /integrations/wyoming/config -- fetch device->channel mappings."""
         try:

@@ -72,24 +72,52 @@ docker run -d --name wyoming-openwakeword \
   --preload-model hey_jarvis
 ```
 
-### 3. Bind a Channel
+### 3. Set Up an ESPHome Device (ATOM Echo)
+
+The M5Stack ATOM Echo is a $13 ESP32 device with built-in mic and speaker. No separate wake word engine needed — push-to-talk via the built-in button.
+
+#### Flash the firmware
+
+```bash
+cd integrations/wyoming
+# Create secrets.yaml with your WiFi credentials
+echo 'wifi_ssid: "YourSSID"' > secrets.yaml
+echo 'wifi_password: "YourPassword"' >> secrets.yaml
+
+# Build and flash (first time requires USB, subsequent via OTA)
+esphome run atom-echo.yaml
+```
+
+The firmware includes a patched `voice_assistant` component (in `custom_components/`) that fixes a buffer deallocation bug in ESPHome 2026.3.3. This patch is required for audio playback to work.
+
+#### Verify the device
+
+- **Blue LED** = connected to Spindrel
+- **Double-click button** = play a test tone (confirms speaker works)
+- **Hold button** = push-to-talk (speak, release to process)
+
+### 4. Bind a Channel
 
 In the Spindrel admin UI:
 1. Create or select a channel
-2. Add a Wyoming binding with client ID `wyoming:desktop` (or `wyoming:living-room`, etc.)
-3. Set the activation config:
-   ```json
-   {"satellite_uri": "tcp://192.168.1.50:10700"}
-   ```
-4. The integration will automatically connect to the satellite
+2. Add a Wyoming binding with client ID (e.g. `wyoming:living-room` or `wyoming:atom-echo`)
+3. Set **Protocol** to either "Wyoming (Pi satellite)" or "ESPHome (ATOM Echo / ESP32)"
+4. Set **Device URI**:
+   - Wyoming: `tcp://192.168.1.50:10700`
+   - ESPHome: `tcp://10.10.20.129:6053` (device IP, port 6053)
+5. For ESPHome: set **ESPHome Device Name** to the `name` from your YAML (e.g. `atom-echo`)
+6. Optionally set **Piper Voice** to override the default voice for this device
 
-### 4. Talk to It
+### 5. Talk to It
 
-Say "hey jarvis" → wait for the beep → speak your message → hear the response.
+- **Wyoming satellite**: Say the wake word → wait for beep → speak → hear response
+- **ATOM Echo**: Hold button → speak → release → hear response
 
-The transcript and bot response will appear in the channel's web UI (and Slack if mirrored).
+Transcripts and bot responses appear in the channel's web UI (and Slack if mirrored).
 
 ## Configuration
+
+### Integration Settings (admin UI)
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -97,28 +125,64 @@ The transcript and bot response will appear in the channel's web UI (and Slack i
 | WYOMING_PIPER_URI | tcp://localhost:10200 | Piper TTS service |
 | WYOMING_DEFAULT_VOICE | en_US-lessac-medium | Default Piper voice |
 | WYOMING_CONTAINERS | true | Auto-start Whisper + Piper Docker containers |
+| ESPHOME_API_PASSWORD | (empty) | ESPHome API password if devices use auth |
 
-Per-device overrides go in the channel binding's `activation_config`:
-- `satellite_uri` (required) — the satellite's TCP address
-- `voice` — override the default Piper voice for this device
-- `wake_words` — (Phase 2) map wake words to different channels
+### Per-Device Binding Config
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| protocol | yes | `wyoming` or `esphome` |
+| satellite_uri | yes | TCP address of the device |
+| esphome_device_name | ESPHome only | Device name from YAML (for identification on connect) |
+| voice | no | Override the default Piper TTS voice for this device |
+
+### Changing the TTS Voice
+
+Set the **Piper Voice** field in the channel binding config, or change `WYOMING_DEFAULT_VOICE` for all devices. Browse available voices at [rhasspy.github.io/piper-samples](https://rhasspy.github.io/piper-samples/).
+
+Common voices:
+- `en_US-lessac-medium` (default, clear male)
+- `en_US-amy-medium` (female)
+- `en_US-danny-low` (casual male, lower quality but faster)
+- `en_GB-alan-medium` (British male)
 
 ## Available Wake Words
 
-Built-in `openwakeword` models (run on the satellite device):
+Built-in `openwakeword` models (Wyoming satellites only — ESPHome uses push-to-talk):
 - `hey_jarvis`
 - `hey_mycroft`
 - `ok_nabu`
 - `alexa`
 
-## Available Voices
+## ESPHome Firmware Notes
 
-Piper has dozens of voices. Browse at [rhasspy.github.io/piper-samples](https://rhasspy.github.io/piper-samples/).
+### Custom Component Patch
+
+The `custom_components/voice_assistant/` directory contains a patched version of ESPHome's `voice_assistant` component. It fixes a bug in ESPHome 2026.3.3 where the IDLE state deallocates the speaker buffer, but STREAMING_RESPONSE still tries to read into it — causing a crash (StoreProhibited). The patch reallocates the buffer if needed when entering STREAMING_RESPONSE.
+
+### Audio Mode
+
+The integration uses **UDP audio mode** (not API/protobuf mode). The device streams mic audio via UDP to Spindrel, and Spindrel sends TTS audio back the same way. This avoids a separate ESPHome bug where API audio mode leaves the device's UDP socket null, preventing audio playback entirely.
+
+### Wake Word Support
+
+ESPHome devices can support on-device wake words via `micro_wake_word` (runs a TFLite model on the ESP32). This is not yet implemented in the integration but would replace push-to-talk:
+
+```yaml
+# Add to atom-echo.yaml for wake word support (future)
+micro_wake_word:
+  model: hey_jarvis
+  on_wake_word_detected:
+    - voice_assistant.start:
+```
+
+The integration would need to handle the wake word event instead of relying on button press/release.
 
 ## Hardware
 
-| Device | Cost | Notes |
-|--------|------|-------|
-| Raspberry Pi Zero 2W + ReSpeaker 2-Mic HAT | ~$25 | Best standalone satellite |
-| Raspberry Pi 3/4 + ReSpeaker | ~$45 | More headroom |
-| Any Linux machine with mic + speakers | $0 | Great for testing |
+| Device | Cost | Protocol | Notes |
+|--------|------|----------|-------|
+| M5Stack ATOM Echo | ~$13 | ESPHome | Push-to-talk, tiny, built-in mic+speaker |
+| Raspberry Pi Zero 2W + ReSpeaker 2-Mic HAT | ~$25 | Wyoming | Best standalone satellite, wake word support |
+| Raspberry Pi 3/4 + ReSpeaker | ~$45 | Wyoming | More headroom |
+| Any Linux machine with mic + speakers | $0 | Wyoming | Great for testing |

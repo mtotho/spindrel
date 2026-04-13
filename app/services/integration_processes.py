@@ -7,14 +7,27 @@ manager that works in both dev and Docker production.
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
 import os
 import shutil
 import signal
 import sys
 import time
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+
+_LOG_BUFFER_SIZE = 500
+
+
+class _LogEntry:
+    __slots__ = ("ts", "text")
+
+    def __init__(self, ts: str, text: str):
+        self.ts = ts
+        self.text = text
 
 
 class _ProcessState:
@@ -22,7 +35,7 @@ class _ProcessState:
     __slots__ = (
         "integration_id", "cmd", "description", "required_env",
         "process", "monitor_task", "started_at", "exit_code",
-        "restart_count",
+        "restart_count", "log_buffer", "log_total",
     )
 
     def __init__(self, integration_id: str, cmd: list[str], description: str, required_env: list[str]):
@@ -35,6 +48,8 @@ class _ProcessState:
         self.started_at: float | None = None
         self.exit_code: int | None = None
         self.restart_count: int = 0
+        self.log_buffer: collections.deque[_LogEntry] = collections.deque(maxlen=_LOG_BUFFER_SIZE)
+        self.log_total: int = 0
 
 
 class IntegrationProcessManager:
@@ -244,6 +259,11 @@ class IntegrationProcessManager:
             text = line.decode("utf-8", errors="replace").rstrip()
             if text:
                 logger.info("[%s] %s", state.integration_id, text)
+                state.log_buffer.append(_LogEntry(
+                    ts=datetime.now(timezone.utc).isoformat(),
+                    text=text,
+                ))
+                state.log_total += 1
 
         # Process exited
         await proc.wait()
@@ -400,6 +420,31 @@ class IntegrationProcessManager:
             *(self.stop(iid) for iid in running),
             return_exceptions=True,
         )
+
+    def get_recent_logs(self, integration_id: str, after: int = 0) -> dict:
+        """Return buffered log lines for a process.
+
+        Args:
+            integration_id: The integration to get logs for.
+            after: Only return lines with index > after (for incremental polling).
+
+        Returns:
+            {lines: [{ts, text, index}], total: int}
+        """
+        state = self._states.get(integration_id)
+        if not state:
+            return {"lines": [], "total": 0}
+
+        lines = []
+        # log_total is the cumulative count; buffer holds the last N.
+        # The index of the oldest entry in the buffer is (log_total - len(buffer)).
+        buf = state.log_buffer
+        base_index = state.log_total - len(buf)
+        for i, entry in enumerate(buf):
+            idx = base_index + i
+            if idx > after:
+                lines.append({"ts": entry.ts, "text": entry.text, "index": idx})
+        return {"lines": lines, "total": state.log_total}
 
     def get_discoverable(self) -> list[dict]:
         """Return all discoverable processes with their env readiness status."""
