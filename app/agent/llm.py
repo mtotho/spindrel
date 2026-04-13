@@ -908,16 +908,23 @@ class StreamAccumulator:
         # Text content — route <think> blocks to thinking events,
         # then filter XML tool-call fragments from content.
         if delta.content:
-            content_text, thinking_text = self._think_parser.feed(delta.content)
-            if content_text:
-                # Filter out XML tool-call fragments (e.g. MiniMax <invoke> tags)
-                filtered = self._xml_filter.feed(content_text)
-                if filtered:
-                    self._content_parts.append(filtered)
-                    events.append({"type": "text_delta", "delta": filtered})
-            if thinking_text:
-                self._thinking_parts.append(thinking_text)
-                events.append({"type": "thinking", "delta": thinking_text})
+            # Guard against providers that send the full accumulated content
+            # as a repeated chunk (observed with Gemini's OpenAI-compat
+            # endpoint — same bug family as the tool-name repetition below).
+            # If the new delta exactly equals the content accumulated so far,
+            # it's a duplicate full-content chunk, not a genuine continuation.
+            _is_dup = self._content_parts and delta.content == "".join(self._content_parts)
+            if not _is_dup:
+                content_text, thinking_text = self._think_parser.feed(delta.content)
+                if content_text:
+                    # Filter out XML tool-call fragments (e.g. MiniMax <invoke> tags)
+                    filtered = self._xml_filter.feed(content_text)
+                    if filtered:
+                        self._content_parts.append(filtered)
+                        events.append({"type": "text_delta", "delta": filtered})
+                if thinking_text:
+                    self._thinking_parts.append(thinking_text)
+                    events.append({"type": "thinking", "delta": thinking_text})
 
         # Thinking/reasoning content (provider-dependent attribute)
         reasoning = getattr(delta, "reasoning_content", None) or getattr(delta, "reasoning", None)

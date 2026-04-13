@@ -23,6 +23,7 @@ from app.tools.local.file_ops import (
     _normalize_include,
     _whitespace_flex_pattern,
     _find_closest_hint,
+    _save_backup,
     file as file_tool,
     MAX_CONTENT_BYTES,
     MAX_READ_LINES,
@@ -30,6 +31,8 @@ from app.tools.local.file_ops import (
     DEFAULT_GREP_MATCHES,
     GREP_LINE_MAX_CHARS,
     MAX_GREP_FILE_BYTES,
+    MAX_BACKUP_VERSIONS,
+    SIZE_DROP_MIN_BYTES,
 )
 
 
@@ -1387,3 +1390,165 @@ class TestCrossWorkspaceAccess:
         assert parsed["ok"] is True
         written = (cross_ws / "baking-bot" / "channels" / self.CHANNEL_ID / "notes.md").read_text()
         assert "orchestrator" in written
+
+
+# ---------------------------------------------------------------------------
+# Write-safety: versioned backups + size-drop guard
+# ---------------------------------------------------------------------------
+
+
+class TestWriteSafety:
+    """Tests for _save_backup() and the destructive-write guard in _op_write()."""
+
+    def _big_content(self):
+        return "# Memory\n\n" + "\n".join(f"- Fact {i}" for i in range(100))
+
+    # --- Versioned backups ---
+
+    def test_backup_created_on_overwrite(self, ws):
+        """Overwriting an existing file creates a .versions/ backup."""
+        target = str(ws / "hello.txt")
+        original = Path(target).read_text()
+        _op_write(target, "replacement content", force=True)
+        versions_dir = ws / ".versions"
+        backups = list(versions_dir.glob("hello.txt.*.bak"))
+        assert len(backups) == 1
+        assert backups[0].read_text() == original
+
+    def test_backup_created_on_forced_destructive_write(self, ws):
+        """force=True still creates a backup before overwriting."""
+        target = str(ws / "memory" / "MEMORY.md")
+        big = self._big_content()
+        Path(target).write_text(big)
+
+        _op_write(target, "tiny", force=True)
+        versions_dir = ws / "memory" / ".versions"
+        backups = list(versions_dir.glob("MEMORY.md.*.bak"))
+        assert len(backups) == 1
+        assert backups[0].read_text() == big
+
+    def test_backup_prunes_old_versions(self, ws):
+        """Only MAX_BACKUP_VERSIONS backups are kept."""
+        target = str(ws / "hello.txt")
+        import time as _time
+        for i in range(MAX_BACKUP_VERSIONS + 3):
+            Path(target).write_text(f"version {i}")
+            _save_backup(target)
+            _time.sleep(0.01)  # ensure distinct mtimes
+        versions_dir = ws / ".versions"
+        backups = list(versions_dir.glob("hello.txt.*.bak"))
+        assert len(backups) == MAX_BACKUP_VERSIONS
+
+    def test_no_backup_on_new_file(self, ws):
+        """Writing a brand new file does not create a backup."""
+        target = str(ws / "brand_new.txt")
+        _op_write(target, "hello", force=False)
+        versions_dir = ws / ".versions"
+        assert not versions_dir.exists()
+
+    # --- Size-drop guard ---
+
+    def test_size_drop_guard_blocks_destructive_write(self, ws):
+        """Writing <50% of original content is blocked without force."""
+        target = str(ws / "memory" / "MEMORY.md")
+        big = self._big_content()
+        Path(target).write_text(big)
+        assert len(big.encode()) > SIZE_DROP_MIN_BYTES
+
+        result = _op_write(target, "tiny", force=False)
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "remove" in parsed["error"].lower()
+        # File should be unchanged
+        assert Path(target).read_text() == big
+
+    def test_size_drop_error_suggests_edit(self, ws):
+        """Guard error message tells the bot to use edit instead."""
+        target = str(ws / "memory" / "MEMORY.md")
+        Path(target).write_text(self._big_content())
+
+        result = _op_write(target, "tiny", force=False)
+        parsed = json.loads(result)
+        assert 'operation="edit"' in parsed["error"]
+
+    def test_size_drop_guard_allows_with_force(self, ws):
+        """Writing <50% is allowed when force=True."""
+        target = str(ws / "memory" / "MEMORY.md")
+        Path(target).write_text(self._big_content())
+
+        result = _op_write(target, "tiny", force=True)
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        assert Path(target).read_text() == "tiny"
+
+    def test_size_drop_guard_skips_small_files(self, ws):
+        """Files smaller than SIZE_DROP_MIN_BYTES are not guarded."""
+        target = str(ws / "hello.txt")
+        result = _op_write(target, "x", force=False)
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+
+    def test_size_drop_guard_allows_similar_size(self, ws):
+        """Writing content of similar size (>50%) is not blocked."""
+        target = str(ws / "memory" / "MEMORY.md")
+        big = self._big_content()
+        Path(target).write_text(big)
+        similar = "# Memory\n\n" + "\n".join(f"- Updated {i}" for i in range(60))
+
+        result = _op_write(target, similar, force=False)
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+
+    def test_no_backup_on_guard_rejection(self, ws):
+        """Guard rejection does NOT create a backup (file unchanged, nothing to recover)."""
+        target = str(ws / "memory" / "MEMORY.md")
+        Path(target).write_text(self._big_content())
+
+        _op_write(target, "tiny", force=False)
+        versions_dir = ws / "memory" / ".versions"
+        assert not versions_dir.exists() or len(list(versions_dir.glob("*.bak"))) == 0
+
+    def test_new_file_write_no_guard(self, ws):
+        """Writing a brand new file is never guarded."""
+        target = str(ws / "brand_new.txt")
+        result = _op_write(target, "hello", force=False)
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+
+    # --- .versions/ hidden from bot tools ---
+
+    def test_versions_hidden_from_list(self, ws):
+        """.versions/ directory is not shown in file(list) output."""
+        target = str(ws / "hello.txt")
+        _op_write(target, "updated", force=True)
+        # .versions/ should now exist on disk
+        assert (ws / ".versions").exists()
+
+        result = _op_list(str(ws), str(ws))
+        parsed = json.loads(result)
+        names = [e["name"] for e in parsed["entries"]]
+        assert ".versions" not in names
+
+    def test_versions_hidden_from_grep(self, ws):
+        """.versions/ backup files are not returned by grep."""
+        target = str(ws / "hello.txt")
+        _op_write(target, "FINDME_UNIQUE_TOKEN", force=True)
+        # The backup of the OLD content should not contain the new token,
+        # but let's also write the token into the backup to be sure it's skipped
+        backup_dir = ws / ".versions"
+        assert backup_dir.exists()
+        (backup_dir / "planted.txt").write_text("FINDME_UNIQUE_TOKEN in backup")
+
+        result = _op_grep(str(ws), "FINDME_UNIQUE_TOKEN", None, str(ws), None)
+        parsed = json.loads(result)
+        matched_files = [m["file"] for m in parsed.get("matches", [])]
+        assert not any(".versions" in f for f in matched_files)
+
+    def test_versions_hidden_from_glob(self, ws):
+        """.versions/ backup files are not returned by glob."""
+        target = str(ws / "hello.txt")
+        _op_write(target, "updated", force=True)
+
+        result = _op_glob(str(ws), "**/*.bak", str(ws), None)
+        parsed = json.loads(result)
+        assert parsed["count"] == 0

@@ -34,7 +34,8 @@ from integrations.wyoming.esphome_device_registry import ESPHomeDeviceRegistry
 
 logger = logging.getLogger(__name__)
 
-RECONNECT_DELAY = 5.0
+RECONNECT_DELAY_INITIAL = 5.0
+RECONNECT_DELAY_MAX = 300.0  # 5 minutes
 CONFIG_REFRESH_INTERVAL = 30.0
 
 
@@ -110,19 +111,30 @@ class SatelliteConnection:
 
     async def _run_loop(self):
         """Main loop: connect, run pipeline, reconnect on failure."""
+        delay = RECONNECT_DELAY_INITIAL
+        consecutive_failures = 0
         while self._running:
             try:
                 await self._connect_and_run()
+                # Successful connection resets backoff
+                delay = RECONNECT_DELAY_INITIAL
+                consecutive_failures = 0
             except asyncio.CancelledError:
                 break
             except Exception as exc:
                 self._connected = False
                 self._last_error = str(exc)
-                logger.exception("Satellite %s connection error", self.device_id)
+                consecutive_failures += 1
+                if consecutive_failures <= 1:
+                    logger.warning("Satellite %s connection error: %s", self.device_id, exc)
+                else:
+                    logger.debug("Satellite %s still unreachable (%d attempts): %s", self.device_id, consecutive_failures, exc)
 
             if self._running:
-                logger.info("Reconnecting to %s in %.0fs...", self.device_id, RECONNECT_DELAY)
-                await asyncio.sleep(RECONNECT_DELAY)
+                if consecutive_failures <= 1:
+                    logger.info("Reconnecting to %s in %.0fs...", self.device_id, delay)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, RECONNECT_DELAY_MAX)
 
     async def _connect_and_run(self):
         """Connect to satellite, send RunSatellite, process events."""

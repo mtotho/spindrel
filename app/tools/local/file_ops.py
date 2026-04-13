@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import difflib
 import fnmatch
+import glob as glob_mod
 import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 from app.agent.context import current_bot_id
@@ -31,6 +33,11 @@ MAX_GREP_FILES_SCANNED = 20000
 MAX_GREP_FILE_BYTES = 5_242_880  # 5 MB — skip files larger than this during grep
 GREP_LINE_MAX_CHARS = 400
 
+# Write-safety: versioned backups + destructive-write guard
+MAX_BACKUP_VERSIONS = 5
+SIZE_DROP_THRESHOLD = 0.5   # reject if new content < 50% of old
+SIZE_DROP_MIN_BYTES = 500   # only guard files larger than this
+
 # Directories pruned from recursive grep / glob — keeps output focused on
 # source and avoids blowing context on vendored / build / VCS junk.
 _SKIP_DIRS = frozenset({
@@ -40,6 +47,7 @@ _SKIP_DIRS = frozenset({
     ".venv", "venv", "env",
     "dist", "build", ".next", ".turbo", ".parcel-cache",
     ".cache", ".tox", "target",
+    ".versions",  # write-safety backups — internal, never surface to bots
 })
 
 _CHANNEL_PATH_RE = re.compile(r"^/workspace/channels/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:/|$)")
@@ -253,6 +261,14 @@ def _error(msg: str) -> str:
                         "to matching filenames."
                     ),
                 },
+                "force": {
+                    "type": "boolean",
+                    "description": (
+                        "For write: override the destructive-write guard. Required when "
+                        "write would remove >50% of an existing file's content. "
+                        "Prefer operation=\"edit\" to change specific sections instead."
+                    ),
+                },
             },
             "required": ["operation", "path"],
         },
@@ -270,6 +286,7 @@ async def file(
     destination: str | None = None,
     pattern: str | None = None,
     include: str | None = None,
+    force: bool = False,
 ) -> str:
     """Dispatch file operations."""
     bot, bot_id, ws_root = _get_bot_and_workspace_root()
@@ -322,7 +339,7 @@ async def file(
                     "llm": result,
                 })
         elif operation == "write":
-            result = _op_write(resolved, content)
+            result = _op_write(resolved, content, force=force)
         elif operation == "append":
             result = _op_append(resolved, content)
         elif operation == "edit":
@@ -407,7 +424,39 @@ def _diff_stats(diff_text: str) -> tuple[int, int]:
     return added, removed
 
 
-def _op_write(path: str, content: str | None) -> str:
+def _save_backup(path: str) -> None:
+    """Save a timestamped backup of *path* in a .versions/ sibling directory.
+
+    Keeps the most recent MAX_BACKUP_VERSIONS copies, pruning older ones.
+    """
+    parent = os.path.dirname(path)
+    basename = os.path.basename(path)
+    versions_dir = os.path.join(parent, ".versions")
+    os.makedirs(versions_dir, exist_ok=True)
+
+    # Use monotonic-ish timestamp with subsecond precision to avoid collisions
+    ts = f"{time.time():.4f}".replace(".", "-")
+    backup_name = f"{basename}.{ts}.bak"
+    backup_path = os.path.join(versions_dir, backup_name)
+
+    try:
+        import shutil
+        shutil.copy2(path, backup_path)
+    except OSError:
+        logger.warning("Failed to create backup of %s", path)
+        return
+
+    # Prune old backups (keep newest MAX_BACKUP_VERSIONS)
+    pattern = os.path.join(versions_dir, f"{basename}.*.bak")
+    backups = sorted(glob_mod.glob(pattern), key=lambda p: (os.path.getmtime(p), p), reverse=True)
+    for old in backups[MAX_BACKUP_VERSIONS:]:
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+
+
+def _op_write(path: str, content: str | None, force: bool = False) -> str:
     if content is None:
         return _error("content is required for write.")
     if len(content.encode("utf-8")) > MAX_CONTENT_BYTES:
@@ -420,6 +469,26 @@ def _op_write(path: str, content: str | None) -> str:
             pre_content = Path(path).read_text()
         except (OSError, UnicodeDecodeError):
             pre_content = ""
+
+    # --- Write-safety: size-drop guard ---
+    # Reject writes that would delete a large portion of existing content
+    # unless the caller explicitly passes force=true.
+    if pre_content and not force:
+        old_bytes = len(pre_content.encode("utf-8"))
+        new_bytes = len(content.encode("utf-8"))
+        if old_bytes >= SIZE_DROP_MIN_BYTES and new_bytes < old_bytes * SIZE_DROP_THRESHOLD:
+            pct = int((1 - new_bytes / old_bytes) * 100)
+            return _error(
+                f"Write would remove ~{pct}% of this file's content "
+                f"({old_bytes} → {new_bytes} bytes). This is likely destructive. "
+                f"Use operation=\"edit\" to change specific sections, or pass "
+                f"force=true to confirm you want to overwrite the entire file."
+            )
+
+    # --- Write-safety: versioned backup ---
+    # Save a timestamped copy before overwriting so content is recoverable.
+    if pre_content and os.path.isfile(path):
+        _save_backup(path)
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     Path(path).write_text(content)
@@ -626,6 +695,9 @@ def _op_list(path: str, ws_root: str) -> str:
     dirs_first = sorted(items, key=lambda x: (not os.path.isdir(os.path.join(path, x)), x))
 
     for name in dirs_first:
+        # Hide internal directories from listing
+        if name in _SKIP_DIRS:
+            continue
         full = os.path.join(path, name)
         if os.path.isdir(full):
             entries.append({"name": name, "type": "dir"})

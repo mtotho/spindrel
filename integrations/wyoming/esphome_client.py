@@ -161,6 +161,9 @@ class ESPHomeVoiceConnection:
     async def _run_loop(self) -> None:
         """Reconnect loop — keeps trying to connect to the device."""
         cfg = self._config
+        delay = 5.0
+        max_delay = 300.0
+        consecutive_failures = 0
         while True:
             try:
                 logger.info(
@@ -168,17 +171,29 @@ class ESPHomeVoiceConnection:
                     cfg.device_name, cfg.host, cfg.port,
                 )
                 await self._connect_and_run()
+                delay = 5.0
+                consecutive_failures = 0
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 self._connected = False
                 self._last_error = str(exc)
-                logger.exception(
-                    "ESPHome connection to %s failed, retrying in 5s",
-                    cfg.device_name,
-                )
+                consecutive_failures += 1
+                if consecutive_failures <= 1:
+                    logger.warning(
+                        "ESPHome connection to %s failed: %s",
+                        cfg.device_name, exc,
+                    )
+                else:
+                    logger.debug(
+                        "ESPHome %s still unreachable (%d attempts): %s",
+                        cfg.device_name, consecutive_failures, exc,
+                    )
             await self._disconnect()
-            await asyncio.sleep(5)
+            if consecutive_failures <= 1:
+                logger.info("Reconnecting to %s in %.0fs...", cfg.device_name, delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, max_delay)
 
     async def _connect_and_run(self) -> None:
         """Connect to the device, subscribe for voice, and block until disconnect."""
@@ -486,12 +501,16 @@ class ESPHomeVoiceConnection:
                 # and set up its socket reader
                 await asyncio.sleep(0.05)
 
-                # Pace all audio at 1.2x realtime using absolute time targets.
-                # 1x causes underruns from asyncio.sleep jitter; 2x overflows
-                # the device's 16KB speaker buffer and causes skipping.
-                # 1.2x gives ~20% headroom without overflow.
+                # Pace audio at 1.1x realtime using absolute time targets.
+                # The device has a 16KB speaker buffer (~0.5s at 16kHz/16-bit).
+                # We also cap how far ahead of realtime we can drift — if the
+                # event loop stalls and then catches up, we'd otherwise burst
+                # many chunks at once, overflowing the device buffer.
                 seconds_per_chunk = _UDP_AUDIO_CHUNK_BYTES / 2 / _DEVICE_SAMPLE_RATE
-                pace = seconds_per_chunk / 1.2  # 1.2x realtime
+                pace = seconds_per_chunk / 1.1  # 1.1x realtime
+                # Max chunks we're allowed to be ahead of realtime playback.
+                # 8 chunks × 32ms = 256ms — well within the 512ms device buffer.
+                max_ahead_chunks = 8
 
                 loop = asyncio.get_running_loop()
                 start_time = loop.time()
@@ -502,11 +521,25 @@ class ESPHomeVoiceConnection:
                     self._udp_server.send_audio(chunk_data)
                     offset += _UDP_AUDIO_CHUNK_BYTES
                     chunks_sent += 1
-                    # Sleep until absolute target time for this chunk
-                    target = start_time + chunks_sent * pace
-                    delay = target - loop.time()
-                    if delay > 0:
-                        await asyncio.sleep(delay)
+
+                    # How far ahead of realtime playback are we?
+                    elapsed = loop.time() - start_time
+                    realtime_chunks = elapsed / seconds_per_chunk
+                    ahead = chunks_sent - realtime_chunks
+
+                    if ahead >= max_ahead_chunks:
+                        # We've burst too far ahead — wait until we're back
+                        # within budget before sending more
+                        wait_until = start_time + (chunks_sent - max_ahead_chunks + 1) * seconds_per_chunk
+                        delay = wait_until - loop.time()
+                        if delay > 0:
+                            await asyncio.sleep(delay)
+                    else:
+                        # Normal pacing — sleep until our target send time
+                        target = start_time + chunks_sent * pace
+                        delay = target - loop.time()
+                        if delay > 0:
+                            await asyncio.sleep(delay)
 
                 logger.info(
                     "Sent %d UDP audio chunks (%d bytes) to %s",

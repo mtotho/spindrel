@@ -42,7 +42,13 @@ You have a `file` tool for direct file operations inside your workspace. It bypa
 
 ## Memory Patterns
 
-### Append to MEMORY.md
+### Update a section in MEMORY.md (preferred)
+
+```
+file(operation="edit", path="memory/MEMORY.md", find="status: pending", replace="status: complete")
+```
+
+### Add a new section to MEMORY.md
 
 ```
 file(operation="append", path="memory/MEMORY.md", content="\n## New Finding\n- Key insight here\n")
@@ -60,11 +66,9 @@ file(operation="append", path="memory/logs/2026-03-30.md", content="\n### 14:30 
 file(operation="write", path="memory/reference/deployment-guide.md", content="# Deployment Guide\n\n...")
 ```
 
-### Update a specific fact
-
-```
-file(operation="edit", path="memory/MEMORY.md", find="status: pending", replace="status: complete")
-```
+> **WARNING**: NEVER use `file(operation="write")` on `memory/MEMORY.md`. The `write` operation
+> **replaces the entire file** — all existing content is destroyed. Use `edit` to change specific
+> sections or `append` to add new sections at the end.
 
 ---
 
@@ -129,5 +133,6 @@ file(operation="grep", path="app/main.py", pattern=r"lifespan")
 | Using `exec_command` with `echo '...'` for text containing `'` | Shell quoting breaks, content mangled | Use `file(write/append)` |
 | Using `exec_command` for `cat > file << 'EOF'` with `$` in content | Shell may still expand variables | Use `file(write)` — no shell involved |
 | Editing without reading first | `find` string doesn't match, edit fails | Always `file(read)` first |
+| Using `file(write)` on MEMORY.md or any curated file | **All existing content destroyed** | Use `edit` to change sections, `append` to add. `write` is only for creating new files. |
 | Using `file(write)` on an existing file without reading | Previous content lost | Read first, or use `append`/`edit` |
 | Using `replace_all=true` without checking occurrences | Unintended replacements | Read first, count occurrences, then decide |

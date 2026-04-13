@@ -45,10 +45,10 @@ Keep under ~100 lines. Format: `## Sections` with `_Updated: YYYY-MM-DD_` header
 
 **MEMORY.md Curation Protocol:**
 - NEVER append session entries, progress notes, or "what happened today" to `{memory_rel}/MEMORY.md`
-- NEVER clear and rewrite `{memory_rel}/MEMORY.md` — edit individual sections in place
+- NEVER use `file(operation="write")` on `{memory_rel}/MEMORY.md` — it **replaces the entire file** and destroys all existing content. Always use `edit` (to change specific sections) or `append` (to add new sections at the end).
 - NEVER let `{memory_rel}/MEMORY.md` grow beyond ~100 lines — remove outdated info to make room
 - Only write to `{memory_rel}/MEMORY.md` when you have a stable fact confirmed across sessions
-- Each write should edit an existing section or add a new permanent section
+- Each change should use `file(operation="edit", find="...", replace="...")` on an existing section or `file(operation="append")` for a new section
 - Deduplicate: before adding, check if the fact is already captured
 
 ### {memory_rel}/reference/ — Detailed Personal Notes
@@ -117,7 +117,11 @@ This is the key difference from memory files:
 - search_memory(query) — hybrid semantic+keyword search across all memory files
 - get_memory_file(name) — read a specific memory file
 - manage_bot_skill(action, ...) — create, update, list, get, delete, or patch your self-authored skills
-- Writing: use the `file` tool (write, append, edit operations) with paths like `{memory_rel}/MEMORY.md`
+- **Updating MEMORY.md**: use `file(operation="edit", find="old text", replace="new text")` to change sections in place
+- **Adding to MEMORY.md**: use `file(operation="append", content="...")` to add a new section at the end
+- **Daily logs**: use `file(operation="append", path="{memory_rel}/logs/YYYY-MM-DD.md", content="...")`
+- **New reference files**: use `file(operation="write", path="{memory_rel}/reference/name.md", content="...")`
+- **NEVER use `file(operation="write")` on MEMORY.md** — it replaces the entire file and all existing content is lost
 
 ### Promotion Rules
 - **Trust the current conversation first.** If the user mentioned something earlier in THIS conversation (it's already in your context as a prior turn), use that directly. Do NOT call search_memory for information the user just told you.
@@ -149,7 +153,9 @@ All paths are relative to your workspace root — use the memory/ prefix:
 - Promote any new stable facts to memory/MEMORY.md (edit existing sections in place, do not append session entries)
 - Write anything you'll need to remember in future sessions
 - **If you learned a reusable pattern, procedure, or fix**: create a skill NOW with `manage_bot_skill(action="create", ...)`. Skills auto-surface in future sessions — this is your last chance before context is lost.
-Use the `file` tool (append, write, edit) to write to the appropriate files under memory/."""
+Use the `file` tool to write to the appropriate files under memory/.
+**For MEMORY.md**: use `edit` (to update sections) or `append` (to add new sections). NEVER use `write` on MEMORY.md — it replaces the entire file.
+**For daily logs**: use `append`. **For new reference files**: use `write`."""
 
 
 DEFAULT_MEMORY_HYGIENE_PROMPT = """\
@@ -190,7 +196,7 @@ Scan recent daily logs (last 3-7 days). For each candidate entry, mentally score
 5. **Content type** — Decisions and corrections ALWAYS promote. Observations only if recurring.
 
 Promote entries scoring well on 3+ factors:
-- Stable facts or decisions → promote to memory/MEMORY.md (edit in place, don't append)
+- Stable facts or decisions → promote to memory/MEMORY.md using `file(operation="edit")` to update existing sections or `file(operation="append")` for new sections. **NEVER use `file(operation="write")` on MEMORY.md** — it replaces the entire file.
 - Reusable procedures or patterns → create skills with `manage_bot_skill(action="create", ...)`
 - Detailed reference info → move to memory/reference/ files
 
