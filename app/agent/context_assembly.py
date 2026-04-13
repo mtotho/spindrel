@@ -443,7 +443,7 @@ async def _inject_channel_workspace(
 
         body = ""
         if cw_files:
-            sections = [f"## {fname}\n\n{fcontent}" for fname, fcontent in cw_files]
+            sections = [f"## {cw_abs}/{fname}\n\n{fcontent}" for fname, fcontent in cw_files]
             body = "\n\n---\n\n".join(sections)
 
         inject_chars["channel_workspace"] = total_chars

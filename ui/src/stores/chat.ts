@@ -132,6 +132,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 streamingContent: "",
                 thinkingContent: "",
                 toolCalls: [],
+                correlationId: turnId,
               },
             },
             // A new turn implies the channel is no longer in the

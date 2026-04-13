@@ -282,7 +282,7 @@ async def _run_member_bot_reply(
                 invocation_message=invocation_message,
             )
 
-        correlation_id = uuid.uuid4()
+        correlation_id = _turn_id  # same as turn_id — threads through SSE→synthetic→DB for reliable dedup
         from_index = len(ctx.messages)
 
         prompt = ctx.extracted_user_prompt

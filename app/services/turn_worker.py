@@ -91,7 +91,7 @@ async def run_turn(
     channel_id = handle.channel_id
     session_id = handle.session_id
     turn_id = handle.turn_id
-    correlation_id = uuid.uuid4()
+    correlation_id = turn_id  # turn_id IS the correlation_id — threads through SSE→synthetic→DB for reliable dedup
     response_text = ""
     response_actions: list | None = None
     _intermediate_texts: list[str] = []
