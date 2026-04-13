@@ -160,9 +160,10 @@ Your goal: keep memory lean, promote stable facts, prune stale entries, detect c
 generate cross-channel reflections, and consolidate skills.
 
 ## Step 1 — Survey channels
-Use `list_channels()` to see all your channels (including member channels). For each active channel:
-- Use `read_conversation_history(section="index", channel_id=<id>)` to review recent activity.
+Your channels (primary and member) are listed in the "## Channels" snapshot appended below, with last activity times and 7-day message counts. For each channel with recent activity:
+- Use `read_conversation_history(section="index", channel_id="<id>")` to review what happened.
 - Note channels with no recent activity (candidates for archiving stale daily logs).
+- **Member channels matter** — you may have learned things in channels you're a guest in. Review them too.
 
 ## Step 2 — Curate MEMORY.md (with contradiction detection + lifecycle metadata)
 Read your current memory/MEMORY.md. For each entry:

@@ -182,6 +182,82 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
     return "\n".join(lines)
 
 
+async def _build_channel_snapshot(bot_id: str, db: AsyncSession) -> str:
+    """Build a markdown snapshot of the bot's channels with last activity.
+
+    Injected into the hygiene prompt so the bot doesn't need to call
+    list_channels() itself — less capable models skip that step.
+    """
+    from app.db.models import Channel, ChannelBotMember, Session as SessionRow
+    from app.services.channels import bot_channel_filter
+
+    now_utc = datetime.now(timezone.utc)
+
+    # Get all channels this bot belongs to (primary + member)
+    channels = (await db.execute(
+        select(Channel.id, Channel.name, Channel.client_id, Channel.bot_id)
+        .where(bot_channel_filter(bot_id))
+        .order_by(Channel.name)
+    )).all()
+
+    if not channels:
+        return "## Channels\n\n_(no channels found)_"
+
+    # Get last activity per channel via most recent session
+    ch_ids = [c.id for c in channels]
+    activity_rows = (await db.execute(
+        select(
+            SessionRow.channel_id,
+            func.max(SessionRow.last_active).label("last_active"),
+        )
+        .where(SessionRow.channel_id.in_(ch_ids))
+        .group_by(SessionRow.channel_id)
+    )).all()
+    activity_by_ch = {r.channel_id: r.last_active for r in activity_rows}
+
+    # Get user message counts in last 7 days per channel
+    week_ago = now_utc - timedelta(days=7)
+    msg_count_rows = (await db.execute(
+        select(
+            SessionRow.channel_id,
+            func.count(Message.id).label("msg_count"),
+        )
+        .join(SessionRow, Message.session_id == SessionRow.id)
+        .where(
+            SessionRow.channel_id.in_(ch_ids),
+            Message.role == "user",
+            Message.created_at >= week_ago,
+        )
+        .group_by(SessionRow.channel_id)
+    )).all()
+    msg_counts = {r.channel_id: r.msg_count for r in msg_count_rows}
+
+    lines = [
+        "## Channels",
+        "",
+        f"You have {len(channels)} channel(s). Use `read_conversation_history(section=\"index\", channel_id=\"<id>\")` to review recent activity in any channel.",
+        "",
+    ]
+    for ch in channels:
+        label = ch.name or ch.client_id or "unnamed"
+        role = "member" if str(ch.bot_id) != bot_id else "primary"
+        last_active = activity_by_ch.get(ch.id)
+        if last_active:
+            if last_active.tzinfo is None:
+                last_active = last_active.replace(tzinfo=timezone.utc)
+            age_days = (now_utc - last_active).days
+            active_str = f"{last_active.date().isoformat()} ({age_days}d ago)"
+        else:
+            active_str = "never"
+        msgs_7d = msg_counts.get(ch.id, 0)
+        lines.append(
+            f"- **{label}** ({role}) — last active: {active_str}, "
+            f"{msgs_7d} user msg(s) last 7d — `{ch.id}`"
+        )
+
+    return "\n".join(lines)
+
+
 async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: bool = True) -> uuid.UUID:
     """Create a memory_hygiene task for the given bot. Returns the task ID.
 
@@ -194,8 +270,15 @@ async def create_hygiene_task(bot_id: str, db: AsyncSession, *, auto_commit: boo
 
     prompt = resolve_prompt(bot_row)
 
-    # Phase 3 working set: append a live snapshot of enrolled skills with surface
-    # counts so the hygiene agent can make pruning decisions on actual data.
+    # Append live snapshots so the hygiene agent has data without needing
+    # to call list_channels() or manage_bot_skill() — less capable models
+    # skip those steps.
+    try:
+        ch_snapshot = await _build_channel_snapshot(bot_id, db)
+        prompt = f"{prompt}\n\n{ch_snapshot}"
+    except Exception:
+        logger.warning("Failed to build channel snapshot for hygiene of %s", bot_id, exc_info=True)
+
     try:
         snapshot = await _build_working_set_snapshot(bot_id, db)
         prompt = f"{prompt}\n\n{snapshot}"
