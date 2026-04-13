@@ -571,15 +571,45 @@ def _build_transcript(conversation: list[dict]) -> str:
 
 
 def _parse_section_response(raw: str) -> dict | None:
-    """Parse LLM section response JSON, stripping markdown fences if present."""
+    """Parse LLM section response JSON, stripping markdown fences and surrounding text."""
     raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-        raw = raw.rsplit("```", 1)[0]
+    # Try direct parse first
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
-        return None
+        pass
+    # Strip markdown fences (```json ... ``` or ``` ... ```)
+    if "```" in raw:
+        # Find content between first ``` and last ```
+        first = raw.find("```")
+        # Skip the opening fence line
+        fence_end = raw.find("\n", first)
+        if fence_end == -1:
+            fence_end = first + 3
+        last = raw.rfind("```")
+        if last > first:
+            inner = raw[fence_end + 1:last].strip()
+            try:
+                return json.loads(inner)
+            except json.JSONDecodeError:
+                pass
+    # Extract first JSON object by finding outermost { ... }
+    start = raw.find("{")
+    if start != -1:
+        # Find matching closing brace
+        depth = 0
+        for i in range(start, len(raw)):
+            if raw[i] == "{":
+                depth += 1
+            elif raw[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(raw[start:i + 1])
+                    except json.JSONDecodeError:
+                        pass
+                    break
+    return None
 
 
 async def _generate_section(
@@ -677,9 +707,15 @@ async def _generate_section(
             _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
             return (title, summary, transcript, tags, usage_info)
         # Non-JSON response — fall through to aggressive
-        logger.warning("Section LLM returned non-JSON (tier normal): %s", raw[:200])
+        logger.error(
+            "Section LLM returned non-JSON (tier normal) model=%s provider=%s raw=%s",
+            model, provider_id, raw[:500],
+        )
     except Exception:
-        logger.warning("Section LLM failed (tier normal), escalating to aggressive", exc_info=True)
+        logger.error(
+            "Section LLM failed (tier normal) model=%s provider=%s, escalating to aggressive",
+            model, provider_id, exc_info=True,
+        )
 
     # Tier 2: Aggressive
     compaction_tier = "aggressive"
@@ -710,9 +746,15 @@ async def _generate_section(
                 tags = []
             _log_compaction_tier(compaction_tier, correlation_id, session_id, bot_id, client_id)
             return (title, summary, transcript, tags, usage_info)
-        logger.warning("Section LLM returned non-JSON (tier aggressive): %s", raw[:200])
+        logger.error(
+            "Section LLM returned non-JSON (tier aggressive) model=%s provider=%s raw=%s",
+            model, provider_id, raw[:500],
+        )
     except Exception:
-        logger.warning("Section LLM failed (tier aggressive), escalating to deterministic", exc_info=True)
+        logger.error(
+            "Section LLM failed (tier aggressive) model=%s provider=%s, escalating to deterministic",
+            model, provider_id, exc_info=True,
+        )
 
     # Tier 3: Deterministic — no LLM call
     compaction_tier = "deterministic"
