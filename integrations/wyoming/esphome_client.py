@@ -358,8 +358,14 @@ class ESPHomeVoiceConnection:
                     VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_START, {}
                 )
 
-                # Stream in fixed 512-sample (1024-byte) chunks at 90% realtime
-                # pacing — identical to HA's _stream_tts_audio parameters.
+                # Give the device time to transition into STREAMING_RESPONSE
+                # and start the write_speaker_() drain loop before we flood it.
+                await asyncio.sleep(0.1)
+
+                # Stream in fixed 512-sample (1024-byte) chunks at realtime
+                # pacing. The device's speaker buffer is 16KB and drains at
+                # 32KB/s (16kHz * 2 bytes). Each chunk is 1024 bytes = 32ms
+                # of audio, so we sleep 32ms between chunks (1:1 realtime).
                 samples_per_chunk = 512
                 bytes_per_chunk = samples_per_chunk * 2  # 16-bit
                 seconds_per_chunk = samples_per_chunk / _DEVICE_SAMPLE_RATE
@@ -369,7 +375,7 @@ class ESPHomeVoiceConnection:
                     chunk_data = pcm_16k[offset:offset + bytes_per_chunk]
                     client.send_voice_assistant_audio(chunk_data)
                     chunks_sent += 1
-                    await asyncio.sleep(seconds_per_chunk * 0.9)
+                    await asyncio.sleep(seconds_per_chunk)
 
                 logger.info(
                     "Sent %d audio chunks (%d bytes) to %s",
