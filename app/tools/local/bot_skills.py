@@ -144,8 +144,8 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["create", "update", "list", "get", "delete", "patch", "merge"],
-                    "description": "The action to perform.",
+                    "enum": ["create", "update", "list", "get", "delete", "patch", "merge", "restore"],
+                    "description": "The action to perform. delete archives the skill (reversible via restore).",
                 },
                 "name": {
                     "type": "string",
@@ -412,16 +412,13 @@ async def manage_bot_skill(
         _invalidate_cache(bot_id)
         return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' updated."})
 
-    # --- DELETE ---
+    # --- DELETE (archive) ---
     if action == "delete":
         if not name:
             return json.dumps({"error": "name is required for delete action."})
         skill_id, err = _safe_skill_id(bot_id, name)
         if err:
             return err
-
-        from sqlalchemy import delete as sa_delete
-        from app.db.models import Document
 
         async with async_session() as db:
             row = await db.get(SkillRow, skill_id)
@@ -431,14 +428,35 @@ async def manage_bot_skill(
                 return json.dumps({"error": "Cannot delete a file-managed or integration skill."})
             if not row.id.startswith(prefix):
                 return json.dumps({"error": "Cannot delete another bot's skill."})
-            await db.delete(row)
-            await db.execute(sa_delete(Document).where(Document.source == f"skill:{skill_id}"))
-            from app.agent.skills import cascade_skill_deletion
-            await cascade_skill_deletion(skill_id, db)
+            if row.archived_at:
+                return json.dumps({"error": f"Skill '{skill_id}' is already archived."})
+            row.archived_at = datetime.now(timezone.utc)
             await db.commit()
 
         _invalidate_cache(bot_id)
-        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' deleted."})
+        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' archived. Use action='restore' to undo."})
+
+    # --- RESTORE ---
+    if action == "restore":
+        if not name:
+            return json.dumps({"error": "name is required for restore action."})
+        skill_id, err = _safe_skill_id(bot_id, name)
+        if err:
+            return err
+
+        async with async_session() as db:
+            row = await db.get(SkillRow, skill_id)
+            if not row:
+                return json.dumps({"error": f"Skill '{skill_id}' not found."})
+            if not row.id.startswith(prefix):
+                return json.dumps({"error": "Cannot restore another bot's skill."})
+            if not row.archived_at:
+                return json.dumps({"error": f"Skill '{skill_id}' is not archived."})
+            row.archived_at = None
+            await db.commit()
+
+        _invalidate_cache(bot_id)
+        return json.dumps({"ok": True, "id": skill_id, "message": f"Skill '{skill_id}' restored."})
 
     # --- PATCH ---
     if action == "patch":
@@ -582,7 +600,7 @@ async def manage_bot_skill(
             ),
         })
 
-    return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, get, delete, patch, or merge."})
+    return json.dumps({"error": f"Unknown action: {action}. Use create, update, list, get, delete, patch, merge, or restore."})
 
 
 def _invalidate_cache(bot_id: str) -> None:

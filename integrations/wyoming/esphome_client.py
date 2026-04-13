@@ -276,21 +276,22 @@ class ESPHomeVoiceConnection:
         if self._udp_server:
             self._udp_server.audio_buffer = None
 
-        # Send STT_VAD_END immediately — this overrides the device's
-        # desired_state_ from IDLE to AWAITING_RESPONSE, preventing the
-        # IDLE loop from killing the speaker before TTS audio plays.
+        if buffer.duration_seconds < 0.3:
+            logger.info("Audio too short (%.1fs) from %s, skipping", buffer.duration_seconds, self._config.device_name)
+            # Do NOT send STT_VAD_END here — it transitions the device to
+            # AWAITING_RESPONSE, and a subsequent RUN_END arrives during the
+            # transition (STOP_MICROPHONE) where it's ignored, leaving the
+            # device stuck in AWAITING_RESPONSE forever.
+            # Let the device return to IDLE naturally via request_stop().
+            return
+
+        # Send STT_VAD_END — this overrides the device's desired_state_
+        # from IDLE to AWAITING_RESPONSE, preventing the IDLE loop from
+        # killing the speaker before TTS audio plays.
         if self._client:
             self._client.send_voice_assistant_event(
                 VoiceAssistantEventType.VOICE_ASSISTANT_STT_VAD_END, None
             )
-
-        if buffer.duration_seconds < 0.3:
-            logger.info("Audio too short (%.1fs) from %s, skipping", buffer.duration_seconds, self._config.device_name)
-            if self._client:
-                self._client.send_voice_assistant_event(
-                    VoiceAssistantEventType.VOICE_ASSISTANT_RUN_END, None
-                )
-            return
 
         logger.info(
             "Processing %.1fs of audio from %s (abort=%s)",
@@ -372,7 +373,7 @@ class ESPHomeVoiceConnection:
 
             # Poll for the bot's response (the /chat endpoint is async —
             # it returns 202 and the turn worker generates the response)
-            response_text = await cfg.agent.wait_for_response(session_id)
+            response_text = await cfg.agent.wait_for_response(session_id, turn_id=turn_id)
             if not response_text:
                 logger.warning("Empty response from agent for %s", cfg.device_name)
                 response_text = "I don't have a response for that."
@@ -444,16 +445,24 @@ class ESPHomeVoiceConnection:
                 # and set up its socket reader
                 await asyncio.sleep(0.05)
 
+                # Send audio in bursts: a batch of chunks, then sleep for
+                # the batch duration. This avoids per-chunk overhead that
+                # causes choppy playback on the device.
+                burst_chunks = 8  # send 8 chunks (~256ms) at a time
                 seconds_per_chunk = _UDP_AUDIO_CHUNK_BYTES / 2 / _DEVICE_SAMPLE_RATE
                 offset = 0
                 chunks_sent = 0
                 while offset < len(pcm_16k):
-                    chunk_data = pcm_16k[offset:offset + _UDP_AUDIO_CHUNK_BYTES]
-                    self._udp_server.send_audio(chunk_data)
-                    offset += _UDP_AUDIO_CHUNK_BYTES
-                    chunks_sent += 1
-                    # Pace at realtime to avoid overflowing the device buffer
-                    await asyncio.sleep(seconds_per_chunk)
+                    # Send a burst
+                    for _ in range(burst_chunks):
+                        if offset >= len(pcm_16k):
+                            break
+                        chunk_data = pcm_16k[offset:offset + _UDP_AUDIO_CHUNK_BYTES]
+                        self._udp_server.send_audio(chunk_data)
+                        offset += _UDP_AUDIO_CHUNK_BYTES
+                        chunks_sent += 1
+                    # Sleep for the burst duration
+                    await asyncio.sleep(seconds_per_chunk * burst_chunks)
 
                 logger.info(
                     "Sent %d UDP audio chunks (%d bytes) to %s",

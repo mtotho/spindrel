@@ -117,16 +117,21 @@ class AgentClient:
 
         return accumulated
 
-    async def wait_for_response(self, session_id: str, correlation_id: str | None = None, timeout: float = 120) -> str:
-        """Poll session messages until an assistant response appears.
+    async def wait_for_response(
+        self,
+        session_id: str,
+        *,
+        turn_id: str | None = None,
+        correlation_id: str | None = None,
+        timeout: float = 120,
+    ) -> str:
+        """Poll session messages until an assistant response for this turn appears.
 
-        Used by ESPHome voice pipeline. Polls every 1s looking for the
-        most recent assistant message. If correlation_id is provided,
-        matches on that; otherwise returns the latest assistant content.
+        Filters by turn_id to avoid returning stale responses from previous turns.
         """
         import asyncio
         deadline = asyncio.get_event_loop().time() + timeout
-        url = f"{self.base_url}/sessions/{session_id}/messages?limit=5"
+        url = f"{self.base_url}/sessions/{session_id}/messages?limit=10"
         while asyncio.get_event_loop().time() < deadline:
             await asyncio.sleep(1)
             try:
@@ -141,13 +146,15 @@ class AgentClient:
                     content = msg.get("content", "")
                     if not content or content == "[Cancelled by user]":
                         continue
+                    if turn_id and msg.get("turn_id") != turn_id:
+                        continue
                     if correlation_id and msg.get("correlation_id") != correlation_id:
                         continue
-                    logger.info("Got response: %s", content[:100])
+                    logger.info("Got response for turn %s: %s", turn_id, content[:100])
                     return content
             except Exception:
                 logger.debug("Poll failed, retrying", exc_info=True)
-        logger.warning("Timed out waiting for response in session %s", session_id)
+        logger.warning("Timed out waiting for response in session %s (turn %s)", session_id, turn_id)
         return ""
 
     async def get_channel_config(self) -> dict:

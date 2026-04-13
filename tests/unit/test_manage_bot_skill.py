@@ -542,24 +542,71 @@ class TestDelete:
             assert "file-managed" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_success(self):
+    async def test_success_archives(self):
         row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
+        row.archived_at = None
         db = AsyncMock()
         db.get = AsyncMock(return_value=row)
-        db.delete = AsyncMock()
-        db.execute = AsyncMock()
         db.commit = AsyncMock()
 
         with (
             patch("app.tools.local.bot_skills.current_bot_id") as ctx,
             patch("app.db.engine.async_session", _mock_session(db)),
             patch("app.tools.local.bot_skills._invalidate_cache"),
-            patch("app.agent.skills.cascade_skill_deletion", new_callable=AsyncMock, return_value={"bots_updated": 0, "channels_updated": 0}),
         ):
             ctx.get.return_value = "testbot"
             result = _parse(await manage_bot_skill(action="delete", name="my-skill"))
             assert result["ok"] is True
-            db.delete.assert_called_once()
+            assert "archived" in result["message"].lower()
+            assert row.archived_at is not None
+
+    @pytest.mark.asyncio
+    async def test_already_archived(self):
+        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
+        row.archived_at = datetime.now(timezone.utc)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=row)
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(action="delete", name="my-skill"))
+            assert "already archived" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_restore_success(self):
+        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
+        row.archived_at = datetime.now(timezone.utc)
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=row)
+        db.commit = AsyncMock()
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+            patch("app.tools.local.bot_skills._invalidate_cache"),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(action="restore", name="my-skill"))
+            assert result["ok"] is True
+            assert row.archived_at is None
+
+    @pytest.mark.asyncio
+    async def test_restore_not_archived(self):
+        row = _make_skill_row("bots/testbot/my-skill", source_type="tool")
+        row.archived_at = None
+        db = AsyncMock()
+        db.get = AsyncMock(return_value=row)
+
+        with (
+            patch("app.tools.local.bot_skills.current_bot_id") as ctx,
+            patch("app.db.engine.async_session", _mock_session(db)),
+        ):
+            ctx.get.return_value = "testbot"
+            result = _parse(await manage_bot_skill(action="restore", name="my-skill"))
+            assert "not archived" in result["error"]
 
 
 class TestPatch:

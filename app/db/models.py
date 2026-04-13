@@ -980,6 +980,7 @@ class Skill(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     last_surfaced_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     surface_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    archived_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
 
 
@@ -1008,6 +1009,8 @@ class BotSkillEnrollment(Base):
         nullable=False,
         server_default=text("now()"),
     )
+    fetch_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    last_fetched_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
 
 class BotToolEnrollment(Base):

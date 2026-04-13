@@ -7,6 +7,7 @@ schema, which exercises the dialect-branched insert helper.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -144,7 +145,10 @@ class TestEnrollService:
 
 class TestPruneTool:
     async def test_prune_removes_enrollments(self, patched_session, db_session):
+        from datetime import timedelta
+        from sqlalchemy import update as sa_update
         from app.agent.context import current_bot_id
+        from app.db.models import BotSkillEnrollment
         from app.services.skill_enrollment import enroll_many, get_enrolled_skill_ids, invalidate_enrolled_cache
         from app.tools.local.skills import prune_enrolled_skills
 
@@ -152,6 +156,16 @@ class TestPruneTool:
         for sid in ("k1", "k2", "k3"):
             await _create_skill(db_session, sid)
         await enroll_many("bot5", ["k1", "k2", "k3"], source="manual")
+
+        # Age enrollments past the 7-day protection window
+        async with patched_session() as db:
+            from datetime import datetime, timezone
+            await db.execute(
+                sa_update(BotSkillEnrollment)
+                .where(BotSkillEnrollment.bot_id == "bot5")
+                .values(enrolled_at=datetime.now(timezone.utc) - timedelta(days=30))
+            )
+            await db.commit()
 
         tok = current_bot_id.set("bot5")
         try:
@@ -175,6 +189,122 @@ class TestPruneTool:
         finally:
             current_bot_id.reset(tok)
         assert "no bot context" in result.lower()
+
+    async def test_prune_rejects_authored_without_override(self, patched_session, db_session):
+        """Authored skills require an explicit override reason to prune."""
+        from app.agent.context import current_bot_id
+        from app.services.skill_enrollment import enroll, get_enrolled_skill_ids, invalidate_enrolled_cache
+        from app.tools.local.skills import prune_enrolled_skills
+
+        await _create_bot(db_session, "bot5a")
+        await _create_skill(db_session, "bots/bot5a/my-authored")
+        await enroll("bot5a", "bots/bot5a/my-authored", source="authored")
+
+        tok = current_bot_id.set("bot5a")
+        try:
+            invalidate_enrolled_cache()
+            result = await prune_enrolled_skills(["bots/bot5a/my-authored"])
+        finally:
+            current_bot_id.reset(tok)
+
+        assert "protected" in result.lower() or "override" in result.lower()
+        invalidate_enrolled_cache()
+        assert await get_enrolled_skill_ids("bot5a") == ["bots/bot5a/my-authored"]
+
+    async def test_prune_rejects_recent_without_override(self, patched_session, db_session):
+        """Recently enrolled skills (< 7 days) require an override."""
+        from app.agent.context import current_bot_id
+        from app.services.skill_enrollment import enroll, get_enrolled_skill_ids, invalidate_enrolled_cache
+        from app.tools.local.skills import prune_enrolled_skills
+
+        await _create_bot(db_session, "bot5b")
+        await _create_skill(db_session, "recent-skill")
+        await enroll("bot5b", "recent-skill", source="fetched")
+
+        tok = current_bot_id.set("bot5b")
+        try:
+            invalidate_enrolled_cache()
+            result = await prune_enrolled_skills(["recent-skill"])
+        finally:
+            current_bot_id.reset(tok)
+
+        assert "protected" in result.lower() or "override" in result.lower()
+        invalidate_enrolled_cache()
+        assert await get_enrolled_skill_ids("bot5b") == ["recent-skill"]
+
+    async def test_prune_authored_with_override_archives(self, patched_session, db_session):
+        """Authored skills with override should be archived and unenrolled."""
+        from app.agent.context import current_bot_id, current_correlation_id
+        from app.db.models import Skill as SkillRow
+        from app.services.skill_enrollment import enroll, get_enrolled_skill_ids, invalidate_enrolled_cache
+        from app.tools.local.skills import prune_enrolled_skills
+
+        await _create_bot(db_session, "bot5c")
+        await _create_skill(db_session, "bots/bot5c/to-archive")
+        await enroll("bot5c", "bots/bot5c/to-archive", source="authored")
+
+        tok_bot = current_bot_id.set("bot5c")
+        tok_corr = current_correlation_id.set(None)
+        try:
+            invalidate_enrolled_cache()
+            result = await prune_enrolled_skills(
+                ["bots/bot5c/to-archive"],
+                overrides={"bots/bot5c/to-archive": "should be memory not skill"},
+            )
+        finally:
+            current_bot_id.reset(tok_bot)
+            current_correlation_id.reset(tok_corr)
+
+        assert "archived" in result.lower()
+        invalidate_enrolled_cache()
+        assert await get_enrolled_skill_ids("bot5c") == []
+
+        # Verify the skill itself is archived (not deleted)
+        async with patched_session() as db:
+            row = await db.get(SkillRow, "bots/bot5c/to-archive")
+            assert row is not None
+            assert row.archived_at is not None
+
+    async def test_prune_mixed_protected_and_unprotected(self, patched_session, db_session):
+        """Unprotected skills are pruned even when some protected skills are rejected."""
+        from datetime import timedelta
+        from app.agent.context import current_bot_id
+        from app.db.models import BotSkillEnrollment
+        from app.services.skill_enrollment import enroll, get_enrolled_skill_ids, invalidate_enrolled_cache
+        from app.tools.local.skills import prune_enrolled_skills
+
+        await _create_bot(db_session, "bot5d")
+        await _create_skill(db_session, "bots/bot5d/authored-one")
+        await _create_skill(db_session, "old-catalog")
+        await enroll("bot5d", "bots/bot5d/authored-one", source="authored")
+        await enroll("bot5d", "old-catalog", source="fetched")
+
+        # Age the catalog enrollment past the protection window
+        async with patched_session() as db:
+            from sqlalchemy import update
+            await db.execute(
+                update(BotSkillEnrollment)
+                .where(
+                    BotSkillEnrollment.bot_id == "bot5d",
+                    BotSkillEnrollment.skill_id == "old-catalog",
+                )
+                .values(enrolled_at=datetime.now(timezone.utc) - timedelta(days=30))
+            )
+            await db.commit()
+
+        tok = current_bot_id.set("bot5d")
+        try:
+            invalidate_enrolled_cache()
+            result = await prune_enrolled_skills(["bots/bot5d/authored-one", "old-catalog"])
+        finally:
+            current_bot_id.reset(tok)
+
+        # old-catalog should be pruned, authored should be blocked
+        assert "blocked" in result.lower() or "protected" in result.lower()
+        invalidate_enrolled_cache()
+        remaining = await get_enrolled_skill_ids("bot5d")
+        assert "bots/bot5d/authored-one" in remaining
+        assert "old-catalog" not in remaining
 
 
 # ---------------------------------------------------------------------------

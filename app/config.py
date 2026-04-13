@@ -210,28 +210,27 @@ Write reflections to a dedicated `## Reflections` section at the bottom of MEMOR
 - Reflections should be actionable — "User frequently asks about X, consider creating a skill" rather than "User is interested in X."
 
 ## Step 6 — Skill hygiene
-You have two distinct skill collections to maintain:
+Review your complete skill list in the "## Working set" snapshot appended below. It shows ALL your enrolled skills (both authored and catalog) with per-bot fetch counts, global surface counts, source, and age.
 
-**(a) Bot-authored skills you wrote** — managed via `manage_bot_skill`. Use `manage_bot_skill(action="list")` to review them. For each:
-- **Surfacing**: check `surface_count` and `last_surfaced_at`. Skills that haven't surfaced in 14+ days may have weak triggers or cover irrelevant topics.
-- **Relevance**: is the content still accurate? Has your understanding improved since you wrote it?
-- **Overlap**: are multiple skills covering the same topic? If so, merge them with `manage_bot_skill(action="merge", names=["skill-a", "skill-b"], name="combined", title="...", content="...")`.
+### Understanding the data
+- **`you fetched Nx`** — how many times YOU called `get_skill()` for this skill. This is the most reliable usage signal.
+- **`global Nx`** — how many times ANY bot fetched this skill. Ambiguous for your needs.
+- **`source=authored`** — you wrote this skill. Protected: requires override reason to prune.
+- **`[protected]`** — cannot be pruned without an explicit override reason (authored or enrolled < 7 days).
 
-Take action:
-- **Low surface_count + stale**: rewrite with better trigger phrases, or delete if no longer relevant
-- **Overlapping**: merge into one comprehensive skill
-- **Outdated content**: use `action="patch"` for small fixes, `action="update"` for full rewrites
-- **Missing coverage**: if recent daily logs show recurring topics with no matching skill, create new skills now
+### Rules
+1. **Never prune skills enrolled less than 14 days ago.** They haven't had time to prove their value. If you believe a recent skill was a mistake (e.g. should have been memory), provide an override reason.
+2. **Authored skills require an override reason to prune.** The tool will reject the request without one. Valid reasons: "should be memory not skill", "topic no longer relevant", "merged into another skill". Pruning an authored skill archives it (reversible by admin).
+3. **For authored skills with weak triggers**: rewrite with better trigger phrases (`manage_bot_skill(action="update")`) rather than pruning. Low fetch count on a recently-created skill usually means the triggers need work, not that the skill is useless.
+4. **For catalog skills you never fetch**: safe to prune if enrolled 14+ days ago. The semantic discovery layer will resurface them if a future message is relevant.
+5. **Overlapping authored skills**: merge with `manage_bot_skill(action="merge", ...)`.
+6. **Outdated authored content**: use `action="patch"` for small fixes, `action="update"` for full rewrites.
+7. **Missing coverage**: if recent daily logs show recurring topics with no matching skill, create new skills now.
 
-**(b) Your enrolled working set** — the catalog skills you've collected over time via successful `get_skill()` calls plus the starter pack. Each enrolled skill costs context tokens every turn it's surfaced, so the working set should reflect what you actually use.
-
-A snapshot of your enrolled skills with **global** surface counts is provided as a system message at the start of this hygiene run (look for "## Working set"). The counts are global across all bots, not per-bot — read the snapshot's "Note on counts" carefully. Review it and decide:
-- **Skills with zero or near-zero global surface count**: prune them. If nobody is fetching them they're not earning their slot. The semantic discovery layer will resurface them on demand if a future user message actually needs them.
-- **Skills with high global surface count but you've never used them yourself**: lean toward pruning. They cost you tokens every turn even if other bots love them. Use the `enrolled` date as a tiebreaker.
-- **Skills you actively use but have weak/missing descriptions**: consider whether the description should be improved (file a note in your daily log if you can't fix it directly).
-- **Starter-pack skills you never use**: still safe to prune. The hygiene loop is the only place this collection is curated automatically.
-
-Use `prune_enrolled_skills(skill_ids=["id1", "id2", ...])` to remove enrollments. The skills themselves stay in the catalog and can be re-fetched later via `get_skill()`. **Do not call `manage_bot_skill(action="delete")` on catalog skills you don't own — that deletes the file or DB row, not just your enrollment.**
+### How to prune
+- Unprotected: `prune_enrolled_skills(skill_ids=["id1", "id2"])`
+- Protected: `prune_enrolled_skills(skill_ids=["id1"], overrides={"id1": "reason"})`
+- **Do not call `manage_bot_skill(action="delete")` on catalog skills you don't own** — that archives the skill itself, not just your enrollment.
 
 ## Step 7 — Archive maintenance
 - Create the archive directory if needed: `file(operation="mkdir", path="memory/logs/archive")`

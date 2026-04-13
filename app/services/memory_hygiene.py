@@ -118,25 +118,33 @@ async def _has_activity_since(bot_id: str, since: datetime, db: AsyncSession) ->
 # ---------------------------------------------------------------------------
 
 async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
-    """Build a markdown snapshot of the bot's enrolled working set with surface counts.
+    """Build a markdown snapshot of the bot's enrolled working set.
 
-    Injected into the hygiene prompt so the agent has the data it needs to
-    decide what to prune via prune_enrolled_skills().
+    Includes ALL enrolled skills (authored + catalog) in a unified list with
+    source, age, per-bot fetch count, and global surface count.
     """
     from app.db.models import BotSkillEnrollment, Skill as SkillRow
+
+    now_utc = datetime.now(timezone.utc)
 
     rows = (await db.execute(
         select(
             BotSkillEnrollment.skill_id,
             BotSkillEnrollment.source,
             BotSkillEnrollment.enrolled_at,
+            BotSkillEnrollment.fetch_count,
+            BotSkillEnrollment.last_fetched_at,
             SkillRow.name,
             SkillRow.surface_count,
             SkillRow.last_surfaced_at,
+            SkillRow.created_at,
         )
         .join(SkillRow, SkillRow.id == BotSkillEnrollment.skill_id)
-        .where(BotSkillEnrollment.bot_id == bot_id)
-        .order_by(SkillRow.surface_count.asc())
+        .where(
+            BotSkillEnrollment.bot_id == bot_id,
+            SkillRow.archived_at.is_(None),
+        )
+        .order_by(BotSkillEnrollment.fetch_count.asc(), SkillRow.surface_count.asc())
     )).all()
 
     if not rows:
@@ -145,26 +153,31 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
     lines = [
         "## Working set",
         "",
-        f"You have {len(rows)} enrolled skill(s). Listed by global surface count, lowest first:",
+        f"You have {len(rows)} enrolled skill(s). Listed by your fetch count (lowest first):",
         "",
-        "**Note on counts**: `global surfaced` and `global last` are tracked across "
-        "**all bots** in the catalog, not just you. Per-bot counts are not tracked yet. "
-        "Treat low global counts as a strong prune signal; high global counts are ambiguous "
-        "(the skill may be popular elsewhere even if you've never used it). Use the `enrolled` "
-        "date as a tiebreaker — old enrollments you don't recognize are good prune candidates.",
+        "**Reading the counts**:",
+        "- `you fetched Nx` = how many times YOU called get_skill() for this skill (per-bot, most reliable signal)",
+        "- `global Nx` = how many times ANY bot fetched this skill (fleet-wide, ambiguous)",
+        "- `source=authored` = you wrote this skill; requires override reason to prune",
+        "- Skills enrolled < 7 days ago are protected and require override reason to prune",
         "",
     ]
     for r in rows:
-        last = r.last_surfaced_at.date().isoformat() if r.last_surfaced_at else "never"
+        age_days = (now_utc - r.enrolled_at).days if r.enrolled_at else 0
+        last_fetched = r.last_fetched_at.date().isoformat() if r.last_fetched_at else "never"
         enrolled = r.enrolled_at.date().isoformat() if r.enrolled_at else "?"
+        protected = r.source == "authored" or age_days < 7
+        prot_tag = " **[protected]**" if protected else ""
         lines.append(
-            f"- `{r.skill_id}` ({r.name}) — global surfaced {r.surface_count}x, "
-            f"global last {last}, enrolled {enrolled}, source={r.source}"
+            f"- `{r.skill_id}` ({r.name}) — you fetched {r.fetch_count}x (last: {last_fetched}), "
+            f"global {r.surface_count}x, enrolled {enrolled} ({age_days}d ago), "
+            f"source={r.source}{prot_tag}"
         )
     lines.append("")
     lines.append(
-        "To remove unused enrollments: `prune_enrolled_skills(skill_ids=[...])`. "
-        "The skills stay in the catalog and can be re-fetched later via `get_skill()`."
+        "To prune: `prune_enrolled_skills(skill_ids=[...])`. "
+        "Protected skills require `overrides={\"skill-id\": \"reason\"}`. "
+        "Pruning authored skills archives them (reversible by admin)."
     )
     return "\n".join(lines)
 

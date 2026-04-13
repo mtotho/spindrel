@@ -71,6 +71,7 @@ async def _get_bot_authored_skill_ids(bot_id: str) -> list[str]:
             _sa_select(_SkillRow.id).where(
                 _SkillRow.id.like(f"{prefix}%"),
                 _SkillRow.source_type == "tool",
+                _SkillRow.archived_at.is_(None),
             )
         )).scalars().all()
 

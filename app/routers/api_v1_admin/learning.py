@@ -49,6 +49,7 @@ class RecentHygieneRun(BaseModel):
     iterations: int = 0
     duration_ms: Optional[int] = None
     files_affected: list[str] = []  # memory file paths written during this run
+    skill_overrides: list[dict] = []  # [{skill_id, source, reason, age_days, archived}]
 
 class MemoryFileActivity(BaseModel):
     bot_id: str
@@ -223,7 +224,24 @@ async def learning_overview(
             if run.correlation_id and run.correlation_id in files_by_corr:
                 run.files_affected = sorted(set(files_by_corr[run.correlation_id]))
 
-    # 2c. Collect hygiene correlation_ids for tagging memory activity
+    # 2c. Skill prune overrides per hygiene run
+    if correlation_ids:
+        override_rows = (await db.execute(
+            select(TraceEvent)
+            .where(
+                TraceEvent.correlation_id.in_(correlation_ids),
+                TraceEvent.event_type == "skill_prune_override",
+            )
+        )).scalars().all()
+        overrides_by_corr: dict[str, list[dict]] = {}
+        for ov in override_rows:
+            if ov.data and ov.correlation_id:
+                overrides_by_corr.setdefault(str(ov.correlation_id), []).append(ov.data)
+        for run in runs_out:
+            if run.correlation_id and run.correlation_id in overrides_by_corr:
+                run.skill_overrides = overrides_by_corr[run.correlation_id]
+
+    # 2d. Collect hygiene correlation_ids for tagging memory activity
     hygiene_corr_ids: set[str] = set()
     for task in recent_tasks:
         if task.correlation_id:

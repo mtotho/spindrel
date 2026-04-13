@@ -89,9 +89,12 @@ async def get_skill(skill_id: str) -> str:
                 )
 
     # Track surfacing (fire-and-forget) — only counts actual LLM-initiated fetches
-    asyncio.create_task(_increment_surface_count(skill_id))
+    asyncio.create_task(_increment_surface_count(skill_id, bot_id))
 
     return f"# {row_name}\n\n{row_content}"
+
+
+_PRUNE_PROTECTION_DAYS = 7  # skills enrolled less than this many days ago are protected
 
 
 @register({
@@ -102,10 +105,8 @@ async def get_skill(skill_id: str) -> str:
             "Remove skills from your persistent enrolled working set. The skills "
             "themselves stay in the catalog and can be re-fetched later via "
             "get_skill(). Use this in memory hygiene runs to drop skills you "
-            "don't actively use — their slot in your working set will be freed "
-            "and the semantic discovery layer will resurface them only when a "
-            "user message is actually relevant. Does NOT delete the skill files "
-            "or DB rows; for that use manage_bot_skill(action='delete')."
+            "don't actively use. Bot-authored skills (source=authored) and skills "
+            "enrolled less than 7 days ago require an explicit override reason."
         ),
         "parameters": {
             "type": "object",
@@ -115,30 +116,179 @@ async def get_skill(skill_id: str) -> str:
                     "items": {"type": "string"},
                     "description": "Skill IDs to unenroll from this bot's working set",
                 },
+                "overrides": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                    "description": (
+                        "Override reasons for protected skills. Map of skill_id to reason string. "
+                        "Required for source=authored or recently-enrolled skills. "
+                        "Example reasons: 'should be memory not skill', 'topic no longer relevant', "
+                        "'merged into another skill'."
+                    ),
+                },
             },
             "required": ["skill_ids"],
         },
     },
 })
-async def prune_enrolled_skills(skill_ids: list[str]) -> str:
-    """Remove the listed skills from this bot's persistent enrollment."""
+async def prune_enrolled_skills(skill_ids: list[str], overrides: dict[str, str] | None = None) -> str:
+    """Remove the listed skills from this bot's persistent enrollment.
+
+    Protected skills (source=authored or enrolled < 7 days) require an override reason.
+    Authored skills with an override are archived (soft-deleted) so auto-discovery
+    doesn't re-enroll them.
+    """
     bot_id = current_bot_id.get()
     if not bot_id:
         return "Cannot prune: no bot context."
     if not skill_ids:
         return "No skill IDs provided."
 
+    overrides = overrides or {}
+
+    from datetime import timedelta
+    from sqlalchemy import select
+    from app.db.models import BotSkillEnrollment
     from app.services.skill_enrollment import unenroll_many
 
+    now = datetime.now(timezone.utc)
+    protection_cutoff = now - timedelta(days=_PRUNE_PROTECTION_DAYS)
+
+    # Look up enrollment details for all requested skill IDs
+    async with async_session() as db:
+        enrollment_rows = (await db.execute(
+            select(
+                BotSkillEnrollment.skill_id,
+                BotSkillEnrollment.source,
+                BotSkillEnrollment.enrolled_at,
+            ).where(
+                BotSkillEnrollment.bot_id == bot_id,
+                BotSkillEnrollment.skill_id.in_(skill_ids),
+            )
+        )).all()
+
+    enrollments_by_id = {r.skill_id: r for r in enrollment_rows}
+
+    # Classify each skill ID
+    allowed_ids: list[str] = []
+    protected_ids: list[dict] = []  # [{skill_id, source, reason_needed, age_days}]
+    override_ids: list[dict] = []   # [{skill_id, source, reason, age_days}]
+
+    for sid in skill_ids:
+        enrollment = enrollments_by_id.get(sid)
+        if not enrollment:
+            # Not enrolled — include anyway (unenroll_many is idempotent)
+            allowed_ids.append(sid)
+            continue
+
+        is_authored = enrollment.source == "authored"
+        enrolled_at = enrollment.enrolled_at
+        # SQLite returns naive datetimes — make timezone-aware for comparison
+        if enrolled_at.tzinfo is None:
+            enrolled_at = enrolled_at.replace(tzinfo=timezone.utc)
+        is_recent = enrolled_at > protection_cutoff
+        age_days = (now - enrolled_at).days
+
+        if is_authored or is_recent:
+            reason = overrides.get(sid)
+            if reason:
+                override_ids.append({
+                    "skill_id": sid,
+                    "source": enrollment.source,
+                    "reason": reason,
+                    "age_days": age_days,
+                })
+            else:
+                protection_reason = []
+                if is_authored:
+                    protection_reason.append("source=authored")
+                if is_recent:
+                    protection_reason.append(f"enrolled {age_days}d ago (<{_PRUNE_PROTECTION_DAYS}d)")
+                protected_ids.append({
+                    "skill_id": sid,
+                    "source": enrollment.source,
+                    "reason_needed": ", ".join(protection_reason),
+                    "age_days": age_days,
+                })
+        else:
+            allowed_ids.append(sid)
+
+    # If there are protected skills without overrides, reject them
+    if protected_ids:
+        protected_list = "; ".join(
+            f"{p['skill_id']} ({p['reason_needed']})" for p in protected_ids
+        )
+        msg = (
+            f"Protected skills cannot be pruned without an override reason: {protected_list}. "
+            f"To prune, call again with overrides={{\"skill-id\": \"reason\"}}. "
+            f"Valid reasons: should be memory not skill, topic no longer relevant, "
+            f"merged into another skill."
+        )
+        # Still prune the allowed ones
+        if allowed_ids or override_ids:
+            msg = f"Some skills are protected. {msg}"
+        else:
+            return msg
+
+    # Process overrides: archive authored skills, then unenroll
+    archived_ids: list[str] = []
+    for ov in override_ids:
+        sid = ov["skill_id"]
+        if ov["source"] == "authored":
+            # Archive the skill so auto-discovery doesn't re-enroll it
+            try:
+                async with async_session() as db:
+                    skill_row = await db.get(SkillRow, sid)
+                    if skill_row and not skill_row.archived_at:
+                        skill_row.archived_at = now
+                        await db.commit()
+                        archived_ids.append(sid)
+            except Exception:
+                logger.warning("Failed to archive skill %s during prune override", sid, exc_info=True)
+        allowed_ids.append(sid)
+
+    # Record trace events for overrides
+    if override_ids:
+        try:
+            from app.agent.context import current_correlation_id, current_session_id
+            from app.agent.recording import _record_trace_event
+            for ov in override_ids:
+                asyncio.create_task(_record_trace_event(
+                    correlation_id=current_correlation_id.get(),
+                    session_id=current_session_id.get(),
+                    bot_id=bot_id,
+                    client_id=None,
+                    event_type="skill_prune_override",
+                    event_name=ov["skill_id"],
+                    data={
+                        "skill_id": ov["skill_id"],
+                        "source": ov["source"],
+                        "reason": ov["reason"],
+                        "age_days": ov["age_days"],
+                        "archived": ov["skill_id"] in archived_ids,
+                    },
+                ))
+        except Exception:
+            logger.debug("Failed to record prune override trace events", exc_info=True)
+
+    # Unenroll the allowed + override IDs
     try:
-        removed = await unenroll_many(bot_id, skill_ids)
+        removed = await unenroll_many(bot_id, allowed_ids)
     except Exception as exc:
         logger.exception("prune_enrolled_skills failed for bot %s", bot_id)
         return f"Failed to prune enrollments: {exc}"
 
-    if removed == 0:
+    parts: list[str] = []
+    if removed > 0:
+        parts.append(f"Pruned {removed} enrollment(s)")
+    if archived_ids:
+        parts.append(f"archived {len(archived_ids)} authored skill(s)")
+    if protected_ids:
+        parts.append(f"{len(protected_ids)} skill(s) blocked (need override reason)")
+
+    if not parts:
         return f"No matching enrollments to remove ({len(skill_ids)} requested)."
-    return f"Pruned {removed} enrollment(s) from your working set."
+    return ". ".join(parts) + "."
 
 
 @register({
@@ -189,18 +339,37 @@ async def get_skill_list() -> str:
 
 
 
-async def _increment_surface_count(skill_id: str) -> None:
-    """Increment surface_count and last_surfaced_at for a skill (fire-and-forget)."""
+async def _increment_surface_count(skill_id: str, bot_id: str | None = None) -> None:
+    """Increment surface_count and last_surfaced_at for a skill (fire-and-forget).
+
+    Also increments per-enrollment fetch_count if bot_id is provided.
+    """
+    now = datetime.now(timezone.utc)
     try:
         async with async_session() as db:
+            # Global skill surfacing
             await db.execute(
                 update(SkillRow)
                 .where(SkillRow.id == skill_id)
                 .values(
-                    last_surfaced_at=datetime.now(timezone.utc),
+                    last_surfaced_at=now,
                     surface_count=SkillRow.surface_count + 1,
                 )
             )
+            # Per-bot enrollment fetch tracking
+            if bot_id:
+                from app.db.models import BotSkillEnrollment
+                await db.execute(
+                    update(BotSkillEnrollment)
+                    .where(
+                        BotSkillEnrollment.bot_id == bot_id,
+                        BotSkillEnrollment.skill_id == skill_id,
+                    )
+                    .values(
+                        last_fetched_at=now,
+                        fetch_count=BotSkillEnrollment.fetch_count + 1,
+                    )
+                )
             await db.commit()
     except Exception:
         logger.debug("Failed to update skill surfacing for %s", skill_id, exc_info=True)
