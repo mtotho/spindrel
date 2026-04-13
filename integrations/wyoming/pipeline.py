@@ -123,7 +123,9 @@ async def synthesize_speech(
         client = WyomingClient.from_uri(f"tcp://{host}:{port}")
         await client.connect()
 
-        synth = Synthesize(text=text, voice=voice)
+        from wyoming.tts import SynthesizeVoice
+        synth_voice = SynthesizeVoice(name=voice) if voice else None
+        synth = Synthesize(text=text, voice=synth_voice)
         await client.write_event(synth.event())
 
         # Collect audio response
