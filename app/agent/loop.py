@@ -23,7 +23,7 @@ from app.agent.message_utils import (
     _merge_tool_schemas,
 )
 from app.agent.recording import _record_trace_event
-from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags  # noqa: F401 — re-exported
+from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, extract_xml_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags  # noqa: F401 — re-exported
 from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle, make_signature
 from app.agent.tool_dispatch import ToolCallResult, dispatch_tool_call
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
@@ -772,6 +772,17 @@ async def run_agent_tool_loop(
                     # Update the eagerly-appended message in conversation history
                     messages[-1] = accumulated_msg.to_msg_dict()
 
+            if not accumulated_msg.tool_calls and accumulated_msg.suppressed_xml_blocks:
+                # Try to recover tool calls from XML blocks suppressed during
+                # streaming (e.g. MiniMax emitting <invoke> as text content).
+                _xml_tcs = extract_xml_tool_calls(
+                    accumulated_msg.suppressed_xml_blocks, _effective_allowed or set()
+                )
+                if _xml_tcs:
+                    logger.info("Recovered %d XML tool call(s) from suppressed streaming content", len(_xml_tcs))
+                    accumulated_msg.tool_calls = _xml_tcs
+                    messages[-1] = accumulated_msg.to_msg_dict()
+
             if not accumulated_msg.tool_calls:
                 text = _sanitize_llm_text(accumulated_msg.content or "")
                 text = _redact_secrets(text)
@@ -801,6 +812,12 @@ async def run_agent_tool_loop(
                         # Genuine failure — either no tool calls at all, or 0 completion
                         # tokens (model API glitch, not intentional silence). Force retry.
                         _reason = "0 completion tokens" if _zero_tokens else "no tool calls"
+                        if accumulated_msg.suppressed_xml_blocks:
+                            _reason += f"; {len(accumulated_msg.suppressed_xml_blocks)} XML block(s) suppressed but unrecoverable"
+                            logger.warning(
+                                "Suppressed XML blocks (no matching tools): %s",
+                                [b[:200] for b in accumulated_msg.suppressed_xml_blocks],
+                            )
                         _empty_msg = (
                             f"LLM returned empty response after {iteration + 1} iteration(s) "
                             f"({len(tool_calls_made)} tool calls, {_reason}). Forcing retry."

@@ -375,11 +375,18 @@ async def main():
                     satellite_uri = device.get("satellite_uri")
                     if not satellite_uri:
                         continue
-                    if device_id in wyoming_conns and wyoming_conns[device_id].is_running:
-                        continue
                     bot_id = device.get("bot_id")
                     if not bot_id:
                         continue
+                    # Detect config changes (binding moved to different channel/bot)
+                    existing = wyoming_conns.get(device_id)
+                    if existing and existing.is_running:
+                        if existing.bot_id == bot_id and existing.satellite_uri == satellite_uri:
+                            continue
+                        logger.info("Config changed for %s (bot/uri), reconnecting", device_id)
+                        await existing.stop()
+                        del wyoming_conns[device_id]
+
                     conn = SatelliteConnection(
                         device_id=device_id,
                         satellite_uri=satellite_uri,
@@ -408,11 +415,17 @@ async def main():
                     satellite_uri = device.get("satellite_uri")
                     if not satellite_uri:
                         continue
-                    if device_id in esphome_conns:
-                        continue
                     bot_id = device.get("bot_id")
                     if not bot_id:
                         continue
+                    # Detect config changes (binding moved to different channel/bot)
+                    if device_id in esphome_conns:
+                        old_cfg = esphome_conns[device_id]._config.device_config
+                        if old_cfg.bot_id == bot_id and old_cfg.channel_id == device.get("channel_id", ""):
+                            continue
+                        logger.info("Config changed for ESPHome %s (bot/channel), reconnecting", device_id)
+                        await esphome_conns[device_id].stop()
+                        del esphome_conns[device_id]
 
                     host, port = _parse_esphome_uri(satellite_uri)
                     device_name = device.get("esphome_device_name") or device_id

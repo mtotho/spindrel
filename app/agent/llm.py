@@ -115,6 +115,8 @@ class ToolCallXmlFilter:
     def __init__(self):
         self._buffer: str = ""
         self._suppressing: bool = False
+        self._suppressed_blocks: list[str] = []
+        self._current_suppressed: list[str] = []
 
     def feed(self, text: str) -> str:
         """Process a chunk, returning text safe to emit."""
@@ -133,14 +135,22 @@ class ToolCallXmlFilter:
                 # suppressing until we see '</invoke>' or '</...tool_call>'.
                 consumed = self._buffer[:gt + 1]
                 self._buffer = self._buffer[gt + 1:]
-                # If we just consumed a closing tag, stop suppressing
-                if consumed.lstrip().startswith("</"):
+                self._current_suppressed.append(consumed)
+                # Check if suppression should end:
+                # 1. Consumed chunk contains a tool-call closing tag
+                # 2. Self-closing tag (/>)
+                _ends_suppression = False
+                if consumed.rstrip().endswith("/>"):
+                    _ends_suppression = True
+                elif "</invoke>" in consumed or "</tool_call>" in consumed:
+                    _ends_suppression = True
+                elif re.search(r"</\w+:tool_call>", consumed):
+                    _ends_suppression = True
+                if _ends_suppression:
                     self._suppressing = False
-                # If it's a self-closing tag (/>), stop suppressing
-                elif consumed.rstrip().endswith("/>"):
-                    self._suppressing = False
-                # Otherwise (opening tag like <invoke ...>), keep suppressing
-                # for the content + closing tag
+                    self._suppressed_blocks.append("".join(self._current_suppressed))
+                    self._current_suppressed = []
+                # Otherwise (opening tag, inner tags like <parameter>), keep suppressing
             else:
                 lt = self._buffer.find("<")
                 if lt == -1:
@@ -189,7 +199,8 @@ class ToolCallXmlFilter:
 
                 if is_tool_xml:
                     self._suppressing = True
-                    # Don't emit the '<'; loop will handle suppression
+                    self._current_suppressed = ["<"]
+                    self._buffer = self._buffer[1:]  # consume the '<'
                     continue
                 elif maybe_tool_xml:
                     break  # hold buffer, need more data
@@ -203,11 +214,21 @@ class ToolCallXmlFilter:
     def flush(self) -> str:
         """Emit remaining buffer at end of stream."""
         if self._suppressing:
+            # Save incomplete suppressed block (e.g. model stopped mid-XML)
+            self._current_suppressed.append(self._buffer)
+            self._suppressed_blocks.append("".join(self._current_suppressed))
+            self._current_suppressed = []
+            self._suppressing = False
             self._buffer = ""
             return ""
         remaining = self._buffer
         self._buffer = ""
         return remaining
+
+    @property
+    def suppressed_blocks(self) -> list[str]:
+        """XML tool-call blocks that were suppressed during streaming."""
+        return self._suppressed_blocks
 
 
 def strip_think_tags(text: str) -> str:
@@ -411,6 +432,83 @@ def extract_json_tool_calls(
     remaining = re.sub(r"\n{3,}", "\n\n", remaining).strip()
 
     return tool_calls, remaining
+
+
+# Patterns for extracting tool calls from XML blocks suppressed during streaming.
+# <invoke name="tool_name">JSON_ARGS</invoke>
+_XML_INVOKE_RE = re.compile(
+    r'<invoke\s+name\s*=\s*"([^"]+)"\s*>(.*?)</invoke>',
+    re.DOTALL,
+)
+# <tool_call>JSON with "name" and "arguments"</tool_call>
+_XML_TOOL_CALL_RE = re.compile(
+    r'<(?:\w+:)?tool_call\b[^>]*>(.*?)</(?:\w+:)?tool_call>',
+    re.DOTALL,
+)
+
+
+def extract_xml_tool_calls(
+    xml_blocks: list[str], known_tool_names: set[str],
+) -> list[dict]:
+    """Parse suppressed XML tool-call blocks into OpenAI-format tool call dicts.
+
+    Handles two patterns emitted by MiniMax and similar providers:
+      - <invoke name="tool_name">{"arg": "val"}</invoke>
+      - <minimax:tool_call>{"name": "...", "arguments": {...}}</minimax:tool_call>
+    """
+    if not xml_blocks or not known_tool_names:
+        return []
+
+    tool_calls: list[dict] = []
+    for block in xml_blocks:
+        # Try <invoke name="X">JSON</invoke>
+        m = _XML_INVOKE_RE.search(block)
+        if m:
+            name = m.group(1)
+            if name not in known_tool_names:
+                continue
+            body = m.group(2).strip()
+            try:
+                args = json.loads(body)
+                args_str = json.dumps(args) if isinstance(args, dict) else body
+            except (json.JSONDecodeError, ValueError):
+                args_str = body
+            tool_calls.append({
+                "id": f"xml-tc-{uuid.uuid4().hex[:12]}",
+                "type": "function",
+                "function": {"name": name, "arguments": args_str},
+            })
+            continue
+
+        # Try <tool_call> or <ns:tool_call>
+        m = _XML_TOOL_CALL_RE.search(block)
+        if m:
+            body = m.group(1).strip()
+            try:
+                obj = json.loads(body)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if not isinstance(obj, dict):
+                continue
+            name = obj.get("name")
+            if not isinstance(name, str) or name not in known_tool_names:
+                continue
+            arguments = obj.get("arguments")
+            if arguments is None:
+                continue
+            if isinstance(arguments, dict):
+                args_str = json.dumps(arguments)
+            elif isinstance(arguments, str):
+                args_str = arguments
+            else:
+                args_str = json.dumps(arguments)
+            tool_calls.append({
+                "id": f"xml-tc-{uuid.uuid4().hex[:12]}",
+                "type": "function",
+                "function": {"name": name, "arguments": args_str},
+            })
+
+    return tool_calls
 
 
 @dataclass
@@ -762,6 +860,7 @@ class AccumulatedMessage:
     usage: Any = None  # openai Usage object or None
     cached_tokens: int | None = None
     response_cost: float | None = None
+    suppressed_xml_blocks: list[str] | None = None
 
     def to_msg_dict(self) -> dict:
         """Produce the same dict as msg.model_dump(exclude_none=True)."""
@@ -938,6 +1037,7 @@ class StreamAccumulator:
             details = getattr(self._usage, 'prompt_tokens_details', None)
             if details:
                 cached_tokens = getattr(details, 'cached_tokens', None)
+        suppressed = self._xml_filter.suppressed_blocks or None
         return AccumulatedMessage(
             role="assistant",
             content=content,
@@ -946,6 +1046,7 @@ class StreamAccumulator:
             usage=self._usage,
             cached_tokens=cached_tokens,
             response_cost=self._response_cost,
+            suppressed_xml_blocks=suppressed,
         )
 
 
