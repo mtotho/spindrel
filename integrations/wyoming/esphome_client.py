@@ -295,6 +295,13 @@ class ESPHomeVoiceConnection:
                         client.send_voice_assistant_audio(audio_bytes)
                         chunks_sent += 1
 
+                        # Pace playback — wait 90% of chunk duration so we
+                        # don't overflow the device's audio buffer. This is
+                        # the same approach Home Assistant uses.
+                        samples = len(audio_bytes) // 2  # 16-bit = 2 bytes/sample
+                        seconds = samples / _DEVICE_SAMPLE_RATE
+                        await asyncio.sleep(seconds * 0.9)
+
                 logger.info("Sent %d audio chunks to %s", chunks_sent, cfg.device_name)
 
                 client.send_voice_assistant_event(
