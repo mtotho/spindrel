@@ -457,12 +457,12 @@ class ESPHomeVoiceConnection:
                 # and set up its socket reader
                 await asyncio.sleep(0.05)
 
-                # Pace all audio at 2x realtime using absolute time targets.
-                # The device's lwIP UDP receive queue only holds ~6-8 packets,
-                # so burst-sending drops most data. 2x realtime keeps the
-                # device's speaker buffer fed without overflowing the queue.
+                # Pace all audio at 1.2x realtime using absolute time targets.
+                # 1x causes underruns from asyncio.sleep jitter; 2x overflows
+                # the device's 16KB speaker buffer and causes skipping.
+                # 1.2x gives ~20% headroom without overflow.
                 seconds_per_chunk = _UDP_AUDIO_CHUNK_BYTES / 2 / _DEVICE_SAMPLE_RATE
-                pace = seconds_per_chunk / 2  # 2x realtime
+                pace = seconds_per_chunk / 1.2  # 1.2x realtime
 
                 loop = asyncio.get_running_loop()
                 start_time = loop.time()
