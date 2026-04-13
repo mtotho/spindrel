@@ -165,8 +165,6 @@ export function ChatMessageArea({
       <ProcessingIndicator />
     ) : null;
 
-  const hasIndicators = turnIndicators.length > 0 || !!processingIndicator;
-
   return (
     <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
       <div
@@ -182,15 +180,13 @@ export function ChatMessageArea({
         }}
       >
         {/* DOM first == visual BOTTOM — streaming / processing indicators.
-            Wrap in a single div so the reverse order of memberIndicators +
-            primaryIndicator is determined by normal DOM flow inside, not by
-            the outer reverse. */}
-        {hasIndicators && (
-          <div>
-            {turnIndicators}
-            {processingIndicator}
-          </div>
-        )}
+            Always rendered (even when empty) so the flex child at the visual
+            bottom is stable — removing it causes the browser to lose its
+            layout anchor and scroll position jumps unpredictably. */}
+        <div>
+          {turnIndicators}
+          {processingIndicator}
+        </div>
 
         {/* Messages in chronological DOM order inside a normal-flow div.
             Native selection works because DOM order matches visual order

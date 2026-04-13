@@ -146,6 +146,7 @@ textarea::placeholder {
 .chat-scroll-web {
   scroll-behavior: auto;           /* instant on programmatic scroll; the FAB uses smooth inline */
   overscroll-behavior-y: contain;  /* prevent pull-to-refresh on mobile web */
+  overflow-anchor: none;           /* disable browser scroll anchoring — fights column-reverse auto-pin */
 }
 
 /* Message hover effect (Slack-style, pointer devices only) */

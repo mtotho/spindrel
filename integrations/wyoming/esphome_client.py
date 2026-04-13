@@ -347,10 +347,13 @@ class ESPHomeVoiceConnection:
                 len(pcm_16k), _DEVICE_SAMPLE_RATE,
             )
 
-            # TTS_END transitions device to STREAMING_RESPONSE state
+            # TTS_END transitions device to STREAMING_RESPONSE state.
+            # URL must be non-empty — ESPHome 2026.3 early-returns on empty
+            # URL, skipping the state transition. The device never downloads
+            # this URL; API audio streaming via TTS_STREAM_START takes over.
             client.send_voice_assistant_event(
                 VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END,
-                {"url": ""},  # empty = stream via API, not download
+                {"url": "synth://spindrel"},
             )
 
             if pcm_16k:

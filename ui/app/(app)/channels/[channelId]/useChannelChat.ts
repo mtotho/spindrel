@@ -179,7 +179,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
       const CONTENT_PREFIX_LEN = 120;
       const normalizeForPrefix = (raw: unknown): string => {
         if (typeof raw !== "string") return "";
-        return extractDisplayText(raw).trim().replace(/\s+/g, " ").slice(0, CONTENT_PREFIX_LEN);
+        return extractDisplayText(raw).trim().replace(/\s+/g, "").slice(0, CONTENT_PREFIX_LEN);
       };
       const dbAssistantPrefixes = new Set<string>();
       for (const m of allMessages) {
