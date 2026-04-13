@@ -14,6 +14,15 @@ esp32:
   framework:
     type: esp-idf
 
+# Patched voice_assistant component — fixes ESPHome 2026.3.3 bug where
+# a brief IDLE transition deallocates speaker_buffer_, then STREAMING_RESPONSE
+# crashes reading into NULL. The patch reallocates buffers if needed.
+external_components:
+  - source:
+      type: local
+      path: custom_components/
+    components: [voice_assistant]
+
 logger:
 
 api:
