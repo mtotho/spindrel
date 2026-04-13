@@ -63,9 +63,16 @@ export function stripBBPrefix(content: string): string {
 export interface DisplayInfo {
   name: string;
   isCurrentUser: boolean;
+  /** @deprecated unused — kept for type compat, always false */
   isSlack: boolean;
   isMemberBot: boolean;
   sourceLabel: string | null;
+}
+
+/** Pretty-print an integration source for the "via X" label. */
+function formatSourceLabel(source: string): string {
+  // Capitalize first letter, leave rest as-is
+  return `via ${source.charAt(0).toUpperCase()}${source.slice(1)}`;
 }
 
 export function resolveDisplay(
@@ -74,41 +81,42 @@ export function resolveDisplay(
   contentSlackUserId?: string | null,
 ): DisplayInfo {
   const meta = message.metadata || {};
+  const base = { isSlack: false as const, isMemberBot: false };
+
+  // --- Assistant messages ---
   if (message.role === "assistant") {
-    // Detect member bot: has sender_display_name that differs from primary botName
     const isMemberBot = !!(meta.sender_display_name && botName && meta.sender_display_name !== botName);
-    return { name: meta.sender_display_name || botName || "Bot", isCurrentUser: false, isSlack: false, isMemberBot, sourceLabel: null };
+    return { ...base, name: meta.sender_display_name || botName || "Bot", isCurrentUser: false, isMemberBot, sourceLabel: null };
   }
-  // User messages with metadata
+
+  // --- User messages from bots (cross-channel relay, etc.) ---
   if (meta.sender_type === "bot") {
-    return { name: meta.sender_display_name || "Bot", isCurrentUser: false, isSlack: false, isMemberBot: false, sourceLabel: null };
+    return { ...base, name: meta.sender_display_name || "Bot", isCurrentUser: false, sourceLabel: null };
   }
-  if (meta.source === "slack") {
-    const slackId = (meta.sender_id || "").replace("slack:", "");
-    return { name: meta.sender_display_name || `Slack:${slackId}`, isCurrentUser: false, isSlack: true, isMemberBot: false, sourceLabel: "via Slack" };
+
+  // --- Integration messages (any source with metadata) ---
+  // BlueBubbles "is_from_me" means the local user sent via iMessage
+  if (meta.is_from_me === true) {
+    return { ...base, name: "You", isCurrentUser: true, sourceLabel: meta.source ? formatSourceLabel(meta.source) : null };
   }
-  if (meta.source === "bluebubbles" && typeof meta.is_from_me === "boolean") {
-    // Only enter BB display branch when new metadata format is present.
-    // Legacy messages (without is_from_me) fall through to default "You".
-    // Sender name comes from binding display_name (user-chosen) or handle contact info.
-    // Source label just says "via BlueBubbles" since the sender name already identifies the chat.
-    if (meta.is_from_me) {
-      return { name: "You", isCurrentUser: true, isSlack: false, isMemberBot: false, sourceLabel: "via BlueBubbles" };
-    }
-    const senderName = meta.sender_display_name as string | undefined;
-    return { name: senderName || "Unknown", isCurrentUser: false, isSlack: false, isMemberBot: false, sourceLabel: "via BlueBubbles" };
+
+  // Any non-web integration with a source label: show sender name + "via Source"
+  if (meta.source && meta.source !== "web") {
+    const name = meta.sender_display_name || meta.source.charAt(0).toUpperCase() + meta.source.slice(1);
+    return { ...base, name, isCurrentUser: false, sourceLabel: formatSourceLabel(meta.source) };
   }
-  if (meta.source === "github") {
-    return { name: meta.sender_display_name || "GitHub", isCurrentUser: false, isSlack: false, isMemberBot: false, sourceLabel: "via GitHub" };
-  }
+
+  // Web with explicit sender name (e.g. authenticated user)
   if (meta.source === "web" && meta.sender_display_name) {
-    return { name: meta.sender_display_name, isCurrentUser: true, isSlack: false, isMemberBot: false, sourceLabel: null };
+    return { ...base, name: meta.sender_display_name, isCurrentUser: true, sourceLabel: null };
   }
-  // Legacy fallback: detect Slack prefix in content
+
+  // Legacy fallback: detect Slack prefix in content (old messages without metadata)
   if (contentSlackUserId) {
-    return { name: meta.sender_display_name || `Slack:${contentSlackUserId}`, isCurrentUser: false, isSlack: true, isMemberBot: false, sourceLabel: "via Slack" };
+    return { ...base, name: meta.sender_display_name || `Slack:${contentSlackUserId}`, isCurrentUser: false, sourceLabel: "via Slack" };
   }
-  return { name: "You", isCurrentUser: true, isSlack: false, isMemberBot: false, sourceLabel: null };
+
+  return { ...base, name: "You", isCurrentUser: true, sourceLabel: null };
 }
 
 // Deterministic color from string hash
