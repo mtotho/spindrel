@@ -347,36 +347,49 @@ class ESPHomeVoiceConnection:
                 len(pcm_16k), _DEVICE_SAMPLE_RATE,
             )
 
-            # TTS_END transitions device to STREAMING_RESPONSE state.
-            # URL must be non-empty — ESPHome 2026.3 early-returns on empty
-            # URL, skipping the state transition. The device never downloads
-            # this URL; API audio streaming via TTS_STREAM_START takes over.
-            client.send_voice_assistant_event(
-                VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END,
-                {"url": "synth://spindrel"},
-            )
+            # Audio delivery strategy:
+            # 1. Send a burst of audio BEFORE TTS_END (while still in
+            #    AWAITING_RESPONSE). on_audio() buffers regardless of state.
+            # 2. Send TTS_END which transitions to STREAMING_RESPONSE.
+            #    With audio already buffered, write_speaker_() fires on
+            #    the first loop iteration and the speaker starts playing.
+            # 3. Pace remaining audio at realtime rate.
+            #
+            # We deliberately skip TTS_STREAM_START/END — ESPHome 2026.3
+            # has a bug where stream_ended_ persists across runs, causing
+            # STREAMING_RESPONSE to exit immediately on the next pipeline.
+            # Without those events, the speaker-timeout mechanism handles
+            # end-of-playback naturally.
+            #
+            # TTS_END URL must be non-empty — ESPHome 2026.3 early-returns
+            # on empty URL, skipping the state transition.
 
             if pcm_16k:
-                client.send_voice_assistant_event(
-                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_START, {}
-                )
-
-                # Give the device time to transition into STREAMING_RESPONSE
-                # and start the write_speaker_() drain loop before we flood it.
-                await asyncio.sleep(0.1)
-
-                # Stream in fixed 512-sample (1024-byte) chunks at realtime
-                # pacing. The device's speaker buffer is 16KB and drains at
-                # 32KB/s (16kHz * 2 bytes). Each chunk is 1024 bytes = 32ms
-                # of audio, so we sleep 32ms between chunks (1:1 realtime).
                 samples_per_chunk = 512
                 bytes_per_chunk = samples_per_chunk * 2  # 16-bit
                 seconds_per_chunk = samples_per_chunk / _DEVICE_SAMPLE_RATE
-                chunks_sent = 0
 
-                for offset in range(0, len(pcm_16k), bytes_per_chunk):
+                # Pre-buffer: send first ~8KB of audio before TTS_END so the
+                # device has data ready when STREAMING_RESPONSE starts.
+                pre_buffer_limit = 8 * 1024
+                offset = 0
+                while offset < min(len(pcm_16k), pre_buffer_limit):
                     chunk_data = pcm_16k[offset:offset + bytes_per_chunk]
                     client.send_voice_assistant_audio(chunk_data)
+                    offset += bytes_per_chunk
+
+                # Now transition to STREAMING_RESPONSE — audio is already buffered
+                client.send_voice_assistant_event(
+                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END,
+                    {"url": "synth://spindrel"},
+                )
+
+                # Pace remaining audio at realtime rate
+                chunks_sent = offset // bytes_per_chunk
+                while offset < len(pcm_16k):
+                    chunk_data = pcm_16k[offset:offset + bytes_per_chunk]
+                    client.send_voice_assistant_audio(chunk_data)
+                    offset += bytes_per_chunk
                     chunks_sent += 1
                     await asyncio.sleep(seconds_per_chunk)
 
@@ -384,9 +397,10 @@ class ESPHomeVoiceConnection:
                     "Sent %d audio chunks (%d bytes) to %s",
                     chunks_sent, len(pcm_16k), cfg.device_name,
                 )
-
+            else:
                 client.send_voice_assistant_event(
-                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_STREAM_END, {}
+                    VoiceAssistantEventType.VOICE_ASSISTANT_TTS_END,
+                    {"url": "synth://spindrel"},
                 )
 
             client.send_voice_assistant_event(
