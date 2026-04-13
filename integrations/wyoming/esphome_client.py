@@ -130,7 +130,7 @@ class ESPHomeVoiceConnection:
                 text = text.decode("utf-8", errors="replace")
             text = _ansi_re.sub("", text).strip()
             if text:
-                logger.debug("[%s firmware] %s", dev_name, text)
+                logger.info("[%s firmware] %s", dev_name, text)
 
         unsub_logs = self._client.subscribe_logs(
             _on_device_log, log_level=LogLevel.LOG_LEVEL_VERY_VERBOSE,
