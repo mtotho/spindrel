@@ -121,15 +121,17 @@ class AgentClient:
         self,
         session_id: str,
         *,
-        turn_id: str | None = None,
-        correlation_id: str | None = None,
+        after: "datetime | None" = None,
         timeout: float = 120,
     ) -> str:
-        """Poll session messages until an assistant response for this turn appears.
+        """Poll session messages until an assistant response appears.
 
-        Filters by turn_id to avoid returning stale responses from previous turns.
+        If ``after`` is provided, only accepts messages created after that
+        timestamp — prevents returning stale responses from previous turns.
         """
         import asyncio
+        from datetime import datetime
+
         deadline = asyncio.get_event_loop().time() + timeout
         url = f"{self.base_url}/sessions/{session_id}/messages?limit=10"
         while asyncio.get_event_loop().time() < deadline:
@@ -146,15 +148,20 @@ class AgentClient:
                     content = msg.get("content", "")
                     if not content or content == "[Cancelled by user]":
                         continue
-                    if turn_id and msg.get("turn_id") != turn_id:
-                        continue
-                    if correlation_id and msg.get("correlation_id") != correlation_id:
-                        continue
-                    logger.info("Got response for turn %s: %s", turn_id, content[:100])
+                    if after:
+                        created = msg.get("created_at", "")
+                        if created:
+                            msg_time = datetime.fromisoformat(created)
+                            if msg_time.tzinfo is None:
+                                from datetime import timezone
+                                msg_time = msg_time.replace(tzinfo=timezone.utc)
+                            if msg_time < after:
+                                continue
+                    logger.info("Got response: %s", content[:100])
                     return content
             except Exception:
                 logger.debug("Poll failed, retrying", exc_info=True)
-        logger.warning("Timed out waiting for response in session %s (turn %s)", session_id, turn_id)
+        logger.warning("Timed out waiting for response in session %s", session_id)
         return ""
 
     async def get_channel_config(self) -> dict:

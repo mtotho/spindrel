@@ -345,6 +345,9 @@ class ESPHomeVoiceConnection:
                 VoiceAssistantEventType.VOICE_ASSISTANT_INTENT_START, None
             )
 
+            from datetime import datetime, timezone
+            submit_time = datetime.now(timezone.utc)
+
             result = await cfg.agent.submit_chat(
                 message=transcript,
                 bot_id=dc.bot_id,
@@ -357,9 +360,8 @@ class ESPHomeVoiceConnection:
             )
 
             session_id = result.get("session_id")
-            stream_id = result.get("stream_id")
-            if not session_id or not stream_id:
-                logger.error("No session_id/stream_id in chat response for %s", cfg.device_name)
+            if not session_id:
+                logger.error("No session_id in chat response for %s", cfg.device_name)
                 client.send_voice_assistant_event(
                     VoiceAssistantEventType.VOICE_ASSISTANT_ERROR,
                     {"code": "no-session", "message": "Failed to start chat"},
@@ -369,11 +371,13 @@ class ESPHomeVoiceConnection:
                 )
                 return
 
-            logger.info("Chat submitted for %s: session=%s stream=%s", cfg.device_name, session_id, stream_id)
+            logger.info("Chat submitted for %s: session=%s", cfg.device_name, session_id)
 
-            # Stream the response via SSE — avoids stale-response bug
-            # that polling has (previous turn's message picked up first)
-            response_text = await cfg.agent.stream_response(stream_id)
+            # Poll for the bot's response, filtering by submission time
+            # to avoid picking up stale responses from previous turns
+            response_text = await cfg.agent.wait_for_response(
+                session_id, after=submit_time,
+            )
             if not response_text:
                 logger.warning("Empty response from agent for %s", cfg.device_name)
                 response_text = "I don't have a response for that."

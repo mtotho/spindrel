@@ -416,6 +416,30 @@ def _get_compaction_model(bot: BotConfig, channel: Channel | None = None) -> str
     return bot.model
 
 
+def _get_compaction_provider(bot: BotConfig, channel: Channel | None = None) -> str | None:
+    """Resolve the provider for the compaction model.
+
+    When the compaction model differs from the bot's own model (e.g. a global
+    override like gemini/gemini-2.5-flash-lite on a MiniMax bot), look up which
+    provider actually owns that model.  Falls back to the bot's provider when
+    the compaction model matches the bot model or when no reverse-index hit.
+    """
+    compaction_model = _get_compaction_model(bot, channel)
+    if compaction_model == bot.model:
+        # Same model as the bot — use the bot's provider
+        return bot.model_provider_id
+
+    # The compaction model differs from the bot model — resolve its provider
+    from app.services.providers import resolve_provider_for_model
+    resolved = resolve_provider_for_model(compaction_model)
+    if resolved is not None:
+        return resolved
+
+    # Couldn't resolve — fall back to bot's provider (may work if provider
+    # is a LiteLLM proxy that routes by model prefix)
+    return bot.model_provider_id
+
+
 def _get_compaction_interval(bot: BotConfig, channel: Channel | None = None) -> int:
     if channel and channel.compaction_interval is not None:
         return channel.compaction_interval
@@ -1031,7 +1055,7 @@ async def run_compaction_stream(
         if history_mode in ("structured", "file"):
             # --- Section-based compaction ---
             sec_title, sec_summary, sec_transcript, sec_tags, sec_usage = await _generate_section(
-                to_summarize, model, provider_id=bot.model_provider_id,
+                to_summarize, model, provider_id=_get_compaction_provider(bot, channel),
                 channel_id=channel.id if channel else None,
                 correlation_id=correlation_id,
                 session_id=session_id,
@@ -1147,7 +1171,7 @@ async def run_compaction_stream(
                 )
                 try:
                     exec_summary = await _regenerate_executive_summary(
-                        channel_id, model, provider_id=bot.model_provider_id,
+                        channel_id, model, provider_id=_get_compaction_provider(bot, channel),
                     )
                 except Exception:
                     logger.warning("Failed to regenerate executive summary for channel %s", channel_id, exc_info=True)
@@ -1170,7 +1194,7 @@ async def run_compaction_stream(
         else:
             # --- Default summary mode ---
             title, summary, sum_usage = await _generate_summary(
-                to_summarize, model, existing_summary, provider_id=bot.model_provider_id,
+                to_summarize, model, existing_summary, provider_id=_get_compaction_provider(bot, channel),
             )
 
             async with async_session() as db:
@@ -1390,7 +1414,7 @@ async def run_compaction_forced(
 
     if history_mode in ("structured", "file"):
         sec_title, sec_summary, sec_transcript, sec_tags, sec_usage = await _generate_section(
-            conversation, model, provider_id=bot.model_provider_id,
+            conversation, model, provider_id=_get_compaction_provider(bot, channel),
             channel_id=session.channel_id,
             correlation_id=correlation_id,
             session_id=session_id,
@@ -1498,7 +1522,7 @@ async def run_compaction_forced(
             )
             try:
                 exec_summary = await _regenerate_executive_summary(
-                    channel_id, model, provider_id=bot.model_provider_id,
+                    channel_id, model, provider_id=_get_compaction_provider(bot, channel),
                 )
             except Exception:
                 logger.warning("Failed to regenerate executive summary for channel %s", channel_id, exc_info=True)
@@ -1506,7 +1530,7 @@ async def run_compaction_forced(
         title, summary = sec_title, exec_summary
     else:
         title, summary, sec_usage = await _generate_summary(
-            conversation, model, existing_summary, provider_id=bot.model_provider_id,
+            conversation, model, existing_summary, provider_id=_get_compaction_provider(bot, channel),
         )
 
     await db.execute(
@@ -1672,7 +1696,7 @@ async def backfill_sections(
             raise ValueError(f"Channel must be in file or structured mode (got '{effective_mode}')")
 
         effective_model = model or _get_compaction_model(bot, channel)
-        effective_provider = provider_id or bot.model_provider_id
+        effective_provider = provider_id or _get_compaction_provider(bot, channel)
 
         # 2. Load ALL messages across all sessions for this channel
         watermark_filter = True  # type: ignore[assignment]
