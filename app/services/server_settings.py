@@ -45,6 +45,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "PARALLEL_TOOL_MAX_CONCURRENT": {"group": "Agent", "label": "Parallel Tool Max Concurrent", "description": "Max concurrent tool dispatches per batch (semaphore limit)", "type": "int", "min": 1, "max": 50},
     "CAPABILITIES_DISABLED": {"group": "Agent", "label": "Disabled Capabilities", "description": "Comma-separated carapace IDs to hide globally from auto-discovery (e.g. 'orchestrator,arr')", "type": "string", "nullable": True},
     "LLM_FALLBACK_MODEL": {"group": "Agent", "label": "Fallback Model", "description": "Model to try after all retries exhaust (empty = none)", "type": "string", "widget": "model"},
+    "LLM_FALLBACK_MODEL_PROVIDER_ID": {"group": "Agent", "label": "Fallback Model Provider", "type": "string", "description": "Provider for fallback model", "ui_hidden": True},
     "LLM_MAX_RETRIES": {"group": "Agent", "label": "LLM Max Retries", "description": "Retry attempts for transient errors (5xx, connection)", "type": "int", "min": 0, "max": 10},
     "LLM_RETRY_INITIAL_WAIT": {"group": "Agent", "label": "LLM Retry Initial Wait", "description": "Seconds before first retry (doubles each attempt)", "type": "float", "min": 0.5, "max": 60},
     "LLM_RATE_LIMIT_RETRIES": {"group": "Agent", "label": "Rate Limit Retries", "description": "Additional attempts after rate limit failure", "type": "int", "min": 0, "max": 10},
@@ -52,10 +53,12 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- Chat History ---
     "DEFAULT_HISTORY_MODE": {"group": "Chat History", "label": "Default History Mode", "description": "How conversation history is stored and retrieved", "type": "string", "options": ["summary", "structured", "file"]},
     "COMPACTION_MODEL": {"group": "Chat History", "label": "Compaction Model", "description": "LiteLLM model alias for context compaction", "type": "string", "widget": "model"},
+    "COMPACTION_MODEL_PROVIDER_ID": {"group": "Chat History", "label": "Compaction Model Provider", "type": "string", "description": "Provider for compaction model", "ui_hidden": True},
     "COMPACTION_INTERVAL": {"group": "Chat History", "label": "Compaction Interval", "description": "Turns between compaction runs", "type": "int", "min": 5, "max": 200},
     "COMPACTION_KEEP_TURNS": {"group": "Chat History", "label": "Keep Turns", "description": "Recent turns kept in context (not compacted)", "type": "int", "min": 1, "max": 50},
     "MEMORY_FLUSH_ENABLED": {"group": "Chat History", "label": "Memory Flush Before Compaction", "description": "Run a dedicated memory flush before compaction — bot saves memories/knowledge/persona while it still sees full context", "type": "bool"},
     "MEMORY_FLUSH_MODEL": {"group": "Chat History", "label": "Memory Flush Model", "description": "Model for memory flush (empty = use bot's model)", "type": "string", "widget": "model"},
+    "MEMORY_FLUSH_MODEL_PROVIDER_ID": {"group": "Chat History", "label": "Memory Flush Model Provider", "type": "string", "description": "Provider for memory flush model", "ui_hidden": True},
     "MEMORY_FLUSH_DEFAULT_PROMPT": {"group": "Chat History", "label": "Memory Flush Default Prompt", "description": "Default prompt for the memory flush pass. Tells the bot what to save before context is archived.", "type": "string", "widget": "textarea"},
     "MEMORY_SCHEME_PROMPT": {"group": "Chat History", "label": "Memory Scheme System Prompt (Override)", "description": "Custom override for the workspace-files memory prompt. Leave empty to use the built-in default.", "type": "string", "widget": "textarea", "nullable": True, "ui_hidden": True},
     "MEMORY_SCHEME_FLUSH_PROMPT": {"group": "Chat History", "label": "Memory Scheme Flush Prompt (Override)", "description": "Custom override for the workspace-files flush prompt. Leave empty to use the built-in default.", "type": "string", "widget": "textarea", "nullable": True, "ui_hidden": True},
@@ -84,6 +87,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "RAG_RERANK_ENABLED": {"group": "RAG Re-ranking", "label": "Enabled", "description": "Filter dynamically-retrieved RAG chunks by relevance. Pinned skills/knowledge are never filtered.", "type": "bool"},
     "RAG_RERANK_BACKEND": {"group": "RAG Re-ranking", "label": "Backend", "description": "cross-encoder (recommended): fast local ONNX model, ~120ms, zero API cost. llm: full LLM call, ~2s, API cost per request", "type": "string", "options": ["cross-encoder", "llm"]},
     "RAG_RERANK_MODEL": {"group": "RAG Re-ranking", "label": "LLM Model", "description": "Model for LLM backend only. A small/fast model works well (e.g. gemini-2.0-flash-lite). Empty = compaction model", "type": "string", "widget": "model"},
+    "RAG_RERANK_MODEL_PROVIDER_ID": {"group": "RAG Re-ranking", "label": "Rerank Model Provider", "type": "string", "description": "Provider for rerank model", "ui_hidden": True},
     "RAG_RERANK_THRESHOLD_CHARS": {"group": "RAG Re-ranking", "label": "Threshold (chars)", "description": "Only re-rank when total RAG content exceeds this many chars. Default 5000 (~2-3 skill chunks)", "type": "int", "min": 500, "max": 100000},
     "RAG_RERANK_MAX_CHUNKS": {"group": "RAG Re-ranking", "label": "Max Chunks", "description": "Max chunks to keep after re-ranking. 20 is generous; lower to 10-15 for tighter context", "type": "int", "min": 1, "max": 100},
     "RAG_RERANK_MAX_TOKENS": {"group": "RAG Re-ranking", "label": "Max Tokens (LLM)", "description": "Max output tokens for LLM re-ranker response. Only used with LLM backend", "type": "int", "min": 100, "max": 4000},
@@ -105,6 +109,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "TOOL_RESULT_SUMMARIZE_ENABLED": {"group": "Tool Summarization", "label": "Enabled", "description": "Auto-summarize long tool results", "type": "bool"},
     "TOOL_RESULT_SUMMARIZE_THRESHOLD": {"group": "Tool Summarization", "label": "Threshold (chars)", "description": "Summarize tool results above this character count", "type": "int", "min": 500, "max": 50000},
     "TOOL_RESULT_SUMMARIZE_MODEL": {"group": "Tool Summarization", "label": "Model", "description": "Model for tool result summarization", "type": "string", "widget": "model"},
+    "TOOL_RESULT_SUMMARIZE_MODEL_PROVIDER_ID": {"group": "Tool Summarization", "label": "Summarize Model Provider", "type": "string", "description": "Provider for tool result summarize model", "ui_hidden": True},
     "TOOL_RESULT_SUMMARIZE_MAX_TOKENS": {"group": "Tool Summarization", "label": "Max Tokens", "description": "Max tokens for summary output", "type": "int", "min": 50, "max": 2000},
     "TOOL_RESULT_HARD_CAP": {"group": "Tool Summarization", "label": "Hard Cap (chars)", "description": "Maximum chars per tool result in current turn (0 = no cap)", "type": "int", "min": 0, "max": 200000},
     # --- Speech-to-Text ---
@@ -130,6 +135,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "MEMORY_HYGIENE_PROMPT": {"group": "Memory Hygiene", "label": "Hygiene Prompt", "description": "Custom prompt for hygiene runs. Leave empty to use the built-in default shown below.", "type": "string", "widget": "textarea", "nullable": True, "builtin_default_key": "DEFAULT_MEMORY_HYGIENE_PROMPT"},
     "MEMORY_HYGIENE_ONLY_IF_ACTIVE": {"group": "Memory Hygiene", "label": "Only If Active", "description": "Skip hygiene when no user messages have landed in any of a bot's channels (primary or member) since the last run. Bot-to-bot delegation, heartbeats, and assistant replies do NOT count — a bot whose channels only see bot traffic will never dream unless this is off.", "type": "bool"},
     "MEMORY_HYGIENE_MODEL": {"group": "Memory Hygiene", "label": "Model", "description": "Default model for hygiene runs (empty = use each bot's default model). Per-bot override available.", "type": "string", "widget": "model", "nullable": True},
+    "MEMORY_HYGIENE_MODEL_PROVIDER_ID": {"group": "Memory Hygiene", "label": "Hygiene Model Provider", "type": "string", "description": "Provider for memory hygiene model", "ui_hidden": True},
     "MEMORY_HYGIENE_TARGET_HOUR": {"group": "Memory Hygiene", "label": "Target Start Hour", "description": "Hour of day (0-23, local time) when hygiene runs should cluster. Bots stagger within ~60 min of this hour. Set -1 to disable (runs spread across the full interval).", "type": "int", "min": -1, "max": 23},
     "MEMORY_MD_NUDGE_THRESHOLD": {"group": "Memory Hygiene", "label": "Memory Size Nudge (lines)", "description": "When MEMORY.md exceeds this many lines, the bot gets a system message each turn reminding it to prune and consolidate. Set to 0 to disable.", "type": "int", "min": 0, "max": 500},
     # --- Heartbeat ---
@@ -144,6 +150,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     # --- Attachments ---
     "ATTACHMENT_SUMMARY_ENABLED": {"group": "Attachments", "label": "Summary Enabled", "description": "Auto-summarize attachments", "type": "bool"},
     "ATTACHMENT_SUMMARY_MODEL": {"group": "Attachments", "label": "Summary Model", "description": "Model for attachment summarization", "type": "string", "widget": "model"},
+    "ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID": {"group": "Attachments", "label": "Summary Model Provider", "type": "string", "description": "Provider for attachment summary model", "ui_hidden": True},
     "ATTACHMENT_VISION_CONCURRENCY": {"group": "Attachments", "label": "Vision Concurrency", "description": "Max concurrent vision API calls", "type": "int", "min": 1, "max": 20},
     "ATTACHMENT_TEXT_MAX_CHARS": {"group": "Attachments", "label": "Text Max Chars", "description": "Max chars for text summarization", "type": "int", "min": 1000, "max": 200000},
     "ATTACHMENT_RETENTION_DAYS": {"group": "Attachments", "label": "Retention Days", "description": "Days to keep attachments (empty = forever)", "type": "int", "min": 1, "max": 3650, "nullable": True},
@@ -161,8 +168,10 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "DOCKER_STACK_LOG_TAIL_MAX": {"group": "Docker Stacks", "label": "Log Tail Max", "description": "Maximum number of log lines to retrieve", "type": "int", "min": 10, "max": 10000},
     # --- Image Generation ---
     "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation", "type": "string", "widget": "model"},
+    "IMAGE_GENERATION_PROVIDER_ID": {"group": "Image Generation", "label": "Image Gen Provider", "type": "string", "description": "Provider for image generation model", "ui_hidden": True},
     # --- Prompt Generation ---
     "PROMPT_GENERATION_MODEL": {"group": "Prompt Generation", "label": "Model", "description": "Model used for the Generate Prompt feature in admin UI (empty = default LiteLLM model)", "type": "string", "widget": "model"},
+    "PROMPT_GENERATION_MODEL_PROVIDER_ID": {"group": "Prompt Generation", "label": "Prompt Gen Provider", "type": "string", "description": "Provider for prompt generation model", "ui_hidden": True},
     "PROMPT_GENERATION_TEMPERATURE": {"group": "Prompt Generation", "label": "Temperature", "description": "LLM temperature for prompt generation (0.0-1.0)", "type": "float", "min": 0.0, "max": 1.0},
 }
 

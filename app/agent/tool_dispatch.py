@@ -631,12 +631,13 @@ async def dispatch_tool_call(
 
     if _will_summarize:
         _was_summarized = True
+        from app.config import settings as _settings
         result_for_llm = await _summarize_tool_result(
             tool_name=name,
             content=result_for_llm,
             model=summarize_model,
             max_tokens=summarize_max_tokens,
-            provider_id=provider_id,
+            provider_id=_settings.TOOL_RESULT_SUMMARIZE_MODEL_PROVIDER_ID or provider_id,
         )
         # Append retrieval hint so the bot can fetch full output
         result_for_llm += (

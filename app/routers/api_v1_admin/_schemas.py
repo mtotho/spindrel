@@ -56,6 +56,7 @@ class BotOut(BaseModel):
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
+    compaction_model_provider_id: Optional[str] = None
     audio_input: str = "transcribe"
     memory: MemoryConfigOut = MemoryConfigOut()
     memory_max_inject_chars: Optional[int] = None
@@ -69,6 +70,7 @@ class BotOut(BaseModel):
     docker_sandbox_profiles: list[str] = []
     attachment_summarization_enabled: Optional[bool] = None
     attachment_summary_model: Optional[str] = None
+    attachment_summary_model_provider_id: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
     context_pruning: Optional[bool] = None

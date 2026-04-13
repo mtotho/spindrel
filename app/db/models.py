@@ -33,6 +33,7 @@ class Channel(Base):
     compaction_interval: Mapped[int | None] = mapped_column(Integer, nullable=True)
     compaction_keep_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     compaction_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compaction_model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     memory_knowledge_compaction_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     compaction_prompt_template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -804,6 +805,7 @@ class Bot(Base):
     compaction_interval: Mapped[int | None] = mapped_column(nullable=True)
     compaction_keep_turns: Mapped[int | None] = mapped_column(nullable=True)
     compaction_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compaction_model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     memory_knowledge_compaction_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     compaction_prompt_template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -828,6 +830,7 @@ class Bot(Base):
     workspace: Mapped[dict] = mapped_column(JSONB, server_default=text("'{\"enabled\": false}'::jsonb"))
     attachment_summarization_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     attachment_summary_model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachment_summary_model_provider_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     attachment_text_max_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
     attachment_vision_concurrency: Mapped[int | None] = mapped_column(Integer, nullable=True)
     model_provider_id: Mapped[str | None] = mapped_column(

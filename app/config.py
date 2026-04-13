@@ -495,6 +495,7 @@ class Settings(BaseSettings):
 
     # Prompt generation (AI-assisted prompt authoring in admin UI)
     PROMPT_GENERATION_MODEL: str = ""  # empty = uses DEFAULT_MODEL
+    PROMPT_GENERATION_MODEL_PROVIDER_ID: str = ""
     PROMPT_GENERATION_TEMPERATURE: float = 0.7
 
     # Agent
@@ -525,6 +526,7 @@ class Settings(BaseSettings):
     LLM_RETRY_INITIAL_WAIT: float = 2.0      # seconds; doubles each retry (2, 4, 8…)
     LLM_TIMEOUT: float = 120.0              # HTTP timeout for LLM API calls (seconds); covers slow providers
     LLM_FALLBACK_MODEL: str = ""             # if set, try this model once after all retries exhaust
+    LLM_FALLBACK_MODEL_PROVIDER_ID: str = ""
     LLM_FALLBACK_COOLDOWN_SECONDS: int = 300  # circuit breaker: skip broken models for this long after fallback
     # Rate limit retry (task level — reschedules entire task on rate limit failure)
     TASK_RATE_LIMIT_RETRIES: int = 3         # max reschedule attempts before marking failed
@@ -533,6 +535,7 @@ class Settings(BaseSettings):
 
     # Context compaction
     COMPACTION_MODEL: str = ""
+    COMPACTION_MODEL_PROVIDER_ID: str = ""
     COMPACTION_INTERVAL: int = 30 # Every time there gets to be N turns in the session (minus the compaction message), the compaction will run.
     COMPACTION_KEEP_TURNS: int = 10 # The last M turns will be kept in context, not included in the compaction. So compaction will only include the last N-M turns.
 
@@ -679,6 +682,7 @@ class Settings(BaseSettings):
     RAG_RERANK_ENABLED: bool = True
     RAG_RERANK_BACKEND: str = "cross-encoder"  # "cross-encoder" (fast ONNX, zero API cost) or "llm" (full LLM call)
     RAG_RERANK_MODEL: str = ""              # LLM backend: empty = use COMPACTION_MODEL
+    RAG_RERANK_MODEL_PROVIDER_ID: str = ""
     RAG_RERANK_THRESHOLD_CHARS: int = 5000  # only rerank when total RAG chars exceed this
     RAG_RERANK_MAX_CHUNKS: int = 20         # max chunks to keep after reranking
     RAG_RERANK_MAX_TOKENS: int = 1000       # max output tokens for reranker response (LLM backend only)
@@ -700,6 +704,7 @@ class Settings(BaseSettings):
     # Memory flush (dedicated pre-compaction memory save)
     MEMORY_FLUSH_ENABLED: bool = False
     MEMORY_FLUSH_MODEL: str = ""  # empty = use bot's model
+    MEMORY_FLUSH_MODEL_PROVIDER_ID: str = ""
     PREVIOUS_SUMMARY_INJECT_CHARS: int = 500  # max chars of existing summary injected into heartbeat/memory-flush context
     MEMORY_FLUSH_DEFAULT_PROMPT: str = """\
 [MEMORY FLUSH — PRE-COMPACTION]
@@ -754,6 +759,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     TOOL_RESULT_SUMMARIZE_ENABLED: bool = True
     TOOL_RESULT_SUMMARIZE_THRESHOLD: int = 3000       # chars; summarize if above this
     TOOL_RESULT_SUMMARIZE_MODEL: str = ""             # empty = use bot's current model
+    TOOL_RESULT_SUMMARIZE_MODEL_PROVIDER_ID: str = ""
     TOOL_RESULT_SUMMARIZE_MAX_TOKENS: int = 300       # max tokens for summary output
     TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS: Annotated[list[str], NoDecode] = ["get_skill"]
     TOOL_RESULT_HARD_CAP: int = 50_000              # max chars per tool result sent to LLM (0 = no cap)
@@ -782,6 +788,7 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # Attachments
     ATTACHMENT_SUMMARY_ENABLED: bool = True
     ATTACHMENT_SUMMARY_MODEL: str = ""
+    ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID: str = ""
     ATTACHMENT_VISION_CONCURRENCY: int = 3
     ATTACHMENT_SWEEP_INTERVAL_S: int = 60
     ATTACHMENT_TEXT_MAX_CHARS: int = 40_000  # ~10K tokens for text summarization

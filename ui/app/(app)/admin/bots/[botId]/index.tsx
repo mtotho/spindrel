@@ -506,7 +506,8 @@ export default function BotEditorScreen() {
                   <FormRow label="Vision / Summary Model">
                     <LlmModelDropdown
                       value={draft.attachment_summary_model ?? ""}
-                      onChange={(v) => update({ attachment_summary_model: v || undefined })}
+                      selectedProviderId={draft.attachment_summary_model_provider_id ?? undefined}
+                      onChange={(v, pid) => update({ attachment_summary_model: v || undefined, attachment_summary_model_provider_id: pid ?? undefined })}
                       placeholder="inherit"
                       allowClear
                     />

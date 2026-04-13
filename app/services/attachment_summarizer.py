@@ -36,7 +36,7 @@ _TEXT_PROMPT = (
 )
 
 
-async def _summarize_image(url: str | None, model: str, file_data: bytes | None = None) -> str:
+async def _summarize_image(url: str | None, model: str, provider_id: str | None = None, file_data: bytes | None = None) -> str:
     """Use vision model to describe an image by URL or stored bytes."""
     import base64
     from app.services.providers import get_llm_client
@@ -50,7 +50,7 @@ async def _summarize_image(url: str | None, model: str, file_data: bytes | None 
     else:
         return ""
 
-    response = await get_llm_client().chat.completions.create(
+    response = await get_llm_client(provider_id).chat.completions.create(
         model=model,
         messages=[{
             "role": "user",
@@ -65,12 +65,12 @@ async def _summarize_image(url: str | None, model: str, file_data: bytes | None 
     return (response.choices[0].message.content or "").strip()
 
 
-async def _summarize_text_content(content: str, model: str) -> str:
+async def _summarize_text_content(content: str, model: str, provider_id: str | None = None) -> str:
     """Use LLM to summarize text file content."""
     from app.services.providers import get_llm_client
 
     truncated = content[:settings.ATTACHMENT_TEXT_MAX_CHARS]
-    response = await get_llm_client().chat.completions.create(
+    response = await get_llm_client(provider_id).chat.completions.create(
         model=model,
         messages=[{
             "role": "user",
@@ -109,11 +109,12 @@ async def summarize_attachment(
             if not model:
                 logger.debug("No model configured for attachment summarization, skipping %s", attachment_id)
                 return
+            provider_id = overrides.get("model_provider_id", settings.ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID) or None
             text_max_chars = overrides.get("text_max_chars", settings.ATTACHMENT_TEXT_MAX_CHARS)
             description: str | None = None
 
             if att.type == "image":
-                description = await _summarize_image(att.url, model, file_data=att.file_data)
+                description = await _summarize_image(att.url, model, provider_id=provider_id, file_data=att.file_data)
             elif att.type in ("text", "file"):
                 try:
                     if att.file_data:
@@ -126,7 +127,7 @@ async def summarize_attachment(
                             text_content = resp.text[:text_max_chars]
                     else:
                         return
-                    description = await _summarize_text_content(text_content, model)
+                    description = await _summarize_text_content(text_content, model, provider_id=provider_id)
                 except Exception:
                     logger.warning(
                         "Could not fetch text content for attachment %s (%s)",

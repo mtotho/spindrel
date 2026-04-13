@@ -307,16 +307,9 @@ async def _run_memory_flush(
     full_prompt = "\n".join(header_lines) + prompt
 
     model = _get_memory_flush_model(bot, channel)
-    # Resolve provider_id from the chosen model when no explicit channel
-    # override is set, instead of blindly inheriting bot.model_provider_id
-    # — that path produced nonsense pairs like
-    # `gemini-2.5-flash-lite @ mini-max` whenever the memory-flush model
-    # override pointed at a different provider than the bot's native one,
-    # corrupting usage_logs cost attribution.
-    from app.services.providers import resolve_provider_for_model
     provider_id = (
         channel.memory_flush_model_provider_id
-        or resolve_provider_for_model(model)
+        or settings.MEMORY_FLUSH_MODEL_PROVIDER_ID
         or bot.model_provider_id
     )
 
@@ -417,26 +410,16 @@ def _get_compaction_model(bot: BotConfig, channel: Channel | None = None) -> str
 
 
 def _get_compaction_provider(bot: BotConfig, channel: Channel | None = None) -> str | None:
-    """Resolve the provider for the compaction model.
+    """Read the stored provider_id for the compaction model.
 
-    When the compaction model differs from the bot's own model (e.g. a global
-    override like gemini/gemini-2.5-flash-lite on a MiniMax bot), look up which
-    provider actually owns that model.  Falls back to the bot's provider when
-    the compaction model matches the bot model or when no reverse-index hit.
+    Cascade: channel override → bot override → global setting → bot's own provider.
     """
-    compaction_model = _get_compaction_model(bot, channel)
-    if compaction_model == bot.model:
-        # Same model as the bot — use the bot's provider
-        return bot.model_provider_id
-
-    # The compaction model differs from the bot model — resolve its provider
-    from app.services.providers import resolve_provider_for_model
-    resolved = resolve_provider_for_model(compaction_model)
-    if resolved is not None:
-        return resolved
-
-    # Couldn't resolve — fall back to bot's provider (may work if provider
-    # is a LiteLLM proxy that routes by model prefix)
+    if channel and channel.compaction_model_provider_id:
+        return channel.compaction_model_provider_id
+    if bot.compaction_model_provider_id:
+        return bot.compaction_model_provider_id
+    if settings.COMPACTION_MODEL_PROVIDER_ID:
+        return settings.COMPACTION_MODEL_PROVIDER_ID
     return bot.model_provider_id
 
 

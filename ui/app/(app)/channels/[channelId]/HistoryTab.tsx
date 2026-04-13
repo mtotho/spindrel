@@ -93,7 +93,8 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           <LlmModelDropdown
             label="Compaction Model"
             value={form.compaction_model ?? ""}
-            onChange={(v) => patch("compaction_model", v || undefined)}
+            selectedProviderId={form.compaction_model_provider_id ?? undefined}
+            onChange={(v, pid) => { patch("compaction_model", v || undefined); patch("compaction_model_provider_id", pid ?? undefined); }}
             placeholder="inherit (bot model)"
           />
           <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
@@ -259,7 +260,8 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
               <LlmModelDropdown
                 label="Compaction Model"
                 value={form.compaction_model ?? ""}
-                onChange={(v) => patch("compaction_model", v || undefined)}
+                selectedProviderId={form.compaction_model_provider_id ?? undefined}
+                onChange={(v, pid) => { patch("compaction_model", v || undefined); patch("compaction_model_provider_id", pid ?? undefined); }}
                 placeholder="inherit (bot model)"
               />
               <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>

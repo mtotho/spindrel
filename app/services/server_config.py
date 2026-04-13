@@ -35,7 +35,7 @@ async def load_server_config() -> None:
         # Seed from legacy .env setting if DB is empty
         from app.config import settings
         if settings.LLM_FALLBACK_MODEL:
-            _global_fallback_models = [{"model": settings.LLM_FALLBACK_MODEL, "provider_id": None}]
+            _global_fallback_models = [{"model": settings.LLM_FALLBACK_MODEL, "provider_id": settings.LLM_FALLBACK_MODEL_PROVIDER_ID or None}]
             logger.info("Seeded global fallback from LLM_FALLBACK_MODEL=%s", settings.LLM_FALLBACK_MODEL)
         else:
             _global_fallback_models = []

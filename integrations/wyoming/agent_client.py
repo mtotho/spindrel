@@ -43,8 +43,9 @@ class AgentClient:
         session_id: str | None = None,
         dispatch_type: str = "wyoming",
         dispatch_config: dict | None = None,
+        msg_metadata: dict | None = None,
     ) -> dict:
-        """POST /chat -> 202 {session_id, channel_id, turn_id, stream_id}."""
+        """POST /chat -> 202 {session_id, channel_id, turn_id}."""
         payload: dict = {
             "message": message,
             "bot_id": bot_id,
@@ -55,6 +56,8 @@ class AgentClient:
             payload["session_id"] = session_id
         if dispatch_config:
             payload["dispatch_config"] = dispatch_config
+        if msg_metadata:
+            payload["msg_metadata"] = msg_metadata
         r = await self._http.post(
             f"{self.base_url}/chat",
             json=payload,

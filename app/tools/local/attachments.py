@@ -290,9 +290,10 @@ async def describe_attachment(attachment_id: str, prompt: str = "") -> str:
     b64 = base64.b64encode(att.file_data).decode("ascii")
     data_url = f"data:{mime};base64,{b64}"
     model = settings.ATTACHMENT_SUMMARY_MODEL
+    provider_id = settings.ATTACHMENT_SUMMARY_MODEL_PROVIDER_ID or None
 
     try:
-        response = await get_llm_client().chat.completions.create(
+        response = await get_llm_client(provider_id).chat.completions.create(
             model=model,
             messages=[{
                 "role": "user",

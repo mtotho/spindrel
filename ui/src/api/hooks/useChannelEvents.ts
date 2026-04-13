@@ -255,6 +255,15 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           if (!turnId || !botId) return;
           const botName = botNamesRef.current[botId] ?? botId;
           const isPrimary = botId === primaryBotIdRef.current;
+          // Remove any stale synthetic left by a previous mount's cleanup
+          // (finishTurn on unmount/reconnect materializes the partial turn
+          // as a message). Without this, the synthetic appears alongside
+          // the fresh streaming indicator — a visible duplicate.
+          const syntheticId = `turn-${turnId}`;
+          const ch = store.getChannel(chId);
+          if (ch.messages.some((m) => m.id === syntheticId)) {
+            store.setMessages(chId, ch.messages.filter((m) => m.id !== syntheticId));
+          }
           store.startTurn(chId, turnId, botId, botName, isPrimary);
           startObserverTimeout(chId, turnId);
           return;

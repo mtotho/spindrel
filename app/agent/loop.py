@@ -1569,7 +1569,7 @@ async def run_stream(
     from app.services.reranking import rerank_rag_context
     _rerank_result = await rerank_rag_context(
         messages, user_message,
-        provider_id=_resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id),
+        provider_id=settings.RAG_RERANK_MODEL_PROVIDER_ID or _resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id),
     )
     if _rerank_result is not None:
         logger.info(

@@ -63,6 +63,7 @@ async def test_load_server_config_seeds_from_env():
 
     mock_settings = MagicMock()
     mock_settings.LLM_FALLBACK_MODEL = "env-fallback"
+    mock_settings.LLM_FALLBACK_MODEL_PROVIDER_ID = ""
 
     try:
         with patch("app.db.engine.async_session", return_value=mock_session_ctx), \

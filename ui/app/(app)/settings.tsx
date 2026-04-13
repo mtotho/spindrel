@@ -224,16 +224,19 @@ function TextareaField({
 function ModelField({
   item,
   value,
+  selectedProviderId,
   onChange,
 }: {
   item: SettingItem;
   value: string;
-  onChange: (v: string) => void;
+  selectedProviderId?: string;
+  onChange: (model: string, providerId?: string | null) => void;
 }) {
   return (
     <View style={{ maxWidth: 400 }}>
       <LlmModelDropdown
         value={value}
+        selectedProviderId={selectedProviderId}
         onChange={onChange}
         placeholder="Select model..."
         allowClear
@@ -271,12 +274,14 @@ function EmbeddingModelField({
 function SettingRow({
   item,
   localValue,
+  providerValue,
   onLocalChange,
   onReset,
   isResetting,
 }: {
   item: SettingItem;
   localValue: any;
+  providerValue?: string;
   onLocalChange: (key: string, value: any) => void;
   onReset: (key: string) => void;
   isResetting: boolean;
@@ -319,11 +324,22 @@ function SettingRow({
       );
     }
     if (item.widget === "model") {
+      // Derive the paired provider_id key (e.g. COMPACTION_MODEL → COMPACTION_MODEL_PROVIDER_ID)
+      // Special cases for legacy naming without _MODEL_ in the provider key
+      const providerKey = item.key === "IMAGE_GENERATION_MODEL"
+        ? "IMAGE_GENERATION_PROVIDER_ID"
+        : item.key === "CONTEXTUAL_RETRIEVAL_MODEL"
+        ? "CONTEXTUAL_RETRIEVAL_PROVIDER_ID"
+        : item.key + "_PROVIDER_ID";
       return (
         <ModelField
           item={item}
           value={String(localValue ?? "")}
-          onChange={(v) => onLocalChange(item.key, v)}
+          selectedProviderId={providerValue}
+          onChange={(model, pid) => {
+            onLocalChange(item.key, model);
+            onLocalChange(providerKey, pid ?? "");
+          }}
         />
       );
     }
@@ -667,11 +683,21 @@ export default function SettingsScreen() {
   const handleReset = useCallback(
     (key: string) => {
       setResettingKey(key);
+      // Also reset the paired provider_id when resetting a model setting
+      const item = groups.flatMap((g) => g.settings).find((s) => s.key === key);
+      if (item?.widget === "model") {
+        const providerKey = key === "IMAGE_GENERATION_MODEL"
+          ? "IMAGE_GENERATION_PROVIDER_ID"
+          : key === "CONTEXTUAL_RETRIEVAL_MODEL"
+          ? "CONTEXTUAL_RETRIEVAL_PROVIDER_ID"
+          : key + "_PROVIDER_ID";
+        resetMutation.mutate(providerKey);
+      }
       resetMutation.mutate(key, {
         onSettled: () => setResettingKey(null),
       });
     },
-    [resetMutation]
+    [resetMutation, groups]
   );
 
   const isGlobal = activeGroup === GLOBAL_GROUP;
@@ -825,6 +851,13 @@ export default function SettingsScreen() {
                 <SettingRow
                   item={item}
                   localValue={localValues[item.key]}
+                  providerValue={item.widget === "model" ? String(localValues[
+                    item.key === "IMAGE_GENERATION_MODEL"
+                      ? "IMAGE_GENERATION_PROVIDER_ID"
+                      : item.key === "CONTEXTUAL_RETRIEVAL_MODEL"
+                      ? "CONTEXTUAL_RETRIEVAL_PROVIDER_ID"
+                      : item.key + "_PROVIDER_ID"
+                  ] ?? "") : undefined}
                   onLocalChange={handleLocalChange}
                   onReset={handleReset}
                   isResetting={resettingKey === item.key}

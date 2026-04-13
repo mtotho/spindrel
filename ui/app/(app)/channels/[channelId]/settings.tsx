@@ -146,6 +146,7 @@ export default function ChannelSettingsScreen() {
         compaction_keep_turns: settings.compaction_keep_turns,
         history_mode: settings.history_mode,
         compaction_model: settings.compaction_model,
+        compaction_model_provider_id: settings.compaction_model_provider_id,
         trigger_heartbeat_before_compaction: settings.trigger_heartbeat_before_compaction,
         memory_flush_enabled: settings.memory_flush_enabled,
         memory_flush_model: settings.memory_flush_model,

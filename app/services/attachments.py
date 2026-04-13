@@ -52,6 +52,8 @@ async def _get_bot_attachment_config(bot_id: str | None) -> dict:
             overrides["enabled"] = row.attachment_summarization_enabled
         if row.attachment_summary_model is not None:
             overrides["model"] = row.attachment_summary_model
+        if row.attachment_summary_model_provider_id is not None:
+            overrides["model_provider_id"] = row.attachment_summary_model_provider_id
         if row.attachment_text_max_chars is not None:
             overrides["text_max_chars"] = row.attachment_text_max_chars
         if row.attachment_vision_concurrency is not None:

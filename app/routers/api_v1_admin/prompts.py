@@ -253,7 +253,8 @@ async def generate_prompt(body: GeneratePromptIn, _auth=Depends(require_scopes("
     model = settings.PROMPT_GENERATION_MODEL or settings.COMPACTION_MODEL or settings.DEFAULT_MODEL
     if not model:
         raise HTTPException(status_code=400, detail="No model configured for prompt generation. Set PROMPT_GENERATION_MODEL, COMPACTION_MODEL, or DEFAULT_MODEL.")
-    client = get_llm_client(None)
+    provider_id = settings.PROMPT_GENERATION_MODEL_PROVIDER_ID or settings.COMPACTION_MODEL_PROVIDER_ID or None
+    client = get_llm_client(provider_id)
 
     resp = await client.chat.completions.create(
         model=model,

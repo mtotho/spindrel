@@ -52,6 +52,7 @@ export interface BotConfig {
   compaction_interval?: number | null;
   compaction_keep_turns?: number | null;
   compaction_model?: string | null;
+  compaction_model_provider_id?: string | null;
   history_mode?: string | null;
   audio_input?: string;
   memory?: MemoryConfig;
@@ -69,6 +70,7 @@ export interface BotConfig {
   shared_workspace_role?: string | null;
   attachment_summarization_enabled?: boolean | null;
   attachment_summary_model?: string | null;
+  attachment_summary_model_provider_id?: string | null;
   attachment_text_max_chars?: number | null;
   attachment_vision_concurrency?: number | null;
   api_permissions?: string[] | null;
@@ -433,6 +435,7 @@ export interface ChannelSettings {
   compaction_workspace_id?: string | null;
   history_mode?: string | null;
   compaction_model?: string;
+  compaction_model_provider_id?: string | null;
   trigger_heartbeat_before_compaction?: boolean | null;
   // Memory flush (dedicated pre-compaction memory save)
   memory_flush_enabled?: boolean | null;

@@ -433,7 +433,7 @@ class TestRunMemoryFlushProviderId:
         return mock_db
 
     @pytest.mark.asyncio
-    async def test_resolves_provider_from_model_when_no_channel_override(self):
+    async def test_resolves_provider_from_settings_when_no_channel_override(self):
         from app.services import compaction
         # memory_scheme="workspace-files" makes the function take the static-prompt
         # branch and skip resolve_prompt entirely — keeps the test focused on the
@@ -442,9 +442,12 @@ class TestRunMemoryFlushProviderId:
         ch = _make_channel(memory_flush_enabled=True, memory_flush_model_provider_id=None)
 
         with patch.object(compaction, "_get_memory_flush_model", return_value="gemini-2.5-flash-lite"), \
-             patch("app.services.providers.resolve_provider_for_model", return_value="gemini") as mock_resolve, \
+             patch("app.services.compaction.settings") as mock_settings, \
              patch("app.services.compaction.async_session") as mock_session_factory, \
              patch("app.agent.loop.run", new=AsyncMock()) as mock_run:
+            mock_settings.MEMORY_FLUSH_MODEL_PROVIDER_ID = "gemini"
+            mock_settings.MEMORY_SCHEME_FLUSH_PROMPT = ""
+            mock_settings.PREVIOUS_SUMMARY_INJECT_CHARS = 500
             self._stub_db_session(mock_session_factory, ch.id)
             mock_run.return_value = MagicMock(response="ok")
 
@@ -456,13 +459,12 @@ class TestRunMemoryFlushProviderId:
                 correlation_id=uuid.uuid4(),
             )
 
-            mock_resolve.assert_called_once_with("gemini-2.5-flash-lite")
             assert mock_run.await_count == 1
             kwargs = mock_run.await_args.kwargs
             assert kwargs["model_override"] == "gemini-2.5-flash-lite"
             assert kwargs["provider_id_override"] == "gemini", (
-                "Provider must be resolved from the chosen model, not inherited "
-                f"from bot.model_provider_id (mini-max). Got: {kwargs['provider_id_override']}"
+                "Provider must come from MEMORY_FLUSH_MODEL_PROVIDER_ID setting, not "
+                f"bot.model_provider_id (mini-max). Got: {kwargs['provider_id_override']}"
             )
 
     @pytest.mark.asyncio

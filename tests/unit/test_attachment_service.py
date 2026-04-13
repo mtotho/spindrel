@@ -456,6 +456,7 @@ class TestBotAttachmentConfig:
         mock_row = MagicMock()
         mock_row.attachment_summarization_enabled = True
         mock_row.attachment_summary_model = None
+        mock_row.attachment_summary_model_provider_id = None
         mock_row.attachment_text_max_chars = None
         mock_row.attachment_vision_concurrency = 5
 

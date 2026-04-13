@@ -65,6 +65,7 @@ def _bot_to_out(
         compaction_interval=bot.compaction_interval,
         compaction_keep_turns=bot.compaction_keep_turns,
         compaction_model=getattr(bot, "compaction_model", None),
+        compaction_model_provider_id=getattr(bot, "compaction_model_provider_id", None),
         audio_input=bot.audio_input,
         memory=MemoryConfigOut(
             enabled=bot.memory.enabled,
@@ -85,6 +86,7 @@ def _bot_to_out(
         docker_sandbox_profiles=getattr(bot, "docker_sandbox_profiles", []),
         attachment_summarization_enabled=getattr(bot, "attachment_summarization_enabled", None),
         attachment_summary_model=getattr(bot, "attachment_summary_model", None),
+        attachment_summary_model_provider_id=getattr(bot, "attachment_summary_model_provider_id", None),
         attachment_text_max_chars=getattr(bot, "attachment_text_max_chars", None),
         attachment_vision_concurrency=getattr(bot, "attachment_vision_concurrency", None),
         context_pruning=getattr(bot, "context_pruning", None),

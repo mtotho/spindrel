@@ -358,6 +358,7 @@ class ChannelSettingsOut(BaseModel):
     compaction_workspace_id: Optional[uuid.UUID] = None
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
+    compaction_model_provider_id: Optional[str] = None
     trigger_heartbeat_before_compaction: Optional[bool] = None
     # Memory flush (dedicated pre-compaction memory save)
     memory_flush_enabled: Optional[bool] = None
@@ -425,6 +426,7 @@ class ChannelSettingsUpdate(BaseModel):
     compaction_workspace_id: Optional[uuid.UUID] = None
     history_mode: Optional[str] = None
     compaction_model: Optional[str] = None
+    compaction_model_provider_id: Optional[str] = None
     trigger_heartbeat_before_compaction: Optional[bool] = None
     # Memory flush (dedicated pre-compaction memory save)
     memory_flush_enabled: Optional[bool] = None

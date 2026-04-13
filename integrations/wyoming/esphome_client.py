@@ -357,6 +357,12 @@ class ESPHomeVoiceConnection:
                     "type": "esphome",
                     "device_id": cfg.device_name,
                 },
+                msg_metadata={
+                    "source": "wyoming",
+                    "sender_type": "human",
+                    "sender_id": f"esphome:{cfg.device_name}",
+                    "sender_display_name": dc.channel_name or cfg.device_name,
+                },
             )
 
             session_id = result.get("session_id")
@@ -449,24 +455,18 @@ class ESPHomeVoiceConnection:
                 # and set up its socket reader
                 await asyncio.sleep(0.05)
 
-                # Send audio in bursts: a batch of chunks, then sleep for
-                # the batch duration. This avoids per-chunk overhead that
-                # causes choppy playback on the device.
-                burst_chunks = 8  # send 8 chunks (~256ms) at a time
-                seconds_per_chunk = _UDP_AUDIO_CHUNK_BYTES / 2 / _DEVICE_SAMPLE_RATE
+                # Send all audio upfront — the device has a ring buffer
+                # (16KB) and the speaker task drains it at realtime rate.
+                # Sending in bursts with sleeps causes gaps/crackling
+                # because asyncio.sleep granularity is ~15ms on Linux,
+                # which accumulates into audible stuttering.
                 offset = 0
                 chunks_sent = 0
                 while offset < len(pcm_16k):
-                    # Send a burst
-                    for _ in range(burst_chunks):
-                        if offset >= len(pcm_16k):
-                            break
-                        chunk_data = pcm_16k[offset:offset + _UDP_AUDIO_CHUNK_BYTES]
-                        self._udp_server.send_audio(chunk_data)
-                        offset += _UDP_AUDIO_CHUNK_BYTES
-                        chunks_sent += 1
-                    # Sleep for the burst duration
-                    await asyncio.sleep(seconds_per_chunk * burst_chunks)
+                    chunk_data = pcm_16k[offset:offset + _UDP_AUDIO_CHUNK_BYTES]
+                    self._udp_server.send_audio(chunk_data)
+                    offset += _UDP_AUDIO_CHUNK_BYTES
+                    chunks_sent += 1
 
                 logger.info(
                     "Sent %d UDP audio chunks (%d bytes) to %s",

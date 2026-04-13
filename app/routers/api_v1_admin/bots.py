@@ -484,6 +484,7 @@ class BotUpdateIn(BaseModel):
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
+    compaction_model_provider_id: Optional[str] = None
     context_pruning: Optional[bool] = None
     history_mode: Optional[str] = None
     audio_input: Optional[str] = None
@@ -498,6 +499,7 @@ class BotUpdateIn(BaseModel):
     delegation_config: Optional[dict] = None
     attachment_summarization_enabled: Optional[bool] = None
     attachment_summary_model: Optional[str] = None
+    attachment_summary_model_provider_id: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
     user_id: Optional[str] = None
@@ -650,6 +652,7 @@ class BotCreateIn(BaseModel):
     compaction_interval: Optional[int] = None
     compaction_keep_turns: Optional[int] = None
     compaction_model: Optional[str] = None
+    compaction_model_provider_id: Optional[str] = None
     context_pruning: Optional[bool] = None
     history_mode: Optional[str] = "file"
     audio_input: Optional[str] = "transcribe"
@@ -664,6 +667,7 @@ class BotCreateIn(BaseModel):
     delegation_config: Optional[dict] = None
     attachment_summarization_enabled: Optional[bool] = None
     attachment_summary_model: Optional[str] = None
+    attachment_summary_model_provider_id: Optional[str] = None
     attachment_text_max_chars: Optional[int] = None
     attachment_vision_concurrency: Optional[int] = None
     user_id: Optional[str] = None
