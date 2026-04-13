@@ -237,10 +237,12 @@ async def manage_bot_skill(
         async with async_session() as db:
             total = (await db.execute(
                 select(func.count()).select_from(SkillRow)
-                .where(SkillRow.id.like(f"{prefix}%"))
+                .where(SkillRow.id.like(f"{prefix}%"), SkillRow.archived_at.is_(None))
             )).scalar_one()
             rows = (await db.execute(
-                select(SkillRow).where(SkillRow.id.like(f"{prefix}%"))
+                select(SkillRow).where(
+                    SkillRow.id.like(f"{prefix}%"), SkillRow.archived_at.is_(None),
+                )
                 .order_by(SkillRow.updated_at.desc())
                 .limit(clamped_limit).offset(clamped_offset)
             )).scalars().all()

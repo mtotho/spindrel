@@ -62,6 +62,8 @@ async def get_skill(skill_id: str) -> str:
         row = await db.get(SkillRow, skill_id)
         if not row:
             return f"Skill '{skill_id}' not found."
+        if row.archived_at:
+            return f"Skill '{skill_id}' is archived. Use manage_bot_skill(action='restore') to restore it."
 
         # Phase 3 working set: promote on successful fetch. Idempotent.
         # Capture the row attrs into locals BEFORE commit so the return below
@@ -313,7 +315,9 @@ async def get_skill_list() -> str:
     bot_id = current_bot_id.get()
 
     async with async_session() as db:
-        query = select(SkillRow.id, SkillRow.name, SkillRow.description, SkillRow.triggers)
+        query = select(SkillRow.id, SkillRow.name, SkillRow.description, SkillRow.triggers).where(
+            SkillRow.archived_at.is_(None),
+        )
         # Exclude other bots' private skills
         if bot_id:
             query = query.where(
