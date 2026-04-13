@@ -106,6 +106,7 @@ class ESPHomeVoiceConnection:
         self._voice_active = False
         self._udp_server: _UDPAudioServer | None = None
         self._udp_port: int = 0
+        self._friendly_name: str = config.device_name
 
     async def start(self) -> None:
         """Start the connection loop (auto-reconnects)."""
@@ -165,6 +166,7 @@ class ESPHomeVoiceConnection:
         )
         await self._client.connect(login=True)
         device_info = await self._client.device_info()
+        self._friendly_name = device_info.friendly_name or device_info.name or cfg.device_name
         logger.info(
             "Connected to ESPHome device: %s (model=%s)",
             device_info.name, device_info.model,
@@ -361,7 +363,7 @@ class ESPHomeVoiceConnection:
                     "source": "wyoming",
                     "sender_type": "human",
                     "sender_id": f"esphome:{cfg.device_name}",
-                    "sender_display_name": dc.channel_name or cfg.device_name,
+                    "sender_display_name": self._friendly_name,
                 },
             )
 
@@ -455,39 +457,27 @@ class ESPHomeVoiceConnection:
                 # and set up its socket reader
                 await asyncio.sleep(0.05)
 
-                # The device has ~32KB of buffer depth (16KB speaker_buffer_
-                # + 16KB speaker ring buffer). Send an initial burst to fill
-                # the pipeline, then pace remaining audio at realtime using
-                # absolute time targets to avoid asyncio.sleep drift.
-                pre_buffer_bytes = 32 * 1024  # fill the pipeline
+                # Pace all audio at 2x realtime using absolute time targets.
+                # The device's lwIP UDP receive queue only holds ~6-8 packets,
+                # so burst-sending drops most data. 2x realtime keeps the
+                # device's speaker buffer fed without overflowing the queue.
                 seconds_per_chunk = _UDP_AUDIO_CHUNK_BYTES / 2 / _DEVICE_SAMPLE_RATE
+                pace = seconds_per_chunk / 2  # 2x realtime
+
+                loop = asyncio.get_running_loop()
+                start_time = loop.time()
                 offset = 0
                 chunks_sent = 0
-
-                # Phase 1: burst-fill the device pipeline
-                while offset < min(len(pcm_16k), pre_buffer_bytes):
+                while offset < len(pcm_16k):
                     chunk_data = pcm_16k[offset:offset + _UDP_AUDIO_CHUNK_BYTES]
                     self._udp_server.send_audio(chunk_data)
                     offset += _UDP_AUDIO_CHUNK_BYTES
                     chunks_sent += 1
-
-                # Phase 2: pace remaining audio at realtime using
-                # absolute time targets (immune to sleep drift)
-                if offset < len(pcm_16k):
-                    loop = asyncio.get_running_loop()
-                    start_time = loop.time()
-                    paced_chunk_index = 0
-                    while offset < len(pcm_16k):
-                        chunk_data = pcm_16k[offset:offset + _UDP_AUDIO_CHUNK_BYTES]
-                        self._udp_server.send_audio(chunk_data)
-                        offset += _UDP_AUDIO_CHUNK_BYTES
-                        chunks_sent += 1
-                        paced_chunk_index += 1
-                        # Sleep until the absolute target time for this chunk
-                        target = start_time + paced_chunk_index * seconds_per_chunk
-                        delay = target - loop.time()
-                        if delay > 0:
-                            await asyncio.sleep(delay)
+                    # Sleep until absolute target time for this chunk
+                    target = start_time + chunks_sent * pace
+                    delay = target - loop.time()
+                    if delay > 0:
+                        await asyncio.sleep(delay)
 
                 logger.info(
                     "Sent %d UDP audio chunks (%d bytes) to %s",
