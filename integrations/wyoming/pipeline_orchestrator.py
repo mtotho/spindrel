@@ -215,7 +215,14 @@ class SatelliteConnection:
                 got_speech = False
                 silence_chunks = 0
 
-            elif AudioChunk.is_type(event.type) and collecting:
+            elif AudioChunk.is_type(event.type):
+                if not collecting:
+                    # Some satellites (e.g. wyoming-satellite with local wake
+                    # word) send AudioChunk directly without AudioStart.
+                    # Start collecting implicitly.
+                    collecting = True
+                    got_speech = False
+                    silence_chunks = 0
                 chunk = AudioChunk.from_event(event)
                 audio_buffer.add_chunk(chunk.audio)
 
