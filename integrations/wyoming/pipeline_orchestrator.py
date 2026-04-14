@@ -268,8 +268,10 @@ class SatelliteConnection:
 
         logger.info("Transcript from %s: %r", self.device_id, transcript)
 
-        # Send transcript back to satellite (triggers done sound, LED update)
-        await self._client.write_event(Transcript(text=transcript).event())
+        # NOTE: Do NOT send Transcript here — it causes the satellite to
+        # resume wake-word listening immediately.  We send it AFTER TTS
+        # playback so the satellite stays in playback mode and doesn't
+        # false-trigger on its own speaker output.
 
         # Step 2: Dispatch to Spindrel channel
         try:
@@ -292,6 +294,7 @@ class SatelliteConnection:
         except Exception:
             logger.exception("Failed to submit chat for %s", self.device_id)
             await self._speak_error("Sorry, I couldn't process that.")
+            await self._reset_satellite()
             return
 
         # Step 3: Wait for bot response
@@ -307,11 +310,13 @@ class SatelliteConnection:
         else:
             logger.error("No stream_id or session_id in chat response: %s", result)
             await self._speak_error("Sorry, something went wrong.")
+            await self._reset_satellite()
             return
 
         if not response_text:
             logger.warning("Empty response from agent")
             await self._speak_error("I don't have a response for that.")
+            await self._reset_satellite()
             return
 
         logger.info("Response for %s: %r", self.device_id, response_text[:200])
@@ -319,6 +324,10 @@ class SatelliteConnection:
         # Step 4: TTS — synthesize and send audio to satellite
         if pipeline.end_stage == PipelineStage.TTS:
             await self._speak(response_text)
+
+        # Send transcript AFTER TTS so the satellite stays in playback mode
+        # during speech and only resumes wake-word listening once done.
+        await self._client.write_event(Transcript(text=transcript).event())
 
     async def _reset_satellite(self):
         """Send empty transcript so satellite returns to wake-word listening."""
