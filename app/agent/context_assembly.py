@@ -39,6 +39,10 @@ from app.tools.registry import get_local_tool_schemas
 
 logger = logging.getLogger(__name__)
 
+# Enrollment sources eligible for auto-inject. Starter/migration skills are
+# generic utility docs that shouldn't compete for the injection slot.
+_INJECT_ELIGIBLE_SOURCES = frozenset({"authored", "fetched", "manual"})
+
 
 def _safe_sim(value: float) -> float | None:
     """Sanitize similarity score for JSONB serialization (NaN is invalid JSON)."""
@@ -1057,6 +1061,7 @@ async def assemble_context(
         from app.services.skill_enrollment import (
             enroll_many as _enroll_many,
             get_enrolled_skill_ids as _get_enrolled_skill_ids,
+            get_enrolled_source_map as _get_enrolled_source_map,
         )
 
         # Discover bot-authored skills, persist any new ones as 'authored'
@@ -1070,8 +1075,10 @@ async def assemble_context(
             logger.warning("Failed to auto-discover bot-authored skills for %s", bot.id, exc_info=True)
 
         # Load the bot's full enrolled working set in one query
+        _source_map: dict[str, str] = {}
         try:
             _enrolled_ids = await _get_enrolled_skill_ids(bot.id)
+            _source_map = await _get_enrolled_source_map(bot.id)
             if _enrolled_ids:
                 _prev = len(bot.skills)
                 bot = _merge_skills(bot, _enrolled_ids, _ch_skills_disabled)
@@ -1267,11 +1274,21 @@ async def assemble_context(
 
             if _enrolled_rows:
                 # Rank enrolled skills by relevance when enabled and we have a query.
+                # Use recent conversation context (last 3 user/assistant messages) for
+                # the ranking query so multi-turn topic continuity is preserved — "what
+                # about timing?" in a sourdough conversation still matches sourdough skills.
                 _ranking: list[dict] = []
                 if settings.SKILL_ENROLLED_RANKING_ENABLED and user_message:
+                    _rank_parts: list[str] = []
+                    for _msg in reversed(messages[-10:]):
+                        if _msg.get("role") in ("user", "assistant") and _msg.get("content"):
+                            _rank_parts.append(_msg["content"][:500])
+                            if len(_rank_parts) >= 3:
+                                break
+                    _rank_query = "\n".join(reversed(_rank_parts)) if _rank_parts else user_message
                     try:
                         _ranking = await _rank_enrolled_skills(
-                            user_message, [r.id for r in _enrolled_rows],
+                            _rank_query, [r.id for r in _enrolled_rows],
                         )
                     except Exception:
                         logger.warning("Enrolled skill ranking failed", exc_info=True)
@@ -1335,11 +1352,16 @@ async def assemble_context(
                         set(_tagged_skill_names) | set(_untagged_ephemeral) | _history_fetched_skills
                     )
                     _injected_count = 0
+                    _inject_threshold = settings.SKILL_ENROLLED_AUTO_INJECT_THRESHOLD
                     for _ri in _ranking:
                         if _injected_count >= settings.SKILL_ENROLLED_AUTO_INJECT_MAX:
                             break
-                        if not _ri["relevant"]:
-                            break
+                        if _ri["similarity"] < _inject_threshold:
+                            break  # sorted descending — all below are lower
+                        # Only authored/fetched/manual skills are injection-eligible;
+                        # starter/migration skills are generic utility docs.
+                        if _source_map.get(_ri["skill_id"], "starter") not in _INJECT_ELIGIBLE_SOURCES:
+                            continue
                         if _ri["skill_id"] in _already_injected:
                             _skipped_in_history.append(_ri["skill_id"])
                             continue
@@ -1369,6 +1391,18 @@ async def assemble_context(
                             logger.warning(
                                 "Failed to auto-inject skill %s", _ri["skill_id"], exc_info=True,
                             )
+
+                    # Emit an event for each auto-injected skill so the UI can display it
+                    for _ai in _auto_injected:
+                        _ai_row = _row_map.get(_ai)
+                        _ai_sim = next((r["similarity"] for r in _ranking if r["skill_id"] == _ai), 0.0)
+                        yield {
+                            "type": "auto_inject",
+                            "skill_id": _ai,
+                            "skill_name": _ai_row.name if _ai_row else _ai,
+                            "similarity": _safe_sim(_ai_sim),
+                            "source": _source_map.get(_ai, "unknown"),
+                        }
 
         # Discovery layer: semantic retrieval over UNENROLLED catalog skills.
         # Runs even when bot.skills is empty so a fresh / unbackfilled bot can
@@ -1422,6 +1456,10 @@ async def assemble_context(
                 "total_enrolled": len(_enrolled_ids),
                 "ranked_relevant": _ranked_relevant,
                 "auto_injected": _auto_injected,
+                "ranking_scores": [
+                    {"skill_id": r["skill_id"], "similarity": _safe_sim(r["similarity"])}
+                    for r in _ranking[:5]
+                ] if _ranking else [],
                 "skills_in_history": sorted(_history_fetched_skills) if _history_fetched_skills else [],
                 "skipped_in_history": _skipped_in_history if _skipped_in_history else [],
                 "skipped_budget": _skipped_budget if _skipped_budget else [],

@@ -32,6 +32,7 @@ from app.domain.payloads import (
     ApprovalResolvedPayload,
     ContextBudgetPayload,
     MemorySchemeBootstrapPayload,
+    SkillAutoInjectPayload,
     TurnStreamTokenPayload,
     TurnStreamToolResultPayload,
     TurnStreamToolStartPayload,
@@ -220,6 +221,23 @@ async def emit_run_stream_events(
                         turn_id=turn_id,
                         scheme=str(event.get("scheme") or event.get("memory_scheme") or ""),
                         files_loaded=int(event.get("files_loaded") or 0),
+                    ),
+                ),
+            )
+
+        elif etype == "auto_inject":
+            publish_typed(
+                channel_id,
+                ChannelEvent(
+                    channel_id=channel_id,
+                    kind=ChannelEventKind.SKILL_AUTO_INJECT,
+                    payload=SkillAutoInjectPayload(
+                        bot_id=bot_id,
+                        turn_id=turn_id,
+                        skill_id=str(event.get("skill_id", "")),
+                        skill_name=str(event.get("skill_name", "")),
+                        similarity=float(event.get("similarity") or 0.0),
+                        source=str(event.get("source", "")),
                     ),
                 ),
             )

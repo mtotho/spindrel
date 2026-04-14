@@ -657,7 +657,8 @@ export type SSEEventType =
   | "pending_tasks"
   | "stream_meta"
   | "pending_member_stream"
-  | "context_budget";
+  | "context_budget"
+  | "skill_auto_inject";
 
 export interface SSEEvent {
   event: SSEEventType;

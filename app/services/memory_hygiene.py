@@ -185,6 +185,80 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
         "Protected skills require `overrides={\"skill-id\": \"reason\"}`. "
         "Pruning authored skills archives them (reversible by admin)."
     )
+    # Append auto-inject quality samples if there's injection history
+    try:
+        _inject_samples = await _build_inject_audit_samples(bot_id, db)
+        if _inject_samples:
+            lines.append("")
+            lines.append(_inject_samples)
+    except Exception:
+        logger.debug("Failed to build inject audit samples for %s", bot_id, exc_info=True)
+
+    return "\n".join(lines)
+
+
+async def _build_inject_audit_samples(bot_id: str, db: AsyncSession) -> str:
+    """Build sample turns for skills with 5+ auto-injects (last 14 days).
+
+    Returns markdown showing the user messages that triggered each injection,
+    so the hygiene bot can judge whether the skill was actually relevant.
+    """
+    from sqlalchemy import text as sa_text
+
+    now_utc = datetime.now(timezone.utc)
+    cutoff = now_utc - timedelta(days=14)
+
+    # Count auto-injects per skill (unnest the JSONB array)
+    count_rows = (await db.execute(sa_text(
+        "SELECT je.value::text AS skill_id, COUNT(*) AS n "
+        "FROM trace_events te, jsonb_array_elements_text(te.data->'auto_injected') je "
+        "WHERE te.event_type = 'skill_index' AND te.bot_id = :bot_id "
+        "AND te.created_at >= :cutoff "
+        "AND jsonb_array_length(COALESCE(te.data->'auto_injected', '[]'::jsonb)) > 0 "
+        "GROUP BY je.value HAVING COUNT(*) >= 5 "
+        "ORDER BY COUNT(*) DESC"
+    ).bindparams(bot_id=bot_id, cutoff=cutoff))).all()
+
+    if not count_rows:
+        return ""
+
+    lines = [
+        "### Auto-inject quality samples (last 14 days)",
+        "Review whether these skills were relevant to the conversations where they were injected.",
+        "",
+    ]
+
+    for row in count_rows[:5]:  # cap at 5 skills
+        skill_id = row.skill_id
+        inject_count = row.n
+
+        # Get 3 sample turns: find correlation_ids where this skill was injected,
+        # then get the user message from those turns
+        sample_rows = (await db.execute(sa_text(
+            "SELECT DISTINCT ON (m.correlation_id) "
+            "  LEFT(m.content, 120) AS user_msg "
+            "FROM trace_events te "
+            "JOIN messages m ON m.correlation_id = te.correlation_id "
+            "WHERE te.event_type = 'skill_index' AND te.bot_id = :bot_id "
+            "AND te.created_at >= :cutoff "
+            "AND te.data->'auto_injected' ? :skill_id "
+            "AND m.role = 'user' AND m.content IS NOT NULL "
+            "ORDER BY m.correlation_id, m.created_at DESC "
+            "LIMIT 3"
+        ).bindparams(bot_id=bot_id, cutoff=cutoff, skill_id=skill_id))).all()
+
+        lines.append(f"- `{skill_id}` (auto-injected {inject_count}x):")
+        if sample_rows:
+            for sr in sample_rows:
+                msg = sr.user_msg.replace("\n", " ").strip()
+                if len(msg) > 100:
+                    msg = msg[:100] + "..."
+                lines.append(f'  - "{msg}"')
+        else:
+            lines.append("  - (no message samples available)")
+        lines.append("  → Were these relevant? If not, narrow triggers or prune.")
+        lines.append("")
+
     return "\n".join(lines)
 
 

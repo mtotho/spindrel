@@ -659,6 +659,14 @@ class TestSkillInjection:
 class TestSkillAutoInject:
     """Tests for enrolled skill ranking and auto-injection."""
 
+    def setup_method(self):
+        from app.services.skill_enrollment import invalidate_enrolled_cache
+        invalidate_enrolled_cache()
+
+    def teardown_method(self):
+        from app.services.skill_enrollment import invalidate_enrolled_cache
+        invalidate_enrolled_cache()
+
     @pytest.mark.asyncio
     async def test_auto_inject_respects_budget(self, engine, db_session):
         """When context budget is exhausted, auto-inject should be skipped."""
@@ -683,6 +691,7 @@ class TestSkillAutoInject:
         # Skill content is large
         _mock_chunks = AsyncMock(return_value=["A" * 50000])
         _mock_retrieve = AsyncMock(return_value=[])
+        _mock_source_map = AsyncMock(return_value={"big-skill": "manual"})
 
         # Budget with almost no room left
         tight_budget = ContextBudget(total_tokens=1000, reserve_tokens=200, consumed_tokens=900)
@@ -697,6 +706,8 @@ class TestSkillAutoInject:
             patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
             patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
             patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
+            patch("app.services.skill_enrollment.get_enrolled_source_map", _mock_source_map),
+            patch("app.services.skill_enrollment.async_session", factory),
             patch("app.config.settings.SKILL_ENROLLED_RANKING_ENABLED", True),
             patch("app.config.settings.SKILL_ENROLLED_AUTO_INJECT_MAX", 1),
         ):
@@ -748,6 +759,7 @@ class TestSkillAutoInject:
         ])
         _mock_chunks = AsyncMock(return_value=["Small content."])
         _mock_retrieve = AsyncMock(return_value=[])
+        _mock_source_map = AsyncMock(return_value={"skill-a": "manual", "skill-b": "manual"})
 
         with (
             patch("app.db.engine.async_session", factory),
@@ -759,6 +771,8 @@ class TestSkillAutoInject:
             patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
             patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
             patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
+            patch("app.services.skill_enrollment.get_enrolled_source_map", _mock_source_map),
+            patch("app.services.skill_enrollment.async_session", factory),
             patch("app.config.settings.SKILL_ENROLLED_RANKING_ENABLED", True),
             patch("app.config.settings.SKILL_ENROLLED_AUTO_INJECT_MAX", 2),
         ):
@@ -811,6 +825,7 @@ class TestSkillAutoInject:
         ])
         _mock_chunks = AsyncMock(return_value=["Skill content."])
         _mock_retrieve = AsyncMock(return_value=[])
+        _mock_source_map = AsyncMock(return_value={"tagged-skill": "authored"})
         # Simulate @-tagging of the skill
         _mock_tags = AsyncMock(return_value=[
             ResolvedTag(raw="@tagged-skill", name="tagged-skill", tag_type="skill"),
@@ -828,6 +843,8 @@ class TestSkillAutoInject:
             patch("app.agent.context_assembly.fetch_skill_chunks_by_id", _mock_chunks),
             patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
             patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
+            patch("app.services.skill_enrollment.get_enrolled_source_map", _mock_source_map),
+            patch("app.services.skill_enrollment.async_session", factory),
             patch("app.config.settings.SKILL_ENROLLED_RANKING_ENABLED", True),
             patch("app.config.settings.SKILL_ENROLLED_AUTO_INJECT_MAX", 1),
         ):
@@ -892,6 +909,7 @@ class TestSkillAutoInject:
         ])
         _mock_chunks = AsyncMock(return_value=["History content."])
         _mock_retrieve = AsyncMock(return_value=[])
+        _mock_source_map = AsyncMock(return_value={"history-skill": "manual"})
 
         with (
             patch("app.db.engine.async_session", factory),
@@ -903,6 +921,8 @@ class TestSkillAutoInject:
             patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
             patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
             patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
+            patch("app.services.skill_enrollment.get_enrolled_source_map", _mock_source_map),
+            patch("app.services.skill_enrollment.async_session", factory),
             patch("app.config.settings.SKILL_ENROLLED_RANKING_ENABLED", True),
             patch("app.config.settings.SKILL_ENROLLED_AUTO_INJECT_MAX", 1),
         ):

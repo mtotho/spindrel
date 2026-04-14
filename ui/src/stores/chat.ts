@@ -22,6 +22,13 @@ type ToolCall = {
  * UI renders one StreamingIndicator per turn, ordered by `isPrimary`
  * (channel's primary bot first) then insertion order.
  */
+type AutoInjectedSkill = {
+  skillId: string;
+  skillName: string;
+  similarity: number;
+  source: string;
+};
+
 export interface TurnState {
   botId: string;
   botName: string;
@@ -29,6 +36,7 @@ export interface TurnState {
   streamingContent: string;
   thinkingContent: string;
   toolCalls: ToolCall[];
+  autoInjectedSkills: AutoInjectedSkill[];
   correlationId?: string | null;
   error?: string;
 }
@@ -132,6 +140,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 streamingContent: "",
                 thinkingContent: "",
                 toolCalls: [],
+                autoInjectedSkills: [],
                 correlationId: turnId,
               },
             },
@@ -274,6 +283,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             tcs[idx] = { ...tcs[idx], status: newStatus };
           }
           updated = { ...turn, toolCalls: tcs };
+          break;
+        }
+        case "skill_auto_inject": {
+          const data = event.data as { skill_id?: string; skill_name?: string; similarity?: number; source?: string };
+          updated = {
+            ...turn,
+            autoInjectedSkills: [
+              ...turn.autoInjectedSkills,
+              {
+                skillId: data.skill_id ?? "",
+                skillName: data.skill_name ?? "Unknown",
+                similarity: data.similarity ?? 0,
+                source: data.source ?? "unknown",
+              },
+            ],
+          };
           break;
         }
         case "error": {

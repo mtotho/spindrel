@@ -306,6 +306,23 @@ class MemorySchemeBootstrapPayload:
 
 
 @dataclass(frozen=True)
+class SkillAutoInjectPayload:
+    """Payload for ``skill_auto_inject`` events.
+
+    Emitted when context assembly pre-loads an enrolled skill into context
+    because it's semantically relevant to the conversation. The UI can
+    show a brief indicator like "Loaded: DIY Proofing Methods (0.62)".
+    """
+
+    bot_id: str
+    turn_id: uuid.UUID
+    skill_id: str
+    skill_name: str
+    similarity: float
+    source: str  # enrollment source: authored, fetched, manual
+
+
+@dataclass(frozen=True)
 class PinnedFileUpdatedPayload:
     """Payload for ``pinned_file_updated`` events — a pinned file's content changed.
 

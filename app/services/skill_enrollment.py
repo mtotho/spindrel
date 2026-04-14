@@ -66,8 +66,10 @@ def invalidate_enrolled_cache(bot_id: str | None = None) -> None:
     """Drop cached enrolled-skill lists. Called after enrollment changes."""
     if bot_id is None:
         _enrolled_cache.clear()
+        _enrolled_source_cache.clear()
     else:
         _enrolled_cache.pop(bot_id, None)
+        _enrolled_source_cache.pop(bot_id, None)
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +90,28 @@ async def get_enrolled_skill_ids(bot_id: str) -> list[str]:
 
     result = list(rows)
     _enrolled_cache[bot_id] = (now, result)
+    return result
+
+
+# Parallel cache for enrollment source data (shares TTL with _enrolled_cache)
+_enrolled_source_cache: dict[str, tuple[float, dict[str, str]]] = {}
+
+
+async def get_enrolled_source_map(bot_id: str) -> dict[str, str]:
+    """Return {skill_id: source} for a bot's enrollments, cached for 5 min."""
+    now = time.monotonic()
+    cached = _enrolled_source_cache.get(bot_id)
+    if cached and (now - cached[0]) < _ENROLLED_CACHE_TTL:
+        return cached[1]
+
+    async with async_session() as db:
+        rows = (await db.execute(
+            select(BotSkillEnrollment.skill_id, BotSkillEnrollment.source)
+            .where(BotSkillEnrollment.bot_id == bot_id)
+        )).all()
+
+    result = {r.skill_id: r.source for r in rows}
+    _enrolled_source_cache[bot_id] = (now, result)
     return result
 
 

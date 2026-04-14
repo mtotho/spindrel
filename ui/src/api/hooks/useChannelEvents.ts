@@ -378,6 +378,22 @@ export function useChannelEvents(channelId: string | undefined, primaryBotId?: s
           return;
         }
 
+        case "skill_auto_inject": {
+          const turnId = payload?.turn_id as string | undefined;
+          if (!turnId) return;
+          if (!store.getChannel(chId).turns[turnId]) return;
+          store.handleTurnEvent(chId, turnId, {
+            event: "skill_auto_inject",
+            data: {
+              skill_id: payload?.skill_id,
+              skill_name: payload?.skill_name,
+              similarity: payload?.similarity,
+              source: payload?.source,
+            },
+          });
+          return;
+        }
+
         case "turn_ended": {
           const turnId = payload?.turn_id as string | undefined;
           if (!turnId) return;

@@ -189,6 +189,7 @@ Review your complete skill list in the "## Working set" snapshot appended below.
 5. **Overlapping authored skills**: merge with `manage_bot_skill(action="merge", ...)`.
 6. **Outdated authored content**: use `action="patch"` for small fixes, `action="update"` for full rewrites.
 7. **Missing coverage**: if recent daily logs show recurring topics with no matching skill, create new skills now.
+8. **Auto-inject quality**: Review the sample turns in the "Auto-inject quality samples" section (if present). If a skill's samples show it being injected for unrelated conversations, its triggers are too broad — narrow them with `manage_bot_skill(action="update")`, or prune if the skill shouldn't exist.
 
 ### How to prune
 - Unprotected: `prune_enrolled_skills(skill_ids=["id1", "id2"])`
@@ -586,7 +587,8 @@ class Settings(BaseSettings):
     # the get_skill round-trip. Auto-inject is budget-gated — if content doesn't
     # fit the context window, it's silently skipped.
     SKILL_ENROLLED_RANKING_ENABLED: bool = True
-    SKILL_ENROLLED_RELEVANCE_THRESHOLD: float = 0.40
+    SKILL_ENROLLED_RELEVANCE_THRESHOLD: float = 0.40   # ↑ annotation threshold in skill list
+    SKILL_ENROLLED_AUTO_INJECT_THRESHOLD: float = 0.55  # pre-load content into context (higher bar)
     SKILL_ENROLLED_AUTO_INJECT_MAX: int = 1
 
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)

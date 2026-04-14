@@ -152,6 +152,7 @@ export function ChatMessageArea({
       key={turnId}
       content={turn.streamingContent}
       toolCalls={turn.toolCalls}
+      autoInjectedSkills={turn.autoInjectedSkills}
       botName={turn.botName}
       botId={turn.isPrimary ? botId : turn.botId}
       thinkingContent={turn.thinkingContent}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, Platform } from "react-native";
-import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles, Pin, ChevronRight, ChevronDown, Brain } from "lucide-react";
+import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles, Pin, ChevronRight, ChevronDown, Brain, BookOpen } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { formatToolArgs } from "./toolCallUtils";
@@ -477,6 +477,44 @@ function ToolCallCards({ toolCalls, t, botId }: { toolCalls: Props["toolCalls"];
   );
 }
 
+type AutoInjectedSkillDisplay = {
+  skillId: string;
+  skillName: string;
+  similarity: number;
+  source: string;
+};
+
+/** Compact pills showing which skills were auto-loaded for this turn */
+function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: ReturnType<typeof useThemeTokens> }) {
+  if (skills.length === 0) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+      {skills.map((s) => (
+        <div
+          key={s.skillId}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            padding: "2px 8px",
+            borderRadius: 10,
+            backgroundColor: t.overlayLight,
+            border: `1px solid ${t.overlayBorder}`,
+          }}
+        >
+          <BookOpen size={10} color={t.purple} />
+          <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 500 }}>
+            {s.skillName}
+          </span>
+          <span style={{ fontSize: 10, color: t.textDim }}>
+            {(s.similarity * 100).toFixed(0)}%
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 interface Props {
   content: string;
   toolCalls: {
@@ -487,12 +525,13 @@ interface Props {
     approvalReason?: string;
     capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
   }[];
+  autoInjectedSkills?: AutoInjectedSkillDisplay[];
   botName?: string;
   botId?: string;
   thinkingContent?: string;
 }
 
-export function StreamingIndicator({ content, toolCalls, botName, botId, thinkingContent }: Props) {
+export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, botName, botId, thinkingContent }: Props) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
   const t = useThemeTokens();
@@ -520,6 +559,11 @@ export function StreamingIndicator({ content, toolCalls, botName, botId, thinkin
           {displayThinking ? (
             <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} labelColor={t.purpleMuted} />
           ) : null}
+
+          {/* Auto-injected skills */}
+          {autoInjectedSkills && autoInjectedSkills.length > 0 && (
+            <SkillPills skills={autoInjectedSkills} t={t} />
+          )}
 
           {/* Tool calls in progress */}
           {toolCalls.length > 0 && <ToolCallCards toolCalls={toolCalls} t={t} botId={botId} />}
