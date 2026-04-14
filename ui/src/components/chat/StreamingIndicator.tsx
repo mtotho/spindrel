@@ -488,29 +488,57 @@ type AutoInjectedSkillDisplay = {
 function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: ReturnType<typeof useThemeTokens> }) {
   if (skills.length === 0) return null;
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
-      {skills.map((s) => (
-        <div
-          key={s.skillId}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 4,
-            padding: "2px 8px",
-            borderRadius: 10,
-            backgroundColor: t.overlayLight,
-            border: `1px solid ${t.overlayBorder}`,
-          }}
-        >
-          <BookOpen size={10} color={t.purple} />
-          <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 500 }}>
-            {s.skillName}
-          </span>
-          <span style={{ fontSize: 10, color: t.textDim }}>
-            {(s.similarity * 100).toFixed(0)}%
-          </span>
-        </div>
-      ))}
+    <div style={{ marginBottom: 6 }}>
+      {/* Section label — mirrors ThinkingBlock pattern */}
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 5,
+        paddingBottom: 4,
+      }}>
+        <BookOpen size={10} color={t.purpleMuted} style={{ opacity: 0.7 }} />
+        <span style={{
+          fontSize: 10,
+          color: t.purpleMuted,
+          fontWeight: 500,
+          letterSpacing: 0.3,
+          textTransform: "uppercase",
+        }}>
+          Skills loaded
+        </span>
+      </div>
+      {/* Pills */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        {skills.map((s, i) => (
+          <div
+            key={s.skillId}
+            className="skill-pill"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "2px 8px 2px 6px",
+              borderRadius: 10,
+              backgroundColor: t.purpleSubtle,
+              border: `1px solid ${t.purpleBorder}`,
+              animationDelay: `${i * 60}ms`,
+            }}
+          >
+            {/* Similarity dot — opacity maps to relevance score */}
+            <div style={{
+              width: 5,
+              height: 5,
+              borderRadius: "50%",
+              backgroundColor: t.purple,
+              opacity: 0.3 + s.similarity * 0.7,
+              flexShrink: 0,
+            }} />
+            <span style={{ fontSize: 11, color: t.textMuted, fontWeight: 500 }}>
+              {s.skillName}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -588,9 +616,9 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
           ) : toolCalls.length === 0 ? (
             /* Typing indicator dots */
             <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, padding: "4px 0" }}>
-              <span className="typing-dot" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-              <span className="typing-dot" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-              <span className="typing-dot" style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+              <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+              <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+              <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
             </div>
           ) : null}
         </div>
