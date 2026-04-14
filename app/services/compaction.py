@@ -326,6 +326,7 @@ async def _run_memory_flush(
             channel_id=channel.id,
             model_override=model,
             provider_id_override=provider_id,
+            task_mode=True,
         )
         logger.info("Memory flush complete for channel %s", channel.id)
         return result.response

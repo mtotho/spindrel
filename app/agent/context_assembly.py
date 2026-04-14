@@ -1,6 +1,7 @@
 """Context injection pipeline — assembles RAG context before the agent tool loop."""
 
 import asyncio
+import json
 import logging
 import math
 import uuid
@@ -259,6 +260,7 @@ class AssemblyResult:
     channel_model_tier_overrides: dict | None = None
     budget_utilization: float | None = None
     effective_local_tools: list[str] | None = None
+    auto_inject_skills: list[dict[str, Any]] = field(default_factory=list)
 
 
 async def _inject_memory_scheme(
@@ -748,6 +750,7 @@ async def assemble_context(
     result: AssemblyResult,
     system_preamble: str | None = None,
     budget: "ContextBudget | None" = None,
+    task_mode: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject all RAG context into messages and yield status events.
 
@@ -1209,31 +1212,37 @@ async def assemble_context(
                            + "\n\n---\n\n".join(_eph_chunks),
             })
 
-    # --- skills (Phase 3 working set + semantic discovery layer) ---
+    # --- skills (Phase 3 working set + semantic discovery layer + ranking) ---
     #
-    # Two layers, each gated independently so a fresh bot with no enrollments
-    # still gets discovery (chicken-and-egg fix):
-    #   1. Working set — flat list of enrolled skills. Skipped if bot has none.
-    #   2. Discovery — semantic retrieval over UNENROLLED catalog skills.
-    #      Always fires when there's a user_message, so a bot whose starter-pack
-    #      enrollment failed (or that hasn't been backfilled yet) can still
-    #      discover skills the normal way.
+    # Three layers, each gated independently:
+    #   1. Working set — relevance-ranked list of enrolled skills. When ranking
+    #      is enabled and there's a user_message, skills are sorted by semantic
+    #      similarity and the top matches are marked as relevant.
+    #   2. Auto-inject — highest-confidence enrolled skill has its content
+    #      pre-loaded into context (eliminates get_skill round-trip).
+    #   3. Discovery — semantic retrieval over UNENROLLED catalog skills.
     #
-    # Each section runs in its own try/except so a failure in one (e.g. the
-    # SQLite test path with no schema) doesn't kill the other or hang the
-    # event loop on teardown.
+    # Each section runs in its own try/except so a failure in one doesn't
+    # kill the other or hang the event loop on teardown.
     _enrolled_rows: list = []
     _suggestion_rows: list = []
     _enrolled_ids: list[str] = []
+    _ranked_relevant: list[str] = []
+    _auto_injected: list[str] = []
 
     if bot.id:
-        from app.agent.rag import retrieve_skill_index as _retrieve_skill_index
+        from app.agent.rag import (
+            retrieve_skill_index as _retrieve_skill_index,
+            rank_enrolled_skills as _rank_enrolled_skills,
+            fetch_skill_chunks_by_id as _fetch_skill_chunks,
+        )
         from sqlalchemy import select as _sa_select
         from app.db.engine import async_session as _async_session
         from app.db.models import Skill as _SkillRow
 
-        def _fmt_skill_line(r) -> str:
-            parts = [f"- {r.id}: {r.name}"]
+        def _fmt_skill_line(r, *, relevant: bool = False) -> str:
+            prefix = "↑" if relevant else "-"
+            parts = [f"{prefix} {r.id}: {r.name}"]
             if r.description:
                 parts.append(f" — {r.description}")
             if r.triggers:
@@ -1254,14 +1263,108 @@ async def assemble_context(
                 _enrolled_rows = []
 
             if _enrolled_rows:
-                _working_lines = "\n".join(_fmt_skill_line(r) for r in _enrolled_rows)
+                # Rank enrolled skills by relevance when enabled and we have a query.
+                _ranking: list[dict] = []
+                if settings.SKILL_ENROLLED_RANKING_ENABLED and user_message:
+                    try:
+                        _ranking = await _rank_enrolled_skills(
+                            user_message, [r.id for r in _enrolled_rows],
+                        )
+                    except Exception:
+                        logger.warning("Enrolled skill ranking failed", exc_info=True)
+
+                if _ranking:
+                    # Build a map for ordering + relevance flag
+                    _rank_map = {r["skill_id"]: r for r in _ranking}
+                    _ranked_relevant = [r["skill_id"] for r in _ranking if r["relevant"]]
+                    # Sort rows by similarity (highest first)
+                    _row_map = {r.id: r for r in _enrolled_rows}
+                    _sorted_ids = [r["skill_id"] for r in _ranking if r["skill_id"] in _row_map]
+                    # Append any rows not in ranking results (shouldn't happen, but safe)
+                    for r in _enrolled_rows:
+                        if r.id not in _rank_map:
+                            _sorted_ids.append(r.id)
+
+                    _has_relevant = bool(_ranked_relevant)
+                    _working_lines = "\n".join(
+                        _fmt_skill_line(_row_map[sid], relevant=sid in _ranked_relevant)
+                        for sid in _sorted_ids if sid in _row_map
+                    )
+                    _header = (
+                        "Your enrolled skills — call get_skill(skill_id=\"<id>\") for full content.\n"
+                        "Skills marked ↑ are relevant to this message — load them before responding.\n"
+                        if _has_relevant else
+                        "Your enrolled skills — call get_skill(skill_id=\"<id>\") for full content:\n"
+                    )
+                else:
+                    # No ranking (disabled, no user_message, or failure) — flat list
+                    _working_lines = "\n".join(
+                        _fmt_skill_line(r) for r in _enrolled_rows
+                    )
+                    _header = "Your enrolled skills — call get_skill(skill_id=\"<id>\") for full content:\n"
+
                 messages.append({
                     "role": "system",
-                    "content": (
-                        "Your enrolled skills — call get_skill(skill_id=\"<id>\") for full content:\n"
-                        + _working_lines
-                    ),
+                    "content": _header + _working_lines,
                 })
+
+                # Auto-inject: record top relevant enrolled skills for synthetic
+                # get_skill() injection by the loop (persists in conversation history).
+                # Only considers skills that passed the relevance threshold AND
+                # aren't already in context from @-tags, ephemeral injection, or
+                # prior get_skill() calls in conversation history.
+                # Budget-gated: if the skill content doesn't fit, stop.
+                if _ranking and settings.SKILL_ENROLLED_AUTO_INJECT_MAX > 0:
+                    # Scan conversation history for skills already fetched via get_skill()
+                    _history_fetched_skills: set[str] = set()
+                    for _hmsg in messages:
+                        if _hmsg.get("role") == "assistant" and _hmsg.get("tool_calls"):
+                            for _htc in _hmsg["tool_calls"]:
+                                _hfn = _htc.get("function") or {}
+                                if _hfn.get("name") == "get_skill":
+                                    try:
+                                        _hargs = json.loads(_hfn.get("arguments", "{}"))
+                                        if _hargs.get("skill_id"):
+                                            _history_fetched_skills.add(_hargs["skill_id"])
+                                    except (json.JSONDecodeError, TypeError):
+                                        pass
+
+                    _already_injected = (
+                        set(_tagged_skill_names) | set(_untagged_ephemeral) | _history_fetched_skills
+                    )
+                    _injected_count = 0
+                    for _ri in _ranking:
+                        if _injected_count >= settings.SKILL_ENROLLED_AUTO_INJECT_MAX:
+                            break
+                        if not _ri["relevant"]:
+                            break
+                        if _ri["skill_id"] in _already_injected:
+                            continue
+                        try:
+                            _ai_chunks = await _fetch_skill_chunks(_ri["skill_id"])
+                            if _ai_chunks:
+                                _ai_content = "\n\n---\n\n".join(_ai_chunks)
+                                # Format to match get_skill() output: "# Name\n\ncontent"
+                                _ai_row = _row_map.get(_ri["skill_id"])
+                                _ai_name = _ai_row.name if _ai_row else _ri["skill_id"]
+                                _ai_formatted = f"# {_ai_name}\n\n{_ai_content}"
+                                if not _budget_can_afford(_ai_formatted):
+                                    break
+                                _budget_consume("auto_inject_skill", _ai_formatted)
+                                result.auto_inject_skills.append({
+                                    "skill_id": _ri["skill_id"],
+                                    "content": _ai_formatted,
+                                })
+                                _auto_injected.append(_ri["skill_id"])
+                                _injected_count += 1
+                                from app.tools.local.skills import _increment_auto_inject_count
+                                asyncio.create_task(
+                                    _increment_auto_inject_count(_ri["skill_id"], bot.id)
+                                )
+                        except Exception:
+                            logger.warning(
+                                "Failed to auto-inject skill %s", _ri["skill_id"], exc_info=True,
+                            )
 
         # Discovery layer: semantic retrieval over UNENROLLED catalog skills.
         # Runs even when bot.skills is empty so a fresh / unbackfilled bot can
@@ -1292,7 +1395,9 @@ async def assemble_context(
                 _suggestion_rows = []
 
             if _suggestion_rows:
-                _disc_lines = "\n".join(_fmt_skill_line(r) for r in _suggestion_rows)
+                _disc_lines = "\n".join(
+                    _fmt_skill_line(r) for r in _suggestion_rows
+                )
                 # Label depends on whether the bot has any enrollments yet.
                 _disc_header = (
                     "Skills you can fetch via get_skill(skill_id=\"<id>\") "
@@ -1312,6 +1417,8 @@ async def assemble_context(
                 "count": len(_enrolled_rows),
                 "suggestions": len(_suggestion_rows),
                 "total": len(_enrolled_ids),
+                "ranked_relevant": _ranked_relevant,
+                "auto_injected": _auto_injected,
             }
             if correlation_id is not None:
                 asyncio.create_task(_record_trace_event(
@@ -1325,6 +1432,8 @@ async def assemble_context(
                         "enrolled_ids": [r.id for r in _enrolled_rows],
                         "suggested_ids": [r.id for r in _suggestion_rows],
                         "total_enrolled": len(_enrolled_ids),
+                        "ranked_relevant": _ranked_relevant,
+                        "auto_injected": _auto_injected,
                     },
                 ))
 
@@ -1671,8 +1780,8 @@ async def assemble_context(
         _inject_chars["system_preamble"] = len(system_preamble)
 
     # --- current-turn marker (helps models distinguish injected context from the live message) ---
-    if system_preamble and not user_message:
-        # Heartbeat or other system-initiated task — don't frame as "user message"
+    if task_mode:
+        # Heartbeat or other system-initiated task — frame as executable task, not conversation
         messages.append({
             "role": "system",
             "content": "Everything above is background context. Your TASK PROMPT follows — execute it now.",
@@ -1718,6 +1827,15 @@ async def assemble_context(
         user_msg = _build_audio_user_message(audio_data, audio_format)
         messages.append(user_msg)
         result.user_msg_index = len(messages) - 1
+    elif user_message and task_mode:
+        # Task mode (heartbeat, scheduled tasks, memory flush): render as system
+        # message so models treat it as an instruction to execute, not a user
+        # message to converse about. No sanitize_unicode — content comes from
+        # admin-configured prompts (trusted), not end-user chat input.
+        # The "--- TASK PROMPT ---" prefix is matched by _CLASSIFY_SYS_MSG for traces.
+        _task_content = f"--- TASK PROMPT ---\n\n{user_message}"
+        messages.append({"role": "system", "content": _task_content})
+        _inject_chars["task_prompt"] = len(_task_content)
     elif user_message:
         from app.security.prompt_sanitize import sanitize_unicode
         user_content = _build_user_message_content(sanitize_unicode(user_message), attachments)

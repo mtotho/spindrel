@@ -134,6 +134,8 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
             BotSkillEnrollment.enrolled_at,
             BotSkillEnrollment.fetch_count,
             BotSkillEnrollment.last_fetched_at,
+            BotSkillEnrollment.auto_inject_count,
+            BotSkillEnrollment.last_auto_injected_at,
             SkillRow.name,
             SkillRow.surface_count,
             SkillRow.last_surfaced_at,
@@ -168,8 +170,10 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
         enrolled = r.enrolled_at.date().isoformat() if r.enrolled_at else "?"
         protected = r.source == "authored" or age_days < 7
         prot_tag = " **[protected]**" if protected else ""
+        last_ai = r.last_auto_injected_at.date().isoformat() if r.last_auto_injected_at else "never"
         lines.append(
             f"- `{r.skill_id}` ({r.name}) — you fetched {r.fetch_count}x (last: {last_fetched}), "
+            f"auto-injected {r.auto_inject_count}x (last: {last_ai}), "
             f"global {r.surface_count}x, enrolled {enrolled} ({age_days}d ago), "
             f"source={r.source}{prot_tag}"
         )

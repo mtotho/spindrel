@@ -28,6 +28,7 @@ _SYS_MSG_PREFIXES: list[tuple[str, str]] = [
     ("You must respond to the user", "sys:forced_response"),
     ("You have used too many tool calls", "sys:max_iterations"),
     ("[TRANSCRIPT_INSTRUCTION]", "sys:audio"),
+    ("--- TASK PROMPT ---", "sys:task_prompt"),
 ]
 
 

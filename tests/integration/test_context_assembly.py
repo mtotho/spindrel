@@ -101,16 +101,18 @@ class TestBasicPipeline:
         marker_msgs = [m for m in system_msgs if "CURRENT message follows" in m["content"]]
         assert len(marker_msgs) == 1, "Should inject current-turn marker"
 
-        # User message should be the last message
+        # User message should be the last message (role:user, NOT system task prompt)
         assert messages[-1]["role"] == "user"
         assert messages[-1]["content"] == "hello"
+        task_prompt_msgs = [m for m in messages if "--- TASK PROMPT ---" in m.get("content", "")]
+        assert len(task_prompt_msgs) == 0, "Regular messages must not use task prompt framing"
 
         # user_msg_index should point to the last message
         assert result.user_msg_index == len(messages) - 1
 
     @pytest.mark.asyncio
     async def test_system_preamble_injected(self, engine):
-        """When system_preamble is provided (e.g. heartbeat), it's injected and marker changes."""
+        """When system_preamble + task_mode are provided (e.g. heartbeat), task framing is used."""
         bot = _make_bot()
         messages = [{"role": "system", "content": bot.system_prompt}]
         result = AssemblyResult()
@@ -126,7 +128,7 @@ class TestBasicPipeline:
             events = await _collect(assemble_context(
                 messages=messages,
                 bot=bot,
-                user_message="",
+                user_message="Run all 9 phases now.",
                 session_id=None,
                 client_id=None,
                 correlation_id=None,
@@ -137,15 +139,26 @@ class TestBasicPipeline:
                 native_audio=False,
                 result=result,
                 system_preamble="You are running a heartbeat check.",
+                task_mode=True,
             ))
 
         # Preamble should be in the messages
         preamble_msgs = [m for m in messages if "heartbeat check" in m["content"]]
         assert len(preamble_msgs) == 1
 
-        # Heartbeat (preamble + no user message) should use task framing
+        # task_mode should use task framing marker
         marker_msgs = [m for m in messages if "TASK PROMPT follows" in m["content"]]
         assert len(marker_msgs) == 1
+
+        # user_message should be rendered as system with task prompt prefix, not role:user
+        task_msgs = [m for m in messages if m.get("content", "").startswith("--- TASK PROMPT ---")]
+        assert len(task_msgs) == 1
+        assert task_msgs[0]["role"] == "system"
+        assert "Run all 9 phases now." in task_msgs[0]["content"]
+
+        # No role:user messages should exist
+        user_msgs = [m for m in messages if m["role"] == "user"]
+        assert len(user_msgs) == 0
 
     @pytest.mark.asyncio
     async def test_attachments_included_in_user_message(self, engine):
@@ -641,6 +654,280 @@ class TestSkillInjection:
         # Should have a skill_pinned_context event
         pinned_events = [e for e in events if e.get("type") == "skill_pinned_context"]
         assert len(pinned_events) == 1
+
+
+class TestSkillAutoInject:
+    """Tests for enrolled skill ranking and auto-injection."""
+
+    @pytest.mark.asyncio
+    async def test_auto_inject_respects_budget(self, engine, db_session):
+        """When context budget is exhausted, auto-inject should be skipped."""
+        from app.db.models import Skill, BotSkillEnrollment
+        from app.agent.context_budget import ContextBudget
+
+        skill = Skill(id="big-skill", name="Big Skill", content="x", source_type="file")
+        db_session.add(skill)
+        enrollment = BotSkillEnrollment(bot_id="test-bot", skill_id="big-skill", source="manual")
+        db_session.add(enrollment)
+        await db_session.commit()
+
+        bot = _make_bot(skills=[SkillConfig(id="big-skill", mode="on_demand")])
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        # Ranking returns the skill as relevant
+        _mock_rank = AsyncMock(return_value=[
+            {"skill_id": "big-skill", "similarity": 0.8, "relevant": True},
+        ])
+        # Skill content is large
+        _mock_chunks = AsyncMock(return_value=["A" * 50000])
+        _mock_retrieve = AsyncMock(return_value=[])
+
+        # Budget with almost no room left
+        tight_budget = ContextBudget(total_tokens=1000, reserve_tokens=200, consumed_tokens=900)
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+            patch("app.agent.rag.rank_enrolled_skills", _mock_rank),
+            patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
+            patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
+            patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
+            patch("app.config.settings.SKILL_ENROLLED_RANKING_ENABLED", True),
+            patch("app.config.settings.SKILL_ENROLLED_AUTO_INJECT_MAX", 1),
+        ):
+            events = await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="help me with big skill",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                budget=tight_budget,
+            ))
+
+        # Auto-inject should be skipped (budget too tight) — nothing in result
+        assert result.auto_inject_skills == [], "Auto-inject should be skipped when budget is exhausted"
+
+        # Skill index event should still fire with empty auto_injected list
+        index_events = [e for e in events if e.get("type") == "skill_index"]
+        assert len(index_events) == 1
+        assert index_events[0]["auto_injected"] == []
+
+    @pytest.mark.asyncio
+    async def test_auto_inject_multi_records_all_ids(self, engine, db_session):
+        """With AUTO_INJECT_MAX=2, both injected skill IDs appear in traces."""
+        from app.db.models import Skill, BotSkillEnrollment
+
+        for sid in ("skill-a", "skill-b"):
+            db_session.add(Skill(id=sid, name=sid.title(), content="x", source_type="file"))
+            db_session.add(BotSkillEnrollment(bot_id="test-bot", skill_id=sid, source="manual"))
+        await db_session.commit()
+
+        bot = _make_bot(skills=[
+            SkillConfig(id="skill-a", mode="on_demand"),
+            SkillConfig(id="skill-b", mode="on_demand"),
+        ])
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        _mock_rank = AsyncMock(return_value=[
+            {"skill_id": "skill-a", "similarity": 0.9, "relevant": True},
+            {"skill_id": "skill-b", "similarity": 0.7, "relevant": True},
+        ])
+        _mock_chunks = AsyncMock(return_value=["Small content."])
+        _mock_retrieve = AsyncMock(return_value=[])
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+            patch("app.agent.rag.rank_enrolled_skills", _mock_rank),
+            patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
+            patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
+            patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
+            patch("app.config.settings.SKILL_ENROLLED_RANKING_ENABLED", True),
+            patch("app.config.settings.SKILL_ENROLLED_AUTO_INJECT_MAX", 2),
+        ):
+            events = await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="help with both skills",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+            ))
+
+        # Both skills should be recorded for auto-injection
+        assert len(result.auto_inject_skills) == 2
+        injected_ids = {s["skill_id"] for s in result.auto_inject_skills}
+        assert injected_ids == {"skill-a", "skill-b"}
+
+        # Content should match get_skill() format: "# Name\n\ncontent"
+        for ai in result.auto_inject_skills:
+            assert ai["content"].startswith("# ")
+
+        # Trace event should record both IDs as a list
+        index_events = [e for e in events if e.get("type") == "skill_index"]
+        assert len(index_events) == 1
+        assert set(index_events[0]["auto_injected"]) == {"skill-a", "skill-b"}
+
+    @pytest.mark.asyncio
+    async def test_auto_inject_skips_already_tagged(self, engine, db_session):
+        """Skills already @-tagged should not be double-injected via auto-inject."""
+        from app.db.models import Skill, BotSkillEnrollment
+        from app.agent.tags import ResolvedTag
+
+        db_session.add(Skill(id="tagged-skill", name="Tagged", content="x", source_type="file"))
+        db_session.add(BotSkillEnrollment(bot_id="test-bot", skill_id="tagged-skill", source="manual"))
+        await db_session.commit()
+
+        bot = _make_bot(skills=[SkillConfig(id="tagged-skill", mode="on_demand")])
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        _mock_rank = AsyncMock(return_value=[
+            {"skill_id": "tagged-skill", "similarity": 0.95, "relevant": True},
+        ])
+        _mock_chunks = AsyncMock(return_value=["Skill content."])
+        _mock_retrieve = AsyncMock(return_value=[])
+        # Simulate @-tagging of the skill
+        _mock_tags = AsyncMock(return_value=[
+            ResolvedTag(raw="@tagged-skill", name="tagged-skill", tag_type="skill"),
+        ])
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", _mock_tags),
+            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+            patch("app.agent.rag.rank_enrolled_skills", _mock_rank),
+            patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
+            # Patch both import paths: top-level (used by @-tag injection) and rag module (used by auto-inject)
+            patch("app.agent.context_assembly.fetch_skill_chunks_by_id", _mock_chunks),
+            patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
+            patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
+            patch("app.config.settings.SKILL_ENROLLED_RANKING_ENABLED", True),
+            patch("app.config.settings.SKILL_ENROLLED_AUTO_INJECT_MAX", 1),
+        ):
+            events = await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="@tagged-skill help",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+            ))
+
+        # The skill should appear from @-tag injection
+        tag_msgs = [m for m in messages if "Skill content." in m.get("content", "")]
+        assert len(tag_msgs) >= 1, "Tagged skill content should be injected via @-tag"
+
+        # Auto-inject should NOT record the already-tagged skill
+        assert result.auto_inject_skills == [], "Already-tagged skill should NOT be auto-injected"
+
+        # Trace should show empty auto_injected
+        index_events = [e for e in events if e.get("type") == "skill_index"]
+        assert len(index_events) == 1
+        assert index_events[0]["auto_injected"] == []
+
+    @pytest.mark.asyncio
+    async def test_auto_inject_skips_skill_already_in_history(self, engine, db_session):
+        """Skills already fetched via get_skill() in conversation history should not be auto-injected."""
+        import json
+        from app.db.models import Skill, BotSkillEnrollment
+
+        db_session.add(Skill(id="history-skill", name="History Skill", content="x", source_type="file"))
+        db_session.add(BotSkillEnrollment(bot_id="test-bot", skill_id="history-skill", source="manual"))
+        await db_session.commit()
+
+        bot = _make_bot(skills=[SkillConfig(id="history-skill", mode="on_demand")])
+        # Simulate conversation history with a prior get_skill() call
+        messages = [
+            {"role": "system", "content": bot.system_prompt},
+            {"role": "user", "content": "tell me about history skill"},
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": "call_123",
+                "type": "function",
+                "function": {
+                    "name": "get_skill",
+                    "arguments": json.dumps({"skill_id": "history-skill"}),
+                },
+            }]},
+            {"role": "tool", "tool_call_id": "call_123", "content": "# History Skill\n\nContent here."},
+            {"role": "assistant", "content": "Here's what I found about the history skill..."},
+        ]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        _mock_rank = AsyncMock(return_value=[
+            {"skill_id": "history-skill", "similarity": 0.9, "relevant": True},
+        ])
+        _mock_chunks = AsyncMock(return_value=["History content."])
+        _mock_retrieve = AsyncMock(return_value=[])
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+            patch("app.agent.knowledge.get_pinned_knowledge_docs", new_callable=AsyncMock, return_value=([], [])),
+            patch("app.agent.rag.rank_enrolled_skills", _mock_rank),
+            patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
+            patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
+            patch("app.agent.capability_rag.retrieve_capabilities", new_callable=AsyncMock, return_value=([], 0.0)),
+            patch("app.config.settings.SKILL_ENROLLED_RANKING_ENABLED", True),
+            patch("app.config.settings.SKILL_ENROLLED_AUTO_INJECT_MAX", 1),
+        ):
+            events = await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="tell me more about history skill",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+            ))
+
+        # Skill is already in history — should NOT be auto-injected again
+        assert result.auto_inject_skills == [], "Skill already in history via get_skill() should not be auto-injected"
+
+        # Trace should show empty auto_injected
+        index_events = [e for e in events if e.get("type") == "skill_index"]
+        assert len(index_events) == 1
+        assert index_events[0]["auto_injected"] == []
 
 
 class TestDelegateIndex:

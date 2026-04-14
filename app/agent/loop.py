@@ -1474,6 +1474,7 @@ async def run_stream(
     injected_tools: list[dict] | None = None,
     system_preamble: str | None = None,
     skip_tool_policy: bool = False,
+    task_mode: bool = False,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -1561,6 +1562,7 @@ async def run_stream(
         result=assembly_result,
         system_preamble=system_preamble,
         budget=_budget,
+        task_mode=task_mode,
     ):
         yield event
 
@@ -1615,6 +1617,42 @@ async def run_stream(
             "original_chars": _rerank_result.original_chars,
             "kept_chars": _rerank_result.kept_chars,
         }
+
+    # --- auto-inject: synthetic get_skill() tool call/result pairs ---
+    # When context assembly identified enrolled skills to auto-inject, emit
+    # them as synthetic tool call/result pairs so the content persists in
+    # conversation history (system messages are ephemeral and get filtered
+    # out at persist time). This matches the shape of a real get_skill() call
+    # so the content gets _no_prune protection and survives across turns.
+    if assembly_result.auto_inject_skills:
+        import hashlib as _hashlib
+        for _ai_skill in assembly_result.auto_inject_skills:
+            _ai_sid = _ai_skill["skill_id"]
+            _ai_tcid = f"auto_inject_{_hashlib.md5(_ai_sid.encode()).hexdigest()[:12]}"
+            messages.append({
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": _ai_tcid,
+                    "type": "function",
+                    "function": {
+                        "name": "get_skill",
+                        "arguments": json.dumps({"skill_id": _ai_sid}),
+                    },
+                }],
+            })
+            messages.append({
+                "role": "tool",
+                "tool_call_id": _ai_tcid,
+                "content": _ai_skill["content"],
+                "_no_prune": True,
+                "_auto_inject": True,
+            })
+        logger.info(
+            "Auto-injected %d skill(s) as synthetic get_skill() pairs: %s",
+            len(assembly_result.auto_inject_skills),
+            [s["skill_id"] for s in assembly_result.auto_inject_skills],
+        )
 
     # Apply channel-level model override (lower priority than per-turn)
     if model_override is None and assembly_result.channel_model_override:
@@ -1734,6 +1772,7 @@ async def run(
     injected_tools: list[dict] | None = None,
     system_preamble: str | None = None,
     skip_tool_policy: bool = False,
+    task_mode: bool = False,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -1753,6 +1792,7 @@ async def run(
         injected_tools=injected_tools,
         system_preamble=system_preamble,
         skip_tool_policy=skip_tool_policy,
+        task_mode=task_mode,
     ):
         if event["type"] == "assistant_text":
             _intermediate_texts.append(event["text"])

@@ -377,3 +377,30 @@ async def _increment_surface_count(skill_id: str, bot_id: str | None = None) -> 
             await db.commit()
     except Exception:
         logger.debug("Failed to update skill surfacing for %s", skill_id, exc_info=True)
+
+
+async def _increment_auto_inject_count(skill_id: str, bot_id: str) -> None:
+    """Increment auto_inject_count for a per-bot enrollment (fire-and-forget).
+
+    Tracked separately from get_skill surfacings so hygiene can distinguish
+    system-initiated auto-injects from bot-initiated fetches.
+    Does NOT increment global Skill.surface_count.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        async with async_session() as db:
+            from app.db.models import BotSkillEnrollment
+            await db.execute(
+                update(BotSkillEnrollment)
+                .where(
+                    BotSkillEnrollment.bot_id == bot_id,
+                    BotSkillEnrollment.skill_id == skill_id,
+                )
+                .values(
+                    last_auto_injected_at=now,
+                    auto_inject_count=BotSkillEnrollment.auto_inject_count + 1,
+                )
+            )
+            await db.commit()
+    except Exception:
+        logger.debug("Failed to update auto-inject count for %s/%s", bot_id, skill_id, exc_info=True)

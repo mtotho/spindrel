@@ -15,6 +15,7 @@ export interface SkillItem {
   updated_at: string;
   last_surfaced_at?: string | null;
   surface_count: number;
+  total_auto_injects: number;
   bot_id?: string | null;
 }
 

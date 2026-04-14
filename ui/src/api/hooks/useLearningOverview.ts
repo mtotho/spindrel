@@ -51,6 +51,7 @@ export interface LearningOverview {
   total_hygiene_runs_7d: number;
   total_bot_skills: number;
   total_surfacings: number;
+  total_auto_injects: number;
   bots: BotDreamingStatus[];
   recent_runs: LearningHygieneRun[];
   memory_activity: MemoryFileActivity[];

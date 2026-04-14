@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Bot as BotRow, Skill as SkillRow, Task as TaskRow, ToolCall, TraceEvent
+from app.db.models import Bot as BotRow, BotSkillEnrollment, Skill as SkillRow, Task as TaskRow, ToolCall, TraceEvent
 from app.dependencies import get_db, require_scopes
 
 from ._helpers import build_tool_call_previews
@@ -66,6 +66,7 @@ class LearningOverviewOut(BaseModel):
     total_hygiene_runs_7d: int = 0
     total_bot_skills: int = 0
     total_surfacings: int = 0
+    total_auto_injects: int = 0
     bots: list[BotDreamingStatus] = []
     recent_runs: list[RecentHygieneRun] = []
     memory_activity: list[MemoryFileActivity] = []
@@ -265,6 +266,11 @@ async def learning_overview(
         .where(SkillRow.source_type == "tool")
     )).first()
 
+    # 4b. Total auto-injects across all enrollments
+    total_ai = (await db.execute(
+        select(func.coalesce(func.sum(BotSkillEnrollment.auto_inject_count), 0))
+    )).scalar() or 0
+
     # 5. Recent memory file activity (last 7 days, across all bots)
     memory_writes = (await db.execute(
         select(ToolCall)
@@ -302,6 +308,7 @@ async def learning_overview(
         total_hygiene_runs_7d=runs_7d,
         total_bot_skills=skill_stats.total if skill_stats else 0,
         total_surfacings=int(skill_stats.surfacings) if skill_stats else 0,
+        total_auto_injects=int(total_ai),
         bots=bot_statuses,
         recent_runs=runs_out,
         memory_activity=memory_activity,

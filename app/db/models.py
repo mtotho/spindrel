@@ -1014,6 +1014,8 @@ class BotSkillEnrollment(Base):
     )
     fetch_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
     last_fetched_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    auto_inject_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    last_auto_injected_at: Mapped[Optional[datetime]] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
 
 
 class BotToolEnrollment(Base):

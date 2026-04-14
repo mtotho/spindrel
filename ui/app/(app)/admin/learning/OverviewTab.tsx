@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useRouter } from "expo-router";
 import { useWindowDimensions } from "react-native";
 import {
-  Moon, Activity, BookOpen, TrendingUp, AlertTriangle, FileText, PenLine,
+  Moon, Activity, BookOpen, TrendingUp, AlertTriangle, FileText, PenLine, Zap,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useLearningOverview, type MemoryFileActivity } from "@/src/api/hooks/useLearningOverview";
@@ -89,6 +89,11 @@ export function OverviewTab() {
           label="Surfacings"
           value={data.total_surfacings}
           icon={<TrendingUp size={14} color="#f59e0b" />}
+        />
+        <StatCard
+          label="Auto-Injects"
+          value={data.total_auto_injects ?? 0}
+          icon={<Zap size={14} color="#a855f7" />}
         />
       </div>
 

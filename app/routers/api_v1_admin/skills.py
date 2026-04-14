@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Document, Skill as SkillRow
+from app.db.models import BotSkillEnrollment, Document, Skill as SkillRow
 from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
@@ -34,6 +34,7 @@ class SkillOut(BaseModel):
     updated_at: datetime
     last_surfaced_at: Optional[datetime] = None
     surface_count: int = 0
+    total_auto_injects: int = 0
     bot_id: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -87,6 +88,16 @@ async def admin_list_skills(
     )).all()
     chunk_map = {row[0]: row[1] for row in chunk_rows}
 
+    # Aggregate auto-inject counts across all bots per skill
+    ai_rows = (await db.execute(
+        select(
+            BotSkillEnrollment.skill_id,
+            func.coalesce(func.sum(BotSkillEnrollment.auto_inject_count), 0).label("total_ai"),
+        )
+        .group_by(BotSkillEnrollment.skill_id)
+    )).all()
+    ai_map = {row.skill_id: int(row.total_ai) for row in ai_rows}
+
     def _extract_bot_id(skill_id: str, st: str) -> str | None:
         if st == "tool" and skill_id.startswith("bots/"):
             parts = skill_id.split("/", 3)
@@ -108,6 +119,7 @@ async def admin_list_skills(
             updated_at=s.updated_at,
             last_surfaced_at=s.last_surfaced_at,
             surface_count=s.surface_count,
+            total_auto_injects=ai_map.get(s.id, 0),
             bot_id=_extract_bot_id(s.id, s.source_type),
         )
         for s in skills

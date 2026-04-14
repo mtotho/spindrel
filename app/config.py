@@ -568,6 +568,17 @@ class Settings(BaseSettings):
     SKILL_INDEX_RETRIEVAL_TOP_K: int = 8
     SKILL_INDEX_RETRIEVAL_THRESHOLD: float = 0.35
 
+    # Enrolled skill ranking (env-var only — not in admin UI or DB).
+    # When enabled, enrolled skills are ranked by semantic similarity to the
+    # user message each turn. Skills above RELEVANCE_THRESHOLD are marked ↑ in
+    # the skill index (tells the LLM to load them). The top AUTO_INJECT_MAX
+    # relevant skills have their full content pre-loaded into context, skipping
+    # the get_skill round-trip. Auto-inject is budget-gated — if content doesn't
+    # fit the context window, it's silently skipped.
+    SKILL_ENROLLED_RANKING_ENABLED: bool = True
+    SKILL_ENROLLED_RELEVANCE_THRESHOLD: float = 0.40
+    SKILL_ENROLLED_AUTO_INJECT_MAX: int = 1
+
     # Dynamic tool selection (embed tool descriptions, retrieve top-K per turn)
     TOOL_RETRIEVAL_THRESHOLD: float = 0.35
     TOOL_RETRIEVAL_TOP_K: int = 10

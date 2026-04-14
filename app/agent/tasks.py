@@ -810,6 +810,7 @@ async def run_task(task: Task) -> None:
                 system_preamble=_system_preamble,
                 injected_tools=_ecfg_injected_tools,
                 skip_tool_policy=_skip_tool_policy,
+                task_mode=True,
             ),
             timeout=_task_timeout,
         )

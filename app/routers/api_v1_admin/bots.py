@@ -1276,6 +1276,10 @@ class EnrolledSkillOut(BaseModel):
     enrolled_at: datetime
     surface_count: int
     last_surfaced_at: Optional[datetime] = None
+    fetch_count: int = 0
+    last_fetched_at: Optional[datetime] = None
+    auto_inject_count: int = 0
+    last_auto_injected_at: Optional[datetime] = None
 
 
 EnrollmentSource = Literal["starter", "fetched", "manual", "migration", "authored"]
@@ -1304,6 +1308,10 @@ async def admin_bot_enrolled_skills_list(
             BotSkillEnrollment.skill_id,
             BotSkillEnrollment.source,
             BotSkillEnrollment.enrolled_at,
+            BotSkillEnrollment.fetch_count,
+            BotSkillEnrollment.last_fetched_at,
+            BotSkillEnrollment.auto_inject_count,
+            BotSkillEnrollment.last_auto_injected_at,
             SkillRow.name,
             SkillRow.description,
             SkillRow.surface_count,
@@ -1323,6 +1331,10 @@ async def admin_bot_enrolled_skills_list(
             enrolled_at=r.enrolled_at,
             surface_count=r.surface_count,
             last_surfaced_at=r.last_surfaced_at,
+            fetch_count=r.fetch_count,
+            last_fetched_at=r.last_fetched_at,
+            auto_inject_count=r.auto_inject_count,
+            last_auto_injected_at=r.last_auto_injected_at,
         )
         for r in rows
     ]

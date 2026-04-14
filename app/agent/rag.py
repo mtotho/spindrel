@@ -159,6 +159,42 @@ async def retrieve_skill_index(
     return results
 
 
+async def rank_enrolled_skills(
+    query: str,
+    enrolled_ids: list[str],
+    *,
+    relevance_threshold: float | None = None,
+) -> list[dict]:
+    """Rank enrolled skills by relevance to the user query.
+
+    Unlike retrieve_skill_index (which filters below threshold), this returns
+    ALL enrolled skills sorted by similarity. Skills above relevance_threshold
+    are flagged as relevant for the two-tier injection format.
+
+    Returns: [{"skill_id": str, "similarity": float, "relevant": bool}, ...]
+    sorted by similarity descending, with unscored skills appended at the end.
+    """
+    if relevance_threshold is None:
+        relevance_threshold = settings.SKILL_ENROLLED_RELEVANCE_THRESHOLD
+
+    if not query or not enrolled_ids:
+        return [{"skill_id": sid, "similarity": 0.0, "relevant": False} for sid in enrolled_ids]
+
+    # Use a very low threshold so we get scores for (nearly) all enrolled skills
+    scored = await retrieve_skill_index(
+        query, enrolled_ids, top_k=len(enrolled_ids), threshold=0.05,
+    )
+    scored_map = {r["skill_id"]: r["similarity"] for r in scored}
+
+    results = []
+    for sid in enrolled_ids:
+        sim = scored_map.get(sid, 0.0)
+        results.append({"skill_id": sid, "similarity": sim, "relevant": sim >= relevance_threshold})
+
+    results.sort(key=lambda x: x["similarity"], reverse=True)
+    return results
+
+
 async def fetch_skill_chunks_by_id(skill_id: str) -> list[str]:
     """Fetch all chunks for a skill by ID, ordered by chunk index.
 

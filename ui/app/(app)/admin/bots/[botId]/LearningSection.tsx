@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   BookOpen, TrendingUp, AlertTriangle, Clock,
-  ChevronUp, ChevronDown, Flame,
+  ChevronUp, ChevronDown, Flame, Zap,
 } from "lucide-react";
 import { useRouter } from "expo-router";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -124,7 +124,7 @@ export function StatCard({ label, value, icon, color }: {
 // ---------------------------------------------------------------------------
 // Sort config
 // ---------------------------------------------------------------------------
-type SortKey = "name" | "surface_count" | "last_surfaced_at" | "created_at";
+type SortKey = "name" | "surface_count" | "total_auto_injects" | "last_surfaced_at" | "created_at";
 
 // ---------------------------------------------------------------------------
 // LearningSection
@@ -148,6 +148,7 @@ export function LearningSection({ botId }: { botId: string }) {
       switch (sortKey) {
         case "name": cmp = a.name.localeCompare(b.name); break;
         case "surface_count": cmp = a.surface_count - b.surface_count; break;
+        case "total_auto_injects": cmp = (a.total_auto_injects ?? 0) - (b.total_auto_injects ?? 0); break;
         case "last_surfaced_at": {
           const at = a.last_surfaced_at ? new Date(a.last_surfaced_at).getTime() : 0;
           const bt = b.last_surfaced_at ? new Date(b.last_surfaced_at).getTime() : 0;
@@ -165,8 +166,9 @@ export function LearningSection({ botId }: { botId: string }) {
   // Stats
   const totalSkills = parsed.length;
   const totalSurfacings = parsed.reduce((n, s) => n + s.surface_count, 0);
-  const activeSkills = parsed.filter((s) => s.surface_count > 0).length;
-  const neverSurfaced = parsed.filter((s) => s.surface_count === 0).length;
+  const totalAutoInjects = parsed.reduce((n, s) => n + (s.total_auto_injects ?? 0), 0);
+  const activeSkills = parsed.filter((s) => s.surface_count > 0 || (s.total_auto_injects ?? 0) > 0).length;
+  const neverSurfaced = parsed.filter((s) => s.surface_count === 0 && (s.total_auto_injects ?? 0) === 0).length;
   const dormantSkills = parsed.filter((s) => s.health === "dormant").length;
 
   const toggleSort = (key: SortKey) => {
@@ -210,6 +212,7 @@ export function LearningSection({ botId }: { botId: string }) {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <StatCard label="Total Skills" value={totalSkills} icon={<BookOpen size={12} color="#059669" />} />
             <StatCard label="Total Surfacings" value={totalSurfacings} icon={<TrendingUp size={12} color="#3b82f6" />} />
+            <StatCard label="Auto-Injects" value={totalAutoInjects} icon={<Zap size={12} color="#a855f7" />} />
             <StatCard label="Active" value={activeSkills} icon={<Flame size={12} color="#ef4444" />} />
             <StatCard
               label="Never Surfaced"
@@ -227,7 +230,7 @@ export function LearningSection({ botId }: { botId: string }) {
             }}>
               <AlertTriangle size={14} color="#d97706" />
               <span style={{ fontSize: 11, color: "#d97706" }}>
-                <strong>{neverSurfaced}</strong> skill{neverSurfaced !== 1 ? "s have" : " has"} never been surfaced — review their triggers or consider deleting.
+                <strong>{neverSurfaced}</strong> skill{neverSurfaced !== 1 ? "s have" : " has"} never been surfaced or auto-injected — review their triggers or consider deleting.
               </span>
             </div>
           )}
@@ -256,6 +259,7 @@ export function LearningSection({ botId }: { botId: string }) {
                     [null, "Category"],
                     [null, "Triggers"],
                     ["surface_count", "Surfacings"],
+                    ["total_auto_injects", "Auto-Injects"],
                     ["last_surfaced_at", "Last Surfaced"],
                     [null, "Health"],
                   ] as const).map(([key, label], i) => (
@@ -332,6 +336,15 @@ export function LearningSection({ botId }: { botId: string }) {
                         {s.surface_count >= 10 && <Flame size={10} color="#ef4444" />}
                         <span style={{ color: s.surface_count > 0 ? t.text : t.textDim, fontWeight: s.surface_count >= 10 ? 600 : 400 }}>
                           {s.surface_count}
+                        </span>
+                      </span>
+                    </td>
+                    {/* Auto-Injects */}
+                    <td style={{ padding: "8px 8px", textAlign: "right" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                        {(s.total_auto_injects ?? 0) >= 10 && <Zap size={10} color="#a855f7" />}
+                        <span style={{ color: (s.total_auto_injects ?? 0) > 0 ? t.text : t.textDim, fontWeight: (s.total_auto_injects ?? 0) >= 10 ? 600 : 400 }}>
+                          {s.total_auto_injects ?? 0}
                         </span>
                       </span>
                     </td>
