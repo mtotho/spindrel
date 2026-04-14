@@ -246,8 +246,10 @@ class SatelliteConnection:
                     if rms > SILENCE_THRESHOLD:
                         got_speech = True
                         silence_chunks = 0
+                        logger.debug("Speech: rms=%.0f", rms)
                     elif got_speech:
                         silence_chunks += 1
+                        logger.debug("Silence: rms=%.0f (%d/%d)", rms, silence_chunks, SILENCE_CHUNKS_NEEDED)
                         if silence_chunks >= SILENCE_CHUNKS_NEEDED:
                             logger.info("Silence detected after speech, stopping collection")
                             break
