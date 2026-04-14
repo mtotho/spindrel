@@ -268,8 +268,9 @@ class SatelliteConnection:
 
         logger.info("Transcript from %s: %r", self.device_id, transcript)
 
-        # Send transcript back to satellite (triggers done sound)
-        await self._client.write_event(Transcript(text=transcript).event())
+        # NOTE: Do NOT send Transcript here.  The satellite uses Transcript
+        # as the signal to re-arm wake word detection.  We must send it
+        # AFTER TTS audio so the mic isn't live during speaker playback.
 
         # Step 2: Dispatch to Spindrel channel
         try:
@@ -322,6 +323,12 @@ class SatelliteConnection:
         # Step 4: TTS — synthesize and send audio to satellite
         if pipeline.end_stage == PipelineStage.TTS:
             await self._speak(response_text)
+
+        # Step 5: Send Transcript AFTER TTS.  This is the satellite's
+        # signal to play the done.wav, set is_streaming=False, and
+        # re-arm wake word detection.  Sending it before TTS causes the
+        # mic to go live during speaker playback → echo feedback loop.
+        await self._client.write_event(Transcript(text=transcript).event())
 
     async def _reset_satellite(self):
         """Send empty transcript so satellite returns to wake-word listening."""
