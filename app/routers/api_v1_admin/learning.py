@@ -63,12 +63,11 @@ class MemoryFileActivity(BaseModel):
 class LearningOverviewOut(BaseModel):
     total_bots: int = 0
     dreaming_enabled_count: int = 0
-    total_hygiene_runs_7d: int = 0
-    total_bot_skills: int = 0
-    total_surfacings: int = 0
-    total_auto_injects: int = 0
-    surfacings_7d: int = 0
-    auto_injects_7d: int = 0
+    hygiene_runs: int = 0       # count in selected window (or all-time)
+    total_bot_skills: int = 0   # current catalog count (not time-windowed)
+    surfacings: int = 0         # get_skill calls in window (or all-time counter)
+    auto_injects: int = 0       # auto-inject events in window (or all-time counter)
+    days: int = 0               # echo back the requested window (0 = all)
     bots: list[BotDreamingStatus] = []
     recent_runs: list[RecentHygieneRun] = []
     memory_activity: list[MemoryFileActivity] = []
@@ -80,6 +79,7 @@ class LearningOverviewOut(BaseModel):
 
 @router.get("/overview", response_model=LearningOverviewOut)
 async def learning_overview(
+    days: int = Query(default=0, ge=0, le=90, description="Time window in days (0 = all-time)"),
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("bots:read")),
 ):
@@ -250,61 +250,61 @@ async def learning_overview(
         if task.correlation_id:
             hygiene_corr_ids.add(str(task.correlation_id))
 
-    # 3. Hygiene runs count (last 7 days)
-    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
-    runs_7d = (await db.execute(
-        select(func.count())
-        .select_from(TaskRow)
-        .where(TaskRow.task_type == "memory_hygiene", TaskRow.created_at >= seven_days_ago)
+    # 3. Time-windowed stats (or all-time when days=0)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days > 0 else None
+
+    # 3a. Hygiene runs count
+    _runs_q = select(func.count()).select_from(TaskRow).where(TaskRow.task_type == "memory_hygiene")
+    if cutoff:
+        _runs_q = _runs_q.where(TaskRow.created_at >= cutoff)
+    hygiene_runs = (await db.execute(_runs_q)).scalar() or 0
+
+    # 3b. Bot-authored skills catalog count (always current, not windowed)
+    skill_count = (await db.execute(
+        select(func.count()).select_from(SkillRow).where(SkillRow.source_type == "tool")
     )).scalar() or 0
 
-    # 4. Bot-authored skills stats
-    skill_stats = (await db.execute(
-        select(
-            func.count().label("total"),
-            func.coalesce(func.sum(SkillRow.surface_count), 0).label("surfacings"),
-        )
-        .select_from(SkillRow)
-        .where(SkillRow.source_type == "tool")
-    )).first()
+    # 3c. Surfacings
+    if cutoff:
+        surfacings = (await db.execute(
+            select(func.count()).select_from(ToolCall)
+            .where(ToolCall.tool_name == "get_skill", ToolCall.created_at >= cutoff)
+        )).scalar() or 0
+    else:
+        surfacings = (await db.execute(
+            select(func.coalesce(func.sum(SkillRow.surface_count), 0))
+            .where(SkillRow.source_type == "tool")
+        )).scalar() or 0
 
-    # 4b. Total auto-injects across all enrollments
-    total_ai = (await db.execute(
-        select(func.coalesce(func.sum(BotSkillEnrollment.auto_inject_count), 0))
-    )).scalar() or 0
+    # 3d. Auto-injects
+    if cutoff:
+        auto_injects = (await db.execute(
+            select(func.count()).select_from(TraceEvent)
+            .where(
+                TraceEvent.event_type == "skill_index",
+                TraceEvent.created_at >= cutoff,
+                func.jsonb_array_length(TraceEvent.data["auto_injected"]) > 0,
+            )
+        )).scalar() or 0
+    else:
+        auto_injects = (await db.execute(
+            select(func.coalesce(func.sum(BotSkillEnrollment.auto_inject_count), 0))
+        )).scalar() or 0
 
-    # 4c. 7-day surfacings (get_skill tool calls) + auto-injects (trace events)
-    surfacings_7d = (await db.execute(
-        select(func.count())
-        .select_from(ToolCall)
-        .where(
-            ToolCall.tool_name == "get_skill",
-            ToolCall.created_at >= seven_days_ago,
-        )
-    )).scalar() or 0
-
-    auto_injects_7d = (await db.execute(
-        select(func.count())
-        .select_from(TraceEvent)
-        .where(
-            TraceEvent.event_type == "skill_index",
-            TraceEvent.created_at >= seven_days_ago,
-            func.json_array_length(TraceEvent.data["auto_injected"]) > 0,
-        )
-    )).scalar() or 0
-
-    # 5. Recent memory file activity (last 7 days, across all bots)
-    memory_writes = (await db.execute(
+    # 4. Recent memory file activity (windowed, across all bots)
+    _mem_q = (
         select(ToolCall)
         .where(
             ToolCall.tool_name == "file",
             ToolCall.arguments["operation"].astext.in_(["write", "append", "edit"]),
-            ToolCall.created_at >= seven_days_ago,
             ToolCall.bot_id.in_(bot_ids) if bot_ids else ToolCall.bot_id.is_(None),
         )
         .order_by(ToolCall.created_at.desc())
-        .limit(50)
-    )).scalars().all()
+        .limit(100)
+    )
+    if cutoff:
+        _mem_q = _mem_q.where(ToolCall.created_at >= cutoff)
+    memory_writes = (await db.execute(_mem_q)).scalars().all()
 
     memory_activity: list[MemoryFileActivity] = []
     for tc in memory_writes:
@@ -327,12 +327,11 @@ async def learning_overview(
     return LearningOverviewOut(
         total_bots=len(all_bots),
         dreaming_enabled_count=enabled_count,
-        total_hygiene_runs_7d=runs_7d,
-        total_bot_skills=skill_stats.total if skill_stats else 0,
-        total_surfacings=int(skill_stats.surfacings) if skill_stats else 0,
-        total_auto_injects=int(total_ai),
-        surfacings_7d=int(surfacings_7d),
-        auto_injects_7d=int(auto_injects_7d),
+        hygiene_runs=int(hygiene_runs),
+        total_bot_skills=int(skill_count),
+        surfacings=int(surfacings),
+        auto_injects=int(auto_injects),
+        days=days,
         bots=bot_statuses,
         recent_runs=runs_out,
         memory_activity=memory_activity,
@@ -375,7 +374,7 @@ async def learning_activity(
         .where(
             TraceEvent.event_type == "skill_index",
             TraceEvent.created_at >= cutoff,
-            func.json_array_length(TraceEvent.data["auto_injected"]) > 0,
+            func.jsonb_array_length(TraceEvent.data["auto_injected"]) > 0,
         )
         .group_by(day_col)
     )).all()

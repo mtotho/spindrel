@@ -55,10 +55,10 @@ function ActivityBar({ surfacings, autoInjects, maxActivity }: {
 // SkillsTab
 // ---------------------------------------------------------------------------
 
-export function SkillsTab() {
+export function SkillsTab({ days }: { days: number }) {
   const t = useThemeTokens();
   const router = useRouter();
-  const { data: skills, isLoading } = useSkills({ source_type: "tool", sort: "recent" });
+  const { data: skills, isLoading } = useSkills({ source_type: "tool", sort: "recent", days });
   const { data: bots } = useAdminBots();
   const [sortKey, setSortKey] = useState<SortKey>("created_at");
   const [sortAsc, setSortAsc] = useState(false);

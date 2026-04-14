@@ -327,13 +327,14 @@ function SkillActivityRing({ surfacings, autoInjects, total }: {
 // OverviewTab
 // ---------------------------------------------------------------------------
 
-export function OverviewTab() {
+export function OverviewTab({ days }: { days: number }) {
   const t = useThemeTokens();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
-  const { data, isLoading } = useLearningOverview();
-  const { data: activityData } = useLearningActivity(14);
+  const { data, isLoading } = useLearningOverview(days);
+  const chartDays = days === 0 ? 60 : Math.max(days, 14);
+  const { data: activityData } = useLearningActivity(chartDays);
 
   const botsWithFailures = useMemo(() => {
     if (!data) return [];
@@ -392,8 +393,8 @@ export function OverviewTab() {
           accent="#8b5cf6"
         />
         <MetricCard
-          label="Runs (7d)"
-          value={data.total_hygiene_runs_7d}
+          label="Hygiene Runs"
+          value={data.hygiene_runs}
           subtitle={botsWithFailures.length > 0 ? `${botsWithFailures.length} failed` : "all healthy"}
           icon={<Activity size={13} color="#3b82f6" />}
           accent="#3b82f6"
@@ -407,34 +408,32 @@ export function OverviewTab() {
         />
         <MetricCard
           label="Surfacings"
-          value={data.total_surfacings}
-          subtitle={`${data.surfacings_7d ?? 0} in last 7d`}
+          value={data.surfacings}
           icon={<TrendingUp size={13} color="#f59e0b" />}
           accent="#f59e0b"
         />
         <MetricCard
           label="Auto-Injects"
-          value={data.total_auto_injects ?? 0}
-          subtitle={`${data.auto_injects_7d ?? 0} in last 7d`}
+          value={data.auto_injects}
           icon={<Zap size={13} color="#a855f7" />}
           accent="#a855f7"
         />
       </div>
 
       {/* --- Skill usage breakdown --- */}
-      {(data.total_surfacings > 0 || (data.total_auto_injects ?? 0) > 0) && (
+      {(data.surfacings > 0 || data.auto_injects > 0) && (
         <div style={{
           display: "flex", alignItems: "center", gap: 16,
           padding: "12px 16px", borderRadius: 10,
           background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
         }}>
           <SkillActivityRing
-            surfacings={data.total_surfacings}
-            autoInjects={data.total_auto_injects ?? 0}
-            total={data.total_surfacings + (data.total_auto_injects ?? 0)}
+            surfacings={data.surfacings}
+            autoInjects={data.auto_injects}
+            total={data.surfacings + data.auto_injects}
           />
           <div style={{ flex: 1, fontSize: 11, color: t.textMuted, lineHeight: "18px" }}>
-            <strong style={{ color: t.text }}>{data.total_surfacings + (data.total_auto_injects ?? 0)}</strong> total skill loads (all time), <strong style={{ color: t.text }}>{(data.surfacings_7d ?? 0) + (data.auto_injects_7d ?? 0)}</strong> in the last 7 days.{" "}
+            <strong style={{ color: t.text }}>{data.surfacings + data.auto_injects}</strong> total skill loads{days > 0 ? ` in the last ${days}d` : ""}.{" "}
             <span style={{ color: "#f59e0b" }}>Surfacings</span> = bot-initiated <code style={{ fontSize: 10 }}>get_skill()</code> calls.{" "}
             <span style={{ color: "#a855f7" }}>Auto-injects</span> = system-initiated loads when a skill matches the conversation.
           </div>

@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete, func, select, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import BotSkillEnrollment, Document, Skill as SkillRow
+from app.db.models import BotSkillEnrollment, Document, Skill as SkillRow, ToolCall, TraceEvent
 from app.dependencies import get_db, require_scopes
 
 router = APIRouter()
@@ -60,6 +60,7 @@ async def admin_list_skills(
     source_type: str | None = None,
     bot_id: str | None = None,
     sort: str = "name",
+    days: int = Query(default=0, ge=0, le=90, description="Time window in days (0 = all-time)"),
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("skills:read")),
 ):
@@ -88,15 +89,41 @@ async def admin_list_skills(
     )).all()
     chunk_map = {row[0]: row[1] for row in chunk_rows}
 
-    # Aggregate auto-inject counts across all bots per skill
-    ai_rows = (await db.execute(
-        select(
-            BotSkillEnrollment.skill_id,
-            func.coalesce(func.sum(BotSkillEnrollment.auto_inject_count), 0).label("total_ai"),
-        )
-        .group_by(BotSkillEnrollment.skill_id)
-    )).all()
-    ai_map = {row.skill_id: int(row.total_ai) for row in ai_rows}
+    # Aggregate auto-inject + surfacing counts (time-windowed or all-time)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days > 0 else None
+
+    if cutoff:
+        # Time-windowed: per-skill surfacings from ToolCall
+        _surf_rows = (await db.execute(
+            select(
+                ToolCall.arguments["skill_id"].astext.label("skill_id"),
+                func.count().label("n"),
+            )
+            .where(ToolCall.tool_name == "get_skill", ToolCall.created_at >= cutoff)
+            .group_by(ToolCall.arguments["skill_id"].astext)
+        )).all()
+        surf_map = {r.skill_id: int(r.n) for r in _surf_rows}
+
+        # Time-windowed: per-skill auto-injects from TraceEvent (unnest array)
+        _ai_rows = (await db.execute(sa_text(
+            "SELECT je.value::text AS skill_id, COUNT(*) AS n "
+            "FROM trace_events, jsonb_array_elements_text(data->'auto_injected') je "
+            "WHERE event_type = 'skill_index' AND created_at >= :cutoff "
+            "AND jsonb_array_length(data->'auto_injected') > 0 "
+            "GROUP BY je.value"
+        ).bindparams(cutoff=cutoff))).all()
+        ai_map = {r.skill_id.strip('"'): int(r.n) for r in _ai_rows}
+    else:
+        # All-time: use the DB counters (cheaper)
+        surf_map = {}  # will use Skill.surface_count directly
+        _ai_agg = (await db.execute(
+            select(
+                BotSkillEnrollment.skill_id,
+                func.coalesce(func.sum(BotSkillEnrollment.auto_inject_count), 0).label("total_ai"),
+            )
+            .group_by(BotSkillEnrollment.skill_id)
+        )).all()
+        ai_map = {row.skill_id: int(row.total_ai) for row in _ai_agg}
 
     def _extract_bot_id(skill_id: str, st: str) -> str | None:
         if st == "tool" and skill_id.startswith("bots/"):
@@ -118,7 +145,7 @@ async def admin_list_skills(
             created_at=s.created_at,
             updated_at=s.updated_at,
             last_surfaced_at=s.last_surfaced_at,
-            surface_count=s.surface_count,
+            surface_count=surf_map.get(s.id, 0) if cutoff else s.surface_count,
             total_auto_injects=ai_map.get(s.id, 0),
             bot_id=_extract_bot_id(s.id, s.source_type),
         )

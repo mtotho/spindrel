@@ -23,11 +23,13 @@ export function useSkills(opts?: {
   source_type?: string;
   bot_id?: string;
   sort?: "name" | "recent";
+  days?: number;
 }) {
   const params = new URLSearchParams();
   if (opts?.source_type) params.set("source_type", opts.source_type);
   if (opts?.bot_id) params.set("bot_id", opts.bot_id);
   if (opts?.sort) params.set("sort", opts.sort);
+  if (opts?.days !== undefined && opts.days > 0) params.set("days", String(opts.days));
   const qs = params.toString();
   return useQuery({
     queryKey: ["admin-skills", qs],
