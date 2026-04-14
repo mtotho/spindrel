@@ -67,11 +67,12 @@ export type Health = "new" | "hot" | "stale" | "dormant" | null;
 export function getHealth(s: SkillItem): Health {
   const ageMs = Date.now() - new Date(s.created_at).getTime();
   const ageDays = ageMs / 86_400_000;
+  const totalActivity = s.surface_count + (s.total_auto_injects ?? 0);
 
-  if (s.surface_count >= 10) return "hot";
-  if (s.surface_count === 0 && ageDays < 1) return "new";
-  if (s.surface_count === 0 && ageDays > 7) return "stale";
-  if (s.surface_count > 0 && s.last_surfaced_at) {
+  if (totalActivity >= 10) return "hot";
+  if (totalActivity === 0 && ageDays < 1) return "new";
+  if (totalActivity === 0 && ageDays > 7) return "stale";
+  if (totalActivity > 0 && s.last_surfaced_at) {
     const lastMs = Date.now() - new Date(s.last_surfaced_at).getTime();
     if (lastMs > 30 * 86_400_000) return "dormant";
   }

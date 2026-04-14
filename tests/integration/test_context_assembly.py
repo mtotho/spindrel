@@ -924,10 +924,13 @@ class TestSkillAutoInject:
         # Skill is already in history — should NOT be auto-injected again
         assert result.auto_inject_skills == [], "Skill already in history via get_skill() should not be auto-injected"
 
-        # Trace should show empty auto_injected
+        # Trace should show the dedup details
         index_events = [e for e in events if e.get("type") == "skill_index"]
         assert len(index_events) == 1
         assert index_events[0]["auto_injected"] == []
+        assert "history-skill" in index_events[0]["skills_in_history"]
+        assert "history-skill" in index_events[0]["skipped_in_history"]
+        assert index_events[0]["skipped_budget"] == []
 
 
 class TestDelegateIndex:

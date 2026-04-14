@@ -1229,6 +1229,9 @@ async def assemble_context(
     _enrolled_ids: list[str] = []
     _ranked_relevant: list[str] = []
     _auto_injected: list[str] = []
+    _history_fetched_skills: set[str] = set()
+    _skipped_in_history: list[str] = []
+    _skipped_budget: list[str] = []
 
     if bot.id:
         from app.agent.rag import (
@@ -1316,7 +1319,6 @@ async def assemble_context(
                 # Budget-gated: if the skill content doesn't fit, stop.
                 if _ranking and settings.SKILL_ENROLLED_AUTO_INJECT_MAX > 0:
                     # Scan conversation history for skills already fetched via get_skill()
-                    _history_fetched_skills: set[str] = set()
                     for _hmsg in messages:
                         if _hmsg.get("role") == "assistant" and _hmsg.get("tool_calls"):
                             for _htc in _hmsg["tool_calls"]:
@@ -1339,6 +1341,7 @@ async def assemble_context(
                         if not _ri["relevant"]:
                             break
                         if _ri["skill_id"] in _already_injected:
+                            _skipped_in_history.append(_ri["skill_id"])
                             continue
                         try:
                             _ai_chunks = await _fetch_skill_chunks(_ri["skill_id"])
@@ -1349,6 +1352,7 @@ async def assemble_context(
                                 _ai_name = _ai_row.name if _ai_row else _ri["skill_id"]
                                 _ai_formatted = f"# {_ai_name}\n\n{_ai_content}"
                                 if not _budget_can_afford(_ai_formatted):
+                                    _skipped_budget.append(_ri["skill_id"])
                                     break
                                 _budget_consume("auto_inject_skill", _ai_formatted)
                                 result.auto_inject_skills.append({
@@ -1412,13 +1416,22 @@ async def assemble_context(
                 })
 
         if _enrolled_rows or _suggestion_rows:
+            _skill_trace_data = {
+                "enrolled_ids": [r.id for r in _enrolled_rows],
+                "suggested_ids": [r.id for r in _suggestion_rows],
+                "total_enrolled": len(_enrolled_ids),
+                "ranked_relevant": _ranked_relevant,
+                "auto_injected": _auto_injected,
+                "skills_in_history": sorted(_history_fetched_skills) if _history_fetched_skills else [],
+                "skipped_in_history": _skipped_in_history if _skipped_in_history else [],
+                "skipped_budget": _skipped_budget if _skipped_budget else [],
+            }
             yield {
                 "type": "skill_index",
                 "count": len(_enrolled_rows),
                 "suggestions": len(_suggestion_rows),
                 "total": len(_enrolled_ids),
-                "ranked_relevant": _ranked_relevant,
-                "auto_injected": _auto_injected,
+                **_skill_trace_data,
             }
             if correlation_id is not None:
                 asyncio.create_task(_record_trace_event(
@@ -1428,13 +1441,7 @@ async def assemble_context(
                     client_id=client_id,
                     event_type="skill_index",
                     count=len(_enrolled_rows),
-                    data={
-                        "enrolled_ids": [r.id for r in _enrolled_rows],
-                        "suggested_ids": [r.id for r in _suggestion_rows],
-                        "total_enrolled": len(_enrolled_ids),
-                        "ranked_relevant": _ranked_relevant,
-                        "auto_injected": _auto_injected,
-                    },
+                    data=_skill_trace_data,
                 ))
 
     # --- API access tools (for bots with scoped API keys) ---

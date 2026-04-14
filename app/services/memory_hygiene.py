@@ -159,9 +159,11 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
         "",
         "**Reading the counts**:",
         "- `you fetched Nx` = how many times YOU called get_skill() for this skill (per-bot, most reliable signal)",
+        "- `auto-injected Nx` = how many times the system pre-loaded this skill into your context (relevant to user query, counts as real usage)",
         "- `global Nx` = how many times ANY bot fetched this skill (fleet-wide, ambiguous)",
         "- `source=authored` = you wrote this skill; requires override reason to prune",
         "- Skills enrolled < 7 days ago are protected and require override reason to prune",
+        "- A skill with 0 fetches but auto-injections is actively used — do NOT prune it",
         "",
     ]
     for r in rows:

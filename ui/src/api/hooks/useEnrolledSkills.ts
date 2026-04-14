@@ -9,6 +9,10 @@ export interface EnrolledSkill {
   enrolled_at: string;
   surface_count: number;
   last_surfaced_at: string | null;
+  fetch_count: number;
+  last_fetched_at: string | null;
+  auto_inject_count: number;
+  last_auto_injected_at: string | null;
 }
 
 export function useEnrolledSkills(botId?: string) {

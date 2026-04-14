@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, X, Plus, TrendingUp } from "lucide-react";
+import { Search, X, Plus, TrendingUp, Zap } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useEnrolledSkills,
@@ -239,8 +239,23 @@ export function EnrolledSkillsPanel({
                         <span>
                           surfaced <strong style={{ color: t.text }}>{e.surface_count}</strong>x
                         </span>
+                        {(e.auto_inject_count ?? 0) > 0 && (
+                          <>
+                            <span>·</span>
+                            <Zap size={10} color="#a855f7" />
+                            <span>
+                              injected <strong style={{ color: "#a855f7" }}>{e.auto_inject_count}</strong>x
+                            </span>
+                          </>
+                        )}
                         <span>·</span>
-                        <span>last {formatDate(e.last_surfaced_at)}</span>
+                        <span>last {formatDate(
+                          // Show the most recent activity date (surfaced or auto-injected)
+                          e.last_surfaced_at && e.last_auto_injected_at
+                            ? new Date(e.last_surfaced_at) > new Date(e.last_auto_injected_at)
+                              ? e.last_surfaced_at : e.last_auto_injected_at
+                            : e.last_surfaced_at || e.last_auto_injected_at
+                        )}</span>
                         <span>·</span>
                         <span>enrolled {formatDate(e.enrolled_at)}</span>
                       </div>
