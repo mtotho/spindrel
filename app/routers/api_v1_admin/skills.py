@@ -94,15 +94,13 @@ async def admin_list_skills(
 
     if cutoff:
         # Time-windowed: per-skill surfacings from ToolCall
-        _surf_rows = (await db.execute(
-            select(
-                ToolCall.arguments["skill_id"].astext.label("skill_id"),
-                func.count().label("n"),
-            )
-            .where(ToolCall.tool_name == "get_skill", ToolCall.created_at >= cutoff)
-            .group_by(ToolCall.arguments["skill_id"].astext)
-        )).all()
-        surf_map = {r.skill_id: int(r.n) for r in _surf_rows}
+        _surf_rows = (await db.execute(sa_text(
+            "SELECT arguments->>'skill_id' AS skill_id, COUNT(*) AS n "
+            "FROM tool_calls "
+            "WHERE tool_name = 'get_skill' AND created_at >= :cutoff "
+            "GROUP BY arguments->>'skill_id'"
+        ).bindparams(cutoff=cutoff))).all()
+        surf_map = {r.skill_id: int(r.n) for r in _surf_rows if r.skill_id}
 
         # Time-windowed: per-skill auto-injects from TraceEvent (unnest array)
         _ai_rows = (await db.execute(sa_text(
