@@ -1,13 +1,13 @@
-"""Learning Center aggregate endpoint: /learning/overview."""
+"""Learning Center aggregate endpoints: /learning/overview, /learning/activity."""
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, select, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bot as BotRow, BotSkillEnrollment, Skill as SkillRow, Task as TaskRow, ToolCall, TraceEvent
@@ -67,6 +67,8 @@ class LearningOverviewOut(BaseModel):
     total_bot_skills: int = 0
     total_surfacings: int = 0
     total_auto_injects: int = 0
+    surfacings_7d: int = 0
+    auto_injects_7d: int = 0
     bots: list[BotDreamingStatus] = []
     recent_runs: list[RecentHygieneRun] = []
     memory_activity: list[MemoryFileActivity] = []
@@ -271,6 +273,26 @@ async def learning_overview(
         select(func.coalesce(func.sum(BotSkillEnrollment.auto_inject_count), 0))
     )).scalar() or 0
 
+    # 4c. 7-day surfacings (get_skill tool calls) + auto-injects (trace events)
+    surfacings_7d = (await db.execute(
+        select(func.count())
+        .select_from(ToolCall)
+        .where(
+            ToolCall.tool_name == "get_skill",
+            ToolCall.created_at >= seven_days_ago,
+        )
+    )).scalar() or 0
+
+    auto_injects_7d = (await db.execute(
+        select(func.count())
+        .select_from(TraceEvent)
+        .where(
+            TraceEvent.event_type == "skill_index",
+            TraceEvent.created_at >= seven_days_ago,
+            func.json_array_length(TraceEvent.data["auto_injected"]) > 0,
+        )
+    )).scalar() or 0
+
     # 5. Recent memory file activity (last 7 days, across all bots)
     memory_writes = (await db.execute(
         select(ToolCall)
@@ -309,7 +331,76 @@ async def learning_overview(
         total_bot_skills=skill_stats.total if skill_stats else 0,
         total_surfacings=int(skill_stats.surfacings) if skill_stats else 0,
         total_auto_injects=int(total_ai),
+        surfacings_7d=int(surfacings_7d),
+        auto_injects_7d=int(auto_injects_7d),
         bots=bot_statuses,
         recent_runs=runs_out,
         memory_activity=memory_activity,
     )
+
+
+# ---------------------------------------------------------------------------
+# /learning/activity — daily time-series for charts
+# ---------------------------------------------------------------------------
+
+class DailyActivityPoint(BaseModel):
+    date: str  # YYYY-MM-DD
+    surfacings: int = 0
+    auto_injects: int = 0
+    memory_writes: int = 0
+
+
+@router.get("/activity", response_model=list[DailyActivityPoint])
+async def learning_activity(
+    days: int = Query(default=14, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+    _scopes=Depends(require_scopes("admin")),
+):
+    """Daily skill activity time-series for the Learning Center charts."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    day_col = cast(TraceEvent.created_at, Date)
+    tc_day_col = cast(ToolCall.created_at, Date)
+
+    # Surfacings: get_skill tool calls per day
+    surf_rows = (await db.execute(
+        select(tc_day_col.label("day"), func.count().label("n"))
+        .where(ToolCall.tool_name == "get_skill", ToolCall.created_at >= cutoff)
+        .group_by(tc_day_col)
+    )).all()
+    surf_map = {str(r.day): r.n for r in surf_rows}
+
+    # Auto-injects: trace events with non-empty auto_injected array per day
+    ai_rows = (await db.execute(
+        select(day_col.label("day"), func.count().label("n"))
+        .where(
+            TraceEvent.event_type == "skill_index",
+            TraceEvent.created_at >= cutoff,
+            func.json_array_length(TraceEvent.data["auto_injected"]) > 0,
+        )
+        .group_by(day_col)
+    )).all()
+    ai_map = {str(r.day): r.n for r in ai_rows}
+
+    # Memory writes per day
+    mem_rows = (await db.execute(
+        select(tc_day_col.label("day"), func.count().label("n"))
+        .where(
+            ToolCall.tool_name == "file",
+            ToolCall.arguments["operation"].astext.in_(["write", "append", "edit"]),
+            ToolCall.created_at >= cutoff,
+        )
+        .group_by(tc_day_col)
+    )).all()
+    mem_map = {str(r.day): r.n for r in mem_rows}
+
+    # Build complete series (fill gaps with 0)
+    result = []
+    for i in range(days):
+        d = (datetime.now(timezone.utc) - timedelta(days=days - 1 - i)).strftime("%Y-%m-%d")
+        result.append(DailyActivityPoint(
+            date=d,
+            surfacings=surf_map.get(d, 0),
+            auto_injects=ai_map.get(d, 0),
+            memory_writes=mem_map.get(d, 0),
+        ))
+    return result

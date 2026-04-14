@@ -3,10 +3,13 @@ import { useRouter } from "expo-router";
 import { useWindowDimensions } from "react-native";
 import {
   Moon, Activity, BookOpen, TrendingUp, AlertTriangle, FileText, PenLine, Zap,
-  ArrowRight, Clock,
+  ArrowRight,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useLearningOverview, type MemoryFileActivity } from "@/src/api/hooks/useLearningOverview";
+import {
+  useLearningOverview, useLearningActivity,
+  type MemoryFileActivity, type DailyActivityPoint,
+} from "@/src/api/hooks/useLearningOverview";
 import { DreamingBotTable } from "@/src/components/learning/DreamingBotTable";
 import { fmtRelative } from "@/app/(app)/admin/bots/[botId]/LearningSection";
 
@@ -146,6 +149,137 @@ function ActivityHeatmap({ activity }: { activity: MemoryFileActivity[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Stacked area chart — 14-day skill activity
+// ---------------------------------------------------------------------------
+
+function SkillActivityChart({ data }: { data: DailyActivityPoint[] }) {
+  const t = useThemeTokens();
+
+  if (!data.length) return null;
+
+  const W = 480;
+  const H = 120;
+  const PX = 32; // left padding for y-axis labels
+  const PB = 18; // bottom padding for x-axis labels
+  const chartW = W - PX;
+  const chartH = H - PB;
+
+  const maxVal = Math.max(...data.map((d) => d.surfacings + d.auto_injects), 1);
+  const yTicks = [0, Math.round(maxVal / 2), maxVal];
+
+  const xStep = data.length > 1 ? chartW / (data.length - 1) : chartW;
+
+  function toY(v: number) {
+    return chartH - (v / maxVal) * chartH;
+  }
+
+  // Build stacked paths: surfacings on bottom, auto_injects on top
+  const surfPoints = data.map((d, i) => ({ x: PX + i * xStep, y: toY(d.surfacings) }));
+  const totalPoints = data.map((d, i) => ({ x: PX + i * xStep, y: toY(d.surfacings + d.auto_injects) }));
+
+  function pathLine(pts: { x: number; y: number }[]) {
+    return pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+  }
+  function pathArea(pts: { x: number; y: number }[], baseline: { x: number; y: number }[]) {
+    const top = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+    const bot = [...baseline].reverse().map((p) => `L${p.x},${p.y}`).join(" ");
+    return `${top} ${bot} Z`;
+  }
+
+  // Surfacings area: from baseline (chartH) to surfPoints
+  const surfBaseline = data.map((_, i) => ({ x: PX + i * xStep, y: chartH }));
+  const surfArea = pathArea(surfPoints, surfBaseline);
+  // Auto-inject area: from surfPoints to totalPoints
+  const aiArea = pathArea(totalPoints, surfPoints);
+
+  // x-axis labels: show every 2-3 days
+  const labelInterval = data.length > 10 ? 3 : 2;
+
+  return (
+    <div style={{
+      padding: "14px 16px 10px", borderRadius: 10,
+      background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
+    }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        marginBottom: 10,
+      }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+          Skill Activity
+        </span>
+        <div style={{ display: "flex", gap: 12 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: t.textDim }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: "#f59e0b", opacity: 0.7 }} />
+            Surfacings
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, color: t.textDim }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: "#a855f7", opacity: 0.7 }} />
+            Auto-Injects
+          </span>
+        </div>
+      </div>
+      <svg width="100%" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ display: "block" }}>
+        {/* Grid lines */}
+        {yTicks.map((v) => (
+          <g key={v}>
+            <line
+              x1={PX} y1={toY(v)} x2={W} y2={toY(v)}
+              stroke={t.surfaceBorder} strokeWidth={0.5}
+              strokeDasharray={v > 0 ? "2,3" : undefined}
+            />
+            <text x={PX - 4} y={toY(v) + 3} fill={t.textDim} fontSize={8} textAnchor="end">
+              {v}
+            </text>
+          </g>
+        ))}
+
+        {/* Surfacings area */}
+        <path d={surfArea} fill="#f59e0b" opacity={0.2} />
+        <path d={pathLine(surfPoints)} fill="none" stroke="#f59e0b" strokeWidth={1.5} opacity={0.8} />
+
+        {/* Auto-inject area (stacked on top) */}
+        <path d={aiArea} fill="#a855f7" opacity={0.2} />
+        <path d={pathLine(totalPoints)} fill="none" stroke="#a855f7" strokeWidth={1.5} opacity={0.8} />
+
+        {/* x-axis labels */}
+        {data.map((d, i) => {
+          if (i % labelInterval !== 0 && i !== data.length - 1) return null;
+          const label = new Date(d.date + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" });
+          return (
+            <text
+              key={d.date}
+              x={PX + i * xStep}
+              y={H - 2}
+              fill={t.textDim}
+              fontSize={7}
+              textAnchor="middle"
+            >
+              {label}
+            </text>
+          );
+        })}
+
+        {/* Dots on non-zero days */}
+        {data.map((d, i) => {
+          const total = d.surfacings + d.auto_injects;
+          if (total === 0) return null;
+          return (
+            <circle
+              key={d.date}
+              cx={PX + i * xStep}
+              cy={toY(total)}
+              r={2}
+              fill="#a855f7"
+              opacity={0.9}
+            />
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Skill activity sparkline — surfacings + injects
 // ---------------------------------------------------------------------------
 
@@ -199,6 +333,7 @@ export function OverviewTab() {
   const { width } = useWindowDimensions();
   const isMobile = width < 768;
   const { data, isLoading } = useLearningOverview();
+  const { data: activityData } = useLearningActivity(14);
 
   const botsWithFailures = useMemo(() => {
     if (!data) return [];
@@ -273,13 +408,14 @@ export function OverviewTab() {
         <MetricCard
           label="Surfacings"
           value={data.total_surfacings}
+          subtitle={`${data.surfacings_7d ?? 0} in last 7d`}
           icon={<TrendingUp size={13} color="#f59e0b" />}
           accent="#f59e0b"
         />
         <MetricCard
           label="Auto-Injects"
           value={data.total_auto_injects ?? 0}
-          subtitle="system-initiated skill loads"
+          subtitle={`${data.auto_injects_7d ?? 0} in last 7d`}
           icon={<Zap size={13} color="#a855f7" />}
           accent="#a855f7"
         />
@@ -298,11 +434,16 @@ export function OverviewTab() {
             total={data.total_surfacings + (data.total_auto_injects ?? 0)}
           />
           <div style={{ flex: 1, fontSize: 11, color: t.textMuted, lineHeight: "18px" }}>
-            <strong style={{ color: t.text }}>{data.total_surfacings + (data.total_auto_injects ?? 0)}</strong> total skill loads across all bots.{" "}
-            <span style={{ color: "#f59e0b" }}>Surfacings</span> are bot-initiated <code style={{ fontSize: 10 }}>get_skill()</code> calls.{" "}
-            <span style={{ color: "#a855f7" }}>Auto-injects</span> are system-initiated loads when a skill is relevant to the conversation.
+            <strong style={{ color: t.text }}>{data.total_surfacings + (data.total_auto_injects ?? 0)}</strong> total skill loads (all time), <strong style={{ color: t.text }}>{(data.surfacings_7d ?? 0) + (data.auto_injects_7d ?? 0)}</strong> in the last 7 days.{" "}
+            <span style={{ color: "#f59e0b" }}>Surfacings</span> = bot-initiated <code style={{ fontSize: 10 }}>get_skill()</code> calls.{" "}
+            <span style={{ color: "#a855f7" }}>Auto-injects</span> = system-initiated loads when a skill matches the conversation.
           </div>
         </div>
+      )}
+
+      {/* --- Skill activity chart (14 days) --- */}
+      {activityData && activityData.some((d) => d.surfacings + d.auto_injects > 0) && (
+        <SkillActivityChart data={activityData} />
       )}
 
       {/* --- Failures callout --- */}

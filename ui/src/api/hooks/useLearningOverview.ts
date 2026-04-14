@@ -52,6 +52,8 @@ export interface LearningOverview {
   total_bot_skills: number;
   total_surfacings: number;
   total_auto_injects: number;
+  surfacings_7d: number;
+  auto_injects_7d: number;
   bots: BotDreamingStatus[];
   recent_runs: LearningHygieneRun[];
   memory_activity: MemoryFileActivity[];
@@ -63,5 +65,21 @@ export function useLearningOverview() {
     queryFn: () =>
       apiFetch<LearningOverview>("/api/v1/admin/learning/overview"),
     refetchInterval: 30_000,
+  });
+}
+
+export interface DailyActivityPoint {
+  date: string;
+  surfacings: number;
+  auto_injects: number;
+  memory_writes: number;
+}
+
+export function useLearningActivity(days = 14) {
+  return useQuery({
+    queryKey: ["learning-activity", days],
+    queryFn: () =>
+      apiFetch<DailyActivityPoint[]>(`/api/v1/admin/learning/activity?days=${days}`),
+    refetchInterval: 60_000,
   });
 }
